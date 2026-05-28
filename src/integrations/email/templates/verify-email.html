@@ -1,0 +1,109 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Verify Your Email – taddle box</title>
+  <style>
+    body {
+      margin: 0;
+      padding: 0;
+      background: #0f0f0f;
+      font-family: 'Segoe UI', Arial, sans-serif;
+      color: #e0e0e0;
+    }
+
+    .wrapper {
+      max-width: 580px;
+      margin: 40px auto;
+      background: #1a1a2e;
+      border-radius: 16px;
+      overflow: hidden;
+      border: 1px solid #2a2a4a;
+    }
+
+    .header {
+      background: linear-gradient(135deg, #6c63ff, #3b82f6);
+      padding: 40px 32px;
+      text-align: center;
+    }
+
+    .header h1 {
+      margin: 0;
+      font-size: 28px;
+      color: #fff;
+      letter-spacing: -0.5px;
+    }
+
+    .header p {
+      margin: 8px 0 0;
+      color: rgba(255, 255, 255, 0.8);
+      font-size: 14px;
+    }
+
+    .body {
+      padding: 40px 32px;
+    }
+
+    .body p {
+      font-size: 16px;
+      line-height: 1.7;
+      color: #c0c0d0;
+      margin: 0 0 20px;
+    }
+
+    .btn {
+      display: inline-block;
+      padding: 14px 36px;
+      background: linear-gradient(135deg, #6c63ff, #3b82f6);
+      color: #fff;
+      text-decoration: none;
+      border-radius: 8px;
+      font-size: 16px;
+      font-weight: 600;
+      margin: 8px 0;
+    }
+
+    .notice {
+      font-size: 13px;
+      color: #888;
+      margin-top: 24px;
+      padding-top: 24px;
+      border-top: 1px solid #2a2a4a;
+    }
+
+    .footer {
+      background: #111;
+      padding: 24px 32px;
+      text-align: center;
+      font-size: 12px;
+      color: #555;
+    }
+  </style>
+</head>
+
+<body>
+  <div class="wrapper">
+    <div class="header">
+      <h1>✉️ taddle box</h1>
+      <p>Your community platform</p>
+    </div>
+    <div class="body">
+      <p>Hi <strong>{{name}}</strong>,</p>
+      <p>Thanks for signing up! Please verify your email address to activate your account and start connecting with your
+        community.</p>
+      <p style="text-align:center;">
+        <a href="{{verifyUrl}}" class="btn">Verify My Email</a>
+      </p>
+      <div class="notice">
+        <p>⏱ This link expires in <strong>24 hours</strong>.</p>
+        <p>If you didn't create a taddle box account, you can safely ignore this email.</p>
+        <p>Or copy this link: <a href="{{verifyUrl}}" style="color:#6c63ff;">{{verifyUrl}}</a></p>
+      </div>
+    </div>
+    <div class="footer">© 2025 taddle box. All rights reserved.</div>
+  </div>
+</body>
+
+</html>

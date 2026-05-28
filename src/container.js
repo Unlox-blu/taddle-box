@@ -1,0 +1,111 @@
+'use strict';
+
+// Repositories
+const userRepository = require('./repositories/user.repository');
+const postRepository = require('./repositories/post.repository');
+const communityRepository = require('./repositories/community.repository');
+const commentRepository = require('./repositories/comment.repository');
+const eventRepository = require('./repositories/event.repository');
+const walletRepository = require('./repositories/wallet.repository');
+const notificationRepository = require('./repositories/notification.repository');
+const feedRepository = require('./repositories/feed.repository');
+const mediaRepository = require('./repositories/media.repository');
+
+// Integrations
+const emailIntegration = require('./integrations/email/email.service');
+const storageIntegration = require('./integrations/storage/storage.service');
+const videoIntegration = require('./integrations/video/video.service');
+const paymentIntegration = require('./integrations/payment/payment.service');
+const googleIntegration = require('./integrations/oauth/google.service');
+
+// Business Logic Services
+const AuthService = require('./services/auth.service');
+const UserService = require('./services/user.service');
+const PostService = require('./services/post.service');
+const CommunityService = require('./services/community.service');
+const CommentService = require('./services/comment.service');
+const EventService = require('./services/event.service');
+const WalletService = require('./services/wallet.service');
+const FeedService = require('./services/feed.service');
+const NotificationService = require('./services/notification.service');
+const MediaService = require('./services/media.service');
+
+// Controllers
+const AuthController = require('./controllers/auth.controller');
+const UserController = require('./controllers/user.controller');
+const PostController = require('./controllers/post.controller');
+const CommunityController = require('./controllers/community.controller');
+const CommentController = require('./controllers/comment.controller');
+const EventController = require('./controllers/event.controller');
+const WalletController = require('./controllers/wallet.controller');
+const FeedController = require('./controllers/feed.controller');
+const NotificationController = require('./controllers/notification.controller');
+const MediaController = require('./controllers/media.controller');
+
+// Instantiate Services
+const authService = new AuthService({
+  userRepository, walletRepository,
+  emailIntegration, googleIntegration,
+});
+
+const userService = new UserService({
+  userRepository, storageIntegration,
+});
+
+const notificationService = new NotificationService({
+  notificationRepository,
+});
+
+const postService = new PostService({
+  postRepository, communityRepository,
+  notificationService,
+});
+
+const communityService = new CommunityService({
+  communityRepository, postRepository,
+});
+
+const commentService = new CommentService({
+  commentRepository, postRepository, notificationService,
+});
+
+const eventService = new EventService({
+  eventRepository, walletRepository, paymentIntegration, notificationService,
+});
+
+const walletService = new WalletService({
+  walletRepository, paymentIntegration, notificationService,
+});
+
+const feedService = new FeedService({
+  feedRepository, postRepository,
+});
+
+const mediaService = new MediaService({
+  mediaRepository, storageIntegration, videoIntegration,
+});
+
+// Instantiate Controllers
+const authController = new AuthController({ authService });
+const userController = new UserController({ userService });
+const postController = new PostController({ postService });
+const communityController = new CommunityController({ communityService });
+const commentController = new CommentController({ commentService });
+const eventController = new EventController({ eventService });
+const walletController = new WalletController({ walletService });
+const feedController = new FeedController({ feedService });
+const notificationController = new NotificationController({ notificationService });
+const mediaController = new MediaController({ mediaService });
+
+module.exports = {
+  authController,
+  userController,
+  postController,
+  communityController,
+  commentController,
+  eventController,
+  walletController,
+  feedController,
+  notificationController,
+  mediaController,
+};

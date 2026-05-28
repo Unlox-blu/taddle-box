@@ -1,0 +1,23 @@
+'use strict';
+
+const router = require('express').Router();
+const { authController } = require('../container');
+const { verifyToken } = require('../middlewares/auth.middleware');
+const { validate } = require('../middlewares/validator.middleware');
+const {
+  signupSchema, loginSchema, googleAuthSchema,
+  forgotPasswordSchema, resetPasswordSchema, changePasswordSchema,
+} = require('../validators/auth.validator');
+
+router.post('/signup', validate(signupSchema), authController.signup);
+router.post('/login', validate(loginSchema), authController.login);
+router.post('/google', validate(googleAuthSchema), authController.googleAuth);
+router.post('/logout', verifyToken, authController.logout);
+router.post('/refresh-token', authController.refreshToken);
+router.post('/forgot-password', validate(forgotPasswordSchema), authController.forgotPassword);
+router.post('/reset-password', validate(resetPasswordSchema), authController.resetPassword);
+router.get('/verify-email/:token', authController.verifyEmail);
+router.get('/me', verifyToken, authController.getMe);
+router.patch('/me/password', verifyToken, validate(changePasswordSchema), authController.changePassword);
+
+module.exports = router;

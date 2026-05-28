@@ -1,0 +1,67 @@
+'use strict';
+
+const { createError } = require('../utils/error.util');
+const CommentModel = require('../models/comment.model');
+
+class CommentService {
+  constructor({ commentRepository, postRepository, notificationService }) {
+    this.commentRepo = commentRepository;
+    this.postRepo = postRepository;
+    this.notifSvc = notificationService;
+  }
+
+  async createComment({ postId, authorId, content, parentId }) {
+    const post = await this.postRepo.findById(postId);
+    if (!post) throw createError('Post not found', 404);
+
+    // Compute nested thread path + depth
+    let depth = 0;
+    let path = [];
+    if (parentId) {
+      const parent = await this.commentRepo.findById(parentId);
+      if (!parent) throw createError('Parent comment not found', 404);
+      if (parent.depth >= 5) throw createError('Maximum reply depth reached', 400);
+      depth = parent.depth + 1;
+      path = [...(parent.path || []), parent.id];
+    }
+
+    const comment = await this.commentRepo.create({ postId, authorId, content, parentId, depth, path });
+    await this.postRepo.incrementCommentCount(postId);
+
+    // TODO: notify post author (if not self)
+
+    return CommentModel.format(comment);
+  }
+
+  async updateComment(commentId, userId, content) {
+    const comment = await this.commentRepo.findById(commentId);
+    if (!comment) throw createError('Comment not found', 404);
+    if (comment.author_id !== userId) throw createError('Not authorized to edit this comment', 403);
+    const updated = await this.commentRepo.update(commentId, content);
+    return CommentModel.format(updated);
+  }
+
+  async deleteComment(commentId, userId, userRole) {
+    const comment = await this.commentRepo.findById(commentId);
+    if (!comment) throw createError('Comment not found', 404);
+    const isOwner = comment.author_id === userId;
+    const isMod = ['admin', 'moderator', 'superadmin'].includes(userRole);
+    if (!isOwner && !isMod) throw createError('Not authorized to delete this comment', 403);
+    await this.commentRepo.softDelete(commentId);
+    await this.postRepo.decrementCommentCount(comment.post_id);
+  }
+
+  async likeComment(commentId, userId) {
+    const alreadyLiked = await this.commentRepo.isLikedByUser(commentId, userId);
+    if (alreadyLiked) throw createError('Comment already liked', 409);
+    await this.commentRepo.addLike(commentId, userId);
+    await this.commentRepo.incrementLikeCount(commentId);
+  }
+
+  async unlikeComment(commentId, userId) {
+    await this.commentRepo.removeLike(commentId, userId);
+    await this.commentRepo.decrementLikeCount(commentId);
+  }
+}
+
+module.exports = CommentService;

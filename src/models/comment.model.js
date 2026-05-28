@@ -3,7 +3,6 @@
 const TABLE = 'comments';
 const LIKES_TABLE = 'comment_likes';
 
-// Includes author JOIN aliases
 const LIST_FIELDS = [
   'c.id', 'c.post_id', 'c.parent_id', 'c.content', 'c.depth',
   'c.path', 'c.likes_count', 'c.status', 'c.created_at', 'c.updated_at',

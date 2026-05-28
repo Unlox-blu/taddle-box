@@ -1,7 +1,3 @@
--- db/seeds/dev.seed.sql
--- Development seed data — DO NOT RUN IN PRODUCTION
-
--- Admin user (password: Admin@123!)
 INSERT INTO users (id, name, username, email, password_hash, role, is_verified, email_verified_at)
 VALUES
   ('00000000-0000-0000-0000-000000000001', 'Super Admin', 'superadmin', 'superadmin@taddlebox.dev',

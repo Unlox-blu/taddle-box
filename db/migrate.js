@@ -1,8 +1,5 @@
 'use strict';
 
-// ─── db/migrate.js ────────────────────────────────────────────────────────────
-// Usage:  node db/migrate.js          — run all pending migrations
-//         node db/migrate.js --seed   — run + seed dev data
 require('dotenv').config();
 
 const fs = require('fs');

@@ -1,4 +1,3 @@
--- 012_create_feed_tables.sql
 CREATE TABLE IF NOT EXISTS user_feed_preferences (
   user_id              UUID    PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
   preferred_categories TEXT[]  NOT NULL DEFAULT '{}',

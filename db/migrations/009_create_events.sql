@@ -1,4 +1,3 @@
--- 009_create_events.sql
 CREATE TABLE IF NOT EXISTS events (
   id                    UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
   organizer_id          UUID         NOT NULL REFERENCES users(id)       ON DELETE CASCADE,

@@ -1,4 +1,3 @@
--- 003_create_media.sql
 CREATE TABLE IF NOT EXISTS media (
   id                  UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
   uploader_id         UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,

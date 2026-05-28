@@ -1,4 +1,3 @@
--- 010_create_wallets.sql
 CREATE TABLE IF NOT EXISTS wallets (
   id            UUID    PRIMARY KEY DEFAULT uuid_generate_v4(),
   user_id       UUID    NOT NULL UNIQUE REFERENCES users(id) ON DELETE CASCADE,

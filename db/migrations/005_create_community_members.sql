@@ -1,4 +1,3 @@
--- 005_create_community_members.sql
 CREATE TABLE IF NOT EXISTS community_members (
   community_id UUID        NOT NULL REFERENCES communities(id) ON DELETE CASCADE,
   user_id      UUID        NOT NULL REFERENCES users(id)       ON DELETE CASCADE,

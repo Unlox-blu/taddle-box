@@ -1,5 +1,3 @@
--- 013_create_all_indexes.sql
-
 -- Users
 CREATE INDEX IF NOT EXISTS idx_users_email    ON users (LOWER(email))    WHERE deleted_at IS NULL;
 CREATE INDEX IF NOT EXISTS idx_users_username ON users (LOWER(username)) WHERE deleted_at IS NULL;

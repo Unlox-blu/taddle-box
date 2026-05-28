@@ -1,4 +1,3 @@
--- 011_create_notifications.sql
 CREATE TABLE IF NOT EXISTS notifications (
   id            UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
   recipient_id  UUID        NOT NULL REFERENCES users(id) ON DELETE CASCADE,

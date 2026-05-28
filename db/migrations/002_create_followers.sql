@@ -1,4 +1,3 @@
--- 002_create_followers.sql
 CREATE TABLE IF NOT EXISTS followers (
   follower_id   UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
   following_id  UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,

@@ -4,8 +4,7 @@ const rateLimit = require('express-rate-limit');
 const { RedisStore } = require('rate-limit-redis');
 const redis = require('../config/redis');
 
-const makeStore = (prefix) =>
-  new RedisStore({ sendCommand: (...args) => redis.call(...args), prefix });
+const makeStore = (prefix) =>  new RedisStore({ sendCommand: (...args) => redis.call(...args), prefix });
 
 // 100 requests per 15 min — applied globally 
 const globalRateLimiter = rateLimit({

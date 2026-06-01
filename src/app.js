@@ -1,6 +1,7 @@
 'use strict';
 
 const express = require('express');
+const fileUpload = require("express-fileupload");
 const helmet = require('helmet');
 const cors = require('cors');
 const cookieParser = require('cookie-parser');
@@ -22,14 +23,16 @@ app.use(helmet({ contentSecurityPolicy: true, hsts: { maxAge: 31536000 } }));
 // CORS
 app.use(cors({ origin: config.ALLOWED_ORIGINS, credentials: true }));
 
+// Passing fileUpload as a middleware
+app.use(fileUpload());
+
 // Body parsing
 app.use(express.json({ limit: '10kb' }));
 app.use(express.urlencoded({ extended: true, limit: '10kb' }));
 app.use(cookieParser());
 
 // Global rate limiter
-app.use(globalRateLimiter);
-
+// app.use(globalRateLimiter);
 // Request logger
 app.use(loggerMiddleware);
 
@@ -40,7 +43,8 @@ app.use(sanitizeMiddleware);
 app.get('/health', (_req, res) => res.json({ status: 'ok', timestamp: new Date().toISOString() }));
 
 // Auth routes with strict rate limiter
-app.use('/api/v1/auth', authRateLimiter, require('./routes/index').authOnly);
+// app.use('/api/v1/auth', authRateLimiter, require('./routes/index').authOnly);
+app.use('/api/v1/auth', require('./routes/index').authOnly);
 
 // All API routes
 app.use('/api/v1', require('./routes'));

@@ -10,23 +10,23 @@ class PostService {
     this.notifSvc = notificationService;
   }
 
-  async getPosts(filters, limit, offset) {
-    const { rows, total } = await this.postRepo.search(filters, limit, offset);
-    return { posts: rows.map(PostModel.format), total };
-  }
+  // async getPosts(filters, limit, offset) {
+  //   const { rows, total } = await this.postRepo.search(filters, limit, offset);
+  //   return { posts: rows.map(PostModel.format), total };
+  // }
 
-  async getPost(postId) {
-    const post = await this.postRepo.findById(postId);
-    if (!post) throw createError('Post not found', 404);
-    // Fire-and-forget view count — don't block the response
-    this.postRepo.incrementViewCount(postId).catch(() => { });
-    return PostModel.format(post);
-  }
+  // async getPost(postId) {
+  //   const post = await this.postRepo.findById(postId);
+  //   if (!post) throw createError('Post not found', 404);
+  //   // Fire-and-forget view count — don't block the response
+  //   this.postRepo.incrementViewCount(postId).catch(() => { });
+  //   return PostModel.format(post);
+  // }
 
-  async getUserPosts(userId, limit, offset) {
-    const { rows, total } = await this.postRepo.findManyByUser(userId, limit, offset);
-    return { posts: rows.map(PostModel.format), total };
-  }
+  // async getUserPosts(userId, limit, offset) {
+  //   const { rows, total } = await this.postRepo.findManyByUser(userId, limit, offset);
+  //   return { posts: rows.map(PostModel.format), total };
+  // }
 
   async createPost(authorId, data) {
     const { communityId } = data;

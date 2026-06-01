@@ -67,7 +67,7 @@ const createWithGoogle = async ({ name, username, email, googleId, googleAvatar 
 };
 
 const updateProfile = async (userId, fields) => {
-  const allowedFields = ['name', 'bio', 'website_url', 'banner_url'];
+  const allowedFields = ['name', 'bio', 'website_url'];
   const updates = [];
   const values = [];
   Object.entries(fields).forEach(([k, v]) => {
@@ -110,6 +110,14 @@ const updateRefreshToken = async (userId, tokenHash) => {
   );
 };
 
+const getRefreshTokenById = async (userId) => {
+  const token = await pool.query(
+    `SELECT id, role, refresh_token_hash FROM ${UserModel.TABLE} WHERE id = $1`,
+    [userId]
+  );
+  return token.rows[0];
+}
+
 const updateEmailVerifyToken = async (userId, tokenHash, exp) => {
   await pool.query(
     `UPDATE ${UserModel.TABLE} SET email_verify_token_hash = $1, email_verify_token_exp = $2, updated_at = NOW() WHERE id = $3`,
@@ -117,11 +125,27 @@ const updateEmailVerifyToken = async (userId, tokenHash, exp) => {
   );
 };
 
+const findByEmailVerifyToken = async (ResetToken) => {
+  const token = await pool.query(
+    `SELECT id, email_verify_token_exp FROM ${UserModel.TABLE} WHERE email_verify_token_hash = $1`,
+    [ResetToken]
+  );
+  return token.rows[0];
+};
+
 const updatePasswordResetToken = async (userId, tokenHash, exp) => {
   await pool.query(
     `UPDATE ${UserModel.TABLE} SET password_reset_token_hash = $1, password_reset_token_exp = $2, updated_at = NOW() WHERE id = $3`,
     [tokenHash, exp, userId]
   );
+};
+
+const findByPasswordResetToken = async (ResetToken) => {
+  const token = await pool.query(
+    `SELECT id, password_reset_token_exp FROM ${UserModel.TABLE} WHERE password_reset_token_hash = $1`,
+    [ResetToken]
+  );
+  return token.rows[0];
 };
 
 const updatePassword = async (userId, passwordHash) => {
@@ -153,12 +177,15 @@ const updateLastLogin = async (userId) => {
 const incrementFollowerCount = async (userId) => {
   await pool.query(`UPDATE ${UserModel.TABLE} SET follower_count = follower_count + 1 WHERE id = $1`, [userId]);
 };
+
 const decrementFollowerCount = async (userId) => {
   await pool.query(`UPDATE ${UserModel.TABLE} SET follower_count = GREATEST(0, follower_count - 1) WHERE id = $1`, [userId]);
 };
+
 const incrementFollowingCount = async (userId) => {
   await pool.query(`UPDATE ${UserModel.TABLE} SET following_count = following_count + 1 WHERE id = $1`, [userId]);
 };
+
 const decrementFollowingCount = async (userId) => {
   await pool.query(`UPDATE ${UserModel.TABLE} SET following_count = GREATEST(0, following_count - 1) WHERE id = $1`, [userId]);
 };
@@ -182,8 +209,7 @@ const search = async (query, limit, offset) => {
 module.exports = {
   findById, findByIdPrivate, findByEmail, findByUsername, findByGoogleId,
   create, createWithGoogle, updateProfile, updateAvatar, updateUsername,
-  updateRefreshToken, updateEmailVerifyToken, updatePasswordResetToken,
-  updatePassword, linkGoogleAccount, verifyEmail, updateLastLogin,
+  updateRefreshToken, getRefreshTokenById, updateEmailVerifyToken, findByEmailVerifyToken, updatePasswordResetToken,  findByPasswordResetToken, updatePassword, linkGoogleAccount, verifyEmail, updateLastLogin,
   incrementFollowerCount, decrementFollowerCount,
   incrementFollowingCount, decrementFollowingCount,
   softDelete, search,

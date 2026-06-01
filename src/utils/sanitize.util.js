@@ -17,9 +17,19 @@ const sanitizeObject = (obj) => {
 
 // Express middleware — sanitizes req.body, req.query, req.params
 const sanitizeMiddleware = (req, _res, next) => {
-  if (req.body) req.body = sanitizeObject(req.body);
-  if (req.query) req.query = sanitizeObject(req.query);
-  if (req.params) req.params = sanitizeObject(req.params);
+  if (req.body) {
+    req.body = sanitizeObject(req.body);
+  }
+
+  if (req.query) {
+    const sanitizedQuery = sanitizeObject(req.query);
+    Object.assign(req.query, sanitizedQuery);
+  }
+
+  if (req.params) {
+    Object.assign(req.params, sanitizeObject(req.params));
+  }
+
   next();
 };
 

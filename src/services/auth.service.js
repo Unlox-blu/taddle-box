@@ -2,10 +2,14 @@
 
 const { hashPassword, comparePassword } = require('../utils/password.util');
 const {
-  generateAccessToken, generateRefreshToken,
-  generateRandomToken, hashToken, verifyRefreshToken,
+  generateAccessToken,
+  generateRefreshToken,
+  generateRandomToken,
+  hashToken,
+  verifyRefreshToken,
 } = require('../utils/token.util');
 const { createError } = require('../utils/error.util');
+const { tryCatch } = require('bullmq');
 
 const COOKIE_OPTS = {
   httpOnly: true,
@@ -23,43 +27,59 @@ class AuthService {
 
   // Registers a new user, auto-creates wallet, queues verification email.
   async signup({ name, username, email, password }) {
-    const [existingEmail, existingUsername] = await Promise.all([
-      this.userRepo.findByEmail(email),
-      this.userRepo.findByUsername(username),
-    ]);
-    if (existingEmail) throw createError('Email is already registered', 409);
-    if (existingUsername) throw createError('Username is already taken', 409);
+    try {
+      const [existingEmail, existingUsername] = await Promise.all([
+        this.userRepo.findByEmail(email),
+        this.userRepo.findByUsername(username),
+      ]);
+      if (existingEmail) throw createError('Email is already registered', 409);
+      if (existingUsername) throw createError('Username is already taken', 409);
 
-    const passwordHash = await hashPassword(password);
-    const user = await this.userRepo.create({ name, username, email, passwordHash });
+      const passwordHash = await hashPassword(password);
+      const user = await this.userRepo.create({ name, username, email, passwordHash });
 
-    // Auto-create wallet for new user
-    await this.walletRepo.create(user.id);
+      // Auto-create wallet for new user
+      await this.walletRepo.create(user.id);
 
-    // Generate + store email verify token
-    const rawToken = generateRandomToken();
-    const tokenHash = hashToken(rawToken);
-    const tokenExp = new Date(Date.now() + 24 * 60 * 60 * 1000); // 24h
-    await this.userRepo.updateEmailVerifyToken(user.id, tokenHash, tokenExp);
+      // Generate + store email verify token
+      const rawToken = generateRandomToken();
+      const tokenHash = hashToken(rawToken);
+      const tokenExp = new Date(Date.now() + 24 * 60 * 60 * 1000); // 24h
+      await this.userRepo.updateEmailVerifyToken(user.id, tokenHash, tokenExp);
 
-    // Non-blocking: fire verification email via integration
-    this.emailSvc.sendVerificationEmail(email, name, rawToken).catch(console.error);
+      // Non-blocking: fire verification email via integration
+      this.emailSvc.sendVerificationEmail(email, name, rawToken).catch(console.error);
 
-    return { user };
+      const newUser = { name, username, email, id: user.id };
+
+      return { user: newUser };
+    } catch (error) {
+      throw error;
+    }
   }
 
   // Authenticates user with email + password.
   async login({ email, password }) {
-    const user = await this.userRepo.findByEmail(email);
-    if (!user) throw createError('Invalid email or password', 401);
-    if (user.is_banned) throw createError('Your account has been suspended', 403);
-    if (!user.is_active) throw createError('Your account is deactivated', 403);
-    if (!user.password_hash) throw createError('Please sign in with Google', 400);
+    try {
+      const user = await this.userRepo.findByEmail(email);
+      if (!user) throw createError('Invalid email or password', 401);
+      if (user.is_banned) throw createError('Your account has been suspended', 403);
+      if (!user.is_active) throw createError('Your account is deactivated', 403);
+      if (!user.password_hash) throw createError('Please sign in with Google', 400);
 
-    const valid = await comparePassword(password, user.password_hash);
-    if (!valid) throw createError('Invalid email or password', 401);
+      const valid = await comparePassword(password, user.password_hash);
+      if (!valid) throw createError('Invalid email or password', 401);
 
-    return this._issueTokens(user);
+      const result = await this._issueTokens(user);
+
+      const hashRefreshToken = hashToken(result.refreshToken);
+
+      await this.userRepo.updateRefreshToken(user.id, hashRefreshToken);
+
+      return result;
+    } catch (error) {
+      throw error;
+    }
   }
 
   // Authenticates or registers via Google ID token.
@@ -74,7 +94,13 @@ class AuthService {
         user = await this.userRepo.linkGoogleAccount(existing.id, googleId, picture);
       } else {
         const username = `${name.toLowerCase().replace(/\s+/g, '_')}_${Date.now().toString(36)}`;
-        user = await this.userRepo.createWithGoogle({ name, username, email, googleId, googleAvatar: picture });
+        user = await this.userRepo.createWithGoogle({
+          name,
+          username,
+          email,
+          googleId,
+          googleAvatar: picture,
+        });
         await this.walletRepo.create(user.id);
         this.emailSvc.sendWelcomeEmail(email, name).catch(console.error);
       }
@@ -89,7 +115,8 @@ class AuthService {
     if (!rawRefreshToken) throw createError('Refresh token missing', 401);
 
     const payload = verifyRefreshToken(rawRefreshToken);
-    const user = await this.userRepo.findByIdPrivate(payload.userId);
+    const user = await this.userRepo.getRefreshTokenById(payload.userId);
+
     if (!user || user.refresh_token_hash !== hashToken(rawRefreshToken)) {
       throw createError('Invalid refresh token', 401);
     }
@@ -117,14 +144,45 @@ class AuthService {
 
   // Resets password using a valid reset token.
   async resetPassword(rawToken, newPassword) {
-    // TODO: add findByPasswordResetToken() to userRepository
-    throw createError('Not implemented — add findByPasswordResetToken() to user.repository.js', 501);
+    try {
+      const tokenHash = hashToken(rawToken);
+      const user = await this.userRepo.findByPasswordResetToken(tokenHash);
+      const currentTime = new Date(Date.now());
+      if (!user || !user.password_reset_token_exp || user.password_reset_token_exp < currentTime) {
+        throw createError('Password Reset Token is expired', 401);
+      }
+      const passwordHash = await hashPassword(newPassword);
+      await this.userRepo.updatePassword(user.id, passwordHash);
+    } catch (error) {
+      throw error;
+    }
   }
 
   // Verifies email using token from email link.
   async verifyEmail(rawToken) {
-    // TODO: add findByEmailVerifyToken() to userRepository
-    throw createError('Not implemented — add findByEmailVerifyToken() to user.repository.js', 501);
+    try {
+      const tokenHash = hashToken(rawToken);
+      const user = await this.userRepo.findByEmailVerifyToken(tokenHash);
+      const currentTime = new Date(Date.now());
+      if (!user || !user.email_verify_token_exp || user.email_verify_token_exp < currentTime) {
+        throw createError('Email verification Token is expired', 401);
+      }
+
+      await this.userRepo.verifyEmail(user.id);
+    } catch (error) {
+      throw error
+    }
+  }
+
+  async getMe(userId) {
+    try {
+      const user = await this.userRepo.findByIdPrivate(userId)
+      if(!user) throw createError("User not found", 404)
+
+      return user
+    } catch (error) {
+      throw error
+    }
   }
 
   // Private

@@ -10,13 +10,18 @@ class AuthController {
   signup = async (req, res, next) => {
     try {
       const { user } = await this.authSvc.signup(req.body);
-      res.status(201).json(apiResponse(user, 'Account created. Please verify your email.'));
-    } catch (err) { next(err); }
+      res.status(201).json(
+        apiResponse(user, 'Account created. Please verify your email.')
+      );
+    } catch (err) { 
+      next(err); 
+    }
   };
 
   login = async (req, res, next) => {
     try {
       const result = await this.authSvc.login(req.body);
+
       res.cookie('access_token', result.accessToken, { ...result.cookieOpts, maxAge: 15 * 60 * 1000 });
       res.cookie('refresh_token', result.refreshToken, { ...result.cookieOpts, maxAge: 7 * 24 * 60 * 60 * 1000 });
       res.json(apiResponse({ userId: result.userId, role: result.role }, 'Logged in successfully'));
@@ -61,7 +66,9 @@ class AuthController {
     try {
       await this.authSvc.resetPassword(req.body.token, req.body.password);
       res.json(apiResponse(null, 'Password reset successfully'));
-    } catch (err) { next(err); }
+    } catch (err) { 
+      next(err); 
+    }
   };
 
   verifyEmail = async (req, res, next) => {
@@ -74,7 +81,7 @@ class AuthController {
   getMe = async (req, res, next) => {
     try {
       const user = await this.authSvc.getMe(req.userId);
-      res.json(apiResponse(user));
+      res.json(apiResponse({user}, "Profile get successfully!"));
     } catch (err) { next(err); }
   };
 }

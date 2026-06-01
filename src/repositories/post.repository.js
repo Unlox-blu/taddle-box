@@ -47,7 +47,7 @@ const create = async (data) => {
   const { rows } = await pool.query(
     `INSERT INTO ${PostModel.TABLE}
        (author_id, community_id, title, content, post_type, tags, category, visibility, status, poll_data, link_data, published_at)
-     VALUES ($1, $2, $3, $4, $5, $6::text[], $7::text[], $8, $9, $10, $11, CASE WHEN $9 = 'published' THEN NOW() ELSE NULL END)
+     VALUES ($1, $2, $3, $4, $5, $6::text[], $7::text[], $8, $9::varchar, $10, $11, CASE WHEN $9::varchar = 'published' THEN NOW() ELSE NULL END)
      RETURNING *`,
     [data.authorId, data.communityId || null, data.title || null, data.content || null,
     data.postType || 'text', data.tags || [], data.category || [],

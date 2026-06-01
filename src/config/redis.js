@@ -6,6 +6,7 @@ const config = require('./app.config');
 const redis = new Redis(config.REDIS_URL, {
   maxRetriesPerRequest: 3,
   enableReadyCheck: true,
+  maxRetriesPerRequest: null,
   retryStrategy: (times) => Math.min(times * 50, 2000),
 });
 

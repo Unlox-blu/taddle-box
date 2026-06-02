@@ -43,6 +43,11 @@ module.exports = {
   // Security
   BCRYPT_ROUNDS: optional('BCRYPT_ROUNDS'),
 
+  // Cloudinary
+  CLOUDINARY_CLOUD_NAME: optional('CLOUDINARY_CLOUD_NAME'),
+  CLOUDINARY_API_KEY: optional('CLOUDINARY_API_KEY'),
+  CLOUDINARY_API_SECRET: optional('CLOUDINARY_API_SECRET'),
+
   // AWS S3
   AWS_ACCESS_KEY_ID: optional('AWS_ACCESS_KEY_ID'),
   AWS_SECRET_ACCESS_KEY: optional('AWS_SECRET_ACCESS_KEY'),

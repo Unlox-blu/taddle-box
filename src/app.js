@@ -2,6 +2,7 @@
 
 const express = require('express');
 const fileUpload = require("express-fileupload");
+// const uploadFiles = require("upload-files-express");
 const helmet = require('helmet');
 const cors = require('cors');
 const cookieParser = require('cookie-parser');
@@ -24,15 +25,19 @@ app.use(helmet({ contentSecurityPolicy: true, hsts: { maxAge: 31536000 } }));
 app.use(cors({ origin: config.ALLOWED_ORIGINS, credentials: true }));
 
 // Passing fileUpload as a middleware
-app.use(fileUpload());
+app.use(fileUpload( {useTempFiles: false}));
+// app.use(uploadFiles());
 
 // Body parsing
 app.use(express.json({ limit: '10kb' }));
+// app.use(express.json());
 app.use(express.urlencoded({ extended: true, limit: '10kb' }));
+// app.use(express.urlencoded({ extended: true }));
 app.use(cookieParser());
 
 // Global rate limiter
 // app.use(globalRateLimiter);
+
 // Request logger
 app.use(loggerMiddleware);
 

@@ -22,6 +22,7 @@
     "@vimeo/vimeo": "^2.1.1",
     "bcryptjs": "^3.0.2",
     "bullmq": "^5.12.0",
+    "cloudinary": "^2.10.0",
     "cookie-parser": "^1.4.6",
     "cors": "^2.8.5",
     "dotenv": "^17.0.0",
@@ -38,6 +39,8 @@
     "rate-limit-redis": "^4.2.0",
     "razorpay": "^2.9.2",
     "socket.io": "^4.7.5",
+    "streamifier": "^0.1.1",
+    "upload-files-express": "^0.4.0",
     "uuid": "^14.0.0",
     "winston": "^3.13.0",
     "zod": "^3.23.8"

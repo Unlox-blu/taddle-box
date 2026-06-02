@@ -8,20 +8,23 @@ class UserController {
     this.userSvc = userService;
   }
 
-  // searchUsers = async (req, res, next) => {
-  //   try {
-  //     const { limit, offset, page } = getPaginationParams(req.query);
-  //     const users = await this.userSvc.searchUsers(req.query.q, limit, offset);
-  //     res.json(apiResponse(users, 'Users found'));
-  //   } catch (err) { next(err); }
-  // };
+  searchUsers = async (req, res, next) => {
+    try {
+      const query = req.query.q
+      const { limit, offset, page } = getPaginationParams(req.query);
+      const users = await this.userSvc.searchUsers(query, limit, offset);
+      res.json(apiResponse(users, 'Users found'));
+    } catch (err) { next(err); }
+  };
 
-  // getProfile = async (req, res, next) => {
-  //   try {
-  //     const user = await this.userSvc.getProfile(req.params.username, req.userId);
-  //     res.json(apiResponse(user));
-  //   } catch (err) { next(err); }
-  // };
+  getProfile = async (req, res, next) => {
+    try {
+      const {username} = req.params
+      const userId = req.userId
+      const user = await this.userSvc.getProfile(username, userId);
+      res.json(apiResponse(user));
+    } catch (err) { next(err); }
+  };
 
   updateProfile = async (req, res, next) => {
     try {
@@ -30,13 +33,14 @@ class UserController {
     } catch (err) { next(err); }
   };
 
-  // updateAvatar = async (req, res, next) => {
-  //   try {
-  //     console.log(req.files)
-  //     await this.userSvc.updateAvatar(req.userId, req.files);
-  //     res.json(apiResponse(null, 'Avatar updated'));
-  //   } catch (err) { next(err); }
-  // };
+  updateAvatar = async (req, res, next) => {
+    try {
+      const userId = req.userId
+      const files = req.files
+      const updateAvatar = await this.userSvc.updateAvatar(userId, files);
+      res.json(apiResponse(updateAvatar, 'Avatar updated'));
+    } catch (err) { next(err); }
+  };
 
   updateUsername = async (req, res, next) => {
     try {
@@ -51,10 +55,9 @@ class UserController {
 
   getFollowers = async (req, res, next) => {
     try {
-      // const { limit, offset, page } = getPaginationParams(req.query);
-      const { cursor } = req.query;
-      // const data = await this.userSvc.getFollowers(req.params.userId, limit, offset);
-      const data = await this.userSvc.getFollowers(cursor);
+      const { limit, offset, page } = getPaginationParams(req.query);
+      const userId = req.userId
+      const data = await this.userSvc.getFollowers(userId, limit, offset);
       res.json(apiResponse(data, 'Followers fetched'));
     } catch (err) { 
       next(err); 

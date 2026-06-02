@@ -2,6 +2,7 @@
 
 const { createError } = require('../utils/error.util');
 const UserModel = require('../models/user.model');
+const { uploadToCloudinary } = require('../config/cloudinary');
 
 class UserService {
   constructor({ userRepository, storageIntegration }) {
@@ -9,21 +10,21 @@ class UserService {
     this.storageSvc = storageIntegration;
   }
 
-  // async searchUsers(query, limit, offset) {
-  //   const users = await this.userRepo.search(query || '', limit, offset);
-  //   return users.map(UserModel.format);
-  // }
+  async searchUsers(query, limit, offset) {
+    const users = await this.userRepo.search(query || '', limit, offset);
+    return users.map(UserModel.format);
+  }
 
-  // async getProfile(username, requesterId = null) {
-  //   const user = await this.userRepo.findByUsername(username);
-  //   if (!user) throw createError('User not found', 404);
-  //   // Return sanitized private fields if viewing own profile
-  //   if (requesterId && requesterId === user.id) {
-  //     const privateUser = await this.userRepo.findByIdPrivate(user.id);
-  //     return UserModel.format(privateUser);
-  //   }
-  //   return UserModel.format(user);
-  // }
+  async getProfile(username, requesterId = null) {
+    const user = await this.userRepo.findByUsername(username);
+    if (!user) throw createError('User not found', 404);
+    // Return sanitized private fields if viewing own profile
+    if (requesterId && requesterId === user.id) {
+      const privateUser = await this.userRepo.findByIdPrivate(user.id);
+      return UserModel.format(privateUser);
+    }
+    return UserModel.format(user);
+  }
 
   async updateProfile(userId, fields) {
     try {
@@ -34,13 +35,15 @@ class UserService {
     }
   }
 
-  // async updateAvatar(userId, file) {
+  async updateAvatar(userId, file) {
 
-  //   if (!file) throw createError('No file provided', 400);
-  //   // TODO: Upload buffer to S3
-  //   // throw createError('Not implemented — complete S3 upload flow', 501);
+    if (!file) throw createError('No file provided', 400);
 
-  // }
+    const fileUrl = await uploadToCloudinary(file.avatar.data)
+
+    const updateAvatar = await this.userRepo.updateAvatar(userId, fileUrl)
+    return updateAvatar
+  }
 
   async updateUsername(userId, username) {
     const existing = await this.userRepo.findByUsername(username);

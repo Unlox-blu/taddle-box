@@ -12,6 +12,7 @@ const { updateProfileSchema, updateUsernameSchema } = require('../validators/use
 // router.get('/:username',                    optionalAuth,  userController.getProfile);
 router.patch('/update-profile',        verifyToken,     validate(updateProfileSchema), userController.updateProfile);
 // router.post('/update-avatar',  verifyToken,     uploadSingle('avatar'),        userController.updateAvatar);
+router.post('/update-avatar',  verifyToken,              userController.updateAvatar);
 router.patch('/update-username', verifyToken,   validate(updateUsernameSchema), userController.updateUsername);
 // router.get('/followers', verifyToken,    userController.getFollowers);
 // router.get('/following', verifyToken,    userController.getFollowing);

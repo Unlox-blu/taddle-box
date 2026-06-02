@@ -83,14 +83,25 @@ class CommunityService {
 
   async approveMember(communityId, targetUserId, requesterId, requesterRole) {
     const member = await this.communityRepo.getMember(communityId, requesterId);
-    const canApprove = member?.role === 'admin' || member?.role === 'moderator'
-      || ['admin', 'superadmin'].includes(requesterRole);
+    const canApprove = member?.role === 'admin' || member?.role === 'moderator' || ['admin', 'superadmin'].includes(requesterRole);
+
     if (!canApprove) throw createError('Not authorized to approve members', 403);
+
     await this.communityRepo.updateMemberStatus(communityId, targetUserId, 'active');
     await this.communityRepo.incrementMemberCount(communityId);
   }
 
-  async removeMember(communityId, targetUserId) {
+  async removeMember(communityId, targetUserId, requesterId, requesterRole) {
+    const community = await this.communityRepo.findById(communityId);
+    if (!community) throw createError('Community not found', 404);
+
+    const member = await this.communityRepo.getMember(communityId, requesterId);
+    const canApprove = member?.role === 'admin' || member?.role === 'moderator' || ['admin', 'superadmin'].includes(requesterRole);
+
+    const notMember = await this.communityRepo.isMember(communityId, targetUserId);
+    if (notMember) throw createError('Already not a member of this community', 409);
+
+    if (!canApprove) throw createError('Not authorized to approve members', 403);
     await this.communityRepo.removeMember(communityId, targetUserId);
     await this.communityRepo.decrementMemberCount(communityId);
   }

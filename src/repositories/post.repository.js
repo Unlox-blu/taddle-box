@@ -76,19 +76,28 @@ const update = async (postId, fields) => {
 };
 
 const softDelete = async (postId) => pool.query(`UPDATE ${PostModel.TABLE} SET deleted_at = NOW() WHERE id = $1`, [postId]);
+
 const hardDelete = async (postId) => pool.query(`DELETE FROM ${PostModel.TABLE} WHERE id = $1`, [postId]);
+
 const addLike = async (postId, userId) => pool.query(`INSERT INTO ${PostModel.LIKES_TABLE} (post_id, user_id) VALUES ($1, $2) ON CONFLICT DO NOTHING`, [postId, userId]);
+
 const removeLike = async (postId, userId) => pool.query(`DELETE FROM ${PostModel.LIKES_TABLE} WHERE post_id = $1 AND user_id = $2`, [postId, userId]);
+
 const isLikedByUser = async (postId, userId) => {
   const { rows } = await pool.query(`SELECT 1 FROM ${PostModel.LIKES_TABLE} WHERE post_id = $1 AND user_id = $2`, [postId, userId]);
   return rows.length > 0;
 };
 
 const incrementLikeCount = async (id) => pool.query(`UPDATE ${PostModel.TABLE} SET likes_count    = likes_count    + 1 WHERE id = $1`, [id]);
+
 const decrementLikeCount = async (id) => pool.query(`UPDATE ${PostModel.TABLE} SET likes_count    = GREATEST(0, likes_count    - 1) WHERE id = $1`, [id]);
+
 const incrementCommentCount = async (id) => pool.query(`UPDATE ${PostModel.TABLE} SET comments_count = comments_count + 1 WHERE id = $1`, [id]);
+
 const decrementCommentCount = async (id) => pool.query(`UPDATE ${PostModel.TABLE} SET comments_count = GREATEST(0, comments_count - 1) WHERE id = $1`, [id]);
+
 const incrementShareCount = async (id) => pool.query(`UPDATE ${PostModel.TABLE} SET shares_count   = shares_count   + 1 WHERE id = $1`, [id]);
+
 const incrementViewCount = async (id) => pool.query(`UPDATE ${PostModel.TABLE} SET views_count    = views_count    + 1 WHERE id = $1`, [id]);
 
 const search = async (filters, limit, offset) => {

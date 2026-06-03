@@ -18,16 +18,60 @@ const COOKIE_OPTS = {
 };
 
 class AuthService {
-  constructor({ userRepository, walletRepository, emailIntegration, googleIntegration }) {
+  constructor({ verifyEmailRepository, userRepository, walletRepository, emailIntegration, googleIntegration }) {
+    this.verifyEmailRepo = verifyEmailRepository;
     this.userRepo = userRepository;
     this.walletRepo = walletRepository;
     this.emailSvc = emailIntegration;
     this.googleSvc = googleIntegration;
   }
 
+  async sendVerificationEmail(email) {
+    try {
+      const existingEmail = await this.userRepo.findByEmail(email)
+      if (existingEmail) throw createError('Email is already registered', 409);
+
+      
+      const otp = Math.floor(Math.random() * 10000).toString().padStart(4, '0').toString()
+      const expIn = new Date(Date.now() +  10 * 60 * 1000); 
+      
+      const otpSendBefore = await this.verifyEmailRepo.findByEmail(email)
+
+      if(otpSendBefore){
+        await this.verifyEmailRepo.updateOtp({email, otp, expIn})
+        this.emailSvc.sendOtpEmail(email, otp).catch(console.error);
+        return 
+      }
+      
+      await this.verifyEmailRepo.create({email, otp, expIn});
+      this.emailSvc.sendOtpEmail(email, otp).catch(console.error);
+    } catch (error) {
+      throw error
+    }
+  }
+
+  async verifyOtp(email, otp) {
+    try {
+      const isOtpAvailable = await this.verifyEmailRepo.findByEmail(email)
+      if(!isOtpAvailable) throw  createError('Otp did not generated for this email', 409);
+
+      const currentTime = new Date(Date.now());
+      if(!isOtpAvailable.otp || !isOtpAvailable.exp_in || isOtpAvailable.exp_in < currentTime) throw  createError('Otp is expired', 409);
+
+      if(isOtpAvailable.otp !== otp) throw  createError('Invalied Otp', 409);
+
+      await this.verifyEmailRepo.makeVerified(email)
+    } catch (error) {
+      throw error
+    }
+  }
+
   // Registers a new user, auto-creates wallet, queues verification email.
   async signup({ name, username, email, password }) {
     try {
+      const isEmailVerified = await this.verifyEmailRepo.findByEmail(email)
+      if(!isEmailVerified || !isEmailVerified.is_verified) throw  createError('Verified the email first', 400)
+
       const [existingEmail, existingUsername] = await Promise.all([
         this.userRepo.findByEmail(email),
         this.userRepo.findByUsername(username),
@@ -36,19 +80,14 @@ class AuthService {
       if (existingUsername) throw createError('Username is already taken', 409);
 
       const passwordHash = await hashPassword(password);
-      const user = await this.userRepo.create({ name, username, email, passwordHash });
+      const user = await this.userRepo.create({ name, username, email, passwordHash, isVerified: true});
+
+      // Delete the email verification row
+      await this.verifyEmailRepo.hardDelete(email)
 
       // Auto-create wallet for new user
       await this.walletRepo.create(user.id);
 
-      // Generate + store email verify token
-      const rawToken = generateRandomToken();
-      const tokenHash = hashToken(rawToken);
-      const tokenExp = new Date(Date.now() + 24 * 60 * 60 * 1000); // 24h
-      await this.userRepo.updateEmailVerifyToken(user.id, tokenHash, tokenExp);
-
-      // Non-blocking: fire verification email via integration
-      this.emailSvc.sendVerificationEmail(email, name, rawToken).catch(console.error);
 
       const newUser = { name, username, email, id: user.id };
 

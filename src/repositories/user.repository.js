@@ -46,12 +46,12 @@ const findByGoogleId = async (googleId) => {
   return rows[0] || null;
 };
 
-const create = async ({ name, username, email, passwordHash }) => {
+const create = async ({ name, username, email, passwordHash, isVerified }) => {
   const { rows } = await pool.query(
-    `INSERT INTO ${UserModel.TABLE} (name, username, email, password_hash)
-     VALUES ($1, $2, $3, $4)
+    `INSERT INTO ${UserModel.TABLE} (name, username, email, password_hash, is_verified)
+     VALUES ($1, $2, $3, $4, $5)
      RETURNING ${UserModel.PRIVATE_FIELDS}`,
-    [name, username, email, passwordHash]
+    [name, username, email, passwordHash, isVerified]
   );
   return UserModel.sanitize(rows[0]);
 };

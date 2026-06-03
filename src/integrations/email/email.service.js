@@ -21,6 +21,11 @@ const send = async ({ to, subject, html }) => {
   });
 };
 
+const sendOtpEmail = async (to, otp) => {
+  const html = loadTemplate('send-otp.html', {otp});
+  await send({ to, subject: `${otp} is yous Taddle-Box verification code`, html });
+}
+
 const sendVerificationEmail = async (to, name, token) => {
   const verifyUrl = `${config.FRONTEND_URL}/verify-email/${token}`;
   const html = loadTemplate('verify-email.html', { name, verifyUrl });
@@ -38,4 +43,4 @@ const sendWelcomeEmail = async (to, name) => {
   await send({ to, subject: `Welcome to taddlebox, ${name}!`, html });
 };
 
-module.exports = { sendVerificationEmail, sendPasswordResetEmail, sendWelcomeEmail };
+module.exports = { sendOtpEmail, sendVerificationEmail, sendPasswordResetEmail, sendWelcomeEmail };

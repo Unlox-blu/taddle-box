@@ -7,6 +7,28 @@ class AuthController {
     this.authSvc = authService;
   }
 
+
+
+  sendVerificationEmail = async (req, res, next) => {
+    try {
+      const {email} = req.body
+      await this.authSvc.sendVerificationEmail(email);
+      res.json(apiResponse(null, 'Otp send successfully'));
+    } catch (err) { 
+      next(err); 
+    }
+  };
+
+  verifyOtp = async (req, res, next) => {
+    try {
+      const {email, otp} = req.body
+      await this.authSvc.verifyOtp(email, otp);
+      res.json(apiResponse(null, 'Email verified successfully'));
+    } catch (err) { 
+      next(err); 
+    }
+  };
+
   signup = async (req, res, next) => {
     try {
       const { user } = await this.authSvc.signup(req.body);
@@ -69,13 +91,6 @@ class AuthController {
     } catch (err) { 
       next(err); 
     }
-  };
-
-  verifyEmail = async (req, res, next) => {
-    try {
-      await this.authSvc.verifyEmail(req.params.token);
-      res.json(apiResponse(null, 'Email verified successfully'));
-    } catch (err) { next(err); }
   };
 
   getMe = async (req, res, next) => {

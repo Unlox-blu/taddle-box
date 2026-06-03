@@ -1,6 +1,7 @@
 'use strict';
 
 // Repositories
+const verifyEmailRepository = require('./repositories/verifyemail.repository')
 const userRepository = require('./repositories/user.repository');
 const postRepository = require('./repositories/post.repository');
 const communityRepository = require('./repositories/community.repository');
@@ -44,8 +45,9 @@ const MediaController = require('./controllers/media.controller');
 
 // Instantiate Services
 const authService = new AuthService({
-  userRepository, walletRepository,
-  emailIntegration, googleIntegration,
+  verifyEmailRepository, userRepository, 
+  walletRepository,  emailIntegration, 
+  googleIntegration,
 });
 
 const userService = new UserService({

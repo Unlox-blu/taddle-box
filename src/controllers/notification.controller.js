@@ -10,9 +10,11 @@ class NotificationController {
 
   getAll = async (req, res, next) => {
     try {
+      const userId = req.userId
+      const unreadOnly = req.query.unread === 'true'
       const { limit, offset, page } = getPaginationParams(req.query);
       const { notifications, total, unreadCount } = await this.notifSvc.getAll(
-        req.userId, limit, offset, req.query.unread === 'true'
+        userId, limit, offset, unreadOnly
       );
       res.json(apiResponse(notifications, 'Notifications fetched', {
         ...paginationMeta(total, page, limit), unreadCount,

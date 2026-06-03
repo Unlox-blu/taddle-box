@@ -59,6 +59,9 @@ class CommentService {
   }
 
   async unlikeComment(commentId, userId) {
+    const isLiked = await this.commentRepo.isLikedByUser(commentId, userId);
+    if (!isLiked) throw createError('Comment not liked', 409);
+
     await this.commentRepo.removeLike(commentId, userId);
     await this.commentRepo.decrementLikeCount(commentId);
   }

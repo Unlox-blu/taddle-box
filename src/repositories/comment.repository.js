@@ -50,11 +50,14 @@ const softDelete = async (commentId) => {
 };
 
 const addLike = async (commentId, userId) => pool.query(`INSERT INTO ${CommentModel.LIKES_TABLE} (comment_id, user_id) VALUES ($1, $2) ON CONFLICT DO NOTHING`, [commentId, userId]);
+
 const removeLike = async (commentId, userId) => pool.query(`DELETE FROM ${CommentModel.LIKES_TABLE} WHERE comment_id = $1 AND user_id = $2`, [commentId, userId]);
+
 const isLikedByUser = async (commentId, userId) => {
   const { rows } = await pool.query(`SELECT 1 FROM ${CommentModel.LIKES_TABLE} WHERE comment_id = $1 AND user_id = $2`, [commentId, userId]);
   return rows.length > 0;
 };
+
 const incrementLikeCount = async (id) => pool.query(`UPDATE ${CommentModel.TABLE} SET likes_count = likes_count + 1 WHERE id = $1`, [id]);
 const decrementLikeCount = async (id) => pool.query(`UPDATE ${CommentModel.TABLE} SET likes_count = GREATEST(0, likes_count - 1) WHERE id = $1`, [id]);
 

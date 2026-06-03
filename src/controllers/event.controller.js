@@ -18,23 +18,32 @@ class EventController {
 
   create = async (req, res, next) => {
     try {
-      const event = await this.eventSvc.create(req.userId, req.body);
+      const userId = req.userId
+      const event = await this.eventSvc.create(userId, req.body);
       res.status(201).json(apiResponse(event, 'Event created'));
-    } catch (err) { next(err); }
+    } catch (err) { 
+      next(err); 
+    }
   };
 
   getById = async (req, res, next) => {
     try {
-      const event = await this.eventSvc.getById(req.params.eventId);
+      const {eventId} = req.params
+      const event = await this.eventSvc.getById(eventId);
       res.json(apiResponse(event));
     } catch (err) { next(err); }
   };
 
   update = async (req, res, next) => {
     try {
-      const event = await this.eventSvc.update(req.params.eventId, req.userId, req.body);
+      const {eventId} = req.params
+      const userId = req.userId
+      const body = req.body
+      const event = await this.eventSvc.update(eventId, userId, body);
       res.json(apiResponse(event, 'Event updated'));
-    } catch (err) { next(err); }
+    } catch (err) { 
+      next(err); 
+    }
   };
 
   remove = async (req, res, next) => {
@@ -46,7 +55,9 @@ class EventController {
 
   register = async (req, res, next) => {
     try {
-      const result = await this.eventSvc.register(req.params.eventId, req.userId);
+      const {eventId} = req.params
+      const userId = req.userId
+      const result = await this.eventSvc.register(eventId, userId);
       res.json(apiResponse(result.orderId ? result : null, result.message || 'Registration processed'));
     } catch (err) { next(err); }
   };
@@ -60,8 +71,9 @@ class EventController {
 
   getAttendees = async (req, res, next) => {
     try {
+      const {eventId} = req.params
       const { limit, offset, page } = getPaginationParams(req.query);
-      const { rows, total } = await this.eventSvc.getAttendees(req.params.eventId, limit, offset);
+      const { rows, total } = await this.eventSvc.getAttendees(eventId, limit, offset);
       res.json(apiResponse(rows, 'Attendees fetched', paginationMeta(total, page, limit)));
     } catch (err) { next(err); }
   };

@@ -65,15 +65,15 @@ class EventService {
 
     // Paid event → create Razorpay order
     const receipt = `evt_${eventId}_${userId}`.slice(0, 40);
-    const order = await this.paymentSvc.createOrder(event.ticket_price_cents, event.currency, receipt);
-    await this.eventRepo.addAttendee(eventId, userId, { status: 'registered', razorpayOrderId: order.id });
+    // const order = await this.paymentSvc.createOrder(event.ticket_price_cents, event.currency, receipt);
+    // await this.eventRepo.addAttendee(eventId, userId, { status: 'registered', razorpayOrderId: order.id });
 
     return {
       status: 'payment_required',
-      orderId: order.id,
-      amount: order.amount,
-      currency: order.currency,
-      keyId: process.env.RAZORPAY_KEY_ID,
+      // orderId: order.id,
+      // amount: order.amount,
+      // currency: order.currency,
+      // keyId: process.env.RAZORPAY_KEY_ID,
     };
   }
 

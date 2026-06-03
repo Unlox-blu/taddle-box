@@ -3,6 +3,17 @@
 const { z } = require('zod');
 const { EVENT_TYPES } = require('../models/event.model');
 
+const typeCheck = (val) => {
+    if (typeof val === 'string') {
+      try {
+        return JSON.parse(val);
+      } catch {
+        return val;
+      }
+    }
+    return val;
+  }
+
 const createEventSchema = z.object({
     title: z.string().min(3).max(200),
     description: z.string().max(5000).optional(),
@@ -16,14 +27,14 @@ const createEventSchema = z.object({
     currency: z.string().length(3).default('INR'),
     maxAttendees: z.number().int().positive().optional(),
     registrationDeadline: z.string().datetime().optional(),
-    tags: z.array(z.string().max(50)).max(10).default([]),
+    tags: z.preprocess(typeCheck ,z.array(z.string().max(50)).max(10).default([])),
     communityId: z.string().uuid().optional(),
   })
   .refine((d) => new Date(d.endTime) > new Date(d.startTime), {
     message: 'End time must be after start time',
     path: ['endTime'],
   })
-  .refine((d) => d.isFree || (d.ticketPriceCents && d.ticketPriceCents > 0), {
+  .refine((d) => !d.isFree || d.isFree === true || (d.ticketPriceCents && d.ticketPriceCents > 0), {
     message: 'Paid events must have a ticket price greater than 0',
     path: ['ticketPriceCents'],
   });
@@ -43,14 +54,14 @@ const updateEventSchema = z.object({
     currency: z.string().length(3).default('INR').optional(),
     maxAttendees: z.number().int().positive().optional().optional(),
     registrationDeadline: z.string().datetime().optional().optional(),
-    tags: z.array(z.string().max(50)).max(10).default([]).optional(),
+    tags: z.preprocess(typeCheck ,z.array(z.string().max(50)).max(10).default([])).optional(),
     communityId: z.string().uuid().optional().optional(),
   })
-  .refine((d) => new Date(d.endTime) > new Date(d.startTime), {
+  .refine((d) => !d.endTime || (new Date(d.endTime) > new Date(d.startTime)), {
     message: 'End time must be after start time',
     path: ['endTime'],
   })
-  .refine((d) => d.isFree || (d.ticketPriceCents && d.ticketPriceCents > 0), {
+  .refine((d) => !d.isFree || d.isFree === true || (d.ticketPriceCents && d.ticketPriceCents > 0), {
     message: 'Paid events must have a ticket price greater than 0',
     path: ['ticketPriceCents'],
   });

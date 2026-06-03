@@ -56,7 +56,7 @@ class AuthService {
       if(!isOtpAvailable) throw  createError('Otp did not generated for this email', 409);
 
       const currentTime = new Date(Date.now());
-      if(!isOtpAvailable.otp || !isOtpAvailable.exp_in || isOtpAvailable.exp_in < currentTime) throw  createError('Otp is expired', 409);
+      if(!isOtpAvailable.otp || !isOtpAvailable.expIn || isOtpAvailable.expIn < currentTime) throw  createError('Otp is expired', 409);
 
       if(isOtpAvailable.otp !== otp) throw  createError('Invalied Otp', 409);
 
@@ -70,7 +70,7 @@ class AuthService {
   async signup({ name, username, email, password }) {
     try {
       const isEmailVerified = await this.verifyEmailRepo.findByEmail(email)
-      if(!isEmailVerified || !isEmailVerified.is_verified) throw  createError('Verified the email first', 400)
+      if(!isEmailVerified || !isEmailVerified.isVerified) throw  createError('Verified the email first', 400)
 
       const [existingEmail, existingUsername] = await Promise.all([
         this.userRepo.findByEmail(email),

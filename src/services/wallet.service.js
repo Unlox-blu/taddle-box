@@ -32,13 +32,14 @@ class WalletService {
     if (amountCents < 100) throw createError('Minimum topup is ₹1', 400);
 
     const receipt = `wallet_${userId}_${Date.now()}`.slice(0, 40);
-    const order = await this.paymentSvc.createOrder(amountCents, 'INR', receipt, { userId });
+    // const order = await this.paymentSvc.createOrder(amountCents, 'INR', receipt, { userId });
 
     return {
-      orderId: order.id,
-      amount: order.amount,
-      currency: order.currency,
-      keyId: process.env.RAZORPAY_KEY_ID,
+      // orderId: order.id,
+      // amount: order.amount,
+      // currency: order.currency,
+      // keyId: process.env.RAZORPAY_KEY_ID,
+      receipt: receipt
     };
   }
 

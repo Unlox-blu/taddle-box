@@ -57,8 +57,6 @@ class UserController {
     } catch (err) { next(err); }
   };
 
-
-
   updateUsername = async (req, res, next) => {
     try {
       const updated = await this.userSvc.updateUsername(req.userId, req.body.username);
@@ -115,6 +113,17 @@ class UserController {
       res.json(apiResponse(null, 'Unfollowed successfully'));
     } catch (err) { next(err); }
   };
+
+  removeFollower = async (req, res, next) => {
+    try {
+      const userId = req.userId
+      const {username} = req.params
+      await this.userSvc.removeFollower(userId, username);
+      res.json(apiResponse(null, 'Follower removed successfully'));
+    } catch (error) {
+      next(error)
+    }
+  }
 }
 
 module.exports = UserController;

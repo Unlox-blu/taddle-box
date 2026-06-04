@@ -22,15 +22,21 @@ class CommunityController {
       const body = req.body
       const community = await this.communitySvc.create(userId, body);
       res.status(201).json(apiResponse(community, 'Community created'));
-    } catch (err) { next(err); }
+    } catch (err) { 
+      next(err); 
+    }
   };
 
   getBySlug = async (req, res, next) => {
     try {
       const {slug} = req.params
       const community = await this.communitySvc.getBySlug(slug);
-      res.json(apiResponse(community));
-    } catch (err) { next(err); }
+      res.json(
+        apiResponse(community)
+      );
+    } catch (err) { 
+      next(err); 
+    }
   };
 
   update = async (req, res, next) => {
@@ -43,6 +49,32 @@ class CommunityController {
       res.json(apiResponse(community, 'Community updated'));
     } catch (err) { next(err); }
   };
+
+  updateAvatar = async (req, res, next) => {
+    try {
+      const {communityId} = req.params
+      const userId = req.userId
+      const userRole = req.userRole
+      const file = req.files
+      const community = await this.communitySvc.updateAvatar(communityId, userId, userRole, file);
+      res.json(apiResponse(community, 'Community avatar updated'));
+    } catch (error) {
+      next(error)
+    }
+  }
+
+  updateBanner = async (req, res, next) => {
+    try {
+      const {communityId} = req.params
+      const userId = req.userId
+      const userRole = req.userRole
+      const file = req.files
+      const community = await this.communitySvc.updateBanner(communityId, userId, userRole, file);
+      res.json(apiResponse(community, 'Community banner updated'));
+    } catch (error) {
+      next(error)
+    }
+  }
 
   remove = async (req, res, next) => {
     try {
@@ -75,8 +107,9 @@ class CommunityController {
   getMembers = async (req, res, next) => {
     try {
       const {communityId} = req.params
+      const userId = req.userId
       const { limit, offset, page } = getPaginationParams(req.query);
-      const { rows, total } = await this.communitySvc.getMembers(communityId, limit, offset);
+      const { rows, total } = await this.communitySvc.getMembers(communityId, userId, limit, offset);
       res.json(apiResponse(rows, 'Members fetched', paginationMeta(total, page, limit)));
     } catch (err) { next(err); }
   };
@@ -84,8 +117,9 @@ class CommunityController {
   getCommunityPosts = async (req, res, next) => {
     try {
       const {communityId} = req.params
+      const userId = req.userId
       const { limit, offset, page } = getPaginationParams(req.query);
-      const { posts, total } = await this.communitySvc.getCommunityPosts(communityId, limit, offset);
+      const { posts, total } = await this.communitySvc.getCommunityPosts(communityId, userId, limit, offset);
       res.json(apiResponse(posts, 'Posts fetched', paginationMeta(total, page, limit)));
     } catch (err) { next(err); }
   };

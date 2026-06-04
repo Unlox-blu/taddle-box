@@ -44,7 +44,7 @@ class UserService {
   }
 
   async updateAvatar(userId, file) {
-    if (!file) throw createError('No file provided', 400);
+    if (!file || !file.avatar || !file.avater.data) throw createError('No file provided', 400);
 
     const fileUrl = await uploadToCloudinary(file.avatar.data);
 
@@ -53,7 +53,7 @@ class UserService {
   }
 
   async updateBanner(userId, file) {
-    if (!file) throw createError('No file provided', 400);
+    if (!file || !file.banner || !file.banner.data) throw createError('No file provided', 400);
 
     const fileUrl = await uploadToCloudinary(file.banner.data);
 
@@ -136,6 +136,26 @@ class UserService {
     }
   }
 
+  async removeFollower(followingId, username) {
+    try {
+      const targetUser = await this.userRepo.findByUsername(username)
+      if(!targetUser) throw createError("User not found", 404)
+
+      const followerId = targetUser.id 
+
+      if (followerId === followingId) throw createError('You cannot remove yourself', 400);
+
+      const isFollowing = await this.followersRepo.findByFollowerIdAndFollowingId(followerId, followingId)
+      if(!isFollowing) throw createError('This profile already not following you', 400);
+
+      await this.followersRepo.hardDelete(followerId, followingId)
+
+      await this.userRepo.decrementFollowingCount(followingId);
+      await this.userRepo.decrementFollowerCount(followerId);
+    } catch (error) {
+      throw error
+    }
+  }
  
 }
 

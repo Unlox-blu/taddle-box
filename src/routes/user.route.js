@@ -20,5 +20,6 @@ router.get('/:username/followers',          verifyToken,     userController.getF
 router.get('/:username/following',          verifyToken,     userController.getFollowing);
 router.post('/:username/follow',            verifyToken,     userController.followUser);
 router.delete('/:username/unfollow',        verifyToken,     userController.unfollowUser);
+router.delete('/:username/remove-follower', verifyToken,     userController.removeFollower);
 
 module.exports = router;

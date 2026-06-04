@@ -48,6 +48,24 @@ const update = async (communityId, fields) => {
   return rows[0];
 };
 
+const updateAvatar = async (communityId, fileUrl) => {
+  const {rows} = await pool.query(
+    `UPDATE ${CommunityModel.TABLE} SET avatar_url = $1, updated_at = NOW()
+     WHERE id = $2 RETURNING avatar_url`,
+    [fileUrl, communityId]
+  );
+  return rows[0]
+}
+
+const updateBanner = async (communityId, fileUrl) => {
+  const {rows} = await pool.query(
+    `UPDATE ${CommunityModel.TABLE} SET banner_url = $1, updated_at = NOW()
+     WHERE id = $2 RETURNING avatar_url`,
+    [fileUrl, communityId]
+  );
+  return rows[0]
+}
+
 const softDelete = async (communityId) => {
   await pool.query(`UPDATE ${CommunityModel.TABLE} SET deleted_at = NOW(), is_active = FALSE WHERE id = $1`, [communityId]);
 };
@@ -129,14 +147,15 @@ const browse = async (filters, limit, offset) => {
 
 const isMember = async (communityId, userId) => {
   const { rows } = await pool.query(
-    `SELECT 1 FROM ${CommunityModel.MEMBERS_TABLE} WHERE community_id = $1 AND user_id = $2 AND status = 'active'`,
+    `SELECT status FROM ${CommunityModel.MEMBERS_TABLE} WHERE community_id = $1 AND user_id = $2 `,
     [communityId, userId]
   );
-  return rows.length > 0;
+  return rows[0]
 };
 
+
 module.exports = {
-  findById, findBySlug, create, update, softDelete,
+  findById, findBySlug, create, update, updateAvatar, updateBanner, softDelete,
   addMember, removeMember, getMember, updateMemberStatus, updateMemberRole,
-  getMembers, incrementMemberCount, decrementMemberCount, browse, isMember,
+  getMembers, incrementMemberCount, decrementMemberCount, browse, isMember
 };

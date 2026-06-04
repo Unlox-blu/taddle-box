@@ -16,11 +16,17 @@ class PostService {
   }
 
   async getPost(postId) {
-    const post = await this.postRepo.findById(postId);
-    if (!post) throw createError('Post not found', 404);
-    // Fire-and-forget view count — don't block the response
-    // this.postRepo.incrementViewCount(postId).catch(() => { });
-    return PostModel.format(post);
+    try {
+      const post = await this.postRepo.findById(postId);
+      if (!post) throw createError('Post not found', 404);
+
+
+      // Fire-and-forget view count — don't block the response
+      // this.postRepo.incrementViewCount(postId).catch(() => { });
+      return PostModel.format(post);
+    } catch (error) {
+      throw error
+    }
   }
 
   async getUserPosts(userId, limit, offset) {

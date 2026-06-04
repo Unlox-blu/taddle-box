@@ -12,7 +12,11 @@ const redis = new Redis(config.REDIS_URL, {
 
 redis.on('connect', () => console.info('Redis connecting...'));
 redis.on('ready', () => console.info('Redis ready'));
-redis.on('error', (err) => console.error('Redis error:', err.message));
+// redis.on('error', (err) => console.error('Redis error:', err.message));
+redis.on('error', (err) => {
+  console.error('Redis error:', err.message)
+  process.exit(1)
+});
 redis.on('reconnecting', () => console.warn('Redis reconnecting...'));
 
 module.exports = redis;

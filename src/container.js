@@ -2,6 +2,7 @@
 
 // Repositories
 const verifyEmailRepository = require('./repositories/verifyemail.repository')
+const followerRepository = require('./repositories/followers.repository')
 const userRepository = require('./repositories/user.repository');
 const postRepository = require('./repositories/post.repository');
 const communityRepository = require('./repositories/community.repository');
@@ -52,6 +53,7 @@ const authService = new AuthService({
 
 const userService = new UserService({
   userRepository, storageIntegration,
+  followerRepository
 });
 
 const notificationService = new NotificationService({

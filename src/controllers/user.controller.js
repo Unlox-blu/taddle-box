@@ -23,14 +23,20 @@ class UserController {
       const userId = req.userId
       const user = await this.userSvc.getProfile(username, userId);
       res.json(apiResponse(user));
-    } catch (err) { next(err); }
+    } catch (err) { 
+      next(err); 
+    }
   };
 
   updateProfile = async (req, res, next) => {
     try {
-      const updated = await this.userSvc.updateProfile(req.userId, req.body);
+      const userId = req.userId
+      const fields = req.body
+      const updated = await this.userSvc.updateProfile(userId, fields);
       res.json(apiResponse({updated}, 'Profile updated'));
-    } catch (err) { next(err); }
+    } catch (err) { 
+      next(err); 
+    }
   };
 
   updateAvatar = async (req, res, next) => {
@@ -57,8 +63,11 @@ class UserController {
     try {
       const { limit, offset, page } = getPaginationParams(req.query);
       const userId = req.userId
-      const data = await this.userSvc.getFollowers(userId, limit, offset);
-      res.json(apiResponse(data, 'Followers fetched'));
+      const {username} = req.params
+      const data = await this.userSvc.getFollowers(userId, username, limit, offset);
+      res.json(
+        apiResponse(data, 'Followers fetched')
+      );
     } catch (err) { 
       next(err); 
     }
@@ -66,22 +75,32 @@ class UserController {
 
   getFollowing = async (req, res, next) => {
     try {
-      const { limit, offset } = getPaginationParams(req.query);
-      const data = await this.userSvc.getFollowing(req.params.userId, limit, offset);
-      res.json(apiResponse(data, 'Following fetched'));
-    } catch (err) { next(err); }
+      const { limit, offset, page } = getPaginationParams(req.query);
+      const userId = req.userId
+      const {username} = req.params
+      const data = await this.userSvc.getFollowing(userId, username, limit, offset);
+      res.json(
+        apiResponse(data, 'Followings fetched')
+      );
+    } catch (err) { 
+      next(err); 
+    }
   };
 
   followUser = async (req, res, next) => {
     try {
-      await this.userSvc.followUser(req.userId, req.params.userId);
+      const userId = req.userId
+      const {username} = req.params
+      await this.userSvc.followUser(userId, username);
       res.json(apiResponse(null, 'Followed successfully'));
     } catch (err) { next(err); }
   };
 
   unfollowUser = async (req, res, next) => {
     try {
-      await this.userSvc.unfollowUser(req.userId, req.params.userId);
+      const userId = req.userId
+      const {username} = req.params
+      await this.userSvc.unfollowUser(userId, username);
       res.json(apiResponse(null, 'Unfollowed successfully'));
     } catch (err) { next(err); }
   };

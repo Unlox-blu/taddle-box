@@ -26,6 +26,17 @@ const authRateLimiter = rateLimit({
   message: { success: false, message: 'Too many auth attempts. Please try again later.' },
 });
 
+// 1 requests per 30 sec — applied on send otp route under auth routes
+const otpRateLimiter = rateLimit({
+  windowMs:  30 * 1000,
+  max: 1,
+  standardHeaders: true,
+  legacyHeaders: false,
+  store: makeStore('rl:otp:'),
+  skipFailedRequests: true,
+  message: { success: false, message: 'Please try again after 30 sec.' },
+});
+
 // 20 uploads per hour
 const uploadRateLimiter = rateLimit({
   windowMs: 60 * 60 * 1000,
@@ -34,4 +45,4 @@ const uploadRateLimiter = rateLimit({
   message: { success: false, message: 'Upload limit reached. Please try again in an hour.' },
 });
 
-module.exports = { globalRateLimiter, authRateLimiter, uploadRateLimiter };
+module.exports = { globalRateLimiter, authRateLimiter, otpRateLimiter, uploadRateLimiter };

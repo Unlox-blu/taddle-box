@@ -95,6 +95,14 @@ const updateAvatar = async (userId, avatarUrl) => {
   return rows[0];
 };
 
+const updateBanner = async (userId, bannerUrl) => {
+  const { rows } = await pool.query(
+    `UPDATE ${UserModel.TABLE} SET banner_url = $1, updated_at = NOW() WHERE id = $2 RETURNING id, banner_url`,
+    [bannerUrl, userId]
+  );
+  return rows[0];
+};
+
 const updateUsername = async (userId, username) => {
   const { rows } = await pool.query(
     `UPDATE ${UserModel.TABLE} SET username = $1, updated_at = NOW() WHERE id = $2 RETURNING ${UserModel.PRIVATE_FIELDS}`,
@@ -208,7 +216,7 @@ const search = async (query, limit, offset) => {
 
 module.exports = {
   findById, findByIdPrivate, findByEmail, findByUsername, findByGoogleId,
-  create, createWithGoogle, updateProfile, updateAvatar, updateUsername,
+  create, createWithGoogle, updateProfile, updateAvatar, updateBanner, updateUsername,
   updateRefreshToken, getRefreshTokenById, updateEmailVerifyToken, findByEmailVerifyToken, updatePasswordResetToken,  findByPasswordResetToken, updatePassword, linkGoogleAccount, verifyEmail, updateLastLogin,
   incrementFollowerCount, decrementFollowerCount,
   incrementFollowingCount, decrementFollowingCount,

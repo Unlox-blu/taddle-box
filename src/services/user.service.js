@@ -52,6 +52,15 @@ class UserService {
     return updateAvatar;
   }
 
+  async updateBanner(userId, file) {
+    if (!file) throw createError('No file provided', 400);
+
+    const fileUrl = await uploadToCloudinary(file.banner.data);
+
+    const updateAvatar = await this.userRepo.updateBanner(userId, fileUrl);
+    return updateAvatar;
+  }
+
   async updateUsername(userId, username) {
     const existing = await this.userRepo.findByUsername(username);
     if (existing && existing.id !== userId) throw createError('Username is already taken', 409);

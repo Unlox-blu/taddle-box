@@ -48,6 +48,17 @@ class UserController {
     } catch (err) { next(err); }
   };
 
+  updateBanner = async (req, res, next) => {
+    try {
+      const userId = req.userId
+      const files = req.files
+      const updateBanner = await this.userSvc.updateBanner(userId, files);
+      res.json(apiResponse(updateBanner, 'Banner updated'));
+    } catch (err) { next(err); }
+  };
+
+
+
   updateUsername = async (req, res, next) => {
     try {
       const updated = await this.userSvc.updateUsername(req.userId, req.body.username);

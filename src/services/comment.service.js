@@ -14,6 +14,10 @@ class CommentService {
     const post = await this.postRepo.findById(postId);
     if (!post) throw createError('Post not found', 404);
 
+    if(post.community_privacy !== 'public'){
+      //do validation
+    }
+    
     // Compute nested thread path + depth
     let depth = 0;
     let path = [];
@@ -42,28 +46,42 @@ class CommentService {
   }
 
   async deleteComment(commentId, userId, userRole) {
-    const comment = await this.commentRepo.findById(commentId);
-    if (!comment) throw createError('Comment not found', 404);
-    const isOwner = comment.author_id === userId;
-    const isMod = ['admin', 'moderator', 'superadmin'].includes(userRole);
-    if (!isOwner && !isMod) throw createError('Not authorized to delete this comment', 403);
-    await this.commentRepo.softDelete(commentId);
-    await this.postRepo.decrementCommentCount(comment.post_id);
+    try {
+      const comment = await this.commentRepo.findById(commentId);
+      if (!comment) throw createError('Comment not found', 404);
+
+      const isOwner = comment.author_id === userId;
+      const isMod = ['admin', 'moderator', 'superadmin'].includes(userRole);
+      if (!isOwner && !isMod) throw createError('Not authorized to delete this comment', 403);
+
+      await this.commentRepo.softDelete(commentId);
+      await this.postRepo.decrementCommentCount(comment.post_id);
+    } catch (error) {
+      throw error
+    }
   }
 
   async likeComment(commentId, userId) {
-    const alreadyLiked = await this.commentRepo.isLikedByUser(commentId, userId);
-    if (alreadyLiked) throw createError('Comment already liked', 409);
-    await this.commentRepo.addLike(commentId, userId);
-    await this.commentRepo.incrementLikeCount(commentId);
+    try {
+      const alreadyLiked = await this.commentRepo.isLikedByUser(commentId, userId);
+      if (alreadyLiked) throw createError('Comment already liked', 409);
+      await this.commentRepo.addLike(commentId, userId);
+      await this.commentRepo.incrementLikeCount(commentId);
+    } catch (error) {
+      throw error
+    }
   }
 
   async unlikeComment(commentId, userId) {
-    const isLiked = await this.commentRepo.isLikedByUser(commentId, userId);
-    if (!isLiked) throw createError('Comment not liked', 409);
+    try {
+      const isLiked = await this.commentRepo.isLikedByUser(commentId, userId);
+      if (!isLiked) throw createError('Comment not liked', 409);
 
-    await this.commentRepo.removeLike(commentId, userId);
-    await this.commentRepo.decrementLikeCount(commentId);
+      await this.commentRepo.removeLike(commentId, userId);
+      await this.commentRepo.decrementLikeCount(commentId);
+    } catch (error) {
+      throw error
+    }
   }
 }
 

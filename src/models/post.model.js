@@ -13,7 +13,7 @@ const DETAIL_FIELDS = [
   'p.published_at', 'p.created_at', 'p.updated_at',
   'u.name AS author_name', 'u.username AS author_username', 'u.avatar_url AS author_avatar',
   'u.is_verified AS author_is_verified',
-  'c.name AS community_name', 'c.slug AS community_slug', 'c.avatar_url AS community_avatar',
+  'c.name AS community_name', 'c.privacy AS community_privacy','c.slug AS community_slug', 'c.avatar_url AS community_avatar',
 ].join(', ');
 
 // Light list view — used in feed and browse

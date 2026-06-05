@@ -12,7 +12,9 @@ class CommentController {
     try {
       const authorId = req.userId
       const comment = await this.commentSvc.createComment({ ...req.body, authorId });
-      res.status(201).json(apiResponse(comment, 'Comment added'));
+      res.status(201).json(
+        apiResponse(comment, 'Comment added')
+      );
     } catch (err) { 
       next(err); 
     }
@@ -30,13 +32,15 @@ class CommentController {
     }
   };
 
-  remove = async (req, res, next) => {
+  delete = async (req, res, next) => {
     try {
       const {commentId} = req.params
       const userId = req.userId
       const userRole = req.userRole
       await this.commentSvc.deleteComment(commentId, userId, userRole);
-      res.json(apiResponse(null, 'Comment deleted'));
+      res.json(
+        apiResponse(null, 'Comment deleted')
+      );
     } catch (err) { 
       next(err); 
     }
@@ -47,7 +51,9 @@ class CommentController {
       const {commentId} = req.params
       const userId = req.userId
       await this.commentSvc.likeComment(commentId, userId);
-      res.json(apiResponse(null, 'Comment liked'));
+      res.json(
+        apiResponse(null, 'Comment liked')
+      );
     } catch (err) { 
       next(err); 
     }
@@ -58,7 +64,9 @@ class CommentController {
       const {commentId} = req.params
       const userId = req.userId
       await this.commentSvc.unlikeComment(commentId, userId);
-      res.json(apiResponse(null, 'Comment unliked'));
+      res.json(
+        apiResponse(null, 'Comment unliked')
+      );
     } catch (err) { 
       next(err); 
     }

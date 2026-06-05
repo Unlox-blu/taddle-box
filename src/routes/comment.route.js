@@ -9,8 +9,8 @@ const { createCommentSchema, updateCommentSchema } = require('../validators/comm
 
 router.post('/',                     verifyToken, validate(createCommentSchema), commentController.create);
 router.patch('/:commentId',          verifyToken, validate(updateCommentSchema), commentController.update);
-router.delete('/:commentId',         verifyToken, commentController.remove);
-router.post('/:commentId/like',      verifyToken, commentController.like);
-router.delete('/:commentId/like',    verifyToken, commentController.unlike);
+router.delete('/:commentId',         verifyToken,                                commentController.delete);
+router.post('/:commentId/like',      verifyToken,                                commentController.like);
+router.delete('/:commentId/like',    verifyToken,                                commentController.unlike);
 
 module.exports = router;

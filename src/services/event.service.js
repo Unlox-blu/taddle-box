@@ -12,78 +12,126 @@ class EventService {
   }
 
   async browse(filters, limit, offset) {
-    const { rows, total } = await this.eventRepo.browse(filters, limit, offset);
-    return { events: rows.map(EventModel.format), total };
+    try {
+      const { rows, total } = await this.eventRepo.browse(filters, limit, offset);
+      return { events: rows.map(EventModel.format), total };  
+    } catch (error) {
+      throw error
+    }
   }
 
   async create(organizerId, data) {
-    const event = await this.eventRepo.create({ ...data, organizerId });
-    return EventModel.format(event);
+    try {
+      const {communityId} = data
+      if(communityId){
+        // check validation
+      }
+      const event = await this.eventRepo.create({ ...data, organizerId });
+      return EventModel.format(event);
+    } catch (error) {
+      throw error
+    }
   }
 
   async getById(eventId) {
-    const event = await this.eventRepo.findById(eventId);
-    if (!event) throw createError('Event not found', 404);
-    return EventModel.format(event);
+    try {
+      const event = await this.eventRepo.findById(eventId);
+      if (!event) throw createError('Event not found', 404);
+      return EventModel.format(event);
+    } catch (error) {
+      throw error
+    }
   }
 
   async update(eventId, userId, data) {
-    const event = await this.eventRepo.findById(eventId);
-    if (!event) throw createError('Event not found', 404);
-    if (event.organizer_id !== userId) throw createError('Not authorized to update this event', 403);
-    const updated = await this.eventRepo.update(eventId, data);
-    return EventModel.format(updated);
+    try {
+      const event = await this.eventRepo.findById(eventId);
+      if (!event) throw createError('Event not found', 404);
+      if (event.organizer_id !== userId) throw createError('Not authorized to update this event', 403);
+
+      const {communityId} = data
+      if(communityId){
+        // check validation
+      }
+
+      const updated = await this.eventRepo.update(eventId, data);
+      return EventModel.format(updated);
+    } catch (error) {
+      throw error
+    }
   }
 
   async remove(eventId, userId) {
-    const event = await this.eventRepo.findById(eventId);
-    if (!event) throw createError('Event not found', 404);
-    if (event.organizer_id !== userId) throw createError('Not authorized to delete this event', 403);
-    await this.eventRepo.softDelete(eventId);
+    try {
+      const event = await this.eventRepo.findById(eventId);
+      if (!event) throw createError('Event not found', 404);
+      if (event.organizer_id !== userId) throw createError('Not authorized to delete this event', 403);
+      await this.eventRepo.softDelete(eventId);
+    } catch (error) {
+      throw error
+    }
   }
 
   async register(eventId, userId) {
-    const event = await this.eventRepo.findById(eventId);
-    if (!event) throw createError('Event not found', 404);
-    if (event.status !== 'upcoming') throw createError('Event is not open for registration', 400);
+    try {
+      const event = await this.eventRepo.findById(eventId);
+      if (!event) throw createError('Event not found', 404);
+      if (event.status !== 'upcoming') throw createError('Event is not open for registration', 400);
 
-    const existing = await this.eventRepo.getAttendee(eventId, userId);
-    if (existing) throw createError('Already registered for this event', 409);
+      const existing = await this.eventRepo.getAttendee(eventId, userId);
+      if (existing) throw createError('Already registered for this event', 409);
 
-    // Capacity check → waitlist
-    if (event.max_attendees && event.attendee_count >= event.max_attendees) {
-      await this.eventRepo.addAttendee(eventId, userId, { status: 'waitlisted' });
-      return { status: 'waitlisted', message: 'Added to waitlist' };
+      if (event.max_attendees && event.attendee_count >= event.max_attendees) {
+        await this.eventRepo.addAttendee(eventId, userId, { status: 'waitlisted' });
+        return { status: 'waitlisted', message: 'Added to waitlist' };
+      }
+
+      if (event.is_free) {
+        await this.eventRepo.addAttendee(eventId, userId, { status: 'registered' });
+        await this.eventRepo.incrementAttendeeCount(eventId);
+        return { status: 'registered', message: 'Registered successfully' };
+      }
+
+      const receipt = `evt_${eventId}_${userId}`.slice(0, 40);
+      // const order = await this.paymentSvc.createOrder(event.ticket_price_cents, event.currency, receipt);
+      // await this.eventRepo.addAttendee(eventId, userId, { status: 'registered', razorpayOrderId: order.id });
+
+      return {
+        status: 'payment_required',
+        // orderId: order.id,
+        // amount: order.amount,
+        // currency: order.currency,
+        // keyId: process.env.RAZORPAY_KEY_ID,
+      };
+    } catch (error) {
+      throw error
     }
-
-    // Free event
-    if (event.is_free) {
-      await this.eventRepo.addAttendee(eventId, userId, { status: 'registered' });
-      await this.eventRepo.incrementAttendeeCount(eventId);
-      return { status: 'registered', message: 'Registered successfully' };
-    }
-
-    // Paid event → create Razorpay order
-    const receipt = `evt_${eventId}_${userId}`.slice(0, 40);
-    // const order = await this.paymentSvc.createOrder(event.ticket_price_cents, event.currency, receipt);
-    // await this.eventRepo.addAttendee(eventId, userId, { status: 'registered', razorpayOrderId: order.id });
-
-    return {
-      status: 'payment_required',
-      // orderId: order.id,
-      // amount: order.amount,
-      // currency: order.currency,
-      // keyId: process.env.RAZORPAY_KEY_ID,
-    };
   }
 
   async cancelRegistration(eventId, userId) {
-    await this.eventRepo.updateAttendeeStatus(eventId, userId, 'cancelled');
-    await this.eventRepo.decrementAttendeeCount(eventId);
+    try {
+      const isAttendee = await this.eventRepo.getAttendee(eventId, userId)
+      if(!isAttendee || isAttendee.status === 'cancelled') throw createError('You already cancelled', 409)
+
+
+      await this.eventRepo.updateAttendeeStatus(eventId, userId, 'cancelled');
+      await this.eventRepo.decrementAttendeeCount(eventId);
+    } catch (error) {
+      throw error
+    }
   }
 
-  async getAttendees(eventId, limit, offset) {
-    return this.eventRepo.getAttendees(eventId, limit, offset);
+  async getAttendees(userId, userRole, eventId, limit, offset) {
+    try {
+      const event = await this.eventRepo.findById(eventId)
+      if(!event) throw createError("Event not found", 404)
+
+      if(event.organizer_id !== userId && userRole === 'user') throw createError("You are not authorized", 403)
+      
+      return this.eventRepo.getAttendees(eventId, limit, offset);
+    } catch (error) {
+      throw error
+    }
   }
 }
 

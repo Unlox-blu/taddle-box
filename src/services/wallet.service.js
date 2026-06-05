@@ -12,35 +12,47 @@ class WalletService {
   }
 
   async getWallet(userId) {
-    const wallet = await this.walletRepo.findByUserId(userId);
-    if (!wallet) throw createError('Wallet not found', 404);
-    return WalletModel.formatWallet(wallet);
+    try {
+      const wallet = await this.walletRepo.findByUserId(userId);
+      if (!wallet) throw createError('Wallet not found', 404);
+      return WalletModel.formatWallet(wallet);
+    } catch (error) {
+      throw error;
+    }
   }
 
   async getTransactions(userId, limit, offset) {
-    const wallet = await this.walletRepo.findByUserId(userId);
-    if (!wallet) throw createError('Wallet not found', 404);
-    const { rows, total } = await this.walletRepo.getTransactions(wallet.id, limit, offset);
-    return { transactions: rows.map(WalletModel.formatTransaction), total };
+    try {
+      const wallet = await this.walletRepo.findByUserId(userId);
+      if (!wallet) throw createError('Wallet not found', 404);
+      const { rows, total } = await this.walletRepo.getTransactions(wallet.id, limit, offset);
+      return { transactions: rows.map(WalletModel.formatTransaction), total };
+    } catch (error) {
+      throw error;
+    }
   }
 
   // Creates a Razorpay order for wallet topup.
   async createTopup(userId, amountCents) {
-    const wallet = await this.walletRepo.findByUserId(userId);
-    if (!wallet) throw createError('Wallet not found', 404);
-    if (!wallet.is_active) throw createError('Wallet is inactive', 400);
-    if (amountCents < 100) throw createError('Minimum topup is ₹1', 400);
+    try {
+      const wallet = await this.walletRepo.findByUserId(userId);
+      if (!wallet) throw createError('Wallet not found', 404);
+      if (!wallet.is_active) throw createError('Wallet is inactive', 400);
+      if (amountCents < 100) throw createError('Minimum topup is ₹1', 400);
 
-    const receipt = `wallet_${userId}_${Date.now()}`.slice(0, 40);
-    // const order = await this.paymentSvc.createOrder(amountCents, 'INR', receipt, { userId });
+      const receipt = `wallet_${userId}_${Date.now()}`.slice(0, 40);
+      // const order = await this.paymentSvc.createOrder(amountCents, 'INR', receipt, { userId });
 
-    return {
-      // orderId: order.id,
-      // amount: order.amount,
-      // currency: order.currency,
-      // keyId: process.env.RAZORPAY_KEY_ID,
-      receipt: receipt
-    };
+      return {
+        // orderId: order.id,
+        // amount: order.amount,
+        // currency: order.currency,
+        // keyId: process.env.RAZORPAY_KEY_ID,
+        receipt: receipt,
+      };
+    } catch (error) {
+      throw error;
+    }
   }
 
   // Credits wallet after Razorpay payment verified (called from webhook handler).
@@ -56,24 +68,31 @@ class WalletService {
       );
       if (!wallet) throw createError('Wallet not found', 404);
 
-      const { balance_cents: newBalance } = await this.walletRepo.creditBalance(wallet.id, amountCents, client);
-
-      await this.walletRepo.createTransaction({
-        walletId: wallet.id,
-        type: 'credit',
+      const { balance_cents: newBalance } = await this.walletRepo.creditBalance(
+        wallet.id,
         amountCents,
-        balanceAfterCents: newBalance,
-        description: 'Wallet topup via Razorpay',
-        category: 'topup',
-        razorpayOrderId,
-        razorpayPaymentId,
-        status: 'completed',
-      }, client);
+        client
+      );
+
+      await this.walletRepo.createTransaction(
+        {
+          walletId: wallet.id,
+          type: 'credit',
+          amountCents,
+          balanceAfterCents: newBalance,
+          description: 'Wallet topup via Razorpay',
+          category: 'topup',
+          razorpayOrderId,
+          razorpayPaymentId,
+          status: 'completed',
+        },
+        client
+      );
 
       await client.query('COMMIT');
 
       // Real-time socket update
-      this.notifSvc.emitWalletUpdate(userId, newBalance).catch(() => { });
+      this.notifSvc.emitWalletUpdate(userId, newBalance).catch(() => {});
 
       return newBalance;
     } catch (err) {
@@ -96,17 +115,24 @@ class WalletService {
       if (!walletRow.is_active) throw createError('Wallet is inactive', 400);
 
       const wallet = await this.walletRepo.lockForUpdate(walletRow.id, client);
-      const { balance_cents: newBalance } = await this.walletRepo.debitBalance(wallet.id, amountCents, client);
-
-      await this.walletRepo.createTransaction({
-        walletId: wallet.id,
-        type: 'debit',
+      const { balance_cents: newBalance } = await this.walletRepo.debitBalance(
+        wallet.id,
         amountCents,
-        balanceAfterCents: newBalance,
-        description,
-        category,
-        status: 'completed',
-      }, client);
+        client
+      );
+
+      await this.walletRepo.createTransaction(
+        {
+          walletId: wallet.id,
+          type: 'debit',
+          amountCents,
+          balanceAfterCents: newBalance,
+          description,
+          category,
+          status: 'completed',
+        },
+        client
+      );
 
       await client.query('COMMIT');
       return newBalance;

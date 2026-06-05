@@ -1,7 +1,10 @@
 'use strict';
 
 const NotificationModel = require('../models/notification.model');
-const { emitNotification, emitWalletUpdate: _emitWallet } = require('../sockets/notification.socket');
+const {
+  emitNotification,
+  emitWalletUpdate: _emitWallet,
+} = require('../sockets/notification.socket');
 
 class NotificationService {
   constructor({ notificationRepository }) {
@@ -10,26 +13,48 @@ class NotificationService {
 
   // Creates a DB record + emits real-time socket event
   async create({ recipientId, senderId, type, title, message, resourceType, resourceId }) {
-    const notif = await this.notifRepo.create({
-      recipientId, senderId, type, title, message, resourceType, resourceId,
-    });
-    // Emit immediately — non-blocking
-    emitNotification(recipientId, NotificationModel.format(notif));
-    return notif;
+    try {
+      const notif = await this.notifRepo.create({
+        recipientId,
+        senderId,
+        type,
+        title,
+        message,
+        resourceType,
+        resourceId,
+      });
+      // Emit immediately — non-blocking
+      emitNotification(recipientId, NotificationModel.format(notif));
+      return notif;
+    } catch (error) {
+      throw error;
+    }
   }
 
   async getAll(userId, limit, offset, unreadOnly = false) {
-    const { rows, total } = await this.notifRepo.findByUser(userId, limit, offset, unreadOnly);
-    const unreadCount = await this.notifRepo.getUnreadCount(userId);
-    return { notifications: rows.map(NotificationModel.format), total, unreadCount };
+    try {
+      const { rows, total } = await this.notifRepo.findByUser(userId, limit, offset, unreadOnly);
+      const unreadCount = await this.notifRepo.getUnreadCount(userId);
+      return { notifications: rows.map(NotificationModel.format), total, unreadCount };
+    } catch (error) {
+      throw error;
+    }
   }
 
   async markAllRead(userId) {
-    await this.notifRepo.markAllRead(userId);
+    try {
+      await this.notifRepo.markAllRead(userId);
+    } catch (error) {
+      throw error;
+    }
   }
 
   async markOneRead(notificationId, userId) {
-    await this.notifRepo.markOneRead(notificationId, userId);
+    try {
+      await this.notifRepo.markOneRead(notificationId, userId);
+    } catch (error) {
+      throw error;
+    }
   }
 
   // Emits a real-time wallet balance update to a user's socket room

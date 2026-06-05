@@ -11,10 +11,24 @@ class FeedController {
   getFeed = async (req, res, next) => {
     try {
       const { limit, offset, page } = getPaginationParams(req.query);
-      // TODO: pass real followingIds from userRepository
-      const { posts, total, fromCache } = await this.feedSvc.getPersonalizedFeed(req.userId, [], limit, offset, page);
-      res.json(apiResponse(posts, fromCache ? 'Feed fetched (cached)' : 'Feed fetched', paginationMeta(total, page, limit)));
-    } catch (err) { next(err); }
+     
+      const { posts, total, fromCache } = await this.feedSvc.getPersonalizedFeed(
+        req.userId,
+        [],
+        limit,
+        offset,
+        page
+      );
+      res.json(
+        apiResponse(
+          posts,
+          fromCache ? 'Feed fetched (cached)' : 'Feed fetched',
+          paginationMeta(total, page, limit)
+        )
+      );
+    } catch (err) {
+      next(err);
+    }
   };
 }
 

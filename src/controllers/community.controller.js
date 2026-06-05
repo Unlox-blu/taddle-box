@@ -13,135 +13,166 @@ class CommunityController {
       const { limit, offset, page } = getPaginationParams(req.query);
       const { communities, total } = await this.communitySvc.browse(req.query, limit, offset);
       res.json(apiResponse(communities, 'Communities fetched', paginationMeta(total, page, limit)));
-    } catch (err) { next(err); }
+    } catch (err) {
+      next(err);
+    }
   };
 
   create = async (req, res, next) => {
     try {
-      const userId = req.userId
-      const body = req.body
+      const userId = req.userId;
+      const body = req.body;
       const community = await this.communitySvc.create(userId, body);
       res.status(201).json(apiResponse(community, 'Community created'));
-    } catch (err) { 
-      next(err); 
+    } catch (err) {
+      next(err);
     }
   };
 
   getBySlug = async (req, res, next) => {
     try {
-      const {slug} = req.params
+      const { slug } = req.params;
       const community = await this.communitySvc.getBySlug(slug);
-      res.json(
-        apiResponse(community)
-      );
-    } catch (err) { 
-      next(err); 
+      res.json(apiResponse(community));
+    } catch (err) {
+      next(err);
     }
   };
 
   update = async (req, res, next) => {
     try {
-      const {communityId} = req.params
-      const userId = req.userId
-      const userRole = req.userRole
-      const body = req.body
+      const { communityId } = req.params;
+      const userId = req.userId;
+      const userRole = req.userRole;
+      const body = req.body;
       const community = await this.communitySvc.update(communityId, userId, userRole, body);
       res.json(apiResponse(community, 'Community updated'));
-    } catch (err) { next(err); }
+    } catch (err) {
+      next(err);
+    }
   };
 
   updateAvatar = async (req, res, next) => {
     try {
-      const {communityId} = req.params
-      const userId = req.userId
-      const userRole = req.userRole
-      const file = req.files
+      const { communityId } = req.params;
+      const userId = req.userId;
+      const userRole = req.userRole;
+      const file = req.files;
       const community = await this.communitySvc.updateAvatar(communityId, userId, userRole, file);
       res.json(apiResponse(community, 'Community avatar updated'));
     } catch (error) {
-      next(error)
+      next(error);
     }
-  }
+  };
 
   updateBanner = async (req, res, next) => {
     try {
-      const {communityId} = req.params
-      const userId = req.userId
-      const userRole = req.userRole
-      const file = req.files
+      const { communityId } = req.params;
+      const userId = req.userId;
+      const userRole = req.userRole;
+      const file = req.files;
       const community = await this.communitySvc.updateBanner(communityId, userId, userRole, file);
       res.json(apiResponse(community, 'Community banner updated'));
     } catch (error) {
-      next(error)
+      next(error);
     }
-  }
+  };
 
   remove = async (req, res, next) => {
     try {
-      const {communityId} = req.params
-      const userId = req.userId
-      const userRole = req.userRole
+      const { communityId } = req.params;
+      const userId = req.userId;
+      const userRole = req.userRole;
       await this.communitySvc.remove(communityId, userId, userRole);
       res.json(apiResponse(null, 'Community deleted'));
-    } catch (err) { next(err); }
+    } catch (err) {
+      next(err);
+    }
   };
 
   join = async (req, res, next) => {
     try {
-      const {communityId} = req.params
-      const userId = req.userId
+      const { communityId } = req.params;
+      const userId = req.userId;
       const { status, message } = await this.communitySvc.join(communityId, userId);
-      res.json(apiResponse(null, message || (status === 'pending' ? 'Join request sent' : 'Joined community')));
-    } catch (err) { next(err); }
+      res.json(
+        apiResponse(
+          null,
+          message || (status === 'pending' ? 'Join request sent' : 'Joined community')
+        )
+      );
+    } catch (err) {
+      next(err);
+    }
   };
 
   leave = async (req, res, next) => {
     try {
-      const {communityId} = req.params
-      const userId = req.userId
+      const { communityId } = req.params;
+      const userId = req.userId;
       await this.communitySvc.leave(communityId, userId);
       res.json(apiResponse(null, 'Left community'));
-    } catch (err) { next(err); }
+    } catch (err) {
+      next(err);
+    }
   };
 
   getMembers = async (req, res, next) => {
     try {
-      const {communityId} = req.params
-      const userId = req.userId
+      const { communityId } = req.params;
+      const userId = req.userId;
       const { limit, offset, page } = getPaginationParams(req.query);
-      const { rows, total } = await this.communitySvc.getMembers(communityId, userId, limit, offset);
+      const { rows, total } = await this.communitySvc.getMembers(
+        communityId,
+        userId,
+        limit,
+        offset
+      );
       res.json(apiResponse(rows, 'Members fetched', paginationMeta(total, page, limit)));
-    } catch (err) { next(err); }
+    } catch (err) {
+      next(err);
+    }
   };
 
   getCommunityPosts = async (req, res, next) => {
     try {
-      const {communityId} = req.params
-      const userId = req.userId
+      const { communityId } = req.params;
+      const userId = req.userId;
       const { limit, offset, page } = getPaginationParams(req.query);
-      const { posts, total } = await this.communitySvc.getCommunityPosts(communityId, userId, limit, offset);
+      const { posts, total } = await this.communitySvc.getCommunityPosts(
+        communityId,
+        userId,
+        limit,
+        offset
+      );
       res.json(apiResponse(posts, 'Posts fetched', paginationMeta(total, page, limit)));
-    } catch (err) { next(err); }
+    } catch (err) {
+      next(err);
+    }
   };
 
   approveMember = async (req, res, next) => {
     try {
-      const {communityId, userId: targetUserId} = req.params
-      const userId = req.userId
-      const userRole = req.userRole
+      const { communityId, userId: targetUserId } = req.params;
+      const userId = req.userId;
+      const userRole = req.userRole;
       await this.communitySvc.approveMember(communityId, targetUserId, userId, userRole);
       res.json(apiResponse(null, 'Member approved'));
-    } catch (err) { next(err); }
+    } catch (err) {
+      next(err);
+    }
   };
 
   removeMember = async (req, res, next) => {
     try {
-      const {communityId, userId: targetUserId} = req.params
-      const userId = req.userId
-      const userRole = req.userRole
+      const { communityId, userId: targetUserId } = req.params;
+      const userId = req.userId;
+      const userRole = req.userRole;
       await this.communitySvc.removeMember(communityId, targetUserId, userId, userRole);
       res.json(apiResponse(null, 'Member removed'));
-    } catch (err) { next(err); }
+    } catch (err) {
+      next(err);
+    }
   };
 }
 

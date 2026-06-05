@@ -12,8 +12,12 @@ class CommunityService {
   }
 
   async browse(filters, limit, offset) {
-    const { rows, total } = await this.communityRepo.browse(filters, limit, offset);
-    return { communities: rows.map(CommunityModel.format), total };
+    try {
+      const { rows, total } = await this.communityRepo.browse(filters, limit, offset);
+      return { communities: rows.map(CommunityModel.format), total };
+    } catch (error) {
+      throw error;
+    }
   }
 
   async create(ownerId, data) {
@@ -70,8 +74,8 @@ class CommunityService {
 
       const isOwner = community.owner_id === userId;
       const isAdmin = userRole === 'admin' || userRole === 'superadmin';
-      if (!isOwner && !isAdmin) throw createError('Not authorized to update this community avatar', 403);
-
+      if (!isOwner && !isAdmin)
+        throw createError('Not authorized to update this community avatar', 403);
 
       const fileUrl = await uploadToCloudinary(file.avatar.data);
 
@@ -84,7 +88,7 @@ class CommunityService {
 
   async updateBanner(communityId, userId, userRole, file) {
     try {
-      console.log(file)
+      console.log(file);
       if (!file || !file.banner || !file.banner.data) throw createError('No file provided', 400);
 
       const community = await this.communityRepo.findById(communityId);
@@ -92,8 +96,8 @@ class CommunityService {
 
       const isOwner = community.owner_id === userId;
       const isAdmin = userRole === 'admin' || userRole === 'superadmin';
-      if (!isOwner && !isAdmin) throw createError('Not authorized to update this community banner', 403);
-
+      if (!isOwner && !isAdmin)
+        throw createError('Not authorized to update this community banner', 403);
 
       const fileUrl = await uploadToCloudinary(file.banner.data);
 

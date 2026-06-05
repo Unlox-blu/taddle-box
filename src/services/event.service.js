@@ -14,22 +14,22 @@ class EventService {
   async browse(filters, limit, offset) {
     try {
       const { rows, total } = await this.eventRepo.browse(filters, limit, offset);
-      return { events: rows.map(EventModel.format), total };  
+      return { events: rows.map(EventModel.format), total };
     } catch (error) {
-      throw error
+      throw error;
     }
   }
 
   async create(organizerId, data) {
     try {
-      const {communityId} = data
-      if(communityId){
+      const { communityId } = data;
+      if (communityId) {
         // check validation
       }
       const event = await this.eventRepo.create({ ...data, organizerId });
       return EventModel.format(event);
     } catch (error) {
-      throw error
+      throw error;
     }
   }
 
@@ -39,7 +39,7 @@ class EventService {
       if (!event) throw createError('Event not found', 404);
       return EventModel.format(event);
     } catch (error) {
-      throw error
+      throw error;
     }
   }
 
@@ -47,17 +47,18 @@ class EventService {
     try {
       const event = await this.eventRepo.findById(eventId);
       if (!event) throw createError('Event not found', 404);
-      if (event.organizer_id !== userId) throw createError('Not authorized to update this event', 403);
+      if (event.organizer_id !== userId)
+        throw createError('Not authorized to update this event', 403);
 
-      const {communityId} = data
-      if(communityId){
+      const { communityId } = data;
+      if (communityId) {
         // check validation
       }
 
       const updated = await this.eventRepo.update(eventId, data);
       return EventModel.format(updated);
     } catch (error) {
-      throw error
+      throw error;
     }
   }
 
@@ -65,10 +66,11 @@ class EventService {
     try {
       const event = await this.eventRepo.findById(eventId);
       if (!event) throw createError('Event not found', 404);
-      if (event.organizer_id !== userId) throw createError('Not authorized to delete this event', 403);
+      if (event.organizer_id !== userId)
+        throw createError('Not authorized to delete this event', 403);
       await this.eventRepo.softDelete(eventId);
     } catch (error) {
-      throw error
+      throw error;
     }
   }
 
@@ -104,33 +106,34 @@ class EventService {
         // keyId: process.env.RAZORPAY_KEY_ID,
       };
     } catch (error) {
-      throw error
+      throw error;
     }
   }
 
   async cancelRegistration(eventId, userId) {
     try {
-      const isAttendee = await this.eventRepo.getAttendee(eventId, userId)
-      if(!isAttendee || isAttendee.status === 'cancelled') throw createError('You already cancelled', 409)
-
+      const isAttendee = await this.eventRepo.getAttendee(eventId, userId);
+      if (!isAttendee || isAttendee.status === 'cancelled')
+        throw createError('You already cancelled', 409);
 
       await this.eventRepo.updateAttendeeStatus(eventId, userId, 'cancelled');
       await this.eventRepo.decrementAttendeeCount(eventId);
     } catch (error) {
-      throw error
+      throw error;
     }
   }
 
   async getAttendees(userId, userRole, eventId, limit, offset) {
     try {
-      const event = await this.eventRepo.findById(eventId)
-      if(!event) throw createError("Event not found", 404)
+      const event = await this.eventRepo.findById(eventId);
+      if (!event) throw createError('Event not found', 404);
 
-      if(event.organizer_id !== userId && userRole === 'user') throw createError("You are not authorized", 403)
-      
+      if (event.organizer_id !== userId && userRole === 'user')
+        throw createError('You are not authorized', 403);
+
       return this.eventRepo.getAttendees(eventId, limit, offset);
     } catch (error) {
-      throw error
+      throw error;
     }
   }
 }

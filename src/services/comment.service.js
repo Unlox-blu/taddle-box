@@ -11,38 +11,54 @@ class CommentService {
   }
 
   async createComment({ postId, authorId, content, parentId }) {
-    const post = await this.postRepo.findById(postId);
-    if (!post) throw createError('Post not found', 404);
+    try {
+      const post = await this.postRepo.findById(postId);
+      if (!post) throw createError('Post not found', 404);
 
-    if(post.community_privacy !== 'public'){
-      //do validation
+      if (post.community_privacy !== 'public') {
+        //do validation
+      }
+
+      // Compute nested thread path + depth
+      let depth = 0;
+      let path = [];
+      if (parentId) {
+        const parent = await this.commentRepo.findById(parentId);
+        if (!parent) throw createError('Parent comment not found', 404);
+        if (parent.depth >= 5) throw createError('Maximum reply depth reached', 400);
+        depth = parent.depth + 1;
+        path = [...(parent.path || []), parent.id];
+      }
+
+      const comment = await this.commentRepo.create({
+        postId,
+        authorId,
+        content,
+        parentId,
+        depth,
+        path,
+      });
+      await this.postRepo.incrementCommentCount(postId);
+
+      // TODO: notify post author (if not self)
+
+      return CommentModel.format(comment);
+    } catch (error) {
+      throw error;
     }
-    
-    // Compute nested thread path + depth
-    let depth = 0;
-    let path = [];
-    if (parentId) {
-      const parent = await this.commentRepo.findById(parentId);
-      if (!parent) throw createError('Parent comment not found', 404);
-      if (parent.depth >= 5) throw createError('Maximum reply depth reached', 400);
-      depth = parent.depth + 1;
-      path = [...(parent.path || []), parent.id];
-    }
-
-    const comment = await this.commentRepo.create({ postId, authorId, content, parentId, depth, path });
-    await this.postRepo.incrementCommentCount(postId);
-
-    // TODO: notify post author (if not self)
-
-    return CommentModel.format(comment);
   }
 
   async updateComment(commentId, userId, content) {
-    const comment = await this.commentRepo.findById(commentId);
-    if (!comment) throw createError('Comment not found', 404);
-    if (comment.author_id !== userId) throw createError('Not authorized to edit this comment', 403);
-    const updated = await this.commentRepo.update(commentId, content);
-    return CommentModel.format(updated);
+    try {
+      const comment = await this.commentRepo.findById(commentId);
+      if (!comment) throw createError('Comment not found', 404);
+      if (comment.author_id !== userId)
+        throw createError('Not authorized to edit this comment', 403);
+      const updated = await this.commentRepo.update(commentId, content);
+      return CommentModel.format(updated);
+    } catch (error) {
+      throw error;
+    }
   }
 
   async deleteComment(commentId, userId, userRole) {
@@ -57,7 +73,7 @@ class CommentService {
       await this.commentRepo.softDelete(commentId);
       await this.postRepo.decrementCommentCount(comment.post_id);
     } catch (error) {
-      throw error
+      throw error;
     }
   }
 
@@ -68,7 +84,7 @@ class CommentService {
       await this.commentRepo.addLike(commentId, userId);
       await this.commentRepo.incrementLikeCount(commentId);
     } catch (error) {
-      throw error
+      throw error;
     }
   }
 
@@ -80,7 +96,7 @@ class CommentService {
       await this.commentRepo.removeLike(commentId, userId);
       await this.commentRepo.decrementLikeCount(commentId);
     } catch (error) {
-      throw error
+      throw error;
     }
   }
 }

@@ -3,13 +3,24 @@
 const { z } = require('zod');
 const { POST_TYPES, POST_STATUSES, VISIBILITIES } = require('../models/post.model');
 
+const typeCheck = (val) => {
+    if (typeof val === 'string') {
+      try {
+        return JSON.parse(val);
+      } catch {
+        return val;
+      }
+    }
+    return val;
+  }
+
 const createPostSchema = z.object({
   title: z.string().min(1, 'Title is required for the post').max(300),
   content: z.string().max(10000).optional(),
   postType: z.enum(POST_TYPES).default('text'),
   communityId: z.string().uuid('Invalid community ID').optional(),
-  tags: z.array(z.string().max(50)).max(10).default([]),
-  category: z.array(z.string().max(50)).max(5).default([]),
+  tags: z.preprocess(typeCheck ,z.array(z.string().max(50)).max(10).default([])),
+  category: z.preprocess(typeCheck ,z.array(z.string().max(50)).max(5).default([])),
   visibility: z.enum(VISIBILITIES).default('public'),
   status: z.enum(POST_STATUSES).default('published'),
   pollData: z.record(z.unknown()).optional(),
@@ -23,8 +34,8 @@ const createPostSchema = z.object({
 const updatePostSchema = z.object({
   title: z.string().max(300).optional(),
   content: z.string().max(10000).optional(),
-  tags: z.array(z.string().max(50)).max(10).optional(),
-  category: z.array(z.string().max(50)).max(5).optional(),
+  tags: z.preprocess(typeCheck ,z.array(z.string().max(50)).max(10).default([])),
+  category: z.preprocess(typeCheck ,z.array(z.string().max(50)).max(5).default([])),
   visibility: z.enum(VISIBILITIES).optional(),
   status: z.enum(POST_STATUSES).optional(),
   pollData: z.record(z.unknown()).optional(),

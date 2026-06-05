@@ -17,9 +17,10 @@ const findById = async (postId) => {
 
 const findManyByUser = async (userId, limit, offset) => {
   const { rows } = await pool.query(
-    `SELECT ${PostModel.LIST_FIELDS}, COUNT(*) OVER() AS total
+    `SELECT ${PostModel.LIST_FIELDS}, c.privacy AS community_privacy, COUNT(*) OVER() AS total
      FROM ${PostModel.TABLE} p
      JOIN users u ON u.id = p.author_id
+     JOIN communities c ON c.id = p.community_id
      WHERE p.author_id = $1 AND p.deleted_at IS NULL AND p.status = 'published'
      ORDER BY p.created_at DESC
      LIMIT $2 OFFSET $3`,
@@ -44,13 +45,14 @@ const findManyByCommunity = async (communityId, limit, offset) => {
 };
 
 const create = async (data) => {
+  // console.log(data)
   const { rows } = await pool.query(
     `INSERT INTO ${PostModel.TABLE}
-       (author_id, community_id, title, content, post_type, tags, category, visibility, status, poll_data, link_data, published_at)
-     VALUES ($1, $2, $3, $4, $5, $6::text[], $7::text[], $8, $9::varchar, $10, $11, CASE WHEN $9::varchar = 'published' THEN NOW() ELSE NULL END)
+       (author_id, community_id, title, content, media, post_type, tags, category, visibility, status, poll_data, link_data, published_at)
+     VALUES ($1, $2, $3, $4, $5, $6, $7::text[], $8::text[], $9, $10::varchar, $11, $12, CASE WHEN $10::varchar = 'published' THEN NOW() ELSE NULL END)
      RETURNING *`,
     [data.authorId, data.communityId || null, data.title || null, data.content || null,
-    data.postType || 'text', data.tags || [], data.category || [],
+    data.media ? JSON.stringify(data.media) : null, data.postType || 'text', data.tags || [], data.category || [],
     data.visibility || 'public', data.status || 'published',
     data.pollData ? JSON.stringify(data.pollData) : null,
     data.linkData ? JSON.stringify(data.linkData) : null]
@@ -64,7 +66,9 @@ const update = async (postId, fields) => {
   const values = [];
   Object.entries(fields).forEach(([k, v]) => {
     const col = k.replace(/([A-Z])/g, '_$1').toLowerCase();
-    if (allowed.includes(col)) { values.push(v); updates.push(`${col} = $${values.length}`); }
+    if (allowed.includes(col)) { 
+      values.push(v); updates.push(`${col} = $${values.length}`); 
+    }
   });
   if (!updates.length) return findById(postId);
   values.push(postId);

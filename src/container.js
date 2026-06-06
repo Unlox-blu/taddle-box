@@ -87,7 +87,7 @@ const feedService = new FeedService({
 });
 
 const mediaService = new MediaService({
-  mediaRepository, storageIntegration, videoIntegration,
+  mediaRepository, storageIntegration, videoIntegration
 });
 
 // Instantiate Controllers

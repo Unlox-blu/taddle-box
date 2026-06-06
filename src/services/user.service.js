@@ -49,7 +49,7 @@ class UserService {
 
   async updateAvatar(userId, file) {
     try {
-      if (!file || !file.avatar || !file.avater.data) throw createError('No file provided', 400);
+      if (!file || !file.avatar || !file.avatar.data) throw createError('No file provided', 400);
 
       const fileUrl = await uploadToCloudinary(file.avatar.data);
 

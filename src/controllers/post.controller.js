@@ -23,7 +23,7 @@ class PostController {
     try {
       const userId = req.userId;
       const body = req.body;
-      const mediaFiles = req.files.media;
+      const mediaFiles = req.files ? req.files.media : null;
 
       const post = await this.postSvc.createPost(userId, body, mediaFiles);
       res.status(201).json(apiResponse(post, 'Post created'));

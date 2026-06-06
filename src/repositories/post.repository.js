@@ -68,7 +68,7 @@ const create = async (data) => {
         data.communityId || null,
         data.title || null,
         data.content || null,
-        data.media ? JSON.stringify(data.media) : null,
+        data.media ? JSON.stringify(data.media) : '[]',
         data.postType || 'text',
         data.tags || [],
         data.category || [],

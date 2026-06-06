@@ -34,8 +34,7 @@ class PostService {
           throw createError('You must be a member to post in this community', 403);
       }
 
-      const media = await Promise.all(mediaFiles.map((file) => uploadToCloudinary(file.data)));
-      data.media = media;
+      data.media = mediaFiles ? await Promise.all(mediaFiles.map((file) => uploadToCloudinary(file.data))) : null;
 
       const post = await this.postRepo.create({ ...data, authorId });
 

@@ -12,7 +12,7 @@ class NotificationService {
   }
 
   // Creates a DB record + emits real-time socket event
-  async create({ recipientId, senderId, type, title, message, resourceType, resourceId }) {
+  async create({ recipientId, senderId, type, title, message, resourceType = null, resourceId = null }) {
     try {
       const notif = await this.notifRepo.create({
         recipientId,

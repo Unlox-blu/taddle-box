@@ -193,6 +193,21 @@ const getMembers = async (communityId, status, limit, offset) => {
   }
 };
 
+const getAdminsId = async (communityId) => {
+  try {
+    const { rows } = await pool.query(
+      `SELECT user_id FROM ${CommunityModel.MEMBERS_TABLE} 
+      WHERE status = 'active' AND role = 'admin' AND community_id = $1 
+      ORDER BY joined_at`,
+      [communityId]
+    );
+    
+    return rows;
+  } catch (error) {
+    throw error;
+  }
+};
+
 const incrementMemberCount = async (communityId) => {
   try {
     await pool.query(
@@ -259,6 +274,7 @@ module.exports = {
   addMember,
   removeMember,
   getMember,
+  getAdminsId,
   updateMemberStatus,
   updateMemberRole,
   getMembers,

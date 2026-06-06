@@ -16,7 +16,7 @@ class CommentService {
       if (!post) throw createError('Post not found', 404);
 
       if (post.community_privacy !== 'public') {
-        //do validation
+        //do authorization
       }
 
       // Compute nested thread path + depth
@@ -41,6 +41,11 @@ class CommentService {
       await this.postRepo.incrementCommentCount(postId);
 
       // TODO: notify post author (if not self)
+      const type = 'Comment'
+      const title = 'Post comment'
+      const message = `Post: ${post.id}, Comment: ${content}.`
+         
+      await this.notifSvc.create({ recipientId: post.author_id, senderId: authorId, type, title, message })
 
       return CommentModel.format(comment);
     } catch (error) {

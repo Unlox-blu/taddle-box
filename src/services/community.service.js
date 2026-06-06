@@ -6,9 +6,10 @@ const PostModel = require('../models/post.model');
 const { uploadToCloudinary } = require('../config/cloudinary');
 
 class CommunityService {
-  constructor({ communityRepository, postRepository }) {
+  constructor({ communityRepository, postRepository, notificationService}) {
     this.communityRepo = communityRepository;
     this.postRepo = postRepository;
+    this.notifSvc = notificationService;
   }
 
   async browse(filters, limit, offset) {
@@ -135,6 +136,17 @@ class CommunityService {
       const status = isPending ? 'pending' : 'active';
       await this.communityRepo.addMember(communityId, userId, 'member', status);
 
+      if(isPending){
+        const admins = await this.communityRepo.getAdminsId(communityId)
+        const type = 'Request'
+        const title = 'Request to join community'
+        const message = `${userId} is requesting to join the name: ${community.name}, communityId: ${communityId}`
+         
+        await Promise.all(admins.map(({user_id}) => {
+          this.notifSvc.create({ recipientId: user_id, senderId: userId, type, title, message })
+        })); 
+      }
+
       if (!isPending) await this.communityRepo.incrementMemberCount(communityId);
 
       return { status };
@@ -201,7 +213,6 @@ class CommunityService {
       const member = await this.communityRepo.getMember(communityId, requesterId);
       const canApprove =
         member?.role === 'admin' ||
-        member?.role === 'moderator' ||
         ['admin', 'superadmin'].includes(requesterRole);
 
       if (!canApprove) throw createError('Not authorized to approve members', 403);
@@ -214,6 +225,13 @@ class CommunityService {
 
       await this.communityRepo.updateMemberStatus(communityId, targetUserId, 'active');
       await this.communityRepo.incrementMemberCount(communityId);
+
+      const type = 'Approve'
+      const title = 'Request approved to join community'
+      const message = `Now you are the member of ${community.name} community.`
+         
+      await this.notifSvc.create({ recipientId: targetUserId, senderId: requesterId, type, title, message })
+        
     } catch (error) {
       throw error;
     }

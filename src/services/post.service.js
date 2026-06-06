@@ -112,11 +112,22 @@ class PostService {
 
   async likePost(postId, userId) {
     try {
+      const post = await this.postRepo.findById(postId)
+      if(!post) throw createError("Post not found", 404)
+
       const alreadyLiked = await this.postRepo.isLikedByUser(postId, userId);
       if (alreadyLiked) throw createError('Post already liked', 409);
+
       await this.postRepo.addLike(postId, userId);
       await this.postRepo.incrementLikeCount(postId);
       // TODO: notify post author via notificationService
+
+
+      const type = 'Like'
+      const title = 'Post liked'
+      const message = `Post: ${post.id}, total likes: ${post.likes_count}.`
+         
+      await this.notifSvc.create({ recipientId: post.author_id, senderId: userId, type, title, message })
     } catch (error) {
       throw error;
     }

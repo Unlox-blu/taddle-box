@@ -2,13 +2,14 @@
 
 const { createError } = require('../utils/error.util');
 const PostModel = require('../models/post.model');
-const { uploadToCloudinary } = require('../config/cloudinary');
+const { uploadFile } = require('../config/cloudinary');
 
 class PostService {
-  constructor({ postRepository, communityRepository, notificationService }) {
+  constructor({ postRepository, communityRepository, notificationService, feedService }) {
     this.postRepo = postRepository;
     this.communityRepo = communityRepository;
     this.notifSvc = notificationService;
+    this.feedSvc = feedService;
   }
 
   async getPosts(filters, limit, offset) {
@@ -34,11 +35,17 @@ class PostService {
           throw createError('You must be a member to post in this community', 403);
       }
 
-      data.media = mediaFiles ? await Promise.all(mediaFiles.map((file) => uploadToCloudinary(file.data))) : null;
+
+      if(mediaFiles) {
+        data.media = await Promise.all(mediaFiles.map(async (file) => {
+          const {url} = await uploadFile(file.data, 'posts', authorId)
+          return url
+        }))
+      }
 
       const post = await this.postRepo.create({ ...data, authorId });
 
-      // TODO: queue fanout notification to followers via notificationService
+      this.feedSvc.updatePreferences(authorId, data.category || [], data.tags || [])
       return PostModel.format(post);
     } catch (error) {
       throw error;
@@ -84,12 +91,14 @@ class PostService {
     }
   }
 
-  async updatePost(postId, userId, data) {
+  async updatePost(postId, authorId, data) {
     try {
       const post = await this.postRepo.findById(postId);
       if (!post) throw createError('Post not found', 404);
-      if (post.author_id !== userId) throw createError('Not authorized to edit this post', 403);
+      if (post.author_id !== authorId) throw createError('Not authorized to edit this post', 403);
       const updated = await this.postRepo.update(postId, data);
+      
+      this.feedSvc.updatePreferences(authorId, data.category || [], data.tags || [])
       return PostModel.format(updated);
     } catch (error) {
       throw error;
@@ -127,6 +136,7 @@ class PostService {
       const message = `Post: ${post.id}, total likes: ${post.likes_count}.`
          
       await this.notifSvc.create({ recipientId: post.author_id, senderId: userId, type, title, message })
+      this.feedSvc.updatePreferences(userId, post.category || [], post.tags || [])
     } catch (error) {
       throw error;
     }
@@ -145,6 +155,8 @@ class PostService {
 
   async sharePost(postId) {
     try {
+      const post = await this.postRepo.findById(postId)
+      if(!post) throw createError("Post not found", 404)
       await this.postRepo.incrementShareCount(postId);
     } catch (error) {
       throw error;

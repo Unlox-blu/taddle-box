@@ -101,6 +101,7 @@ const update = async (postId, fields) => {
     Object.entries(fields).forEach(([k, v]) => {
       const col = k.replace(/([A-Z])/g, '_$1').toLowerCase();
       if (allowed.includes(col)) {
+        if(Array.isArray(v) && v.length === 0) return
         values.push(v);
         updates.push(`${col} = $${values.length}`);
       }

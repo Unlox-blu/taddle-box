@@ -10,8 +10,7 @@ class NotificationService {
   constructor({ notificationRepository }) {
     this.notifRepo = notificationRepository;
   }
-
-  // Creates a DB record + emits real-time socket event
+  
   async create({ recipientId, senderId, type, title, message, resourceType = null, resourceId = null }) {
     try {
       const notif = await this.notifRepo.create({
@@ -23,7 +22,7 @@ class NotificationService {
         resourceType,
         resourceId,
       });
-      // Emit immediately — non-blocking
+      
       emitNotification(recipientId, NotificationModel.format(notif));
       return notif;
     } catch (error) {

@@ -3,7 +3,7 @@
 const { createError } = require('../utils/error.util');
 const CommunityModel = require('../models/community.model');
 const PostModel = require('../models/post.model');
-const { uploadToCloudinary } = require('../config/cloudinary');
+const { uploadFile } = require('../config/cloudinary');
 
 class CommunityService {
   constructor({ communityRepository, postRepository, notificationService}) {
@@ -78,9 +78,9 @@ class CommunityService {
       if (!isOwner && !isAdmin)
         throw createError('Not authorized to update this community avatar', 403);
 
-      const fileUrl = await uploadToCloudinary(file.avatar.data);
+      const {url} = await uploadFile(file.avatar.data, 'avatar', userId);
 
-      const updatedAvatar = await this.communityRepo.updateAvatar(communityId, fileUrl);
+      const updatedAvatar = await this.communityRepo.updateAvatar(communityId, url);
       return updatedAvatar;
     } catch (error) {
       throw error;
@@ -100,9 +100,9 @@ class CommunityService {
       if (!isOwner && !isAdmin)
         throw createError('Not authorized to update this community banner', 403);
 
-      const fileUrl = await uploadToCloudinary(file.banner.data);
+      const {url} = await uploadFile(file.banner.data, 'banner', userId);
 
-      const updatedBanner = await this.communityRepo.updateBanner(communityId, fileUrl);
+      const updatedBanner = await this.communityRepo.updateBanner(communityId, url);
       return updatedBanner;
     } catch (error) {
       throw error;

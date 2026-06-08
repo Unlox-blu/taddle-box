@@ -15,7 +15,6 @@ const {
 
 
 router.post('/verify-email/send', otpRateLimiter, validate(sendOtpSchema), authController.sendVerificationEmail)
-// router.post('/verify-email/send', validate(sendOtpSchema), authController.sendVerificationEmail)
 router.post('/verify-email/verify', validate(verifyOtpSchema), authController.verifyOtp)
 router.post('/signup', validate(signupSchema), authController.signup);
 router.post('/login', validate(loginSchema), authController.login);

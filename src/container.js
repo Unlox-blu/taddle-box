@@ -45,10 +45,15 @@ const NotificationController = require('./controllers/notification.controller');
 const MediaController = require('./controllers/media.controller');
 
 // Instantiate Services
+
+const feedService = new FeedService({
+  feedRepository, postRepository, followerRepository
+});
+
 const authService = new AuthService({
   verifyEmailRepository, userRepository, 
   walletRepository,  emailIntegration, 
-  googleIntegration,
+  googleIntegration, 
 });
 
 const userService = new UserService({
@@ -62,7 +67,7 @@ const notificationService = new NotificationService({
 
 const postService = new PostService({
   postRepository, communityRepository,
-  notificationService,
+  notificationService, feedService
 });
 
 const communityService = new CommunityService({
@@ -71,7 +76,7 @@ const communityService = new CommunityService({
 });
 
 const commentService = new CommentService({
-  commentRepository, postRepository, notificationService,
+  commentRepository, postRepository, notificationService, feedService
 });
 
 const eventService = new EventService({
@@ -80,10 +85,6 @@ const eventService = new EventService({
 
 const walletService = new WalletService({
   walletRepository, paymentIntegration, notificationService,
-});
-
-const feedService = new FeedService({
-  feedRepository, postRepository,
 });
 
 const mediaService = new MediaService({

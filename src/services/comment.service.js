@@ -4,10 +4,11 @@ const { createError } = require('../utils/error.util');
 const CommentModel = require('../models/comment.model');
 
 class CommentService {
-  constructor({ commentRepository, postRepository, notificationService }) {
+  constructor({ commentRepository, postRepository, notificationService, feedService }) {
     this.commentRepo = commentRepository;
     this.postRepo = postRepository;
     this.notifSvc = notificationService;
+    this.feedSvc = feedService;
   }
 
   async createComment({ postId, authorId, content, parentId }) {
@@ -47,6 +48,7 @@ class CommentService {
          
       await this.notifSvc.create({ recipientId: post.author_id, senderId: authorId, type, title, message })
 
+      this.feedSvc.updatePreferences(authorId, post.category || [], post.tags || [])
       return CommentModel.format(comment);
     } catch (error) {
       throw error;

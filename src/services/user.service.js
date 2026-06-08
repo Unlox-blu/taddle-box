@@ -3,7 +3,7 @@
 const { createError } = require('../utils/error.util');
 const UserModel = require('../models/user.model');
 const FollowersModel = require('../models/followers.model');
-const { uploadToCloudinary } = require('../config/cloudinary');
+const { uploadFile } = require('../config/cloudinary');
 const { tryCatch } = require('bullmq');
 
 class UserService {
@@ -51,9 +51,9 @@ class UserService {
     try {
       if (!file || !file.avatar || !file.avatar.data) throw createError('No file provided', 400);
 
-      const fileUrl = await uploadToCloudinary(file.avatar.data);
+      const {url} = await uploadFile(file.avatar.data, 'avatar', userId);
 
-      const updateAvatar = await this.userRepo.updateAvatar(userId, fileUrl);
+      const updateAvatar = await this.userRepo.updateAvatar(userId, url);
       return updateAvatar;
     } catch (error) {
       throw error;
@@ -64,9 +64,9 @@ class UserService {
     try {
       if (!file || !file.banner || !file.banner.data) throw createError('No file provided', 400);
 
-      const fileUrl = await uploadToCloudinary(file.banner.data);
+      const {url} = await uploadFile(file.banner.data, 'banner', userId);
 
-      const updateAvatar = await this.userRepo.updateBanner(userId, fileUrl);
+      const updateAvatar = await this.userRepo.updateBanner(userId, url);
       return updateAvatar;
     } catch (error) {
       throw error;

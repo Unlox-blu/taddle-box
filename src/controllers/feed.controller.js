@@ -14,7 +14,6 @@ class FeedController {
      
       const { posts, total, fromCache } = await this.feedSvc.getPersonalizedFeed(
         req.userId,
-        [],
         limit,
         offset,
         page

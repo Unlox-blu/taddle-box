@@ -13,15 +13,6 @@ class UserService {
     this.storageSvc = storageIntegration;
   }
 
-  async searchUsers(query, limit, offset) {
-    try {
-      const users = await this.userRepo.search(query || '', limit, offset);
-      return users.map(UserModel.format);
-    } catch (error) {
-      throw error;
-    }
-  }
-
   async getProfile(username, requesterId = null) {
     try {
       const user = await this.userRepo.findByUsername(username);
@@ -84,7 +75,7 @@ class UserService {
     }
   }
 
-  async getFollowers(userId, username, limit, offset) {
+  async getFollowers({userId, username, limit, offset}) {
     try {
       const user = await this.userRepo.findByUsername(username);
       if (!user) throw createError('User not found', 404);
@@ -101,7 +92,7 @@ class UserService {
     }
   }
 
-  async getFollowing(userId, username, limit, offset) {
+  async getFollowing({userId, username, limit, offset}) {
     try {
       const user = await this.userRepo.findByUsername(username);
       if (!user) throw createError('User not found', 404);

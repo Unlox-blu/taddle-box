@@ -15,10 +15,10 @@ const findById = async (eventId) => {
   }
 };
 
-const browse = async (filters, limit, offset) => {
+const search = async (query, filter, limit, offset) => {
   try {
-    const q = filters.q || '';
-    const eventType = filters.eventType || null;
+    const q = query || '';
+    const eventType = filter || null;
     const { rows } = await pool.query(
       `SELECT ${EventModel.LIST_FIELDS}, COUNT(*) OVER() AS total
      FROM ${EventModel.TABLE}
@@ -209,7 +209,7 @@ const confirmPayment = async (eventId, userId, rp) => {
 
 module.exports = {
   findById,
-  browse,
+  search,
   create,
   update,
   softDelete,

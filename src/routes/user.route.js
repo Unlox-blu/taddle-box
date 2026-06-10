@@ -8,7 +8,7 @@ const { validate }               = require('../middlewares/validator.middleware'
 const { uploadSingle }           = require('../middlewares/upload.middleware');
 const { updateProfileSchema, updateUsernameSchema } = require('../validators/user.validator');
 
-// router.get('/',                             optionalAuth,  userController.searchUsers);
+
 router.get('/:username',                    optionalAuth,                                       userController.getProfile);
 router.patch('/update-profile',             verifyToken,     validate(updateProfileSchema),     userController.updateProfile);
 router.post('/update-avatar',               verifyToken,                                        userController.updateAvatar);

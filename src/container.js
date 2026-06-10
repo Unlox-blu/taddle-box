@@ -31,6 +31,7 @@ const WalletService = require('./services/wallet.service');
 const FeedService = require('./services/feed.service');
 const NotificationService = require('./services/notification.service');
 const MediaService = require('./services/media.service');
+const SearchService = require('./services/search.service')
 
 // Controllers
 const AuthController = require('./controllers/auth.controller');
@@ -43,6 +44,7 @@ const WalletController = require('./controllers/wallet.controller');
 const FeedController = require('./controllers/feed.controller');
 const NotificationController = require('./controllers/notification.controller');
 const MediaController = require('./controllers/media.controller');
+const SearchController = require('./controllers/search.controller')
 
 // Instantiate Services
 
@@ -76,7 +78,7 @@ const communityService = new CommunityService({
 });
 
 const commentService = new CommentService({
-  commentRepository, postRepository, notificationService, feedService
+  commentRepository, postRepository, notificationService, feedService, communityRepository
 });
 
 const eventService = new EventService({
@@ -91,6 +93,10 @@ const mediaService = new MediaService({
   mediaRepository, storageIntegration, videoIntegration
 });
 
+const searchService = new SearchService({
+  userRepository, postRepository, communityRepository, eventRepository
+})
+
 // Instantiate Controllers
 const authController = new AuthController({ authService });
 const userController = new UserController({ userService });
@@ -102,6 +108,7 @@ const walletController = new WalletController({ walletService });
 const feedController = new FeedController({ feedService });
 const notificationController = new NotificationController({ notificationService });
 const mediaController = new MediaController({ mediaService });
+const searchController = new SearchController({searchService})
 
 module.exports = {
   authController,
@@ -114,4 +121,5 @@ module.exports = {
   feedController,
   notificationController,
   mediaController,
+  searchController,
 };

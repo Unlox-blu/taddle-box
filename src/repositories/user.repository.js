@@ -324,14 +324,16 @@ const softDelete = async (userId) => {
 const search = async (query, limit, offset) => {
   try {
     const { rows } = await pool.query(
-      `SELECT ${UserModel.SEARCH_FIELDS} FROM ${UserModel.TABLE}
+      `SELECT ${UserModel.SEARCH_FIELDS}, COUNT(*) OVER() AS total
+       FROM ${UserModel.TABLE}
      WHERE deleted_at IS NULL AND is_active = TRUE AND is_banned = FALSE
        AND ($1 = '' OR username ILIKE $1 OR name ILIKE $1)
      ORDER BY follower_count DESC
      LIMIT $2 OFFSET $3`,
       [`%${query}%`, limit, offset]
     );
-    return rows;
+    const total = rows[0]?.total || 0;
+    return { rows, total: parseInt(total, 10) };
   } catch (error) {
     throw error;
   }

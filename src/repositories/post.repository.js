@@ -230,9 +230,9 @@ const incrementViewCount = async (id) => {
   }
 };
 
-const search = async (filters, limit, offset) => {
+const search = async (query, limit, offset) => {
   try {
-    const q = filters.q || '';
+    const q = query || '';
     const { rows } = await pool.query(
       `SELECT ${PostModel.LIST_FIELDS}, COUNT(*) OVER() AS total
      FROM ${PostModel.TABLE} p

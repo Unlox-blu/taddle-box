@@ -8,7 +8,7 @@ const { authorize }                  = require('../middlewares/authorized.middle
 const { validate }                   = require('../middlewares/validator.middleware');
 const { createCommunitySchema, updateCommunitySchema } = require('../validators/community.validator');
 
-// router.get('/',                                        optionalAuth, communityController.browse);
+
 router.post('/create-community',                       verifyToken,  validate(createCommunitySchema), communityController.create);
 router.get('/:slug',                                   optionalAuth, communityController.getBySlug);
 router.patch('/:communityId/update-community',         verifyToken,  validate(updateCommunitySchema), communityController.update);

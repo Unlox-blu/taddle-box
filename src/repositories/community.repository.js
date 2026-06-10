@@ -230,10 +230,10 @@ const decrementMemberCount = async (communityId) => {
   }
 };
 
-const browse = async (filters, limit, offset) => {
+const search = async (query, filter, limit, offset) => {
   try {
-    const q = filters.q || '';
-    const category = filters.category || null;
+    const q = query || '';
+    const category = filter || null;
     const { rows } = await pool.query(
       `SELECT ${CommunityModel.LIST_FIELDS}, COUNT(*) OVER() AS total
      FROM ${CommunityModel.TABLE}
@@ -280,6 +280,6 @@ module.exports = {
   getMembers,
   incrementMemberCount,
   decrementMemberCount,
-  browse,
+  search,
   isMember,
 };

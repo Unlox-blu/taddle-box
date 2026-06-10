@@ -8,16 +8,15 @@ const { authorize }                  = require('../middlewares/authorized.middle
 const { validate }                   = require('../middlewares/validator.middleware');
 const { createPostSchema, updatePostSchema } = require('../validators/post.validator');
 
-router.get('/',                  optionalAuth,                                         postController.getPosts);
+
 router.post('/create-post',                 verifyToken,   validate(createPostSchema), postController.createPost);
 router.get('/:postId',           optionalAuth,                                         postController.getPost);
-router.get('/user/:authorId',      optionalAuth,                                       postController.getUserPosts); // move to user's route
+router.get('/user/:authorId',      optionalAuth,                                       postController.getUserPosts); 
 router.patch('/update-post/:postId', verifyToken,   validate(updatePostSchema),        postController.updatePost);
 router.delete('/:postId',        verifyToken,                                          postController.deletePost);
 router.post('/:postId/like',     verifyToken,                                          postController.likePost);
 router.delete('/:postId/like',   verifyToken,                                          postController.unlikePost);
 router.post('/:postId/share',    verifyToken,                                          postController.sharePost);
-// router.get('/:postId/comments',  optionalAuth,  postController.getPostComments);
 router.delete('/:postId/force',  verifyToken,   authorize('admin', 'superadmin'),      postController.forceDeletePost);
 
 module.exports = router;

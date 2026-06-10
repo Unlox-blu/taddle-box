@@ -8,15 +8,7 @@ class CommunityController {
     this.communitySvc = communityService;
   }
 
-  browse = async (req, res, next) => {
-    try {
-      const { limit, offset, page } = getPaginationParams(req.query);
-      const { communities, total } = await this.communitySvc.browse(req.query, limit, offset);
-      res.json(apiResponse(communities, 'Communities fetched', paginationMeta(total, page, limit)));
-    } catch (err) {
-      next(err);
-    }
-  };
+  
 
   create = async (req, res, next) => {
     try {

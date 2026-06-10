@@ -9,15 +9,7 @@ class PostController {
     this.postSvc = postService;
   }
 
-  getPosts = async (req, res, next) => {
-    try {
-      const { limit, offset, page } = getPaginationParams(req.query);
-      const { posts, total } = await this.postSvc.getPosts(req.query, limit, offset);
-      res.json(apiResponse(posts, 'Posts fetched', paginationMeta(total, page, limit)));
-    } catch (err) {
-      next(err);
-    }
-  };
+ 
 
   createPost = async (req, res, next) => {
     try {

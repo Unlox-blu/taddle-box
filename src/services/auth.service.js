@@ -32,7 +32,7 @@ class AuthService {
     this.googleSvc = googleIntegration;
   }
 
-  async sendVerificationEmail(email) {
+  async sendVerificationEmail({email}) {
     try {
       const existingEmail = await this.userRepo.findByEmail(email);
       if (existingEmail) throw createError('Email is already registered', 409);
@@ -58,7 +58,7 @@ class AuthService {
     }
   }
 
-  async verifyOtp(email, otp) {
+  async verifyOtp({email, otp}) {
     try {
       const isOtpAvailable = await this.verifyEmailRepo.findByEmail(email);
       if (!isOtpAvailable) throw createError('Otp did not generated for this email', 409);
@@ -126,9 +126,9 @@ class AuthService {
 
       const result = await this.#issueTokens(user);
 
-      const hashRefreshToken = hashToken(result.refreshToken);
+      // const hashRefreshToken = hashToken(result.refreshToken);
 
-      await this.userRepo.updateRefreshToken(user.id, hashRefreshToken);
+      // await this.userRepo.updateRefreshToken(user.id, hashRefreshToken);
 
       return result;
     } catch (error) {
@@ -162,21 +162,21 @@ class AuthService {
       }
 
       if (user.is_banned) throw createError('Your account has been suspended', 403);
-      return this._issueTokens(user);
+      return this.#issueTokens(user);
     } catch (error) {
       throw error;
     }
   }
 
   // Rotates refresh token. Validates hash against DB.
-  async refreshToken(rawRefreshToken) {
+  async refreshToken({refreshToken}) {
     try {
-      if (!rawRefreshToken) throw createError('Refresh token missing', 401);
+      if (!refreshToken) throw createError('Refresh token missing', 401);
 
-      const payload = verifyRefreshToken(rawRefreshToken);
+      const payload = verifyRefreshToken(refreshToken);
       const user = await this.userRepo.getRefreshTokenById(payload.userId);
 
-      if (!user || user.refresh_token_hash !== hashToken(rawRefreshToken)) {
+      if (!user || user.refresh_token_hash !== hashToken(refreshToken)) {
         throw createError('Invalid refresh token', 401);
       }
 
@@ -187,7 +187,7 @@ class AuthService {
   }
 
   // Clears refresh token in DB (invalidates all sessions for this token family).
-  async logout(userId) {
+  async logout({userId}) {
     try {
       await this.userRepo.updateRefreshToken(userId, null);
     } catch (error) {
@@ -196,7 +196,7 @@ class AuthService {
   }
 
   // Sends password reset email if email belongs to a password-based account.
-  async forgotPassword(email) {
+  async forgotPassword({email}) {
     try {
       const user = await this.userRepo.findByEmail(email);
       if (user && user.password_hash) {
@@ -213,15 +213,15 @@ class AuthService {
   }
 
   // Resets password using a valid reset token.
-  async resetPassword(rawToken, newPassword) {
+  async resetPassword({token, password}) {
     try {
-      const tokenHash = hashToken(rawToken);
+      const tokenHash = hashToken(token);
       const user = await this.userRepo.findByPasswordResetToken(tokenHash);
       const currentTime = new Date(Date.now());
       if (!user || !user.password_reset_token_exp || user.password_reset_token_exp < currentTime) {
         throw createError('Password Reset Token is expired', 401);
       }
-      const passwordHash = await hashPassword(newPassword);
+      const passwordHash = await hashPassword(password);
       await this.userRepo.updatePassword(user.id, passwordHash);
     } catch (error) {
       throw error;
@@ -244,7 +244,7 @@ class AuthService {
     }
   }
 
-  async getMe(userId) {
+  async getMe({userId}) {
     try {
       const user = await this.userRepo.findByIdPrivate(userId);
       if (!user) throw createError('User not found', 404);
@@ -262,7 +262,9 @@ class AuthService {
       const accessToken = generateAccessToken(payload);
       const refreshToken = generateRefreshToken(payload);
 
-      await this.userRepo.updateRefreshToken(user.id, hashToken(refreshToken));
+      const hashRefreshToken = hashToken(refreshToken);
+
+      await this.userRepo.updateRefreshToken(user.id, hashRefreshToken);
       await this.userRepo.updateLastLogin(user.id);
 
       return {

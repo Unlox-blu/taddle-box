@@ -23,10 +23,10 @@ const findByPost = async (postId, limit, offset, parentId = null) => {
       `SELECT ${CommentModel.LIST_FIELDS}, COUNT(*) OVER() AS total
      FROM ${CommentModel.TABLE} c JOIN users u ON u.id = c.author_id
      WHERE c.post_id = $1 AND c.deleted_at IS NULL
-       AND ($3::uuid IS NULL AND c.parent_id IS NULL OR c.parent_id = $3::uuid)
+       AND ($2::uuid IS NULL AND c.parent_id IS NULL OR c.parent_id = $2::uuid)
      ORDER BY c.created_at ASC
-     LIMIT $4 OFFSET $5`,
-      [postId, parentId, parentId, limit, offset]
+     LIMIT $3 OFFSET $4`,
+      [postId, parentId, limit, offset]
     );
     const total = rows[0]?.total || 0;
     return { rows, total: parseInt(total, 10) };

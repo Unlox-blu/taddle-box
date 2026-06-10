@@ -8,15 +8,7 @@ class EventController {
     this.eventSvc = eventService;
   }
 
-  browse = async (req, res, next) => {
-    try {
-      const { limit, offset, page } = getPaginationParams(req.query);
-      const { events, total } = await this.eventSvc.browse(req.query, limit, offset);
-      res.json(apiResponse(events, 'Events fetched', paginationMeta(total, page, limit)));
-    } catch (err) {
-      next(err);
-    }
-  };
+  
 
   create = async (req, res, next) => {
     try {

@@ -11,12 +11,26 @@ class CommentController {
   create = async (req, res, next) => {
     try {
       const authorId = req.userId;
-      const comment = await this.commentSvc.createComment({ ...req.body, authorId });
+      const { postId, content, parentId } = req.body
+      const comment = await this.commentSvc.createComment({ postId, content, parentId, authorId });
       res.status(201).json(apiResponse(comment, 'Comment added'));
     } catch (err) {
       next(err);
     }
   };
+
+  getComments = async (req, res, next) => {
+    try {
+      const userId = req.userId
+      const {postId} = req.params
+      const parentId = req.query.parentId || null
+      const { limit, offset, page } = getPaginationParams(req.query);
+      const { comments, total } = await this.commentSvc.getComments({postId, parentId, limit, offset});
+      res.json(apiResponse(comments, 'Comment added', paginationMeta(total, page, limit)));
+    } catch (error) {
+      next(error)
+    }
+  }
 
   update = async (req, res, next) => {
     try {

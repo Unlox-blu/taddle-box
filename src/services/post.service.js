@@ -12,14 +12,7 @@ class PostService {
     this.feedSvc = feedService;
   }
 
-  async getPosts(filters, limit, offset) {
-    try {
-      const { rows, total } = await this.postRepo.search(filters, limit, offset);
-      return { posts: rows.map(PostModel.format), total };
-    } catch (error) {
-      throw error;
-    }
-  }
+  
 
   async createPost(authorId, data, mediaFiles) {
     try {

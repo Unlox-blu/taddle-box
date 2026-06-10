@@ -11,14 +11,7 @@ class EventService {
     this.notifSvc = notificationService;
   }
 
-  async browse(filters, limit, offset) {
-    try {
-      const { rows, total } = await this.eventRepo.browse(filters, limit, offset);
-      return { events: rows.map(EventModel.format), total };
-    } catch (error) {
-      throw error;
-    }
-  }
+  
 
   async create(organizerId, data) {
     try {

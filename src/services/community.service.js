@@ -12,14 +12,7 @@ class CommunityService {
     this.notifSvc = notificationService;
   }
 
-  async browse(filters, limit, offset) {
-    try {
-      const { rows, total } = await this.communityRepo.browse(filters, limit, offset);
-      return { communities: rows.map(CommunityModel.format), total };
-    } catch (error) {
-      throw error;
-    }
-  }
+  
 
   async create(ownerId, data) {
     try {
@@ -89,7 +82,6 @@ class CommunityService {
 
   async updateBanner(communityId, userId, userRole, file) {
     try {
-      console.log(file);
       if (!file || !file.banner || !file.banner.data) throw createError('No file provided', 400);
 
       const community = await this.communityRepo.findById(communityId);

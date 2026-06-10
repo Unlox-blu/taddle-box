@@ -8,16 +8,7 @@ class UserController {
     this.userSvc = userService;
   }
 
-  searchUsers = async (req, res, next) => {
-    try {
-      const query = req.query.q;
-      const { limit, offset, page } = getPaginationParams(req.query);
-      const users = await this.userSvc.searchUsers(query, limit, offset);
-      res.json(apiResponse(users, 'Users found'));
-    } catch (err) {
-      next(err);
-    }
-  };
+  
 
   getProfile = async (req, res, next) => {
     try {
@@ -79,7 +70,7 @@ class UserController {
       const { limit, offset, page } = getPaginationParams(req.query);
       const userId = req.userId;
       const { username } = req.params;
-      const data = await this.userSvc.getFollowers(userId, username, limit, offset);
+      const data = await this.userSvc.getFollowers({userId, username, limit, offset});
       res.json(apiResponse(data, 'Followers fetched'));
     } catch (err) {
       next(err);
@@ -91,7 +82,7 @@ class UserController {
       const { limit, offset, page } = getPaginationParams(req.query);
       const userId = req.userId;
       const { username } = req.params;
-      const data = await this.userSvc.getFollowing(userId, username, limit, offset);
+      const data = await this.userSvc.getFollowing({userId, username, limit, offset});
       res.json(apiResponse(data, 'Followings fetched'));
     } catch (err) {
       next(err);

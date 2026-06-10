@@ -10,7 +10,7 @@ class AuthController {
   sendVerificationEmail = async (req, res, next) => {
     try {
       const { email } = req.body;
-      await this.authSvc.sendVerificationEmail(email);
+      await this.authSvc.sendVerificationEmail({email});
       res.json(apiResponse(null, 'Otp send successfully'));
     } catch (err) {
       next(err);
@@ -20,7 +20,7 @@ class AuthController {
   verifyOtp = async (req, res, next) => {
     try {
       const { email, otp } = req.body;
-      await this.authSvc.verifyOtp(email, otp);
+      await this.authSvc.verifyOtp({email, otp});
       res.json(apiResponse(null, 'Email verified successfully'));
     } catch (err) {
       next(err);
@@ -76,7 +76,7 @@ class AuthController {
   logout = async (req, res, next) => {
     try {
       const userId = req.userId;
-      await this.authSvc.logout(userId);
+      await this.authSvc.logout({userId});
       res.clearCookie('access_token');
       res.clearCookie('refresh_token');
       res.json(apiResponse(null, 'Logged out successfully'));
@@ -87,8 +87,8 @@ class AuthController {
 
   refreshToken = async (req, res, next) => {
     try {
-      const { refresh_token } = req.cookies;
-      const result = await this.authSvc.refreshToken(refresh_token);
+      const { refresh_token: refreshToken } = req.cookies;
+      const result = await this.authSvc.refreshToken({refreshToken});
       res.cookie('access_token', result.accessToken, {
         ...result.cookieOpts,
         maxAge: 15 * 60 * 1000,
@@ -106,7 +106,7 @@ class AuthController {
   forgotPassword = async (req, res, next) => {
     try {
       const { email } = req.body;
-      await this.authSvc.forgotPassword(email);
+      await this.authSvc.forgotPassword({email});
       res.json(apiResponse(null, 'If that email exists, a reset link has been sent.'));
     } catch (err) {
       next(err);
@@ -116,7 +116,7 @@ class AuthController {
   resetPassword = async (req, res, next) => {
     try {
       const { token, password } = req.body;
-      await this.authSvc.resetPassword(token, password);
+      await this.authSvc.resetPassword({token, password});
       res.json(apiResponse(null, 'Password reset successfully'));
     } catch (err) {
       next(err);
@@ -126,7 +126,7 @@ class AuthController {
   getMe = async (req, res, next) => {
     try {
       const userId = req.userId;
-      const user = await this.authSvc.getMe(userId);
+      const user = await this.authSvc.getMe({userId});
       res.json(apiResponse({ user }, 'Profile get successfully!'));
     } catch (err) {
       next(err);

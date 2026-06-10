@@ -4,8 +4,9 @@ const { createError } = require('../utils/error.util');
 const CommentModel = require('../models/comment.model');
 
 class CommentService {
-  constructor({ commentRepository, postRepository, notificationService, feedService }) {
+  constructor({ commentRepository, postRepository, notificationService, feedService, communityRepository }) {
     this.commentRepo = commentRepository;
+    this.communityRepo = communityRepository;
     this.postRepo = postRepository;
     this.notifSvc = notificationService;
     this.feedSvc = feedService;
@@ -15,9 +16,13 @@ class CommentService {
     try {
       const post = await this.postRepo.findById(postId);
       if (!post) throw createError('Post not found', 404);
-
-      if (post.community_privacy !== 'public') {
+      if (post.community_id && post.community_privacy !== 'public') {
         //do authorization
+        const isMember = await this.communityRepo.isMember(post.community_id, authorId)
+        
+        if(!isMember || isMember.status !== 'active'){
+          throw createError('You are not allowed to comment in this community post', 403)
+        }
       }
 
       // Compute nested thread path + depth
@@ -55,12 +60,32 @@ class CommentService {
     }
   }
 
+  async getComments({postId, parentId, limit, offset}) {
+    try {
+      const post = await this.postRepo.findById(postId);
+      if (!post) throw createError('Post not found', 404);
+      if (post.community_id && post.community_privacy !== 'public') {
+        //do authorization
+        const isMember = await this.communityRepo.isMember(post.community_id, authorId)
+        if(!isMember || isMember.status !== 'active'){
+          throw createError('You are not authorized for this community post', 403)
+        }
+      }
+
+      const {rows, total} = await this.commentRepo.findByPost(postId, limit, offset, parentId)
+      return {comments: rows.map(CommentModel.format), total}
+    } catch (error) {
+      throw error
+    }
+  }
+
   async updateComment(commentId, userId, content) {
     try {
       const comment = await this.commentRepo.findById(commentId);
       if (!comment) throw createError('Comment not found', 404);
       if (comment.author_id !== userId)
         throw createError('Not authorized to edit this comment', 403);
+      
       const updated = await this.commentRepo.update(commentId, content);
       return CommentModel.format(updated);
     } catch (error) {

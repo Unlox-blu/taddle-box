@@ -2,7 +2,7 @@
 
 const { createError } = require('../utils/error.util');
 const PostModel = require('../models/post.model');
-const { uploadFile } = require('../config/cloudinary');
+const { uploadFile } = require('../integrations/storage/cloudinary.service');
 
 class PostService {
   constructor({ postRepository, communityRepository, notificationService, feedService }) {

@@ -3,7 +3,7 @@
 const { createError } = require('../utils/error.util');
 const UserModel = require('../models/user.model');
 const FollowersModel = require('../models/followers.model');
-const { uploadFile } = require('../config/cloudinary');
+const { uploadFile } = require('../integrations/storage/cloudinary.service');
 const { tryCatch } = require('bullmq');
 
 class UserService {

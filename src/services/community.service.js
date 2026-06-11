@@ -3,7 +3,7 @@
 const { createError } = require('../utils/error.util');
 const CommunityModel = require('../models/community.model');
 const PostModel = require('../models/post.model');
-const { uploadFile } = require('../config/cloudinary');
+const { uploadFile } = require('../integrations/storage/cloudinary.service');
 
 class CommunityService {
   constructor({ communityRepository, postRepository, notificationService}) {

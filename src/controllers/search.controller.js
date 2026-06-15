@@ -18,7 +18,7 @@ class SearchController {
 
       const {dataType, data, total} = await this.searchSvc.search({type, query, filter, limit, offset});
 
-      res.json(apiResponse({dataType, data,}, 'Users fetched', paginationMeta(total, page, limit)));
+      res.json(apiResponse({dataType, data,}, `${dataType} fetched`, paginationMeta(total, page, limit)));
     } catch (err) {
       next(err);
     }

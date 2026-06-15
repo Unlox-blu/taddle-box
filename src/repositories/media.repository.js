@@ -39,6 +39,22 @@ const findById = async (mediaId) => {
   }
 };
 
+const findByUserId = async (uploaderId, limit, offset) => {
+  try {
+    const { rows } = await pool.query(
+      `SELECT *, COUNT(*) OVER() AS total
+      FROM ${TABLE} WHERE uploader_id = $1 AND deleted_at IS NULL
+      ORDER BY created_at DESC
+      LIMIT $2 OFFSET $3`,
+      [uploaderId, limit, offset]
+    );
+    const total = rows[0]?.total || 0;
+    return { rows, total: parseInt(total, 10) };
+  } catch (error) {
+    throw error
+  }
+}
+
 const updateStatus = async (mediaId, status, extraData = {}) => {
   try {
     const { rows } = await pool.query(
@@ -65,6 +81,14 @@ const updateVimeoData = async (mediaId, vimeoData) => {
   }
 };
 
+const hardDelete = async (mediaId) => {
+  try {
+    await pool.query(`DELETE FROM ${TABLE} WHERE id = $1`, [mediaId]);
+  } catch (error) {
+    throw error
+  }
+}
+
 const softDelete = async (mediaId) => {
   try {
     await pool.query(`UPDATE ${TABLE} SET deleted_at = NOW() WHERE id = $1`, [mediaId]);
@@ -73,4 +97,4 @@ const softDelete = async (mediaId) => {
   }
 };
 
-module.exports = { create, findById, updateStatus, updateVimeoData, softDelete };
+module.exports = { create, findById, findByUserId, updateStatus, updateVimeoData, hardDelete, softDelete };

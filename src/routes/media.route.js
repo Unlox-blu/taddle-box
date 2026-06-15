@@ -10,5 +10,8 @@ router.post('/signed-url',        verifyToken, uploadRateLimiter, mediaControlle
 router.post('/confirm',           verifyToken, mediaController.confirmUpload);
 router.post('/video/upload-url',  verifyToken, uploadRateLimiter, mediaController.getVideoUploadUrl);
 router.get('/:id/status',         verifyToken, mediaController.getMediaStatus);
+router.post('/upload-image',      verifyToken, mediaController.uploadImage);
+router.get('/',                   verifyToken, mediaController.getMedia);
+router.delete('/:mediaId',    verifyToken, mediaController.deleteMedia);
 
 module.exports = router;

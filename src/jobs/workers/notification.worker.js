@@ -49,6 +49,40 @@ const startNotificationWorker = () => {
           break;
         }
 
+        case 'post_like': {
+          // data: { postId, authorId, authorName, authorUsername, followerIds }
+          const { postId, authorId: recipientId, emiterName, emiterUsername, emiterId } = job.data;
+          // Create notification records for each follower and emit socket events
+            const notif = await notificationRepository.create({
+            recipientId,
+            senderId: emiterId,
+            type: 'post_liked',
+            title: 'Post liked',
+            message: `${emiterName} (@${emiterUsername}) liked the post`,
+            resourceType: 'post',
+            resourceId: postId,
+          });
+          emitNotification(recipientId, NotificationModel.format(notif));          
+          break;
+        }
+
+        case 'post_comment': {
+          // data: { postId, authorId, authorName, authorUsername, followerIds }
+          const { postId, recipientId, emiterName, emiterUsername, emiterId, comment } = job.data;
+          // Create notification records for each follower and emit socket events
+            const notif = await notificationRepository.create({
+            recipientId,
+            senderId: emiterId,
+            type: 'post_comment',
+            title: 'Comment on post',
+            message: `${emiterName} (@${emiterUsername}). ${comment}`,
+            resourceType: 'post',
+            resourceId: postId,
+          });
+          emitNotification(recipientId, NotificationModel.format(notif));          
+          break;
+        }
+
         default:
           logger.warn(`[NotifWorker] Unknown job type: ${job.name}`);
       }

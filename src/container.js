@@ -68,17 +68,18 @@ const notificationService = new NotificationService({
 });
 
 const postService = new PostService({
-  postRepository, communityRepository,
+  postRepository, communityRepository, userRepository,
   notificationService, feedService
 });
 
 const communityService = new CommunityService({
-  communityRepository, postRepository,
+  communityRepository, postRepository, 
   notificationService
 });
 
 const commentService = new CommentService({
-  commentRepository, postRepository, notificationService, feedService, communityRepository
+  commentRepository, postRepository, userRepository,
+  notificationService, feedService, communityRepository
 });
 
 const eventService = new EventService({

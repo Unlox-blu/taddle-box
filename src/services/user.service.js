@@ -5,6 +5,8 @@ const UserModel = require('../models/user.model');
 const FollowersModel = require('../models/followers.model');
 const { uploadFile } = require('../integrations/storage/cloudinary.service');
 const { tryCatch } = require('bullmq');
+const { startNotificationWorker } = require('../jobs/workers/notification.worker');
+const { addNotificationJob } = require('../jobs/queues/notification.queue');
 
 class UserService {
   constructor({ userRepository, storageIntegration, followerRepository }) {
@@ -123,6 +125,14 @@ class UserService {
       );
       if (isFollow) throw createError('You already following this profile', 400);
 
+      const follower = await this.userRepo.findById(followerId)
+
+      await addNotificationJob('new_follower',{
+         followedUserId: followingId, 
+         followerId: followerId, 
+         followerName: follower.name, 
+         followerUsername: follower.username
+      })
       await this.followersRepo.createFolow(followerId, followingId);
       await this.userRepo.incrementFollowingCount(followerId);
       await this.userRepo.incrementFollowerCount(followingId);

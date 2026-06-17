@@ -21,7 +21,7 @@ const send = async ({ to, subject, html }) => {
   });
 };
 
-const sendOtpEmail = async (to, otp) => {
+const sendOtpVerificationEmail = async (to, otp) => {
   const html = loadTemplate('send-otp.html', {otp});
   await send({ to, subject: `${otp} is yous Taddle-Box verification code`, html });
 }
@@ -38,9 +38,19 @@ const sendPasswordResetEmail = async (to, name, token) => {
   await send({ to, subject: 'Reset your taddlebox password', html });
 };
 
+const sendSuccessEmail = async (to, name, title, successMessage) => {
+  const html = loadTemplate('success-email.html', { name, title, successMessage });
+  await send({ to, subject: `${successMessage}`, html });
+};
+
 const sendWelcomeEmail = async (to, name) => {
   const html = loadTemplate('welcome.html', { name, appUrl: config.FRONTEND_URL });
   await send({ to, subject: `Welcome to taddlebox, ${name}!`, html });
 };
 
-module.exports = { sendOtpEmail, sendVerificationEmail, sendPasswordResetEmail, sendWelcomeEmail };
+const sendWelcomeBackEmail = async (to, name) => {
+  const html = loadTemplate('welcome-back.html', { name, appUrl: config.FRONTEND_URL });
+  await send({ to, subject: `Welcome back to taddlebox, ${name}!`, html });
+};
+
+module.exports = { sendOtpVerificationEmail, sendVerificationEmail, sendPasswordResetEmail, sendSuccessEmail, sendWelcomeEmail, sendWelcomeBackEmail };

@@ -3,16 +3,16 @@
 const { createError } = require('../utils/error.util');
 const PostModel = require('../models/post.model');
 const { uploadFile } = require('../integrations/storage/cloudinary.service');
+const { addNotificationJob } = require('../jobs/queues/notification.queue');
 
 class PostService {
-  constructor({ postRepository, communityRepository, notificationService, feedService }) {
+  constructor({ postRepository, communityRepository, notificationService, feedService, userRepository }) {
     this.postRepo = postRepository;
     this.communityRepo = communityRepository;
+    this.userRepo = userRepository;
     this.notifSvc = notificationService;
     this.feedSvc = feedService;
-  }
-
-  
+  }  
 
   async createPost(authorId, data, mediaFiles) {
     try {
@@ -121,14 +121,18 @@ class PostService {
 
       await this.postRepo.addLike(postId, userId);
       await this.postRepo.incrementLikeCount(postId);
-      // TODO: notify post author via notificationService
+      
+      const user = await this.userRepo.findById(userId)
+      const data = { 
+        postId: post.id, 
+        recipientId: post.author_id, 
+        emiterName: user.name, 
+        emiterUsername: user.username, 
+        emiterId: user.id
+      }
+      
+      await addNotificationJob('post_like', data)
 
-
-      const type = 'Like'
-      const title = 'Post liked'
-      const message = `Post: ${post.id}, total likes: ${post.likes_count}.`
-         
-      await this.notifSvc.create({ recipientId: post.author_id, senderId: userId, type, title, message })
       this.feedSvc.updatePreferences(userId, post.category || [], post.tags || [])
     } catch (error) {
       throw error;

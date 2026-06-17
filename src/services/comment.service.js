@@ -4,9 +4,10 @@ const { createError } = require('../utils/error.util');
 const CommentModel = require('../models/comment.model');
 
 class CommentService {
-  constructor({ commentRepository, postRepository, notificationService, feedService, communityRepository }) {
+  constructor({ commentRepository, postRepository, userRepository, notificationService, feedService, communityRepository }) {
     this.commentRepo = commentRepository;
     this.communityRepo = communityRepository;
+    this.userRepo = userRepository;
     this.postRepo = postRepository;
     this.notifSvc = notificationService;
     this.feedSvc = feedService;
@@ -16,6 +17,7 @@ class CommentService {
     try {
       const post = await this.postRepo.findById(postId);
       if (!post) throw createError('Post not found', 404);
+
       if (post.community_id && post.community_privacy !== 'public') {
         //do authorization
         const isMember = await this.communityRepo.isMember(post.community_id, authorId)
@@ -46,12 +48,17 @@ class CommentService {
       });
       await this.postRepo.incrementCommentCount(postId);
 
-      // TODO: notify post author (if not self)
-      const type = 'Comment'
-      const title = 'Post comment'
-      const message = `Post: ${post.id}, Comment: ${content}.`
-         
-      await this.notifSvc.create({ recipientId: post.author_id, senderId: authorId, type, title, message })
+      const user = await this.userRepo.findById(authorId)
+      const data = { 
+        postId: post.id, 
+        recipientId: post.author_id, 
+        emiterName: user.name, 
+        emiterUsername: user.username, 
+        emiterId: user.id,
+        comment: content
+      }
+      
+      await addNotificationJob('post_comment', data)
 
       this.feedSvc.updatePreferences(authorId, post.category || [], post.tags || [])
       return CommentModel.format(comment);

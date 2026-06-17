@@ -10,6 +10,7 @@ const {
 } = require('../utils/token.util');
 const { createError } = require('../utils/error.util');
 const { tryCatch } = require('bullmq');
+const { addEmailJob } = require('../jobs/queues/email.queue');
 
 const COOKIE_OPTS = {
   httpOnly: true,
@@ -47,12 +48,22 @@ class AuthService {
 
       if (otpSendBefore) {
         await this.verifyEmailRepo.updateOtp({ email, otp, expIn });
-        this.emailSvc.sendOtpEmail(email, otp).catch(console.error);
+        const data = {
+                      to: email,
+                      otp: otp
+                      }
+        await addEmailJob('otp-verification', data)
         return;
       }
 
       await this.verifyEmailRepo.create({ email, otp, expIn });
-      this.emailSvc.sendOtpEmail(email, otp).catch(console.error);
+
+      const data = {
+        to: email,
+        otp: otp
+      }
+      await addEmailJob('otp-verification', data)
+
     } catch (error) {
       throw error;
     }
@@ -106,6 +117,11 @@ class AuthService {
 
       const newUser = { name, username, email, id: user.id };
 
+      await addEmailJob('welcome', {
+        to: email,
+        name: username
+      });
+
       return { user: newUser };
     } catch (error) {
       throw error;
@@ -129,6 +145,11 @@ class AuthService {
       // const hashRefreshToken = hashToken(result.refreshToken);
 
       // await this.userRepo.updateRefreshToken(user.id, hashRefreshToken);
+
+      await addEmailJob('welcome_back', {
+        to: email,
+        name: user.username
+      });
 
       return result;
     } catch (error) {
@@ -204,9 +225,15 @@ class AuthService {
         const tokenHash = hashToken(rawToken);
         const tokenExp = new Date(Date.now() + 60 * 60 * 1000);
         await this.userRepo.updatePasswordResetToken(user.id, tokenHash, tokenExp);
-        this.emailSvc.sendPasswordResetEmail(email, user.name, rawToken).catch(console.error);
+
+        const data = {
+          to: user.email, 
+          name: user.username, 
+          token: rawToken
+        }
+        await addEmailJob('password_reset', data)
       }
-      // Always resolve — no user enumeration
+      
     } catch (error) {
       throw error;
     }
@@ -223,6 +250,15 @@ class AuthService {
       }
       const passwordHash = await hashPassword(password);
       await this.userRepo.updatePassword(user.id, passwordHash);
+
+      const userDetail = await this.userRepo.findByIdPrivate(user.id)
+      const data = {
+        to: userDetail.email, 
+        name: userDetail.username, 
+        title: 'Password Reset Successfully!',
+        successMessage: 'Password Reset Successfully!'
+      }
+      await addEmailJob('success', data)
     } catch (error) {
       throw error;
     }

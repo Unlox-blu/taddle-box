@@ -5,6 +5,7 @@ const verifyEmailRepository = require('./repositories/verifyemail.repository')
 const followerRepository = require('./repositories/followers.repository')
 const userRepository = require('./repositories/user.repository');
 const postRepository = require('./repositories/post.repository');
+const bookmarkRepository = require('./repositories/bookmark.repository')
 const communityRepository = require('./repositories/community.repository');
 const commentRepository = require('./repositories/comment.repository');
 const eventRepository = require('./repositories/event.repository');
@@ -59,7 +60,7 @@ const authService = new AuthService({
 });
 
 const userService = new UserService({
-  userRepository, storageIntegration,
+  userRepository, bookmarkRepository, storageIntegration,
   followerRepository
 });
 
@@ -69,7 +70,7 @@ const notificationService = new NotificationService({
 
 const postService = new PostService({
   postRepository, communityRepository, userRepository,
-  notificationService, feedService
+  bookmarkRepository, notificationService, feedService
 });
 
 const communityService = new CommunityService({

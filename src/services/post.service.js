@@ -6,9 +6,10 @@ const { uploadFile } = require('../integrations/storage/cloudinary.service');
 const { addNotificationJob } = require('../jobs/queues/notification.queue');
 
 class PostService {
-  constructor({ postRepository, communityRepository, notificationService, feedService, userRepository }) {
+  constructor({ postRepository, communityRepository, bookmarkRepository, notificationService, feedService, userRepository }) {
     this.postRepo = postRepository;
     this.communityRepo = communityRepository;
+    this.bookmarkRepo = bookmarkRepository;
     this.userRepo = userRepository;
     this.notifSvc = notificationService;
     this.feedSvc = feedService;
@@ -156,6 +157,17 @@ class PostService {
       await this.postRepo.incrementShareCount(postId);
     } catch (error) {
       throw error;
+    }
+  }
+
+  async bookmarkPost(userId, postId) {
+    try {
+      const post = await this.postRepo.findById(postId)
+      if(!post) throw createError('Post not found', 404)
+      
+      await this.bookmarkRepo.create(userId, postId)
+    } catch (error) {
+      throw error
     }
   }
 

@@ -101,6 +101,17 @@ class PostController {
     }
   };
 
+  bookmarkPost = async (req, res, next) => {
+    try {
+      const userId = req.userId
+      const {postId} = req.params
+      await this.postSvc.bookmarkPost(userId, postId)
+      res.status(201).json(apiResponse(null, 'Post shaved successfully'));
+    } catch (error) {
+      next(error)
+    }
+  }
+
   forceDeletePost = async (req, res, next) => {
     try {
       const userId = req.userId;

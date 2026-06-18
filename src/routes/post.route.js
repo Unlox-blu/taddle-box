@@ -14,9 +14,11 @@ router.get('/:postId',                  optionalAuth,                           
 router.get('/user/:authorId',           optionalAuth,                                       postController.getUserPosts); 
 router.patch('/update-post/:postId',    verifyToken,   validate(updatePostSchema),          postController.updatePost);
 router.delete('/:postId',               verifyToken,                                        postController.deletePost);
+
 router.post('/:postId/like',            verifyToken,                                        postController.likePost);
 router.delete('/:postId/like',          verifyToken,                                        postController.unlikePost);
 router.post('/:postId/share',           verifyToken,                                        postController.sharePost);
+router.post('/:postId/bookmark',        verifyToken,                                        postController.bookmarkPost);
 router.delete('/:postId/force',         verifyToken,   authorize('admin', 'superadmin'),    postController.forceDeletePost);
 
 module.exports = router;

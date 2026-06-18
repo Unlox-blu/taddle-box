@@ -9,8 +9,9 @@ const { startNotificationWorker } = require('../jobs/workers/notification.worker
 const { addNotificationJob } = require('../jobs/queues/notification.queue');
 
 class UserService {
-  constructor({ userRepository, storageIntegration, followerRepository }) {
+  constructor({ userRepository, bookmarkRepository, storageIntegration, followerRepository }) {
     this.userRepo = userRepository;
+    this.bookmarkRepo = bookmarkRepository;
     this.followersRepo = followerRepository;
     this.storageSvc = storageIntegration;
   }
@@ -108,6 +109,16 @@ class UserService {
       return { followings, total };
     } catch (error) {
       throw error;
+    }
+  }
+
+  async getbookmarked({userId, limit, offset}) {
+    try {
+      const {bookmark, total} = await this.bookmarkRepo.findByUserId(userId, limit, offset)
+
+      return {bookmark, total}
+    } catch (error) {
+      throw error
     }
   }
 

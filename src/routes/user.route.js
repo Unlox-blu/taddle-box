@@ -8,14 +8,14 @@ const { validate }               = require('../middlewares/validator.middleware'
 const { uploadSingle }           = require('../middlewares/upload.middleware');
 const { updateProfileSchema, updateUsernameSchema } = require('../validators/user.validator');
 
-
-router.get('/:username',                    optionalAuth,                                       userController.getProfile);
 router.patch('/update-profile',             verifyToken,     validate(updateProfileSchema),     userController.updateProfile);
 router.post('/update-avatar',               verifyToken,                                        userController.updateAvatar);
 router.post('/update-banner',               verifyToken,                                        userController.updateBanner);
 router.patch('/update-username',            verifyToken,     validate(updateUsernameSchema),    userController.updateUsername);
+router.get('/bookmarked',                   verifyToken,     userController.getbookmarked);
 
 // follow/unfollow routes
+router.get('/:username',                    optionalAuth,                                       userController.getProfile);
 router.get('/:username/followers',          verifyToken,     userController.getFollowers);
 router.get('/:username/following',          verifyToken,     userController.getFollowing);
 router.post('/:username/follow',            verifyToken,     userController.followUser);

@@ -24,7 +24,7 @@ class UserController {
       const userId = req.userId;
       const fields = req.body;
       const updated = await this.userSvc.updateProfile(userId, fields);
-      res.json(apiResponse(updated, 'Profile updated'));
+      res.json(apiResponse(updated, 'Profile updated successfully'));
     } catch (error) {
       next(error);
     }
@@ -35,7 +35,7 @@ class UserController {
       const userId = req.userId;
       const files = req.files;
       const updateAvatar = await this.userSvc.updateAvatar(userId, files);
-      res.json(apiResponse(updateAvatar, 'Avatar updated'));
+      res.json(apiResponse(updateAvatar, 'Avatar updated successfully'));
     } catch (error) {
       next(error);
     }
@@ -46,7 +46,7 @@ class UserController {
       const userId = req.userId;
       const files = req.files;
       const updateBanner = await this.userSvc.updateBanner(userId, files);
-      res.json(apiResponse(updateBanner, 'Banner updated'));
+      res.json(apiResponse(updateBanner, 'Banner updated successfully'));
     } catch (error) {
       next(error);
     }
@@ -57,7 +57,7 @@ class UserController {
       const userId = req.userId;
       const { username } = req.body;
       const updated = await this.userSvc.updateUsername(userId, username);
-      res.json(apiResponse(updated, 'Username updated'));
+      res.json(apiResponse(updated, 'Username updated successfully'));
     } catch (error) {
       next(error);
     }
@@ -69,7 +69,7 @@ class UserController {
       const userId = req.userId;
       const { username } = req.params;
       const { followers, total } = await this.userSvc.getFollowers({userId, username, limit, offset});
-      res.json(apiResponse(followers, 'Followers fetched', paginationMeta(total, page, limit)));
+      res.json(apiResponse(followers, 'Followers fetched successfully', paginationMeta(total, page, limit)));
     } catch (error) {
       next(error);
     }
@@ -81,11 +81,23 @@ class UserController {
       const userId = req.userId;
       const { username } = req.params;
       const { followings, total } = await this.userSvc.getFollowing({userId, username, limit, offset});
-      res.json(apiResponse(followings, 'Followings fetched', paginationMeta(total, page, limit)));
+      res.json(apiResponse(followings, 'Followings fetched successfully', paginationMeta(total, page, limit)));
     } catch (error) {
       next(error);
     }
   };
+
+  getbookmarked = async (req, res, next) => {
+    try {
+      const { limit, offset, page } = getPaginationParams(req.query);
+      const userId = req.userId;
+      console.log('req.user', req.userId);
+      const {bookmark, total} = await this.userSvc.getbookmarked({userId, limit, offset});
+      res.json(apiResponse(bookmark, 'Bookmarked fetched successfully', paginationMeta(total, page, limit)));
+    } catch (error) {
+      next(error);
+    }
+  }
 
   followUser = async (req, res, next) => {
     try {

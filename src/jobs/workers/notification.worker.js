@@ -83,6 +83,58 @@ const startNotificationWorker = () => {
           break;
         }
 
+        case 'new_member_join_community': {
+          const { communityId, userId, userName, userUsername, adminsId = [] } = job.data;
+          // Create notification records for each follower and emit socket events
+          for (const recipientId of adminsId) {
+            const notif = await notificationRepository.create({
+              recipientId,
+              senderId: userId,
+              type: 'new_member_join_community',
+              title: 'Joined community',
+              message: `${userName} (@${userUsername}) join the community`,
+              resourceType: 'community',
+              resourceId: communityId,
+            });
+            emitNotification(recipientId, NotificationModel.format(notif));
+          }
+          break;
+        }
+
+        case 'request_to_join_community': {
+          const { communityId, userId, userName, userUsername, adminsId = [] } = job.data;
+          // Create notification records for each follower and emit socket events
+          for (const recipientId of adminsId) {
+            const notif = await notificationRepository.create({
+              recipientId,
+              senderId: userId,
+              type: 'request_to_join_community',
+              title: 'Request to join',
+              message: `${userName} (@${userUsername}) request to join the community`,
+              resourceType: 'community',
+              resourceId: communityId,
+            });
+            emitNotification(recipientId, NotificationModel.format(notif));
+          }
+          break;
+        }
+
+        case 'approved_to_join_community': {
+          const { communityId, userId, userName, userUsername, approvalId  } = job.data;
+          // Create notification records for each follower and emit socket events
+            const notif = await notificationRepository.create({
+              recipientId: userId,
+              senderId: approvalId,
+              type: 'approved_to_join_community',
+              title: 'Request Approved',
+              message: `${userName} (@${userUsername}) approved to join the community`,
+              resourceType: 'community',
+              resourceId: communityId,
+            });
+            emitNotification(userId, NotificationModel.format(notif));
+          break;
+        }
+
         default:
           logger.warn(`[NotifWorker] Unknown job type: ${job.name}`);
       }

@@ -4,15 +4,15 @@ const { createError } = require('../utils/error.util');
 const CommunityModel = require('../models/community.model');
 const PostModel = require('../models/post.model');
 const { uploadFile } = require('../integrations/storage/cloudinary.service');
+const { addNotificationJob } = require('../jobs/queues/notification.queue');
 
 class CommunityService {
-  constructor({ communityRepository, postRepository, notificationService}) {
+  constructor({ communityRepository, postRepository, userRepository, notificationService}) {
     this.communityRepo = communityRepository;
     this.postRepo = postRepository;
+    this.userRepo = userRepository;
     this.notifSvc = notificationService;
   }
-
-  
 
   async create(ownerId, data) {
     try {
@@ -120,26 +120,32 @@ class CommunityService {
     try {
       const community = await this.communityRepo.findById(communityId);
       if (!community) throw createError('Community not found', 404);
-
+      
       const alreadyMember = await this.communityRepo.isMember(communityId, userId);
       if (alreadyMember) throw createError('Already a member of this community', 409);
-
+      
       const isPending = community.privacy === 'private';
       const status = isPending ? 'pending' : 'active';
       await this.communityRepo.addMember(communityId, userId, 'member', status);
-
-      if(isPending){
-        const admins = await this.communityRepo.getAdminsId(communityId)
-        const type = 'Request'
-        const title = 'Request to join community'
-        const message = `${userId} is requesting to join the name: ${community.name}, communityId: ${communityId}`
-         
-        await Promise.all(admins.map(({user_id}) => {
-          this.notifSvc.create({ recipientId: user_id, senderId: userId, type, title, message })
-        })); 
+      
+      const user = await this.userRepo.findById(userId)
+      const admins = await this.communityRepo.getAdminsId(communityId)
+      const adminsId = admins.map( e => e.user_id)
+      
+      const jobdata = {
+        communityId: communityId, 
+        userId: userId, 
+        userName: user.name, 
+        userUsername: user.username, 
+        adminsId: adminsId
       }
-
-      if (!isPending) await this.communityRepo.incrementMemberCount(communityId);
+      
+      if(isPending){
+        await addNotificationJob('request_to_join_community')
+      }else {
+        await this.communityRepo.incrementMemberCount(communityId);
+        await addNotificationJob('new_member_join_community')
+      }
 
       return { status };
     } catch (error) {
@@ -197,15 +203,13 @@ class CommunityService {
     }
   }
 
-  async approveMember(communityId, targetUserId, requesterId, requesterRole) {
+  async approveMember(communityId, targetUserId, approvalId, approvalRole) {
     try {
       const community = await this.communityRepo.findById(communityId);
       if (!community) throw createError('Community not found', 404);
 
-      const member = await this.communityRepo.getMember(communityId, requesterId);
-      const canApprove =
-        member?.role === 'admin' ||
-        ['admin', 'superadmin'].includes(requesterRole);
+      const member = await this.communityRepo.getMember(communityId, approvalId);
+      const canApprove = member?.role === 'admin' || ['admin', 'superadmin'].includes(approvalRole);
 
       if (!canApprove) throw createError('Not authorized to approve members', 403);
 
@@ -218,27 +222,32 @@ class CommunityService {
       await this.communityRepo.updateMemberStatus(communityId, targetUserId, 'active');
       await this.communityRepo.incrementMemberCount(communityId);
 
-      const type = 'Approve'
-      const title = 'Request approved to join community'
-      const message = `Now you are the member of ${community.name} community.`
-         
-      await this.notifSvc.create({ recipientId: targetUserId, senderId: requesterId, type, title, message })
-        
+      const user = await this.userRepo.findById(targetUserId)
+      
+      const jobdata = {
+        communityId: communityId, 
+        userId: user.id, 
+        userName: user.name, 
+        userUsername: user.username, 
+        approvalId: approvalId
+      }
+      
+      await addNotificationJob('approved_to_join_community', jobdata)
     } catch (error) {
       throw error;
     }
   }
 
-  async removeMember(communityId, targetUserId, requesterId, requesterRole) {
+  async removeMember(communityId, targetUserId, approvalId, approvalRole) {
     try {
       const community = await this.communityRepo.findById(communityId);
       if (!community) throw createError('Community not found', 404);
 
-      const member = await this.communityRepo.getMember(communityId, requesterId);
+      const member = await this.communityRepo.getMember(communityId, approvalId);
       const canApprove =
         member?.role === 'admin' ||
         member?.role === 'moderator' ||
-        ['admin', 'superadmin'].includes(requesterRole);
+        ['admin', 'superadmin'].includes(approvalRole);
       if (!canApprove) throw createError('Not authorized to approve members', 403);
 
       const notMember = await this.communityRepo.isMember(communityId, targetUserId);

@@ -21,13 +21,12 @@ class PostService {
       // Validate community membership if posting to a community
       if (communityId) {
         const isCommunityExist = await this.communityRepo.findById(communityId);
-        if (!isCommunityExist) throw createError('Community not exist', 400);
+        if (!isCommunityExist) throw createError('Community not found', 404);
 
         const isMember = await this.communityRepo.isMember(communityId, authorId);
         if (!isMember || isMember.status !== 'active')
           throw createError('You must be a member to post in this community', 403);
       }
-
 
       if(mediaFiles) {
         data.media = await Promise.all(mediaFiles.map(async (file) => {

@@ -73,7 +73,7 @@ const postService = new PostService({
 });
 
 const communityService = new CommunityService({
-  communityRepository, postRepository, 
+  communityRepository, postRepository, userRepository, 
   notificationService
 });
 

@@ -33,7 +33,7 @@ class AuthService {
     this.googleSvc = googleIntegration;
   }
 
-  async sendVerificationEmail({email}) {
+  async sendOtp({email}) {
     try {
       const existingEmail = await this.userRepo.findByEmail(email);
       if (existingEmail) throw createError('Email is already registered', 409);
@@ -48,21 +48,21 @@ class AuthService {
 
       if (otpSendBefore) {
         await this.verifyEmailRepo.updateOtp({ email, otp, expIn });
-        const data = {
+        const jobdata = {
                       to: email,
                       otp: otp
                       }
-        await addEmailJob('otp-verification', data)
+        await addEmailJob('otp-verification', jobdata)
         return;
       }
 
       await this.verifyEmailRepo.create({ email, otp, expIn });
 
-      const data = {
+      const jobdata = {
         to: email,
         otp: otp
       }
-      await addEmailJob('otp-verification', data)
+      await addEmailJob('otp-verification', jobdata)
 
     } catch (error) {
       throw error;
@@ -87,7 +87,7 @@ class AuthService {
   }
 
   // Registers a new user, auto-creates wallet, queues verification email.
-  async signup({ name, username, email, password }) {
+  async signUp({ name, username, email, password }) {
     try {
       const isEmailVerified = await this.verifyEmailRepo.findByEmail(email);
       if (!isEmailVerified || !isEmailVerified.isVerified)
@@ -117,10 +117,11 @@ class AuthService {
 
       const newUser = { name, username, email, id: user.id };
 
-      await addEmailJob('welcome', {
+      const jobdata = {
         to: email,
         name: username
-      });
+      }
+      await addEmailJob('welcome', jobdata);
 
       return { user: newUser };
     } catch (error) {
@@ -132,6 +133,7 @@ class AuthService {
   async login({ email, password }) {
     try {
       const user = await this.userRepo.findByEmail(email);
+
       if (!user) throw createError('Invalid email or password', 401);
       if (user.is_banned) throw createError('Your account has been suspended', 403);
       if (!user.is_active) throw createError('Your account is deactivated', 403);
@@ -146,10 +148,11 @@ class AuthService {
 
       // await this.userRepo.updateRefreshToken(user.id, hashRefreshToken);
 
-      await addEmailJob('welcome_back', {
+      const jobdata = {
         to: email,
         name: user.username
-      });
+      }
+      await addEmailJob('welcome_back', jobdata);
 
       return result;
     } catch (error) {
@@ -220,18 +223,18 @@ class AuthService {
   async forgotPassword({email}) {
     try {
       const user = await this.userRepo.findByEmail(email);
-      if (user && user.password_hash) {
+      if (user) {
         const rawToken = generateRandomToken();
         const tokenHash = hashToken(rawToken);
         const tokenExp = new Date(Date.now() + 60 * 60 * 1000);
         await this.userRepo.updatePasswordResetToken(user.id, tokenHash, tokenExp);
 
-        const data = {
+        const jobdata = {
           to: user.email, 
           name: user.username, 
           token: rawToken
         }
-        await addEmailJob('password_reset', data)
+        await addEmailJob('password_reset', jobdata)
       }
       
     } catch (error) {
@@ -252,29 +255,13 @@ class AuthService {
       await this.userRepo.updatePassword(user.id, passwordHash);
 
       const userDetail = await this.userRepo.findByIdPrivate(user.id)
-      const data = {
+      const jobdata = {
         to: userDetail.email, 
         name: userDetail.username, 
         title: 'Password Reset Successfully!',
         successMessage: 'Password Reset Successfully!'
       }
-      await addEmailJob('success', data)
-    } catch (error) {
-      throw error;
-    }
-  }
-
-  // Verifies email using token from email link.
-  async verifyEmail(rawToken) {
-    try {
-      const tokenHash = hashToken(rawToken);
-      const user = await this.userRepo.findByEmailVerifyToken(tokenHash);
-      const currentTime = new Date(Date.now());
-      if (!user || !user.email_verify_token_exp || user.email_verify_token_exp < currentTime) {
-        throw createError('Email verification Token is expired', 401);
-      }
-
-      await this.userRepo.verifyEmail(user.id);
+      await addEmailJob('success', jobdata)
     } catch (error) {
       throw error;
     }

@@ -8,16 +8,14 @@ class CommunityController {
     this.communitySvc = communityService;
   }
 
-  
-
   create = async (req, res, next) => {
     try {
       const userId = req.userId;
       const body = req.body;
       const community = await this.communitySvc.create(userId, body);
       res.status(201).json(apiResponse(community, 'Community created'));
-    } catch (err) {
-      next(err);
+    } catch (error) {
+      next(error);
     }
   };
 
@@ -25,9 +23,9 @@ class CommunityController {
     try {
       const { slug } = req.params;
       const community = await this.communitySvc.getBySlug(slug);
-      res.json(apiResponse(community));
-    } catch (err) {
-      next(err);
+      res.json(apiResponse(community, 'Community fetched successfully'));
+    } catch (error) {
+      next(error);
     }
   };
 
@@ -38,9 +36,9 @@ class CommunityController {
       const userRole = req.userRole;
       const body = req.body;
       const community = await this.communitySvc.update(communityId, userId, userRole, body);
-      res.json(apiResponse(community, 'Community updated'));
-    } catch (err) {
-      next(err);
+      res.json(apiResponse(community, 'Community updated successfully'));
+    } catch (error) {
+      next(error);
     }
   };
 
@@ -51,7 +49,7 @@ class CommunityController {
       const userRole = req.userRole;
       const file = req.files;
       const community = await this.communitySvc.updateAvatar(communityId, userId, userRole, file);
-      res.json(apiResponse(community, 'Community avatar updated'));
+      res.json(apiResponse(community, 'Community avatar updated successfully'));
     } catch (error) {
       next(error);
     }
@@ -64,7 +62,7 @@ class CommunityController {
       const userRole = req.userRole;
       const file = req.files;
       const community = await this.communitySvc.updateBanner(communityId, userId, userRole, file);
-      res.json(apiResponse(community, 'Community banner updated'));
+      res.json(apiResponse(community, 'Community banner updated successfully'));
     } catch (error) {
       next(error);
     }
@@ -76,9 +74,9 @@ class CommunityController {
       const userId = req.userId;
       const userRole = req.userRole;
       await this.communitySvc.remove(communityId, userId, userRole);
-      res.json(apiResponse(null, 'Community deleted'));
-    } catch (err) {
-      next(err);
+      res.json(apiResponse(null, 'Community deleted successfully'));
+    } catch (error) {
+      next(error);
     }
   };
 
@@ -93,8 +91,8 @@ class CommunityController {
           message || (status === 'pending' ? 'Join request sent' : 'Joined community')
         )
       );
-    } catch (err) {
-      next(err);
+    } catch (error) {
+      next(error);
     }
   };
 
@@ -104,8 +102,8 @@ class CommunityController {
       const userId = req.userId;
       await this.communitySvc.leave(communityId, userId);
       res.json(apiResponse(null, 'Left community'));
-    } catch (err) {
-      next(err);
+    } catch (error) {
+      next(error);
     }
   };
 
@@ -121,8 +119,8 @@ class CommunityController {
         offset
       );
       res.json(apiResponse(rows, 'Members fetched', paginationMeta(total, page, limit)));
-    } catch (err) {
-      next(err);
+    } catch (error) {
+      next(error);
     }
   };
 
@@ -138,8 +136,8 @@ class CommunityController {
         offset
       );
       res.json(apiResponse(posts, 'Posts fetched', paginationMeta(total, page, limit)));
-    } catch (err) {
-      next(err);
+    } catch (error) {
+      next(error);
     }
   };
 
@@ -150,8 +148,8 @@ class CommunityController {
       const userRole = req.userRole;
       await this.communitySvc.approveMember(communityId, targetUserId, userId, userRole);
       res.json(apiResponse(null, 'Member approved'));
-    } catch (err) {
-      next(err);
+    } catch (error) {
+      next(error);
     }
   };
 
@@ -162,8 +160,8 @@ class CommunityController {
       const userRole = req.userRole;
       await this.communitySvc.removeMember(communityId, targetUserId, userId, userRole);
       res.json(apiResponse(null, 'Member removed'));
-    } catch (err) {
-      next(err);
+    } catch (error) {
+      next(error);
     }
   };
 }

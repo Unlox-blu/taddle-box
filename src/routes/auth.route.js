@@ -14,9 +14,9 @@ const {
 } = require('../validators/auth.validator');
 
 
-router.post('/verify-email/send', otpRateLimiter, validate(sendOtpSchema), authController.sendVerificationEmail)
-router.post('/verify-email/verify', validate(verifyOtpSchema), authController.verifyOtp)
-router.post('/signup', validate(signupSchema), authController.signup);
+router.post('/send-otp', otpRateLimiter, validate(sendOtpSchema), authController.sendOtp)
+router.post('/verify-otp', validate(verifyOtpSchema), authController.verifyOtp)
+router.post('/signup', validate(signupSchema), authController.signUp);
 router.post('/login', validate(loginSchema), authController.login);
 // router.post('/google', validate(googleAuthSchema), authController.googleAuth);
 router.post('/logout', verifyToken, authController.logout);

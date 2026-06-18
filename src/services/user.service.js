@@ -118,12 +118,12 @@ class UserService {
 
       const followingId = targetUser.id;
 
-      if (followerId === followingId) throw createError('You cannot follow yourself', 400);
+      if (followerId === followingId) throw createError('You cannot follow yourself', 409);
       const isFollow = await this.followersRepo.findByFollowerIdAndFollowingId(
         followerId,
         followingId
       );
-      if (isFollow) throw createError('You already following this profile', 400);
+      if (isFollow) throw createError('You already following this profile', 409);
 
       const follower = await this.userRepo.findById(followerId)
 
@@ -148,13 +148,13 @@ class UserService {
 
       const followingId = targetUser.id;
 
-      if (followerId === followingId) throw createError('You cannot unFollow yourself', 400);
+      if (followerId === followingId) throw createError('You cannot unFollow yourself', 409);
 
       const isFollow = await this.followersRepo.findByFollowerIdAndFollowingId(
         followerId,
         followingId
       );
-      if (!isFollow) throw createError('You are not following this profile', 400);
+      if (!isFollow) throw createError('You are not following this profile', 409);
 
       await this.followersRepo.hardDelete(followerId, followingId);
 
@@ -178,7 +178,7 @@ class UserService {
         followerId,
         followingId
       );
-      if (!isFollowing) throw createError('This profile already not following you', 400);
+      if (!isFollowing) throw createError('This profile already not following you', 409);
 
       await this.followersRepo.hardDelete(followerId, followingId);
 

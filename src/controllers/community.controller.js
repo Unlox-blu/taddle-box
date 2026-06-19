@@ -12,7 +12,7 @@ class CommunityController {
     try {
       const userId = req.userId;
       const body = req.body;
-      const community = await this.communitySvc.create(userId, body);
+      const community = await this.communitySvc.create({userId, body});
       res.status(201).json(apiResponse(community, 'Community created'));
     } catch (error) {
       next(error);
@@ -22,7 +22,7 @@ class CommunityController {
   getBySlug = async (req, res, next) => {
     try {
       const { slug } = req.params;
-      const community = await this.communitySvc.getBySlug(slug);
+      const community = await this.communitySvc.getBySlug({slug});
       res.json(apiResponse(community, 'Community fetched successfully'));
     } catch (error) {
       next(error);
@@ -35,7 +35,7 @@ class CommunityController {
       const userId = req.userId;
       const userRole = req.userRole;
       const body = req.body;
-      const community = await this.communitySvc.update(communityId, userId, userRole, body);
+      const community = await this.communitySvc.update({communityId, userId, userRole, body});
       res.json(apiResponse(community, 'Community updated successfully'));
     } catch (error) {
       next(error);
@@ -48,7 +48,7 @@ class CommunityController {
       const userId = req.userId;
       const userRole = req.userRole;
       const file = req.files;
-      const community = await this.communitySvc.updateAvatar(communityId, userId, userRole, file);
+      const community = await this.communitySvc.updateAvatar({communityId, userId, userRole, file});
       res.json(apiResponse(community, 'Community avatar updated successfully'));
     } catch (error) {
       next(error);
@@ -61,7 +61,7 @@ class CommunityController {
       const userId = req.userId;
       const userRole = req.userRole;
       const file = req.files;
-      const community = await this.communitySvc.updateBanner(communityId, userId, userRole, file);
+      const community = await this.communitySvc.updateBanner({communityId, userId, userRole, file});
       res.json(apiResponse(community, 'Community banner updated successfully'));
     } catch (error) {
       next(error);
@@ -73,7 +73,7 @@ class CommunityController {
       const { communityId } = req.params;
       const userId = req.userId;
       const userRole = req.userRole;
-      await this.communitySvc.remove(communityId, userId, userRole);
+      await this.communitySvc.remove({communityId, userId, userRole});
       res.json(apiResponse(null, 'Community deleted successfully'));
     } catch (error) {
       next(error);
@@ -84,7 +84,7 @@ class CommunityController {
     try {
       const { communityId } = req.params;
       const userId = req.userId;
-      const { status, message } = await this.communitySvc.join(communityId, userId);
+      const { status, message } = await this.communitySvc.join({communityId, userId});
       res.json(
         apiResponse(
           null,
@@ -100,7 +100,7 @@ class CommunityController {
     try {
       const { communityId } = req.params;
       const userId = req.userId;
-      await this.communitySvc.leave(communityId, userId);
+      await this.communitySvc.leave({communityId, userId});
       res.json(apiResponse(null, 'Left community'));
     } catch (error) {
       next(error);
@@ -112,12 +112,7 @@ class CommunityController {
       const { communityId } = req.params;
       const userId = req.userId;
       const { limit, offset, page } = getPaginationParams(req.query);
-      const { rows, total } = await this.communitySvc.getMembers(
-        communityId,
-        userId,
-        limit,
-        offset
-      );
+      const { rows, total } = await this.communitySvc.getMembers({ communityId, userId, limit, offset });
       res.json(apiResponse(rows, 'Members fetched', paginationMeta(total, page, limit)));
     } catch (error) {
       next(error);
@@ -129,12 +124,7 @@ class CommunityController {
       const { communityId } = req.params;
       const userId = req.userId;
       const { limit, offset, page } = getPaginationParams(req.query);
-      const { posts, total } = await this.communitySvc.getCommunityPosts(
-        communityId,
-        userId,
-        limit,
-        offset
-      );
+      const { posts, total } = await this.communitySvc.getCommunityPosts( {communityId, userId, limit, offset} );
       res.json(apiResponse(posts, 'Posts fetched', paginationMeta(total, page, limit)));
     } catch (error) {
       next(error);
@@ -146,7 +136,7 @@ class CommunityController {
       const { communityId, userId: targetUserId } = req.params;
       const userId = req.userId;
       const userRole = req.userRole;
-      await this.communitySvc.approveMember(communityId, targetUserId, userId, userRole);
+      await this.communitySvc.approveMember({communityId, targetUserId, userId, userRole});
       res.json(apiResponse(null, 'Member approved'));
     } catch (error) {
       next(error);
@@ -158,7 +148,7 @@ class CommunityController {
       const { communityId, userId: targetUserId } = req.params;
       const userId = req.userId;
       const userRole = req.userRole;
-      await this.communitySvc.removeMember(communityId, targetUserId, userId, userRole);
+      await this.communitySvc.removeMember({communityId, targetUserId, userId, userRole});
       res.json(apiResponse(null, 'Member removed'));
     } catch (error) {
       next(error);

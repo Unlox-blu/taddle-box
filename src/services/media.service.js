@@ -16,8 +16,9 @@ class MediaService {
 
   // Step 1 of image upload.
   // Returns an S3 pre-signed PUT URL + a pending media record.
-  async getImageSignedUrl(uploaderId, { fileType, fileSize, folder }) {
+  async getImageSignedUrl({userId: uploaderId, body: data}) {
     try {
+      const { fileType, fileSize, folder } = data
       if (!ALLOWED_FOLDERS.includes(folder)) throw createError('Invalid upload folder', 400);
       if (fileSize > MAX_IMAGE_BYTES)
         throw createError(`File size exceeds ${process.env.MAX_FILE_SIZE_MB || 10}MB limit`, 400);
@@ -42,7 +43,7 @@ class MediaService {
 
   // Step 2 of image upload — client confirms the S3 PUT completed.
   // Verifies via S3 HEAD, then saves the CloudFront URL.
-  async confirmImageUpload(mediaId, s3Key) {
+  async confirmImageUpload({mediaId, s3Key}) {
     try {
       const cloudfrontUrl = await this.storageSvc.confirmUpload(s3Key);
       const media = await this.mediaRepo.updateStatus(mediaId, 'ready', {
@@ -56,8 +57,9 @@ class MediaService {
 
   // Step 1 of video upload — returns Vimeo TUS upload link.
   // Client streams video directly to Vimeo; server never handles the binary.
-  async getVideoUploadUrl(uploaderId, { fileSize, title }) {
+  async getVideoUploadUrl({userId: uploaderId, body: data}) {
     try {
+      const { fileSize, title } = data
       if (fileSize > MAX_VIDEO_BYTES)
         throw createError(`Video exceeds ${process.env.MAX_VIDEO_SIZE_MB || 500}MB limit`, 400);
 
@@ -79,7 +81,7 @@ class MediaService {
   }
 
   // Polls current processing status of a media item
-  async getMediaStatus(mediaId) {
+  async getMediaStatus({id: mediaId}) {
     try {
       const media = await this.mediaRepo.findById(mediaId);
       if (!media) throw createError('Media not found', 404);
@@ -93,7 +95,7 @@ class MediaService {
   }
 
 
-  async uploadImage(userId, folder, mediaFiles) {
+  async uploadImage({userId, folder, mediaFiles}) {
     try {
       if (!mediaFiles) throw createError('No file provided', 400);
 
@@ -155,7 +157,7 @@ class MediaService {
     }
   }
 
-  async getMedia(userId, limit, offset) {
+  async getMedia({userId, limit, offset}) {
     try {
       const {rows, total} = await this.mediaRepo.findByUserId(userId, limit, offset)
     
@@ -165,7 +167,7 @@ class MediaService {
     }
   }
 
-  async deleteMedia(userId, mediaId) {
+  async deleteMedia({userId, mediaId}) {
     try {
       const media = await this.mediaRepo.findById(mediaId)
       

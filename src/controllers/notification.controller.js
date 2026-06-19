@@ -11,32 +11,27 @@ class NotificationController {
   getAll = async (req, res, next) => {
     try {
       const userId = req.userId;
-      const unreadOnly = req.query.unread === 'true';
+      const unreadOnly = req.query?.unread && req.query.unread  === 'true';
       const { limit, offset, page } = getPaginationParams(req.query);
-      const { notifications, total, unreadCount } = await this.notifSvc.getAll(
-        userId,
-        limit,
-        offset,
-        unreadOnly
-      );
+      const { notifications, total, unreadCount } = await this.notifSvc.getAll( {userId, limit, offset, unreadOnly} );
       res.json(
         apiResponse(notifications, 'Notifications fetched', {
           ...paginationMeta(total, page, limit),
           unreadCount,
         })
       );
-    } catch (err) {
-      next(err);
+    } catch (error) {
+      next(error);
     }
   };
 
   markAllRead = async (req, res, next) => {
     try {
       const userId = req.userId;
-      await this.notifSvc.markAllRead(userId);
+      await this.notifSvc.markAllRead({userId});
       res.json(apiResponse(null, 'All notifications marked as read'));
-    } catch (err) {
-      next(err);
+    } catch (error) {
+      next(error);
     }
   };
 
@@ -44,10 +39,10 @@ class NotificationController {
     try {
       const { id } = req.params;
       const userId = req.userId;
-      await this.notifSvc.markOneRead(id, userId);
+      await this.notifSvc.markOneRead({id, userId});
       res.json(apiResponse(null, 'Notification marked as read'));
-    } catch (err) {
-      next(err);
+    } catch (error) {
+      next(error);
     }
   };
 }

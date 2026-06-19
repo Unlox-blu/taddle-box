@@ -12,6 +12,6 @@ router.post('/video/upload-url',  verifyToken, uploadRateLimiter, mediaControlle
 router.get('/:id/status',         verifyToken, mediaController.getMediaStatus);
 router.post('/upload-image',      verifyToken, mediaController.uploadImage);
 router.get('/',                   verifyToken, mediaController.getMedia);
-router.delete('/:mediaId',    verifyToken, mediaController.deleteMedia);
+router.delete('/:mediaId',        verifyToken, mediaController.deleteMedia);
 
 module.exports = router;

@@ -44,7 +44,7 @@ const hardDelete = async (userId, postId) => {
   }
 }
 
-const findByUserId = async (userId, limit, offset) => {
+const findByUserId = async ({userId, limit, offset}) => {
   try {
     const { rows } = await pool.query(
         `SELECT ${BookmarkModel.LIST_FIELDS}, p.*, COUNT(*) OVER() AS total

@@ -13,7 +13,7 @@ class CommentService {
     this.feedSvc = feedService;
   }
 
-  async createComment({ postId, authorId, content, parentId }) {
+  async create({ postId, authorId, content, parentId }) {
     try {
       const post = await this.postRepo.findById(postId);
       if (!post) throw createError('Post not found', 404);
@@ -86,7 +86,7 @@ class CommentService {
     }
   }
 
-  async updateComment(commentId, userId, content) {
+  async update({commentId, userId, content}) {
     try {
       const comment = await this.commentRepo.findById(commentId);
       if (!comment) throw createError('Comment not found', 404);
@@ -100,7 +100,7 @@ class CommentService {
     }
   }
 
-  async deleteComment(commentId, userId, userRole) {
+  async delete({commentId, userId, userRole}) {
     try {
       const comment = await this.commentRepo.findById(commentId);
       if (!comment) throw createError('Comment not found', 404);
@@ -116,7 +116,7 @@ class CommentService {
     }
   }
 
-  async likeComment(commentId, userId) {
+  async like({commentId, userId}) {
     try {
       const alreadyLiked = await this.commentRepo.isLikedByUser(commentId, userId);
       if (alreadyLiked) throw createError('Comment already liked', 409);
@@ -127,7 +127,7 @@ class CommentService {
     }
   }
 
-  async unlikeComment(commentId, userId) {
+  async unlike({commentId, userId}) {
     try {
       const isLiked = await this.commentRepo.isLikedByUser(commentId, userId);
       if (!isLiked) throw createError('Comment not liked', 409);

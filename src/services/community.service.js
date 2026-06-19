@@ -14,7 +14,7 @@ class CommunityService {
     this.notifSvc = notificationService;
   }
 
-  async create(ownerId, data) {
+  async create({userId: ownerId, body: data}) {
     try {
       const slug = data.name
         .toLowerCase()
@@ -33,7 +33,7 @@ class CommunityService {
     }
   }
 
-  async getBySlug(slug) {
+  async getBySlug({slug}) {
     try {
       const community = await this.communityRepo.findBySlug(slug);
       if (!community) throw createError('Community not found', 404);
@@ -43,7 +43,7 @@ class CommunityService {
     }
   }
 
-  async update(communityId, userId, userRole, data) {
+  async update({communityId, userId, userRole, body: data}) {
     try {
       const community = await this.communityRepo.findById(communityId);
       if (!community) throw createError('Community not found', 404);
@@ -59,7 +59,7 @@ class CommunityService {
     }
   }
 
-  async updateAvatar(communityId, userId, userRole, file) {
+  async updateAvatar({communityId, userId, userRole, file}) {
     try {
       if (!file || !file.avatar || !file.avatar.data) throw createError('No file provided', 400);
 
@@ -80,7 +80,7 @@ class CommunityService {
     }
   }
 
-  async updateBanner(communityId, userId, userRole, file) {
+  async updateBanner({communityId, userId, userRole, file}) {
     try {
       if (!file || !file.banner || !file.banner.data) throw createError('No file provided', 400);
 
@@ -101,7 +101,7 @@ class CommunityService {
     }
   }
 
-  async remove(communityId, userId, userRole) {
+  async remove({communityId, userId, userRole}) {
     try {
       const community = await this.communityRepo.findById(communityId);
       if (!community) throw createError('Community not found', 404);
@@ -116,7 +116,7 @@ class CommunityService {
     }
   }
 
-  async join(communityId, userId) {
+  async join({communityId, userId}) {
     try {
       const community = await this.communityRepo.findById(communityId);
       if (!community) throw createError('Community not found', 404);
@@ -153,7 +153,7 @@ class CommunityService {
     }
   }
 
-  async leave(communityId, userId) {
+  async leave({communityId, userId}) {
     try {
       const community = await this.communityRepo.findById(communityId);
       if (community?.owner_id === userId)
@@ -169,7 +169,7 @@ class CommunityService {
     }
   }
 
-  async getMembers(communityId, userId, limit, offset) {
+  async getMembers({communityId, userId, limit, offset}) {
     try {
       const community = await this.communityRepo.findById(communityId);
       if (!community) throw createError('Community not found', 404);
@@ -185,7 +185,7 @@ class CommunityService {
     }
   }
 
-  async getCommunityPosts(communityId, userId, limit, offset) {
+  async getCommunityPosts({communityId, userId, limit, offset}) {
     try {
       const community = await this.communityRepo.findById(communityId);
       if (!community) throw createError('Community not found', 404);
@@ -203,7 +203,7 @@ class CommunityService {
     }
   }
 
-  async approveMember(communityId, targetUserId, approvalId, approvalRole) {
+  async approveMember({communityId, targetUserId, userId: approvalId, userRole: approvalRole}) {
     try {
       const community = await this.communityRepo.findById(communityId);
       if (!community) throw createError('Community not found', 404);
@@ -238,7 +238,7 @@ class CommunityService {
     }
   }
 
-  async removeMember(communityId, targetUserId, approvalId, approvalRole) {
+  async removeMember({communityId, targetUserId, userId: approvalId, userRole: approvalRole}) {
     try {
       const community = await this.communityRepo.findById(communityId);
       if (!community) throw createError('Community not found', 404);

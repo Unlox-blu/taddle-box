@@ -13,7 +13,7 @@ class EventService {
 
   
 
-  async create(organizerId, data) {
+  async create({userId: organizerId, body: data}) {
     try {
       const { communityId } = data;
       if (communityId) {
@@ -26,7 +26,7 @@ class EventService {
     }
   }
 
-  async getById(eventId) {
+  async getById({eventId}) {
     try {
       const event = await this.eventRepo.findById(eventId);
       if (!event) throw createError('Event not found', 404);
@@ -36,7 +36,7 @@ class EventService {
     }
   }
 
-  async update(eventId, userId, data) {
+  async update({eventId, userId, body: data}) {
     try {
       const event = await this.eventRepo.findById(eventId);
       if (!event) throw createError('Event not found', 404);
@@ -55,7 +55,7 @@ class EventService {
     }
   }
 
-  async remove(eventId, userId) {
+  async remove({eventId, userId}) {
     try {
       const event = await this.eventRepo.findById(eventId);
       if (!event) throw createError('Event not found', 404);
@@ -67,7 +67,7 @@ class EventService {
     }
   }
 
-  async register(eventId, userId) {
+  async register({eventId, userId}) {
     try {
       const event = await this.eventRepo.findById(eventId);
       if (!event) throw createError('Event not found', 404);
@@ -103,7 +103,7 @@ class EventService {
     }
   }
 
-  async cancelRegistration(eventId, userId) {
+  async cancelRegistration({eventId, userId}) {
     try {
       const isAttendee = await this.eventRepo.getAttendee(eventId, userId);
       if (!isAttendee || isAttendee.status === 'cancelled')
@@ -116,7 +116,7 @@ class EventService {
     }
   }
 
-  async getAttendees(userId, userRole, eventId, limit, offset) {
+  async getAttendees({userId, userRole, eventId, limit, offset}) {
     try {
       const event = await this.eventRepo.findById(eventId);
       if (!event) throw createError('Event not found', 404);

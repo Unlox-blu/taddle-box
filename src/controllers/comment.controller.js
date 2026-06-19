@@ -12,10 +12,10 @@ class CommentController {
     try {
       const authorId = req.userId;
       const { postId, content, parentId } = req.body
-      const comment = await this.commentSvc.createComment({ postId, content, parentId, authorId });
+      const comment = await this.commentSvc.create({ postId, content, parentId, authorId });
       res.status(201).json(apiResponse(comment, 'Comment added'));
-    } catch (err) {
-      next(err);
+    } catch (error) {
+      next(error);
     }
   };
 
@@ -37,10 +37,10 @@ class CommentController {
       const { commentId } = req.params;
       const userId = req.userId;
       const { content } = req.body;
-      const comment = await this.commentSvc.updateComment(commentId, userId, content);
+      const comment = await this.commentSvc.update({commentId, userId, content});
       res.json(apiResponse(comment, 'Comment updated'));
-    } catch (err) {
-      next(err);
+    } catch (error) {
+      next(error);
     }
   };
 
@@ -49,10 +49,10 @@ class CommentController {
       const { commentId } = req.params;
       const userId = req.userId;
       const userRole = req.userRole;
-      await this.commentSvc.deleteComment(commentId, userId, userRole);
+      await this.commentSvc.delete({commentId, userId, userRole});
       res.json(apiResponse(null, 'Comment deleted'));
-    } catch (err) {
-      next(err);
+    } catch (error) {
+      next(error);
     }
   };
 
@@ -60,10 +60,10 @@ class CommentController {
     try {
       const { commentId } = req.params;
       const userId = req.userId;
-      await this.commentSvc.likeComment(commentId, userId);
+      await this.commentSvc.like({commentId, userId});
       res.json(apiResponse(null, 'Comment liked'));
-    } catch (err) {
-      next(err);
+    } catch (error) {
+      next(error);
     }
   };
 
@@ -71,10 +71,10 @@ class CommentController {
     try {
       const { commentId } = req.params;
       const userId = req.userId;
-      await this.commentSvc.unlikeComment(commentId, userId);
+      await this.commentSvc.unlike({commentId, userId});
       res.json(apiResponse(null, 'Comment unliked'));
-    } catch (err) {
-      next(err);
+    } catch (error) {
+      next(error);
     }
   };
 }

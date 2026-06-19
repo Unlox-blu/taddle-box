@@ -11,10 +11,10 @@ class WalletController {
   getWallet = async (req, res, next) => {
     try {
       const userId = req.userId;
-      const wallet = await this.walletSvc.getWallet(userId);
+      const wallet = await this.walletSvc.getWallet({userId});
       res.json(apiResponse(wallet));
-    } catch (err) {
-      next(err);
+    } catch (error) {
+      next(error);
     }
   };
 
@@ -22,12 +22,12 @@ class WalletController {
     try {
       const userId = req.userId;
       const { limit, offset, page } = getPaginationParams(req.query);
-      const { transactions, total } = await this.walletSvc.getTransactions(userId, limit, offset);
+      const { transactions, total } = await this.walletSvc.getTransactions({userId, limit, offset});
       res.json(
         apiResponse(transactions, 'Transactions fetched', paginationMeta(total, page, limit))
       );
-    } catch (err) {
-      next(err);
+    } catch (error) {
+      next(error);
     }
   };
 
@@ -35,10 +35,10 @@ class WalletController {
     try {
       const userId = req.userId;
       const { amountCents } = req.body;
-      const order = await this.walletSvc.createTopup(userId, amountCents);
+      const order = await this.walletSvc.createTopup({userId, amountCents});
       res.json(apiResponse(order, 'Order created. Open Razorpay checkout.'));
-    } catch (err) {
-      next(err);
+    } catch (error) {
+      next(error);
     }
   };
 }

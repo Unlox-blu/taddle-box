@@ -11,8 +11,8 @@ class UserController {
   getProfile = async (req, res, next) => {
     try {
       const { username } = req.params;
-      const userId = req.userId;
-      const user = await this.userSvc.getProfile(username, userId);
+      const userId = req.userId || null;
+      const user = await this.userSvc.getProfile({username, userId});
       res.json(apiResponse(user, "User fetched successfully"));
     } catch (error) {
       next(error);
@@ -22,8 +22,8 @@ class UserController {
   updateProfile = async (req, res, next) => {
     try {
       const userId = req.userId;
-      const fields = req.body;
-      const updated = await this.userSvc.updateProfile(userId, fields);
+      const body = req.body;
+      const updated = await this.userSvc.updateProfile({userId, body});
       res.json(apiResponse(updated, 'Profile updated successfully'));
     } catch (error) {
       next(error);
@@ -33,8 +33,8 @@ class UserController {
   updateAvatar = async (req, res, next) => {
     try {
       const userId = req.userId;
-      const files = req.files;
-      const updateAvatar = await this.userSvc.updateAvatar(userId, files);
+      const file = req.files;
+      const updateAvatar = await this.userSvc.updateAvatar({userId, file});
       res.json(apiResponse(updateAvatar, 'Avatar updated successfully'));
     } catch (error) {
       next(error);
@@ -44,8 +44,8 @@ class UserController {
   updateBanner = async (req, res, next) => {
     try {
       const userId = req.userId;
-      const files = req.files;
-      const updateBanner = await this.userSvc.updateBanner(userId, files);
+      const file = req.files;
+      const updateBanner = await this.userSvc.updateBanner({userId, file});
       res.json(apiResponse(updateBanner, 'Banner updated successfully'));
     } catch (error) {
       next(error);
@@ -56,7 +56,7 @@ class UserController {
     try {
       const userId = req.userId;
       const { username } = req.body;
-      const updated = await this.userSvc.updateUsername(userId, username);
+      const updated = await this.userSvc.updateUsername({userId, username});
       res.json(apiResponse(updated, 'Username updated successfully'));
     } catch (error) {
       next(error);
@@ -103,8 +103,8 @@ class UserController {
     try {
       const userId = req.userId;
       const { username } = req.params;
-      await this.userSvc.followUser(userId, username);
-      res.json(apiResponse(null, 'Followed successfully'));
+      await this.userSvc.followUser({userId, username});
+      res.status(201).json(apiResponse(null, 'Follow successfully'));
     } catch (error) {
       next(error);
     }
@@ -114,8 +114,8 @@ class UserController {
     try {
       const userId = req.userId;
       const { username } = req.params;
-      await this.userSvc.unfollowUser(userId, username);
-      res.json(apiResponse(null, 'Unfollowed successfully'));
+      await this.userSvc.unfollowUser({userId, username});
+      res.json(apiResponse(null, 'Unfollow successfully'));
     } catch (error) {
       next(error);
     }
@@ -125,7 +125,7 @@ class UserController {
     try {
       const userId = req.userId;
       const { username } = req.params;
-      await this.userSvc.removeFollower(userId, username);
+      await this.userSvc.removeFollower({userId, username});
       res.json(apiResponse(null, 'Follower removed successfully'));
     } catch (error) {
       next(error);

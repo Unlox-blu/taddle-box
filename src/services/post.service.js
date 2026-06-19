@@ -15,7 +15,7 @@ class PostService {
     this.feedSvc = feedService;
   }  
 
-  async createPost(authorId, data, mediaFiles) {
+  async createPost({userId: authorId, body: data, mediaFiles}) {
     try {
       const { communityId } = data;
 
@@ -45,7 +45,7 @@ class PostService {
     }
   }
 
-  async getPost(postId, userId) {
+  async getPost({postId, userId}) {
     try {
       const post = await this.postRepo.findById(postId);
       if (!post) throw createError('Post not found', 404);
@@ -67,7 +67,7 @@ class PostService {
     }
   }
 
-  async getUserPosts(authorId, userId, limit, offset) {
+  async getUserPosts({authorId, userId, limit, offset}) {
     try {
       if (userId === authorId) {
         const { rows, total } = await this.postRepo.findManyByUser(userId, limit, offset);
@@ -84,7 +84,7 @@ class PostService {
     }
   }
 
-  async updatePost(postId, authorId, data) {
+  async updatePost({postId, userId: authorId, body: data}) {
     try {
       const post = await this.postRepo.findById(postId);
       if (!post) throw createError('Post not found', 404);
@@ -98,7 +98,7 @@ class PostService {
     }
   }
 
-  async deletePost(postId, userId, userRole) {
+  async deletePost({postId, userId, userRole}) {
     try {
       const post = await this.postRepo.findById(postId);
       if (!post) throw createError('Post not found', 404);
@@ -111,7 +111,7 @@ class PostService {
     }
   }
 
-  async likePost(postId, userId) {
+  async likePost({postId, userId}) {
     try {
       const post = await this.postRepo.findById(postId)
       if(!post) throw createError("Post not found", 404)
@@ -139,7 +139,7 @@ class PostService {
     }
   }
 
-  async unlikePost(postId, userId) {
+  async unlikePost({postId, userId}) {
     try {
       const isLiked = await this.postRepo.isLikedByUser(postId, userId);
       if (!isLiked) throw createError('Post already not liked', 409);
@@ -150,7 +150,7 @@ class PostService {
     }
   }
 
-  async sharePost(postId) {
+  async sharePost({postId}) {
     try {
       const post = await this.postRepo.findById(postId)
       if(!post) throw createError("Post not found", 404)
@@ -160,7 +160,7 @@ class PostService {
     }
   }
 
-  async bookmarkPost(userId, postId) {
+  async bookmarkPost({userId, postId}) {
     try {
       const post = await this.postRepo.findById(postId)
       if(!post) throw createError('Post not found', 404)
@@ -171,7 +171,7 @@ class PostService {
     }
   }
 
-  async removebookmarkPost(userId, postId) {
+  async removebookmarkPost({userId, postId}) {
     try {
       const isBookmarked = await this.bookmarkRepo.findByUserIdAndPostId(userId, postId)
       if(!isBookmarked) throw createError('Post alreadey not bookmarked', 409)
@@ -182,7 +182,7 @@ class PostService {
     }
   }
 
-  async forceDeletePost(userRole, postId) {
+  async forceDeletePost({userRole, postId}) {
     try {
       if (userRole !== 'superadmin' || userRole !== 'admin')
         throw createError('Not authorized to delete this post', 403);

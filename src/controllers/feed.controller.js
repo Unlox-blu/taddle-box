@@ -11,13 +11,8 @@ class FeedController {
   getFeed = async (req, res, next) => {
     try {
       const { limit, offset, page } = getPaginationParams(req.query);
-     
-      const { posts, total, fromCache } = await this.feedSvc.getPersonalizedFeed(
-        req.userId,
-        limit,
-        offset,
-        page
-      );
+     const userId = req.userId
+      const { posts, total, fromCache } = await this.feedSvc.getPersonalizedFeed( {userId, limit, offset, page} );
       res.json(
         apiResponse(
           posts,
@@ -25,8 +20,8 @@ class FeedController {
           paginationMeta(total, page, limit)
         )
       );
-    } catch (err) {
-      next(err);
+    } catch (error) {
+      next(error);
     }
   };
 }

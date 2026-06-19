@@ -11,7 +11,7 @@ class WalletService {
     this.notifSvc = notificationService;
   }
 
-  async getWallet(userId) {
+  async getWallet({userId}) {
     try {
       const wallet = await this.walletRepo.findByUserId(userId);
       if (!wallet) throw createError('Wallet not found', 404);
@@ -21,7 +21,7 @@ class WalletService {
     }
   }
 
-  async getTransactions(userId, limit, offset) {
+  async getTransactions({userId, limit, offset}) {
     try {
       const wallet = await this.walletRepo.findByUserId(userId);
       if (!wallet) throw createError('Wallet not found', 404);
@@ -33,7 +33,7 @@ class WalletService {
   }
 
   // Creates a Razorpay order for wallet topup.
-  async createTopup(userId, amountCents) {
+  async createTopup({userId, amountCents}) {
     try {
       const wallet = await this.walletRepo.findByUserId(userId);
       if (!wallet) throw createError('Wallet not found', 404);

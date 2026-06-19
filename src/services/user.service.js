@@ -16,13 +16,13 @@ class UserService {
     this.storageSvc = storageIntegration;
   }
 
-  async getProfile(username, requesterId = null) {
+  async getProfile({username, userId}) {
     try {
       const user = await this.userRepo.findByUsername(username);
       if (!user) throw createError('User not found', 404);
 
       // Return sanitized private fields if viewing own profile
-      if (requesterId && requesterId === user.id) {
+      if (userId && userId === user.id) {
         const privateUser = await this.userRepo.findByIdPrivate(user.id);
         return UserModel.format(privateUser);
       }
@@ -32,16 +32,16 @@ class UserService {
     }
   }
 
-  async updateProfile(userId, fields) {
+  async updateProfile({userId, body}) {
     try {
-      const updated = await this.userRepo.updateProfile(userId, fields);
+      const updated = await this.userRepo.updateProfile(userId, body);
       return UserModel.format(updated);
     } catch (error) {
       throw error;
     }
   }
 
-  async updateAvatar(userId, file) {
+  async updateAvatar({userId, file}) {
     try {
       if (!file || !file.avatar || !file.avatar.data) throw createError('No file provided', 400);
 
@@ -54,7 +54,7 @@ class UserService {
     }
   }
 
-  async updateBanner(userId, file) {
+  async updateBanner({userId, file}) {
     try {
       if (!file || !file.banner || !file.banner.data) throw createError('No file provided', 400);
 
@@ -67,7 +67,7 @@ class UserService {
     }
   }
 
-  async updateUsername(userId, username) {
+  async updateUsername({userId, username}) {
     try {
       const existing = await this.userRepo.findByUsername(username);
       if (existing && existing.id !== userId) throw createError('Username is already taken', 409);
@@ -114,7 +114,7 @@ class UserService {
 
   async getbookmarked({userId, limit, offset}) {
     try {
-      const {bookmark, total} = await this.bookmarkRepo.findByUserId(userId, limit, offset)
+      const {bookmark, total} = await this.bookmarkRepo.findByUserId({userId, limit, offset})
 
       return {bookmark, total}
     } catch (error) {
@@ -122,7 +122,7 @@ class UserService {
     }
   }
 
-  async followUser(followerId, username) {
+  async followUser({followerId: userId, username}) {
     try {
       const targetUser = await this.userRepo.findByUsername(username);
       if (!targetUser) throw createError('User not found', 404);
@@ -152,7 +152,7 @@ class UserService {
     }
   }
 
-  async unfollowUser(followerId, username) {
+  async unfollowUser({followerId: userId, username}) {
     try {
       const targetUser = await this.userRepo.findByUsername(username);
       if (!targetUser) throw createError('User not found', 404);
@@ -176,7 +176,7 @@ class UserService {
     }
   }
 
-  async removeFollower(followingId, username) {
+  async removeFollower({followingId: userId, username}) {
     try {
       const targetUser = await this.userRepo.findByUsername(username);
       if (!targetUser) throw createError('User not found', 404);

@@ -30,7 +30,7 @@ class NotificationService {
     }
   }
 
-  async getAll(userId, limit, offset, unreadOnly = false) {
+  async getAll({userId, limit, offset, unreadOnly}) {
     try {
       const { rows, total } = await this.notifRepo.findByUser(userId, limit, offset, unreadOnly);
       const unreadCount = await this.notifRepo.getUnreadCount(userId);
@@ -40,7 +40,7 @@ class NotificationService {
     }
   }
 
-  async markAllRead(userId) {
+  async markAllRead({userId}) {
     try {
       await this.notifRepo.markAllRead(userId);
     } catch (error) {
@@ -48,7 +48,7 @@ class NotificationService {
     }
   }
 
-  async markOneRead(notificationId, userId) {
+  async markOneRead({id: notificationId, userId}) {
     try {
       await this.notifRepo.markOneRead(notificationId, userId);
     } catch (error) {

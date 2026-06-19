@@ -10,7 +10,7 @@ class FeedService {
     this.followerRepo = followerRepository
   }
 
-  async getPersonalizedFeed(userId, limit, offset, page) {
+  async getPersonalizedFeed({userId, limit, offset, page}) {
     try {
 
       const follow = await this.followerRepo.findByFollowerId(userId, 100, 0)

@@ -17,6 +17,33 @@ const create = async (userId, postId) => {
     }
 }
 
+const findByUserIdAndPostId = async (userId, postId) => {
+    try {
+        const {rows} = await pool.query(
+            `SELECT 1 FROM ${BookmarkModel.TABLE}
+            WHERE user_id = $1 AND post_id = $2
+            `,
+            [userId, postId]
+        )
+        return rows.length > 0
+    } catch (error) {
+        throw error
+    }
+}
+
+const hardDelete = async (userId, postId) => {
+  try {
+    await pool.query(
+      `DELETE FROM ${BookmarkModel.TABLE}
+      WHERE user_id = $1 AND post_id = $2
+      `,
+      [userId, postId]
+    )
+  } catch (error) {
+    throw error
+  }
+}
+
 const findByUserId = async (userId, limit, offset) => {
   try {
     const { rows } = await pool.query(
@@ -37,5 +64,7 @@ const findByUserId = async (userId, limit, offset) => {
 
 module.exports = {
     create,
+    findByUserIdAndPostId,
+    hardDelete,
     findByUserId
 }

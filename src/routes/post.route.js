@@ -19,6 +19,7 @@ router.post('/:postId/like',            verifyToken,                            
 router.delete('/:postId/like',          verifyToken,                                        postController.unlikePost);
 router.post('/:postId/share',           verifyToken,                                        postController.sharePost);
 router.post('/:postId/bookmark',        verifyToken,                                        postController.bookmarkPost);
+router.delete('/:postId/bookmark',      verifyToken,                                        postController.removebookmarkPost);
 router.delete('/:postId/force',         verifyToken,   authorize('admin', 'superadmin'),    postController.forceDeletePost);
 
 module.exports = router;

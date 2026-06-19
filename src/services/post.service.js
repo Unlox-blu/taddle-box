@@ -171,6 +171,17 @@ class PostService {
     }
   }
 
+  async removebookmarkPost(userId, postId) {
+    try {
+      const isBookmarked = await this.bookmarkRepo.findByUserIdAndPostId(userId, postId)
+      if(!isBookmarked) throw createError('Post alreadey not bookmarked', 409)
+      
+      await this.bookmarkRepo.hardDelete(userId, postId)
+    } catch (error) {
+      throw error
+    }
+  }
+
   async forceDeletePost(userRole, postId) {
     try {
       if (userRole !== 'superadmin' || userRole !== 'admin')

@@ -112,6 +112,17 @@ class PostController {
     }
   }
 
+  removebookmarkPost = async (req, res, next) => {
+    try {
+      const userId = req.userId
+      const {postId} = req.params
+      await this.postSvc.removebookmarkPost(userId, postId)
+      res.json(apiResponse(null, 'Post removed successfully'));
+    } catch (error) {
+      next(error)
+    }
+  }
+
   forceDeletePost = async (req, res, next) => {
     try {
       const userId = req.userId;

@@ -33,7 +33,7 @@ const findByIdPrivate = async (id) => {
 const findByEmail = async (email) => {
   try {
     const { rows } = await pool.query(
-      `SELECT ${UserModel.AUTH_FIELDS}, refresh_token_hash FROM ${UserModel.TABLE} WHERE LOWER(email) = LOWER($1) AND deleted_at IS NULL`,
+      `SELECT ${UserModel.AUTH_FIELDS} FROM ${UserModel.TABLE} WHERE LOWER(email) = LOWER($1) AND deleted_at IS NULL`,
       [email]
     );
     return rows[0] || null;

@@ -14,15 +14,15 @@ const {
 } = require('../validators/auth.validator');
 
 
-router.post('/send-otp', otpRateLimiter, validate(sendOtpSchema), authController.sendOtp)
-router.post('/verify-otp', validate(verifyOtpSchema), authController.verifyOtp)
-router.post('/signup', validate(signupSchema), authController.signUp);
-router.post('/login', validate(loginSchema), authController.login);
-// router.post('/google', validate(googleAuthSchema), authController.googleAuth);
-router.post('/logout', verifyToken, authController.logout);
-router.post('/refresh-token', authController.refreshToken);
-router.post('/forgot-password', validate(forgotPasswordSchema), authController.forgotPassword);
-router.post('/reset-password', validate(resetPasswordSchema), authController.resetPassword);
-router.get('/me', verifyToken, authController.getMe);
+router.post('/send-otp',        otpRateLimiter, validate(sendOtpSchema),  authController.sendOtp)
+router.post('/verify-otp',      validate(verifyOtpSchema),                authController.verifyOtp)
+router.post('/signup',          validate(signupSchema),                   authController.signUp);
+router.post('/login',           validate(loginSchema),                    authController.login);
+// router.post('/google',          validate(googleAuthSchema),               authController.googleAuth);
+router.post('/logout',                                                    authController.logout);
+router.post('/refresh-token',                                             authController.refreshToken);
+router.post('/forgot-password', validate(forgotPasswordSchema),           authController.forgotPassword);
+router.post('/reset-password',  validate(resetPasswordSchema),            authController.resetPassword);
+router.get('/me',               verifyToken,                              authController.getMe);
 
 module.exports = router;

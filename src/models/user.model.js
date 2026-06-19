@@ -17,7 +17,7 @@ const PRIVATE_FIELDS = [
 
 const AUTH_FIELDS = [
   'id', 'email', 'username', 'password_hash', 'role',
-  'is_verified', 'is_active', 'is_banned', 'google_id',
+  'is_verified', 'is_active', 'is_banned', 'google_id', 'refresh_token_hash',
 ].join(', ');
 
 const SEARCH_FIELDS = [

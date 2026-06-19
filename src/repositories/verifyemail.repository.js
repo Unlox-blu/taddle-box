@@ -7,7 +7,7 @@ const create = async ({ email, otp, expIn }) => {
   try {
     const { rows } = await pool.query(
       `INSERT INTO ${VerifyemailModel.TABLE}
-     (email, otp, exp_in)
+     (email, otp, otp_exp_in)
      VALUES ($1, $2, $3)
      RETURNING *`,
       [email, otp, expIn]
@@ -18,10 +18,10 @@ const create = async ({ email, otp, expIn }) => {
   }
 };
 
-const updateOtp = async ({ otp, expIn, email }) => {
+const updateOtp = async ({ email, otp, expIn }) => {
   try {
     const { rows } = await pool.query(
-      `UPDATE ${VerifyemailModel.TABLE} SET otp = $1, exp_in = $2, is_used = FALSE, is_verified = FALSE, updated_at = NOW() WHERE email = $3 RETURNING *`,
+      `UPDATE ${VerifyemailModel.TABLE} SET otp = $1, otp_exp_in = $2, is_verified = FALSE, updated_at = NOW() WHERE email = $3 RETURNING *`,
       [otp, expIn, email]
     );
     return VerifyemailModel.format(rows[0]);
@@ -30,11 +30,11 @@ const updateOtp = async ({ otp, expIn, email }) => {
   }
 };
 
-const makeVerified = async (email) => {
+const makeVerified = async (email, verificationExpiresAt) => {
   try {
     const { rows } = await pool.query(
-      `UPDATE ${VerifyemailModel.TABLE} SET otp = $1, exp_in = $2, is_used = FALSE, is_verified = TRUE, updated_at = NOW() WHERE email = $3 RETURNING *`,
-      [null, null, email]
+      `UPDATE ${VerifyemailModel.TABLE} SET otp = NULL, otp_exp_in = NULL, is_verified = TRUE, verification_expires_at = $2, updated_at = NOW() WHERE email = $1`,
+      [email, verificationExpiresAt]
     );
     return VerifyemailModel.format(rows[0]);
   } catch (error) {

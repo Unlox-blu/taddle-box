@@ -1,6 +1,7 @@
 'use strict';
 
 const { apiResponse } = require('../utils/response.util');
+const config = require('../config/app.config')
 
 class AuthController {
   constructor({ authService }) {
@@ -44,11 +45,11 @@ class AuthController {
 
       res.cookie('access_token', result.accessToken, {
         ...result.cookieOpts,
-        maxAge: 15 * 60 * 1000,
+        maxAge: config.ACCESS_TOKEN_COOKIE_MAX_AGE_SECONDS
       });
       res.cookie('refresh_token', result.refreshToken, {
         ...result.cookieOpts,
-        maxAge: 7 * 24 * 60 * 60 * 1000,
+        maxAge: config.REFRESH_TOKEN_COOKIE_MAX_AGE_SECONDS
       });
       res.json(apiResponse({ userId: result.userId, role: result.role }, 'Logged in successfully'));
     } catch (error) {
@@ -56,22 +57,22 @@ class AuthController {
     }
   };
 
-  googleAuth = async (req, res, next) => {
-    try {
-      const result = await this.authSvc.googleAuth(req.body.idToken);
-      res.cookie('access_token', result.accessToken, {
-        ...result.cookieOpts,
-        maxAge: 15 * 60 * 1000,
-      });
-      res.cookie('refresh_token', result.refreshToken, {
-        ...result.cookieOpts,
-        maxAge: 7 * 24 * 60 * 60 * 1000,
-      });
-      res.json(apiResponse({ userId: result.userId, role: result.role }, 'Google auth successful'));
-    } catch (error) {
-      next(error);
-    }
-  };
+  // googleAuth = async (req, res, next) => {
+  //   try {
+  //     const result = await this.authSvc.googleAuth(req.body.idToken);
+  //     res.cookie('access_token', result.accessToken, {
+  //       ...result.cookieOpts,
+  //       maxAge: 15 * 60 * 1000,
+  //     });
+  //     res.cookie('refresh_token', result.refreshToken, {
+  //       ...result.cookieOpts,
+  //       maxAge: 7 * 24 * 60 * 60 * 1000,
+  //     });
+  //     res.json(apiResponse({ userId: result.userId, role: result.role }, 'Google auth successful'));
+  //   } catch (error) {
+  //     next(error);
+  //   }
+  // };
 
   refreshToken = async (req, res, next) => {
     try {
@@ -79,11 +80,11 @@ class AuthController {
       const result = await this.authSvc.refreshToken({refreshToken});
       res.cookie('access_token', result.accessToken, {
         ...result.cookieOpts,
-        maxAge: 15 * 60 * 1000,
+        maxAge: config.ACCESS_TOKEN_COOKIE_MAX_AGE_SECONDS
       });
       res.cookie('refresh_token', result.refreshToken, {
         ...result.cookieOpts,
-        maxAge: 7 * 24 * 60 * 60 * 1000,
+        maxAge: config.REFRESH_TOKEN_COOKIE_MAX_AGE_SECONDS
       });
       res.json(apiResponse(null, 'Token refreshed'));
     } catch (error) {

@@ -1,5 +1,6 @@
 'use strict';
 
+const config = require('../config/app.config')
 const { hashPassword, comparePassword } = require('../utils/password.util');
 const {
   generateAccessToken,
@@ -42,21 +43,16 @@ class AuthService {
         .toString()
         .padStart(4, '0')
         .toString();
-      const expIn = new Date(Date.now() + 10 * 60 * 1000);
+      const expIn = new Date(Date.now() + parseInt(config.OTP_EXPIRES_IN, 10));
 
       const otpSendBefore = await this.verifyEmailRepo.findByEmail(email);
 
       if (otpSendBefore) {
         await this.verifyEmailRepo.updateOtp({ email, otp, expIn });
-        const jobdata = {
-                      to: email,
-                      otp: otp
-                      }
-        await addEmailJob('otp-verification', jobdata)
-        return;
+      }else{
+        await this.verifyEmailRepo.create({ email, otp, expIn });
       }
 
-      await this.verifyEmailRepo.create({ email, otp, expIn });
 
       const jobdata = {
         to: email,
@@ -80,7 +76,8 @@ class AuthService {
 
       if (isOtpAvailable.otp !== otp) throw createError('Invalied Otp', 409);
 
-      await this.verifyEmailRepo.makeVerified(email);
+      const verificationExpiresAt = new Date(Date.now() +  parseInt(config.VALIDATE_OTP_VERIFICATION, 10));
+      await this.verifyEmailRepo.makeVerified(email, verificationExpiresAt);
     } catch (error) {
       throw error;
     }
@@ -90,8 +87,13 @@ class AuthService {
   async signUp({ name, username, email, password }) {
     try {
       const isEmailVerified = await this.verifyEmailRepo.findByEmail(email);
+      
       if (!isEmailVerified || !isEmailVerified.isVerified)
         throw createError('Verified the email first', 400);
+      
+      const currentTime = new Date(Date.now());
+      if(!isEmailVerified.verificationExpiresAt || isEmailVerified.verificationExpiresAt < currentTime) 
+        throw createError('Verified the email again', 403);
 
       const [existingEmail, existingUsername] = await Promise.all([
         this.userRepo.findByEmail(email),
@@ -144,9 +146,6 @@ class AuthService {
 
       const result = await this.#issueTokens(user);
 
-      // const hashRefreshToken = hashToken(result.refreshToken);
-
-      // await this.userRepo.updateRefreshToken(user.id, hashRefreshToken);
 
       const jobdata = {
         to: email,
@@ -161,36 +160,36 @@ class AuthService {
   }
 
   // Authenticates or registers via Google ID token.
-  async googleAuth(idToken) {
-    try {
-      const { googleId, email, name, picture } = await this.googleSvc.verifyGoogleToken(idToken);
+  // async googleAuth(idToken) {
+  //   try {
+  //     const { googleId, email, name, picture } = await this.googleSvc.verifyGoogleToken(idToken);
 
-      let user = await this.userRepo.findByGoogleId(googleId);
+  //     let user = await this.userRepo.findByGoogleId(googleId);
 
-      if (!user) {
-        const existing = await this.userRepo.findByEmail(email);
-        if (existing) {
-          user = await this.userRepo.linkGoogleAccount(existing.id, googleId, picture);
-        } else {
-          const username = `${name.toLowerCase().replace(/\s+/g, '_')}_${Date.now().toString(36)}`;
-          user = await this.userRepo.createWithGoogle({
-            name,
-            username,
-            email,
-            googleId,
-            googleAvatar: picture,
-          });
-          await this.walletRepo.create(user.id);
-          this.emailSvc.sendWelcomeEmail(email, name).catch(console.error);
-        }
-      }
+  //     if (!user) {
+  //       const existing = await this.userRepo.findByEmail(email);
+  //       if (existing) {
+  //         user = await this.userRepo.linkGoogleAccount(existing.id, googleId, picture);
+  //       } else {
+  //         const username = `${name.toLowerCase().replace(/\s+/g, '_')}_${Date.now().toString(36)}`;
+  //         user = await this.userRepo.createWithGoogle({
+  //           name,
+  //           username,
+  //           email,
+  //           googleId,
+  //           googleAvatar: picture,
+  //         });
+  //         await this.walletRepo.create(user.id);
+  //         this.emailSvc.sendWelcomeEmail(email, name).catch(console.error);
+  //       }
+  //     }
 
-      if (user.is_banned) throw createError('Your account has been suspended', 403);
-      return this.#issueTokens(user);
-    } catch (error) {
-      throw error;
-    }
-  }
+  //     if (user.is_banned) throw createError('Your account has been suspended', 403);
+  //     return this.#issueTokens(user);
+  //   } catch (error) {
+  //     throw error;
+  //   }
+  // }
 
   // Rotates refresh token. Validates hash against DB.
   async refreshToken({refreshToken}) {
@@ -226,7 +225,7 @@ class AuthService {
       if (user) {
         const rawToken = generateRandomToken();
         const tokenHash = hashToken(rawToken);
-        const tokenExp = new Date(Date.now() + 60 * 60 * 1000);
+        const tokenExp = new Date(Date.now() + parseInt(config.PASSWORD_RESET_TOKEN_EXPIRES_IN, 10));
         await this.userRepo.updatePasswordResetToken(user.id, tokenHash, tokenExp);
 
         const jobdata = {

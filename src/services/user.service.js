@@ -122,7 +122,7 @@ class UserService {
     }
   }
 
-  async followUser({followerId: userId, username}) {
+  async followUser({userId: followerId, username}) {
     try {
       const targetUser = await this.userRepo.findByUsername(username);
       if (!targetUser) throw createError('User not found', 404);
@@ -152,7 +152,7 @@ class UserService {
     }
   }
 
-  async unfollowUser({followerId: userId, username}) {
+  async unfollowUser({userId: followerId, username}) {
     try {
       const targetUser = await this.userRepo.findByUsername(username);
       if (!targetUser) throw createError('User not found', 404);
@@ -176,7 +176,7 @@ class UserService {
     }
   }
 
-  async removeFollower({followingId: userId, username}) {
+  async removeFollower({userId: followingId, username}) {
     try {
       const targetUser = await this.userRepo.findByUsername(username);
       if (!targetUser) throw createError('User not found', 404);

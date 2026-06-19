@@ -71,6 +71,7 @@ class PostService {
     try {
       if (userId === authorId) {
         const { rows, total } = await this.postRepo.findManyByUser(userId, limit, offset);
+        console.log(rows)
         return { posts: rows.map(PostModel.format), total };
       }
       const { rows, total } = await this.postRepo.findManyByUser(authorId, limit, offset);

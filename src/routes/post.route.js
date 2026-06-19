@@ -12,7 +12,7 @@ const { createPostSchema, updatePostSchema } = require('../validators/post.valid
 router.post('/create-post',             verifyToken,   validate(createPostSchema),          postController.createPost);
 router.get('/:postId',                  optionalAuth,                                       postController.getPost);
 router.get('/user/:authorId',           optionalAuth,                                       postController.getUserPosts); 
-router.patch('/update-post/:postId',    verifyToken,   validate(updatePostSchema),          postController.updatePost);
+router.patch('/:postId/update-post',    verifyToken,   validate(updatePostSchema),          postController.updatePost);
 router.delete('/:postId',               verifyToken,                                        postController.deletePost);
 
 router.post('/:postId/like',            verifyToken,                                        postController.likePost);

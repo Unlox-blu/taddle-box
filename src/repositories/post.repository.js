@@ -25,7 +25,7 @@ const findManyByUser = async (userId, limit, offset) => {
       `SELECT ${PostModel.LIST_FIELDS}, c.privacy AS community_privacy, COUNT(*) OVER() AS total
      FROM ${PostModel.TABLE} p
      JOIN users u ON u.id = p.author_id
-     JOIN communities c ON c.id = p.community_id
+     LEFT JOIN communities c ON c.id = p.community_id
      WHERE p.author_id = $1 AND p.deleted_at IS NULL AND p.status = 'published'
      ORDER BY p.created_at DESC
      LIMIT $2 OFFSET $3`,

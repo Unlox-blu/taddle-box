@@ -19,7 +19,7 @@ router.post('/verify-otp',      validate(verifyOtpSchema),                authCo
 router.post('/signup',          validate(signupSchema),                   authController.signUp);
 router.post('/login',           validate(loginSchema),                    authController.login);
 // router.post('/google',          validate(googleAuthSchema),               authController.googleAuth);
-router.post('/logout',                                                    authController.logout);
+router.post('/logout',          verifyToken,                              authController.logout);
 router.post('/refresh-token',                                             authController.refreshToken);
 router.post('/forgot-password', validate(forgotPasswordSchema),           authController.forgotPassword);
 router.post('/reset-password',  validate(resetPasswordSchema),            authController.resetPassword);

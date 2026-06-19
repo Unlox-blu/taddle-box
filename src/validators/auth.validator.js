@@ -17,23 +17,23 @@ const usernameRules = z
   .regex(/^[a-zA-Z0-9_]+$/, 'Username can only contain letters, numbers and underscores');
 
 const sendOtpSchema = z.object({
-  email: z.string().email('Invalid email address')
+  email: z.string().email('Invalid email address').transform((val) => val.toLowerCase())
 })
 
 const verifyOtpSchema = z.object({
-  email: z.string().email('Invalid email address'),
+  email: z.string().email('Invalid email address').transform((val) => val.toLowerCase()),
   otp: z.string().length(4, "Otp must contain 4 numbers only").regex(/^[0-9]+$/, "otp can contain only numbers 0-9")
 })  
 
 const signupSchema = z.object({
   name: z.string().min(2, 'Name must be at least 2 characters').max(100),
   username: usernameRules,
-  email: z.string().email('Invalid email address'),
+  email: z.string().email('Invalid email address').transform((val) => val.toLowerCase()),
   password: passwordRules,
 });
 
 const loginSchema = z.object({
-  email: z.string().email('Invalid email address'),
+  email: z.string().email('Invalid email address').transform((val) => val.toLowerCase()),
   password: z.string().min(1, 'Password is required'),
 });
 
@@ -42,7 +42,7 @@ const googleAuthSchema = z.object({
 });
 
 const forgotPasswordSchema = z.object({
-  email: z.string().email('Invalid email address'),
+  email: z.string().email('Invalid email address').transform((val) => val.toLowerCase()),
 });
 
 const resetPasswordSchema = z.object({

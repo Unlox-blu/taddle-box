@@ -25,6 +25,7 @@ module.exports = {
     database: optional('DB_NAME', 'taddle_box_dev'),
     max: parseInt(optional('DB_MAX_CONNECTIONS', '20'), 10),
     ssl: optional('DB_SSL', 'false') === 'true',
+    connectionString: optional('DB_CONNECTION_STRING')
   },
 
   // Redis

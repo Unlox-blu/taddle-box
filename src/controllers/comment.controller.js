@@ -21,11 +21,11 @@ class CommentController {
 
   getComments = async (req, res, next) => {
     try {
-      const userId = req.userId
+      const userId = req.userId || null
       const {postId} = req.params
       const parentId = req.query.parentId || null
       const { limit, offset, page } = getPaginationParams(req.query);
-      const { comments, total } = await this.commentSvc.getComments({postId, parentId, limit, offset});
+      const { comments, total } = await this.commentSvc.getComments({postId, userId, parentId, limit, offset});
       res.json(apiResponse(comments, 'Comment added', paginationMeta(total, page, limit)));
     } catch (error) {
       next(error)

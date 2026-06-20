@@ -51,7 +51,7 @@ const startNotificationWorker = () => {
 
         case 'post_like': {
           // data: { postId, authorId, authorName, authorUsername, followerIds }
-          const { postId, authorId: recipientId, emiterName, emiterUsername, emiterId } = job.data;
+          const { postId, recipientId, emiterName, emiterUsername, emiterId } = job.data;
           // Create notification records for each follower and emit socket events
             const notif = await notificationRepository.create({
             recipientId,

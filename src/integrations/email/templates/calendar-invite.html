@@ -1,0 +1,85 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Event Invitation - Taddle Box</title>
+</head>
+
+<body style="margin:0;padding:0;background:#f4f6f8;font-family:Arial,sans-serif;">
+
+  <table width="100%" cellpadding="0" cellspacing="0" style="padding:40px 20px;background:#f4f6f8;">
+    <tr>
+      <td align="center">
+
+        <table width="600" cellpadding="0" cellspacing="0"
+          style="background:#ffffff;border-radius:12px;overflow:hidden;">
+
+          <!-- Header -->
+          <tr>
+            <td align="center" style="background:#111827;padding:32px;">
+              <h1 style="margin:0;color:#ffffff;">
+                Taddle Box
+              </h1>
+            </td>
+          </tr>
+
+          <!-- Body -->
+          <tr>
+            <td style="padding:40px;">
+
+              <h2 style="margin-top:0;color:#111827;">
+                📅 You're Invited!
+              </h2>
+
+              <p style="color:#4b5563;font-size:16px;line-height:1.6;">
+                Hi <strong>{{userName}}</strong>,
+              </p>
+
+              <p style="color:#4b5563;font-size:16px;line-height:1.6;">
+                You have been invited to join the following event on Taddle Box.
+              </p>
+
+              <table width="100%" cellpadding="0" cellspacing="0"
+                style="margin:24px 0;background:#f9fafb;border:1px solid #e5e7eb;border-radius:8px;">
+                <tr>
+                  <td style="padding:20px;">
+
+                    <p><strong>Event:</strong> {{eventName}}</p>
+                    <p><strong>Date:</strong> {{eventDate}}</p>
+                    <p><strong>Time:</strong> {{eventTime}}</p>
+                    <p><strong>Location:</strong> {{eventLocation}}</p>
+
+                  </td>
+                </tr>
+              </table>
+
+              <p style="color:#4b5563;font-size:16px;line-height:1.6;">
+                A calendar invitation has been attached to this email. Open the attachment and click
+                <strong>Accept</strong> to add this event to your calendar.
+              </p>
+
+              <table cellpadding="0" cellspacing="0" style="margin-top:30px;">
+                <tr>
+                  <td>
+                    <a href="{{eventUrl}}"
+                      style="background:#2563eb;color:#ffffff;text-decoration:none;padding:14px 24px;border-radius:8px;font-weight:bold;">
+                      View Event
+                    </a>
+                  </td>
+                </tr>
+              </table>
+
+            </td>
+          </tr>
+
+        </table>
+
+      </td>
+    </tr>
+  </table>
+
+</body>
+
+</html>

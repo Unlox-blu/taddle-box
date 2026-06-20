@@ -4,16 +4,19 @@
 const router = require('express').Router();
 const { eventController }            = require('../container');
 const { verifyToken, optionalAuth }  = require('../middlewares/auth.middleware');
+const { authorize } = require('../middlewares/authorized.middleware');
 const { validate }                   = require('../middlewares/validator.middleware');
 const { createEventSchema, updateEventSchema } = require('../validators/event.validator');
 
 
-router.post('/create-event',         verifyToken,  validate(createEventSchema), eventController.create);
 router.get('/:eventId',              optionalAuth, eventController.getById);
-router.patch('/update-event/:eventId', verifyToken,  validate(updateEventSchema), eventController.update);
-router.delete('/:eventId',           verifyToken,  eventController.remove);
 router.post('/:eventId/register',    verifyToken,  eventController.register);
 router.delete('/:eventId/register',  verifyToken,  eventController.cancelRegistration);
-router.get('/:eventId/attendees',    verifyToken,  eventController.getAttendees);
+
+//admin route only
+router.post('/create-event',         verifyToken,                   validate(createEventSchema), eventController.create);
+router.patch('/update-event/:eventId', verifyToken, authorize('admin', 'superadmin'),  validate(updateEventSchema), eventController.update);
+router.delete('/:eventId',           verifyToken, authorize('admin', 'superadmin'),  eventController.remove);
+router.get('/:eventId/attendees',    verifyToken,   eventController.getAttendees);
 
 module.exports = router;

@@ -30,6 +30,12 @@ const startEmailWorker = () => {
         case 'welcome_back':
           await EmailService.sendWelcomeBackEmail(job.data.to, job.data.name);
           break;
+        case 'event_registration_success':
+          await EmailService.sendRegisterForEventEmail(job.data.to, job.data);
+          break;
+        case 'send_invitation_event':
+          await EmailService.sendCalendarInviteEmail(job.data.to, job.data);
+          break;
         default:
           logger.warn(`[EmailWorker] Unknown job type: ${job.name}`);
       }

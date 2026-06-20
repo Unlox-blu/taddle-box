@@ -84,7 +84,7 @@ const commentService = new CommentService({
 });
 
 const eventService = new EventService({
-  eventRepository, walletRepository, paymentIntegration, notificationService,
+  eventRepository, walletRepository, userRepository, paymentIntegration, notificationService,
 });
 
 const walletService = new WalletService({

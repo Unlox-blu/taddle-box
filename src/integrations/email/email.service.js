@@ -14,10 +14,13 @@ const loadTemplate = (filename, replacements) => {
   );
 };
 
-const send = async ({ to, subject, html }) => {
+const send = async ({ to, subject, html, attachments=[] }) => {
   await transporter.sendMail({
     from: `"${config.EMAIL.fromName}" <${config.EMAIL.from}>`,
-    to, subject, html,
+    to, 
+    subject, 
+    html,
+    attachments
   });
 };
 
@@ -53,4 +56,16 @@ const sendWelcomeBackEmail = async (to, name) => {
   await send({ to, subject: `Welcome back to taddlebox, ${name}!`, html });
 };
 
-module.exports = { sendOtpVerificationEmail, sendVerificationEmail, sendPasswordResetEmail, sendSuccessEmail, sendWelcomeEmail, sendWelcomeBackEmail };
+const sendRegisterForEventEmail = async (to, data) => {
+  const { userName, eventName, eventDate, eventTime, eventLocation, eventUrl } = data
+  const html = loadTemplate('event-registration-success.html', { userName, eventName, eventDate, eventTime, eventLocation, eventUrl });
+  await send({ to, subject: `Registration for ${eventName}!`, html });
+};
+
+const sendCalendarInviteEmail = async (to, data) => {
+  const { userName, eventName, eventDate, eventTime, eventLocation, eventUrl, attachments } = data
+  const html = loadTemplate('calendar-invite.html', { userName, eventName, eventDate, eventTime, eventLocation, eventUrl });
+  await send({ to, subject: `Event Registration Confirmed for event: ${eventName}!`, html,  attachments });
+}
+
+module.exports = { sendOtpVerificationEmail, sendVerificationEmail, sendPasswordResetEmail, sendSuccessEmail, sendWelcomeEmail, sendWelcomeBackEmail, sendRegisterForEventEmail, sendCalendarInviteEmail };

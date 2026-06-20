@@ -71,7 +71,6 @@ class PostService {
     try {
       if (userId === authorId) {
         const { rows, total } = await this.postRepo.findManyByUser(userId, limit, offset);
-        console.log(rows)
         return { posts: rows.map(PostModel.format), total };
       }
       const { rows, total } = await this.postRepo.findManyByUser(authorId, limit, offset);
@@ -116,15 +115,14 @@ class PostService {
     try {
       const post = await this.postRepo.findById(postId)
       if(!post) throw createError("Post not found", 404)
-
+        
       const alreadyLiked = await this.postRepo.isLikedByUser(postId, userId);
       if (alreadyLiked) throw createError('Post already liked', 409);
-
+      
       await this.postRepo.addLike(postId, userId);
       await this.postRepo.incrementLikeCount(postId);
-      
       const user = await this.userRepo.findById(userId)
-      const data = { 
+      const jobdata = { 
         postId: post.id, 
         recipientId: post.author_id, 
         emiterName: user.name, 
@@ -132,7 +130,7 @@ class PostService {
         emiterId: user.id
       }
       
-      await addNotificationJob('post_like', data)
+      await addNotificationJob('post_like', jobdata)
 
       this.feedSvc.updatePreferences(userId, post.category || [], post.tags || [])
     } catch (error) {

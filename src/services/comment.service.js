@@ -2,6 +2,7 @@
 
 const { createError } = require('../utils/error.util');
 const CommentModel = require('../models/comment.model');
+const { addNotificationJob } = require('../jobs/queues/notification.queue');
 
 class CommentService {
   constructor({ commentRepository, postRepository, userRepository, notificationService, feedService, communityRepository }) {
@@ -67,13 +68,13 @@ class CommentService {
     }
   }
 
-  async getComments({postId, parentId, limit, offset}) {
+  async getComments({postId, userId, parentId, limit, offset}) {
     try {
       const post = await this.postRepo.findById(postId);
       if (!post) throw createError('Post not found', 404);
       if (post.community_id && post.community_privacy !== 'public') {
         //do authorization
-        const isMember = await this.communityRepo.isMember(post.community_id, authorId)
+        const isMember = await this.communityRepo.isMember(post.community_id, userId)
         if(!isMember || isMember.status !== 'active'){
           throw createError('You are not authorized for this community post', 403)
         }
@@ -94,6 +95,20 @@ class CommentService {
         throw createError('Not authorized to edit this comment', 403);
       
       const updated = await this.commentRepo.update(commentId, content);
+
+      const post = await this.postRepo.findById(comment.post_id);
+      const user = await this.userRepo.findById(userId)
+      const data = { 
+        postId: post.id, 
+        recipientId: post.author_id, 
+        emiterName: user.name, 
+        emiterUsername: user.username, 
+        emiterId: user.id,
+        comment: content
+      }
+      
+      await addNotificationJob('post_comment', data)
+
       return CommentModel.format(updated);
     } catch (error) {
       throw error;

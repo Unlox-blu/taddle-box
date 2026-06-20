@@ -1,0 +1,107 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Event Registration Confirmed - Taddle Box</title>
+</head>
+
+<body style="margin:0;padding:0;background-color:#f4f6f8;font-family:Arial,sans-serif;">
+
+  <table width="100%" cellpadding="0" cellspacing="0" style="background:#f4f6f8;padding:40px 20px;">
+    <tr>
+      <td align="center">
+
+        <table width="600" cellpadding="0" cellspacing="0"
+          style="background:#ffffff;border-radius:12px;overflow:hidden;">
+
+          <!-- Header -->
+          <tr>
+            <td align="center" style="background:#111827;padding:30px;">
+              <h1 style="color:#ffffff;margin:0;font-size:28px;">
+                Taddle Box
+              </h1>
+            </td>
+          </tr>
+
+          <!-- Content -->
+          <tr>
+            <td style="padding:40px 35px;">
+
+              <h2 style="margin:0 0 20px;color:#111827;">
+                🎉 You're Registered!
+              </h2>
+
+              <p style="font-size:16px;color:#4b5563;line-height:1.6;">
+                Hi <strong>{{userName}}</strong>,
+              </p>
+
+              <p style="font-size:16px;color:#4b5563;line-height:1.6;">
+                Great news! Your registration for the event has been successfully confirmed.
+              </p>
+
+              <table width="100%" cellpadding="0" cellspacing="0"
+                style="background:#f9fafb;border:1px solid #e5e7eb;border-radius:8px;margin:25px 0;">
+                <tr>
+                  <td style="padding:20px;">
+
+                    <p style="margin:0 0 12px;">
+                      <strong>Event:</strong> {{eventName}}
+                    </p>
+
+                    <p style="margin:0 0 12px;">
+                      <strong>Date:</strong> {{eventDate}}
+                    </p>
+
+                    <p style="margin:0 0 12px;">
+                      <strong>Time:</strong> {{eventTime}}
+                    </p>
+
+                    <p style="margin:0;">
+                      <strong>Location:</strong> {{eventLocation}}
+                    </p>
+
+                  </td>
+                </tr>
+              </table>
+
+              <p style="font-size:16px;color:#4b5563;line-height:1.6;">
+                We look forward to seeing you there and connecting with the Taddle Box community.
+              </p>
+
+              <table cellpadding="0" cellspacing="0" style="margin:30px auto;">
+                <tr>
+                  <td align="center">
+                    <a href="{{eventUrl}}"
+                      style="background:#2563eb;color:#ffffff;text-decoration:none;padding:14px 28px;border-radius:8px;font-weight:bold;display:inline-block;">
+                      View Event Details
+                    </a>
+                  </td>
+                </tr>
+              </table>
+
+            </td>
+          </tr>
+
+          <!-- Footer -->
+          <tr>
+            <td align="center"
+              style="padding:25px;background:#f9fafb;border-top:1px solid #e5e7eb;color:#6b7280;font-size:13px;">
+
+              <p style="margin:0 0 10px;">
+                You're receiving this email because you registered for an event on Taddle Box.
+              </p>
+
+            </td>
+          </tr>
+
+        </table>
+
+      </td>
+    </tr>
+  </table>
+
+</body>
+
+</html>

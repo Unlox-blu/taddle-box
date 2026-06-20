@@ -10,45 +10,11 @@ class EventController {
 
   
 
-  create = async (req, res, next) => {
-    try {
-      const userId = req.userId;
-      const body = req.body
-      const event = await this.eventSvc.create({userId, body});
-      res.status(201).json(apiResponse(event, 'Event created'));
-    } catch (error) {
-      next(error);
-    }
-  };
-
   getById = async (req, res, next) => {
     try {
       const { eventId } = req.params;
       const event = await this.eventSvc.getById({eventId});
-      res.json(apiResponse(event));
-    } catch (error) {
-      next(error);
-    }
-  };
-
-  update = async (req, res, next) => {
-    try {
-      const { eventId } = req.params;
-      const userId = req.userId;
-      const body = req.body;
-      const event = await this.eventSvc.update({eventId, userId, body});
-      res.json(apiResponse(event, 'Event updated'));
-    } catch (error) {
-      next(error);
-    }
-  };
-
-  remove = async (req, res, next) => {
-    try {
-      const { eventId } = req.params;
-      const userId = req.userId;
-      await this.eventSvc.remove({eventId, userId});
-      res.json(apiResponse(null, 'Event deleted'));
+      res.json(apiResponse(event, "Event fetched successfully!!"));
     } catch (error) {
       next(error);
     }
@@ -77,6 +43,41 @@ class EventController {
       next(error);
     }
   };
+
+  create = async (req, res, next) => {
+    try {
+      const userId = req.userId;
+      const body = req.body
+      const event = await this.eventSvc.create({userId, body});
+      res.status(201).json(apiResponse(event, 'Event created'));
+    } catch (error) {
+      next(error);
+    }
+  };
+
+  update = async (req, res, next) => {
+    try {
+      const { eventId } = req.params;
+      const userId = req.userId;
+      const body = req.body;
+      const event = await this.eventSvc.update({eventId, userId, body});
+      res.json(apiResponse(event, 'Event updated'));
+    } catch (error) {
+      next(error);
+    }
+  };
+
+  remove = async (req, res, next) => {
+    try {
+      const { eventId } = req.params;
+      const userId = req.userId;
+      await this.eventSvc.remove({eventId, userId});
+      res.json(apiResponse(null, 'Event deleted'));
+    } catch (error) {
+      next(error);
+    }
+  };
+
 
   getAttendees = async (req, res, next) => {
     try {

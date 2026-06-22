@@ -13,6 +13,7 @@ const walletRepository = require('./repositories/wallet.repository');
 const notificationRepository = require('./repositories/notification.repository');
 const feedRepository = require('./repositories/feed.repository');
 const mediaRepository = require('./repositories/media.repository');
+const streakRepository = require('./repositories/streak.repository')
 
 // Integrations
 const emailIntegration = require('./integrations/email/email.service');
@@ -33,6 +34,7 @@ const FeedService = require('./services/feed.service');
 const NotificationService = require('./services/notification.service');
 const MediaService = require('./services/media.service');
 const SearchService = require('./services/search.service')
+const StreakService = require('./services/streak.service')
 
 // Controllers
 const AuthController = require('./controllers/auth.controller');
@@ -46,6 +48,7 @@ const FeedController = require('./controllers/feed.controller');
 const NotificationController = require('./controllers/notification.controller');
 const MediaController = require('./controllers/media.controller');
 const SearchController = require('./controllers/search.controller')
+const StreakController = require('./controllers/streak.controller')
 
 // Instantiate Services
 
@@ -99,6 +102,10 @@ const searchService = new SearchService({
   userRepository, postRepository, communityRepository, eventRepository
 })
 
+const streakService = new StreakService({
+  streakRepository
+})
+
 // Instantiate Controllers
 const authController = new AuthController({ authService });
 const userController = new UserController({ userService });
@@ -111,6 +118,7 @@ const feedController = new FeedController({ feedService });
 const notificationController = new NotificationController({ notificationService });
 const mediaController = new MediaController({ mediaService });
 const searchController = new SearchController({searchService})
+const streakController = new StreakController({ streakService })
 
 module.exports = {
   authController,
@@ -124,4 +132,5 @@ module.exports = {
   notificationController,
   mediaController,
   searchController,
+  streakController,
 };

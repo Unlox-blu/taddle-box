@@ -67,20 +67,23 @@ class EventService {
       }
       await addEmailJob('event_registration_success', jobdata)
 
-      const calendarData = {
-        startTime: event.start_time,
-        endTime: event.end_time,
-        title: event.title,
-        description: `Invitation for ${event.title} event`
-      }
+      if(status === 'registered') {
+        const calendarData = {
+          uid: event.id,
+          startTime: event.start_time,
+          endTime: event.end_time,
+          title: event.title,
+          description: `Invitation for ${event.title} event`
+        }
 
-      const icsContent = generateEventInvite(calendarData)
-      const attachments = [{
-              filename: 'event-invite.ics',
-              content: icsContent,
-              contentType: 'text/calendar',
-              }]
-      await addEmailJob('send_invitation_event', {...jobdata, attachments})
+        const icsContent = generateEventInvite(calendarData)
+        const attachments = [{
+                filename: 'event-invite.ics',
+                content: icsContent,
+                contentType: 'text/calendar',
+                }]
+        await addEmailJob('send_invitation_event', {...jobdata, attachments})
+      }
 
       return { status: status, message: 'Registered successfully' };
     } catch (error) {
@@ -100,6 +103,9 @@ class EventService {
 
       await this.eventRepo.updateAttendeeStatus(eventId, userId, 'cancelled');
       await this.eventRepo.decrementAttendeeCount(eventId);
+
+      
+
     } catch (error) {
       throw error;
     }

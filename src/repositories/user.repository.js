@@ -66,13 +66,13 @@ const findByGoogleId = async (googleId) => {
   }
 };
 
-const create = async ({name, username, email, passwordHash, isVerified, gender, countryCode, phoneNumber, dateOfBirth}) => {
+const create = async ({name, username, email, passwordHash, isVerified, gender, dateOfBirth}) => {
   try {
     const { rows } = await pool.query(
-      `INSERT INTO ${UserModel.TABLE} (name, username, email, password_hash, is_verified, gender, country_code, phone_number, date_of_birth)
-     VALUES ($1, $2, $3, $4, $5, $6, $,7, $8, $9)
+      `INSERT INTO ${UserModel.TABLE} (name, username, email, password_hash, is_verified, gender, date_of_birth)
+     VALUES ($1, $2, $3, $4, $5, $6, $7)
      RETURNING ${UserModel.PRIVATE_FIELDS}`,
-      [name, username, email, passwordHash, isVerified, gender, countryCode, phoneNumber, dateOfBirth]
+      [name, username, email, passwordHash, isVerified, gender, dateOfBirth]
     );
     return UserModel.sanitize(rows[0]);
   } catch (error) {
@@ -155,6 +155,20 @@ const updateUsername = async (userId, username) => {
   }
 };
 
+const updatePhone = async (userId, countryCode, phoneNumber) => {
+  try {
+    const { rows } = await pool.query(
+      `UPDATE ${UserModel.TABLE} SET country_code = $1, phone_number = $2, updated_at = NOW() WHERE id = $3 RETURNING ${UserModel.PRIVATE_FIELDS}`,
+      [countryCode, phoneNumber, userId]
+    );
+    return UserModel.sanitize(rows[0]);
+  } catch (error) {
+    throw error;
+  }
+};
+
+
+
 const updateRefreshToken = async (userId, tokenHash) => {
   try {
     await pool.query(
@@ -223,6 +237,19 @@ const findByPasswordResetToken = async (ResetToken) => {
     throw error;
   }
 };
+
+const getPasswordByUserId = async (userId) => {
+  try {
+    const {rows} = await pool.query(
+      `SELECT password_hash FROM ${UserModel.TABLE}
+      WHERE id = $1`,
+      [userId]
+    )
+    return rows.length ? rows[0] : null
+  } catch (error) {
+    throw error
+  }
+}
 
 const updatePassword = async (userId, passwordHash) => {
   try {
@@ -351,12 +378,14 @@ module.exports = {
   updateAvatar,
   updateBanner,
   updateUsername,
+  updatePhone,
   updateRefreshToken,
   getRefreshTokenById,
   updateEmailVerifyToken,
   findByEmailVerifyToken,
   updatePasswordResetToken,
   findByPasswordResetToken,
+  getPasswordByUserId,
   updatePassword,
   linkGoogleAccount,
   verifyEmail,

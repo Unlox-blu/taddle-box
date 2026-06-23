@@ -86,24 +86,25 @@ class AuthService {
   // Registers a new user, auto-creates wallet, queues verification email.
   async signUp(data) {
     try {
-      const isEmailVerified = await this.verifyEmailRepo.findByEmail(data.email);
+      const {name, username, email, password, gender, dateOfBirth} = data
+      // const isEmailVerified = await this.verifyEmailRepo.findByEmail(email);
       
-      if (!isEmailVerified || !isEmailVerified.isVerified)
-        throw createError('Verified the email first', 400);
+      // if (!isEmailVerified || !isEmailVerified.isVerified)
+      //   throw createError('Verified the email first', 400);
       
-      const currentTime = new Date(Date.now());
-      if(!isEmailVerified.verificationExpiresAt || isEmailVerified.verificationExpiresAt < currentTime) 
-        throw createError('Verified the email again', 403);
+      // const currentTime = new Date(Date.now());
+      // if(!isEmailVerified.verificationExpiresAt || isEmailVerified.verificationExpiresAt < currentTime) 
+      //   throw createError('Verified the email again', 403);
 
       const [existingEmail, existingUsername] = await Promise.all([
-        this.userRepo.findByEmail(data.email),
-        this.userRepo.findByUsername(data.username),
+        this.userRepo.findByEmail(email),
+        this.userRepo.findByUsername(username),
       ]);
       if (existingEmail) throw createError('Email is already registered', 409);
       if (existingUsername) throw createError('Username is already taken', 409);
 
-      const passwordHash = await hashPassword(data.password);
-      const user = await this.userRepo.create({ ...data, passwordHash, isVerified: true });
+      const passwordHash = await hashPassword(password);
+      const user = await this.userRepo.create({ name, username, email, gender, dateOfBirth, passwordHash, isVerified: true });
 
       // Delete the email verification row
       await this.verifyEmailRepo.hardDelete(email);
@@ -150,6 +151,14 @@ class AuthService {
       return result;
     } catch (error) {
       throw error;
+    }
+  }
+
+  async addPhone({userId, countryCode, phoneNumber}) {
+    try {
+      await this.userRepo.updatePhone(userId, countryCode, phoneNumber)
+    } catch (error) {
+      throw error
     }
   }
 
@@ -209,6 +218,24 @@ class AuthService {
       await this.userRepo.updateRefreshToken(userId, null);
     } catch (error) {
       throw error;
+    }
+  }
+
+  async changePassword({userId, currentPassword, newPassword}) {
+    try {
+      const user = await this.userRepo.getPasswordByUserId(userId)
+
+      if(!user || !user.password_hash)
+        throw createError("User don't have password", 400)
+
+      const valid = await comparePassword(currentPassword, user.password_hash);
+      if (!valid) 
+        throw createError('Invalid current password', 400);
+
+      const passwordHash = await hashPassword(newPassword);
+      await this.userRepo.updatePassword(userId, passwordHash);
+    } catch (error) {
+      throw error
     }
   }
 

@@ -90,4 +90,5 @@ module.exports = {
   MAX_FILE_SIZE_MB: parseInt(optional('MAX_FILE_SIZE_MB', '10'), 10),
   MAX_VIDEO_SIZE_MB: parseInt(optional('MAX_VIDEO_SIZE_MB', '500'), 10),
   FEED_LIMIT: parseInt(optional('FEED_LIMIT', '20'), 10),
+  MIN_AGE_LIMIT: parseInt(optional('MIN_AGE_LIMIT', '13'), 10),
 };

@@ -1,6 +1,7 @@
 'use strict';
 
 const { z } = require('zod');
+const config = require('../config/app.config')
 
 const passwordRules = z
   .string()
@@ -15,6 +16,12 @@ const usernameRules = z
   .min(3, 'Username must be at least 3 characters')
   .max(30, 'Username must be at most 30 characters')
   .regex(/^[a-zA-Z0-9_]+$/, 'Username can only contain letters, numbers and underscores');
+  
+const transformToLowerCase = (val) => typeof val === 'string' ? val.trim().toLowerCase() : val
+
+const minAge = config.MIN_AGE_LIMIT  
+const ageLimit = new Date();
+ageLimit.setFullYear(ageLimit.getFullYear() - minAge);
 
 const sendOtpSchema = z.object({
   email: z.string().email('Invalid email address').transform((val) => val.toLowerCase())
@@ -28,16 +35,14 @@ const verifyOtpSchema = z.object({
 const signupSchema = z.object({
   name: z.string().min(2, 'Name must be at least 2 characters').max(100),
   username: usernameRules,
-  countryCode: z.string().regex(/^\+\d{1,4}$/, 'Invalid country code'),
-  phoneNumber: z.string().regex(/^\d{7,15}$/, 'Invalid phone number'),
-  dateOfBirth: z.coerce.date({ errorMap: () => ({ message: 'Invalid date of birth' }) }),
-  gender: z.transform((val) => val.toLowerCase()).enum(['male', 'female', 'other'], { errorMap: () => ({ message: 'Invalid gender' }) }).optional(),
-  email: z.string().transform((val) => val.toLowerCase()).email('Invalid email address'),
+  dateOfBirth: z.coerce.date({ errorMap: () => ({ message: 'Invalid date of birth' }) }).max(ageLimit, `You must be at least ${minAge} years old`),
+  gender: z.preprocess(transformToLowerCase, z.enum(['male', 'female', 'other'], { errorMap: () => ({ message: 'Invalid gender' }) })),
+  email: z.preprocess(transformToLowerCase, z.string().email('Invalid email address')),
   password: passwordRules,
 });
 
 const loginSchema = z.object({
-  email: z.string().transform((val) => val.toLowerCase()).email('Invalid email address'),
+  email: z.preprocess(transformToLowerCase, z.string().email('Invalid email address')),
   password: z.string().min(1, 'Password is required'),
 });
 
@@ -54,10 +59,16 @@ const resetPasswordSchema = z.object({
   password: passwordRules,
 });
 
+const addPhoneSchema = z.object({
+  countryCode: z.string().regex(/^\+\d{1,4}$/, 'Invalid country code'),
+  phoneNumber: z.string().regex(/^\d{7,15}$/, 'Invalid phone number'),
+})
+
 const changePasswordSchema = z.object({
   currentPassword: z.string().min(1, 'Current password is required'),
   newPassword: passwordRules,
 });
+
 
 
 module.exports = {
@@ -68,5 +79,6 @@ module.exports = {
   googleAuthSchema,
   forgotPasswordSchema,
   resetPasswordSchema,
+  addPhoneSchema,
   changePasswordSchema,
 };

@@ -57,6 +57,17 @@ class AuthController {
     }
   };
 
+  addPhone = async (req, res, next) => {
+    try {
+      const userId = req.userId 
+      const {countryCode, phoneNumber} = res.body
+      await this.authSvc.addPhone({userId, countryCode, phoneNumber})
+      res.json(apiResponse(null, 'Phone added successfully'));
+    } catch (error) {
+      next(error)
+    }
+  }
+
   // googleAuth = async (req, res, next) => {
   //   try {
   //     const result = await this.authSvc.googleAuth(req.body.idToken);
@@ -103,6 +114,17 @@ class AuthController {
       next(error);
     }
   };
+
+  changePassword = async (req, res, next) => {
+    try {
+      const userId = req.userId
+      const {currentPassword, newPassword} = req.body;
+      await this.authSvc.changePassword({userId, currentPassword, newPassword});
+      res.json(apiResponse(null, 'Password changed successfuly'));
+    } catch (error) {
+      next(error)
+    }
+  }
 
   forgotPassword = async (req, res, next) => {
     try {

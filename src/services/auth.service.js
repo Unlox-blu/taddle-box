@@ -34,7 +34,7 @@ class AuthService {
     this.googleSvc = googleIntegration;
   }
 
-  async sendOtp({email}) {
+  async sendOtpToEmail({email}) {
     try {
       const existingEmail = await this.userRepo.findByEmail(email);
       if (existingEmail) throw createError('Email is already registered', 409);
@@ -65,7 +65,7 @@ class AuthService {
     }
   }
 
-  async verifyOtp({email, otp}) {
+  async verifyOtpForEmail({email, otp}) {
     try {
       const isOtpAvailable = await this.verifyEmailRepo.findByEmail(email);
       if (!isOtpAvailable) throw createError('Otp did not generated for this email', 409);
@@ -154,8 +154,19 @@ class AuthService {
     }
   }
 
-  async addPhone({userId, countryCode, phoneNumber}) {
+  async sendOtpToPhone({countryCode, phoneNumber}) {
     try {
+      // send otp to phone
+
+    } catch (error) {
+      throw error
+    }
+  }
+
+  async verifyAndAadPhone({userId, otp, countryCode, phoneNumber}) {
+    try {
+      // verify phone first
+
       await this.userRepo.updatePhone(userId, countryCode, phoneNumber)
     } catch (error) {
       throw error

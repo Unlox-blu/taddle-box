@@ -9,18 +9,20 @@ const {
   signupSchema, loginSchema, googleAuthSchema,
   forgotPasswordSchema, resetPasswordSchema, changePasswordSchema,
   validateEmail,
-  verifyOtpSchema,
-  sendOtpSchema,
-  addPhoneSchema,
+  verifyOtpForEmail,
+  sendOtpToEmailSchema,
+  sendOtpToPhoneSchema,
+  verifyOtpForPhoneSchema,
 } = require('../validators/auth.validator');
 
 
-router.post('/send-otp',        otpRateLimiter, validate(sendOtpSchema),  authController.sendOtp)
-router.post('/verify-otp',      validate(verifyOtpSchema),                authController.verifyOtp)
+router.post('/send-otp-email',        otpRateLimiter, validate(sendOtpToEmailSchema),  authController.sendOtpToEmail)
+router.post('/verify-otp-email',      validate(verifyOtpForEmail),                authController.verifyOtpForEmail)
 router.post('/signup',          validate(signupSchema),                   authController.signUp);
 router.post('/login',           validate(loginSchema),                    authController.login);
 
-router.post('/addphone',        verifyToken, validate(addPhoneSchema),    authController.addPhone)
+router.post('/send-otp-phone',  otpRateLimiter,  verifyToken, validate(sendOtpToPhoneSchema),    authController.sendOtpToPhone)
+router.post('/verify-otp-phone',        verifyToken, validate(verifyOtpForPhoneSchema),    authController.verifyAndAadPhone)
 // router.post('/google',       validate(googleAuthSchema),               authController.googleAuth);
 router.post('/logout',          verifyToken,                              authController.logout);
 router.post('/refresh-token',                                             authController.refreshToken);

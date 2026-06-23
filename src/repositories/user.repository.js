@@ -387,6 +387,7 @@ module.exports = {
   updateBanner,
   updateUsername,
   updatePhone,
+  updatePrivacy,
   updateRefreshToken,
   getRefreshTokenById,
   updateEmailVerifyToken,

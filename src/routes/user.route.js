@@ -9,8 +9,8 @@ const { uploadSingle }           = require('../middlewares/upload.middleware');
 const { updateProfileSchema, updateUsernameSchema, updatePrivacySchema } = require('../validators/user.validator');
 
 router.patch('/update-profile',             verifyToken,     validate(updateProfileSchema),     userController.updateProfile);
-router.post('/update-avatar',               verifyToken,                                        userController.updateAvatar);
-router.post('/update-banner',               verifyToken,                                        userController.updateBanner);
+router.patch('/update-avatar',               verifyToken,                                        userController.updateAvatar);
+router.patch('/update-banner',               verifyToken,                                        userController.updateBanner);
 router.patch('/update-username',            verifyToken,     validate(updateUsernameSchema),    userController.updateUsername);
 router.patch('/update-privacy',             verifyToken,     validate(updatePrivacySchema),     userController.updatePrivacy);
 router.get('/bookmarked',                   verifyToken,     userController.getbookmarked);

@@ -8,20 +8,20 @@ class AuthController {
     this.authSvc = authService;
   }
 
-  sendOtp = async (req, res, next) => {
+  sendOtpToEmail = async (req, res, next) => {
     try {
       const { email } = req.body;
-      await this.authSvc.sendOtp({email});
+      await this.authSvc.sendOtpToEmail({email});
       res.json(apiResponse(null, 'Otp send successfully'));
     } catch (error) {
       next(error);
     }
   };
 
-  verifyOtp = async (req, res, next) => {
+  verifyOtpForEmail = async (req, res, next) => {
     try {
       const { email, otp } = req.body;
-      await this.authSvc.verifyOtp({email, otp});
+      await this.authSvc.verifyOtpForEmail({email, otp});
       res.json(apiResponse(null, 'Email verified successfully'));
     } catch (error) {
       next(error);
@@ -57,11 +57,22 @@ class AuthController {
     }
   };
 
-  addPhone = async (req, res, next) => {
+
+  sendOtpToPhone = async (req, res, next) => {
+    try {
+      const { countryCode, phoneNumber } = req.body;
+      await this.authSvc.sendOtpToPhone({countryCode, phoneNumber});
+      res.json(apiResponse(null, 'Otp send successfully'));
+    } catch (error) {
+      next(error);
+    }
+  };
+
+  verifyAndAadPhone = async (req, res, next) => {
     try {
       const userId = req.userId 
-      const {countryCode, phoneNumber} = res.body
-      await this.authSvc.addPhone({userId, countryCode, phoneNumber})
+      const {otp, countryCode, phoneNumber} = res.body
+      await this.authSvc.verifyAndAadPhone({userId, otp, countryCode, phoneNumber})
       res.json(apiResponse(null, 'Phone added successfully'));
     } catch (error) {
       next(error)

@@ -23,11 +23,11 @@ const minAge = config.MIN_AGE_LIMIT
 const ageLimit = new Date();
 ageLimit.setFullYear(ageLimit.getFullYear() - minAge);
 
-const sendOtpSchema = z.object({
+const sendOtpToEmailSchema = z.object({
   email: z.string().email('Invalid email address').transform((val) => val.toLowerCase())
 }).strict()
 
-const verifyOtpSchema = z.object({
+const verifyOtpForEmail = z.object({
   email: z.string().email('Invalid email address').transform((val) => val.toLowerCase()),
   otp: z.string().length(4, "Otp must contain 4 numbers only").regex(/^[0-9]+$/, "otp can contain only numbers 0-9")
 }).strict()  
@@ -59,9 +59,15 @@ const resetPasswordSchema = z.object({
   password: passwordRules,
 }).strict();
 
-const addPhoneSchema = z.object({
+const sendOtpToPhoneSchema = z.object({
   countryCode: z.string().regex(/^\+\d{1,4}$/, 'Invalid country code'),
   phoneNumber: z.string().regex(/^\d{7,15}$/, 'Invalid phone number'),
+}).strict()
+
+const verifyOtpForPhoneSchema = z.object({
+  countryCode: z.string().regex(/^\+\d{1,4}$/, 'Invalid country code'),
+  phoneNumber: z.string().regex(/^\d{7,15}$/, 'Invalid phone number'),
+  otp: z.string().length(4, "Otp must contain 4 numbers only").regex(/^[0-9]+$/, "otp can contain only numbers 0-9")
 }).strict()
 
 const changePasswordSchema = z.object({
@@ -72,13 +78,14 @@ const changePasswordSchema = z.object({
 
 
 module.exports = {
-  sendOtpSchema,
-  verifyOtpSchema,
+  sendOtpToEmailSchema,
+  verifyOtpForEmail,
   signupSchema,
   loginSchema,
   googleAuthSchema,
   forgotPasswordSchema,
   resetPasswordSchema,
-  addPhoneSchema,
+  sendOtpToPhoneSchema,
+  verifyOtpForPhoneSchema,
   changePasswordSchema,
 };

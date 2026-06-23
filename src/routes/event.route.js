@@ -11,6 +11,8 @@ const { createEventSchema, updateEventSchema } = require('../validators/event.va
 
 router.get('/:eventId',              optionalAuth, eventController.getById);
 router.post('/:eventId/register',    verifyToken,  eventController.register);
+router.post('/:eventId/save',        verifyToken,  eventController.saveEvent);
+router.delete('/:eventId/save',        verifyToken,  eventController.removeSavedEvent);
 router.delete('/:eventId/register',  verifyToken,  eventController.cancelRegistration);
 
 //admin route only

@@ -33,6 +33,33 @@ class EventController {
     }
   };
 
+  saveEvent = async (req, res, next) => {
+    try {
+      const { eventId } = req.params;
+      const userId = req.userId;
+      const result = await this.eventSvc.saveEvent({eventId, userId});
+      res.json(
+        apiResponse(result.orderId ? result : null, result.message || 'Registration processed')
+      );
+    } catch (error) {
+      next(error);
+    }
+  };
+
+  removeSavedEvent = async (req, res, next) => {
+    try {
+      const { eventId } = req.params;
+      const userId = req.userId;
+      const result = await this.eventSvc.removeSavedEvent({eventId, userId});
+      res.json(
+        apiResponse(result.orderId ? result : null, result.message || 'Registration processed')
+      );
+    } catch (error) {
+      next(error);
+    }
+  };
+
+
   cancelRegistration = async (req, res, next) => {
     try {
       const { eventId } = req.params;

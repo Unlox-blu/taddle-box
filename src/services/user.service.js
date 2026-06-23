@@ -9,9 +9,10 @@ const { startNotificationWorker } = require('../jobs/workers/notification.worker
 const { addNotificationJob } = require('../jobs/queues/notification.queue');
 
 class UserService {
-  constructor({ userRepository, bookmarkRepository, storageIntegration, followerRepository }) {
+  constructor({ userRepository, bookmarkRepository, saveEventsRepository, storageIntegration, followerRepository }) {
     this.userRepo = userRepository;
     this.bookmarkRepo = bookmarkRepository;
+    this.saveRepo =  saveEventsRepository;
     this.followersRepo = followerRepository;
     this.storageSvc = storageIntegration;
   }
@@ -137,6 +138,16 @@ class UserService {
   async getbookmarked({userId, limit, offset}) {
     try {
       const {bookmark, total} = await this.bookmarkRepo.findByUserId({userId, limit, offset})
+
+      return {bookmark, total}
+    } catch (error) {
+      throw error
+    }
+  }
+
+  async getsaved({userId, limit, offset}) {
+    try {
+      const {bookmark, total} = await this.saveRepo.findByUserId({userId, limit, offset})
 
       return {bookmark, total}
     } catch (error) {

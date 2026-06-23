@@ -110,6 +110,18 @@ class UserController {
     }
   }
 
+  getsaved = async (req, res, next) => {
+    try {
+      const { limit, offset, page } = getPaginationParams(req.query);
+      const userId = req.userId;
+      console.log('req.user', req.userId);
+      const {bookmark, total} = await this.userSvc.getsaved({userId, limit, offset});
+      res.json(apiResponse(bookmark, 'Bookmarked fetched successfully', paginationMeta(total, page, limit)));
+    } catch (error) {
+      next(error);
+    }
+  }
+
   followUser = async (req, res, next) => {
     try {
       const userId = req.userId;

@@ -6,6 +6,7 @@ const followerRepository = require('./repositories/followers.repository')
 const userRepository = require('./repositories/user.repository');
 const postRepository = require('./repositories/post.repository');
 const bookmarkRepository = require('./repositories/bookmark.repository')
+const saveEventsRepository = require('./repositories/saveEvents.repository')
 const communityRepository = require('./repositories/community.repository');
 const commentRepository = require('./repositories/comment.repository');
 const eventRepository = require('./repositories/event.repository');
@@ -63,7 +64,7 @@ const authService = new AuthService({
 });
 
 const userService = new UserService({
-  userRepository, bookmarkRepository, storageIntegration,
+  userRepository, bookmarkRepository, saveEventsRepository, storageIntegration,
   followerRepository
 });
 
@@ -87,7 +88,7 @@ const commentService = new CommentService({
 });
 
 const eventService = new EventService({
-  eventRepository, walletRepository, userRepository, paymentIntegration, notificationService,
+  eventRepository, walletRepository, userRepository, saveEventsRepository, paymentIntegration, notificationService,
 });
 
 const walletService = new WalletService({

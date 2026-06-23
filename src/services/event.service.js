@@ -7,10 +7,11 @@ const { addEmailJob } = require('../jobs/queues/email.queue');
 const { generateEventInvite } = require('../integrations/calendar/calendar.service');
 
 class EventService {
-  constructor({ eventRepository, walletRepository, userRepository, paymentIntegration, notificationService }) {
+  constructor({ eventRepository, walletRepository, userRepository, saveEventsRepository, paymentIntegration, notificationService }) {
     this.eventRepo = eventRepository;
     this.walletRepo = walletRepository;
     this.userRepo = userRepository;
+    this.saveEventRepo = saveEventsRepository;
     this.paymentSvc = paymentIntegration;
     this.notifSvc = notificationService;
   }
@@ -88,6 +89,30 @@ class EventService {
       return { status: status, message: 'Registered successfully' };
     } catch (error) {
       throw error;
+    }
+  }
+
+  async saveEvent({eventId, userId}) {
+    try {
+      const isSaved = await this.saveEventRepo.findByUserIdAndEventId(userId, eventId)
+      if(isSaved)
+        throw createError("Event already saved", 409)
+      
+      await this.saveEventRepo.create(userId, eventId)
+    } catch (error) {
+      throw error
+    }
+  }
+
+  async removeSavedEvent({eventId, userId}) {
+    try {
+      const isSaved = await this.saveEventRepo.findByUserIdAndEventId(userId, eventId)
+      if(!isSaved)
+        throw createError("Event already not saved", 409)
+
+      await this.saveEventRepo.hardDelete(userId, eventId)
+    } catch (error) {
+      throw error
     }
   }
 

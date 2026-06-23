@@ -14,6 +14,7 @@ router.patch('/update-banner',               verifyToken,                       
 router.patch('/update-username',            verifyToken,     validate(updateUsernameSchema),    userController.updateUsername);
 router.patch('/update-privacy',             verifyToken,     validate(updatePrivacySchema),     userController.updatePrivacy);
 router.get('/bookmarked',                   verifyToken,     userController.getbookmarked);
+router.get('/save',                         verifyToken,     userController.getsaved);
 
 // follow/unfollow routes
 router.get('/:username',                    optionalAuth,                                       userController.getProfile);

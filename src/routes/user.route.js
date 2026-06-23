@@ -20,6 +20,7 @@ router.get('/:username',                    optionalAuth,                       
 router.get('/:username/followers',          verifyToken,     userController.getFollowers);
 router.get('/:username/following',          verifyToken,     userController.getFollowing);
 router.post('/:username/follow',            verifyToken,     userController.followUser);
+router.patch('/:followerId/approve-follower',verifyToken,     userController.approveTofollow);
 router.delete('/:username/unfollow',        verifyToken,     userController.unfollowUser);
 router.delete('/:username/remove-follower', verifyToken,     userController.removeFollower);
 

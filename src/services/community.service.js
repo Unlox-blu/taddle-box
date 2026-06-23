@@ -141,10 +141,10 @@ class CommunityService {
       }
       
       if(isPending){
-        await addNotificationJob('request_to_join_community')
+        await addNotificationJob('request_to_join_community', jobdata)
       }else {
         await this.communityRepo.incrementMemberCount(communityId);
-        await addNotificationJob('new_member_join_community')
+        await addNotificationJob('new_member_join_community', jobdata)
       }
 
       return { status };

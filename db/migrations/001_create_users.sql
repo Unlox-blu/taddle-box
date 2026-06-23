@@ -5,9 +5,9 @@ CREATE TABLE IF NOT EXISTS users (
   name                      VARCHAR(100) NOT NULL,
   username                  VARCHAR(30)  NOT NULL UNIQUE,
   email                     VARCHAR(255) NOT NULL UNIQUE,
-  country_code              VARCHAR(5)   NOT NULL
+  country_code              VARCHAR(5)   
                               CHECK (country_code ~ '^\+[0-9]{1,4}$'),
-  phone_number              VARCHAR(20)  NOT NULL UNIQUE
+  phone_number              VARCHAR(20)  UNIQUE
                               CHECK (phone_number ~ '^[0-9]{3,15}$'),
   date_of_birth             DATE
   gender                    VARCHAR(20) 

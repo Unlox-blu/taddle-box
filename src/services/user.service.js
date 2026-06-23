@@ -132,31 +132,74 @@ class UserService {
 
   async followUser({userId: followerId, username}) {
     try {
-      const targetUser = await this.userRepo.findByUsername(username);
-      if (!targetUser) throw createError('User not found', 404);
+      const followingUser = await this.userRepo.findByUsername(username);
+      if (!followingUser) throw createError('User not found', 404);
 
-      const followingId = targetUser.id;
-
+      const followingId = followingUser.id;
+      const privacy = followingUser.privacy
+      
       if (followerId === followingId) throw createError('You cannot follow yourself', 409);
+
       const isFollow = await this.followersRepo.findByFollowerIdAndFollowingId(
         followerId,
         followingId
       );
       if (isFollow) throw createError('You already following this profile', 409);
 
-      const follower = await this.userRepo.findById(followerId)
 
-      await addNotificationJob('new_follower',{
-         followedUserId: followingId, 
-         followerId: followerId, 
-         followerName: follower.name, 
-         followerUsername: follower.username
-      })
+      const follower = await this.userRepo.findById(followerId)
+      
+      const jobdata = {
+        followingId: followingId, 
+        followerId: followerId, 
+        followerName: follower.name, 
+        followerUsername: follower.username
+      }
+      
+
+      if(privacy === "private") {
+        await this.followersRepo.createPendingFolow(followerId, followingId);
+        await addNotificationJob('request_to_follow', jobdata)
+        return {message: "Request to follow"}
+      }
+
+
       await this.followersRepo.createFolow(followerId, followingId);
       await this.userRepo.incrementFollowingCount(followerId);
       await this.userRepo.incrementFollowerCount(followingId);
+      await addNotificationJob('new_follower',jobdata)
+
+      return {message: 'Follow successfully'}
     } catch (error) {
       throw error;
+    }
+  }
+
+  async approveTofollow({userId: followingId, followerId}) {
+    try {
+      const isFollow = await this.followersRepo.findByFollowerIdAndFollowingId( followerId, followingId );
+
+      if(!isFollow)
+        throw createError('He did not request to follow', 400);
+
+      if (isFollow.status === 'active') 
+        throw createError('He already following this profile', 409);
+
+      await this.followersRepo.approvefollower(followerId, followingId)
+      await this.userRepo.incrementFollowingCount(followerId);
+      await this.userRepo.incrementFollowerCount(followingId);
+
+      const following = await this.userRepo.findById(followingId)
+      const jobdata = {
+        followingId: followingId, 
+        followerId: followerId, 
+        followingName: following.name, 
+        followingname: following.username
+      }
+      await addNotificationJob('approved_to_follow', jobdata)
+      return {message: "Request approved to follow"}
+    } catch (error) {
+      throw error
     }
   }
 

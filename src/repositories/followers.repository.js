@@ -9,7 +9,7 @@ const findByFollowingId = async (userId, limit, offset) => {
       `
         SELECT ${FollowersModel.PUBLIC_FIELDS}, COUNT(*) OVER() AS total 
         FROM ${FollowersModel.TABLE}
-        WHERE following_id = $1
+        WHERE following_id = $1 AND status = active
         ORDER BY created_at DESC
         LIMIT $2 OFFSET $3
         `,
@@ -30,7 +30,7 @@ const findByFollowerId = async (userId, limit, offset) => {
       `
         SELECT ${FollowersModel.PUBLIC_FIELDS}, COUNT(*) OVER() AS total 
         FROM ${FollowersModel.TABLE}
-        WHERE follower_id = $1 
+        WHERE follower_id = $1 AND status = active 
         ORDER BY created_at DESC
         LIMIT $2 OFFSET $3
         `,
@@ -78,6 +78,40 @@ const createFolow = async (followerId, followingId) => {
   }
 };
 
+const createPendingFolow = async (followerId, followingId) => {
+  try {
+    const { rows } = await pool.query(
+      `
+        INSERT INTO ${FollowersModel.TABLE} 
+        (follower_id, following_id, status)
+        VALUES ($1, $2, $3)
+        `,
+      [followerId, followingId, 'pending']
+    );
+
+    return rows[0];
+  } catch (error) {
+    throw error;
+  }
+};
+
+const approvefollower = async (followerId, followingId) => {
+  try {
+    const { rows } = await pool.query(
+      `
+        UPDATE ${FollowersModel.TABLE} 
+        SET status = $1
+        WHERE follower_id = $2 AND following_id = $3
+        `,
+      ['active', followerId, followingId]
+    );
+
+    return rows[0];
+  } catch (error) {
+    throw error;
+  }
+}
+
 const hardDelete = async (followerId, followingId) => {
   try {
     await pool.query(
@@ -97,5 +131,7 @@ module.exports = {
   findByFollowerId,
   findByFollowerIdAndFollowingId,
   createFolow,
+  createPendingFolow,
+  approvefollower,
   hardDelete,
 };

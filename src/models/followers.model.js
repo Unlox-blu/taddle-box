@@ -3,7 +3,7 @@
 const TABLE = 'followers';
 
 const PUBLIC_FIELDS = [
-  'follower_id', 'following_id', 'created_at',
+  'follower_id', 'following_id', 'status', 'created_at',
 ].join(', ');
 
 /** Converts snake_case DB row → camelCase API response */

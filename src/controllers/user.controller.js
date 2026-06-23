@@ -114,12 +114,23 @@ class UserController {
     try {
       const userId = req.userId;
       const { username } = req.params;
-      await this.userSvc.followUser({userId, username});
-      res.status(201).json(apiResponse(null, 'Follow successfully'));
+      const {message} = await this.userSvc.followUser({userId, username});
+      res.status(201).json(apiResponse(null, message));
     } catch (error) {
       next(error);
     }
   };
+
+  approveTofollow = async (req, res, next) => {
+    try {
+      const userId = req.userId;
+      const { followerId } = req.params;
+      const {message} = await this.userSvc.approveTofollow({userId, followerId});
+      res.status(201).json(apiResponse(null, message));
+    } catch (error) {
+      next(error)
+    }
+  }
 
   unfollowUser = async (req, res, next) => {
     try {

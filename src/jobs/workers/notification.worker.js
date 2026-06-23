@@ -15,10 +15,9 @@ const startNotificationWorker = () => {
 
       switch (job.name) {
         case 'new_follower': {
-          // data: { followedUserId, followerId, followerName, followerUsername, followerAvatar }
-          const { followedUserId, followerId, followerName, followerUsername } = job.data;
+          const { followingId, followerId, followerName, followerUsername } = job.data;
           const notif = await notificationRepository.create({
-            recipientId: followedUserId,
+            recipientId: followingId,
             senderId: followerId,
             type: 'follow',
             title: 'New follower',
@@ -26,31 +25,42 @@ const startNotificationWorker = () => {
             resourceType: 'user',
             resourceId: followerId,
           });
-          emitNotification(followedUserId, NotificationModel.format(notif));
+          emitNotification(followingId, NotificationModel.format(notif));
           break;
         }
 
-        case 'new_post_fanout': {
-          // data: { postId, authorId, authorName, authorUsername, followerIds }
-          const { postId, authorId, authorName, authorUsername, followerIds = [] } = job.data;
+        case 'request_to_follow': {
+          const { followingId, followerId, followerName, followerUsername } = job.data;
           // Create notification records for each follower and emit socket events
-          for (const recipientId of followerIds) {
-            const notif = await notificationRepository.create({
-              recipientId,
-              senderId: authorId,
-              type: 'new_post_in_feed',
-              title: 'New post',
-              message: `${authorName} (@${authorUsername}) published a new post`,
-              resourceType: 'post',
-              resourceId: postId,
-            });
-            emitNotification(recipientId, NotificationModel.format(notif));
-          }
+          const notif = await notificationRepository.create({
+            recipientId: followingId,
+            senderId: followerId,
+            type: 'request_to_follow',
+            title: 'Request to follow',
+            message: `${followerName} (@${followerUsername}) request to follow`,
+            resourceType: 'user',
+            resourceId: followerId,
+          });
+          emitNotification(followingId, NotificationModel.format(notif));
+          break;
+        }
+
+        case 'approved_to_follow': {
+          const { followerId, followingId, followingName, followingname } = job.data;
+          const notif = await notificationRepository.create({
+            recipientId: followerId,
+            senderId: followingId,
+            type: 'approved_to_follow',
+            title: 'Follow Request Approved',
+            message: `${followingName} (@${followingname}) approved to follow`,
+            resourceType: 'user',
+            resourceId: followingId,
+          });
+          emitNotification(followerId, NotificationModel.format(notif));
           break;
         }
 
         case 'post_like': {
-          // data: { postId, authorId, authorName, authorUsername, followerIds }
           const { postId, recipientId, emiterName, emiterUsername, emiterId } = job.data;
           // Create notification records for each follower and emit socket events
             const notif = await notificationRepository.create({
@@ -67,9 +77,7 @@ const startNotificationWorker = () => {
         }
 
         case 'post_comment': {
-          // data: { postId, authorId, authorName, authorUsername, followerIds }
           const { postId, recipientId, emiterName, emiterUsername, emiterId, comment } = job.data;
-          // Create notification records for each follower and emit socket events
             const notif = await notificationRepository.create({
             recipientId,
             senderId: emiterId,
@@ -85,7 +93,6 @@ const startNotificationWorker = () => {
 
         case 'new_member_join_community': {
           const { communityId, userId, userName, userUsername, adminsId = [] } = job.data;
-          // Create notification records for each follower and emit socket events
           for (const recipientId of adminsId) {
             const notif = await notificationRepository.create({
               recipientId,
@@ -103,7 +110,6 @@ const startNotificationWorker = () => {
 
         case 'request_to_join_community': {
           const { communityId, userId, userName, userUsername, adminsId = [] } = job.data;
-          // Create notification records for each follower and emit socket events
           for (const recipientId of adminsId) {
             const notif = await notificationRepository.create({
               recipientId,
@@ -121,7 +127,6 @@ const startNotificationWorker = () => {
 
         case 'approved_to_join_community': {
           const { communityId, userId, userName, userUsername, approvalId  } = job.data;
-          // Create notification records for each follower and emit socket events
             const notif = await notificationRepository.create({
               recipientId: userId,
               senderId: approvalId,

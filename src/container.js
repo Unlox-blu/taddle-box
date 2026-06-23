@@ -72,7 +72,7 @@ const notificationService = new NotificationService({
 });
 
 const postService = new PostService({
-  postRepository, communityRepository, userRepository,
+  postRepository, communityRepository, userRepository, followerRepository,
   bookmarkRepository, notificationService, feedService
 });
 
@@ -82,7 +82,7 @@ const communityService = new CommunityService({
 });
 
 const commentService = new CommentService({
-  commentRepository, postRepository, userRepository,
+  commentRepository, postRepository, userRepository,  followerRepository,
   notificationService, feedService, communityRepository
 });
 

@@ -5,11 +5,20 @@ const CommentModel = require('../models/comment.model');
 const { addNotificationJob } = require('../jobs/queues/notification.queue');
 
 class CommentService {
-  constructor({ commentRepository, postRepository, userRepository, notificationService, feedService, communityRepository }) {
+  constructor({
+    commentRepository,
+    postRepository,
+    userRepository,
+    followerRepository,
+    notificationService,
+    feedService,
+    communityRepository,
+  }) {
     this.commentRepo = commentRepository;
     this.communityRepo = communityRepository;
     this.userRepo = userRepository;
     this.postRepo = postRepository;
+    this.followerRepo = followerRepository;
     this.notifSvc = notificationService;
     this.feedSvc = feedService;
   }
@@ -19,13 +28,21 @@ class CommentService {
       const post = await this.postRepo.findById(postId);
       if (!post) throw createError('Post not found', 404);
 
+      const { author_id: authorId } = post;
+
+      const author = await this.userRepo.findById(authorId);
+
       if (post.community_id && post.community_privacy !== 'public') {
         //do authorization
-        const isMember = await this.communityRepo.isMember(post.community_id, authorId)
-        
-        if(!isMember || isMember.status !== 'active'){
-          throw createError('You are not allowed to comment in this community post', 403)
+        const isMember = await this.communityRepo.isMember(post.community_id, authorId);
+
+        if (!isMember || isMember.status !== 'active') {
+          throw createError('You are not allowed to comment in this community post', 403);
         }
+      } else if (author.privacy !== 'public') {
+        const isFollow = await this.followerRepo.findByFollowerIdAndFollowingId(userId, authorId);
+        if (!isFollow || isFollow !== 'active')
+          throw createError("You are not following the Post Author It's private account", 403);
       }
 
       // Compute nested thread path + depth
@@ -49,65 +66,74 @@ class CommentService {
       });
       await this.postRepo.incrementCommentCount(postId);
 
-      const user = await this.userRepo.findById(authorId)
-      const data = { 
-        postId: post.id, 
-        recipientId: post.author_id, 
-        emiterName: user.name, 
-        emiterUsername: user.username, 
+      const user = await this.userRepo.findById(authorId);
+      const data = {
+        postId: post.id,
+        recipientId: post.author_id,
+        emiterName: user.name,
+        emiterUsername: user.username,
         emiterId: user.id,
-        comment: content
-      }
-      
-      await addNotificationJob('post_comment', data)
+        comment: content,
+      };
 
-      this.feedSvc.updatePreferences(authorId, post.category || [], post.tags || [])
+      await addNotificationJob('post_comment', data);
+
+      this.feedSvc.updatePreferences(authorId, post.category || [], post.tags || []);
       return CommentModel.format(comment);
     } catch (error) {
       throw error;
     }
   }
 
-  async getComments({postId, userId, parentId, limit, offset}) {
+  async getComments({ postId, userId, parentId, limit, offset }) {
     try {
       const post = await this.postRepo.findById(postId);
       if (!post) throw createError('Post not found', 404);
+            const { author_id: authorId } = post;
+
+      const author = await this.userRepo.findById(authorId);
+
       if (post.community_id && post.community_privacy !== 'public') {
         //do authorization
-        const isMember = await this.communityRepo.isMember(post.community_id, userId)
-        if(!isMember || isMember.status !== 'active'){
-          throw createError('You are not authorized for this community post', 403)
+        const isMember = await this.communityRepo.isMember(post.community_id, authorId);
+
+        if (!isMember || isMember.status !== 'active') {
+          throw createError('You are not allowed to comment in this community post', 403);
         }
+      } else if (author.privacy !== 'public') {
+        const isFollow = await this.followerRepo.findByFollowerIdAndFollowingId(userId, authorId);
+        if (!isFollow || isFollow !== 'active')
+          throw createError("You are not following the Post Author It's private account", 403);
       }
 
-      const {rows, total} = await this.commentRepo.findByPost(postId, limit, offset, parentId)
-      return {comments: rows.map(CommentModel.format), total}
+      const { rows, total } = await this.commentRepo.findByPost(postId, limit, offset, parentId);
+      return { comments: rows.map(CommentModel.format), total };
     } catch (error) {
-      throw error
+      throw error;
     }
   }
 
-  async update({commentId, userId, content}) {
+  async update({ commentId, userId, content }) {
     try {
       const comment = await this.commentRepo.findById(commentId);
       if (!comment) throw createError('Comment not found', 404);
       if (comment.author_id !== userId)
         throw createError('Not authorized to edit this comment', 403);
-      
+
       const updated = await this.commentRepo.update(commentId, content);
 
       const post = await this.postRepo.findById(comment.post_id);
-      const user = await this.userRepo.findById(userId)
-      const data = { 
-        postId: post.id, 
-        recipientId: post.author_id, 
-        emiterName: user.name, 
-        emiterUsername: user.username, 
+      const user = await this.userRepo.findById(userId);
+      const data = {
+        postId: post.id,
+        recipientId: post.author_id,
+        emiterName: user.name,
+        emiterUsername: user.username,
         emiterId: user.id,
-        comment: content
-      }
-      
-      await addNotificationJob('post_comment', data)
+        comment: content,
+      };
+
+      await addNotificationJob('post_comment', data);
 
       return CommentModel.format(updated);
     } catch (error) {
@@ -115,7 +141,7 @@ class CommentService {
     }
   }
 
-  async delete({commentId, userId, userRole}) {
+  async delete({ commentId, userId, userRole }) {
     try {
       const comment = await this.commentRepo.findById(commentId);
       if (!comment) throw createError('Comment not found', 404);
@@ -131,7 +157,7 @@ class CommentService {
     }
   }
 
-  async like({commentId, userId}) {
+  async like({ commentId, userId }) {
     try {
       const alreadyLiked = await this.commentRepo.isLikedByUser(commentId, userId);
       if (alreadyLiked) throw createError('Comment already liked', 409);
@@ -142,7 +168,7 @@ class CommentService {
     }
   }
 
-  async unlike({commentId, userId}) {
+  async unlike({ commentId, userId }) {
     try {
       const isLiked = await this.commentRepo.isLikedByUser(commentId, userId);
       if (!isLiked) throw createError('Comment not liked', 409);

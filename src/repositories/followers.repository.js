@@ -9,7 +9,7 @@ const findByFollowingId = async (userId, limit, offset) => {
       `
         SELECT ${FollowersModel.PUBLIC_FIELDS}, COUNT(*) OVER() AS total 
         FROM ${FollowersModel.TABLE}
-        WHERE following_id = $1 AND status = active
+        WHERE following_id = $1 AND status = 'active'
         ORDER BY created_at DESC
         LIMIT $2 OFFSET $3
         `,
@@ -30,7 +30,7 @@ const findByFollowerId = async (userId, limit, offset) => {
       `
         SELECT ${FollowersModel.PUBLIC_FIELDS}, COUNT(*) OVER() AS total 
         FROM ${FollowersModel.TABLE}
-        WHERE follower_id = $1 AND status = active 
+        WHERE follower_id = $1 AND status = 'active' 
         ORDER BY created_at DESC
         LIMIT $2 OFFSET $3
         `,
@@ -51,7 +51,7 @@ const findByFollowerIdAndFollowingId = async (followerId, followingId) => {
       `
             SELECT ${FollowersModel.PUBLIC_FIELDS} 
             FROM ${FollowersModel.TABLE}
-            WHERE follower_id = $1 AND following_id = $2
+            WHERE follower_id = $1 AND following_id = $2 
             `,
       [followerId, followingId]
     );

@@ -6,10 +6,11 @@ const { uploadFile } = require('../integrations/storage/cloudinary.service');
 const { addNotificationJob } = require('../jobs/queues/notification.queue');
 
 class PostService {
-  constructor({ postRepository, communityRepository, bookmarkRepository, notificationService, feedService, userRepository }) {
+  constructor({ postRepository, communityRepository, followerRepository, bookmarkRepository, notificationService, feedService, userRepository }) {
     this.postRepo = postRepository;
     this.communityRepo = communityRepository;
     this.bookmarkRepo = bookmarkRepository;
+    this.followerRepo = followerRepository;
     this.userRepo = userRepository;
     this.notifSvc = notificationService;
     this.feedSvc = feedService;
@@ -49,7 +50,9 @@ class PostService {
     try {
       const post = await this.postRepo.findById(postId);
       if (!post) throw createError('Post not found', 404);
-      const { community_id: communityId } = post;
+      const { community_id: communityId, author_id: authorId } = post;
+
+      const author = await this.userRepo.findById(authorId)
 
       if (communityId) {
         const community = await this.communityRepo.findById(communityId);
@@ -60,6 +63,11 @@ class PostService {
           if (!isMember || isMember.status !== 'active')
             throw createError('This is private community', 403);
         }
+      }
+      else if(author.privacy !== 'public') {
+        const isFollow = await this.followerRepo.findByFollowerIdAndFollowingId(userId, authorId)
+        if(!isFollow || isFollow !== 'active')
+          throw createError("You are not following the Post Author It's private account", 403)
       }
       return PostModel.format(post);
     } catch (error) {
@@ -73,6 +81,13 @@ class PostService {
         const { rows, total } = await this.postRepo.findManyByUser(userId, limit, offset);
         return { posts: rows.map(PostModel.format), total };
       }
+      const author = await this.userRepo.findById(authorId)
+      if(author.privacy !== 'public') {
+        const isFollow = await this.followerRepo.findByFollowerIdAndFollowingId(userId, authorId)
+        if(!isFollow || isFollow !== 'active')
+          throw createError("You are not following the Post Author It's private account", 403)
+      }
+
       const { rows, total } = await this.postRepo.findManyByUser(authorId, limit, offset);
 
       const posts = rows.filter(
@@ -115,7 +130,15 @@ class PostService {
     try {
       const post = await this.postRepo.findById(postId)
       if(!post) throw createError("Post not found", 404)
-        
+
+      const authorId = post.author_id  
+      const author = await this.userRepo.findById(authorId)
+      if(author.privacy !== 'public') {
+        const isFollow = await this.followerRepo.findByFollowerIdAndFollowingId(userId, authorId)
+        if(!isFollow || isFollow !== 'active')
+          throw createError("You are not following the Post Author It's private account", 403)
+      }  
+
       const alreadyLiked = await this.postRepo.isLikedByUser(postId, userId);
       if (alreadyLiked) throw createError('Post already liked', 409);
       
@@ -153,6 +176,15 @@ class PostService {
     try {
       const post = await this.postRepo.findById(postId)
       if(!post) throw createError("Post not found", 404)
+
+      const authorId = post.author_id  
+      const author = await this.userRepo.findById(authorId)
+      if(author.privacy !== 'public') {
+        const isFollow = await this.followerRepo.findByFollowerIdAndFollowingId(userId, authorId)
+        if(!isFollow || isFollow !== 'active')
+          throw createError("You are not following the Post Author It's private account", 403)
+      }
+
       await this.postRepo.incrementShareCount(postId);
     } catch (error) {
       throw error;
@@ -164,6 +196,14 @@ class PostService {
       const post = await this.postRepo.findById(postId)
       if(!post) throw createError('Post not found', 404)
       
+      const authorId = post.author_id  
+      const author = await this.userRepo.findById(authorId)
+      if(author.privacy !== 'public') {
+        const isFollow = await this.followerRepo.findByFollowerIdAndFollowingId(userId, authorId)
+        if(!isFollow || isFollow !== 'active')
+          throw createError("You are not following the Post Author It's private account", 403)
+      }
+
       await this.bookmarkRepo.create(userId, postId)
     } catch (error) {
       throw error

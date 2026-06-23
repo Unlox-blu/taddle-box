@@ -91,6 +91,13 @@ class UserService {
       const user = await this.userRepo.findByUsername(username);
       if (!user) throw createError('User not found', 404);
 
+      if(user.privacy !== 'public'){
+        const isFollow = await this.followersRepo.findByFollowerIdAndFollowingId( userId, user.id );
+  
+        if(!isFollow || isFollow.status !== 'active')
+          throw createError('You are not authorized to get the follower', 403)
+      }
+
       const { followings, total } = await this.followersRepo.findByFollowingId(
         user.id,
         limit,
@@ -107,6 +114,13 @@ class UserService {
     try {
       const user = await this.userRepo.findByUsername(username);
       if (!user) throw createError('User not found', 404);
+
+      if(user.privacy !== 'public'){
+        const isFollow = await this.followersRepo.findByFollowerIdAndFollowingId( userId, user.id );
+  
+        if(!isFollow || isFollow.status !== 'active')
+          throw createError('You are not authorized to get the follower', 403)
+      }
 
       const { followers, total } = await this.followersRepo.findByFollowerId(
         user.id,
@@ -140,10 +154,7 @@ class UserService {
       
       if (followerId === followingId) throw createError('You cannot follow yourself', 409);
 
-      const isFollow = await this.followersRepo.findByFollowerIdAndFollowingId(
-        followerId,
-        followingId
-      );
+      const isFollow = await this.followersRepo.findByFollowerIdAndFollowingId( followerId, followingId );
       if (isFollow) throw createError('You already following this profile', 409);
 
 

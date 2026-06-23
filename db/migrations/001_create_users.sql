@@ -5,7 +5,18 @@ CREATE TABLE IF NOT EXISTS users (
   name                      VARCHAR(100) NOT NULL,
   username                  VARCHAR(30)  NOT NULL UNIQUE,
   email                     VARCHAR(255) NOT NULL UNIQUE,
+  country_code              VARCHAR(5)   NOT NULL
+                              CHECK (country_code ~ '^\+[0-9]{1,4}$'),
+  phone_number              VARCHAR(20)  NOT NULL UNIQUE
+                              CHECK (phone_number ~ '^[0-9]{3,15}$'),
+  date_of_birth             DATE
+  gender                    VARCHAR(20) 
+                              CHECK (gender IN ('male', 'female', 'other')),
   password_hash             TEXT,
+  privacy                   VARCHAR(20)  NOT NULL DEFAULT 'public'
+                              CHECK (privacy IN ('public','private')),
+  theme                     VARCHAR(10) NOT NULL DEFAULT 'light'
+                              CHECK (theme IN ('light', 'dark', 'system')),
   google_id                 VARCHAR(255) UNIQUE,
   avatar_url                TEXT,
   banner_url                TEXT,

@@ -28,12 +28,16 @@ const verifyOtpSchema = z.object({
 const signupSchema = z.object({
   name: z.string().min(2, 'Name must be at least 2 characters').max(100),
   username: usernameRules,
-  email: z.string().email('Invalid email address').transform((val) => val.toLowerCase()),
+  countryCode: z.string().regex(/^\+\d{1,4}$/, 'Invalid country code'),
+  phoneNumber: z.string().regex(/^\d{7,15}$/, 'Invalid phone number'),
+  dateOfBirth: z.coerce.date({ errorMap: () => ({ message: 'Invalid date of birth' }) }),
+  gender: z.transform((val) => val.toLowerCase()).enum(['male', 'female', 'other'], { errorMap: () => ({ message: 'Invalid gender' }) }).optional(),
+  email: z.string().transform((val) => val.toLowerCase()).email('Invalid email address'),
   password: passwordRules,
 });
 
 const loginSchema = z.object({
-  email: z.string().email('Invalid email address').transform((val) => val.toLowerCase()),
+  email: z.string().transform((val) => val.toLowerCase()).email('Invalid email address'),
   password: z.string().min(1, 'Password is required'),
 });
 
@@ -54,6 +58,7 @@ const changePasswordSchema = z.object({
   currentPassword: z.string().min(1, 'Current password is required'),
   newPassword: passwordRules,
 });
+
 
 module.exports = {
   sendOtpSchema,

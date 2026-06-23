@@ -30,8 +30,8 @@ class AuthController {
 
   signUp = async (req, res, next) => {
     try {
-      const { name, username, email, password } = req.body;
-      const { user } = await this.authSvc.signUp({ name, username, email, password });
+      const data = req.body;
+      const { user } = await this.authSvc.signUp(data);
       res.status(201).json(apiResponse(user, 'Account created.'));
     } catch (error) {
       next(error);

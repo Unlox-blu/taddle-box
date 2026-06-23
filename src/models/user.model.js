@@ -3,16 +3,17 @@
 const TABLE = 'users';
 
 const PUBLIC_FIELDS = [
-  'id', 'name', 'username', 'avatar_url', 'banner_url',
+  'id', 'name', 'username', 'avatar_url', 'banner_url', 
   'bio', 'website_url', 'follower_count', 'following_count',
-  'post_count', 'is_verified', 'created_at',
+  'post_count', 'is_verified', 'created_at', 'privacy',
 ].join(', ');
 
 const PRIVATE_FIELDS = [
-  'id', 'name', 'username', 'email', 'avatar_url', 'banner_url',
-  'bio', 'website_url', 'role', 'is_verified', 'is_active',
-  'follower_count', 'following_count', 'post_count',
+  'id', 'name', 'username', 'email', 'gender', 'country_code', 'phone_number', 
+  'date_of_birth', 'avatar_url', 'banner_url', 'bio', 'website_url', 'role', 
+  'is_verified', 'is_active', 'follower_count', 'following_count', 'post_count',
   'email_verified_at', 'last_login_at', 'google_id', 'created_at', 'updated_at',
+  'privacy', 'theme'
 ].join(', ');
 
 const AUTH_FIELDS = [

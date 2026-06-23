@@ -84,9 +84,9 @@ class AuthService {
   }
 
   // Registers a new user, auto-creates wallet, queues verification email.
-  async signUp({ name, username, email, password }) {
+  async signUp(data) {
     try {
-      const isEmailVerified = await this.verifyEmailRepo.findByEmail(email);
+      const isEmailVerified = await this.verifyEmailRepo.findByEmail(data.email);
       
       if (!isEmailVerified || !isEmailVerified.isVerified)
         throw createError('Verified the email first', 400);
@@ -96,20 +96,14 @@ class AuthService {
         throw createError('Verified the email again', 403);
 
       const [existingEmail, existingUsername] = await Promise.all([
-        this.userRepo.findByEmail(email),
-        this.userRepo.findByUsername(username),
+        this.userRepo.findByEmail(data.email),
+        this.userRepo.findByUsername(data.username),
       ]);
       if (existingEmail) throw createError('Email is already registered', 409);
       if (existingUsername) throw createError('Username is already taken', 409);
 
-      const passwordHash = await hashPassword(password);
-      const user = await this.userRepo.create({
-        name,
-        username,
-        email,
-        passwordHash,
-        isVerified: true,
-      });
+      const passwordHash = await hashPassword(data.password);
+      const user = await this.userRepo.create({ ...data, passwordHash, isVerified: true });
 
       // Delete the email verification row
       await this.verifyEmailRepo.hardDelete(email);

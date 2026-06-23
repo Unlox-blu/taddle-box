@@ -6,12 +6,13 @@ const { userController }         = require('../container');
 const { verifyToken, optionalAuth } = require('../middlewares/auth.middleware');
 const { validate }               = require('../middlewares/validator.middleware');
 const { uploadSingle }           = require('../middlewares/upload.middleware');
-const { updateProfileSchema, updateUsernameSchema } = require('../validators/user.validator');
+const { updateProfileSchema, updateUsernameSchema, updatePrivacySchema } = require('../validators/user.validator');
 
 router.patch('/update-profile',             verifyToken,     validate(updateProfileSchema),     userController.updateProfile);
 router.post('/update-avatar',               verifyToken,                                        userController.updateAvatar);
 router.post('/update-banner',               verifyToken,                                        userController.updateBanner);
 router.patch('/update-username',            verifyToken,     validate(updateUsernameSchema),    userController.updateUsername);
+router.patch('/update-privacy',             verifyToken,     validate(updatePrivacySchema),     userController.updatePrivacy);
 router.get('/bookmarked',                   verifyToken,     userController.getbookmarked);
 
 // follow/unfollow routes

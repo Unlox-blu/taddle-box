@@ -78,6 +78,14 @@ class UserService {
     }
   }
 
+  async updatePrivacy({userId, privacy}) {
+    try {
+      await this.userRepo.updatePrivacy(userId, privacy);
+    } catch (error) {
+      throw error;
+    }
+  }
+
   async getFollowers({userId, username, limit, offset}) {
     try {
       const user = await this.userRepo.findByUsername(username);

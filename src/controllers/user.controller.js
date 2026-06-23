@@ -63,6 +63,17 @@ class UserController {
     }
   };
 
+  updatePrivacy = async (req, res, next) => {
+    try {
+      const userId = req.userId
+      const {privacy} = req.body
+      await this.userSvc.updatePrivacy({userId, privacy});
+      res.json(apiResponse(null, 'Privacy updated successfully'));
+    } catch (error) {
+      next(error)
+    }
+  }
+
   getFollowers = async (req, res, next) => {
     try {
       const { limit, offset, page } = getPaginationParams(req.query);

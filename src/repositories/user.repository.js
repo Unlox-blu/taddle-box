@@ -157,17 +157,25 @@ const updateUsername = async (userId, username) => {
 
 const updatePhone = async (userId, countryCode, phoneNumber) => {
   try {
-    const { rows } = await pool.query(
-      `UPDATE ${UserModel.TABLE} SET country_code = $1, phone_number = $2, updated_at = NOW() WHERE id = $3 RETURNING ${UserModel.PRIVATE_FIELDS}`,
+    await pool.query(
+      `UPDATE ${UserModel.TABLE} SET country_code = $1, phone_number = $2, updated_at = NOW() WHERE id = $3`,
       [countryCode, phoneNumber, userId]
     );
-    return UserModel.sanitize(rows[0]);
   } catch (error) {
     throw error;
   }
 };
 
-
+const updatePrivacy = async (userId, privacy) => {
+  try {
+    await pool.query(
+      `UPDATE ${UserModel.TABLE} SET privacy = $1, updated_at = NOW() WHERE id = $2`,
+      [privacy, userId]
+    );
+  } catch (error) {
+    throw error;
+  }
+};
 
 const updateRefreshToken = async (userId, tokenHash) => {
   try {

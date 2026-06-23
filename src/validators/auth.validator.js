@@ -25,12 +25,12 @@ ageLimit.setFullYear(ageLimit.getFullYear() - minAge);
 
 const sendOtpSchema = z.object({
   email: z.string().email('Invalid email address').transform((val) => val.toLowerCase())
-})
+}).strict()
 
 const verifyOtpSchema = z.object({
   email: z.string().email('Invalid email address').transform((val) => val.toLowerCase()),
   otp: z.string().length(4, "Otp must contain 4 numbers only").regex(/^[0-9]+$/, "otp can contain only numbers 0-9")
-})  
+}).strict()  
 
 const signupSchema = z.object({
   name: z.string().min(2, 'Name must be at least 2 characters').max(100),
@@ -39,12 +39,12 @@ const signupSchema = z.object({
   gender: z.preprocess(transformToLowerCase, z.enum(['male', 'female', 'other'], { errorMap: () => ({ message: 'Invalid gender' }) })),
   email: z.preprocess(transformToLowerCase, z.string().email('Invalid email address')),
   password: passwordRules,
-});
+}).strict();
 
 const loginSchema = z.object({
   email: z.preprocess(transformToLowerCase, z.string().email('Invalid email address')),
   password: z.string().min(1, 'Password is required'),
-});
+}).strict();
 
 const googleAuthSchema = z.object({
   idToken: z.string().min(1, 'Google ID token is required'),
@@ -52,22 +52,22 @@ const googleAuthSchema = z.object({
 
 const forgotPasswordSchema = z.object({
   email: z.string().email('Invalid email address').transform((val) => val.toLowerCase()),
-});
+}).strict();
 
 const resetPasswordSchema = z.object({
   token: z.string().min(1, 'Reset token is required'),
   password: passwordRules,
-});
+}).strict();
 
 const addPhoneSchema = z.object({
   countryCode: z.string().regex(/^\+\d{1,4}$/, 'Invalid country code'),
   phoneNumber: z.string().regex(/^\d{7,15}$/, 'Invalid phone number'),
-})
+}).strict()
 
 const changePasswordSchema = z.object({
   currentPassword: z.string().min(1, 'Current password is required'),
   newPassword: passwordRules,
-});
+}).strict();
 
 
 

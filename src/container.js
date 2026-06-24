@@ -63,15 +63,23 @@ const feedService = new FeedService({
   feedRepository, postRepository, followerRepository
 });
 
+const xpService = new XPService({
+  xpRepository,
+});
+
+const taskService = new TaskService({
+  taskRepository, xpService, 
+});
+
 const authService = new AuthService({
   verifyEmailRepository, userRepository, 
   walletRepository, xpRepository,  emailIntegration, 
-  googleIntegration, 
+  googleIntegration, taskService
 });
 
 const userService = new UserService({
   userRepository, bookmarkRepository, saveRepository, storageIntegration,
-  followerRepository
+  followerRepository, taskService
 });
 
 const notificationService = new NotificationService({
@@ -80,7 +88,7 @@ const notificationService = new NotificationService({
 
 const postService = new PostService({
   postRepository, communityRepository, userRepository, followerRepository,
-  bookmarkRepository, notificationService, feedService
+  bookmarkRepository, notificationService, feedService, taskService
 });
 
 const communityService = new CommunityService({
@@ -97,16 +105,8 @@ const eventService = new EventService({
   eventRepository, walletRepository, userRepository, saveRepository, paymentIntegration, notificationService,
 });
 
-const taskService = new TaskService({
-  taskRepository
-});
-
 const walletService = new WalletService({
   walletRepository, paymentIntegration, notificationService,
-});
-
-const xpService = new XPService({
-  xpRepository,
 });
 
 const mediaService = new MediaService({
@@ -118,7 +118,7 @@ const searchService = new SearchService({
 })
 
 const streakService = new StreakService({
-  streakRepository
+  streakRepository, taskService
 })
 
 // Instantiate Controllers

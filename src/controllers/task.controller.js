@@ -12,7 +12,17 @@ class TaskController {
     try {
         const userId = req.userId
         const streak = await this.taskSvc.getTask(userId)
-        res.json(apiResponse(streak, 'Streak fetched successfully'));
+        res.json(apiResponse(streak, 'Task fetched successfully'));
+    } catch (error) {
+        next(error)
+    }
+  }
+
+  createTask = async (req, res, next) => {
+    try {
+        const userId = req.userId
+        const streak = await this.taskSvc.createTask(userId)
+        res.json(apiResponse(streak, 'Task create successfully'));
     } catch (error) {
         next(error)
     }

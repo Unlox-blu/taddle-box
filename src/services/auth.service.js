@@ -27,12 +27,14 @@ class AuthService {
     xpRepository,
     emailIntegration,
     googleIntegration,
+    taskService,
   }) {
     this.verifyEmailRepo = verifyEmailRepository;
     this.userRepo = userRepository;
     this.walletRepo = walletRepository;
     this.xpRepo = xpRepository;
     this.emailSvc = emailIntegration;
+    this.taskSvc = taskService;
     this.googleSvc = googleIntegration;
   }
 
@@ -116,6 +118,8 @@ class AuthService {
       
       // Auto-create XP wallet for new user
       await this.xpRepo.create(user.id);
+
+      await this.taskSvc.createTask(user.id);
 
       const newUser = { name, username, email, id: user.id };
 
@@ -308,6 +312,15 @@ class AuthService {
       const user = await this.userRepo.findByIdPrivate(userId);
       if (!user) throw createError('User not found', 404);
 
+      const totalKeys = Object.keys(user).length;
+
+      const completedKeys = Object.values(user).filter(
+        value => value !== null && value !== undefined
+      ).length;
+
+      const completionPercentage = Math.round( (completedKeys / totalKeys) * 100 );
+
+      await this.taskSvc.updateProfileCompletion(userId, completionPercentage)
       return user;
     } catch (error) {
       throw error;

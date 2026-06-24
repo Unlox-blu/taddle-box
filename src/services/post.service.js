@@ -6,7 +6,7 @@ const { uploadFile } = require('../integrations/storage/cloudinary.service');
 const { addNotificationJob } = require('../jobs/queues/notification.queue');
 
 class PostService {
-  constructor({ postRepository, communityRepository, followerRepository, bookmarkRepository, notificationService, feedService, userRepository }) {
+  constructor({ postRepository, communityRepository, followerRepository, bookmarkRepository, notificationService, feedService, userRepository, taskService }) {
     this.postRepo = postRepository;
     this.communityRepo = communityRepository;
     this.bookmarkRepo = bookmarkRepository;
@@ -14,6 +14,7 @@ class PostService {
     this.userRepo = userRepository;
     this.notifSvc = notificationService;
     this.feedSvc = feedService;
+    this.taskSvc = taskService;
   }  
 
   async createPost({userId: authorId, body: data, mediaFiles}) {
@@ -40,6 +41,7 @@ class PostService {
       const post = await this.postRepo.create({ ...data, authorId });
 
       this.feedSvc.updatePreferences(authorId, data.category || [], data.tags || [])
+      this.taskSvc.incrementPostCount(authorId, 1)
       return PostModel.format(post);
     } catch (error) {
       throw error;
@@ -172,7 +174,7 @@ class PostService {
     }
   }
 
-  async sharePost({postId}) {
+  async sharePost({userId, postId}) {
     try {
       const post = await this.postRepo.findById(postId)
       if(!post) throw createError("Post not found", 404)
@@ -186,6 +188,7 @@ class PostService {
       }
 
       await this.postRepo.incrementShareCount(postId);
+      this.taskSvc.incrementShareCount(userId, 1)
     } catch (error) {
       throw error;
     }

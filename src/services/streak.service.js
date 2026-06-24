@@ -9,8 +9,9 @@ const { startNotificationWorker } = require('../jobs/workers/notification.worker
 const { addNotificationJob } = require('../jobs/queues/notification.queue');
 
 class StreakService {
-  constructor({ streakRepository }) {
+  constructor({ streakRepository, taskService }) {
     this.streakRepo = streakRepository;
+    this.taskSvc = taskService;
   }
 
   async createOrUpdate (userId) {
@@ -18,7 +19,9 @@ class StreakService {
         const previousStreak = await this.streakRepo.findOneByUserId(userId)
         
         if(!previousStreak ){
-            return await this.streakRepo.create(userId)
+            await this.streakRepo.create(userId)
+            await this.taskSvc.updateStreak(userId, 1)
+            return 
         }
 
         const currentDate = new Date();
@@ -29,10 +32,15 @@ class StreakService {
         }
 
         if(this.#isYesterday(currentDate, previousDate)){
-            return await this.streakRepo.updateById(previousStreak.id)
+            const streak = await this.streakRepo.updateById(previousStreak.id)
+            const count = parent(streak.streak_count, 10)
+            this.taskSvc.updateStreak(userId, count)
+            return
         }
 
-        return await this.streakRepo.create(userId)
+        await this.streakRepo.create(userId)
+        await this.taskSvc.updateStreak(userId, 1)
+        return
     } catch (error) {
         throw error
     }

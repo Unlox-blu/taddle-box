@@ -9,12 +9,13 @@ const { startNotificationWorker } = require('../jobs/workers/notification.worker
 const { addNotificationJob } = require('../jobs/queues/notification.queue');
 
 class UserService {
-  constructor({ userRepository, bookmarkRepository, saveRepository, storageIntegration, followerRepository }) {
+  constructor({ userRepository, bookmarkRepository, saveRepository, storageIntegration, followerRepository, taskService }) {
     this.userRepo = userRepository;
     this.bookmarkRepo = bookmarkRepository;
     this.saveRepo =  saveRepository;
     this.followersRepo = followerRepository;
     this.storageSvc = storageIntegration;
+    this.taskSvc = taskService;
   }
 
   async getProfile({username, userId}) {

@@ -93,8 +93,9 @@ class PostController {
 
   sharePost = async (req, res, next) => {
     try {
+      const userId = req.userId
       const { postId } = req.params;
-      await this.postSvc.sharePost({postId});
+      await this.postSvc.sharePost({userId, postId});
       res.json(apiResponse(null, 'Post shared'));
     } catch (error) {
       next(error);

@@ -1,7 +1,7 @@
 'use strict';
 
 const pool = require('.././config/database');
-const TaskModel = require('../models/xp.model');
+const TaskModel = require('../models/task.model');
 
 const create = async (userId) => {
   const { rows } = await pool.query(
@@ -12,7 +12,7 @@ const create = async (userId) => {
   `,
     [userId]
   );
-  return rows[0];
+  return TaskModel.format(rows[0]);
 };
 
 const findByUserId = async (userId) => {
@@ -24,10 +24,10 @@ const findByUserId = async (userId) => {
   `,
     [userId]
   );
-  return rows[0];
+  return TaskModel.format(rows[0]);
 };
 
-const incrementPostCount = async (userId, count = 1) => {
+const incrementPostCount = async (userId, count) => {
   const { rows } = await pool.query(
     `
     UPDATE ${TaskModel.TABLE}
@@ -39,10 +39,10 @@ const incrementPostCount = async (userId, count = 1) => {
   `,
     [userId, count]
   );
-  return rows[0];
+  return TaskModel.format(rows[0]);
 };
 
-const incrementShareCount = async (userId, count = 1) => {
+const incrementShareCount = async (userId, count) => {
   const { rows } = await pool.query(
     `
     UPDATE ${TaskModel.TABLE}
@@ -54,7 +54,7 @@ const incrementShareCount = async (userId, count = 1) => {
   `,
     [userId, count]
   );
-  return rows[0];
+  return TaskModel.format(rows[0]);
 };
 
 const updateStreak = async (userId, streak) => {
@@ -69,7 +69,7 @@ const updateStreak = async (userId, streak) => {
   `,
     [userId, streak]
   );
-  return rows[0];
+  return TaskModel.format(rows[0]);
 };
 
 const updateProfileCompletion = async (userId, profileCompletion) => {
@@ -85,7 +85,7 @@ const updateProfileCompletion = async (userId, profileCompletion) => {
     [userId, profileCompletion]
   );
 
-  return rows[0];
+  return TaskModel.format(rows[0]);
 };
 
 const updateCounts = async (userId, { postCount, shareCount, streak, profileCompletion }) => {
@@ -104,7 +104,7 @@ const updateCounts = async (userId, { postCount, shareCount, streak, profileComp
     [userId, postCount, shareCount, streak, profileCompletion]
   );
 
-  return rows[0];
+  return TaskModel.format(rows[0]);
 };
 
 module.exports = {

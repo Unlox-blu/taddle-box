@@ -10,6 +10,7 @@ const saveRepository = require('./repositories/save.repository')
 const communityRepository = require('./repositories/community.repository');
 const commentRepository = require('./repositories/comment.repository');
 const eventRepository = require('./repositories/event.repository');
+const taskRepository = require('./repositories/task.repository');
 const walletRepository = require('./repositories/wallet.repository');
 const xpRepository = require('./repositories/xp.repository');
 const notificationRepository = require('./repositories/notification.repository');
@@ -31,6 +32,7 @@ const PostService = require('./services/post.service');
 const CommunityService = require('./services/community.service');
 const CommentService = require('./services/comment.service');
 const EventService = require('./services/event.service');
+const TaskService = require('./services/task.service');
 const WalletService = require('./services/wallet.service');
 const XPService = require('./services/xp.service');
 const FeedService = require('./services/feed.service');
@@ -46,6 +48,7 @@ const PostController = require('./controllers/post.controller');
 const CommunityController = require('./controllers/community.controller');
 const CommentController = require('./controllers/comment.controller');
 const EventController = require('./controllers/event.controller');
+const TaskController = require('./controllers/task.controller');
 const WalletController = require('./controllers/wallet.controller');
 const XPController = require('./controllers/xp.controller');
 const FeedController = require('./controllers/feed.controller');
@@ -94,6 +97,10 @@ const eventService = new EventService({
   eventRepository, walletRepository, userRepository, saveRepository, paymentIntegration, notificationService,
 });
 
+const taskService = new TaskService({
+  taskRepository
+});
+
 const walletService = new WalletService({
   walletRepository, paymentIntegration, notificationService,
 });
@@ -121,6 +128,7 @@ const postController = new PostController({ postService });
 const communityController = new CommunityController({ communityService });
 const commentController = new CommentController({ commentService });
 const eventController = new EventController({ eventService });
+const taskController = new TaskController({ taskService });
 const walletController = new WalletController({ walletService });
 const xpController = new XPController({ xpService });
 const feedController = new FeedController({ feedService });
@@ -136,6 +144,7 @@ module.exports = {
   communityController,
   commentController,
   eventController,
+  taskController,
   walletController,
   xpController,
   feedController,

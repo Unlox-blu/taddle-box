@@ -4,11 +4,11 @@ const TABLE = 'xp';
 const TRANSACTIONS_TABLE = 'xp_transactions';
 
 const XP_FIELDS = [
-  'user_id', 'xp', 'created_at', 'updated_at',
+  'id', 'user_id', 'xp', 'created_at', 'updated_at',
 ].join(', ');
 
 const TRANSACTION_FIELDS = [
-  'id', 'user_id', 'xp', 'transaction_type', 'source_type',
+  'id', 'xp_id', 'xp', 'transaction_type', 'source_type',
   'balance_before', 'balance_after', 'status', 'created_at', 'updated_at'
 ].join(', ');
 
@@ -18,6 +18,7 @@ const TRANSACTION_STATUSES = ['pending', 'completed', 'failed'];
 const formatXP = (row) => {
   if (!row) return null;
   return {
+    id: row.id,
     userId: row.user_id,
     Xp: row.xp,
     createdAt: row.created_at,
@@ -29,7 +30,7 @@ const formatTransaction = (row) => {
   if (!row) return null;
   return {
     id: row.id,
-    userId: row.user_id,
+    xpId: row.xp_id,
     xp: row.xp,
     transactionType: row.transaction_type,
     sourceType: row.source_type,

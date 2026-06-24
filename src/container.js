@@ -11,6 +11,7 @@ const communityRepository = require('./repositories/community.repository');
 const commentRepository = require('./repositories/comment.repository');
 const eventRepository = require('./repositories/event.repository');
 const walletRepository = require('./repositories/wallet.repository');
+const xpRepository = require('./repositories/xp.repository');
 const notificationRepository = require('./repositories/notification.repository');
 const feedRepository = require('./repositories/feed.repository');
 const mediaRepository = require('./repositories/media.repository');
@@ -31,6 +32,7 @@ const CommunityService = require('./services/community.service');
 const CommentService = require('./services/comment.service');
 const EventService = require('./services/event.service');
 const WalletService = require('./services/wallet.service');
+const XPService = require('./services/xp.service');
 const FeedService = require('./services/feed.service');
 const NotificationService = require('./services/notification.service');
 const MediaService = require('./services/media.service');
@@ -45,6 +47,7 @@ const CommunityController = require('./controllers/community.controller');
 const CommentController = require('./controllers/comment.controller');
 const EventController = require('./controllers/event.controller');
 const WalletController = require('./controllers/wallet.controller');
+const XPController = require('./controllers/xp.controller');
 const FeedController = require('./controllers/feed.controller');
 const NotificationController = require('./controllers/notification.controller');
 const MediaController = require('./controllers/media.controller');
@@ -59,7 +62,7 @@ const feedService = new FeedService({
 
 const authService = new AuthService({
   verifyEmailRepository, userRepository, 
-  walletRepository,  emailIntegration, 
+  walletRepository, xpRepository,  emailIntegration, 
   googleIntegration, 
 });
 
@@ -95,6 +98,10 @@ const walletService = new WalletService({
   walletRepository, paymentIntegration, notificationService,
 });
 
+const xpService = new XPService({
+  xpRepository,
+});
+
 const mediaService = new MediaService({
   mediaRepository, storageIntegration, videoIntegration
 });
@@ -115,6 +122,7 @@ const communityController = new CommunityController({ communityService });
 const commentController = new CommentController({ commentService });
 const eventController = new EventController({ eventService });
 const walletController = new WalletController({ walletService });
+const xpController = new XPController({ xpService });
 const feedController = new FeedController({ feedService });
 const notificationController = new NotificationController({ notificationService });
 const mediaController = new MediaController({ mediaService });
@@ -129,6 +137,7 @@ module.exports = {
   commentController,
   eventController,
   walletController,
+  xpController,
   feedController,
   notificationController,
   mediaController,

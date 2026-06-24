@@ -24,12 +24,14 @@ class AuthService {
     verifyEmailRepository,
     userRepository,
     walletRepository,
+    xpRepository,
     emailIntegration,
     googleIntegration,
   }) {
     this.verifyEmailRepo = verifyEmailRepository;
     this.userRepo = userRepository;
     this.walletRepo = walletRepository;
+    this.xpRepo = xpRepository;
     this.emailSvc = emailIntegration;
     this.googleSvc = googleIntegration;
   }
@@ -87,14 +89,14 @@ class AuthService {
   async signUp(data) {
     try {
       const {name, username, email, password, gender, dateOfBirth} = data
-      // const isEmailVerified = await this.verifyEmailRepo.findByEmail(email);
+      const isEmailVerified = await this.verifyEmailRepo.findByEmail(email);
       
-      // if (!isEmailVerified || !isEmailVerified.isVerified)
-      //   throw createError('Verified the email first', 400);
+      if (!isEmailVerified || !isEmailVerified.isVerified)
+        throw createError('Verified the email first', 400);
       
-      // const currentTime = new Date(Date.now());
-      // if(!isEmailVerified.verificationExpiresAt || isEmailVerified.verificationExpiresAt < currentTime) 
-      //   throw createError('Verified the email again', 403);
+      const currentTime = new Date(Date.now());
+      if(!isEmailVerified.verificationExpiresAt || isEmailVerified.verificationExpiresAt < currentTime) 
+        throw createError('Verified the email again', 403);
 
       const [existingEmail, existingUsername] = await Promise.all([
         this.userRepo.findByEmail(email),
@@ -111,6 +113,9 @@ class AuthService {
 
       // Auto-create wallet for new user
       await this.walletRepo.create(user.id);
+      
+      // Auto-create XP wallet for new user
+      await this.xpRepo.create(user.id);
 
       const newUser = { name, username, email, id: user.id };
 

@@ -64,7 +64,7 @@ const createTransaction = async (data) => {
   const { rows } = await pool.query(
     `
     INSERT INTO ${XpModel.TRANSACTIONS_TABLE} (
-    user_id,
+    xp_id,
     xp,
     transaction_type,
     source_type,
@@ -76,7 +76,7 @@ const createTransaction = async (data) => {
     RETURNING ${XpModel.TRANSACTION_FIELDS}
     `,
     [
-    data.userId,
+    data.xpId,
     data.xp,
     data.transactionType,
     data.sourceType,
@@ -100,19 +100,19 @@ const findTransactionById = async (id) => {
   return XpModel.formatTransaction(rows[0]);
 };
 
-const getUserTransactions = async (userId, limit, offset) => {
+const getUserTransactions = async (xpId, limit, offset) => {
   const { rows } = await pool.query(
     `
     SELECT ${XpModel.TRANSACTION_FIELDS}
     FROM ${XpModel.TRANSACTIONS_TABLE}
-    WHERE user_id = $1
+    WHERE xp_id = $1
     ORDER BY created_at DESC
     LIMIT $2 OFFSET $3
     `,
-    [userId, limit, offset]
+    [xpId, limit, offset]
   );
-
-  return rows.map(XpModel.formatTransaction);
+  const total = rows.length ? rows[0] : null
+  return {rows: rows.map(XpModel.formatTransaction), total};
 };
 
 const getTransactionsBySource = async (userId, sourceType) => {
@@ -135,7 +135,7 @@ const updateTransactionStatus = async (id, status) => {
     `
     UPDATE ${XpModel.TRANSACTIONS_TABLE}
     SET status = $2,
-        updated_at = NOW()
+    updated_at = NOW()
     WHERE id = $1
     RETURNING ${XpModel.TRANSACTION_FIELDS}
     `,

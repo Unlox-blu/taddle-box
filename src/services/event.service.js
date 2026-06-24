@@ -7,11 +7,11 @@ const { addEmailJob } = require('../jobs/queues/email.queue');
 const { generateEventInvite } = require('../integrations/calendar/calendar.service');
 
 class EventService {
-  constructor({ eventRepository, walletRepository, userRepository, saveEventsRepository, paymentIntegration, notificationService }) {
+  constructor({ eventRepository, walletRepository, userRepository, saveRepository, paymentIntegration, notificationService }) {
     this.eventRepo = eventRepository;
     this.walletRepo = walletRepository;
     this.userRepo = userRepository;
-    this.saveEventRepo = saveEventsRepository;
+    this.saveRepo = saveRepository;
     this.paymentSvc = paymentIntegration;
     this.notifSvc = notificationService;
   }
@@ -94,11 +94,11 @@ class EventService {
 
   async saveEvent({eventId, userId}) {
     try {
-      const isSaved = await this.saveEventRepo.findByUserIdAndEventId(userId, eventId)
+      const isSaved = await this.saveRepo.findByUserIdAndEventId(userId, eventId)
       if(isSaved)
         throw createError("Event already saved", 409)
       
-      await this.saveEventRepo.create(userId, eventId)
+      await this.saveRepo.create(userId, eventId)
     } catch (error) {
       throw error
     }
@@ -106,11 +106,11 @@ class EventService {
 
   async removeSavedEvent({eventId, userId}) {
     try {
-      const isSaved = await this.saveEventRepo.findByUserIdAndEventId(userId, eventId)
+      const isSaved = await this.saveRepo.findByUserIdAndEventId(userId, eventId)
       if(!isSaved)
         throw createError("Event already not saved", 409)
 
-      await this.saveEventRepo.hardDelete(userId, eventId)
+      await this.saveRepo.hardDelete(userId, eventId)
     } catch (error) {
       throw error
     }

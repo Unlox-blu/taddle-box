@@ -1,6 +1,6 @@
 'use strict';
 
-const TABLE = 'save_event';
+const TABLE = 'save';
 
 const LIST_FIELDS = [
   's.user_id',

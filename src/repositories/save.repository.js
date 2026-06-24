@@ -1,12 +1,12 @@
 'use strict';
 
 const pool = require('../config/database');
-const SaveEventModel = require('../models/saveevent.model');
+const SaveModel = require('../models/save.model');
 
 const create = async (userId, eventId) => {
     try {
         await pool.query(
-            `INSERT INTO ${SaveEventModel.TABLE}
+            `INSERT INTO ${SaveModel.TABLE}
             (user_id, event_id)
             VALUES($1, $2)
             `,
@@ -20,7 +20,7 @@ const create = async (userId, eventId) => {
 const findByUserIdAndEventId = async (userId, eventId) => {
     try {
         const {rows} = await pool.query(
-            `SELECT 1 FROM ${SaveEventModel.TABLE}
+            `SELECT 1 FROM ${SaveModel.TABLE}
             WHERE user_id = $1 AND event_id = $2
             `,
             [userId, eventId]
@@ -34,7 +34,7 @@ const findByUserIdAndEventId = async (userId, eventId) => {
 const hardDelete = async (userId, eventId) => {
   try {
     await pool.query(
-      `DELETE FROM ${SaveEventModel.TABLE}
+      `DELETE FROM ${SaveModel.TABLE}
       WHERE user_id = $1 AND event_id = $2
       `,
       [userId, eventId]
@@ -48,8 +48,8 @@ const findByUserId = async ({ userId, limit, offset }) => {
   try {
     const { rows } = await pool.query(
       `
-      SELECT ${SaveEventModel.LIST_FIELDS}, e.*, COUNT(*) OVER() AS total
-      FROM ${SaveEventModel.TABLE} s
+      SELECT ${SaveModel.LIST_FIELDS}, e.*, COUNT(*) OVER() AS total
+      FROM ${SaveModel.TABLE} s
       JOIN events e ON e.id = s.event_id
       WHERE s.user_id = $1
         AND e.deleted_at IS NULL
@@ -62,7 +62,7 @@ const findByUserId = async ({ userId, limit, offset }) => {
 
     const total = rows[0]?.total || 0;
 
-    return { events: rows, total: Number(total) };
+    return { saved: rows, total: Number(total) };
   } catch (error) {
     throw error;
   }
@@ -71,7 +71,7 @@ const findByUserId = async ({ userId, limit, offset }) => {
 
 module.exports = {
     create,
-    findByUserIdAndPostId,
+    findByUserIdAndEventId,
     hardDelete,
     findByUserId
 }

@@ -37,9 +37,9 @@ class EventController {
     try {
       const { eventId } = req.params;
       const userId = req.userId;
-      const result = await this.eventSvc.saveEvent({eventId, userId});
+      await this.eventSvc.saveEvent({eventId, userId});
       res.json(
-        apiResponse(result.orderId ? result : null, result.message || 'Registration processed')
+        apiResponse(null,'Event saved successfully')
       );
     } catch (error) {
       next(error);
@@ -50,9 +50,9 @@ class EventController {
     try {
       const { eventId } = req.params;
       const userId = req.userId;
-      const result = await this.eventSvc.removeSavedEvent({eventId, userId});
+      await this.eventSvc.removeSavedEvent({eventId, userId});
       res.json(
-        apiResponse(result.orderId ? result : null, result.message || 'Registration processed')
+        apiResponse(null,'Event removed successfully')
       );
     } catch (error) {
       next(error);

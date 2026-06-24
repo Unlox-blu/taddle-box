@@ -18,8 +18,8 @@ const config = require('./app.config');
 const pool = new Pool({
   connectionString: config.DB.connectionString,
   max: config.DB.max,
-  idleTimeoutMillis: 30000,
-  connectionTimeoutMillis: 2000,
+  idleTimeoutMillis: 50000,
+  connectionTimeoutMillis: 5000,
   ssl: config.DB.ssl ? { rejectUnauthorized: false } : false,
 });
 

@@ -6,6 +6,8 @@ const notificationRepository = require('../../repositories/notification.reposito
 const { emitNotification } = require('../../sockets/notification.socket');
 const NotificationModel = require('../../models/notification.model');
 const { logger } = require('../../middlewares/logger.middleware');
+const { getNotificationByUserId } = require('../../repositories/settings.repository');
+
 
 const startNotificationWorker = () => {
   const worker = new Worker(
@@ -137,6 +139,31 @@ const startNotificationWorker = () => {
               resourceId: communityId,
             });
             emitNotification(userId, NotificationModel.format(notif));
+          break;
+        }
+
+        case 'promotional': {
+          const { recipientId = [], senderId, title, message, resourceType, resourceId   } = job.data;
+
+          const recipientIds = (await Promise.all(
+            recipientId.map(async (id) => {
+              const { notification } = await getNotificationByUserId(id);
+              return notification ? id : null;
+            })
+          )).filter(Boolean);
+
+          for (const id of recipientIds) {
+            const notif = await notificationRepository.create({
+              recipientId: id,
+              senderId: senderId,
+              type: 'promotional',
+              title: title,
+              message: title,
+              resourceType: resourceType,
+              resourceId: resourceId,
+            });
+            emitNotification(id, NotificationModel.format(notif));
+          }  
           break;
         }
 

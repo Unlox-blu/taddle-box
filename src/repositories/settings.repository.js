@@ -27,6 +27,42 @@ const findByUserId = async (userId) => {
   return SettingsModel.format(rows[0]);
 };
 
+const getNotificationByUserId = async (userId) => {
+  const { rows } = await pool.query(
+    `
+    SELECT notification
+    FROM ${SettingsModel.TABLE}
+    WHERE user_id = $1
+  `,
+    [userId]
+  );
+  return SettingsModel.format(rows[0]);
+};
+
+const getAppLockByUserId = async (userId) => {
+  const { rows } = await pool.query(
+    `
+    SELECT app_lock
+    FROM ${SettingsModel.TABLE}
+    WHERE user_id = $1
+  `,
+    [userId]
+  );
+  return SettingsModel.format(rows[0]);
+};
+
+const getThemeByUserId = async (userId) => {
+  const { rows } = await pool.query(
+    `
+    SELECT theme
+    FROM ${SettingsModel.TABLE}
+    WHERE user_id = $1
+  `,
+    [userId]
+  );
+  return SettingsModel.format(rows[0]);
+};
+
 const setTheme = async (userId, theme) => {
   const { rows } = await pool.query(
     `
@@ -75,6 +111,9 @@ const setappLock = async (userId, appLock) => {
 module.exports = {
   create,
   findByUserId,
+  getNotificationByUserId,
+  getAppLockByUserId,
+  getThemeByUserId,
   setTheme,
   toggleNotification,
   setappLock,

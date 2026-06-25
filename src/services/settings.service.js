@@ -3,8 +3,9 @@
 const { createError } = require('../utils/error.util');
 
 class SettingsService {
-  constructor({ settingsRepository }) {
+  constructor({ settingsRepository, userRepository }) {
     this.settingsRepo = settingsRepository;
+    this.userRepo = userRepository;
   }
 
   async createSettings({ userId }) {
@@ -77,15 +78,17 @@ class SettingsService {
     }
   }
 
-  async setAppLock({ userId, appLock }) {
+  async setAppLock({ userId, pin }) {
     try {
-      const settings = await this.settingsRepo.findByUserId(userId);
+      await this.userRepo.updateAppLock(userId, pin)
+    } catch (error) {
+      throw error;
+    }
+  }
 
-      if (!settings) {
-        throw createError('settings not found', 404);
-      }
-
-      await this.settingsRepo.setappLock(userId, appLock)
+  async removeAppLock({ userId }) {
+    try {
+      await this.userRepo.removeAppLock(userId)
     } catch (error) {
       throw error;
     }

@@ -74,10 +74,15 @@ const taskService = new TaskService({
   taskRepository, xpService, 
 });
 
+const settingsService = new SettingsService({
+  settingsRepository, userRepository
+})
+
+
 const authService = new AuthService({
   verifyEmailRepository, userRepository, 
   walletRepository, xpRepository,  emailIntegration, 
-  googleIntegration, taskService
+  googleIntegration, taskService, settingsRepository
 });
 
 const userService = new UserService({
@@ -124,9 +129,6 @@ const streakService = new StreakService({
   streakRepository, taskService
 })
 
-const settingsService = new SettingsService({
-  settingsRepository
-})
 
 // Instantiate Controllers
 const authController = new AuthController({ authService });

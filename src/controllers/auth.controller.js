@@ -57,6 +57,18 @@ class AuthController {
     }
   };
 
+  verifyLoginPin = async (req, res, next) => {
+    try {
+      const userId = req.userId;
+      const { pin } = req.body;
+      await this.authSvc.verifyLoginPin({ userId, pin });
+
+      res.json(apiResponse(null, 'Pin verified successfuly'));
+    } catch (error) {
+      next(error);
+    }
+  };
+
 
   sendOtpToPhone = async (req, res, next) => {
     try {

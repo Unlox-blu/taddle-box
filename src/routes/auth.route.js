@@ -13,13 +13,15 @@ const {
   sendOtpToEmailSchema,
   sendOtpToPhoneSchema,
   verifyOtpForPhoneSchema,
+  loginPinSchema,
 } = require('../validators/auth.validator');
 
 
 router.post('/send-otp-email',        otpRateLimiter, validate(sendOtpToEmailSchema),  authController.sendOtpToEmail)
 router.post('/verify-otp-email',      validate(verifyOtpForEmail),                authController.verifyOtpForEmail)
-router.post('/signup',          validate(signupSchema),                   authController.signUp);
-router.post('/login',           validate(loginSchema),                    authController.login);
+router.post('/signup',                validate(signupSchema),                   authController.signUp);
+router.post('/login',                 validate(loginSchema),                    authController.login);
+router.post('/verify-loginpin',       verifyToken,     validate(loginPinSchema),       authController.verifyLoginPin);
 
 router.post('/send-otp-phone',  otpRateLimiter,  verifyToken, validate(sendOtpToPhoneSchema),    authController.sendOtpToPhone)
 router.post('/verify-otp-phone',        verifyToken, validate(verifyOtpForPhoneSchema),    authController.verifyAndAadPhone)

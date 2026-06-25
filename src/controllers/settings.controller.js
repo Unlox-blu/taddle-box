@@ -64,9 +64,19 @@ class SettingsController {
   setAppLock = async (req, res, next) => {
     try {
       const userId = req.userId;
-      const { appLock } = req.body;
-      await this.settingsSvc.setAppLock({userId, appLock});
+      const { pin } = req.body;
+      await this.settingsSvc.setAppLock({userId, pin});
       res.json(apiResponse(null, 'App Lock Set successfuly'));
+    } catch (error) {
+      next(error);
+    }
+  };
+
+  removeAppLock = async (req, res, next) => {
+    try {
+      const userId = req.userId;
+      await this.settingsSvc.removeAppLock({userId});
+      res.json(apiResponse(null, 'App Lock remove successfuly'));
     } catch (error) {
       next(error);
     }

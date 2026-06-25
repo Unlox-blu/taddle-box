@@ -29,6 +29,18 @@ const findByIdPrivate = async (id) => {
   }
 };
 
+const findByIdAuth = async (id) => {
+  try {
+    const { rows } = await pool.query(
+      `SELECT ${UserModel.AUTH_FIELDS} FROM ${UserModel.TABLE} WHERE id = $1 AND deleted_at IS NULL`,
+      [id]
+    );
+    return rows[0] ? rows[0] : null;
+  } catch (error) {
+    throw error;
+  }
+};
+
 // Find user by email with auth fields (for login)
 const findByEmail = async (email) => {
   try {
@@ -93,6 +105,32 @@ const createWithGoogle = async ({ name, username, email, googleId, googleAvatar 
     throw error;
   }
 };
+
+const updateAppLock = async (userId, pin) => {
+  try {
+    await pool.query(
+      `UPDATE ${UserModel.TABLE} 
+      SET app_lock = $1, app_lock_enabled = TRUE, updated_at = NOW() 
+      WHERE id = $2`,
+      [pin, userId]
+    )
+  } catch (error) {
+    throw error
+  }
+}
+
+const removeAppLock = async (userId, pin) => {
+  try {
+    await pool.query(
+      `UPDATE ${UserModel.TABLE} 
+      SET app_lock = NULL, app_lock_enabled = FALSE, updated_at = NOW() 
+      WHERE id = $1`,
+      [userId]
+    )
+  } catch (error) {
+    throw error
+  }
+}
 
 const updateProfile = async (userId, fields) => {
   try {
@@ -377,12 +415,15 @@ const search = async (query, limit, offset) => {
 module.exports = {
   findById,
   findByIdPrivate,
+  findByIdAuth,
   findByEmail,
   findByUsername,
   findByGoogleId,
   create,
   createWithGoogle,
   updateProfile,
+  updateAppLock,
+  removeAppLock,
   updateAvatar,
   updateBanner,
   updateUsername,

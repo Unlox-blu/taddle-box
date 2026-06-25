@@ -25,14 +25,17 @@ class AuthService {
     userRepository,
     walletRepository,
     xpRepository,
+    settingsRepository,
     emailIntegration,
     googleIntegration,
     taskService,
+
   }) {
     this.verifyEmailRepo = verifyEmailRepository;
     this.userRepo = userRepository;
     this.walletRepo = walletRepository;
     this.xpRepo = xpRepository;
+    this.settingsRepo = settingsRepository;
     this.emailSvc = emailIntegration;
     this.taskSvc = taskService;
     this.googleSvc = googleIntegration;
@@ -158,6 +161,19 @@ class AuthService {
       await addEmailJob('welcome_back', jobdata);
 
       return result;
+    } catch (error) {
+      throw error;
+    }
+  }
+
+  async verifyLoginPin({ userId, pin }) {
+    try {
+      const user = await this.userRepo.findByIdAuth(userId)
+      if(!user.app_lock_enabled)
+          throw createError('Pin lock not set', 400);
+        
+      if(user.app_lock !== pin)
+          throw createError('Invalid lock pin', 401);
     } catch (error) {
       throw error;
     }

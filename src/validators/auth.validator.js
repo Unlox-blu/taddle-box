@@ -46,6 +46,10 @@ const loginSchema = z.object({
   password: z.string().min(1, 'Password is required'),
 }).strict();
 
+const loginPinSchema = z.object({
+  pin: z.string().regex(/^[0-9]{4}$/, 'Invalid app lock'),
+}).strict();
+
 const googleAuthSchema = z.object({
   idToken: z.string().min(1, 'Google ID token is required'),
 });
@@ -82,6 +86,7 @@ module.exports = {
   verifyOtpForEmail,
   signupSchema,
   loginSchema,
+  loginPinSchema,
   googleAuthSchema,
   forgotPasswordSchema,
   resetPasswordSchema,

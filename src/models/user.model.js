@@ -9,7 +9,7 @@ const PUBLIC_FIELDS = [
 ].join(', ');
 
 const PRIVATE_FIELDS = [
-  'id', 'name', 'username', 'email', 'gender', 'country_code', 'phone_number', 
+  'id', 'name', 'username', 'email', 'gender', 'country_code', 'phone_number', 'app_lock_enabled', 
   'date_of_birth', 'avatar_url', 'banner_url', 'bio', 'website_url', 'role', 
   'is_verified', 'is_active', 'follower_count', 'following_count', 'post_count',
   'email_verified_at', 'last_login_at', 'google_id', 'created_at', 'updated_at',
@@ -17,7 +17,7 @@ const PRIVATE_FIELDS = [
 ].join(', ');
 
 const AUTH_FIELDS = [
-  'id', 'email', 'username', 'password_hash', 'role',
+  'id', 'email', 'username', 'password_hash', 'role', 'app_lock_enabled', 'app_lock',
   'is_verified', 'is_active', 'is_banned', 'google_id', 'refresh_token_hash',
 ].join(', ');
 

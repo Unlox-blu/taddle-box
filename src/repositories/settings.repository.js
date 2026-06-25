@@ -120,19 +120,6 @@ const togglePromotionalNotification = async (userId) => {
   return SettingsModel.format(rows[0]);
 };
 
-const setappLock = async (userId, appLock) => {
-  await pool.query(
-    `
-    UPDATE ${SettingsModel.TABLE}
-    SET
-      app_lock = $2,
-      updated_at = NOW()
-    WHERE user_id = $1
-  `,
-    [userId, appLock]
-  );
-  
-};
 
 
 module.exports = {
@@ -145,5 +132,4 @@ module.exports = {
   setTheme,
   toggleSystemNotification,
   togglePromotionalNotification,
-  setappLock,
 };

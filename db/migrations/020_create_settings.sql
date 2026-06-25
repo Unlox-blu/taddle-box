@@ -1,0 +1,12 @@
+CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
+
+CREATE TABLE IF NOT EXISTS settings (
+  user_id                   UUID REFERENCES users(id) ON DELETE CASCADE,
+  theme                     VARCHAR(10) NOT NULL DEFAULT 'light'
+                              CHECK (theme IN ('light', 'dark')),
+  notification              BOOLEAN DEFAULT TRUE,
+  app_lock                  CHAR(4) CHECK (app_lock ~ '^[0-9]{4}$'),
+  created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  PRIMARY KEY(user_id)
+)

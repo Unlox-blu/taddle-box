@@ -19,6 +19,7 @@ router.use('/notifications', require('./notification.route'));
 router.use('/media',         require('./media.route'));
 router.use('/search',        require('./search.route'));
 router.use('/streak',        require('./streak.route'));
+router.use('/settings',        require('./settings.route'));
 
 // Expose auth-only router (used by app.js for stricter rate limiting)
 router.authOnly = authRoute;

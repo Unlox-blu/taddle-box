@@ -18,6 +18,7 @@ const feedRepository = require('./repositories/feed.repository');
 const mediaRepository = require('./repositories/media.repository');
 const streakRepository = require('./repositories/streak.repository')
 const settingsRepository = require('./repositories/settings.repository')
+const highlightRepository = require('./repositories/highlight.repository')
 
 // Integrations
 const emailIntegration = require('./integrations/email/email.service');
@@ -42,6 +43,7 @@ const MediaService = require('./services/media.service');
 const SearchService = require('./services/search.service')
 const StreakService = require('./services/streak.service')
 const SettingsService = require('./services/settings.service')
+const HighlightService = require('./services/highlight.service')
 
 // Controllers
 const AuthController = require('./controllers/auth.controller');
@@ -59,6 +61,7 @@ const MediaController = require('./controllers/media.controller');
 const SearchController = require('./controllers/search.controller')
 const StreakController = require('./controllers/streak.controller')
 const SettingsController = require('./controllers/settings.controller')
+const HighlightController = require('./controllers/highlight.controller')
 
 // Instantiate Services
 
@@ -129,6 +132,10 @@ const streakService = new StreakService({
   streakRepository, taskService
 })
 
+const highlightService = new HighlightService({
+  highlightRepository
+})
+
 
 // Instantiate Controllers
 const authController = new AuthController({ authService });
@@ -146,6 +153,7 @@ const mediaController = new MediaController({ mediaService });
 const searchController = new SearchController({searchService})
 const streakController = new StreakController({ streakService })
 const settingsController = new SettingsController({ settingsService })
+const highlightController = new HighlightController({ highlightService })
 
 module.exports = {
   authController,
@@ -163,4 +171,5 @@ module.exports = {
   searchController,
   streakController,
   settingsController,
+  highlightController,
 };

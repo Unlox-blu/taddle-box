@@ -1,9 +1,9 @@
 CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
 
-CREATE TABLE IF NOT EXISTS settings (
+CREATE TABLE IF NOT EXISTS spotlight (
   id                        UUID PRIMARY KEY DEFAULT uuid_generate_v4(),            
-  user_id                   UUID REFERENCES users(id) ON DELETE CASCADE,
-  created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-  updated_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-  PRIMARY KEY(user_id)
+  title                     VARCHAR(50) NOT NULL,
+  description               VARCHAR(50) NOT NULL,
+  created_at                TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at                TIMESTAMPTZ NOT NULL DEFAULT NOW()
 )

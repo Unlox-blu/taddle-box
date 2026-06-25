@@ -8,10 +8,11 @@ const { validate }               = require('../middlewares/validator.middleware'
 const { setAppLockSchema, setThemeSchema } = require('../validators/settings.validator');
 
 
-router.post('/',             verifyToken,                                   settingsController.createSettings)
-router.get('/',              verifyToken,                                   settingsController.getSettings)
-router.patch('/theme',       verifyToken,   validate(setThemeSchema),       settingsController.setTheme)
-router.patch('/notification',verifyToken,                                   settingsController.toggleNotification)
-router.patch('/applock',     verifyToken,   validate(setAppLockSchema),     settingsController.setAppLock)
+router.post('/',                        verifyToken,                                   settingsController.createSettings)
+router.get('/',                         verifyToken,                                   settingsController.getSettings)
+router.patch('/theme',                  verifyToken,   validate(setThemeSchema),       settingsController.setTheme)
+router.patch('/systemnotification',     verifyToken,                                   settingsController.toggleSystemNotification)
+router.patch('/promotionalnotification',verifyToken,                                   settingsController.togglePromotionalNotification)
+router.patch('/applock',                verifyToken,   validate(setAppLockSchema),     settingsController.setAppLock)
 
 module.exports = router

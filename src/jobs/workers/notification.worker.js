@@ -6,7 +6,7 @@ const notificationRepository = require('../../repositories/notification.reposito
 const { emitNotification } = require('../../sockets/notification.socket');
 const NotificationModel = require('../../models/notification.model');
 const { logger } = require('../../middlewares/logger.middleware');
-const { getNotificationByUserId } = require('../../repositories/settings.repository');
+const { getPromotionalNotificationByUserId } = require('../../repositories/settings.repository');
 
 
 const startNotificationWorker = () => {
@@ -147,8 +147,8 @@ const startNotificationWorker = () => {
 
           const recipientIds = (await Promise.all(
             recipientId.map(async (id) => {
-              const { notification } = await getNotificationByUserId(id);
-              return notification ? id : null;
+              const { promotionalNotification } = await getPromotionalNotificationByUserId(id);
+              return promotionalNotification ? id : null;
             })
           )).filter(Boolean);
 

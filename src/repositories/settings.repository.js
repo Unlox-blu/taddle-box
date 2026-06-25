@@ -27,10 +27,22 @@ const findByUserId = async (userId) => {
   return SettingsModel.format(rows[0]);
 };
 
-const getNotificationByUserId = async (userId) => {
+const getSystemNotificationByUserId = async (userId) => {
   const { rows } = await pool.query(
     `
-    SELECT notification
+    SELECT system_notification
+    FROM ${SettingsModel.TABLE}
+    WHERE user_id = $1
+  `,
+    [userId]
+  );
+  return SettingsModel.format(rows[0]);
+};
+
+const getPromotionalNotificationByUserId = async (userId) => {
+  const { rows } = await pool.query(
+    `
+    SELECT promotional_notification
     FROM ${SettingsModel.TABLE}
     WHERE user_id = $1
   `,
@@ -78,15 +90,30 @@ const setTheme = async (userId, theme) => {
   return SettingsModel.format(rows[0]);
 };
 
-const toggleNotification = async (userId) => {
+const toggleSystemNotification = async (userId) => {
   const { rows } = await pool.query(
     `
     UPDATE ${SettingsModel.TABLE}
     SET
-      notification = NOT notification,
+      system_notification = NOT system_notification,
       updated_at = NOW()
     WHERE user_id = $1
-    RETURNING notification
+    RETURNING system_notification
+  `,
+    [userId]
+  );
+  return SettingsModel.format(rows[0]);
+};
+
+const togglePromotionalNotification = async (userId) => {
+  const { rows } = await pool.query(
+    `
+    UPDATE ${SettingsModel.TABLE}
+    SET
+      promotional_notification = NOT promotional_notification,
+      updated_at = NOW()
+    WHERE user_id = $1
+    RETURNING promotional_notification
   `,
     [userId]
   );
@@ -111,10 +138,12 @@ const setappLock = async (userId, appLock) => {
 module.exports = {
   create,
   findByUserId,
-  getNotificationByUserId,
+  getSystemNotificationByUserId,
+  getPromotionalNotificationByUserId,
   getAppLockByUserId,
   getThemeByUserId,
   setTheme,
-  toggleNotification,
+  toggleSystemNotification,
+  togglePromotionalNotification,
   setappLock,
 };

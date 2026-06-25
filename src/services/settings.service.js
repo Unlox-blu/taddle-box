@@ -45,7 +45,7 @@ class SettingsService {
     }
   }
 
-  async toggleNotification({ userId }) {
+  async toggleSystemNotification({ userId }) {
     try {
       const settings = await this.settingsRepo.findByUserId(userId);
 
@@ -53,7 +53,23 @@ class SettingsService {
         throw createError('settings not found', 404);
       }
 
-      const notification = await this.settingsRepo.toggleNotification(userId);
+      const notification = await this.settingsRepo.toggleSystemNotification(userId);
+
+      return notification;
+    } catch (error) {
+      throw error;
+    }
+  }
+
+  async togglePromotionalNotification({ userId }) {
+    try {
+      const settings = await this.settingsRepo.findByUserId(userId);
+
+      if (!settings) {
+        throw createError('settings not found', 404);
+      }
+
+      const notification = await this.settingsRepo.togglePromotionalNotification(userId);
 
       return notification;
     } catch (error) {

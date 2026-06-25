@@ -5,7 +5,8 @@ const TABLE = 'settings';
 const LIST_FIELDS = [
   'user_id',
   'theme',
-  'notification',
+  'promotional_notification',
+  'system_notification',
   'app_lock',
   'created_at',
   'updated_at'
@@ -16,7 +17,8 @@ const format = (row) => {
   return {
     userId: row.user_id,
     theme: row.theme,
-    notification: row.notification,
+    promotionalNotification: row.promotional_notification,
+    systemNotification: row.system_notification,
     appLock: row.app_lock,
     createdAt: row.created_at,
     updatedAt: row.updated_at

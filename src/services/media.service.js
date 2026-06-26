@@ -2,6 +2,7 @@
 
 const { createError } = require('../utils/error.util');
 const { uploadFile, deleteFile } = require('../integrations/storage/cloudinary.service');
+const { getBucketFiles } = require('../integrations/storage/storage.service');
 
 const ALLOWED_FOLDERS = ['avatars', 'banners', 'posts', 'communities', 'events'];
 const MAX_IMAGE_BYTES = parseInt(process.env.MAX_FILE_SIZE_MB || '10') * 1024 * 1024;
@@ -14,23 +15,23 @@ class MediaService {
     this.videoSvc = videoIntegration;
   }
 
-  // Step 1 of image upload.
-  // Returns an S3 pre-signed PUT URL + a pending media record.
-  async getImageSignedUrl({userId: uploaderId, body: data}) {
+  
+  async getImageSignedUrl({userId, body, files }) {
     try {
-      const { fileType, fileSize, folder } = data
+      const { folder } = body
+      const {size: fileSize, mimetype,} = files.media
       if (!ALLOWED_FOLDERS.includes(folder)) throw createError('Invalid upload folder', 400);
       if (fileSize > MAX_IMAGE_BYTES)
         throw createError(`File size exceeds ${process.env.MAX_FILE_SIZE_MB || 10}MB limit`, 400);
-
-      const s3Key = this.storageSvc.generateS3Key(folder, uploaderId, fileType);
-      const signedUrl = await this.storageSvc.getSignedUploadUrl(s3Key, fileType, fileSize);
+      
+      const s3Key = this.storageSvc.generateS3Key(folder, userId, mimetype);
+      const signedUrl = await this.storageSvc.getSignedUploadUrl(s3Key, mimetype, fileSize);
 
       const media = await this.mediaRepo.create({
-        uploaderId,
+        uploaderId: userId,
         mediaType: 'image',
         s3Key,
-        mimeType: fileType,
+        mimeType: mimetype,
         sizeBytes: fileSize,
         processingStatus: 'pending',
       });
@@ -41,8 +42,7 @@ class MediaService {
     }
   }
 
-  // Step 2 of image upload — client confirms the S3 PUT completed.
-  // Verifies via S3 HEAD, then saves the CloudFront URL.
+  
   async confirmImageUpload({mediaId, s3Key}) {
     try {
       const cloudfrontUrl = await this.storageSvc.confirmUpload(s3Key);
@@ -55,9 +55,8 @@ class MediaService {
     }
   }
 
-  // Step 1 of video upload — returns Vimeo TUS upload link.
-  // Client streams video directly to Vimeo; server never handles the binary.
-  async getVideoUploadUrl({userId: uploaderId, body: data}) {
+  
+  async getVideoUploadUrl({userId: uploaderId, body: data }) {
     try {
       const { fileSize, title } = data
       if (fileSize > MAX_VIDEO_BYTES)
@@ -80,7 +79,7 @@ class MediaService {
     }
   }
 
-  // Polls current processing status of a media item
+  
   async getMediaStatus({id: mediaId}) {
     try {
       const media = await this.mediaRepo.findById(mediaId);
@@ -178,6 +177,14 @@ class MediaService {
       const publicId = media.s3_key
       await deleteFile(publicId)
       await this.mediaRepo.hardDelete(mediaId)
+    } catch (error) {
+      throw error
+    }
+  }
+
+  async gets3Uploaded() {
+    try {
+      return await getBucketFiles()
     } catch (error) {
       throw error
     }

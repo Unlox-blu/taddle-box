@@ -12,8 +12,10 @@ class MediaController {
     try {
       const userId = req.userId;
       const body = req.body;
-      const result = await this.mediaSvc.getImageSignedUrl({userId, body});
-      res.json(apiResponse(result, 'Signed URL generated'));
+      const files = req.files;
+      console.log("-->",files)
+      // const result = await this.mediaSvc.getImageSignedUrl({userId, body, files});
+      res.json(apiResponse(null, 'Signed URL generated'));
     } catch (error) {
       next(error);
     }
@@ -79,6 +81,15 @@ class MediaController {
       const {mediaId} = req.params;
       const result = await this.mediaSvc.deleteMedia({userId, mediaId});
       res.json(apiResponse(null, "Media deleted uccessfully!!"));
+    } catch (error) {
+      next(error)
+    }
+  }
+
+  gets3Uploaded = async (req, res, next) => {
+    try {
+      const result = await this.mediaSvc.gets3Uploaded();
+      res.json(apiResponse(result, "Media deleted uccessfully!!"));
     } catch (error) {
       next(error)
     }

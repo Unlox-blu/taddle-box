@@ -2,7 +2,6 @@
 
 const vimeoClient = require('../../config/vimeo');
 
-// Creates a Vimeo TUS upload session.
 const createUpload = (sizeBytes, title) =>
   new Promise((resolve, reject) => {
     vimeoClient.request(
@@ -25,7 +24,7 @@ const createUpload = (sizeBytes, title) =>
     );
   });
 
-// Gets video metadata including transcoding status
+  
 const getVideoData = (vimeoUri) =>
   new Promise((resolve, reject) => {
     vimeoClient.request({ method: 'GET', path: vimeoUri }, (err, body) => {
@@ -39,7 +38,7 @@ const getVideoData = (vimeoUri) =>
     });
   });
 
-// Deletes a video from Vimeo
+  
 const deleteVideo = (vimeoUri) =>
   new Promise((resolve, reject) => {
     vimeoClient.request({ method: 'DELETE', path: vimeoUri }, (err) => {
@@ -48,7 +47,7 @@ const deleteVideo = (vimeoUri) =>
     });
   });
 
-// Returns the embed player URL for a Vimeo URI
+  
 const getPlaybackUrl = async (vimeoUri) => {
   const data = await getVideoData(vimeoUri);
   return data.playerUrl;

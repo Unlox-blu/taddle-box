@@ -26,6 +26,18 @@ class ActiveStatusService {
       throw error;
     }
   }
+
+  async createStatus({ userId }) {
+    try {
+      const status = await this.activeStatusRepo.findByUserId(userId);
+      if(status)
+        throw createError("Status is already exits", 409)
+      
+      await this.activeStatusRepo.create(userId);
+    } catch (error) {
+      throw error;
+    }
+  }
 }
 
 module.exports = ActiveStatusService;

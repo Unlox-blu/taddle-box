@@ -25,4 +25,12 @@ const createCommunitySchema = z.object({
 
 const updateCommunitySchema = createCommunitySchema.partial();
 
-module.exports = { createCommunitySchema, updateCommunitySchema };
+const updateAvatarSchema = z.object({
+  avatarUrl: z.string().url({ message: "Invalid avatar URL provided" })
+})
+
+const updateBannerSchema = z.object({
+  bannerUrl: z.string().url({ message: "Invalid avatar URL provided" })
+})
+
+module.exports = { createCommunitySchema, updateCommunitySchema, updateAvatarSchema, updateBannerSchema };

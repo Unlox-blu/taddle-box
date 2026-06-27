@@ -5,7 +5,7 @@ const ActiveStatusModel = require('../models/activestatus.model');
 
 const create = async (userId) => {
     try {
-        await pool.query(
+        const {rows} = await pool.query(
             `INSERT INTO ${ActiveStatusModel.TABLE}
             (user_id)
             VALUES($1)

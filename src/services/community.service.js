@@ -59,21 +59,10 @@ class CommunityService {
     }
   }
 
-  async updateAvatar({communityId, userId, userRole, file}) {
+  async updateAvatar({communityId, userId, userRole, avatarUrl}) {
     try {
-      if (!file || !file.avatar || !file.avatar.data) throw createError('No file provided', 400);
-
-      const community = await this.communityRepo.findById(communityId);
-      if (!community) throw createError('Community not found', 404);
-
-      const isOwner = community.owner_id === userId;
-      const isAdmin = userRole === 'admin' || userRole === 'superadmin';
-      if (!isOwner && !isAdmin)
-        throw createError('Not authorized to update this community avatar', 403);
-
-      const {url} = await uploadFile(file.avatar.data, 'avatar', userId);
-
-      const updatedAvatar = await this.communityRepo.updateAvatar(communityId, url);
+      
+      const updatedAvatar = await this.communityRepo.updateAvatar(communityId, avatarUrl);
       return updatedAvatar;
     } catch (error) {
       throw error;

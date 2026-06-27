@@ -37,7 +37,7 @@ class PostService {
       this.taskSvc.incrementPostCount(authorId, 1)
       return PostModel.format(post);
     } catch (error) {
-      throw error;
+      throw error; 
     }
   }
 
@@ -199,6 +199,10 @@ class PostService {
         if(!isFollow || isFollow !== 'active')
           throw createError("You are not following the Post Author It's private account", 403)
       }
+
+      const isBookmarked = await this.bookmarkRepo.findByUserIdAndPostId(userId, postId)
+      if(isBookmarked)
+        throw createError("Post already bookmarked", 409)
 
       await this.bookmarkRepo.create(userId, postId)
     } catch (error) {

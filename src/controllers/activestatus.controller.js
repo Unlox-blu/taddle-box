@@ -18,6 +18,16 @@ class ActiveStatusController {
     }
   };
 
+  createStatus = async (req, res, next) => {
+    try {
+      const userId = req.userId;
+      const status = await this.activeStatusSvc.createStatus({userId});
+      res.json(apiResponse(status, "status created successfuly"));
+    } catch (error) {
+      next(error);
+    }
+  };
+
 }
 
 module.exports = ActiveStatusController;

@@ -1,5 +1,7 @@
 'use strict';
 
+const { createError } = require("../utils/error.util");
+
 class TaskService {
   constructor({ taskRepository, xpService }) {
     this.taskRepo = taskRepository;
@@ -17,6 +19,10 @@ class TaskService {
 
   async createTask (userId) {
     try {
+        const isExist = await this.taskRepo.findByUserId(userId)
+        if(isExist)
+          throw createError("Task acc already exist", 409)
+
         const task = await this.taskRepo.create(userId)
         return task
     } catch (error) {
@@ -27,6 +33,7 @@ class TaskService {
   async incrementPostCount (userId, count = 1) {
     try {
         const task = await this.taskRepo.incrementPostCount(userId, count)
+        
         const postCount = parseInt(task.postCount, 10)
 
         if(postCount === 1 || postCount % 5 === 0){

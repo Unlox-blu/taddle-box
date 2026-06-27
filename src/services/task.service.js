@@ -79,7 +79,7 @@ class TaskService {
   async updateProfileCompletion (userId, profileCompletion) {
     try {
         const task = await this.taskRepo.updateProfileCompletion(userId, profileCompletion)
-        const profileCompletionPercentage  = parseInt(task.profileCompletion, 10)
+        const profileCompletionPercentage  = parseInt(profileCompletion, 10)
 
         if(profileCompletionPercentage === 60 || profileCompletionPercentage === 100){
           const xp = 5

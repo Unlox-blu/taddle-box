@@ -19,6 +19,7 @@ const mediaRepository = require('./repositories/media.repository');
 const streakRepository = require('./repositories/streak.repository')
 const settingsRepository = require('./repositories/settings.repository')
 const highlightRepository = require('./repositories/highlight.repository')
+const activeStatusRepository = require('./repositories/activestatus.repository')
 
 // Integrations
 const emailIntegration = require('./integrations/email/email.service');
@@ -44,6 +45,7 @@ const SearchService = require('./services/search.service')
 const StreakService = require('./services/streak.service')
 const SettingsService = require('./services/settings.service')
 const HighlightService = require('./services/highlight.service')
+const ActiveStatusService = require('./services/activestatus.service')
 
 // Controllers
 const AuthController = require('./controllers/auth.controller');
@@ -62,6 +64,7 @@ const SearchController = require('./controllers/search.controller')
 const StreakController = require('./controllers/streak.controller')
 const SettingsController = require('./controllers/settings.controller')
 const HighlightController = require('./controllers/highlight.controller')
+const ActiveStatusController = require('./controllers/activestatus.controller')
 
 // Instantiate Services
 
@@ -79,6 +82,10 @@ const taskService = new TaskService({
 
 const settingsService = new SettingsService({
   settingsRepository, userRepository
+})
+
+const activeStatusService = new ActiveStatusService({
+  activeStatusRepository
 })
 
 
@@ -154,6 +161,7 @@ const searchController = new SearchController({searchService})
 const streakController = new StreakController({ streakService })
 const settingsController = new SettingsController({ settingsService })
 const highlightController = new HighlightController({ highlightService })
+const activeStatusController = new ActiveStatusController({ activeStatusService })
 
 module.exports = {
   authController,
@@ -172,4 +180,5 @@ module.exports = {
   streakController,
   settingsController,
   highlightController,
+  activeStatusController,
 };

@@ -6,11 +6,11 @@ const { userController }         = require('../container');
 const { verifyToken, optionalAuth } = require('../middlewares/auth.middleware');
 const { validate }               = require('../middlewares/validator.middleware');
 const { uploadSingle }           = require('../middlewares/upload.middleware');
-const { updateProfileSchema, updateUsernameSchema, updatePrivacySchema } = require('../validators/user.validator');
+const { updateProfileSchema, updateUsernameSchema, updatePrivacySchema, updateBannerSchema, updateAvatarSchema } = require('../validators/user.validator');
 
 router.patch('/update-profile',             verifyToken,     validate(updateProfileSchema),     userController.updateProfile);
-router.patch('/update-avatar',               verifyToken,                                        userController.updateAvatar);
-router.patch('/update-banner',               verifyToken,                                        userController.updateBanner);
+router.patch('/update-avatar',               verifyToken,    validate(updateAvatarSchema),     userController.updateAvatar);
+router.patch('/update-banner',               verifyToken,    validate(updateBannerSchema),     userController.updateBanner);
 router.patch('/update-username',            verifyToken,     validate(updateUsernameSchema),    userController.updateUsername);
 router.patch('/update-privacy',             verifyToken,     validate(updatePrivacySchema),     userController.updatePrivacy);
 router.get('/bookmarked',                   verifyToken,     userController.getbookmarked);

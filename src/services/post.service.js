@@ -17,7 +17,7 @@ class PostService {
     this.taskSvc = taskService;
   }  
 
-  async createPost({userId: authorId, body: data, mediaFiles}) {
+  async createPost({userId: authorId, body: data}) {
     try {
       const { communityId } = data;
 
@@ -29,13 +29,6 @@ class PostService {
         const isMember = await this.communityRepo.isMember(communityId, authorId);
         if (!isMember || isMember.status !== 'active')
           throw createError('You must be a member to post in this community', 403);
-      }
-
-      if(mediaFiles) {
-        data.media = await Promise.all(mediaFiles.map(async (file) => {
-          const {url} = await uploadFile(file.data, 'posts', authorId)
-          return url
-        }))
       }
 
       const post = await this.postRepo.create({ ...data, authorId });

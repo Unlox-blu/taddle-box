@@ -24,4 +24,12 @@ const updatePrivacySchema = z.object({
   privacy: z.preprocess(transformToLowerCase, z.enum(['public','private'], { errorMap: () => ({ message: 'Invalid privacy' }) }))
 })
 
-module.exports = { updateProfileSchema, updateUsernameSchema, updatePrivacySchema };
+const updateAvatarSchema = z.object({
+  avatarUrl: z.string().url({ message: "Invalid avatar URL provided" })
+})
+
+const updateBannerSchema = z.object({
+  bannerUrl: z.string().url({ message: "Invalid avatar URL provided" })
+})
+
+module.exports = { updateProfileSchema, updateUsernameSchema, updatePrivacySchema, updateBannerSchema, updateAvatarSchema };

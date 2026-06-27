@@ -43,26 +43,20 @@ class UserService {
     }
   }
 
-  async updateAvatar({userId, file}) {
+  async updateAvatar({userId, avatarUrl}) {
     try {
-      if (!file || !file.avatar || !file.avatar.data) throw createError('No file provided', 400);
 
-      const {url} = await uploadFile(file.avatar.data, 'avatar', userId);
-
-      const updateAvatar = await this.userRepo.updateAvatar(userId, url);
+      const updateAvatar = await this.userRepo.updateAvatar(userId, avatarUrl);
       return updateAvatar;
     } catch (error) {
       throw error;
     }
   }
 
-  async updateBanner({userId, file}) {
+  async updateBanner({userId, bannerUrl}) {
     try {
-      if (!file || !file.banner || !file.banner.data) throw createError('No file provided', 400);
-
-      const {url} = await uploadFile(file.banner.data, 'banner', userId);
-
-      const updateAvatar = await this.userRepo.updateBanner(userId, url);
+      
+      const updateAvatar = await this.userRepo.updateBanner(userId, bannerUrl);
       return updateAvatar;
     } catch (error) {
       throw error;

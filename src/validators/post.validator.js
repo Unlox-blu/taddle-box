@@ -25,6 +25,7 @@ const createPostSchema = z.object({
   status: z.enum(POST_STATUSES).default('published'),
   pollData: z.record(z.unknown()).optional(),
   linkData: z.record(z.unknown()).optional(),
+  media: z.record(z.unknown()).optional(),
 }).refine((d) => d.content || d.title || d.pollData || d.linkData, {
   message: 'Post must have content, title, poll data, or link data',
 });

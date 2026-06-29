@@ -13,9 +13,8 @@ class MediaController {
       const userId = req.userId;
       const body = req.body;
       const files = req.files;
-      console.log("-->",files)
-      // const result = await this.mediaSvc.getImageSignedUrl({userId, body, files});
-      res.json(apiResponse(null, 'Signed URL generated'));
+      const result = await this.mediaSvc.getImageSignedUrl({userId, body, files});
+      res.json(apiResponse(result, 'Signed URL generated'));
     } catch (error) {
       next(error);
     }
@@ -44,25 +43,14 @@ class MediaController {
 
   getMediaStatus = async (req, res, next) => {
     try {
-      const { id } = req.params;
-      const result = await this.mediaSvc.getMediaStatus({id});
+      const { mediaId } = req.params;
+      const result = await this.mediaSvc.getMediaStatus({mediaId});
       res.json(apiResponse(result));
     } catch (error) {
       next(error);
     }
   };
 
-  uploadImage = async (req, res, next) => {
-    try {
-      const userId = req.userId;
-      const folder = req.body?.folder || null;
-      const mediaFiles = req.files ? req.files.media : null;
-      const result = await this.mediaSvc.uploadImage({userId, folder, mediaFiles});
-      res.status(201).json(apiResponse(result, "File uploaded successfully!!"));
-    } catch (error) {
-      next(error);
-    }
-  };
 
   getMedia = async(req, res, next) => {
     try {
@@ -75,17 +63,19 @@ class MediaController {
     }
   }
 
-  deleteMedia = async (req, res, next) => {
+
+  cancleUpload = async(req, res, next) => {
     try {
-      const userId = req.userId;
+      const userId = req.userId
       const {mediaId} = req.params;
-      const result = await this.mediaSvc.deleteMedia({userId, mediaId});
-      res.json(apiResponse(null, "Media deleted uccessfully!!"));
+      await this.mediaSvc.cancleUpload({userId, mediaId})
+      res.json(apiResponse(null, "Cancle upload successfully!!"));
     } catch (error) {
-      next(error)
+      throw error
     }
   }
 
+  // temporary for development 
   gets3Uploaded = async (req, res, next) => {
     try {
       const result = await this.mediaSvc.gets3Uploaded();

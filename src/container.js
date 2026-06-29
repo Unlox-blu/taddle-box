@@ -20,6 +20,7 @@ const streakRepository = require('./repositories/streak.repository')
 const settingsRepository = require('./repositories/settings.repository')
 const highlightRepository = require('./repositories/highlight.repository')
 const activeStatusRepository = require('./repositories/activestatus.repository')
+const appConfigRepository = require('./repositories/appconfig.repository')
 
 // Integrations
 const emailIntegration = require('./integrations/email/email.service');
@@ -46,6 +47,7 @@ const StreakService = require('./services/streak.service')
 const SettingsService = require('./services/settings.service')
 const HighlightService = require('./services/highlight.service')
 const ActiveStatusService = require('./services/activestatus.service')
+const AppConfigService = require('./services/appconfig.service')
 
 // Controllers
 const AuthController = require('./controllers/auth.controller');
@@ -65,6 +67,7 @@ const StreakController = require('./controllers/streak.controller')
 const SettingsController = require('./controllers/settings.controller')
 const HighlightController = require('./controllers/highlight.controller')
 const ActiveStatusController = require('./controllers/activestatus.controller')
+const AppConfigController = require('./controllers/appconfig.controller')
 
 // Instantiate Services
 
@@ -143,6 +146,10 @@ const highlightService = new HighlightService({
   highlightRepository
 })
 
+const appConfigService = new AppConfigService({
+  appConfigRepository
+})
+
 
 // Instantiate Controllers
 const authController = new AuthController({ authService });
@@ -162,6 +169,7 @@ const streakController = new StreakController({ streakService })
 const settingsController = new SettingsController({ settingsService })
 const highlightController = new HighlightController({ highlightService })
 const activeStatusController = new ActiveStatusController({ activeStatusService })
+const appConfigController = new AppConfigController({ appConfigService })
 
 module.exports = {
   authController,
@@ -181,4 +189,5 @@ module.exports = {
   settingsController,
   highlightController,
   activeStatusController,
+  appConfigController,
 };

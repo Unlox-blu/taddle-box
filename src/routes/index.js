@@ -22,6 +22,7 @@ router.use('/streak',        require('./streak.route'));
 router.use('/settings',      require('./settings.route'));
 router.use('/highlight',     require('./highlight.route'));
 router.use('/active-status', require('./activestatus.route'));
+router.use('/app-config',    require('./appconfig.route'));
 
 // Expose auth-only router (used by app.js for stricter rate limiting)
 router.authOnly = authRoute;

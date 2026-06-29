@@ -24,6 +24,8 @@ const LIST_FIELDS = [
   'p.is_pinned', 'p.published_at', 'p.created_at',
   'u.name AS author_name', 'u.username AS author_username',
   'u.is_verified AS author_is_verified', 'ua.cloudfront_url AS author_avatar',
+  'c.name AS community_name', 'c.slug   AS community_slug',
+  'ca.cloudfront_url AS community_avatar',
 ].join(', ');
 
 const POST_TYPES = ['text', 'image', 'video', 'link', 'poll'];

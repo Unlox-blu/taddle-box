@@ -52,7 +52,7 @@ class PostService {
       }
 
       const author = await this.userRepo.findById(authorId)
-      
+
       if (communityId) {
         const community = await this.communityRepo.findById(communityId);
         if (community.privacy === 'private') {
@@ -81,6 +81,9 @@ class PostService {
         return { posts: rows.map(PostModel.format), total };
       }
       const author = await this.userRepo.findById(authorId)
+      if(!author)
+        throw createError("Author not found", 404)
+      
       if(author.privacy !== 'public') {
         const isFollow = await this.followerRepo.findByFollowerIdAndFollowingId(userId, authorId)
         if(!isFollow || isFollow !== 'active')

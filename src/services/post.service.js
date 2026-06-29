@@ -2,7 +2,6 @@
 
 const { createError } = require('../utils/error.util');
 const PostModel = require('../models/post.model');
-const { uploadFile } = require('../integrations/storage/cloudinary.service');
 const { addNotificationJob } = require('../jobs/queues/notification.queue');
 
 class PostService {
@@ -47,8 +46,13 @@ class PostService {
       if (!post) throw createError('Post not found', 404);
       const { community_id: communityId, author_id: authorId } = post;
 
-      const author = await this.userRepo.findById(authorId)
+      
+      if(userId === authorId){
+        return PostModel.format(post);
+      }
 
+      const author = await this.userRepo.findById(authorId)
+      
       if (communityId) {
         const community = await this.communityRepo.findById(communityId);
         if (community.privacy === 'private') {

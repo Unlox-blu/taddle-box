@@ -4,8 +4,8 @@ CREATE TABLE IF NOT EXISTS communities (
   name         VARCHAR(100) NOT NULL,
   slug         VARCHAR(120) NOT NULL UNIQUE,
   description  TEXT,
-  avatar_url   TEXT,
-  banner_url   TEXT,
+  avatar_url                UUID REFERENCES media(id) ON DELETE SET NULL,
+  banner_url                UUID REFERENCES media(id) ON DELETE SET NULL,
   privacy      VARCHAR(20)  NOT NULL DEFAULT 'public'
                  CHECK (privacy IN ('public','private','restricted')),
   category     TEXT[]       NOT NULL DEFAULT '{}',

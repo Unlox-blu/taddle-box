@@ -3,14 +3,32 @@
 const pool = require('../config/database');
 const PostModel = require('../models/post.model');
 
+
 const findById = async (postId) => {
   try {
     const { rows } = await pool.query(
-      `SELECT ${PostModel.DETAIL_FIELDS}
-     FROM ${PostModel.TABLE} p
-     JOIN users u ON u.id = p.author_id
-     LEFT JOIN communities c ON c.id = p.community_id
-     WHERE p.id = $1 AND p.deleted_at IS NULL`,
+      `SELECT 
+        ${PostModel.LIST_FIELDS},
+        COALESCE(
+            json_agg(
+                json_build_object(
+                    'id', m.id,
+                    'media_type', m.media_type,
+                    'cloudfront_url', m.cloudfront_url,
+                    's3_key', m.s3_key,
+                    'processing_status', m.processing_status
+                ) ORDER BY m.created_at ASC 
+            ) FILTER (WHERE m.id IS NOT NULL AND m.deleted_at IS NULL), 
+            '[]'::json
+        ) AS media
+        FROM posts p
+        JOIN users u ON p.author_id = u.id
+        LEFT JOIN media AS ua ON u.avatar_url = ua.id
+        LEFT JOIN media m ON p.id = m.post_id
+        WHERE 
+            p.id = $1
+            AND p.deleted_at IS NULL
+        GROUP BY p.id, u.id, ua.id`,
       [postId]
     );
     return rows[0] || null;
@@ -19,15 +37,32 @@ const findById = async (postId) => {
   }
 };
 
+
 const findManyByUser = async (userId, limit, offset) => {
   try {
     const { rows } = await pool.query(
-      `SELECT ${PostModel.LIST_FIELDS}, c.privacy AS community_privacy, COUNT(*) OVER() AS total
-     FROM ${PostModel.TABLE} p
-     JOIN users u ON u.id = p.author_id
-     LEFT JOIN communities c ON c.id = p.community_id
-     WHERE p.author_id = $1 AND p.deleted_at IS NULL AND p.status = 'published'
-     ORDER BY p.created_at DESC
+      `SELECT 
+        ${PostModel.LIST_FIELDS},
+        COALESCE(
+            json_agg(
+                json_build_object(
+                    'id', m.id,
+                    'media_type', m.media_type,
+                    'cloudfront_url', m.cloudfront_url,
+                    'processing_status', m.processing_status
+                ) ORDER BY m.created_at ASC
+            ) FILTER (WHERE m.id IS NOT NULL AND m.deleted_at IS NULL), 
+            '[]'::json
+        ) AS media, COUNT(*) OVER() AS total
+    FROM posts p
+    JOIN users u ON p.author_id = u.id
+    LEFT JOIN media AS ua ON u.avatar_url = ua.id
+    LEFT JOIN media m ON p.id = m.post_id
+    WHERE 
+      p.author_id = $1
+      AND p.deleted_at IS NULL
+    GROUP BY p.id, u.id, ua.id
+    ORDER BY p.created_at DESC
      LIMIT $2 OFFSET $3`,
       [userId, limit, offset]
     );

@@ -7,7 +7,13 @@ const UserModel = require('../models/user.model');
 const findById = async (id) => {
   try {
     const { rows } = await pool.query(
-      `SELECT ${UserModel.PUBLIC_FIELDS} FROM ${UserModel.TABLE} WHERE id = $1 AND is_active = TRUE AND deleted_at IS NULL`,
+      `SELECT ${UserModel.PUBLIC_FIELDS},
+      avatar_media.cloudfront_url AS avatar_media_url,
+      banner_media.cloudfront_url AS banner_media_url
+      FROM ${UserModel.TABLE} u 
+      LEFT JOIN media AS avatar_media ON avatar_media.id = avatar_url
+      LEFT JOIN media AS banner_media ON banner_media.id = banner_url
+      WHERE u.id = $1 AND u.is_active = TRUE AND u.deleted_at IS NULL`,
       [id]
     );
     return rows[0] || null;
@@ -20,7 +26,13 @@ const findById = async (id) => {
 const findByIdPrivate = async (id) => {
   try {
     const { rows } = await pool.query(
-      `SELECT ${UserModel.PRIVATE_FIELDS} FROM ${UserModel.TABLE} WHERE id = $1 AND deleted_at IS NULL`,
+      `SELECT ${UserModel.PRIVATE_FIELDS}, 
+      avatar_media.cloudfront_url AS avatar_media_url,
+      banner_media.cloudfront_url AS banner_media_url
+      FROM ${UserModel.TABLE} u 
+      LEFT JOIN media AS avatar_media ON avatar_media.id = avatar_url
+      LEFT JOIN media AS banner_media ON banner_media.id = banner_url
+      WHERE u.id = $1 AND u.deleted_at IS NULL`,
       [id]
     );
     return rows[0] ? UserModel.sanitize(rows[0]) : null;
@@ -32,7 +44,8 @@ const findByIdPrivate = async (id) => {
 const findByIdAuth = async (id) => {
   try {
     const { rows } = await pool.query(
-      `SELECT ${UserModel.AUTH_FIELDS} FROM ${UserModel.TABLE} WHERE id = $1 AND deleted_at IS NULL`,
+      `SELECT ${UserModel.AUTH_FIELDS} FROM ${UserModel.TABLE} u 
+      WHERE u.id = $1 AND u.deleted_at IS NULL`,
       [id]
     );
     return rows[0] ? rows[0] : null;
@@ -45,7 +58,8 @@ const findByIdAuth = async (id) => {
 const findByEmail = async (email) => {
   try {
     const { rows } = await pool.query(
-      `SELECT ${UserModel.AUTH_FIELDS} FROM ${UserModel.TABLE} WHERE LOWER(email) = LOWER($1) AND deleted_at IS NULL`,
+      `SELECT ${UserModel.AUTH_FIELDS} FROM ${UserModel.TABLE} u 
+      WHERE LOWER(u.email) = LOWER($1) AND u.deleted_at IS NULL`,
       [email]
     );
     return rows[0] || null;
@@ -57,7 +71,13 @@ const findByEmail = async (email) => {
 const findByUsername = async (username) => {
   try {
     const { rows } = await pool.query(
-      `SELECT ${UserModel.PUBLIC_FIELDS} FROM ${UserModel.TABLE} WHERE LOWER(username) = LOWER($1) AND deleted_at IS NULL`,
+      `SELECT ${UserModel.PUBLIC_FIELDS} 
+      avatar_media.cloudfront_url AS avatar_media_url,
+      banner_media.cloudfront_url AS banner_media_url
+      FROM ${UserModel.TABLE} u 
+      LEFT JOIN media AS avatar_media ON avatar_media.id = avatar_url
+      LEFT JOIN media AS banner_media ON banner_media.id = banner_url
+      WHERE LOWER(u.username) = LOWER($1) AND u.deleted_at IS NULL`,
       [username]
     );
     return rows[0] || null;
@@ -69,7 +89,8 @@ const findByUsername = async (username) => {
 const findByGoogleId = async (googleId) => {
   try {
     const { rows } = await pool.query(
-      `SELECT ${UserModel.AUTH_FIELDS} FROM ${UserModel.TABLE} WHERE google_id = $1 AND deleted_at IS NULL`,
+      `SELECT ${UserModel.AUTH_FIELDS} FROM ${UserModel.TABLE} u 
+      WHERE u.google_id = $1 AND u.deleted_at IS NULL`,
       [googleId]
     );
     return rows[0] || null;
@@ -311,7 +332,7 @@ const updatePassword = async (userId, passwordHash) => {
 const linkGoogleAccount = async (userId, googleId, googleAvatar) => {
   try {
     const { rows } = await pool.query(
-      `UPDATE ${UserModel.TABLE} SET google_id = $1, avatar_url = COALESCE(avatar_url, $2), updated_at = NOW() WHERE id = $3 RETURNING ${UserModel.AUTH_FIELDS}`,
+      `UPDATE ${UserModel.TABLE} SET google_id = $1, avatar_url = COALESCE(avatar_url, $2), updated_at = NOW() WHERE id = $3`,
       [googleId, googleAvatar, userId]
     );
     return rows[0];
@@ -398,10 +419,10 @@ const search = async (query, limit, offset) => {
   try {
     const { rows } = await pool.query(
       `SELECT ${UserModel.SEARCH_FIELDS}, COUNT(*) OVER() AS total
-       FROM ${UserModel.TABLE}
-     WHERE deleted_at IS NULL AND is_active = TRUE AND is_banned = FALSE
+       FROM ${UserModel.TABLE} u
+     WHERE u.deleted_at IS NULL AND u.is_active = TRUE AND u.is_banned = FALSE
        AND ($1 = '' OR username ILIKE $1 OR name ILIKE $1)
-     ORDER BY follower_count DESC
+     ORDER BY u.follower_count DESC
      LIMIT $2 OFFSET $3`,
       [`%${query}%`, limit, offset]
     );

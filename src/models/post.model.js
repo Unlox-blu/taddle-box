@@ -23,7 +23,7 @@ const LIST_FIELDS = [
   'p.likes_count', 'p.comments_count', 'p.shares_count', 'p.views_count',
   'p.is_pinned', 'p.published_at', 'p.created_at',
   'u.name AS author_name', 'u.username AS author_username',
-  'u.avatar_url AS author_avatar', 'u.is_verified AS author_is_verified',
+  'u.is_verified AS author_is_verified', 'ua.cloudfront_url AS author_avatar',
 ].join(', ');
 
 const POST_TYPES = ['text', 'image', 'video', 'link', 'poll'];

@@ -3,26 +3,26 @@
 const TABLE = 'users';
 
 const PUBLIC_FIELDS = [
-  'id', 'name', 'username', 'avatar_url', 'banner_url', 
-  'bio', 'website_url', 'follower_count', 'following_count',
-  'post_count', 'is_verified', 'created_at', 'privacy',
+  'u.id', 'u.name', 'u.username', 'u.avatar_url', 'u.banner_url', 
+  'u.bio', 'u.website_url', 'u.follower_count', 'u.following_count',
+  'u.post_count', 'u.is_verified', 'u.created_at', 'u.privacy',
 ].join(', ');
 
 const PRIVATE_FIELDS = [
-  'id', 'name', 'username', 'email', 'gender', 'country_code', 'phone_number', 'app_lock_enabled', 
-  'date_of_birth', 'avatar_url', 'banner_url', 'bio', 'website_url', 'role', 
-  'is_verified', 'is_active', 'follower_count', 'following_count', 'post_count',
-  'email_verified_at', 'last_login_at', 'google_id', 'created_at', 'updated_at',
-  'privacy', 'theme'
+  'u.id', 'u.name', 'u.username', 'u.email', 'u.gender', 'u.country_code', 'u.phone_number', 'u.app_lock_enabled', 
+  'u.date_of_birth', 'u.avatar_url', 'u.banner_url', 'u.bio', 'u.website_url', 'u.role', 
+  'u.is_verified', 'u.is_active', 'u.follower_count', 'u.following_count', 'u.post_count',
+  'u.email_verified_at', 'u.last_login_at', 'u.google_id', 'u.created_at', 'u.updated_at',
+  'u.privacy', 'u.theme'
 ].join(', ');
 
 const AUTH_FIELDS = [
-  'id', 'email', 'username', 'password_hash', 'role', 'app_lock_enabled', 'app_lock',
-  'is_verified', 'is_active', 'is_banned', 'google_id', 'refresh_token_hash',
+  'u.id', 'u.email', 'u.username', 'u.password_hash', 'u.role', 'u.app_lock_enabled', 'u.app_lock',
+  'u.is_verified', 'u.is_active', 'u.is_banned', 'u.google_id', 'u.refresh_token_hash',
 ].join(', ');
 
 const SEARCH_FIELDS = [
-  'id', 'name', 'username', 'avatar_url', 'is_verified', 'follower_count',
+  'u.id', 'u.name', 'u.username', 'u.avatar_url', 'u.is_verified', 'u.follower_count',
 ].join(', ');
 
 const ROLES = ['user', 'moderator', 'admin', 'superadmin'];

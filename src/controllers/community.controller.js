@@ -60,8 +60,8 @@ class CommunityController {
       const { communityId } = req.params;
       const userId = req.userId;
       const userRole = req.userRole;
-      const file = req.files;
-      const community = await this.communitySvc.updateBanner({communityId, userId, userRole, file});
+      const {bannerUrl} = req.body;
+      const community = await this.communitySvc.updateBanner({communityId, userId, userRole, bannerUrl});
       res.json(apiResponse(community, 'Community banner updated successfully'));
     } catch (error) {
       next(error);

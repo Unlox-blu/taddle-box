@@ -1,5 +1,6 @@
 CREATE TABLE IF NOT EXISTS media (
   id                  UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  post_id             UUID REFERENCES posts(id) ON DELETE SET NULL,
   uploader_id         UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
   media_type          VARCHAR(20) NOT NULL CHECK (media_type IN ('image','video','audio','document')),
   s3_key              TEXT,

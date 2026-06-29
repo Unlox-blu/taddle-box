@@ -69,21 +69,10 @@ class CommunityService {
     }
   }
 
-  async updateBanner({communityId, userId, userRole, file}) {
+  async updateBanner({communityId, userId, userRole, bannerUrl}) {
     try {
-      if (!file || !file.banner || !file.banner.data) throw createError('No file provided', 400);
-
-      const community = await this.communityRepo.findById(communityId);
-      if (!community) throw createError('Community not found', 404);
-
-      const isOwner = community.owner_id === userId;
-      const isAdmin = userRole === 'admin' || userRole === 'superadmin';
-      if (!isOwner && !isAdmin)
-        throw createError('Not authorized to update this community banner', 403);
-
-      const {url} = await uploadFile(file.banner.data, 'banner', userId);
-
-      const updatedBanner = await this.communityRepo.updateBanner(communityId, url);
+      
+      const updatedBanner = await this.communityRepo.updateBanner(communityId, bannerUrl);
       return updatedBanner;
     } catch (error) {
       throw error;

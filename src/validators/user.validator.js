@@ -25,11 +25,11 @@ const updatePrivacySchema = z.object({
 })
 
 const updateAvatarSchema = z.object({
-  avatarUrl: z.string().url({ message: "Invalid avatar URL provided" })
+  avatarUrl: z.string().uuid(),
 })
 
 const updateBannerSchema = z.object({
-  bannerUrl: z.string().url({ message: "Invalid avatar URL provided" })
+  bannerUrl: z.string().uuid(),
 })
 
 module.exports = { updateProfileSchema, updateUsernameSchema, updatePrivacySchema, updateBannerSchema, updateAvatarSchema };

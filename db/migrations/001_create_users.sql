@@ -18,8 +18,8 @@ CREATE TABLE IF NOT EXISTS users (
   theme                     VARCHAR(10) NOT NULL DEFAULT 'light'
                               CHECK (theme IN ('light', 'dark', 'system')),
   google_id                 VARCHAR(255) UNIQUE,
-  avatar_url                TEXT,
-  banner_url                TEXT,
+  avatar_url                UUID REFERENCES media(id) ON DELETE SET NULL,
+  banner_url                UUID REFERENCES media(id) ON DELETE SET NULL,
   bio                       TEXT,
   website_url               TEXT,
   role                      VARCHAR(20)  NOT NULL DEFAULT 'user'

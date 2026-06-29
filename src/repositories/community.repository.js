@@ -6,7 +6,13 @@ const CommunityModel = require('../models/community.model');
 const findById = async (communityId) => {
   try {
     const { rows } = await pool.query(
-      `SELECT ${CommunityModel.DETAIL_FIELDS} FROM ${CommunityModel.TABLE} WHERE id = $1 AND deleted_at IS NULL`,
+      `SELECT ${CommunityModel.DETAIL_FIELDS},
+      avatar_media.cloudfront_url AS avatar_media_url,
+      banner_media.cloudfront_url AS banner_media_url 
+      FROM ${CommunityModel.TABLE} c
+      LEFT JOIN media AS avatar_media ON avatar_media.id = avatar_url
+      LEFT JOIN media AS banner_media ON banner_media.id = banner_url
+      WHERE c.id = $1 AND c.deleted_at IS NULL`,
       [communityId]
     );
     return rows[0] || null;
@@ -18,7 +24,13 @@ const findById = async (communityId) => {
 const findBySlug = async (slug) => {
   try {
     const { rows } = await pool.query(
-      `SELECT ${CommunityModel.DETAIL_FIELDS} FROM ${CommunityModel.TABLE} WHERE slug = $1 AND deleted_at IS NULL`,
+      `SELECT ${CommunityModel.DETAIL_FIELDS},
+      avatar_media.cloudfront_url AS avatar_media_url,
+      banner_media.cloudfront_url AS banner_media_url 
+      FROM ${CommunityModel.TABLE} c
+      LEFT JOIN media AS avatar_media ON avatar_media.id = avatar_url
+      LEFT JOIN media AS banner_media ON banner_media.id = banner_url 
+      WHERE c.slug = $1 AND c.deleted_at IS NULL`,
       [slug]
     );
     return rows[0] || null;

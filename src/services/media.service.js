@@ -17,7 +17,7 @@ class MediaService {
   
   async getImageSignedUrl({userId, body, files }) {
     try {
-      const { folder } = body
+      const { folder, postId } = body
       const {size: fileSize, mimetype,} = files.media
       if (!ALLOWED_FOLDERS.includes(folder)) throw createError('Invalid upload folder', 400);
       if (fileSize > MAX_IMAGE_BYTES)
@@ -27,6 +27,7 @@ class MediaService {
       const signedUrl = await this.storageSvc.getSignedUploadUrl(s3Key, mimetype, fileSize);
 
       const media = await this.mediaRepo.create({
+        postId: postId || null,
         uploaderId: userId,
         mediaType: 'image',
         s3Key,
@@ -92,8 +93,6 @@ class MediaService {
     }
   }
 
-
-
   async getMedia({userId, limit, offset}) {
     try {
       const {rows, total} = await this.mediaRepo.findByUserId(userId, limit, offset)
@@ -112,12 +111,12 @@ class MediaService {
 
       if(media.uploader_id !== userId) throw createError("You are not authorized to delete", 403)
 
+      await deleteFile(media.s3_key)
       await this.mediaRepo.hardDelete(mediaId)
     } catch (error) {
       throw error
     }
   }
-
 
   async gets3Uploaded() {
     try {

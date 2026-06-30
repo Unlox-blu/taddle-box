@@ -5,9 +5,9 @@
 
 require('dotenv').config();
 
-const { startEmailWorker } = require('./email.worker');
-const { startNotificationWorker } = require('./notification.worker');
-const { startVideoWorker } = require('./video.worker');
+const { startEmailWorker } = require('../workers/email/email.worker');
+const { startNotificationWorker } = require('../workers/notification/notification.worker');
+const { startVideoWorker } = require('../workers/video/video.worker');
 
 const emailWorker = startEmailWorker();
 const notificationWorker = startNotificationWorker();

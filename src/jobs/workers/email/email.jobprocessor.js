@@ -1,14 +1,9 @@
 'use strict';
 
-const { Worker } = require('bullmq');
-const redis = require('../../config/redis');
-const EmailService = require('../../integrations/email/email.service');
-const { logger } = require('../../middlewares/logger.middleware');
+const { logger } = require('../../../middlewares/logger.middleware');
+const EmailService = require('../../../integrations/email/email.service');
 
-const startEmailWorker = () => {
-  const worker = new Worker(
-    'email',
-    async (job) => {
+const emailJobProcessor = async (job) => {
       logger.info(`[EmailWorker] Processing job: ${job.name}`, { id: job.id });
 
       switch (job.name) {
@@ -41,15 +36,6 @@ const startEmailWorker = () => {
       }
 
       logger.info(`[EmailWorker] Job complete: ${job.name}`, { id: job.id });
-    },
-    { connection: redis, concurrency: 5 }
-  );
+    }
 
-  worker.on('failed', (job, err) => {
-    logger.error(`[EmailWorker] Job failed: ${job?.name}`, { id: job?.id, error: err.message });
-  });
-
-  return worker;
-};
-
-module.exports = { startEmailWorker };
+module.exports = emailJobProcessor

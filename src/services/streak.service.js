@@ -5,7 +5,7 @@ const UserModel = require('../models/user.model');
 const FollowersModel = require('../models/followers.model');
 const { uploadFile } = require('../integrations/storage/cloudinary.service');
 const { tryCatch } = require('bullmq');
-const { startNotificationWorker } = require('../jobs/workers/notification.worker');
+const { startNotificationWorker } = require('../jobs/workers/notification/notification.worker');
 const { addNotificationJob } = require('../jobs/queues/notification.queue');
 
 class StreakService {

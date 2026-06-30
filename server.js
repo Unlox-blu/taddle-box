@@ -8,9 +8,9 @@ const config = require('./src/config/app.config');
 const pool = require('./src/config/database');
 const redis = require('./src/config/redis');
 const { initializeSockets } = require('./src/sockets');
-const { startEmailWorker } = require('./src/jobs/workers/email.worker');
-const { startNotificationWorker } = require('./src/jobs/workers/notification.worker');
-const { startVideoWorker } = require('./src/jobs/workers/video.worker');
+const { startEmailWorker } = require('./src/jobs/workers/email/email.worker');
+const { startNotificationWorker } = require('./src/jobs/workers/notification/notification.worker');
+const { startVideoWorker } = require('./src/jobs/workers/video/video.worker');
 const { logger } = require('./src/middlewares/logger.middleware');
 
 // Unhandled error safety nets

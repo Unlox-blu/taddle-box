@@ -1,17 +1,13 @@
 'use strict';
 
-const { Worker } = require('bullmq');
-const redis = require('../../config/redis');
-const videoService = require('../../integrations/video/video.service');
-const mediaRepository = require('../../repositories/media.repository');
-const { emitNotification } = require('../../sockets/notification.socket');
-const { addVideoJob } = require('../queues/video.queue');
-const { logger } = require('../../middlewares/logger.middleware');
 
-const startVideoWorker = () => {
-  const worker = new Worker(
-    'video',
-    async (job) => {
+const videoService = require('../../../integrations/video/video.service');
+const mediaRepository = require('../../../repositories/media.repository');
+const { emitNotification } = require('../../../sockets/notification.socket');
+const { addVideoJob } = require('../../queues/video.queue');
+const { logger } = require('../../../middlewares/logger.middleware');
+
+const videoJobProcessor = async (job) => {
       logger.info(`[VideoWorker] Processing: ${job.name}`, { id: job.id });
 
       switch (job.name) {
@@ -52,15 +48,6 @@ const startVideoWorker = () => {
         default:
           logger.warn(`[VideoWorker] Unknown job type: ${job.name}`);
       }
-    },
-    { connection: redis, concurrency: 3 }
-  );
+    }
 
-  worker.on('failed', (job, err) => {
-    logger.error(`[VideoWorker] Failed: ${job?.name}`, { id: job?.id, error: err.message });
-  });
-
-  return worker;
-};
-
-module.exports = { startVideoWorker };
+module.exports = videoJobProcessor

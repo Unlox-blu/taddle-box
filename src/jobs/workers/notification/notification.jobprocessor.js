@@ -1,18 +1,12 @@
 'use strict';
 
-const { Worker } = require('bullmq');
-const redis = require('../../config/redis');
-const notificationRepository = require('../../repositories/notification.repository');
-const { emitNotification } = require('../../sockets/notification.socket');
-const NotificationModel = require('../../models/notification.model');
-const { logger } = require('../../middlewares/logger.middleware');
-const { getPromotionalNotificationByUserId } = require('../../repositories/settings.repository');
+const notificationRepository = require('../../../repositories/notification.repository');
+const { emitNotification } = require('../../../sockets/notification.socket');
+const NotificationModel = require('../../../models/notification.model');
+const { logger } = require('../../../middlewares/logger.middleware');
+const { getPromotionalNotificationByUserId } = require('../../../repositories/settings.repository');
 
-
-const startNotificationWorker = () => {
-  const worker = new Worker(
-    'notification',
-    async (job) => {
+const notificationJobProcessor = async (job) => {
       logger.info(`[NotifWorker] Processing: ${job.name}`, { id: job.id });
 
       switch (job.name) {
@@ -172,15 +166,6 @@ const startNotificationWorker = () => {
       }
 
       logger.info(`[NotifWorker] Done: ${job.name}`, { id: job.id });
-    },
-    { connection: redis, concurrency: 10 }
-  );
+    }
 
-  worker.on('failed', (job, err) => {
-    logger.error(`[NotifWorker] Failed: ${job?.name}`, { id: job?.id, error: err.message });
-  });
-
-  return worker;
-};
-
-module.exports = { startNotificationWorker };
+module.exports = notificationJobProcessor

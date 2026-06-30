@@ -26,9 +26,9 @@ class UserService {
       // Return sanitized private fields if viewing own profile
       if (userId && userId === user.id) {
         const privateUser = await this.userRepo.findByIdPrivate(user.id);
-        return UserModel.format(privateUser);
+        return privateUser;
       }
-      return UserModel.format(user);
+      return user;
     } catch (error) {
       throw error;
     }

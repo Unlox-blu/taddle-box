@@ -71,7 +71,7 @@ const findByEmail = async (email) => {
 const findByUsername = async (username) => {
   try {
     const { rows } = await pool.query(
-      `SELECT ${UserModel.PUBLIC_FIELDS} 
+      `SELECT ${UserModel.PUBLIC_FIELDS}, 
       avatar_media.cloudfront_url AS avatar_media_url,
       banner_media.cloudfront_url AS banner_media_url
       FROM ${UserModel.TABLE} u 
@@ -104,7 +104,7 @@ const create = async ({name, username, email, passwordHash, isVerified, gender, 
     const { rows } = await pool.query(
       `INSERT INTO ${UserModel.TABLE} (name, username, email, password_hash, is_verified, gender, date_of_birth)
      VALUES ($1, $2, $3, $4, $5, $6, $7)
-     RETURNING ${UserModel.PRIVATE_FIELDS}`,
+     RETURNING *`,
       [name, username, email, passwordHash, isVerified, gender, dateOfBirth]
     );
     return UserModel.sanitize(rows[0]);
@@ -169,7 +169,7 @@ const updateProfile = async (userId, fields) => {
     values.push(userId);
     const { rows } = await pool.query(
       `UPDATE ${UserModel.TABLE} SET ${updates.join(', ')}, updated_at = NOW()
-     WHERE id = $${values.length} RETURNING ${UserModel.PRIVATE_FIELDS}`,
+     WHERE id = $${values.length} RETURNING *`,
       values
     );
     return UserModel.sanitize(rows[0]);
@@ -205,7 +205,7 @@ const updateBanner = async (userId, bannerUrl) => {
 const updateUsername = async (userId, username) => {
   try {
     const { rows } = await pool.query(
-      `UPDATE ${UserModel.TABLE} SET username = $1, updated_at = NOW() WHERE id = $2 RETURNING ${UserModel.PRIVATE_FIELDS}`,
+      `UPDATE ${UserModel.TABLE} SET username = $1, updated_at = NOW() WHERE id = $2 RETURNING *`,
       [username, userId]
     );
     return UserModel.sanitize(rows[0]);

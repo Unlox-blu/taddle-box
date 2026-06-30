@@ -22,7 +22,7 @@ const AUTH_FIELDS = [
 ].join(', ');
 
 const SEARCH_FIELDS = [
-  'u.id', 'u.name', 'u.username', 'u.avatar_url', 'u.is_verified', 'u.follower_count',
+  'u.id', 'u.name', 'u.username', 'u.avatar_url', 'u.is_verified', 'u.follower_count', 'u.following_count',
 ].join(', ');
 
 const ROLES = ['user', 'moderator', 'admin', 'superadmin'];

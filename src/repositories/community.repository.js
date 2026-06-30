@@ -44,7 +44,7 @@ const create = async (data) => {
     const { rows } = await pool.query(
       `INSERT INTO ${CommunityModel.TABLE} (name, slug, description, privacy, category, rules, owner_id)
      VALUES ($1, $2, $3, $4, $5::text[], $6::jsonb, $7)
-     RETURNING ${CommunityModel.DETAIL_FIELDS}`,
+     RETURNING *`,
       [
         data.name,
         data.slug,
@@ -85,7 +85,7 @@ const update = async (communityId, fields) => {
     values.push(communityId);
     const { rows } = await pool.query(
       `UPDATE ${CommunityModel.TABLE} SET ${updates.join(', ')}, updated_at = NOW()
-     WHERE id = $${values.length} RETURNING ${CommunityModel.DETAIL_FIELDS}`,
+     WHERE id = $${values.length} RETURNING *`,
       values
     );
     return rows[0];

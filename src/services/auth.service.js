@@ -10,7 +10,6 @@ const {
   verifyRefreshToken,
 } = require('../utils/token.util');
 const { createError } = require('../utils/error.util');
-const { tryCatch } = require('bullmq');
 const { addEmailJob } = require('../jobs/queues/email.queue');
 
 const COOKIE_OPTS = {

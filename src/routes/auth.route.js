@@ -24,7 +24,7 @@ router.post('/login',                 validate(loginSchema),                    
 router.post('/verify-loginpin',       verifyToken,     validate(loginPinSchema),       authController.verifyLoginPin);
 
 router.post('/send-otp-phone',  otpRateLimiter,  verifyToken, validate(sendOtpToPhoneSchema),    authController.sendOtpToPhone)
-router.post('/verify-otp-phone',        verifyToken, validate(verifyOtpForPhoneSchema),    authController.verifyAndAadPhone)
+router.post('/verify-otp-phone',        verifyToken, validate(verifyOtpForPhoneSchema),    authController.verifyAndAddPhone)
 // router.post('/google',       validate(googleAuthSchema),               authController.googleAuth);
 router.post('/logout',          verifyToken,                              authController.logout);
 router.post('/refresh-token',                                             authController.refreshToken);

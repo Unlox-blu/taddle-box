@@ -41,32 +41,6 @@ const findByIdPrivate = async (id) => {
   }
 };
 
-const findByIdAuth = async (id) => {
-  try {
-    const { rows } = await pool.query(
-      `SELECT ${UserModel.AUTH_FIELDS} FROM ${UserModel.TABLE} u 
-      WHERE u.id = $1 AND u.deleted_at IS NULL`,
-      [id]
-    );
-    return rows[0] ? rows[0] : null;
-  } catch (error) {
-    throw error;
-  }
-};
-
-// Find user by email with auth fields (for login)
-const findByEmail = async (email) => {
-  try {
-    const { rows } = await pool.query(
-      `SELECT ${UserModel.AUTH_FIELDS} FROM ${UserModel.TABLE} u 
-      WHERE LOWER(u.email) = LOWER($1) AND u.deleted_at IS NULL`,
-      [email]
-    );
-    return rows[0] || null;
-  } catch (error) {
-    throw error;
-  }
-};
 
 const findByUsername = async (username) => {
   try {
@@ -236,98 +210,6 @@ const updatePrivacy = async (userId, privacy) => {
   }
 };
 
-const updateRefreshToken = async (userId, tokenHash) => {
-  try {
-    await pool.query(
-      `UPDATE ${UserModel.TABLE} SET refresh_token_hash = $1, updated_at = NOW() WHERE id = $2`,
-      [tokenHash, userId]
-    );
-  } catch (error) {
-    throw error;
-  }
-};
-
-const getRefreshTokenById = async (userId) => {
-  try {
-    const token = await pool.query(
-      `SELECT id, role, refresh_token_hash FROM ${UserModel.TABLE} WHERE id = $1`,
-      [userId]
-    );
-    return token.rows[0];
-  } catch (error) {
-    throw error;
-  }
-};
-
-const updateEmailVerifyToken = async (userId, tokenHash, exp) => {
-  try {
-    await pool.query(
-      `UPDATE ${UserModel.TABLE} SET email_verify_token_hash = $1, email_verify_token_exp = $2, updated_at = NOW() WHERE id = $3`,
-      [tokenHash, exp, userId]
-    );
-  } catch (error) {
-    throw error;
-  }
-};
-
-const findByEmailVerifyToken = async (ResetToken) => {
-  try {
-    const token = await pool.query(
-      `SELECT id, email_verify_token_exp FROM ${UserModel.TABLE} WHERE email_verify_token_hash = $1`,
-      [ResetToken]
-    );
-    return token.rows[0];
-  } catch (error) {
-    throw error;
-  }
-};
-
-const updatePasswordResetToken = async (userId, tokenHash, exp) => {
-  try {
-    await pool.query(
-      `UPDATE ${UserModel.TABLE} SET password_reset_token_hash = $1, password_reset_token_exp = $2, updated_at = NOW() WHERE id = $3`,
-      [tokenHash, exp, userId]
-    );
-  } catch (error) {
-    throw error;
-  }
-};
-
-const findByPasswordResetToken = async (ResetToken) => {
-  try {
-    const token = await pool.query(
-      `SELECT id, password_reset_token_exp FROM ${UserModel.TABLE} WHERE password_reset_token_hash = $1`,
-      [ResetToken]
-    );
-    return token.rows[0];
-  } catch (error) {
-    throw error;
-  }
-};
-
-const getPasswordByUserId = async (userId) => {
-  try {
-    const {rows} = await pool.query(
-      `SELECT password_hash FROM ${UserModel.TABLE}
-      WHERE id = $1`,
-      [userId]
-    )
-    return rows.length ? rows[0] : null
-  } catch (error) {
-    throw error
-  }
-}
-
-const updatePassword = async (userId, passwordHash) => {
-  try {
-    await pool.query(
-      `UPDATE ${UserModel.TABLE} SET password_hash = $1, password_reset_token_hash = NULL, password_reset_token_exp = NULL, updated_at = NOW() WHERE id = $2`,
-      [passwordHash, userId]
-    );
-  } catch (error) {
-    throw error;
-  }
-};
 
 const linkGoogleAccount = async (userId, googleId, googleAvatar) => {
   try {
@@ -433,6 +315,156 @@ const search = async (query, limit, offset) => {
   }
 };
 
+
+// for auth
+
+const isEmailExist = async (email) => {
+  try {
+    const { rows } = await pool.query(
+      `SELECT 1 FROM ${UserModel.TABLE} u
+      WHERE LOWER(u.email) = LOWER($1) AND u.deleted_at IS NULL`,
+      [email]
+    );
+    return rows[0] || null;
+  } catch (error) {
+    throw error
+  }
+}
+
+const isUsernameExist = async (username) => {
+  try {
+    const { rows } = await pool.query(
+      `SELECT 1 FROM ${UserModel.TABLE} u
+      WHERE u.username = $1 AND u.deleted_at IS NULL`,
+      [username]
+    );
+    return rows[0] || null;
+  } catch (error) {
+    throw error
+  }
+}
+
+const findByEmail = async (email) => {
+  try {
+    const { rows } = await pool.query(
+      `SELECT ${UserModel.AUTH_FIELDS} FROM ${UserModel.TABLE} u 
+      WHERE LOWER(u.email) = LOWER($1) AND u.deleted_at IS NULL`,
+      [email]
+    );
+    return rows[0] || null;
+  } catch (error) {
+    throw error;
+  }
+};
+
+const findByIdAuth = async (id) => {
+  try {
+    const { rows } = await pool.query(
+      `SELECT ${UserModel.AUTH_FIELDS} FROM ${UserModel.TABLE} u 
+      WHERE u.id = $1 AND u.deleted_at IS NULL`,
+      [id]
+    );
+    return rows[0] ? rows[0] : null;
+  } catch (error) {
+    throw error;
+  }
+};
+
+
+
+const updateRefreshToken = async (userId, tokenHash) => {
+  try {
+    await pool.query(
+      `UPDATE ${UserModel.TABLE} SET refresh_token_hash = $1, updated_at = NOW() WHERE id = $2`,
+      [tokenHash, userId]
+    );
+  } catch (error) {
+    throw error;
+  }
+};
+
+const getRefreshTokenById = async (userId) => {
+  try {
+    const token = await pool.query(
+      `SELECT id, role, refresh_token_hash FROM ${UserModel.TABLE} WHERE id = $1`,
+      [userId]
+    );
+    return token.rows[0];
+  } catch (error) {
+    throw error;
+  }
+};
+
+const updateEmailVerifyToken = async (userId, tokenHash, exp) => {
+  try {
+    await pool.query(
+      `UPDATE ${UserModel.TABLE} SET email_verify_token_hash = $1, email_verify_token_exp = $2, updated_at = NOW() WHERE id = $3`,
+      [tokenHash, exp, userId]
+    );
+  } catch (error) {
+    throw error;
+  }
+};
+
+const findByEmailVerifyToken = async (ResetToken) => {
+  try {
+    const token = await pool.query(
+      `SELECT id, email_verify_token_exp FROM ${UserModel.TABLE} WHERE email_verify_token_hash = $1`,
+      [ResetToken]
+    );
+    return token.rows[0];
+  } catch (error) {
+    throw error;
+  }
+};
+
+const updatePasswordResetToken = async (userId, tokenHash, exp) => {
+  try {
+    await pool.query(
+      `UPDATE ${UserModel.TABLE} SET password_reset_token_hash = $1, password_reset_token_exp = $2, updated_at = NOW() WHERE id = $3`,
+      [tokenHash, exp, userId]
+    );
+  } catch (error) {
+    throw error;
+  }
+};
+
+const findByPasswordResetToken = async (ResetToken) => {
+  try {
+    const token = await pool.query(
+      `SELECT id, password_reset_token_exp FROM ${UserModel.TABLE} WHERE password_reset_token_hash = $1`,
+      [ResetToken]
+    );
+    return token.rows[0];
+  } catch (error) {
+    throw error;
+  }
+};
+
+const getPasswordByUserId = async (userId) => {
+  try {
+    const {rows} = await pool.query(
+      `SELECT password_hash FROM ${UserModel.TABLE} u
+      WHERE u.id = $1`,
+      [userId]
+    )
+    return rows.length ? rows[0] : null
+  } catch (error) {
+    throw error
+  }
+}
+
+const updatePassword = async (userId, passwordHash) => {
+  try {
+    await pool.query(
+      `UPDATE ${UserModel.TABLE} SET password_hash = $1, password_reset_token_hash = NULL, password_reset_token_exp = NULL, updated_at = NOW() WHERE id = $2`,
+      [passwordHash, userId]
+    );
+  } catch (error) {
+    throw error;
+  }
+};
+
 module.exports = {
   findById,
   findByIdPrivate,
@@ -467,4 +499,6 @@ module.exports = {
   decrementFollowingCount,
   softDelete,
   search,
+  isEmailExist,
+  isUsernameExist,
 };

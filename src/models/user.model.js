@@ -17,7 +17,7 @@ const PRIVATE_FIELDS = [
 ].join(', ');
 
 const AUTH_FIELDS = [
-  'u.id', 'u.email', 'u.username', 'u.password_hash', 'u.role', 'u.app_lock_enabled', 'u.app_lock',
+  'u.id', 'u.email', 'u.name', 'u.username', 'u.password_hash', 'u.role', 'u.app_lock_enabled', 'u.app_lock',
   'u.is_verified', 'u.is_active', 'u.is_banned', 'u.google_id', 'u.refresh_token_hash',
 ].join(', ');
 

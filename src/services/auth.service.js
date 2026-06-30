@@ -42,7 +42,7 @@ class AuthService {
 
   async sendOtpToEmail({email}) {
     try {
-      const existingEmail = await this.userRepo.findByEmail(email);
+      const existingEmail = await this.userRepo.isEmailExist(email);
       if (existingEmail) throw createError('Email is already registered', 409);
 
       const otp = Math.floor(Math.random() * 10000)
@@ -73,14 +73,14 @@ class AuthService {
 
   async verifyOtpForEmail({email, otp}) {
     try {
-      const isOtpAvailable = await this.verifyEmailRepo.findByEmail(email);
-      if (!isOtpAvailable) throw createError('Otp did not generated for this email', 409);
+      const otp = await this.verifyEmailRepo.findByEmail(email);
+      if (!otp) throw createError('Otp did not generated for this email', 409);
 
       const currentTime = new Date(Date.now());
-      if (!isOtpAvailable.otp || !isOtpAvailable.expIn || isOtpAvailable.expIn < currentTime)
+      if (!otp.otp || !otp.expIn || otp.expIn < currentTime)
         throw createError('Otp is expired', 409);
 
-      if (isOtpAvailable.otp !== otp) throw createError('Invalied Otp', 409);
+      if (otp.otp !== otp) throw createError('Invalied Otp', 409);
 
       const verificationExpiresAt = new Date(Date.now() +  parseInt(config.VALIDATE_OTP_VERIFICATION, 10));
       await this.verifyEmailRepo.makeVerified(email, verificationExpiresAt);
@@ -89,7 +89,6 @@ class AuthService {
     }
   }
 
-  // Registers a new user, auto-creates wallet, queues verification email.
   async signUp(data) {
     try {
       const {name, username, email, password, gender, dateOfBirth} = data
@@ -103,8 +102,8 @@ class AuthService {
         throw createError('Verified the email again', 403);
 
       const [existingEmail, existingUsername] = await Promise.all([
-        this.userRepo.findByEmail(email),
-        this.userRepo.findByUsername(username),
+        this.userRepo.isEmailExist(email),
+        this.userRepo.isUsernameExist(username),
       ]);
       if (existingEmail) throw createError('Email is already registered', 409);
       if (existingUsername) throw createError('Username is already taken', 409);
@@ -136,8 +135,7 @@ class AuthService {
       throw error;
     }
   }
-
-  // Authenticates user with email + password.
+  
   async login({ email, password }) {
     try {
       const user = await this.userRepo.findByEmail(email);
@@ -155,7 +153,7 @@ class AuthService {
 
       const jobdata = {
         to: email,
-        name: user.username
+        name: user.name
       }
       await addEmailJob('welcome_back', jobdata);
 
@@ -187,7 +185,7 @@ class AuthService {
     }
   }
 
-  async verifyAndAadPhone({userId, otp, countryCode, phoneNumber}) {
+  async verifyAndAddPhone({userId, otp, countryCode, phoneNumber}) {
     try {
       // verify phone first
 

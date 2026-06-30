@@ -80,11 +80,11 @@ class AuthController {
     }
   };
 
-  verifyAndAadPhone = async (req, res, next) => {
+  verifyAndAddPhone = async (req, res, next) => {
     try {
       const userId = req.userId 
       const {otp, countryCode, phoneNumber} = res.body
-      await this.authSvc.verifyAndAadPhone({userId, otp, countryCode, phoneNumber})
+      await this.authSvc.verifyAndAddPhone({userId, otp, countryCode, phoneNumber})
       res.json(apiResponse(null, 'Phone added successfully'));
     } catch (error) {
       next(error)

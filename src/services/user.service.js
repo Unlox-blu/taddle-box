@@ -23,7 +23,6 @@ class UserService {
       const user = await this.userRepo.findByUsername(username);
       if (!user) throw createError('User not found', 404);
 
-      // Return sanitized private fields if viewing own profile
       if (userId && userId === user.id) {
         const privateUser = await this.userRepo.findByIdPrivate(user.id);
         return privateUser;

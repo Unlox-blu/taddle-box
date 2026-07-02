@@ -2,15 +2,12 @@
 
 const { verifyAccessToken } = require('../../utils/token.util');
 
-// Socket.io authentication middleware.
-// Reads JWT from:
-//   - socket.handshake.auth.token  (recommended for mobile/SPA)
-//   - socket.handshake.headers.cookie (for browser clients)
+
 const socketAuthMiddleware = (socket, next) => {
   try {
     let token = null;
 
-    // Option 1: Explicit token in handshake auth object
+    
     if (socket.handshake.auth?.token) {
       token = socket.handshake.auth.token;
     } else if (socket.handshake.headers?.cookie) {

@@ -1,6 +1,6 @@
 'use strict';
 
-const notificationRepository = require('../repositories/notification.repository');
+const {notificationRepository} = require('../modules/notification/notification.container');
 
 let _io = null;
 

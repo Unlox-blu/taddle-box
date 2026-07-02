@@ -1,6 +1,6 @@
 'use strict';
 
-const activeStatusRepo = require('../repositories/activestatus.repository')
+const {activeStatusService} = require('../modules/activestatus/activestatus.container')
 const redis = require('../config/redis')
 
 let _io = null;
@@ -13,7 +13,7 @@ const setupActiveStatus = (io) => {
 
     try {
         await redis.setex(statusKey, 30, 'online');
-        await activeStatusRepo.setOnline(socket.userId);
+        await activeStatusService.setOnline(socket.userId);
 
         console.log(`${socket.userId} is online`)
     } catch (error) {
@@ -35,7 +35,7 @@ const setupActiveStatus = (io) => {
             console.log(`${socket.userId} disconnected`);
 
             await redis.setex(statusKey, 60, lastSeenTime);
-            await activeStatusRepo.setOffline(socket.userId);
+            await activeStatusService.setOffline(socket.userId);
         } catch (err) {
             console.error(err);
         }

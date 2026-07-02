@@ -1,10 +1,11 @@
 'use strict';
 
-const notificationRepository = require('../../../repositories/notification.repository');
+
+const {notificationRepository} = require('../../../modules/notification/notification.container');
 const { emitNotification } = require('../../../sockets/notification.socket');
-const NotificationModel = require('../../../models/notification.model');
+const NotificationModel = require('../../../modules/notification/notification.model');
 const { logger } = require('../../../middlewares/logger.middleware');
-const { getPromotionalNotificationByUserId } = require('../../../repositories/settings.repository');
+const { getPromotionalNotificationByUserId } = require('../../../modules/settings/settings.repository');
 
 const notificationJobProcessor = async (job) => {
       logger.info(`[NotifWorker] Processing: ${job.name}`, { id: job.id });

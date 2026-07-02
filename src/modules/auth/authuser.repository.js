@@ -5,12 +5,12 @@ const AuthModel = require('./auth.model');
 
 
 
-const isEmailExist = async (email) => {
+const isEmailExist = async ({email}) => {
   try {
     const { rows } = await pool.query(
       `SELECT id 
       FROM ${AuthModel.USER_TABLE} u
-      WHERE LOWER(u.email) = LOWER($1) AND u.deleted_at IS NULL`,
+      WHERE u.email = $1 AND u.deleted_at IS NULL`,
       [email]
     );
     return rows[0] || null;
@@ -20,12 +20,12 @@ const isEmailExist = async (email) => {
 }
 
 
-const isUsernameExist = async (username) => {
+const isUsernameExist = async ({username}) => {
   try {
     const { rows } = await pool.query(
-      `SELECT 1 
-      FROM ${AuthModel.USER_TABLE}       
-      WHERE username = $1 AND deleted_at IS NULL`,
+      `SELECT id 
+      FROM ${AuthModel.USER_TABLE} u      
+      WHERE u.username = $1 AND u.deleted_at IS NULL`,
       [username]
     );
     return rows[0] || null;
@@ -33,6 +33,35 @@ const isUsernameExist = async (username) => {
     throw error
   }
 }
+
+const findByIdUser = async ({userId}) => {
+  try {
+    const { rows } = await pool.query(
+      `SELECT ${AuthModel.USER_DETAIL}
+      FROM ${AuthModel.USER_TABLE} u 
+      WHERE u.id = $1 AND u.deleted_at IS NULL`,
+      [userId]
+    );
+    return rows[0] ? AuthModel.sanitize(rows[0]) : null;
+  } catch (error) {
+    throw error;
+  }
+};
+
+const findByEmailUser = async ({email}) => {
+  try {
+    const { rows } = await pool.query(
+      `SELECT ${AuthModel.USER_DETAIL} 
+      FROM ${AuthModel.USER_TABLE} u 
+      WHERE u.email = $1 AND u.deleted_at IS NULL`,
+      [email]
+    );
+    return rows[0] ? AuthModel.sanitize(rows[0]) : null;
+  } catch (error) {
+    throw error;
+  }
+};
+
 
 const create = async ({name, username, email, passwordHash, isVerified, gender, dateOfBirth}) => {
   try {
@@ -48,12 +77,26 @@ const create = async ({name, username, email, passwordHash, isVerified, gender, 
   }
 };
 
-const findByEmail = async (email) => {
+const findByEmail = async ({email}) => {
   try {
     const { rows } = await pool.query(
       `SELECT ${AuthModel.AUTH_FIELDS} 
       FROM ${AuthModel.USER_TABLE} u 
-      WHERE LOWER(u.email) = LOWER($1) AND u.deleted_at IS NULL`,
+      WHERE u.email = $1 AND u.deleted_at IS NULL`,
+      [email]
+    );
+    return rows[0] || null;
+  } catch (error) {
+    throw error;
+  }
+};
+
+const findByEmailLogin = async ({email}) => {
+  try {
+    const { rows } = await pool.query(
+      `SELECT ${AuthModel.LOGIN} 
+      FROM ${AuthModel.USER_TABLE} u 
+      WHERE u.email = $1 AND u.deleted_at IS NULL`,
       [email]
     );
     return rows[0] || null;
@@ -63,7 +106,7 @@ const findByEmail = async (email) => {
 };
 
 
-const findByIdSecure = async (userId) => {
+const findByIdSecure = async ({userId}) => {
   try {
     const { rows } = await pool.query(
       `SELECT ${AuthModel.SECURE_FIELDS} 
@@ -77,59 +120,48 @@ const findByIdSecure = async (userId) => {
 }
 }
 
-
-const findByIdAuth = async (id) => {
+const findByIdPrivate = async ({userId}) => {
   try {
     const { rows } = await pool.query(
-      `SELECT ${AuthModel.AUTH_FIELDS} FROM ${AuthModel.USER_TABLE} u 
+      `SELECT ${AuthModel.PRIVATE_FIELDS} 
+      FROM ${AuthModel.USER_TABLE} u 
       WHERE u.id = $1 AND u.deleted_at IS NULL`,
-      [id]
+      [userId]
     );
     return rows[0] ? rows[0] : null;
   } catch (error) {
     throw error;
-  }
-};
+}
+}
 
-
-
-
-const findById = async (id) => {
+const findByIdAppLock = async ({userId}) => {
   try {
     const { rows } = await pool.query(
-      `SELECT ${AuthModel.PUBLIC_FIELDS},
-      avatar_media.cloudfront_url AS avatar_media_url,
-      banner_media.cloudfront_url AS banner_media_url
+      `SELECT ${AuthModel.APP_LOCK} 
       FROM ${AuthModel.USER_TABLE} u 
-      LEFT JOIN media AS avatar_media ON avatar_media.id = avatar_url
-      LEFT JOIN media AS banner_media ON banner_media.id = banner_url
-      WHERE u.id = $1 AND u.is_active = TRUE AND u.deleted_at IS NULL`,
-      [id]
-    );
-    return rows[0] || null;
-  } catch (error) {
-    throw error;
-  }
-};
-
-const findByIdPrivate = async (id) => {
-  try {
-    const { rows } = await pool.query(
-      `SELECT ${AuthModel.PRIVATE_FIELDS}, 
-      avatar_media.cloudfront_url AS avatar_media_url,
-      banner_media.cloudfront_url AS banner_media_url
-      FROM ${AuthModel.USER_TABLE} u 
-      LEFT JOIN media AS avatar_media ON avatar_media.id = avatar_url
-      LEFT JOIN media AS banner_media ON banner_media.id = banner_url
       WHERE u.id = $1 AND u.deleted_at IS NULL`,
-      [id]
+      [userId]
     );
-    return rows[0] ? AuthModel.sanitize(rows[0]) : null;
+    return rows[0] ? rows[0] : null;
+  } catch (error) {
+    throw error;
+}
+}
+
+
+const getRefreshTokenById = async ({userId}) => {
+  try {
+    const token = await pool.query(
+      `SELECT id, role, refresh_token_hash 
+      FROM ${AuthModel.USER_TABLE} 
+      WHERE id = $1`,
+      [userId]
+    );
+    return token.rows[0];
   } catch (error) {
     throw error;
   }
 };
-
 
 const updatePhone = async (userId, countryCode, phoneNumber) => {
   try {
@@ -144,150 +176,6 @@ const updatePhone = async (userId, countryCode, phoneNumber) => {
   }
 };
 
-
-const getRefreshTokenById = async (userId) => {
-  try {
-    const token = await pool.query(
-      `SELECT id, role, refresh_token_hash 
-      FROM ${AuthModel.USER_TABLE} 
-      WHERE id = $1`,
-      [userId]
-    );
-    return token.rows[0];
-  } catch (error) {
-    throw error;
-  }
-};
-
-
-
-const updateRefreshToken = async (userId, tokenHash) => {
-  try {
-    await pool.query(
-      `UPDATE ${AuthModel.USER_TABLE} 
-      SET refresh_token_hash = $1, updated_at = NOW() 
-      WHERE id = $2`,
-      [tokenHash, userId]
-    );
-  } catch (error) {
-    throw error;
-  }
-};
-
-
-const getPasswordByUserId = async (userId) => {
-  try {
-    const {rows} = await pool.query(
-      `SELECT password_hash 
-      FROM ${AuthModel.USER_TABLE} 
-      WHERE id = $1`,
-      [userId]
-    )
-    return rows.length ? rows[0] : null
-  } catch (error) {
-    throw error
-  }
-}
-
-const updatePassword = async (userId, passwordHash) => {
-  try {
-    await pool.query(
-      `UPDATE ${AuthModel.USER_TABLE} 
-      SET password_hash = $1, password_reset_token_hash = NULL, password_reset_token_exp = NULL, updated_at = NOW() 
-      WHERE id = $2`,
-      [passwordHash, userId]
-    );
-  } catch (error) {
-    throw error;
-  }
-};
-
-
-
-const updatePasswordResetToken = async (userId, tokenHash, tokenExp) => {
-  try {
-    await pool.query(
-      `UPDATE ${AuthModel.USER_TABLE} 
-      SET password_reset_token_hash = $1, password_reset_token_exp = $2, updated_at = NOW() 
-      WHERE id = $3`,
-      [tokenHash, tokenExp, userId]
-    );
-  } catch (error) {
-    throw error;
-  }
-};
-
-const findByPasswordResetToken = async (ResetToken) => {
-  try {
-    const token = await pool.query(
-      `SELECT id, password_reset_token_exp 
-      FROM ${AuthModel.USER_TABLE} 
-      WHERE password_reset_token_hash = $1`,
-      [ResetToken]
-    );
-    return token.rows[0];
-  } catch (error) {
-    throw error;
-  }
-};
-
-
-
-
-
-// Find user by ID — public fields only
-
-
-// Find user by ID — full private fields (own profile)
-
-
-
-const findByUsername = async (username) => {
-  try {
-    const { rows } = await pool.query(
-      `SELECT ${AuthModel.PUBLIC_FIELDS}, 
-      avatar_media.cloudfront_url AS avatar_media_url,
-      banner_media.cloudfront_url AS banner_media_url
-      FROM ${AuthModel.USER_TABLE} u 
-      LEFT JOIN media AS avatar_media ON avatar_media.id = avatar_url
-      LEFT JOIN media AS banner_media ON banner_media.id = banner_url
-      WHERE LOWER(u.username) = LOWER($1) AND u.deleted_at IS NULL`,
-      [username]
-    );
-    return rows[0] || null;
-  } catch (error) {
-    throw error;
-  }
-};
-
-const findByGoogleId = async (googleId) => {
-  try {
-    const { rows } = await pool.query(
-      `SELECT ${AuthModel.AUTH_FIELDS} FROM ${AuthModel.USER_TABLE} u 
-      WHERE u.google_id = $1 AND u.deleted_at IS NULL`,
-      [googleId]
-    );
-    return rows[0] || null;
-  } catch (error) {
-    throw error;
-  }
-};
-
-
-
-const createWithGoogle = async ({ name, username, email, googleId, googleAvatar }) => {
-  try {
-    const { rows } = await pool.query(
-      `INSERT INTO ${AuthModel.USER_TABLE} (name, username, email, google_id, avatar_url, is_verified, email_verified_at)
-     VALUES ($1, $2, $3, $4, $5, TRUE, NOW())
-     RETURNING ${AuthModel.PRIVATE_FIELDS}`,
-      [name, username, email, googleId, googleAvatar]
-    );
-    return AuthModel.sanitize(rows[0]);
-  } catch (error) {
-    throw error;
-  }
-};
 
 const updateAppLock = async (userId, pin) => {
   try {
@@ -315,62 +203,69 @@ const removeAppLock = async (userId, pin) => {
   }
 }
 
-const updateProfile = async (userId, fields) => {
+const updateRefreshToken = async ({userId, tokenHash}) => {
   try {
-    const allowedFields = ['name', 'bio', 'website_url'];
-    const updates = [];
-    const values = [];
-    Object.entries(fields).forEach(([k, v]) => {
-      const col = k.replace(/([A-Z])/g, '_$1').toLowerCase();
-      if (allowedFields.includes(col)) {
-        values.push(v);
-        updates.push(`${col} = $${values.length}`);
-      }
-    });
-    if (updates.length === 0) return findByIdPrivate(userId);
-    values.push(userId);
-    const { rows } = await pool.query(
-      `UPDATE ${AuthModel.USER_TABLE} SET ${updates.join(', ')}, updated_at = NOW()
-     WHERE id = $${values.length} RETURNING *`,
-      values
+    await pool.query(
+      `UPDATE ${AuthModel.USER_TABLE} 
+      SET refresh_token_hash = $1, updated_at = NOW() 
+      WHERE id = $2`,
+      [tokenHash, userId]
     );
-    return AuthModel.sanitize(rows[0]);
   } catch (error) {
     throw error;
   }
 };
 
-const updateAvatar = async (userId, avatarUrl) => {
+const getPasswordByUserId = async ({userId}) => {
   try {
-    const { rows } = await pool.query(
-      `UPDATE ${AuthModel.USER_TABLE} SET avatar_url = $1, updated_at = NOW() WHERE id = $2 RETURNING id, avatar_url`,
-      [avatarUrl, userId]
+    const {rows} = await pool.query(
+      `SELECT password_hash 
+      FROM ${AuthModel.USER_TABLE} 
+      WHERE id = $1`,
+      [userId]
+    )
+    return rows.length ? rows[0] : null
+  } catch (error) {
+    throw error
+  }
+}
+
+const updatePassword = async ({userId, passwordHash}) => {
+  try {
+    await pool.query(
+      `UPDATE ${AuthModel.USER_TABLE} 
+      SET password_hash = $1, password_reset_token_hash = NULL, password_reset_token_exp = NULL, updated_at = NOW() 
+      WHERE id = $2`,
+      [passwordHash, userId]
     );
-    return rows[0];
   } catch (error) {
     throw error;
   }
 };
 
-const updateBanner = async (userId, bannerUrl) => {
+
+const updatePasswordResetToken = async ({userId, tokenHash, tokenExp}) => {
   try {
-    const { rows } = await pool.query(
-      `UPDATE ${AuthModel.USER_TABLE} SET banner_url = $1, updated_at = NOW() WHERE id = $2 RETURNING id, banner_url`,
-      [bannerUrl, userId]
+    await pool.query(
+      `UPDATE ${AuthModel.USER_TABLE} 
+      SET password_reset_token_hash = $1, password_reset_token_exp = $2, updated_at = NOW() 
+      WHERE id = $3`,
+      [tokenHash, tokenExp, userId]
     );
-    return rows[0];
   } catch (error) {
     throw error;
   }
 };
 
-const updateUsername = async (userId, username) => {
+const findByPasswordResetToken = async (ResetToken) => {
   try {
-    const { rows } = await pool.query(
-      `UPDATE ${AuthModel.USER_TABLE} SET username = $1, updated_at = NOW() WHERE id = $2 RETURNING *`,
-      [username, userId]
+    const token = await pool.query(
+      `SELECT id, password_reset_token_exp 
+      FROM ${AuthModel.USER_TABLE} 
+      WHERE password_reset_token_hash = $1`,
+      [ResetToken]
     );
-    return AuthModel.sanitize(rows[0]);
+    return token.rows[0];
   } catch (error) {
     throw error;
   }
@@ -389,76 +284,9 @@ const updatePrivacy = async (userId, privacy) => {
 };
 
 
-const linkGoogleAccount = async (userId, googleId, googleAvatar) => {
-  try {
-    const { rows } = await pool.query(
-      `UPDATE ${AuthModel.USER_TABLE} SET google_id = $1, avatar_url = COALESCE(avatar_url, $2), updated_at = NOW() WHERE id = $3`,
-      [googleId, googleAvatar, userId]
-    );
-    return rows[0];
-  } catch (error) {
-    throw error;
-  }
-};
-
-const verifyEmail = async (userId) => {
-  try {
-    await pool.query(
-      `UPDATE ${AuthModel.USER_TABLE} SET is_verified = TRUE, email_verified_at = NOW(), email_verify_token_hash = NULL, email_verify_token_exp = NULL, updated_at = NOW() WHERE id = $1`,
-      [userId]
-    );
-  } catch (error) {
-    throw error;
-  }
-};
-
-const updateLastLogin = async (userId) => {
+const updateLastLogin = async ({userId}) => {
   try {
     await pool.query(`UPDATE ${AuthModel.USER_TABLE} SET last_login_at = NOW() WHERE id = $1`, [userId]);
-  } catch (error) {
-    throw error;
-  }
-};
-
-const incrementFollowerCount = async (userId) => {
-  try {
-    await pool.query(
-      `UPDATE ${AuthModel.USER_TABLE} SET follower_count = follower_count + 1 WHERE id = $1`,
-      [userId]
-    );
-  } catch (error) {
-    throw error;
-  }
-};
-
-const decrementFollowerCount = async (userId) => {
-  try {
-    await pool.query(
-      `UPDATE ${AuthModel.USER_TABLE} SET follower_count = GREATEST(0, follower_count - 1) WHERE id = $1`,
-      [userId]
-    );
-  } catch (error) {
-    throw error;
-  }
-};
-
-const incrementFollowingCount = async (userId) => {
-  try {
-    await pool.query(
-      `UPDATE ${AuthModel.USER_TABLE} SET following_count = following_count + 1 WHERE id = $1`,
-      [userId]
-    );
-  } catch (error) {
-    throw error;
-  }
-};
-
-const decrementFollowingCount = async (userId) => {
-  try {
-    await pool.query(
-      `UPDATE ${AuthModel.USER_TABLE} SET following_count = GREATEST(0, following_count - 1) WHERE id = $1`,
-      [userId]
-    );
   } catch (error) {
     throw error;
   }
@@ -474,37 +302,6 @@ const softDelete = async (userId) => {
     throw error;
   }
 };
-
-const search = async (query, limit, offset) => {
-  try {
-    const { rows } = await pool.query(
-      `SELECT ${AuthModel.SEARCH_FIELDS}, COUNT(*) OVER() AS total
-       FROM ${AuthModel.USER_TABLE} u
-     WHERE u.deleted_at IS NULL AND u.is_active = TRUE AND u.is_banned = FALSE
-       AND ($1 = '' OR username ILIKE $1 OR name ILIKE $1)
-     ORDER BY u.follower_count DESC
-     LIMIT $2 OFFSET $3`,
-      [`%${query}%`, limit, offset]
-    );
-    const total = rows[0]?.total || 0;
-    return { rows, total: parseInt(total, 10) };
-  } catch (error) {
-    throw error;
-  }
-};
-
-
-// for auth
-
-
-
-
-
-
-
-
-
-
 
 
 const updateEmailVerifyToken = async (userId, tokenHash, exp) => {
@@ -532,42 +329,11 @@ const findByEmailVerifyToken = async (ResetToken) => {
 
 
 
-
 module.exports = {
-  findById,
-  findByIdPrivate,
-  findByIdAuth,
-  findByEmail,
-  findByUsername,
-  findByGoogleId,
-  create,
-  createWithGoogle,
-  updateProfile,
-  updateAppLock,
-  removeAppLock,
-  updateAvatar,
-  updateBanner,
-  updateUsername,
-  updatePhone,
-  updatePrivacy,
-  updateRefreshToken,
-  getRefreshTokenById,
-  updateEmailVerifyToken,
-  findByEmailVerifyToken,
-  updatePasswordResetToken,
-  findByPasswordResetToken,
-  getPasswordByUserId,
-  updatePassword,
-  linkGoogleAccount,
-  verifyEmail,
-  updateLastLogin,
-  incrementFollowerCount,
-  decrementFollowerCount,
-  incrementFollowingCount,
-  decrementFollowingCount,
-  softDelete,
-  search,
-  isEmailExist,
-  isUsernameExist,
-  findByIdSecure,
+  findByIdPrivate, findByEmail, findByEmailLogin, create, updateAppLock,
+  removeAppLock, updatePhone, updatePrivacy, updateRefreshToken,
+  getRefreshTokenById, updateEmailVerifyToken, findByEmailVerifyToken,
+  updatePasswordResetToken, findByPasswordResetToken, getPasswordByUserId,
+  updatePassword, updateLastLogin, softDelete, isEmailExist, isUsernameExist,
+  findByIdSecure, findByIdAppLock, findByEmailUser, findByIdUser,
 };

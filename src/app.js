@@ -44,8 +44,7 @@ app.use(sanitizeMiddleware);
 app.get('/health', (_req, res) => res.json({ status: 'ok', timestamp: new Date().toISOString() }));
 
 // Auth routes with strict rate limiter
-// app.use('/api/v1/auth', authRateLimiter, require('./routes/index').authOnly);
-// app.use('/api/v1/auth', require('./routes/index').authOnly);
+// app.use('/api/v1/auth', authRateLimiter, require('./modules/index').authOnly);
 
 // All API routes
 // app.use('/api/v1', require('./routes'));

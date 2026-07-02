@@ -36,7 +36,7 @@ class AuthService {
 
   async sendOtpToEmail({email}) {
     try {
-      const isEmailExist = await this.authUserRepo.isEmailExist(email);
+      const isEmailExist = await this.authUserRepo.isEmailExist({email});
       if (isEmailExist) throw createError('Email is already registered', 409);
       const otp = Math.floor(Math.random() * 10000)
       .toString()
@@ -44,7 +44,7 @@ class AuthService {
       .toString();
       const expIn = new Date(Date.now() + parseInt(config.OTP_EXPIRES_IN, 10));
       
-      const otpSendBefore = await this.verifyEmailRepo.isEmailExist(email);
+      const otpSendBefore = await this.verifyEmailRepo.isEmailExist({email});
       
       if (otpSendBefore) {
         await this.verifyEmailRepo.updateOtp({ email, otp, expIn });
@@ -66,7 +66,7 @@ class AuthService {
 
   async verifyOtpForEmail({email, otp}) {
     try {
-      const emailOtp = await this.verifyEmailRepo.findByEmail(email);
+      const emailOtp = await this.verifyEmailRepo.findByEmail({email});
       if (!emailOtp) throw createError('Otp did not generated for this email', 409);
 
       const currentTime = new Date(Date.now());
@@ -76,16 +76,16 @@ class AuthService {
       if (emailOtp.otp !== otp) throw createError('Invalied Otp', 409);
 
       const verificationExpiresAt = new Date(Date.now() +  parseInt(config.VALIDATE_OTP_VERIFICATION, 10));
-      await this.verifyEmailRepo.makeVerified(email, verificationExpiresAt);
+      await this.verifyEmailRepo.makeVerified({email, verificationExpiresAt});
     } catch (error) {
       throw error;
     }
   }
 
-  async signUp(data) {
+  async signUp({userData}) {
     try {
-      const {name, username, email, password, gender, dateOfBirth} = data
-      const isEmailVerified = await this.verifyEmailRepo.findByEmail(email);
+      const {name, username, email, password, gender, dateOfBirth} = userData
+      const isEmailVerified = await this.verifyEmailRepo.findByEmail({email});
       
       if (!isEmailVerified || !isEmailVerified.isVerified)
         throw createError('Verified the email first', 400);
@@ -95,8 +95,8 @@ class AuthService {
         throw createError('Verified the email again', 403);
 
       const [existingEmail, existingUsername] = await Promise.all([
-        this.authUserRepo.isEmailExist(email),
-        this.authUserRepo.isUsernameExist(username),
+        this.authUserRepo.isEmailExist({email}),
+        this.authUserRepo.isUsernameExist({username}),
       ]);
       if (existingEmail) throw createError('Email is already registered', 409);
       if (existingUsername) throw createError('Username is already taken', 409);
@@ -105,7 +105,7 @@ class AuthService {
       const newUser = await this.authUserRepo.create({ name, username, email, gender, dateOfBirth, passwordHash, isVerified: true });
 
       // Delete the email verification row
-      await this.verifyEmailRepo.hardDelete(email);
+      await this.verifyEmailRepo.hardDelete({email});
 
       // Auto-create wallet for new user
       await this.walletSvc.createWallet({userId: newUser.id});
@@ -129,7 +129,7 @@ class AuthService {
   
   async login({ email, password }) {
     try {
-      const user = await this.authUserRepo.findByEmail(email);
+      const user = await this.authUserRepo.findByEmailLogin({email});
 
       if (!user) throw createError('Invalid email or password', 401);
       if (user.is_banned) throw createError('Your account has been suspended', 403);
@@ -156,7 +156,8 @@ class AuthService {
 
   async verifyLoginPin({ userId, pin }) {
     try {
-      const user = await this.authUserRepo.findByIdSecure(userId)
+      const user = await this.authUserRepo.findByIdAppLock({userId})
+      console.log(user)
       if(!user.app_lock_enabled)
           throw createError('Pin lock not set', 400);
         
@@ -225,8 +226,9 @@ class AuthService {
       if (!refreshToken) throw createError('Refresh token missing', 401);
 
       const payload = verifyRefreshToken(refreshToken);
-      const user = await this.authUserRepo.getRefreshTokenById(payload.userId);
-
+      const userId = payload.userId
+      const user = await this.authUserRepo.getRefreshTokenById({userId});
+      
       if (!user || user.refresh_token_hash !== hashToken(refreshToken)) {
         throw createError('Invalid refresh token', 401);
       }
@@ -240,7 +242,7 @@ class AuthService {
   // Clears refresh token in DB (invalidates all sessions for this token family).
   async logout({userId}) {
     try {
-      await this.authUserRepo.updateRefreshToken(userId, null);
+      await this.authUserRepo.updateRefreshToken({userId, tokenHash: null});
     } catch (error) {
       throw error;
     }
@@ -248,17 +250,17 @@ class AuthService {
 
   async changePassword({userId, currentPassword, newPassword}) {
     try {
-      const user = await this.authUserRepo.getPasswordByUserId(userId)
+      const user = await this.authUserRepo.getPasswordByUserId({userId})
 
       if(!user || !user.password_hash)
-        throw createError("User don't have password", 400)
+        throw createError("Invalid current password", 400)
 
       const valid = await comparePassword(currentPassword, user.password_hash);
       if (!valid) 
         throw createError('Invalid current password', 400);
 
       const passwordHash = await hashPassword(newPassword);
-      await this.authUserRepo.updatePassword(userId, passwordHash);
+      await this.authUserRepo.updatePassword({userId, passwordHash});
     } catch (error) {
       throw error
     }
@@ -267,12 +269,13 @@ class AuthService {
   // Sends password reset email if email belongs to a password-based account.
   async forgotPassword({email}) {
     try {
-      const user = await this.authUserRepo.isEmailExist(email);
+      const user = await this.authUserRepo.findByEmailUser({email});
+      
       if (user) {
         const rawToken = generateRandomToken();
         const tokenHash = hashToken(rawToken);
         const tokenExp = new Date(Date.now() + parseInt(config.PASSWORD_RESET_TOKEN_EXPIRES_IN, 10));
-        await this.authUserRepo.updatePasswordResetToken(user.id, tokenHash, tokenExp);
+        await this.authUserRepo.updatePasswordResetToken({userId: user.id, tokenHash, tokenExp});
 
         const jobdata = {
           to: user.email, 
@@ -292,14 +295,19 @@ class AuthService {
     try {
       const tokenHash = hashToken(token);
       const user = await this.authUserRepo.findByPasswordResetToken(tokenHash);
+
       const currentTime = new Date(Date.now());
       if (!user || !user.password_reset_token_exp || user.password_reset_token_exp < currentTime) {
         throw createError('Password Reset Token is expired', 401);
       }
-      const passwordHash = await hashPassword(password);
-      await this.authUserRepo.updatePassword(user.id, passwordHash);
 
-      const userDetail = await this.authUserRepo.findByIdPrivate(user.id)
+      const passwordHash = await hashPassword(password);
+
+      const userId = user.id
+      await this.authUserRepo.updatePassword({userId, passwordHash});
+
+      const userDetail = await this.authUserRepo.findByIdUser({userId})
+
       const jobdata = {
         to: userDetail.email, 
         name: userDetail.username, 
@@ -314,7 +322,7 @@ class AuthService {
 
   async getMe({userId}) {
     try {
-      const user = await this.authUserRepo.findByIdPrivate(userId);
+      const user = await this.authUserRepo.findByIdPrivate({userId});
       if (!user) throw createError('User not found', 404);
 
       const totalKeys = Object.keys(user).length;
@@ -335,14 +343,15 @@ class AuthService {
   // Private
   async #issueTokens(user) {
     try {
-      const payload = { userId: user.id, role: user.role };
+      const userId = user.id
+      const role = user.role
+      const payload = { userId, role };
       const accessToken = generateAccessToken(payload);
       const refreshToken = generateRefreshToken(payload);
 
-      const hashRefreshToken = hashToken(refreshToken);
-
-      await this.authUserRepo.updateRefreshToken(user.id, hashRefreshToken);
-      await this.authUserRepo.updateLastLogin(user.id);
+      const tokenHash = hashToken(refreshToken);
+      await this.authUserRepo.updateRefreshToken({userId, tokenHash});
+      await this.authUserRepo.updateLastLogin({userId});
 
       return {
         userId: user.id,

@@ -5,50 +5,204 @@ const USER_TABLE = 'users';
 const VERIFy_EMAIL_TABLE = 'verify_email_otp';
 
 const VERIFy_EMAIL_FIELDS = [
-    'id', 'email', 'otp', 'otp_exp_in','is_verified', 'verification_expires_at', 'created_at', 'updated_at'
+  'id',
+  'email',
+  'otp',
+  'otp_exp_in',
+  'is_verified',
+  'verification_expires_at',
+  'created_at',
+  'updated_at',
 ].join(', ');
 
-const RETURNING_USER_FIELDS = [
-  'id', 'name', 'username',
-].join(', ');
+const RETURNING_USER_FIELDS = ['id', 'name', 'username'].join(', ');
 
-const SECURE_FIELDS = [
-    'u.id', 'u.email', 'u.app_lock_enabled', 'u.app_lock', 'u.role',  
-  'u.is_verified', 'u.is_active', 'u.email_verified_at', 'u.last_login_at', 'u.google_id', 
-  'u.created_at', 'u.updated_at', 'u.privacy', 'u.theme'
-].join(', ');
+const USER_DETAIL = ['u.id', 'u.name', 'u.username', 'u.email', 'u.role'];
 
 const AUTH_FIELDS = [
-  'u.id', 'u.email', 'u.name', 'u.username', 'u.password_hash', 'u.role', 'u.app_lock_enabled', 'u.app_lock',
-  'u.is_verified', 'u.is_active', 'u.is_banned', 'u.google_id', 'u.refresh_token_hash',
+  'u.id',
+  'u.email',
+  'u.name',
+  'u.username',
+  'u.password_hash',
+  'u.role',
+  'u.app_lock_enabled',
+  'u.app_lock',
+  'u.is_verified',
+  'u.is_active',
+  'u.is_banned',
+  'u.google_id',
+  'u.refresh_token_hash',
 ].join(', ');
 
+const APP_LOCK = ['u.id', 'u.app_lock_enabled', 'u.app_lock'].join(', ');
 
-const PUBLIC_FIELDS = [
-  'u.id', 'u.name', 'u.username', 'u.avatar_url', 'u.banner_url', 
-  'u.bio', 'u.website_url', 'u.follower_count', 'u.following_count',
-  'u.post_count', 'u.is_verified', 'u.created_at', 'u.privacy',
+const SECURE_FIELDS = [
+  'u.id',
+  'u.email',
+  'u.app_lock_enabled',
+  'u.app_lock',
+  'u.role',
+  'u.is_verified',
+  'u.is_active',
+  'u.email_verified_at',
+  'u.last_login_at',
+  'u.google_id',
+  'u.created_at',
+  'u.updated_at',
+  'u.privacy',
+  'u.theme',
 ].join(', ');
 
 const PRIVATE_FIELDS = [
-  'u.id', 'u.name', 'u.username', 'u.email', 'u.gender', 'u.country_code', 'u.phone_number', 'u.app_lock_enabled', 
-  'u.date_of_birth', 'u.avatar_url', 'u.banner_url', 'u.bio', 'u.website_url', 'u.role', 
-  'u.is_verified', 'u.is_active', 'u.follower_count', 'u.following_count', 'u.post_count',
-  'u.email_verified_at', 'u.last_login_at', 'u.google_id', 'u.created_at', 'u.updated_at',
-  'u.privacy', 'u.theme'
+  'u.id',
+  'u.name',
+  'u.username',
+  'u.email',
+  'u.gender',
+  'u.country_code',
+  'u.phone_number',
+  'u.app_lock_enabled',
+  'u.date_of_birth',
+  'u.avatar_url',
+  'u.banner_url',
+  'u.bio',
+  'u.website_url',
+  'u.role',
+  'u.is_verified',
+  'u.is_active',
+  'u.follower_count',
+  'u.following_count',
+  'u.post_count',
+  'u.email_verified_at',
+  'u.last_login_at',
+  'u.google_id',
+  'u.created_at',
+  'u.updated_at',
+  'u.privacy',
+  'u.theme',
 ].join(', ');
 
+const TOKEN = ['u.id', 'u.role', 'u.is_active', 'u.is_banned', 'u.is_verified', 'u.privacy'].join(
+  ', '
+);
 
-const SEARCH_FIELDS = [
-  'u.id', 'u.name', 'u.username', 'u.avatar_url', 'u.is_verified', 'u.follower_count', 'u.following_count',
+const LOGIN = [
+  'u.id',
+  'u.name',
+  'u.username',
+  'u.email',
+  'u.password_hash',
+  'u.role',
+  'u.is_active',
+  'u.is_banned',
+  'u.is_verified',
+  'u.refresh_token_hash',
+  'u.last_login_at',
+].join(', ');
+
+const GOOGLE_LOGIN = [
+  'u.id',
+  'u.name',
+  'u.username',
+  'u.email',
+  'u.google_id',
+  'u.role',
+  'u.is_active',
+  'u.is_banned',
+  'u.is_verified',
+].join(', ');
+
+const EMAIL_VERIFY = [
+  'u.id',
+  'u.email',
+  'u.email_verify_token_hash',
+  'u.email_verify_token_exp',
+  'u.email_verified_at',
+].join(', ');
+
+const PASSWORD_RESET = [
+  'u.id',
+  'u.email',
+  'u.password_reset_token_hash',
+  'u.password_reset_token_exp',
+].join(', ');
+
+const PUBLIC_PROFILE = [
+  'u.id',
+  'u.name',
+  'u.username',
+  'u.avatar_url',
+  'u.banner_url',
+  'u.bio',
+  'u.website_url',
+  'u.follower_count',
+  'u.following_count',
+  'u.post_count',
+  'u.is_verified',
+  'u.created_at',
+  'u.privacy',
+].join(', ');
+
+const PRIVATE_PROFILE = [
+  'u.id',
+  'u.name',
+  'u.username',
+  'u.email',
+  'u.country_code',
+  'u.phone_number',
+  'u.gender',
+  'u.date_of_birth',
+  'u.avatar_url',
+  'u.banner_url',
+  'u.bio',
+  'u.website_url',
+  'u.role',
+  'u.theme',
+  'u.privacy',
+  'u.is_verified',
+  'u.is_active',
+  'u.follower_count',
+  'u.following_count',
+  'u.post_count',
+  'u.email_verified_at',
+  'u.last_login_at',
+  'u.created_at',
+  'u.updated_at',
+].join(', ');
+
+const FEED_AUTHOR = ['u.id', 'u.name', 'u.username', 'u.avatar_url', 'u.is_verified'].join(', ');
+
+const SEARCH = ['u.id', 'u.name', 'u.username', 'u.avatar_url', 'u.bio', 'u.is_verified'].join(
+  ', '
+);
+
+const FOLLOW_LIST = ['u.id', 'u.name', 'u.username', 'u.avatar_url', 'u.bio', 'u.is_verified'].join(
+  ', '
+);
+
+const NOTIFICATION = ['u.id', 'u.name', 'u.username', 'u.avatar_url', 'u.is_verified'].join(', ');
+
+const CHAT = ['u.id', 'u.name', 'u.username', 'u.avatar_url'].join(', ');
+
+const ADMIN = [
+  'u.id',
+  'u.name',
+  'u.username',
+  'u.email',
+  'u.role',
+  'u.is_verified',
+  'u.is_active',
+  'u.is_banned',
+  'u.follower_count',
+  'u.following_count',
+  'u.post_count',
+  'u.created_at',
+  'u.updated_at',
 ].join(', ');
 
 const ROLES = ['user', 'moderator', 'admin', 'superadmin'];
 
-/**
- * Strips ALL sensitive token fields from a raw DB row.
- * Always call this before returning user data to a controller.
- */
 const sanitize = (row) => {
   if (!row) return null;
   const {
@@ -63,7 +217,6 @@ const sanitize = (row) => {
   return safe;
 };
 
-/** Converts snake_case DB row → camelCase API response */
 const format = (row) => {
   if (!row) return null;
   return {
@@ -91,9 +244,30 @@ const format = (row) => {
   };
 };
 
-
-
-
-
-
-module.exports = {VERIFy_EMAIL_TABLE, VERIFy_EMAIL_FIELDS, USER_TABLE, PUBLIC_FIELDS, PRIVATE_FIELDS, AUTH_FIELDS, SEARCH_FIELDS, ROLES, sanitize, format, RETURNING_USER_FIELDS, SECURE_FIELDS };
+module.exports = {
+  VERIFy_EMAIL_TABLE,
+  VERIFy_EMAIL_FIELDS,
+  USER_TABLE,
+  PRIVATE_FIELDS,
+  AUTH_FIELDS,
+  ROLES,
+  RETURNING_USER_FIELDS,
+  SECURE_FIELDS,
+  TOKEN,
+  LOGIN,
+  APP_LOCK,
+  GOOGLE_LOGIN,
+  EMAIL_VERIFY,
+  PASSWORD_RESET,
+  PUBLIC_PROFILE,
+  PRIVATE_PROFILE,
+  FEED_AUTHOR,
+  SEARCH,
+  FOLLOW_LIST,
+  NOTIFICATION,
+  CHAT,
+  ADMIN,
+  USER_DETAIL,
+  sanitize,
+  format,
+};

@@ -1,6 +1,10 @@
 'use strict';
 
-const TABLE = 'bookmark';
+const BOOKMARK_TABLE = 'bookmark';
+const POST_TABLE = 'posts';
+const USER_TABLE = 'users';
+const COMMUNITY_TABLE = 'communities';
+const MEDIA_TABLE = 'media';
 
 const LIST_FIELDS = [
   'b.user_id',
@@ -17,4 +21,4 @@ const format = (row) => {
   };
 };
 
-module.exports = { TABLE, LIST_FIELDS, format };
+module.exports = { BOOKMARK_TABLE, POST_TABLE, USER_TABLE, COMMUNITY_TABLE, MEDIA_TABLE, LIST_FIELDS, format };

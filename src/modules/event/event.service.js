@@ -66,7 +66,6 @@ class EventService {
       }
       await addEmailJob('event_registration_success', jobdata)
 
-      console.log(status)
       if(status === 'registered') {
         const calendarData = {
           uid: event.id,

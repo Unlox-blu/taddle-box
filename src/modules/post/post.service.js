@@ -32,8 +32,10 @@ class PostService {
 
       const post = await this.postRepo.create({ ...data, authorId });
 
-      // this.feedSvc.updatePreferences(authorId, data.category || [], data.tags || [])
-      // this.taskSvc.incrementPostCount(authorId, 1)
+      
+      this.feedSvc.updatePreferences({userId: authorId, categories: data.category || [], tags: data.tags || []})
+      this.taskSvc.incrementPostCount({authorId})
+      
       return PostModel.format(post);
     } catch (error) {
       throw error; 

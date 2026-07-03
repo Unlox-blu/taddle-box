@@ -7,7 +7,7 @@ const SearchService = require('./search.service')
 // Controller
 const SearchController = require('./search.controller')
 
-// Dependency
+// Dependencies from other modules
 const {userRepository} = require('../user/user.container')
 const {postRepository} = require('../post/post.container')
 const {communityRepository} = require('../community/community.container')

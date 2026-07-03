@@ -30,9 +30,9 @@ class TaskService {
     }
   }
 
-  async incrementPostCount ({userId, count = 1}) {
+  async incrementPostCount ({userId}) {
     try {
-        const task = await this.taskRepo.incrementPostCount(userId, count)
+        const task = await this.taskRepo.incrementPostCount(userId)
         
         const postCount = parseInt(task.postCount, 10)
 

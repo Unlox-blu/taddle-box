@@ -74,7 +74,7 @@ class FeedService {
     }
   }
 
-  async updatePreferences(userId, categories, tags) {
+  async updatePreferences({userId, categories, tags}) {
     try {
       await this.feedRepo.upsertUserPreferences(userId, categories, tags);
       

@@ -27,17 +27,17 @@ const findByUserId = async (userId) => {
   return TaskModel.format(rows[0]);
 };
 
-const incrementPostCount = async (userId, count) => {
+const incrementPostCount = async (userId) => {
   const { rows } = await pool.query(
     `
     UPDATE ${TaskModel.TABLE}
     SET
-      post_count = post_count + $2,
+      post_count = post_count + 1,
       updated_at = NOW()
     WHERE user_id = $1
     RETURNING ${TaskModel.LIST_FIELDS}
   `,
-    [userId, count]
+    [userId]
   );
   return TaskModel.format(rows[0]);
 };

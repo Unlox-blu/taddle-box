@@ -63,17 +63,19 @@ class MediaService {
   async getVideoUploadUrl({userId: uploaderId, body: data }) {
     try {
       const { fileSize, title } = data
-      if (fileSize > MAX_VIDEO_BYTES)
+      const videoSize = parseInt(fileSize,10)
+      
+      if (videoSize > MAX_VIDEO_BYTES)
         throw createError(`Video exceeds ${process.env.MAX_VIDEO_SIZE_MB || 500}MB limit`, 400);
 
-      const { uploadLink, vimeoUri } = await this.videoSvc.createUpload(fileSize, title);
+      const { uploadLink, vimeoUri } = await this.videoSvc.createUpload(videoSize, title);
 
       const media = await this.mediaRepo.create({
         uploaderId,
         mediaType: 'video',
         vimeoUri,
         mimeType: 'video/mp4',
-        sizeBytes: fileSize,
+        sizeBytes: videoSize,
         processingStatus: 'pending',
       });
 

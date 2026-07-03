@@ -18,7 +18,7 @@ const findById = async (postId) => {
                     's3_key', m.s3_key,
                     'processing_status', m.processing_status
                 ) ORDER BY m.created_at ASC 
-            ) FILTER (WHERE m.id IS NOT NULL AND m.deleted_at IS NULL), 
+            ) FILTER (WHERE m.deleted_at IS NULL AND m.processing_status = 'ready'), 
             '[]'::json
         ) AS media
         FROM posts p

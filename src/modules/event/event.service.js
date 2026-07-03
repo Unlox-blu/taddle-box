@@ -66,6 +66,7 @@ class EventService {
       }
       await addEmailJob('event_registration_success', jobdata)
 
+      console.log(status)
       if(status === 'registered') {
         const calendarData = {
           uid: event.id,
@@ -79,7 +80,7 @@ class EventService {
         const attachments = [{
                 filename: 'event-invite.ics',
                 content: icsContent,
-                contentType: 'text/calendar',
+                contentType: "text/calendar; method=REQUEST",
                 }]
         await addEmailJob('send_invitation_event', {...jobdata, attachments})
       }

@@ -52,14 +52,20 @@ const createEventSchema = z.object({
     tags: z.preprocess(typeCheck ,z.array(z.string().max(50)).max(10).default([])),
     communityId: z.string().uuid().optional(),
   })
-  .refine((d) => new Date(d.endTime) > new Date(d.startTime), {
+  .refine((d) => {
+    return new Date(d.endTime) > new Date(d.startTime)
+  }, {
     message: 'End time must be after start time',
     path: ['endTime'],
   })
-  .refine((d) => !d.isFree || (d.ticketPriceCents && d.ticketPriceCents > 0), {
+  .refine((d) => {
+    if (d.isFree === undefined || d.isFree) return true;
+
+    return d.ticketPriceCents != null && d.ticketPriceCents > 0;
+  }, {
     message: 'Paid events must have a ticket price greater than 0',
     path: ['ticketPriceCents'],
-  });
+  })
 
 // const updateEventSchema = createEventSchema.partial();
 
@@ -79,13 +85,19 @@ const updateEventSchema = z.object({
     tags: z.preprocess(typeCheck ,z.array(z.string().max(50)).max(10).default([])).optional(),
     communityId: z.string().uuid().optional(),
   })
-  .refine((d) => !d.endTime || (new Date(d.endTime) > new Date(d.startTime)), {
+  .refine((d) => {
+    return new Date(d.endTime) > new Date(d.startTime)
+  }, {
     message: 'End time must be after start time',
     path: ['endTime'],
   })
-  .refine((d) => !d.isFree || (d.ticketPriceCents && d.ticketPriceCents > 0), {
+  .refine((d) => {
+    if (d.isFree === undefined || d.isFree) return true;
+
+    return d.ticketPriceCents != null && d.ticketPriceCents > 0;
+  }, {
     message: 'Paid events must have a ticket price greater than 0',
     path: ['ticketPriceCents'],
-  });
+  })
 
 module.exports = { createEventSchema, updateEventSchema };

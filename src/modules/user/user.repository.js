@@ -3,44 +3,6 @@
 const pool = require('../../config/database');
 const UserModel = require('./user.model');
 
-// Find user by ID — public fields only
-const findById = async (id) => {
-  try {
-    const { rows } = await pool.query(
-      `SELECT ${UserModel.PUBLIC_FIELDS},
-      avatar_media.cloudfront_url AS avatar_media_url,
-      banner_media.cloudfront_url AS banner_media_url
-      FROM ${UserModel.TABLE} u 
-      LEFT JOIN media AS avatar_media ON avatar_media.id = avatar_url
-      LEFT JOIN media AS banner_media ON banner_media.id = banner_url
-      WHERE u.id = $1 AND u.is_active = TRUE AND u.deleted_at IS NULL`,
-      [id]
-    );
-    return rows[0] || null;
-  } catch (error) {
-    throw error;
-  }
-};
-
-// Find user by ID — full private fields (own profile)
-const findByIdPrivate = async (id) => {
-  try {
-    const { rows } = await pool.query(
-      `SELECT ${UserModel.PRIVATE_FIELDS}, 
-      avatar_media.cloudfront_url AS avatar_media_url,
-      banner_media.cloudfront_url AS banner_media_url
-      FROM ${UserModel.TABLE} u 
-      LEFT JOIN media AS avatar_media ON avatar_media.id = avatar_url
-      LEFT JOIN media AS banner_media ON banner_media.id = banner_url
-      WHERE u.id = $1 AND u.deleted_at IS NULL`,
-      [id]
-    );
-    return rows[0] ? UserModel.sanitize(rows[0]) : null;
-  } catch (error) {
-    throw error;
-  }
-};
-
 
 const findByUsername = async (username) => {
   try {
@@ -59,6 +21,166 @@ const findByUsername = async (username) => {
     throw error;
   }
 };
+
+const findByIdPrivate = async (id) => {
+  try {
+    const { rows } = await pool.query(
+      `SELECT ${UserModel.PRIVATE_FIELDS}, 
+      avatar_media.cloudfront_url AS avatar_media_url,
+      banner_media.cloudfront_url AS banner_media_url
+      FROM ${UserModel.TABLE} u 
+      LEFT JOIN media AS avatar_media ON avatar_media.id = avatar_url
+      LEFT JOIN media AS banner_media ON banner_media.id = banner_url
+      WHERE u.id = $1 AND u.deleted_at IS NULL`,
+      [id]
+    );
+    return rows[0] ? UserModel.sanitize(rows[0]) : null;
+  } catch (error) {
+    throw error;
+  }
+};
+
+const updateProfile = async (userId, fields) => {
+  try {
+    const allowedFields = ['name', 'bio', 'website_url'];
+    const updates = [];
+    const values = [];
+    Object.entries(fields).forEach(([k, v]) => {
+      const col = k.replace(/([A-Z])/g, '_$1').toLowerCase();
+      if (allowedFields.includes(col)) {
+        values.push(v);
+        updates.push(`${col} = $${values.length}`);
+      }
+    });
+    if (updates.length === 0) return findByIdPrivate(userId);
+    values.push(userId);
+    const { rows } = await pool.query(
+      `UPDATE ${UserModel.TABLE} SET ${updates.join(', ')}, updated_at = NOW()
+     WHERE id = $${values.length} RETURNING *`,
+      values
+    );
+    return UserModel.sanitize(rows[0]);
+  } catch (error) {
+    throw error;
+  }
+};
+
+const updateAvatar = async (userId, avatarUrl) => {
+  try {
+    const { rows } = await pool.query(
+      `UPDATE ${UserModel.TABLE} SET avatar_url = $1, updated_at = NOW() WHERE id = $2 RETURNING id, avatar_url`,
+      [avatarUrl, userId]
+    );
+    return rows[0];
+  } catch (error) {
+    throw error;
+  }
+};
+
+const updateBanner = async (userId, bannerUrl) => {
+  try {
+    const { rows } = await pool.query(
+      `UPDATE ${UserModel.TABLE} SET banner_url = $1, updated_at = NOW() WHERE id = $2 RETURNING id, banner_url`,
+      [bannerUrl, userId]
+    );
+    return rows[0];
+  } catch (error) {
+    throw error;
+  }
+};
+
+const updateUsername = async (userId, username) => {
+  try {
+    const { rows } = await pool.query(
+      `UPDATE ${UserModel.TABLE} SET username = $1, updated_at = NOW() WHERE id = $2 RETURNING *`,
+      [username, userId]
+    );
+    return UserModel.sanitize(rows[0]);
+  } catch (error) {
+    throw error;
+  }
+};
+
+const updatePrivacy = async (userId, privacy) => {
+  try {
+    await pool.query(
+      `UPDATE ${UserModel.TABLE} SET privacy = $1, updated_at = NOW() WHERE id = $2`,
+      [privacy, userId]
+    );
+  } catch (error) {
+    throw error;
+  }
+};
+
+const findById = async (id) => {
+  try {
+    const { rows } = await pool.query(
+      `SELECT ${UserModel.PUBLIC_FIELDS},
+      avatar_media.cloudfront_url AS avatar_media_url,
+      banner_media.cloudfront_url AS banner_media_url
+      FROM ${UserModel.TABLE} u 
+      LEFT JOIN media AS avatar_media ON avatar_media.id = avatar_url
+      LEFT JOIN media AS banner_media ON banner_media.id = banner_url
+      WHERE u.id = $1 AND u.is_active = TRUE AND u.deleted_at IS NULL`,
+      [id]
+    );
+    return rows[0] || null;
+  } catch (error) {
+    throw error;
+  }
+};
+
+const incrementFollowerCount = async (userId) => {
+  try {
+    await pool.query(
+      `UPDATE ${UserModel.TABLE} SET follower_count = follower_count + 1 WHERE id = $1`,
+      [userId]
+    );
+  } catch (error) {
+    throw error;
+  }
+};
+
+const decrementFollowerCount = async (userId) => {
+  try {
+    await pool.query(
+      `UPDATE ${UserModel.TABLE} SET follower_count = GREATEST(0, follower_count - 1) WHERE id = $1`,
+      [userId]
+    );
+  } catch (error) {
+    throw error;
+  }
+};
+
+const incrementFollowingCount = async (userId) => {
+  try {
+    await pool.query(
+      `UPDATE ${UserModel.TABLE} SET following_count = following_count + 1 WHERE id = $1`,
+      [userId]
+    );
+  } catch (error) {
+    throw error;
+  }
+};
+
+const decrementFollowingCount = async (userId) => {
+  try {
+    await pool.query(
+      `UPDATE ${UserModel.TABLE} SET following_count = GREATEST(0, following_count - 1) WHERE id = $1`,
+      [userId]
+    );
+  } catch (error) {
+    throw error;
+  }
+};
+
+
+
+
+
+///////////////////////////////////////////////////////////////////////////////
+//////////////////////////////////////////////////////////////////////////////
+
 
 const findByGoogleId = async (googleId) => {
   try {
@@ -127,66 +249,10 @@ const removeAppLock = async (userId, pin) => {
   }
 }
 
-const updateProfile = async (userId, fields) => {
-  try {
-    const allowedFields = ['name', 'bio', 'website_url'];
-    const updates = [];
-    const values = [];
-    Object.entries(fields).forEach(([k, v]) => {
-      const col = k.replace(/([A-Z])/g, '_$1').toLowerCase();
-      if (allowedFields.includes(col)) {
-        values.push(v);
-        updates.push(`${col} = $${values.length}`);
-      }
-    });
-    if (updates.length === 0) return findByIdPrivate(userId);
-    values.push(userId);
-    const { rows } = await pool.query(
-      `UPDATE ${UserModel.TABLE} SET ${updates.join(', ')}, updated_at = NOW()
-     WHERE id = $${values.length} RETURNING *`,
-      values
-    );
-    return UserModel.sanitize(rows[0]);
-  } catch (error) {
-    throw error;
-  }
-};
 
-const updateAvatar = async (userId, avatarUrl) => {
-  try {
-    const { rows } = await pool.query(
-      `UPDATE ${UserModel.TABLE} SET avatar_url = $1, updated_at = NOW() WHERE id = $2 RETURNING id, avatar_url`,
-      [avatarUrl, userId]
-    );
-    return rows[0];
-  } catch (error) {
-    throw error;
-  }
-};
 
-const updateBanner = async (userId, bannerUrl) => {
-  try {
-    const { rows } = await pool.query(
-      `UPDATE ${UserModel.TABLE} SET banner_url = $1, updated_at = NOW() WHERE id = $2 RETURNING id, banner_url`,
-      [bannerUrl, userId]
-    );
-    return rows[0];
-  } catch (error) {
-    throw error;
-  }
-};
 
-const updateUsername = async (userId, username) => {
-  try {
-    const { rows } = await pool.query(
-      `UPDATE ${UserModel.TABLE} SET username = $1, updated_at = NOW() WHERE id = $2 RETURNING *`,
-      [username, userId]
-    );
-    return UserModel.sanitize(rows[0]);
-  } catch (error) {
-    throw error;
-  }
-};
+
 
 const updatePhone = async (userId, countryCode, phoneNumber) => {
   try {
@@ -199,16 +265,7 @@ const updatePhone = async (userId, countryCode, phoneNumber) => {
   }
 };
 
-const updatePrivacy = async (userId, privacy) => {
-  try {
-    await pool.query(
-      `UPDATE ${UserModel.TABLE} SET privacy = $1, updated_at = NOW() WHERE id = $2`,
-      [privacy, userId]
-    );
-  } catch (error) {
-    throw error;
-  }
-};
+
 
 
 const linkGoogleAccount = async (userId, googleId, googleAvatar) => {
@@ -242,49 +299,6 @@ const updateLastLogin = async (userId) => {
   }
 };
 
-const incrementFollowerCount = async (userId) => {
-  try {
-    await pool.query(
-      `UPDATE ${UserModel.TABLE} SET follower_count = follower_count + 1 WHERE id = $1`,
-      [userId]
-    );
-  } catch (error) {
-    throw error;
-  }
-};
-
-const decrementFollowerCount = async (userId) => {
-  try {
-    await pool.query(
-      `UPDATE ${UserModel.TABLE} SET follower_count = GREATEST(0, follower_count - 1) WHERE id = $1`,
-      [userId]
-    );
-  } catch (error) {
-    throw error;
-  }
-};
-
-const incrementFollowingCount = async (userId) => {
-  try {
-    await pool.query(
-      `UPDATE ${UserModel.TABLE} SET following_count = following_count + 1 WHERE id = $1`,
-      [userId]
-    );
-  } catch (error) {
-    throw error;
-  }
-};
-
-const decrementFollowingCount = async (userId) => {
-  try {
-    await pool.query(
-      `UPDATE ${UserModel.TABLE} SET following_count = GREATEST(0, following_count - 1) WHERE id = $1`,
-      [userId]
-    );
-  } catch (error) {
-    throw error;
-  }
-};
 
 const softDelete = async (userId) => {
   try {

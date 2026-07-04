@@ -40,12 +40,13 @@ const sanitize = (row) => {
     email_verify_token_exp,
     password_reset_token_hash,
     password_reset_token_exp,
+    app_lock_enabled,
+    app_lock,
     ...safe
   } = row;
   return safe;
 };
 
-/** Converts snake_case DB row → camelCase API response */
 const format = (row) => {
   if (!row) return null;
   return {
@@ -65,8 +66,28 @@ const format = (row) => {
     postCount: row.post_count,
     emailVerifiedAt: row.email_verified_at,
     lastLoginAt: row.last_login_at,
+    otp: row.otp,
+    expIn: row.otp_exp_in,
+    verificationExpiresAt: row.verification_expires_at,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
+    passwordHash: row.password_hash,
+    googleId: row.google_id,
+    isBanned: row.is_banned,
+    refreshTokenHash: row.refresh_token_hash,
+    emailVerifyTokenHash: row.email_verify_token_hash,
+    emailVerifyTokenExp: row.email_verify_token_exp,
+    passwordResetTokenHash: row.password_reset_token_hash,
+    passwordResetTokenExp: row.password_reset_token_exp,
+    deletedAt: row.deleted_at,
+    privacy: row.privacy,
+    theme: row.theme,
+    countryCode: row.country_code,
+    phoneNumber: row.phone_number,
+    dateOfBirth: row.date_of_birth,
+    gender: row.gender,
+    appLock: row.app_lock,
+    appLockEnabled: row.app_lock_enabled,
   };
 };
 

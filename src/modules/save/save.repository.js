@@ -59,10 +59,9 @@ const findByUserId = async (userId, limit, offset) => {
       `,
       [userId, limit, offset]
     );
-
     const total = rows[0]?.total || 0;
-
-    return { saved: rows, total: Number(total) };
+    const saved = rows.map(SaveModel.format)
+    return { saved, total: Number(total) };
   } catch (error) {
     throw error;
   }

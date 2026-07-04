@@ -23,7 +23,7 @@ class NotificationService {
         resourceId,
       });
       
-      emitNotification(recipientId, NotificationModel.format(notif));
+      emitNotification(recipientId, notif);
       return notif;
     } catch (error) {
       throw error;
@@ -32,9 +32,11 @@ class NotificationService {
 
   async getAll({userId, limit, offset, unreadOnly}) {
     try {
-      const { rows, total } = await this.notifRepo.findByUser(userId, limit, offset, unreadOnly);
+      const { notifications, total } = await this.notifRepo.findByUser(userId, limit, offset, unreadOnly);
+
       const unreadCount = await this.notifRepo.getUnreadCount(userId);
-      return { notifications: rows.map(NotificationModel.format), total, unreadCount };
+
+      return { notifications, total, unreadCount };
     } catch (error) {
       throw error;
     }

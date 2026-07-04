@@ -14,7 +14,9 @@ const getSpotLight = async (limit, offset) => {
       `,
       [limit, offset]);
     const total = rows[0]?.total || 0;
-    return { spotligth: rows, total: parseInt(total, 10) };
+    const spotligth = rows.map( ele => HighlightModel.format(ele) )
+
+    return { spotligth, total: parseInt(total, 10) };
   } catch (error) {
     throw error;
   }

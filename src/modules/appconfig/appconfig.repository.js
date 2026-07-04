@@ -9,12 +9,11 @@ const findAppConfig = async () => {
         const {rows} = await pool.query(
             `SELECT ${AppConfigModel.LIST_FIELDS} 
             FROM ${AppConfigModel.TABLE}
-            ORDER BY b.created_at DESC
+            ORDER BY created_at DESC
             LIMIT 1
-            `,
-            []
+            `
         )
-        return rows[0]
+        return AppConfigModel.format(rows[0]) 
     } catch (error) {
         throw error
     }

@@ -6,10 +6,12 @@ const WalletModel = require('./wallet.model');
 const findByUserId = async (userId) => {
   try {
     const { rows } = await pool.query(
-      `SELECT ${WalletModel.WALLET_FIELDS} FROM ${WalletModel.TABLE} WHERE user_id = $1`,
+      `SELECT ${WalletModel.WALLET_FIELDS} 
+      FROM ${WalletModel.TABLE} 
+      WHERE user_id = $1`,
       [userId]
     );
-    return rows[0] || null;
+    return rows[0] ? WalletModel.formatWallet(rows[0]) : null;
   } catch (error) {
     throw error;
   }
@@ -21,7 +23,7 @@ const create = async (userId) => {
       `INSERT INTO ${WalletModel.TABLE} (user_id) VALUES ($1) ON CONFLICT (user_id) DO NOTHING RETURNING ${WalletModel.WALLET_FIELDS}`,
       [userId]
     );
-    return rows[0];
+    return WalletModel.formatWallet(rows[0]);
   } catch (error) {
     throw error;
   }
@@ -34,7 +36,7 @@ const lockForUpdate = async (walletId, client) => {
       `SELECT * FROM ${WalletModel.TABLE} WHERE id = $1 FOR UPDATE`,
       [walletId]
     );
-    return rows[0] || null;
+    return rows[0] ? WalletModel.formatWallet(rows[0]) : null;
   } catch (error) {
     throw error;
   }
@@ -48,7 +50,7 @@ const creditBalance = async (walletId, amountCents, client) => {
      WHERE id = $2 RETURNING balance_cents`,
       [amountCents, walletId]
     );
-    return rows[0];
+    return WalletModel.formatWallet(rows[0]);
   } catch (error) {
     throw error;
   }
@@ -63,7 +65,7 @@ const debitBalance = async (walletId, amountCents, client) => {
       [amountCents, walletId]
     );
     if (!rows[0]) throw new Error('Insufficient wallet balance');
-    return rows[0];
+    return WalletModel.formatWallet(rows[0]);
   } catch (error) {
     throw error;
   }
@@ -89,7 +91,7 @@ const createTransaction = async (data, client) => {
         data.status || 'completed',
       ]
     );
-    return rows[0];
+    return WalletModel.formatTransaction(rows[0]);
   } catch (error) {
     throw error;
   }
@@ -104,7 +106,8 @@ const getTransactions = async (walletId, limit, offset) => {
       [walletId, limit, offset]
     );
     const total = rows[0]?.total || 0;
-    return { rows, total: parseInt(total, 10) };
+    const transactions = rows.map(WalletModel.formatTransaction)
+    return { transactions, total: parseInt(total, 10) };
   } catch (error) {
     throw error;
   }
@@ -116,7 +119,7 @@ const findTransactionByRazorpayOrderId = async (orderId) => {
       `SELECT * FROM ${WalletModel.TRANSACTIONS_TABLE} WHERE razorpay_order_id = $1`,
       [orderId]
     );
-    return rows[0] || null;
+    return rows[0] ? WalletModel.formatTransaction(rows[0]) : null;
   } catch (error) {
     throw error;
   }

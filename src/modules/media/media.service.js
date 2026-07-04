@@ -14,12 +14,17 @@ class MediaService {
   }
 
   
-  async getImageSignedUrl({userId, body, files }) {
+  async getImageSignedUrl({userId, mediaData }) {
     try {
-      const { folder, postId, fileSize, mimetype } = body
+      const { folder, postId, fileSize, mimetype } = mediaData
 
       if(postId){
-        //  validate post
+        const post = await this.mediaRepo.findPostByPostId(postId)
+        if(!post)
+          throw createError('post not found', 404)
+        
+        if(post.authorId !== userId)
+          throw createError('You are not authorized', 403)
       }
       
       if (!ALLOWED_FOLDERS.includes(folder)) throw createError('Invalid upload folder', 400);
@@ -49,10 +54,9 @@ class MediaService {
   async confirmImageUpload({mediaId, s3Key}) {
     try {
       const cloudfrontUrl = await this.storageSvc.confirmUpload(s3Key);
-      const media = await this.mediaRepo.updateStatus(mediaId, 'ready', {
-        cloudfront_url: cloudfrontUrl,
-      });
-      return { url: media.cloudfront_url };
+
+      await this.mediaRepo.updateStatus(mediaId, 'ready', cloudfrontUrl);
+      return { url: cloudfrontUrl };
     } catch (error) {
       throw error;
     }
@@ -90,8 +94,8 @@ class MediaService {
       const media = await this.mediaRepo.findById(mediaId);
       if (!media) throw createError('Media not found', 404);
       return {
-        status: media.processing_status,
-        url: media.cloudfront_url || media.vimeo_player_url || null,
+        status: media.processingStatus,
+        url: media.cloudfrontUrl || media.vimeoPlayerUrl || null,
       };
     } catch (error) {
       throw error;
@@ -100,9 +104,9 @@ class MediaService {
 
   async getMedia({userId, limit, offset}) {
     try {
-      const {rows, total} = await this.mediaRepo.findByUserId(userId, limit, offset)
+      const {media, total} = await this.mediaRepo.findByUserId(userId, limit, offset)
     
-      return {media: rows, total}
+      return {media, total}
     } catch (error) {
       throw error
     }
@@ -114,9 +118,9 @@ class MediaService {
       
       if(!media) throw createError("Media not found",404)
 
-      if(media.uploader_id !== userId) throw createError("You are not authorized to delete", 403)
+      if(media.uploaderId !== userId) throw createError("You are not authorized to delete", 403)
 
-      await this.storageSvc.deleteFile(media.s3_key)
+      await this.storageSvc.deleteFile(media.s3Key)
       await this.mediaRepo.hardDelete(mediaId)
     } catch (error) {
       throw error

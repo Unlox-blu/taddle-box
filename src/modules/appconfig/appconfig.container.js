@@ -15,4 +15,4 @@ const appConfigService = new AppConfigService({ appConfigRepository })
 const appConfigController = new AppConfigController({ appConfigService })
 
 
-module.exports = {appConfigController, appConfigService}
+module.exports = {appConfigController, appConfigService, appConfigRepository}

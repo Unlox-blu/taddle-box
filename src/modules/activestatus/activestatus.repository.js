@@ -26,7 +26,7 @@ const findByUserId = async (userId) => {
             `,
             [userId]
         )
-        return rows[0]
+        return ActiveStatusModel.format(rows[0])
     } catch (error) {
         throw error
     }
@@ -47,7 +47,7 @@ const hardDelete = async (userId) => {
 
 const setOnline = async (userId) => {
   try {
-    const { rows } = await pool.query(
+    await pool.query(
         `UPDATE ${ActiveStatusModel.TABLE} 
         SET is_active = 'online'
         WHERE user_id = $1`,
@@ -61,7 +61,7 @@ const setOnline = async (userId) => {
 
 const setOffline = async (userId) => {
   try {
-    const { rows } = await pool.query(
+    await pool.query(
         `UPDATE ${ActiveStatusModel.TABLE} 
         SET is_active = 'offline', last_seen = NOW()
         WHERE user_id = $1`,

@@ -51,8 +51,8 @@ class StreakService {
 
   async getStreakHistory ({userId, limit, offset}) {
     try {
-        const streak = await this.streakRepo.findManyByUserId(userId, limit, offset)
-        return streak
+        const { streaks, total } = await this.streakRepo.findManyByUserId(userId, limit, offset)
+        return { streaks, total }
     } catch (error) {
         throw error
     }

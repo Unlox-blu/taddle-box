@@ -20,7 +20,7 @@ const create = async (data) => {
         data.resourceId || null,
       ]
     );
-    return rows[0];
+    return NotificationModel.format(rows[0]);
   } catch (error) {
     throw error;
   }
@@ -30,13 +30,15 @@ const findByUser = async (userId, limit, offset, unreadOnly = false) => {
   try {
     const { rows } = await pool.query(
       `SELECT ${NotificationModel.LIST_FIELDS}, COUNT(*) OVER() AS total
-     FROM ${NotificationModel.TABLE}
-     WHERE recipient_id = $1 AND ($4 = FALSE OR is_read = FALSE)
-     ORDER BY created_at DESC LIMIT $2 OFFSET $3`,
+      FROM ${NotificationModel.TABLE}
+      WHERE recipient_id = $1 AND ($4 = FALSE OR is_read = FALSE)
+      ORDER BY created_at DESC 
+      LIMIT $2 OFFSET $3`,
       [userId, limit, offset, unreadOnly]
     );
     const total = rows[0]?.total || 0;
-    return { rows, total: parseInt(total, 10) };
+    const notifications = rows.map(NotificationModel.format)
+    return { notifications, total: parseInt(total, 10) };
   } catch (error) {
     throw error;
   }
@@ -45,8 +47,9 @@ const findByUser = async (userId, limit, offset, unreadOnly = false) => {
 const markOneRead = async (notificationId, userId) => {
   try {
     await pool.query(
-      `UPDATE ${NotificationModel.TABLE} SET is_read = TRUE, read_at = NOW()
-     WHERE id = $1 AND recipient_id = $2`,
+      `UPDATE ${NotificationModel.TABLE} 
+       SET is_read = TRUE, read_at = NOW()
+       WHERE id = $1 AND recipient_id = $2`,
       [notificationId, userId]
     );
   } catch (error) {
@@ -57,8 +60,9 @@ const markOneRead = async (notificationId, userId) => {
 const markAllRead = async (userId) => {
   try {
     await pool.query(
-      `UPDATE ${NotificationModel.TABLE} SET is_read = TRUE, read_at = NOW()
-     WHERE recipient_id = $1 AND is_read = FALSE`,
+      `UPDATE ${NotificationModel.TABLE} 
+       SET is_read = TRUE, read_at = NOW()
+       WHERE recipient_id = $1 AND is_read = FALSE`,
       [userId]
     );
   } catch (error) {
@@ -69,7 +73,9 @@ const markAllRead = async (userId) => {
 const getUnreadCount = async (userId) => {
   try {
     const { rows } = await pool.query(
-      `SELECT COUNT(*) AS count FROM ${NotificationModel.TABLE} WHERE recipient_id = $1 AND is_read = FALSE`,
+      `SELECT COUNT(*) AS count 
+      FROM ${NotificationModel.TABLE} 
+      WHERE recipient_id = $1 AND is_read = FALSE`,
       [userId]
     );
     return parseInt(rows[0]?.count || 0, 10);

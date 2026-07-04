@@ -7,7 +7,8 @@ const StreakModel = require('./streak.model');
 const findManyByUserId = async (userId, limit, offset) => {
     try {
         const { rows } = await pool.query(
-            `SELECT ${StreakModel.LIST_FIELDS}, COUNT(*) OVER() AS total
+            `SELECT ${StreakModel.LIST_FIELDS}, 
+            COUNT(*) OVER() AS total
             FROM ${StreakModel.TABLE}
             WHERE user_id = $1
             ORDER BY created_at DESC
@@ -16,7 +17,8 @@ const findManyByUserId = async (userId, limit, offset) => {
         )
 
         const total = rows[0]?.total || 0;
-        return { streaks: rows, total: parseInt(total, 10) };
+        const streaks = rows.map(StreakModel.format)
+        return { streaks, total: parseInt(total, 10) };
     } catch (error) {
         throw error
     }
@@ -32,7 +34,7 @@ const findOneByUserId = async (userId) => {
             LIMIT 1`,
             [userId]
         )
-        return rows[0];
+        return StreakModel.format(rows[0]);
     } catch (error) {
         throw error
     }
@@ -41,15 +43,13 @@ const findOneByUserId = async (userId) => {
 
 const create = async (userId) => {
     try {
-        const {rows} = await pool.query(
-            `INSERT INTO ${StreakModel.TABLE} 
-            (user_id)
-            VALUES ($1)
-            RETURNING *
-            `,
-            [userId]
+        await pool.query(
+        `INSERT INTO ${StreakModel.TABLE} 
+        (user_id)
+        VALUES ($1)
+        `,
+        [userId]
         )
-        return rows[0]
     } catch (error) {
         throw error
     }
@@ -64,7 +64,7 @@ const updateById = async (id) => {
             RETURNING *`,
             [id]
         )
-        return rows[0]
+        return StreakModel.format(rows[0]);
     } catch (error) {
         throw error
     }

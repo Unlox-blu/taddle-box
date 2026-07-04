@@ -14,7 +14,27 @@ const format = (row) => {
   return {
     userId: row.user_id,
     eventId: row.event_id,
-    createdAt: row.created_at
+    organizerId: row.organizer_id,
+    communityId: row.community_id,
+    title: row.title,
+    description: row.description,
+    coverImageUrl: row.cover_image_url,
+    eventType: row.event_type,
+    status: row.status,
+    startTime: row.start_time,
+    endTime: row.end_time,
+    timezone: row.timezone,
+    location: row.location,
+    isFree: row.is_free,
+    ticketPriceCents: row.ticket_price_cents,
+    currency: row.currency,
+    attendeeCount: row.attendee_count,
+    maxAttendees: row.max_attendees,
+    tags: row.tags || [],
+    isFeatured: row.is_featured,
+    registrationDeadline: row.registration_deadline,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
   };
 };
 

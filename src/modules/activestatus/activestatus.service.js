@@ -20,8 +20,8 @@ class ActiveStatusService {
       }
 
       const status = await this.activeStatusRepo.findByUserId(userId);
-
-      return status.is_active === 'online' ? {status: 'online'} : {lastSeen: status.last_seen};
+      console.log(status)
+      return status.isActive === 'online' ? {status: 'online'} : {lastSeen: status.lastSeen};
     } catch (error) {
       throw error;
     }
@@ -42,7 +42,6 @@ class ActiveStatusService {
   async setOnline({ userId }) {
     try {
       await this.activeStatusRepo.setOnline(userId);
-      
     } catch (error) {
       throw error;
     }
@@ -51,7 +50,6 @@ class ActiveStatusService {
   async setOffline({ userId }) {
     try {
       await this.activeStatusRepo.setOffline(userId);
-      
     } catch (error) {
       throw error;
     }
@@ -60,7 +58,6 @@ class ActiveStatusService {
   async hardDelete({ userId }) {
     try {
       await this.activeStatusRepo.hardDelete(userId);
-      
     } catch (error) {
       throw error;
     }

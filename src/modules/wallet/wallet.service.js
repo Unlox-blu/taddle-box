@@ -25,7 +25,8 @@ class WalletService {
     try {
       const wallet = await this.walletRepo.findByUserId(userId);
       if (!wallet) throw createError('Wallet not found', 404);
-      return WalletModel.formatWallet(wallet);
+
+      return wallet;
     } catch (error) {
       throw error;
     }
@@ -35,8 +36,9 @@ class WalletService {
     try {
       const wallet = await this.walletRepo.findByUserId(userId);
       if (!wallet) throw createError('Wallet not found', 404);
-      const { rows, total } = await this.walletRepo.getTransactions(wallet.id, limit, offset);
-      return { transactions: rows.map(WalletModel.formatTransaction), total };
+
+      const { transactions, total } = await this.walletRepo.getTransactions(wallet.id, limit, offset);
+      return { transactions, total };
     } catch (error) {
       throw error;
     }

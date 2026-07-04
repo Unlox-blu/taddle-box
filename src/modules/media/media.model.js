@@ -1,9 +1,10 @@
 'use strict';
 
-const TABLE = 'media';
+const MEDIA_TABLE = 'media';
+const POST_TABLE = 'posts';
 
 
-const LIST_FIELDS = [
+const MEDIA_FIELDS = [
   'id', 'post_id', 'uploader_id', 'media_type',
   's3_key', 'cloudfront_url', 'vimeo_uri', 'vimeo_player_url', 'vimeo_thumbnail_url',
   'mime_type', 'size_bytes', 'width', 'height',
@@ -35,9 +36,10 @@ const format = (row) => {
     deletedAt: row.deleted_at,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
+    authorId: row.author_id,
   };
 };
 
 module.exports = {
-  TABLE, LIST_FIELDS, format,
+  MEDIA_TABLE, MEDIA_FIELDS, POST_TABLE, format,
 };

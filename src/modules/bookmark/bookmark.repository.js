@@ -71,7 +71,6 @@ const findByUserId = async ({userId, limit, offset}) => {
                   CASE
                       WHEN u.avatar_url IS NULL THEN NULL
                       ELSE json_build_object(
-                          'id', ua.id,
                           'cloudfront_url', ua.cloudfront_url
                       )
                   END
@@ -88,7 +87,6 @@ const findByUserId = async ({userId, limit, offset}) => {
                   CASE
                       WHEN c.avatar_url IS NULL THEN NULL
                       ELSE json_build_object(
-                          'id', ca.id,
                           'cloudfront_url', ca.cloudfront_url
                       )
                   END
@@ -153,9 +151,9 @@ const findByUserId = async ({userId, limit, offset}) => {
       `,
       [userId, limit, offset]
     )
-    
     const total = rows[0]?.total || 0;
-    return { bookmark: rows, total: parseInt(total, 10) };
+    const bookmark = rows.map(BookmarkModel.format)
+    return { bookmark, total: parseInt(total, 10) };
   } catch (error) {
     throw error
   }

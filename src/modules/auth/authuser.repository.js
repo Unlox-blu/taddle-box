@@ -42,7 +42,8 @@ const findByIdUser = async ({userId}) => {
       WHERE u.id = $1 AND u.deleted_at IS NULL`,
       [userId]
     );
-    return rows[0] ? AuthModel.sanitize(rows[0]) : null;
+    const safe = rows[0] ? AuthModel.sanitize(rows[0]) : null
+    return safe ? AuthModel.format(safe) : null;
   } catch (error) {
     throw error;
   }
@@ -56,7 +57,8 @@ const findByEmailUser = async ({email}) => {
       WHERE u.email = $1 AND u.deleted_at IS NULL`,
       [email]
     );
-    return rows[0] ? AuthModel.sanitize(rows[0]) : null;
+    const safe = rows[0] ? AuthModel.sanitize(rows[0]) : null
+    return safe ? AuthModel.format(safe) : null;
   } catch (error) {
     throw error;
   }
@@ -71,7 +73,8 @@ const create = async ({name, username, email, passwordHash, isVerified, gender, 
      RETURNING ${AuthModel.RETURNING_USER_FIELDS}`,
       [name, username, email, passwordHash, isVerified, gender, dateOfBirth]
     );
-    return AuthModel.sanitize(rows[0]);
+    const safe = rows[0] ? AuthModel.sanitize(rows[0]) : null
+    return safe ? AuthModel.format(safe) : null;
   } catch (error) {
     throw error;
   }
@@ -85,7 +88,7 @@ const findByEmail = async ({email}) => {
       WHERE u.email = $1 AND u.deleted_at IS NULL`,
       [email]
     );
-    return rows[0] || null;
+    return rows[0] ? AuthModel.format(rows[0]) : null;
   } catch (error) {
     throw error;
   }
@@ -99,7 +102,7 @@ const findByEmailLogin = async ({email}) => {
       WHERE u.email = $1 AND u.deleted_at IS NULL`,
       [email]
     );
-    return rows[0] || null;
+    return rows[0] ? AuthModel.format(rows[0]) : null;
   } catch (error) {
     throw error;
   }
@@ -114,7 +117,7 @@ const findByIdSecure = async ({userId}) => {
       WHERE u.id = $1 AND u.deleted_at IS NULL`,
       [userId]
     );
-    return rows[0] ? rows[0] : null;
+    return rows[0] ? AuthModel.format(rows[0]) : null;
   } catch (error) {
     throw error;
 }
@@ -128,7 +131,7 @@ const findByIdPrivate = async ({userId}) => {
       WHERE u.id = $1 AND u.deleted_at IS NULL`,
       [userId]
     );
-    return rows[0] ? rows[0] : null;
+    return rows[0] ? AuthModel.format(rows[0]) : null;
   } catch (error) {
     throw error;
 }
@@ -142,7 +145,7 @@ const findByIdAppLock = async ({userId}) => {
       WHERE u.id = $1 AND u.deleted_at IS NULL`,
       [userId]
     );
-    return rows[0] ? rows[0] : null;
+    return rows[0] ? AuthModel.format(rows[0]) : null;
   } catch (error) {
     throw error;
 }
@@ -151,13 +154,13 @@ const findByIdAppLock = async ({userId}) => {
 
 const getRefreshTokenById = async ({userId}) => {
   try {
-    const token = await pool.query(
+    const {rows} = await pool.query(
       `SELECT id, role, refresh_token_hash 
       FROM ${AuthModel.USER_TABLE} 
       WHERE id = $1`,
       [userId]
     );
-    return token.rows[0];
+    return rows[0] ? AuthModel.format(rows[0]) : null;
   } catch (error) {
     throw error;
   }
@@ -224,7 +227,7 @@ const getPasswordByUserId = async ({userId}) => {
       WHERE id = $1`,
       [userId]
     )
-    return rows.length ? rows[0] : null
+    return rows[0] ? AuthModel.format(rows[0]) : null;
   } catch (error) {
     throw error
   }
@@ -259,13 +262,13 @@ const updatePasswordResetToken = async ({userId, tokenHash, tokenExp}) => {
 
 const findByPasswordResetToken = async (ResetToken) => {
   try {
-    const token = await pool.query(
+    const {rows} = await pool.query(
       `SELECT id, password_reset_token_exp 
       FROM ${AuthModel.USER_TABLE} 
       WHERE password_reset_token_hash = $1`,
       [ResetToken]
     );
-    return token.rows[0];
+    return rows[0] ? AuthModel.format(rows[0]) : null;
   } catch (error) {
     throw error;
   }
@@ -321,7 +324,7 @@ const findByEmailVerifyToken = async (ResetToken) => {
       `SELECT id, email_verify_token_exp FROM ${AuthModel.USER_TABLE} WHERE email_verify_token_hash = $1`,
       [ResetToken]
     );
-    return token.rows[0];
+    return rows[0] ? AuthModel.format(rows[0]) : null;
   } catch (error) {
     throw error;
   }

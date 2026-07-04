@@ -14,10 +14,51 @@ const LIST_FIELDS = [
 
 const format = (row) => {
   if (!row) return null;
+
   return {
-    postId: row.post_id,
-    userId: row.user_id,
-    createdAt: row.created_at
+    id: row.id,
+    title: row.title,
+    content: row.content,
+    postType: row.post_type,
+    tags: row.tags || [],
+    categories: row.category || [],
+    likes: row.likes_count ?? 0,
+    comments: row.comments_count ?? 0,
+    shares: row.shares_count ?? 0,
+    views: row.views_count ?? 0,
+    publishedAt: row.published_at,
+
+    author: row.author && {
+      id: row.author.id,
+      username: row.author.username,
+      avatar: row.author.avatar_url
+        ? {
+            url: row.author.avatar_url.cloudfront_url,
+          }
+        : null,
+    },
+
+    community: row.community
+      ? {
+          id: row.community.id,
+          name: row.community.name,
+          slug: row.community.slug,
+          avatar: row.community.avatar_url 
+          ? {
+            url: row.community.avatar_url.cloudfront_url,
+            }
+          : null,
+        }
+        : null,
+
+    media: (row.media || []).map((item) => ({
+      id: item.id,
+      type: item.media_type,
+      url: item.cloudfront_url,
+      thumbnail: item.vimeo_thumbnail_url,
+      vimeoUri: item.vimeo_uri,
+      duration: item.duration_seconds,
+    })),
   };
 };
 

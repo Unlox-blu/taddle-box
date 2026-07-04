@@ -212,6 +212,8 @@ const sanitize = (row) => {
     email_verify_token_exp,
     password_reset_token_hash,
     password_reset_token_exp,
+    app_lock_enabled,
+    app_lock,
     ...safe
   } = row;
   return safe;
@@ -241,6 +243,23 @@ const format = (row) => {
     verificationExpiresAt: row.verification_expires_at,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
+    passwordHash: row.password_hash,
+    googleId: row.google_id,
+    isBanned: row.is_banned,
+    refreshTokenHash: row.refresh_token_hash,
+    emailVerifyTokenHash: row.email_verify_token_hash,
+    emailVerifyTokenExp: row.email_verify_token_exp,
+    passwordResetTokenHash: row.password_reset_token_hash,
+    passwordResetTokenExp: row.password_reset_token_exp,
+    deletedAt: row.deleted_at,
+    privacy: row.privacy,
+    theme: row.theme,
+    countryCode: row.country_code,
+    phoneNumber: row.phone_number,
+    dateOfBirth: row.date_of_birth,
+    gender: row.gender,
+    appLock: row.app_lock,
+    appLockEnabled: row.app_lock_enabled,
   };
 };
 

@@ -70,7 +70,7 @@ class AuthService {
       if (!emailOtp) throw createError('Otp did not generated for this email', 409);
 
       const currentTime = new Date(Date.now());
-      if (!emailOtp.otp || !emailOtp.expIn || emailOtp.expIn < currentTime)
+      if (!emailOtp.otp || !emailOtp.otpExpIn || emailOtp.otpExpIn < currentTime)
         throw createError('Otp is expired', 409);
 
       if (emailOtp.otp !== otp) throw createError('Invalied Otp', 409);
@@ -132,11 +132,11 @@ class AuthService {
       const user = await this.authUserRepo.findByEmailLogin({email});
 
       if (!user) throw createError('Invalid email or password', 401);
-      if (user.is_banned) throw createError('Your account has been suspended', 403);
-      if (!user.is_active) throw createError('Your account is deactivated', 403);
-      if (!user.password_hash) throw createError('Please sign in with Google', 400);
+      if (user.isBanned) throw createError('Your account has been suspended', 403);
+      if (!user.isActive) throw createError('Your account is deactivated', 403);
+      if (!user.passwordHash) throw createError('Please sign in with Google', 400);
 
-      const valid = await comparePassword(password, user.password_hash);
+      const valid = await comparePassword(password, user.passwordHash);
       if (!valid) throw createError('Invalid email or password', 401);
 
       const result = await this.#issueTokens(user);
@@ -157,11 +157,11 @@ class AuthService {
   async verifyLoginPin({ userId, pin }) {
     try {
       const user = await this.authUserRepo.findByIdAppLock({userId})
-      console.log(user)
-      if(!user.app_lock_enabled)
+      
+      if(!user.appLockEnabled)
           throw createError('Pin lock not set', 400);
         
-      if(user.app_lock !== pin)
+      if(user.appLock !== pin)
           throw createError('Invalid lock pin', 401);
     } catch (error) {
       throw error;
@@ -229,7 +229,7 @@ class AuthService {
       const userId = payload.userId
       const user = await this.authUserRepo.getRefreshTokenById({userId});
       
-      if (!user || user.refresh_token_hash !== hashToken(refreshToken)) {
+      if (!user || user.refreshTokenHash !== hashToken(refreshToken)) {
         throw createError('Invalid refresh token', 401);
       }
 
@@ -252,10 +252,10 @@ class AuthService {
     try {
       const user = await this.authUserRepo.getPasswordByUserId({userId})
 
-      if(!user || !user.password_hash)
+      if(!user || !user.passwordHash)
         throw createError("Invalid current password", 400)
 
-      const valid = await comparePassword(currentPassword, user.password_hash);
+      const valid = await comparePassword(currentPassword, user.passwordHash);
       if (!valid) 
         throw createError('Invalid current password', 400);
 
@@ -297,7 +297,7 @@ class AuthService {
       const user = await this.authUserRepo.findByPasswordResetToken(tokenHash);
 
       const currentTime = new Date(Date.now());
-      if (!user || !user.password_reset_token_exp || user.password_reset_token_exp < currentTime) {
+      if (!user || !user.passwordResetTokenExp || user.passwordResetTokenExp < currentTime) {
         throw createError('Password Reset Token is expired', 401);
       }
 

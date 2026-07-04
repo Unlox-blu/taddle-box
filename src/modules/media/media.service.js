@@ -16,13 +16,12 @@ class MediaService {
   
   async getImageSignedUrl({userId, body, files }) {
     try {
-      const { folder, postId } = body
+      const { folder, postId, fileSize, mimetype } = body
 
       if(postId){
         //  validate post
       }
       
-      const {size: fileSize, mimetype,} = files.media
       if (!ALLOWED_FOLDERS.includes(folder)) throw createError('Invalid upload folder', 400);
       if (fileSize > MAX_IMAGE_BYTES)
         throw createError(`File size exceeds ${process.env.MAX_FILE_SIZE_MB || 10}MB limit`, 400);

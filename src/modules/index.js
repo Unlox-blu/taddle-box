@@ -17,6 +17,7 @@ router.use('/xp',            require('./xp/xp.route'));
 router.use('/feed',          require('./feed/feed.route'));
 router.use('/notifications', require('./notification/notification.route'));
 router.use('/media',         require('./media/media.route'));
+router.use('/push',         require('./push/push.route'));
 router.use('/search',        require('./search/search.route'));
 router.use('/share',         require('./share/share.route'));
 router.use('/streak',        require('./streak/streak.route'));

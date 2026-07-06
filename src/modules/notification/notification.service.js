@@ -7,8 +7,9 @@ const {
 } = require('../../sockets/notification.socket');
 
 class NotificationService {
-  constructor({ notificationRepository }) {
+  constructor({ notificationRepository, pushService }) {
     this.notifRepo = notificationRepository;
+    this.pushSvc = pushService;
   }
   
   async create({ recipientId, senderId, type, title, message, resourceType = null, resourceId = null }) {
@@ -24,6 +25,11 @@ class NotificationService {
       });
       
       emitNotification(recipientId, notif);
+      try {
+        await this.pushSvc.sendToUser({ userId: recipientId, title, message, data: { notificationId: notif.id, type } });
+      } catch (error) {
+        console.error('Push send error', error);
+      }
       return notif;
     } catch (error) {
       throw error;

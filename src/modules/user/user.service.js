@@ -2,7 +2,7 @@
 
 const { createError } = require('../../utils/error.util');
 const UserModel = require('./user.model');
-const FollowersModel = require('../../models/followers.model');
+const FollowersModel = require('./followers.model');
 const { uploadFile } = require('../../integrations/storage/cloudinary.service');
 const { startNotificationWorker } = require('../../jobs/workers/notification/notification.worker');
 const { addNotificationJob } = require('../../jobs/queues/notification.queue');

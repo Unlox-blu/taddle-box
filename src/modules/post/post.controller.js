@@ -2,7 +2,6 @@
 
 const { apiResponse } = require('../../utils/response.util');
 const { getPaginationParams, paginationMeta } = require('../../utils/pagination.util');
-const CommentModel = require('../../models/comment.model');
 
 class PostController {
   constructor({ postService }) {

@@ -2,7 +2,7 @@
 
 const { createError } = require('../../utils/error.util');
 const CommunityModel = require('./community.model');
-const PostModel = require('../../models/post.model');
+const PostModel = require('../post/post.model');
 const { uploadFile } = require('../../integrations/storage/cloudinary.service');
 const { addNotificationJob } = require('../../jobs/queues/notification.queue');
 

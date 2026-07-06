@@ -2,7 +2,7 @@
 
 
 const videoService = require('../../../integrations/video/video.service');
-const mediaRepository = require('../../../repositories/media.repository');
+const mediaRepository = require('../../../modules/media/media.repository');
 const { emitNotification } = require('../../../sockets/notification.socket');
 const { addVideoJob } = require('../../queues/video.queue');
 const { logger } = require('../../../middlewares/logger.middleware');

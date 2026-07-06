@@ -7,5 +7,3 @@ dist/
 *.log
 npm-debug.log*
 .nyc_output
-
-share/

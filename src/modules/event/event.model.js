@@ -4,10 +4,10 @@ const TABLE = 'events';
 const ATTENDEES_TABLE = 'event_attendees';
 
 const LIST_FIELDS = [
-  'id', 'organizer_id', 'community_id', 'title', 'cover_image_url',
+  'id', 'organizer_id', 'community_id', 'title', 'cover_image_url', 'description',
   'event_type', 'status', 'start_time', 'end_time', 'timezone',
-  'location', 'is_free', 'ticket_price_cents', 'currency',
-  'attendee_count', 'max_attendees', 'tags', 'is_featured', 'created_at',
+  'location', 'is_free', 'ticket_price_cents', 'currency', 'registration_deadline',
+  'attendee_count', 'max_attendees', 'tags', 'is_featured',
 ].join(', ');
 
 const DETAIL_FIELDS = [

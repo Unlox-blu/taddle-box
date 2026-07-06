@@ -18,6 +18,7 @@ router.use('/feed',          require('./feed/feed.route'));
 router.use('/notifications', require('./notification/notification.route'));
 router.use('/media',         require('./media/media.route'));
 router.use('/search',        require('./search/search.route'));
+router.use('/share',         require('./share/share.route'));
 router.use('/streak',        require('./streak/streak.route'));
 router.use('/settings',      require('./settings/settings.route'));
 router.use('/highlight',     require('./highlight/highlight.route'));

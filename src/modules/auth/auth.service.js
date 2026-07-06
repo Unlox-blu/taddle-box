@@ -1,6 +1,7 @@
 'use strict';
 
 const config = require('../../config/app.config')
+const redis = require('../../config/redis')
 const { hashPassword, comparePassword } = require('../../utils/password.util');
 const {
   generateAccessToken,
@@ -37,21 +38,23 @@ class AuthService {
   async sendOtpToEmail({email}) {
     try {
       const isEmailExist = await this.authUserRepo.isEmailExist({email});
-      if (isEmailExist) throw createError('Email is already registered', 409);
+      if (isEmailExist) 
+        throw createError('Email is already registered', 409);
+
       const otp = Math.floor(Math.random() * 10000)
       .toString()
       .padStart(4, '0')
       .toString();
       const expIn = new Date(Date.now() + parseInt(config.OTP_EXPIRES_IN, 10));
       
-      const otpSendBefore = await this.verifyEmailRepo.isEmailExist({email});
-      
-      if (otpSendBefore) {
-        await this.verifyEmailRepo.updateOtp({ email, otp, expIn });
-      }else{
-        await this.verifyEmailRepo.create({ email, otp, expIn });
+      const otpKey = email
+      const otpObj = {
+        email: email,
+        otp: otp,
+        otpExpIn: expIn,
+        isVerified: false
       }
-
+      await redis.setex(otpKey, 60*5, JSON.stringify(otpObj))
 
       const jobdata = {
         to: email,
@@ -66,17 +69,26 @@ class AuthService {
 
   async verifyOtpForEmail({email, otp}) {
     try {
-      const emailOtp = await this.verifyEmailRepo.findByEmail({email});
-      if (!emailOtp) throw createError('Otp did not generated for this email', 409);
+      const otpKey = email
+      const otp = await redis.get(otpKey)
+      const otpObj = otp ? JSON.parse(otp) : null
 
       const currentTime = new Date(Date.now());
-      if (!emailOtp.otp || !emailOtp.otpExpIn || emailOtp.otpExpIn < currentTime)
+
+      if (!otpObj || otpObj.otpExpIn < currentTime)
         throw createError('Otp is expired', 409);
 
-      if (emailOtp.otp !== otp) throw createError('Invalied Otp', 409);
+      if (otpObj.otp !== otp) 
+        throw createError('Invalied Otp', 409);
 
       const verificationExpiresAt = new Date(Date.now() +  parseInt(config.VALIDATE_OTP_VERIFICATION, 10));
-      await this.verifyEmailRepo.makeVerified({email, verificationExpiresAt});
+
+      const otpVerifyObj = {
+        email: email,
+        isVerified: true,
+        verificationExpAt: verificationExpiresAt
+      }
+      await redis.setex(otpKey, 60*10, JSON.stringify(otpVerifyObj))
     } catch (error) {
       throw error;
     }
@@ -85,13 +97,17 @@ class AuthService {
   async signUp({userData}) {
     try {
       const {name, username, email, password, gender, dateOfBirth} = userData
-      const isEmailVerified = await this.verifyEmailRepo.findByEmail({email});
       
-      if (!isEmailVerified || !isEmailVerified.isVerified)
+      const isEmailVerified = await redis.get(email)
+      const isEmailVerifiedObj = isEmailVerified ? JSON.parse(isEmailVerified) : null
+
+      
+      if (!isEmailVerifiedObj || !isEmailVerifiedObj.isVerified)
         throw createError('Verified the email first', 400);
       
       const currentTime = new Date(Date.now());
-      if(!isEmailVerified.verificationExpiresAt || isEmailVerified.verificationExpiresAt < currentTime) 
+
+      if(!isEmailVerifiedObj.verificationExpAt || isEmailVerifiedObj.verificationExpAt < currentTime) 
         throw createError('Verified the email again', 403);
 
       const [existingEmail, existingUsername] = await Promise.all([
@@ -104,8 +120,8 @@ class AuthService {
       const passwordHash = await hashPassword(password);
       const newUser = await this.authUserRepo.create({ name, username, email, gender, dateOfBirth, passwordHash, isVerified: true });
 
-      // Delete the email verification row
-      await this.verifyEmailRepo.hardDelete({email});
+      // Delete the email verification 
+      await redis.delete(email)
 
       // Auto-create wallet for new user
       await this.walletSvc.createWallet({userId: newUser.id});

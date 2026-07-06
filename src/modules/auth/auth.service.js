@@ -2,6 +2,7 @@
 
 const config = require('../../config/app.config')
 const redis = require('../../config/redis')
+const crypto = require('crypto');
 const { hashPassword, comparePassword } = require('../../utils/password.util');
 const {
   generateAccessToken,
@@ -19,6 +20,9 @@ const COOKIE_OPTS = {
   secure: process.env.NODE_ENV === 'production',
   sameSite: 'strict',
 };
+
+const OTP_PREFIX = 'otp:';
+const USERNAME_PREFIX = 'reserved_username:';
 
 class AuthService {
   constructor({
@@ -40,14 +44,11 @@ class AuthService {
       const isEmailExist = await this.authUserRepo.isEmailExist({email});
       if (isEmailExist) 
         throw createError('Email is already registered', 409);
-
-      const otp = Math.floor(Math.random() * 10000)
-      .toString()
-      .padStart(4, '0')
-      .toString();
+      
+      const otp = crypto.randomInt(1000, 10000).toString();
       const expIn = new Date(Date.now() + parseInt(config.OTP_EXPIRES_IN, 10));
       
-      const otpKey = email
+      const otpKey = `${OTP_PREFIX}:${email}`
       const otpObj = {
         email: email,
         otp: otp,
@@ -69,13 +70,13 @@ class AuthService {
 
   async verifyOtpForEmail({email, otp}) {
     try {
-      const otpKey = email
-      const otp = await redis.get(otpKey)
-      const otpObj = otp ? JSON.parse(otp) : null
+      const otpKey = `${OTP_PREFIX}:${email}`
+      const cashedOtp = await redis.get(otpKey)
+      const otpObj = cashedOtp ? JSON.parse(cashedOtp) : null
 
       const currentTime = new Date(Date.now());
 
-      if (!otpObj || otpObj.otpExpIn < currentTime)
+      if (!otpObj || new Date(otpObj.otpExpIn) < currentTime)
         throw createError('Otp is expired', 409);
 
       if (otpObj.otp !== otp) 
@@ -94,11 +95,48 @@ class AuthService {
     }
   }
 
-  async signUp({userData}) {
+  async usernameAvailable({username, usernameToken}) {
+    try {
+      const isUserNameExistDB = await this.authUserRepo.isUsernameExist({username})
+
+      if(isUserNameExistDB)
+        throw createError('Username already taken', 400)
+
+
+      const usernameKey = `${USERNAME_PREFIX}:${username}`
+      const isUserNameExistRedis = await redis.get(usernameKey)
+
+      if(isUserNameExistRedis && !usernameToken)
+        throw createError('UserName already taken', 400)
+
+      if(isUserNameExistRedis && usernameToken){
+        const usernameTokenHash = hashToken(usernameToken);
+
+        if(isUserNameExistRedis !== usernameTokenHash)
+          throw createError('UserName already taken', 400)
+      }
+
+      const rawToken = generateRandomToken();
+      const tokenHash = hashToken(rawToken);
+      
+      await redis.setex(usernameKey, 60 * 5, tokenHash)
+
+      return {
+              usernameToken: rawToken,
+              cookieOpts : COOKIE_OPTS
+            }
+
+    } catch (error) {
+      throw error
+    }
+  }
+
+  async signUp({userData, usernameToken}) {
     try {
       const {name, username, email, password, gender, dateOfBirth} = userData
       
-      const isEmailVerified = await redis.get(email)
+      const otpKey = `${OTP_PREFIX}:${email}`
+      const isEmailVerified = await redis.get(otpKey)
       const isEmailVerifiedObj = isEmailVerified ? JSON.parse(isEmailVerified) : null
 
       
@@ -107,7 +145,7 @@ class AuthService {
       
       const currentTime = new Date(Date.now());
 
-      if(!isEmailVerifiedObj.verificationExpAt || isEmailVerifiedObj.verificationExpAt < currentTime) 
+      if(!isEmailVerifiedObj.verificationExpAt || new Date(isEmailVerifiedObj.verificationExpAt) < currentTime) 
         throw createError('Verified the email again', 403);
 
       const [existingEmail, existingUsername] = await Promise.all([
@@ -117,11 +155,20 @@ class AuthService {
       if (existingEmail) throw createError('Email is already registered', 409);
       if (existingUsername) throw createError('Username is already taken', 409);
 
+      const usernameKey = `${USERNAME_PREFIX}:${username}`
+      const isUserNameExistRedis = await redis.get(usernameKey)
+      
+      const usernameTokenHash = hashToken(usernameToken);
+      if(isUserNameExistRedis && isUserNameExistRedis !== usernameTokenHash)
+        throw createError('UserName already taken', 400)
+
       const passwordHash = await hashPassword(password);
       const newUser = await this.authUserRepo.create({ name, username, email, gender, dateOfBirth, passwordHash, isVerified: true });
 
       // Delete the email verification 
-      await redis.delete(email)
+      await redis.del(otpKey)
+
+      await redis.del(usernameKey)
 
       // Auto-create wallet for new user
       await this.walletSvc.createWallet({userId: newUser.id});

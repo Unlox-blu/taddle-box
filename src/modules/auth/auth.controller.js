@@ -28,10 +28,29 @@ class AuthController {
     }
   };
 
+  usernameAvailable = async (req, res, next) => {
+    try {
+      const {username} = req.body
+      const { user_name_token :usernameToken} = req.cookie
+      const token = await this.authSvc.usernameAvailable({username, usernameToken})
+
+      res.cookie('user_name_token', token, {
+        ...token.cookieOpts,
+        // maxAge: config.REFRESH_TOKEN_COOKIE_MAX_AGE_SECONDS 
+        maxAge: 6 * 5 
+      });
+      res.json(apiResponse(null, 'Username is available'));
+
+    } catch (error) {
+      next(error)
+    }
+  }
+
   signUp = async (req, res, next) => {
     try {
       const userData = req.body;
-      const { user } = await this.authSvc.signUp({userData});
+      const { user_name_token :usernameToken} = req.cookie
+      const { user } = await this.authSvc.signUp({userData, usernameToken});
       res.status(201).json(apiResponse(user, 'Account created.'));
     } catch (error) {
       next(error);

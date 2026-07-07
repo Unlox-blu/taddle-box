@@ -8,11 +8,16 @@ const jobQueue = new Queue('job', {
   defaultJobOptions: {
     attempts: 3,
     backoff: { type: 'exponential', delay: 2000 },
-    removeOnComplete: true,
-    removeOnFail: 50,
+    removeOnComplete: {
+      age: 120,
+      count: 2,
+    },
+    removeOnFail: {
+      age: 60*60
+    },
   },
 });
 
-const addJob = (type, data) => jobQueue.add(type, data);
+const addJob = (type, data,  options = {}) => jobQueue.add(type, data, options);
 
 module.exports = { jobQueue, addJob };

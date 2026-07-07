@@ -37,7 +37,7 @@ class UserService {
   async updateProfile({userId, body}) {
     try {
       const updated = await this.userRepo.updateProfile(userId, body);
-      return UserModel.format(updated);
+      return updated;
     } catch (error) {
       throw error;
     }
@@ -77,7 +77,7 @@ class UserService {
       const existing = await this.userRepo.findByUsername(username);
       if (existing && existing.id !== userId) throw createError('Username is already taken', 409);
       const updated = await this.userRepo.updateUsername(userId, username);
-      return UserModel.format(updated);
+      return updated;
     } catch (error) {
       throw error;
     }
@@ -103,12 +103,11 @@ class UserService {
           throw createError('You are not authorized to get the follower', 403)
       }
 
-      const { followings, total } = await this.followersRepo.findByFollowingId(
+      const { followers, total } = await this.followersRepo.findByFollowingId(
         user.id,
         limit,
         offset
       );
-      const followers = followings.length ? followings.map(FollowersModel.format) : [];
       return { followers, total };
     } catch (error) {
       throw error;
@@ -127,12 +126,11 @@ class UserService {
           throw createError('You are not authorized to get the follower', 403)
       }
 
-      const { followers, total } = await this.followersRepo.findByFollowerId(
+      const { followings, total } = await this.followersRepo.findByFollowerId(
         user.id,
         limit,
         offset
       );
-      const followings = followers.length ? followers.map(FollowersModel.format) : [];
       return { followings, total };
     } catch (error) {
       throw error;

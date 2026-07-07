@@ -16,9 +16,9 @@ const findByFollowingId = async (userId, limit, offset) => {
       [userId, limit, offset]
     );
     const total = rows[0]?.total || 0;
-    const followings = rows.length > 0 ? rows : [];
+    const followers = rows.length > 0 ? rows.map(FollowersModel.format) : [];
 
-    return { followings, total };
+    return { followers, total };
   } catch (error) {
     throw error;
   }
@@ -37,9 +37,9 @@ const findByFollowerId = async (userId, limit, offset) => {
       [userId, limit, offset]
     );
     const total = rows[0]?.total || 0;
-    const followers = rows.length > 0 ? rows : [];
+    const followings = rows.length > 0 ? rows.map(FollowersModel.format) : [];
 
-    return { followers, total };
+    return { followings, total };
   } catch (error) {
     throw error;
   }
@@ -55,7 +55,7 @@ const findByFollowerIdAndFollowingId = async (followerId, followingId) => {
             `,
       [followerId, followingId]
     );
-    return rows[0];
+    return rows[0] ? FollowersModel.format(rows[0]) : null;
   } catch (error) {
     throw error;
   }
@@ -63,7 +63,7 @@ const findByFollowerIdAndFollowingId = async (followerId, followingId) => {
 
 const createFolow = async (followerId, followingId) => {
   try {
-    const { rows } = await pool.query(
+    await pool.query(
       `
         INSERT INTO ${FollowersModel.TABLE} 
         (follower_id, following_id)
@@ -71,8 +71,6 @@ const createFolow = async (followerId, followingId) => {
         `,
       [followerId, followingId]
     );
-
-    return rows[0];
   } catch (error) {
     throw error;
   }
@@ -80,7 +78,7 @@ const createFolow = async (followerId, followingId) => {
 
 const createPendingFolow = async (followerId, followingId) => {
   try {
-    const { rows } = await pool.query(
+    await pool.query(
       `
         INSERT INTO ${FollowersModel.TABLE} 
         (follower_id, following_id, status)
@@ -88,8 +86,6 @@ const createPendingFolow = async (followerId, followingId) => {
         `,
       [followerId, followingId, 'pending']
     );
-
-    return rows[0];
   } catch (error) {
     throw error;
   }
@@ -97,7 +93,7 @@ const createPendingFolow = async (followerId, followingId) => {
 
 const approvefollower = async (followerId, followingId) => {
   try {
-    const { rows } = await pool.query(
+    await pool.query(
       `
         UPDATE ${FollowersModel.TABLE} 
         SET status = $1
@@ -105,8 +101,6 @@ const approvefollower = async (followerId, followingId) => {
         `,
       ['active', followerId, followingId]
     );
-
-    return rows[0];
   } catch (error) {
     throw error;
   }

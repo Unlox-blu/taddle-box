@@ -16,7 +16,7 @@ const findByUsername = async (username) => {
       WHERE LOWER(u.username) = LOWER($1) AND u.deleted_at IS NULL`,
       [username]
     );
-    return rows[0] || null;
+    return rows[0] ? UserModel.format(rows[0]) : null;
   } catch (error) {
     throw error;
   }
@@ -34,7 +34,8 @@ const findByIdPrivate = async (id) => {
       WHERE u.id = $1 AND u.deleted_at IS NULL`,
       [id]
     );
-    return rows[0] ? UserModel.sanitize(rows[0]) : null;
+    const safe = rows[0] ? UserModel.sanitize(rows[0]) : null;
+    return safe ? UserModel.format(safe) : null;
   } catch (error) {
     throw error;
   }
@@ -59,7 +60,8 @@ const updateProfile = async (userId, fields) => {
      WHERE id = $${values.length} RETURNING *`,
       values
     );
-    return UserModel.sanitize(rows[0]);
+    const safe = rows[0] ? UserModel.sanitize(rows[0]) : null;
+    return safe ? UserModel.format(safe) : null;
   } catch (error) {
     throw error;
   }
@@ -85,7 +87,7 @@ const updateAvatar = async (userId, avatarUrl) => {
       `UPDATE ${UserModel.TABLE} SET avatar_url = $1, updated_at = NOW() WHERE id = $2 RETURNING id, avatar_url`,
       [avatarUrl, userId]
     );
-    return rows[0];
+    return rows[0] ?  UserModel.format(rows[0]) : null;
   } catch (error) {
     throw error;
   }
@@ -97,7 +99,7 @@ const updateBanner = async (userId, bannerUrl) => {
       `UPDATE ${UserModel.TABLE} SET banner_url = $1, updated_at = NOW() WHERE id = $2 RETURNING id, banner_url`,
       [bannerUrl, userId]
     );
-    return rows[0];
+    return rows[0] ?  UserModel.format(rows[0]) : null;
   } catch (error) {
     throw error;
   }
@@ -106,10 +108,10 @@ const updateBanner = async (userId, bannerUrl) => {
 const updateUsername = async (userId, username) => {
   try {
     const { rows } = await pool.query(
-      `UPDATE ${UserModel.TABLE} SET username = $1, updated_at = NOW() WHERE id = $2 RETURNING *`,
+      `UPDATE ${UserModel.TABLE} SET username = $1, updated_at = NOW() WHERE id = $2 RETURNING username`,
       [username, userId]
     );
-    return UserModel.sanitize(rows[0]);
+    return rows[0] ?  UserModel.format(rows[0]) : null;
   } catch (error) {
     throw error;
   }
@@ -138,7 +140,7 @@ const findById = async (id) => {
       WHERE u.id = $1 AND u.is_active = TRUE AND u.deleted_at IS NULL`,
       [id]
     );
-    return rows[0] || null;
+    return rows[0] ?  UserModel.format(rows[0]) : null;
   } catch (error) {
     throw error;
   }

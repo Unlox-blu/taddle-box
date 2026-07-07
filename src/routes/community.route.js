@@ -2,11 +2,11 @@
 
 // ─── src/routes/community.route.js ───────────────────────────────────────────
 const router = require('express').Router();
-const { communityController }        = require('../container');
+const { communityController }        = require('../modules/community/community.container');
 const { verifyToken, optionalAuth }  = require('../middlewares/auth.middleware');
 const { authorize }                  = require('../middlewares/authorized.middleware');
 const { validate }                   = require('../middlewares/validator.middleware');
-const { createCommunitySchema, updateCommunitySchema, updateAvatarSchema, updateBannerSchema } = require('../validators/community.validator');
+const { createCommunitySchema, updateCommunitySchema, updateAvatarSchema, updateBannerSchema } = require('../modules/community/community.validator');
 
 
 router.post('/create-community',                       verifyToken,  validate(createCommunitySchema),   communityController.create);

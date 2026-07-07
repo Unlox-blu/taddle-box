@@ -47,8 +47,8 @@ class CommunityController {
       const { communityId } = req.params;
       const userId = req.userId;
       const userRole = req.userRole;
-      const {avatarUrl} = req.body;
-      const community = await this.communitySvc.updateAvatar({communityId, userId, userRole, avatarUrl});
+      const {avatarMediaId} = req.body;
+      const community = await this.communitySvc.updateAvatar({communityId, userId, userRole, avatarMediaId});
       res.json(apiResponse(community, 'Community avatar updated successfully'));
     } catch (error) {
       next(error);
@@ -60,8 +60,8 @@ class CommunityController {
       const { communityId } = req.params;
       const userId = req.userId;
       const userRole = req.userRole;
-      const {bannerUrl} = req.body;
-      const community = await this.communitySvc.updateBanner({communityId, userId, userRole, bannerUrl});
+      const {bannerMediaId} = req.body;
+      const community = await this.communitySvc.updateBanner({communityId, userId, userRole, bannerMediaId});
       res.json(apiResponse(community, 'Community banner updated successfully'));
     } catch (error) {
       next(error);

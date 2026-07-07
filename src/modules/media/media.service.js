@@ -62,7 +62,43 @@ class MediaService {
     }
   }
 
+  async cancleImageUpload({userId, mediaId}) {
+    try {
+      const media = await this.mediaRepo.findById(mediaId)
+      
+      if(!media) throw createError("Media not found",404)
+
+      if(media.uploaderId !== userId) throw createError("You are not authorized to delete", 403)
+
+      await this.storageSvc.deleteFile(media.s3Key)
+      await this.mediaRepo.hardDelete(mediaId)
+    } catch (error) {
+      throw error
+    }
+  }
   
+  async clearS3Storage ({userId, mediaId}) {
+    try {
+      const media = await this.mediaRepo.findById(mediaId)
+
+      if(media.uploaderId !== userId)
+        throw createError('You are not authorized', 403)
+
+      const s3Key = media.s3Key
+
+      if(!s3Key)
+        throw createError('s3Key is not found', 404)
+
+      await this.storageSvc.deleteFile(s3Key)
+
+      await this.mediaRepo.hardDelete(mediaId)
+
+    } catch (error) {
+      throw error
+    }
+  }
+
+
   async getVideoUploadUrl({userId: uploaderId, body: data }) {
     try {
       const { fileSize, title } = data
@@ -112,20 +148,7 @@ class MediaService {
     }
   }
 
-  async cancleUpload({userId, mediaId}) {
-    try {
-      const media = await this.mediaRepo.findById(mediaId)
-      
-      if(!media) throw createError("Media not found",404)
 
-      if(media.uploaderId !== userId) throw createError("You are not authorized to delete", 403)
-
-      await this.storageSvc.deleteFile(media.s3Key)
-      await this.mediaRepo.hardDelete(mediaId)
-    } catch (error) {
-      throw error
-    }
-  }
 
   async gets3Uploaded() {
     try {

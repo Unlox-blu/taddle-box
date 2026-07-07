@@ -2,10 +2,10 @@
 
 // ─── src/routes/comment.route.js ─────────────────────────────────────────────
 const router = require('express').Router();
-const { commentController } = require('../container');
+const { commentController } = require('../modules/comment/comment.container');
 const { verifyToken }       = require('../middlewares/auth.middleware');
 const { validate }          = require('../middlewares/validator.middleware');
-const { createCommentSchema, updateCommentSchema } = require('../validators/comment.validator');
+const { createCommentSchema, updateCommentSchema } = require('../modules/comment/comment.validator');
 
 router.post('/',                     verifyToken, validate(createCommentSchema), commentController.create);
 router.get('/:postId',                     verifyToken ,                         commentController.getComments);

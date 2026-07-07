@@ -2,10 +2,10 @@
 
 // ─── src/routes/wallet.route.js ──────────────────────────────────────────────
 const router = require('express').Router();
-const { xpController } = require('../container');
+const { xpController } = require('../modules/xp/xp.container');
 const { verifyToken }      = require('../middlewares/auth.middleware');
 const { validate }         = require('../middlewares/validator.middleware');
-const { creditOrdebitXPSchema } = require('../validators/xp.validator');
+const { creditOrdebitXPSchema } = require('../modules/xp/xp.validator');
 
 router.post('/',                 verifyToken,                                   xpController.createXPwallet);
 router.get('/',                  verifyToken,                                   xpController.getXP);

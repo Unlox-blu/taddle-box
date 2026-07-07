@@ -7,10 +7,11 @@ const { uploadFile } = require('../../integrations/storage/cloudinary.service');
 const { addNotificationJob } = require('../../jobs/queues/notification.queue');
 
 class CommunityService {
-  constructor({ communityRepository, postRepository, userRepository}) {
+  constructor({ communityRepository, postRepository, userRepository, mediaService}) {
     this.communityRepo = communityRepository;
     this.postRepo = postRepository;
     this.userRepo = userRepository;
+    this.mediaSvc = mediaService;
   }
 
   async create({userId: ownerId, body: data}) {
@@ -56,19 +57,29 @@ class CommunityService {
     }
   }
 
-  async updateAvatar({communityId, userId, userRole, avatarUrl}) {
+  async updateAvatar({communityId, userId, userRole, avatarMediaId}) {
     try {
-      const updatedAvatar = await this.communityRepo.updateAvatar(communityId, avatarUrl);
+      const community = await this.communityRepo.findAvatarAndBanner(communityId)
+
+      if(community.avatarMediaId){
+        this.mediaSvc.clearS3Storage({userId, mediaId: community.avatarMediaId})
+      }
+
+      const updatedAvatar = await this.communityRepo.updateAvatar(communityId, avatarMediaId);
       return updatedAvatar;
     } catch (error) {
       throw error;
     }
   }
 
-  async updateBanner({communityId, userId, userRole, bannerUrl}) {
+  async updateBanner({communityId, userId, userRole, bannerMediaId}) {
     try {
-      
-      const updatedBanner = await this.communityRepo.updateBanner(communityId, bannerUrl);
+      const community = await this.communityRepo.findAvatarAndBanner(communityId)
+
+      if(community.bannerMediaId){
+        this.mediaSvc.clearS3Storage({userId, mediaId: community.bannerMediaId})
+      }
+      const updatedBanner = await this.communityRepo.updateBanner(communityId, bannerMediaId);
       return updatedBanner;
     } catch (error) {
       throw error;

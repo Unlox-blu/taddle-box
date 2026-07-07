@@ -2,9 +2,9 @@
 
 // ─── src/routes/user.route.js ────────────────────────────────────────────────
 const router = require('express').Router();
-const { shareController }         = require('./share.container');
-const { verifyToken, optionalAuth } = require('../../middlewares/auth.middleware');
-const { validate }               = require('../../middlewares/validator.middleware');
+const { shareController }         = require('../modules/share/share.container');
+const { verifyToken, optionalAuth } = require('../middlewares/auth.middleware');
+const { validate }               = require('../middlewares/validator.middleware');
 
 
 router.get('/post/:postId',                 optionalAuth,                       shareController.getPost)

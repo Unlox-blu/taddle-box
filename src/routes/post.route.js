@@ -2,11 +2,11 @@
 
 // ─── src/routes/post.route.js ────────────────────────────────────────────────
 const router = require('express').Router();
-const { postController }             = require('../container');
+const { postController }             = require('../modules/post/post.container');
 const { verifyToken, optionalAuth }  = require('../middlewares/auth.middleware');
 const { authorize }                  = require('../middlewares/authorized.middleware');
 const { validate }                   = require('../middlewares/validator.middleware');
-const { createPostSchema, updatePostSchema } = require('../validators/post.validator');
+const { createPostSchema, updatePostSchema } = require('../modules/post/post.validator');
 
 
 router.post('/create-post',             verifyToken,   validate(createPostSchema),          postController.createPost);

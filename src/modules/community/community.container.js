@@ -10,6 +10,7 @@ const CommunityController = require('./community.controller')
 // Dependencies from other modules
 const {postRepository} = require('../post/post.container')
 const {userRepository} = require('../user/user.container')
+const {mediaService} = require('../media/media.container')
 
 
 
@@ -18,6 +19,7 @@ const communityService = new CommunityService({
   communityRepository, 
   postRepository,
   userRepository,
+  mediaService
 })
 
 // Instantiate Controller

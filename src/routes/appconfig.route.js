@@ -1,7 +1,7 @@
 'use strict';
 
 const router = require('express').Router();
-const { appConfigController } = require('../container');
+const { appConfigController } = require('../modules/appconfig/appconfig.container');
 
 
 router.get('/',                     appConfigController.getAppConfig)

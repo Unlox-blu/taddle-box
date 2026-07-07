@@ -25,11 +25,11 @@ const updatePrivacySchema = z.object({
 })
 
 const updateAvatarSchema = z.object({
-  avatarUrl: z.string().uuid(),
+  avatarMediaId: z.string().uuid(),
 })
 
 const updateBannerSchema = z.object({
-  bannerUrl: z.string().uuid(),
+  bannerMediaId: z.string().uuid(),
 })
 
 module.exports = { updateProfileSchema, updateUsernameSchema, updatePrivacySchema, updateBannerSchema, updateAvatarSchema };

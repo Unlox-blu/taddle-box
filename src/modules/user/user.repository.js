@@ -65,6 +65,20 @@ const updateProfile = async (userId, fields) => {
   }
 };
 
+const findAvatarAndBanner = async (userId) => {
+  try {
+    const {rows} = await pool.query(
+      `SELECT ${UserModel.MEDIA_FIELDS}
+      FROM ${UserModel.TABLE} u
+      WHERE u.id = $1`,
+      [userId]
+    )
+    return rows[0] ?  UserModel.format(rows[0]) : null;
+  } catch (error) {
+    throw error
+  }
+} 
+
 const updateAvatar = async (userId, avatarUrl) => {
   try {
     const { rows } = await pool.query(
@@ -491,6 +505,7 @@ module.exports = {
   updateProfile,
   updateAppLock,
   removeAppLock,
+  findAvatarAndBanner,
   updateAvatar,
   updateBanner,
   updateUsername,

@@ -2,11 +2,11 @@
 
 // ─── src/routes/event.route.js ───────────────────────────────────────────────
 const router = require('express').Router();
-const { eventController }            = require('../container');
+const { eventController }            = require('../modules/event/event.container');
 const { verifyToken, optionalAuth }  = require('../middlewares/auth.middleware');
 const { authorize } = require('../middlewares/authorized.middleware');
 const { validate }                   = require('../middlewares/validator.middleware');
-const { createEventSchema, updateEventSchema } = require('../validators/event.validator');
+const { createEventSchema, updateEventSchema } = require('../modules/event/event.validator');
 
 
 router.get('/:eventId',              optionalAuth, eventController.getById);

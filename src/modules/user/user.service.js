@@ -8,9 +8,10 @@ const { startNotificationWorker } = require('../../jobs/workers/notification/not
 const { addNotificationJob } = require('../../jobs/queues/notification.queue');
 
 class UserService {
-  constructor({ userRepository, followerRepository, bookmarkService, saveService, storageIntegration, taskService }) {
+  constructor({ userRepository, followerRepository, mediaService, bookmarkService, saveService, storageIntegration, taskService }) {
     this.userRepo = userRepository;
     this.followersRepo = followerRepository;
+    this.mediaSvc = mediaService;
     this.bookmarkSvc = bookmarkService;
     this.saveSvc =  saveService;
     this.storageSvc = storageIntegration;
@@ -41,21 +42,30 @@ class UserService {
     }
   }
 
-  async updateAvatar({userId, avatarUrl}) {
+  async updateAvatar({userId, avatarMediaId}) {
     try {
+      const user = await this.userRepo.findAvatarAndBanner(userId)
 
-      const updateAvatar = await this.userRepo.updateAvatar(userId, avatarUrl);
+      if(user.avatarUrl) {
+        this.mediaSvc.clearS3Storage({userId, mediaId: user.avatarUrl})
+      }
+
+      const updateAvatar = await this.userRepo.updateAvatar(userId, avatarMediaId);
       return updateAvatar;
     } catch (error) {
       throw error;
     }
   }
 
-  async updateBanner({userId, bannerUrl}) {
+  async updateBanner({userId, bannerMediaId}) {
     try {
-      
-      const updateAvatar = await this.userRepo.updateBanner(userId, bannerUrl);
-      return updateAvatar;
+      const user = await this.userRepo.findAvatarAndBanner(userId)
+
+      if(user.bannerUrl) {
+        this.mediaSvc.clearS3Storage({userId, mediaId: user.bannerUrl})
+      }
+      const updateBanner = await this.userRepo.updateBanner(userId, bannerMediaId);
+      return updateBanner;
     } catch (error) {
       throw error;
     }

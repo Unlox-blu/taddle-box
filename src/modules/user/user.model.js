@@ -25,6 +25,10 @@ const SEARCH_FIELDS = [
   'u.id', 'u.name', 'u.username', 'u.avatar_url', 'u.is_verified', 'u.follower_count', 'u.following_count',
 ].join(', ');
 
+const MEDIA_FIELDS = [
+  'u.avatar_url', 'u.banner_url',
+].join(', ');
+
 const ROLES = ['user', 'moderator', 'admin', 'superadmin'];
 
 /**
@@ -91,4 +95,4 @@ const format = (row) => {
   };
 };
 
-module.exports = { TABLE, PUBLIC_FIELDS, PRIVATE_FIELDS, AUTH_FIELDS, SEARCH_FIELDS, ROLES, sanitize, format };
+module.exports = { TABLE, PUBLIC_FIELDS, PRIVATE_FIELDS, AUTH_FIELDS, SEARCH_FIELDS, MEDIA_FIELDS, ROLES, sanitize, format };

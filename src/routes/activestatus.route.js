@@ -2,7 +2,7 @@
 
 
 const router = require('express').Router();
-const { activeStatusController } = require('../container');
+const { activeStatusController } = require('../modules/activestatus/activestatus.container');
 const { verifyToken }    = require('../middlewares/auth.middleware');
 
 router.post('/',         verifyToken,            activeStatusController.createStatus);

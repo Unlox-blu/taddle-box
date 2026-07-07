@@ -2,7 +2,7 @@
 
 // ─── src/routes/user.route.js ────────────────────────────────────────────────
 const router = require('express').Router();
-const { streakController }         = require('../container');
+const { streakController }         = require('../modules/streak/streak.container');
 const { verifyToken, optionalAuth } = require('../middlewares/auth.middleware');
 const { validate }               = require('../middlewares/validator.middleware');
 

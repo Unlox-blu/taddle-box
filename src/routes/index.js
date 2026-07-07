@@ -17,12 +17,16 @@ router.use('/xp',            require('./xp.route'));
 router.use('/feed',          require('./feed.route'));
 router.use('/notifications', require('./notification.route'));
 router.use('/media',         require('./media.route'));
+router.use('/push',         require('./push.route'));
 router.use('/search',        require('./search.route'));
+router.use('/share',         require('./share.route'));
 router.use('/streak',        require('./streak.route'));
 router.use('/settings',      require('./settings.route'));
 router.use('/highlight',     require('./highlight.route'));
 router.use('/active-status', require('./activestatus.route'));
 router.use('/app-config',    require('./appconfig.route'));
+router.use('/bookmark',      require('./bookmark.route'));
+router.use('/save',          require('./save.route'));
 
 // Expose auth-only router (used by app.js for stricter rate limiting)
 router.authOnly = authRoute;

@@ -23,4 +23,4 @@ const mediaService = new MediaService({
 const mediaController = new MediaController({ mediaService })
 
 // Export controller as default, but also export service and repository for other modules
-module.exports = {mediaController}
+module.exports = {mediaController, mediaService}

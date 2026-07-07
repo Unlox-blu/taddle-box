@@ -94,6 +94,21 @@ const update = async (communityId, fields) => {
   }
 };
 
+const findAvatarAndBanner = async (communityId) => {
+  try {
+    const {rows} = await pool.query(
+      `SELECT ${CommunityModel.MEDIA_FIELDS}
+      FROM ${CommunityModel.TABLE} c
+      WHERE c.id = $1`,
+      [communityId]
+    )
+    return rows[0] ?  CommunityModel.format(rows[0]) : null;
+  } catch (error) {
+    throw error
+  }
+} 
+
+
 const updateAvatar = async (communityId, fileUrl) => {
   try {
     const { rows } = await pool.query(
@@ -280,6 +295,7 @@ module.exports = {
   findBySlug,
   create,
   update,
+  findAvatarAndBanner,
   updateAvatar,
   updateBanner,
   softDelete,

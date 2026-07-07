@@ -2,11 +2,11 @@
 
 // ─── src/routes/user.route.js ────────────────────────────────────────────────
 const router = require('express').Router();
-const { userController }         = require('../container');
+const { userController }         = require('../modules/user/user.container');
 const { verifyToken, optionalAuth } = require('../middlewares/auth.middleware');
 const { validate }               = require('../middlewares/validator.middleware');
 const { uploadSingle }           = require('../middlewares/upload.middleware');
-const { updateProfileSchema, updateUsernameSchema, updatePrivacySchema, updateBannerSchema, updateAvatarSchema } = require('../validators/user.validator');
+const { updateProfileSchema, updateUsernameSchema, updatePrivacySchema, updateBannerSchema, updateAvatarSchema } = require('../modules/user/user.validator');
 
 router.patch('/update-profile',             verifyToken,     validate(updateProfileSchema),     userController.updateProfile);
 router.patch('/update-avatar',               verifyToken,    validate(updateAvatarSchema),     userController.updateAvatar);

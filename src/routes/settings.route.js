@@ -2,10 +2,10 @@
 
 // ─── src/routes/user.route.js ────────────────────────────────────────────────
 const router = require('express').Router();
-const { settingsController }         = require('../container');
+const { settingsController }         = require('../modules/settings/settings.container');
 const { verifyToken } = require('../middlewares/auth.middleware');
 const { validate }               = require('../middlewares/validator.middleware');
-const { setAppLockSchema, setThemeSchema } = require('../validators/settings.validator');
+const { setAppLockSchema, setThemeSchema } = require('../modules/settings/settings.validator');
 
 
 router.post('/',                        verifyToken,                                   settingsController.createSettings)

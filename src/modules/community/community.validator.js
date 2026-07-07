@@ -26,11 +26,11 @@ const createCommunitySchema = z.object({
 const updateCommunitySchema = createCommunitySchema.partial();
 
 const updateAvatarSchema = z.object({
-  avatarUrl: z.string().uuid()
+  avatarMediaId: z.string().uuid()
 })
 
 const updateBannerSchema = z.object({
-  bannerUrl: z.string().uuid()
+  bannerMediaId: z.string().uuid()
 })
 
 module.exports = { createCommunitySchema, updateCommunitySchema, updateAvatarSchema, updateBannerSchema };

@@ -12,6 +12,7 @@ const UserController = require('./user.controller')
 const {taskService} = require('../task/task.container')
 const {bookmarkService} = require('../bookmark/bookmark.container')
 const {saveService} = require('../save/save.container')
+const {mediaService} = require('../media/media.container')
 
 // Integrations
 const storageIntegration = require('../../integrations/storage/storage.service')
@@ -20,6 +21,7 @@ const storageIntegration = require('../../integrations/storage/storage.service')
 const userService = new UserService({
   userRepository,
   followerRepository,
+  mediaService,
   bookmarkService,
   saveService,
   storageIntegration,

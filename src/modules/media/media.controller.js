@@ -29,6 +29,18 @@ class MediaController {
     }
   };
 
+  cancleImageUpload = async(req, res, next) => {
+    try {
+      const userId = req.userId
+      const {mediaId} = req.params;
+      await this.mediaSvc.cancleImageUpload({userId, mediaId})
+      res.json(apiResponse(null, "Cancle upload successfully!!"));
+    } catch (error) {
+      throw error
+    }
+  }
+
+
   getVideoUploadUrl = async (req, res, next) => {
     try {
       const userId = req.userId;
@@ -63,16 +75,7 @@ class MediaController {
   }
 
 
-  cancleUpload = async(req, res, next) => {
-    try {
-      const userId = req.userId
-      const {mediaId} = req.params;
-      await this.mediaSvc.cancleUpload({userId, mediaId})
-      res.json(apiResponse(null, "Cancle upload successfully!!"));
-    } catch (error) {
-      throw error
-    }
-  }
+
 
   // temporary for development 
   gets3Uploaded = async (req, res, next) => {

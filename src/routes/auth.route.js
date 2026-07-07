@@ -1,7 +1,7 @@
 'use strict';
 
 const router = require('express').Router();
-const { authController } = require('../container');
+const { authController } = require('../modules/auth/auth.container');
 const { verifyToken } = require('../middlewares/auth.middleware');
 const { otpRateLimiter } = require('../middlewares/rate-limiter.middleware');
 const { validate } = require('../middlewares/validator.middleware');
@@ -14,11 +14,12 @@ const {
   sendOtpToPhoneSchema,
   verifyOtpForPhoneSchema,
   loginPinSchema,
-} = require('../validators/auth.validator');
+} = require('../modules/auth/auth.validator');
 
 
 router.post('/send-otp-email',        otpRateLimiter, validate(sendOtpToEmailSchema),  authController.sendOtpToEmail)
 router.post('/verify-otp-email',      validate(verifyOtpForEmail),                authController.verifyOtpForEmail)
+router.post('/username',                                                           authController.usernameAvailable )
 router.post('/signup',                validate(signupSchema),                   authController.signUp);
 router.post('/login',                 validate(loginSchema),                    authController.login);
 router.post('/verify-loginpin',       verifyToken,     validate(loginPinSchema),       authController.verifyLoginPin);

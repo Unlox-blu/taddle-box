@@ -33,8 +33,8 @@ class UserController {
   updateAvatar = async (req, res, next) => {
     try {
       const userId = req.userId;
-      const {avatarUrl} = req.body;
-      const updateAvatar = await this.userSvc.updateAvatar({userId, avatarUrl});
+      const {avatarMediaId} = req.body;
+      const updateAvatar = await this.userSvc.updateAvatar({userId, avatarMediaId});
       res.json(apiResponse(updateAvatar, 'Avatar updated successfully'));
     } catch (error) {
       next(error);
@@ -44,8 +44,8 @@ class UserController {
   updateBanner = async (req, res, next) => {
     try {
       const userId = req.userId;
-      const {bannerUrl} = req.body;
-      const updateBanner = await this.userSvc.updateBanner({userId, bannerUrl});
+      const {bannerMediaId} = req.body;
+      const updateBanner = await this.userSvc.updateBanner({userId, bannerMediaId});
       res.json(apiResponse(updateBanner, 'Banner updated successfully'));
     } catch (error) {
       next(error);

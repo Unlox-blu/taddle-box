@@ -14,6 +14,10 @@ const DETAIL_FIELDS = [
   'c.post_count', 'c.is_active', 'c.is_verified', 'c.metadata', 'c.created_at', 'c.updated_at',
 ].join(', ');
 
+const MEDIA_FIELDS = [
+  'c.avatar_url', 'c.banner_url',
+].join(', ');
+
 const PRIVACY_TYPES = ['public', 'private', 'restricted'];
 const MEMBER_ROLES = ['member', 'moderator', 'admin'];
 const MEMBER_STATUSES = ['active', 'pending', 'banned'];
@@ -31,6 +35,8 @@ const format = (row) => {
     name: row.name,
     slug: row.slug,
     description: row.description,
+    avatarMediaId: row.avatar_url,
+    bannerMediaId: row.banner_url,
     avatarUrl: row.avatar_media_url,
     bannerUrl: row.banner_media_url,
     privacy: row.privacy,
@@ -50,5 +56,6 @@ module.exports = {
   TABLE, MEMBERS_TABLE,
   LIST_FIELDS, DETAIL_FIELDS,
   PRIVACY_TYPES, MEMBER_ROLES, MEMBER_STATUSES,
+  MEDIA_FIELDS,
   sanitize, format,
 };

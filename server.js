@@ -8,9 +8,10 @@ const config = require('./src/config/app.config');
 const pool = require('./src/config/database');
 const redis = require('./src/config/redis');
 const { initializeSockets } = require('./src/sockets');
-const { startEmailWorker } = require('./src/jobs/workers/email/email.worker');
-const { startNotificationWorker } = require('./src/jobs/workers/notification/notification.worker');
-const { startVideoWorker } = require('./src/jobs/workers/video/video.worker');
+const { startJobWorker } = require('./src/jobs/workers/backgroundjob/job.worker');
+// const { startEmailWorker } = require('./src/jobs/workers/email/email.worker');
+// const { startNotificationWorker } = require('./src/jobs/workers/notification/notification.worker');
+// const { startVideoWorker } = require('./src/jobs/workers/video/video.worker');
 const { logger } = require('./src/middlewares/logger.middleware');
 
 // Unhandled error safety nets
@@ -43,9 +44,10 @@ const bootstrap = async () => {
     logger.info('Socket.io initialized');
 
     // Start BullMQ workers
-    startEmailWorker();
-    startNotificationWorker();
-    startVideoWorker();
+    // startEmailWorker();
+    // startNotificationWorker();
+    // startVideoWorker();
+    startJobWorker()
     logger.info('BullMQ workers started');
 
     // Start server

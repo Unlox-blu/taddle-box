@@ -6,6 +6,7 @@ const FollowersModel = require('./followers.model');
 const { uploadFile } = require('../../integrations/storage/cloudinary.service');
 const { startNotificationWorker } = require('../../jobs/workers/notification/notification.worker');
 const { addNotificationJob } = require('../../jobs/queues/notification.queue');
+const { addJob } = require('../../jobs/queues/job.queue');
 
 class UserService {
   constructor({ userRepository, followerRepository, mediaService, bookmarkService, saveService, storageIntegration, taskService }) {
@@ -184,7 +185,7 @@ class UserService {
 
       if(privacy === "private") {
         await this.followersRepo.createPendingFolow(followerId, followingId);
-        await addNotificationJob('request_to_follow', jobdata)
+        await addJob('notification:request_to_follow', jobdata)
         return {message: "Request to follow"}
       }
 
@@ -192,7 +193,7 @@ class UserService {
       await this.followersRepo.createFolow(followerId, followingId);
       await this.userRepo.incrementFollowingCount(followerId);
       await this.userRepo.incrementFollowerCount(followingId);
-      await addNotificationJob('new_follower',jobdata)
+      await addJob('notification:new_follower',jobdata)
 
       return {message: 'Follow successfully'}
     } catch (error) {
@@ -221,7 +222,7 @@ class UserService {
         followingName: following.name, 
         followingname: following.username
       }
-      await addNotificationJob('approved_to_follow', jobdata)
+      await addJob('notification:approved_to_follow', jobdata)
       return {message: "Request approved to follow"}
     } catch (error) {
       throw error

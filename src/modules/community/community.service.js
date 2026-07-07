@@ -5,6 +5,7 @@ const CommunityModel = require('./community.model');
 const PostModel = require('../post/post.model');
 const { uploadFile } = require('../../integrations/storage/cloudinary.service');
 const { addNotificationJob } = require('../../jobs/queues/notification.queue');
+const { addJob } = require('../../jobs/queues/job.queue');
 
 class CommunityService {
   constructor({ communityRepository, postRepository, userRepository, mediaService}) {
@@ -126,10 +127,10 @@ class CommunityService {
       }
       
       if(isPending){
-        await addNotificationJob('request_to_join_community', jobdata)
+        await addJob('notification:request_to_join_community', jobdata)
       }else {
         await this.communityRepo.incrementMemberCount(communityId);
-        await addNotificationJob('new_member_join_community', jobdata)
+        await addJob('notification:new_member_join_community', jobdata)
       }
 
       return { status };
@@ -217,7 +218,7 @@ class CommunityService {
         approvalId: approvalId
       }
       
-      await addNotificationJob('approved_to_join_community', jobdata)
+      await addJob('notification:approved_to_join_community', jobdata)
     } catch (error) {
       throw error;
     }

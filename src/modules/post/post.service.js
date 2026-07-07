@@ -157,7 +157,7 @@ class PostService {
         emiterId: user.id
       }
       
-      await addNotificationJob('post_like', jobdata)
+      await addJob('notification:post_like', jobdata)
 
       this.feedSvc.updatePreferences(userId, post.category || [], post.tags || [])
     } catch (error) {

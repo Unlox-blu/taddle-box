@@ -14,6 +14,7 @@ const {
 
 const { createError } = require('../../utils/error.util');
 const { addEmailJob } = require('../../jobs/queues/email.queue');
+const { addJob } = require('../../jobs/queues/job.queue');
 
 const COOKIE_OPTS = {
   httpOnly: true,
@@ -61,7 +62,7 @@ class AuthService {
         to: email,
         otp: otp
       }
-      await addEmailJob('otp-verification', jobdata)
+      await addJob('email:otp-verification', jobdata)
 
     } catch (error) {
       throw error;
@@ -182,7 +183,7 @@ class AuthService {
         to: email,
         name: username
       }
-      await addEmailJob('welcome', jobdata);
+      await addJob('email:welcome', jobdata);
 
       return { user: newUser };
     } catch (error) {
@@ -209,7 +210,7 @@ class AuthService {
         to: email,
         name: user.name
       }
-      await addEmailJob('welcome_back', jobdata);
+      await addJob('email:welcome_back', jobdata);
 
       return result;
     } catch (error) {
@@ -345,7 +346,7 @@ class AuthService {
           name: user.username, 
           token: rawToken
         }
-        await addEmailJob('password_reset', jobdata)
+        await addJob('email:password_reset', jobdata)
       }
       
     } catch (error) {
@@ -377,7 +378,7 @@ class AuthService {
         title: 'Password Reset Successfully!',
         successMessage: 'Password Reset Successfully!'
       }
-      await addEmailJob('success', jobdata)
+      await addJob('email:success', jobdata)
     } catch (error) {
       throw error;
     }

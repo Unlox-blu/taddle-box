@@ -6,6 +6,7 @@ const mediaRepository = require('../../../modules/media/media.repository');
 const { emitNotification } = require('../../../sockets/notification.socket');
 const { addVideoJob } = require('../../queues/video.queue');
 const { logger } = require('../../../middlewares/logger.middleware');
+const { addJob } = require('../../queues/job.queue');
 
 const videoJobProcessor = async (job) => {
       logger.info(`[VideoWorker] Processing: ${job.name}`, { id: job.id });
@@ -37,7 +38,7 @@ const videoJobProcessor = async (job) => {
             // Not ready yet — re-queue with delay (max 10 re-polls)
             const attempt = (job.data.attempt || 0) + 1;
             if (attempt <= 10) {
-              await addVideoJob('poll_status', { ...job.data, attempt }, { delay: 30000 });
+              await addJob('video:poll_status', { ...job.data, attempt }, { delay: 30000 });
             } else {
               await mediaRepository.updateStatus(mediaId, 'timeout');
             }

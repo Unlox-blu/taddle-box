@@ -3,6 +3,7 @@
 const { createError } = require('../../utils/error.util');
 const CommentModel = require('./comment.model');
 const { addNotificationJob } = require('../../jobs/queues/notification.queue');
+const { addJob } = require('../../jobs/queues/job.queue');
 
 class CommentService {
   constructor({
@@ -76,7 +77,7 @@ class CommentService {
         comment: content,
       };
 
-      await addNotificationJob('post_comment', data);
+      await addJob('notification:post_comment', data);
 
       this.feedSvc.updatePreferences(authorId, post.category || [], post.tags || []);
       return CommentModel.format(comment);
@@ -133,7 +134,7 @@ class CommentService {
         comment: content,
       };
 
-      await addNotificationJob('post_comment', data);
+      await addJob('notification:post_comment', data);
 
       return CommentModel.format(updated);
     } catch (error) {

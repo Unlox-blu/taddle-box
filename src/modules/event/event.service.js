@@ -5,6 +5,7 @@ const EventModel = require('./event.model');
 const config  = require('../../config/app.config');
 const { addEmailJob } = require('../../jobs/queues/email.queue');
 const { generateEventInvite } = require('../../integrations/calendar/calendar.service');
+const { addJob } = require('../../jobs/queues/job.queue');
 
 class EventService {
   constructor({ eventRepository, walletRepository, userRepository, saveRepository, }) {
@@ -64,7 +65,7 @@ class EventService {
         eventLocation: location, 
         eventUrl: `${config.BASE_URL}/api/v1/events/${event.id}`
       }
-      await addEmailJob('event_registration_success', jobdata)
+      await addJob('email:event_registration_success', jobdata)
 
       if(status === 'registered') {
         const calendarData = {
@@ -81,7 +82,7 @@ class EventService {
                 content: icsContent,
                 contentType: "text/calendar; method=REQUEST",
                 }]
-        await addEmailJob('send_invitation_event', {...jobdata, attachments})
+        await addJob('email:send_invitation_event', {...jobdata, attachments})
       }
 
       return { status: status, message: 'Registered successfully' };

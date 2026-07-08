@@ -100,4 +100,8 @@ const updateEventSchema = z.object({
     path: ['ticketPriceCents'],
   })
 
-module.exports = { createEventSchema, updateEventSchema };
+  const eventIdParamsSchema = z.object({
+    eventId: z.string().uuid({ message: "Invalid eventId format" })
+  }).strict();
+
+module.exports = { createEventSchema, updateEventSchema, eventIdParamsSchema };

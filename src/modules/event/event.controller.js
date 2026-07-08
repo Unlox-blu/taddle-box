@@ -8,8 +8,6 @@ class EventController {
     this.eventSvc = eventService;
   }
 
-  
-
   getById = async (req, res, next) => {
     try {
       const { eventId } = req.params;

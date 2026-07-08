@@ -43,7 +43,7 @@ const communityIdParamsSchema = z.object({
 
 const communityIdAndUserIdParamsSchema = z.object({
   communityId: z.string().uuid({ message: "Invalid communityId format" }),
-  userId: z.string().uuid({ message: "Invalid communityId format" })
+  userId: z.string().uuid({ message: "Invalid userId format" })
 }).strict();
 
 module.exports = { createCommunitySchema, updateCommunitySchema, updateAvatarSchema, updateBannerSchema, slugParamsSchema, communityIdParamsSchema, communityIdAndUserIdParamsSchema };

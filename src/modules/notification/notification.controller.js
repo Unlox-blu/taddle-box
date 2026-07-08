@@ -37,9 +37,9 @@ class NotificationController {
 
   markOneRead = async (req, res, next) => {
     try {
-      const { id } = req.params;
+      const { notificationId } = req.params;
       const userId = req.userId;
-      await this.notifSvc.markOneRead({id, userId});
+      await this.notifSvc.markOneRead({notificationId, userId});
       res.json(apiResponse(null, 'Notification marked as read'));
     } catch (error) {
       next(error);

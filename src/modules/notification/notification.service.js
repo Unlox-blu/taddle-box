@@ -56,7 +56,7 @@ class NotificationService {
     }
   }
 
-  async markOneRead({id: notificationId, userId}) {
+  async markOneRead({notificationId, userId}) {
     try {
       await this.notifRepo.markOneRead(notificationId, userId);
     } catch (error) {

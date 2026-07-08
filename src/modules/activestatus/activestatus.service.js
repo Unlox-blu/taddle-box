@@ -20,7 +20,9 @@ class ActiveStatusService {
       }
 
       const status = await this.activeStatusRepo.findByUserId(userId);
-      console.log(status)
+      if(!status)
+        throw createError("status not found", 404)
+      
       return status.isActive === 'online' ? {status: 'online'} : {lastSeen: status.lastSeen};
     } catch (error) {
       throw error;

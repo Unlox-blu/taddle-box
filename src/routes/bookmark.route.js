@@ -5,7 +5,8 @@ const router = require('express').Router();
 const { bookmarkController } = require('../modules/bookmark/bookmark.container');
 const { verifyToken }      = require('../middlewares/auth.middleware');
 const { validateRequest }         = require('../middlewares/validator.middleware');
+const { paginationQuerySchema } = require('../modules/bookmark/bookmark.validator');
 
-router.get('/',                  verifyToken,                                   bookmarkController.getBookmarks);
+router.get('/',          verifyToken,   validateRequest({query: paginationQuerySchema}),    bookmarkController.getBookmarks);
 
 module.exports = router;

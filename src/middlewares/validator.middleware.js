@@ -25,8 +25,7 @@ const validateRequest = ({ body, query, params }) => (req, _res, next) => {
       err.errors = errors;
       return next(err);
     }
-
-    req[key] = result.data;
+    Object.assign(req[key], result.data);
   }
   next();
   } catch (error) {

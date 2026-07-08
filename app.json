@@ -1,0 +1,27 @@
+{
+  "expo": {
+    "name": "TADDLEBOX",
+    "slug": "taddlebox",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "icon": "./assets/icon.png",
+    "userInterfaceStyle": "dark",
+    "splash": {
+      "image": "./assets/splash.png",
+      "resizeMode": "contain",
+      "backgroundColor": "#070714"
+    },
+    "ios": {
+      "supportsTablet": false,
+      "bundleIdentifier": "com.taddlebox.app"
+    },
+    "android": {
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/adaptive-icon.png",
+        "backgroundColor": "#070714"
+      },
+      "package": "com.taddlebox.app"
+    },
+    "plugins": ["expo-font"]
+  }
+}

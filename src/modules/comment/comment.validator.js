@@ -12,4 +12,13 @@ const updateCommentSchema = z.object({
   content: z.string().min(1).max(5000),
 }).strict();
 
-module.exports = { createCommentSchema, updateCommentSchema };
+const postIdParamsSchema = z.object({
+  postId: z.string().uuid('Invalid post ID'),
+}).strict();
+
+const commentIdParamsSchema = z.object({
+  commentId: z.string().uuid('Invalid comment ID'),
+}).strict();
+
+
+module.exports = { createCommentSchema, updateCommentSchema, postIdParamsSchema, commentIdParamsSchema };

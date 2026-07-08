@@ -4,7 +4,7 @@
 const router = require('express').Router();
 const { streakController }         = require('../modules/streak/streak.container');
 const { verifyToken, optionalAuth } = require('../middlewares/auth.middleware');
-const { validate }               = require('../middlewares/validator.middleware');
+const { validateRequest }               = require('../middlewares/validator.middleware');
 
 
 router.post('/',             verifyToken,                       streakController.createOrUpdate)

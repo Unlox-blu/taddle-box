@@ -4,15 +4,15 @@
 const router = require('express').Router();
 const { userController }         = require('../modules/user/user.container');
 const { verifyToken, optionalAuth } = require('../middlewares/auth.middleware');
-const { validate }               = require('../middlewares/validator.middleware');
+const { validateRequest }               = require('../middlewares/validator.middleware');
 const { uploadSingle }           = require('../middlewares/upload.middleware');
 const { updateProfileSchema, updateUsernameSchema, updatePrivacySchema, updateBannerSchema, updateAvatarSchema } = require('../modules/user/user.validator');
 
-router.patch('/update-profile',             verifyToken,     validate(updateProfileSchema),     userController.updateProfile);
-router.patch('/update-avatar',               verifyToken,    validate(updateAvatarSchema),     userController.updateAvatar);
-router.patch('/update-banner',               verifyToken,    validate(updateBannerSchema),     userController.updateBanner);
-router.patch('/update-username',            verifyToken,     validate(updateUsernameSchema),    userController.updateUsername);
-router.patch('/update-privacy',             verifyToken,     validate(updatePrivacySchema),     userController.updatePrivacy);
+router.patch('/update-profile',             verifyToken,     validateRequest({body: updateProfileSchema}),     userController.updateProfile);
+router.patch('/update-avatar',               verifyToken,    validateRequest({body: updateAvatarSchema}),     userController.updateAvatar);
+router.patch('/update-banner',               verifyToken,    validateRequest({body: updateBannerSchema}),     userController.updateBanner);
+router.patch('/update-username',            verifyToken,     validateRequest({body: updateUsernameSchema}),    userController.updateUsername);
+router.patch('/update-privacy',             verifyToken,     validateRequest({body: updatePrivacySchema}),     userController.updatePrivacy);
 router.get('/bookmarked',                   verifyToken,     userController.getbookmarked);
 router.get('/save',                         verifyToken,     userController.getsaved);
 

@@ -5,7 +5,7 @@ const router = require('express').Router();
 const { eventController }            = require('../modules/event/event.container');
 const { verifyToken, optionalAuth }  = require('../middlewares/auth.middleware');
 const { authorize } = require('../middlewares/authorized.middleware');
-const { validate }                   = require('../middlewares/validator.middleware');
+const { validateRequest }                   = require('../middlewares/validator.middleware');
 const { createEventSchema, updateEventSchema } = require('../modules/event/event.validator');
 
 
@@ -16,8 +16,8 @@ router.delete('/:eventId/save',        verifyToken,  eventController.removeSaved
 router.delete('/:eventId/register',  verifyToken,  eventController.cancelRegistration);
 
 //admin route only
-router.post('/create-event',         verifyToken,                   validate(createEventSchema), eventController.create);
-router.patch('/update-event/:eventId', verifyToken, authorize('admin', 'superadmin'),  validate(updateEventSchema), eventController.update);
+router.post('/create-event',         verifyToken,                   validateRequest({ body: createEventSchema}), eventController.create);
+router.patch('/update-event/:eventId', verifyToken, authorize('admin', 'superadmin'),  validateRequest({ body: updateEventSchema}), eventController.update);
 router.delete('/:eventId',           verifyToken, authorize('admin', 'superadmin'),  eventController.remove);
 router.get('/:eventId/attendees',    verifyToken,   eventController.getAttendees);
 

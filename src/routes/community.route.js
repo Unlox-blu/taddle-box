@@ -5,15 +5,15 @@ const router = require('express').Router();
 const { communityController }        = require('../modules/community/community.container');
 const { verifyToken, optionalAuth }  = require('../middlewares/auth.middleware');
 const { authorize }                  = require('../middlewares/authorized.middleware');
-const { validate }                   = require('../middlewares/validator.middleware');
+const { validateRequest }                   = require('../middlewares/validator.middleware');
 const { createCommunitySchema, updateCommunitySchema, updateAvatarSchema, updateBannerSchema } = require('../modules/community/community.validator');
 
 
-router.post('/create-community',                       verifyToken,  validate(createCommunitySchema),   communityController.create);
-router.get('/:slug',                                   optionalAuth,                                    communityController.getBySlug);
-router.patch('/:communityId/update-community',         verifyToken,  validate(updateCommunitySchema),   communityController.update);
-router.patch('/:communityId/update-community-avatar',  verifyToken,  validate(updateAvatarSchema),                          communityController.updateAvatar);
-router.patch('/:communityId/update-community-banner',  verifyToken,  validate(updateBannerSchema),                                   communityController.updateBanner);
+router.post('/create-community',                       verifyToken,  validateRequest({body: createCommunitySchema}),   communityController.create);
+router.get('/:slug',                                   optionalAuth,                                                   communityController.getBySlug);
+router.patch('/:communityId/update-community',         verifyToken,  validateRequest({body: updateCommunitySchema}),   communityController.update);
+router.patch('/:communityId/update-community-avatar',  verifyToken,  validateRequest({body: updateAvatarSchema}),      communityController.updateAvatar);
+router.patch('/:communityId/update-community-banner',  verifyToken,  validateRequest({body: updateBannerSchema}),      communityController.updateBanner);
 router.delete('/:communityId',                         verifyToken,                                     communityController.remove);
 router.post('/:communityId/join',                      verifyToken,                                     communityController.join);
 router.delete('/:communityId/leave',                   verifyToken,                                     communityController.leave);

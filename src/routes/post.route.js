@@ -5,14 +5,14 @@ const router = require('express').Router();
 const { postController }             = require('../modules/post/post.container');
 const { verifyToken, optionalAuth }  = require('../middlewares/auth.middleware');
 const { authorize }                  = require('../middlewares/authorized.middleware');
-const { validate }                   = require('../middlewares/validator.middleware');
+const { validateRequest }                   = require('../middlewares/validator.middleware');
 const { createPostSchema, updatePostSchema } = require('../modules/post/post.validator');
 
 
-router.post('/create-post',             verifyToken,   validate(createPostSchema),          postController.createPost);
+router.post('/create-post',             verifyToken,   validateRequest({body: createPostSchema}),          postController.createPost);
 router.get('/:postId',                  optionalAuth,                                       postController.getPost);
 router.get('/user/:authorId',           optionalAuth,                                       postController.getUserPosts); 
-router.patch('/:postId/update-post',    verifyToken,   validate(updatePostSchema),          postController.updatePost);
+router.patch('/:postId/update-post',    verifyToken,   validateRequest({body: updatePostSchema}),          postController.updatePost);
 router.delete('/:postId',               verifyToken,                                        postController.deletePost);
 
 router.post('/:postId/like',            verifyToken,                                        postController.likePost);

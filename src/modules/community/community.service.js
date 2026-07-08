@@ -26,7 +26,7 @@ class CommunityService {
 
       await this.communityRepo.addMember(community.id, ownerId, 'admin');
       await this.communityRepo.incrementMemberCount(community.id);
-      return CommunityModel.format(community);
+      return community;
     } catch (error) {
       throw error;
     }
@@ -36,7 +36,7 @@ class CommunityService {
     try {
       const community = await this.communityRepo.findBySlug(slug);
       if (!community) throw createError('Community not found', 404);
-      return CommunityModel.format(community);
+      return community;
     } catch (error) {
       throw error;
     }
@@ -47,12 +47,12 @@ class CommunityService {
       const community = await this.communityRepo.findById(communityId);
       if (!community) throw createError('Community not found', 404);
 
-      const isOwner = community.owner_id === userId;
+      const isOwner = community.ownerId === userId;
       const isAdmin = userRole === 'admin' || userRole === 'superadmin';
       if (!isOwner && !isAdmin) throw createError('Not authorized to update this community', 403);
 
       const updated = await this.communityRepo.update(communityId, data);
-      return CommunityModel.format(updated);
+      return updated;
     } catch (error) {
       throw error;
     }
@@ -92,7 +92,7 @@ class CommunityService {
       const community = await this.communityRepo.findById(communityId);
       if (!community) throw createError('Community not found', 404);
 
-      if (community.owner_id !== userId && userRole !== 'superadmin') {
+      if (community.ownerId !== userId && userRole !== 'superadmin') {
         throw createError('Only the owner can delete this community', 403);
       }
 
@@ -142,7 +142,7 @@ class CommunityService {
   async leave({communityId, userId}) {
     try {
       const community = await this.communityRepo.findById(communityId);
-      if (community?.owner_id === userId)
+      if (community?.ownerId === userId)
         throw createError('Owner cannot leave the community', 400);
 
       const isMember = await this.communityRepo.isMember(communityId, userId);

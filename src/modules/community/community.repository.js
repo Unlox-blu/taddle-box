@@ -15,7 +15,7 @@ const findById = async (communityId) => {
       WHERE c.id = $1 AND c.deleted_at IS NULL`,
       [communityId]
     );
-    return rows[0] || null;
+    return rows[0] ? CommunityModel.format(rows[0]) : null;
   } catch (error) {
     throw error;
   }
@@ -33,7 +33,7 @@ const findBySlug = async (slug) => {
       WHERE c.slug = $1 AND c.deleted_at IS NULL`,
       [slug]
     );
-    return rows[0] || null;
+    return rows[0] ? CommunityModel.format(rows[0]) : null;
   } catch (error) {
     throw error;
   }
@@ -55,7 +55,7 @@ const create = async (data) => {
         data.ownerId,
       ]
     );
-    return rows[0];
+    return rows[0] ? CommunityModel.format(rows[0]) : null;
   } catch (error) {
     throw error;
   }
@@ -88,7 +88,7 @@ const update = async (communityId, fields) => {
      WHERE id = $${values.length} RETURNING *`,
       values
     );
-    return rows[0];
+    return rows[0] ? CommunityModel.format(rows[0]) : null;
   } catch (error) {
     throw error;
   }
@@ -116,7 +116,7 @@ const updateAvatar = async (communityId, fileUrl) => {
      WHERE id = $2 RETURNING avatar_url`,
       [fileUrl, communityId]
     );
-    return rows[0];
+    return rows[0] ?  CommunityModel.format(rows[0]) : null;
   } catch (error) {
     throw error;
   }
@@ -129,7 +129,7 @@ const updateBanner = async (communityId, fileUrl) => {
      WHERE id = $2 RETURNING avatar_url`,
       [fileUrl, communityId]
     );
-    return rows[0];
+    return rows[0] ?  CommunityModel.format(rows[0]) : null;
   } catch (error) {
     throw error;
   }

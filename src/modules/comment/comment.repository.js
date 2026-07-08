@@ -7,7 +7,8 @@ const findById = async (commentId) => {
   try {
     const { rows } = await pool.query(
       `SELECT ${CommentModel.LIST_FIELDS}
-     FROM ${CommentModel.TABLE} c JOIN users u ON u.id = c.author_id
+     FROM ${CommentModel.TABLE} c 
+     JOIN users u ON u.id = c.author_id
      WHERE c.id = $1 AND c.deleted_at IS NULL`,
       [commentId]
     );

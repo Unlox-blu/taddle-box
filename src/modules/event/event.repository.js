@@ -9,7 +9,7 @@ const findById = async (eventId) => {
       `SELECT ${EventModel.DETAIL_FIELDS} FROM ${EventModel.TABLE} WHERE id = $1 AND deleted_at IS NULL`,
       [eventId]
     );
-    return rows[0] || null;
+    return rows[0] ? EventModel.format(rows[0]) : null;
   } catch (error) {
     throw error;
   }
@@ -30,7 +30,8 @@ const search = async (query, filter, limit, offset) => {
       [`%${q}%`, eventType, limit, offset]
     );
     const total = rows[0]?.total || 0;
-    return { rows, total: parseInt(total, 10) };
+    const event = rows.length > 0 ? rows.map(EventModel.format) : []
+    return { event, total: parseInt(total, 10) };
   } catch (error) {
     throw error;
   }
@@ -64,7 +65,7 @@ const create = async (data) => {
         data.tags || [],
       ]
     );
-    return rows[0];
+    return rows[0] ? EventModel.format(rows[0]) : null;
   } catch (error) {
     throw error;
   }
@@ -98,7 +99,7 @@ const update = async (eventId, fields) => {
       `UPDATE ${EventModel.TABLE} SET ${updates.join(', ')}, updated_at = NOW() WHERE id = $${values.length} RETURNING ${EventModel.DETAIL_FIELDS}`,
       values
     );
-    return rows[0];
+    return rows[0] ? EventModel.format(rows[0]) : null;
   } catch (error) {
     throw error;
   }
@@ -141,7 +142,8 @@ const removeAttendee = async (eventId, userId) => {
 const getAttendee = async (eventId, userId) => {
   try {
     const { rows } = await pool.query(
-      `SELECT * FROM ${EventModel.ATTENDEES_TABLE} WHERE event_id = $1 AND user_id = $2`,
+      `SELECT * FROM ${EventModel.ATTENDEES_TABLE} 
+      WHERE event_id = $1 AND user_id = $2`,
       [eventId, userId]
     );
     return rows[0] || null;
@@ -154,7 +156,8 @@ const getAttendees = async (eventId, limit, offset) => {
   try {
     const { rows } = await pool.query(
       `SELECT ea.*, u.name, u.username, u.avatar_url, COUNT(*) OVER() AS total
-     FROM ${EventModel.ATTENDEES_TABLE} ea JOIN users u ON u.id = ea.user_id
+     FROM ${EventModel.ATTENDEES_TABLE} ea 
+     JOIN users u ON u.id = ea.user_id
      WHERE ea.event_id = $1 ORDER BY ea.registered_at DESC LIMIT $2 OFFSET $3`,
       [eventId, limit, offset]
     );
@@ -167,7 +170,7 @@ const getAttendees = async (eventId, limit, offset) => {
 
 const incrementAttendeeCount = async (id) => {
   try {
-    pool.query(`UPDATE ${EventModel.TABLE} SET attendee_count = attendee_count + 1 WHERE id = $1`, [
+    await pool.query(`UPDATE ${EventModel.TABLE} SET attendee_count = attendee_count + 1 WHERE id = $1`, [
       id,
     ]);
   } catch (error) {
@@ -177,7 +180,7 @@ const incrementAttendeeCount = async (id) => {
 
 const decrementAttendeeCount = async (id) => {
   try {
-    pool.query(
+    await pool.query(
       `UPDATE ${EventModel.TABLE} SET attendee_count = GREATEST(0, attendee_count - 1) WHERE id = $1`,
       [id]
     );
@@ -187,7 +190,7 @@ const decrementAttendeeCount = async (id) => {
 };
 const updateAttendeeStatus = async (eventId, userId, status) => {
   try {
-    pool.query(
+    await pool.query(
       `UPDATE ${EventModel.ATTENDEES_TABLE} SET status = $1 WHERE event_id = $2 AND user_id = $3`,
       [status, eventId, userId]
     );
@@ -198,7 +201,7 @@ const updateAttendeeStatus = async (eventId, userId, status) => {
 
 const confirmPayment = async (eventId, userId, rp) => {
   try {
-    pool.query(
+    await pool.query(
       `UPDATE ${EventModel.ATTENDEES_TABLE} SET razorpay_payment_id = $1, status = 'registered' WHERE event_id = $2 AND user_id = $3`,
       [rp.paymentId, eventId, userId]
     );

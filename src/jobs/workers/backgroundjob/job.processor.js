@@ -7,7 +7,7 @@ const videoJobProcessor = require('../video/video.jobprocessor')
 
 const jobProcessor = async (job) => {
       logger.info(`[JobWorker] Processing job: ${job.name}`, { id: job.id });
-      console.log(job.name)
+      // console.log(job.name)
       const [jobType, jobName] = job.name.split(":")
       job.name = jobName
       

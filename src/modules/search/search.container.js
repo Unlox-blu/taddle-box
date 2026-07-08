@@ -8,14 +8,10 @@ const SearchService = require('./search.service')
 const SearchController = require('./search.controller')
 
 // Dependencies from other modules
-const {userRepository} = require('../user/user.container')
-const {postRepository} = require('../post/post.container')
-const {communityRepository} = require('../community/community.container')
-const {eventRepository} = require('../event/event.container')
 
 
 // Instantiate Service
-const searchService = new SearchService({userRepository, postRepository, communityRepository, eventRepository})
+const searchService = new SearchService({searchRepository})
 
 // Instantiate Controller
 const searchController = new SearchController({ searchService })

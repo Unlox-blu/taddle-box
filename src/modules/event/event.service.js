@@ -1,7 +1,6 @@
 'use strict';
 
 const { createError } = require('../../utils/error.util');
-const EventModel = require('./event.model');
 const config  = require('../../config/app.config');
 const { addEmailJob } = require('../../jobs/queues/email.queue');
 const { generateEventInvite } = require('../../integrations/calendar/calendar.service');
@@ -21,7 +20,7 @@ class EventService {
     try {
       const event = await this.eventRepo.findById(eventId);
       if (!event) throw createError('Event not found', 404);
-      return EventModel.format(event);
+      return event;
     } catch (error) {
       throw error;
     }
@@ -38,9 +37,9 @@ class EventService {
       const existing = await this.eventRepo.getAttendee(eventId, userId);
       if (existing) throw createError('Already registered for this event', 409);
       
-      const status = (!event.max_attendees || event.attendee_count >= event.max_attendees) ? 'registered' : 'waitlisted'
+      const status = (!event.maxAttendees || event.attendeeCount >= event.maxAttendees) ? 'registered' : 'waitlisted'
 
-      if (event.is_free) { 
+      if (event.isFree) { 
         await this.eventRepo.addAttendee(eventId, userId, { status: status });
         await this.eventRepo.incrementAttendeeCount(eventId);
       } else {
@@ -50,7 +49,7 @@ class EventService {
         // await this.eventRepo.addAttendee(eventId, userId, { status: status, razorpayOrderId: order.id });
       }
       
-      const timestamp = new Date(event.start_time);
+      const timestamp = new Date(event.startTime);
       const eventDate = timestamp.toISOString().split('T')[0];
       const eventTime = timestamp.toISOString().split('T')[1]
       const location = JSON.stringify(event.location)
@@ -70,8 +69,8 @@ class EventService {
       if(status === 'registered') {
         const calendarData = {
           uid: event.id,
-          startTime: event.start_time,
-          endTime: event.end_time,
+          startTime: event.startTime,
+          endTime: event.endTime,
           title: event.title,
           description: `Invitation for ${event.title} event`
         }
@@ -142,7 +141,7 @@ class EventService {
         // check validation
       }
       const event = await this.eventRepo.create({ ...data, organizerId });
-      return EventModel.format(event);
+      return event;
     } catch (error) {
       throw error;
     }
@@ -152,7 +151,7 @@ class EventService {
     try {
       const event = await this.eventRepo.findById(eventId);
       if (!event) throw createError('Event not found', 404);
-      if (event.organizer_id !== userId)
+      if (event.organizerId !== userId)
         throw createError('Not authorized to update this event', 403);
 
       const { communityId } = data;
@@ -161,7 +160,7 @@ class EventService {
       }
 
       const updated = await this.eventRepo.update(eventId, data);
-      return EventModel.format(updated);
+      return updated;
     } catch (error) {
       throw error;
     }
@@ -171,7 +170,7 @@ class EventService {
     try {
       const event = await this.eventRepo.findById(eventId);
       if (!event) throw createError('Event not found', 404);
-      if (event.organizer_id !== userId)
+      if (event.organizerId !== userId)
         throw createError('Not authorized to delete this event', 403);
       await this.eventRepo.softDelete(eventId);
     } catch (error) {
@@ -187,7 +186,7 @@ class EventService {
       const event = await this.eventRepo.findById(eventId);
       if (!event) throw createError('Event not found', 404);
 
-      if (event.organizer_id !== userId && userRole === 'user')
+      if (event.organizerId !== userId && userRole === 'user')
         throw createError('You are not authorized', 403);
 
       return this.eventRepo.getAttendees(eventId, limit, offset);

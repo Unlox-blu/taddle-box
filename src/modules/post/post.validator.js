@@ -43,4 +43,29 @@ const updatePostSchema = z.object({
   linkData: z.record(z.unknown()).optional(),
 });
 
-module.exports = { createPostSchema, updatePostSchema };
+const postIdParamsSchema = z.object({
+  postId: z.string().uuid({message: "Invalied PostId"})
+}).strict();
+
+const authorIdParamsSchema = z.object({
+  authorId: z.string().uuid({message: "Invalied authorId"})
+}).strict();
+
+
+const paginationQuerySchema = z.object({
+  // Converts string to number, ensures it is a positive integer, defaults to 1 if missing
+  page: z.coerce
+    .number({ invalid_type_error: "Page must be a number" })
+    .int()
+    .positive()
+    .default(1).optional(),
+
+  limit: z.coerce
+    .number({ invalid_type_error: "Limit must be a number" })
+    .int()
+    .positive()
+    .max(100, "Maximum limit allowed is 100")
+    .default(10).optional(),
+}).strict();
+
+module.exports = { createPostSchema, updatePostSchema, postIdParamsSchema, authorIdParamsSchema, paginationQuerySchema };

@@ -13,7 +13,7 @@ const setupActiveStatus = (io) => {
 
     try {
         await redis.setex(statusKey, 30, 'online');
-        await activeStatusService.setOnline(socket.userId);
+        await activeStatusService.setOnline({userId: socket.userId});
 
         console.log(`${socket.userId} is online`)
     } catch (error) {
@@ -35,7 +35,7 @@ const setupActiveStatus = (io) => {
             console.log(`${socket.userId} disconnected`);
 
             await redis.setex(statusKey, 60, lastSeenTime);
-            await activeStatusService.setOffline(socket.userId);
+            await activeStatusService.setOffline({userId: socket.userId});
         } catch (err) {
             console.error(err);
         }

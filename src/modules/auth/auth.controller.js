@@ -31,7 +31,7 @@ class AuthController {
   usernameAvailable = async (req, res, next) => {
     try {
       const {username} = req.body
-      const { user_name_token :usernameToken} = req.cookie
+      const usernameToken = req.cookie?.user_name_token || null
       const token = await this.authSvc.usernameAvailable({username, usernameToken})
 
       res.cookie('user_name_token', token, {
@@ -49,7 +49,7 @@ class AuthController {
   signUp = async (req, res, next) => {
     try {
       const userData = req.body;
-      const { user_name_token :usernameToken} = req.cookie
+      const usernameToken = req.cookie?.user_name_token || null
       const { user } = await this.authSvc.signUp({userData, usernameToken});
       res.status(201).json(apiResponse(user, 'Account created.'));
     } catch (error) {

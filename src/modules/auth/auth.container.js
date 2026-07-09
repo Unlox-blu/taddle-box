@@ -12,6 +12,7 @@ const AuthController = require('./auth.controller')
 const {walletService} = require('../wallet/wallet.container')
 const {xpService} = require('../xp/xp.container')
 const {taskService} = require('../task/task.container') 
+const {activeStatusService} = require('../activestatus/activestatus.container')
 
 // Integrations
 const emailIntegration = require('../../integrations/email/email.service')
@@ -25,11 +26,7 @@ const authService = new AuthService({
   walletService,
   xpService,
   taskService,
-  userRepository: null,
-  xpRepository: null,
-  settingsRepository: null,
-  emailIntegration,
-  googleIntegration,
+  activeStatusService,
 })
 
 // Instantiate Controller

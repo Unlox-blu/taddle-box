@@ -32,12 +32,14 @@ class AuthService {
     walletService,
     xpService,
     taskService,
+    activeStatusService,
   }) {
     this.authUserRepo = authUserRepository;
     this.verifyEmailRepo = verifyEmailRepository;
     this.walletSvc = walletService;
     this.xpSvc = xpService;
     this.taskSvc = taskService;
+    this.activeStatusSvc = activeStatusService;
   }
 
   async sendOtpToEmail({email}) {
@@ -74,7 +76,7 @@ class AuthService {
       const otpKey = `${OTP_PREFIX}:${email}`
       const cashedOtp = await redis.get(otpKey)
       const otpObj = cashedOtp ? JSON.parse(cashedOtp) : null
-
+      console.log(otpObj)
       const currentTime = new Date(Date.now());
 
       if (!otpObj || new Date(otpObj.otpExpIn) < currentTime)
@@ -159,9 +161,11 @@ class AuthService {
       const usernameKey = `${USERNAME_PREFIX}:${username}`
       const isUserNameExistRedis = await redis.get(usernameKey)
       
-      const usernameTokenHash = hashToken(usernameToken);
-      if(isUserNameExistRedis && isUserNameExistRedis !== usernameTokenHash)
-        throw createError('UserName already taken', 400)
+      if(usernameToken && isUserNameExistRedis){
+        const usernameTokenHash = hashToken(usernameToken);
+        if(isUserNameExistRedis !== usernameTokenHash)
+          throw createError('UserName already taken', 400)
+      }
 
       const passwordHash = await hashPassword(password);
       const newUser = await this.authUserRepo.create({ name, username, email, gender, dateOfBirth, passwordHash, isVerified: true });
@@ -176,8 +180,12 @@ class AuthService {
       
       // // Auto-create XP wallet for new user
       await this.xpSvc.createXPwallet({ userId: newUser.id });
-
+      
+      // // Auto-create task for new user
       await this.taskSvc.createTask({userId: newUser.id});
+      
+      // // Auto-create activeStatus for new user
+      await this.activeStatusSvc.createStatus({userId: newUser.id});
 
       const jobdata = {
         to: email,

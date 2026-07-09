@@ -32,4 +32,16 @@ const updateBannerSchema = z.object({
   bannerMediaId: z.string().uuid(),
 })
 
-module.exports = { updateProfileSchema, updateUsernameSchema, updatePrivacySchema, updateBannerSchema, updateAvatarSchema };
+const usernameSchema = z.object({
+  username: z.string().min(1, {message: "Username can not be empty"})
+}).strict()
+
+const userIdSchema = z.object({
+  userId: z.string().uuid({message: "Invalied user Id"})
+}).strict()
+
+const followerIdSchema = z.object({
+  followerId: z.string().uuid({message: "Invalied follower Id"})
+}).strict()
+
+module.exports = { updateProfileSchema, updateUsernameSchema, updatePrivacySchema, updateBannerSchema, updateAvatarSchema, usernameSchema, userIdSchema, followerIdSchema };

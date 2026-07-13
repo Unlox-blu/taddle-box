@@ -77,22 +77,6 @@ class SettingsService {
       throw error;
     }
   }
-
-  async setAppLock({ userId, pin }) {
-    try {
-      await this.userRepo.updateAppLock(userId, pin)
-    } catch (error) {
-      throw error;
-    }
-  }
-
-  async removeAppLock({ userId }) {
-    try {
-      await this.userRepo.removeAppLock(userId)
-    } catch (error) {
-      throw error;
-    }
-  }
 }
 
 module.exports = SettingsService;

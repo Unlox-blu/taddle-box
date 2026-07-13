@@ -13,7 +13,5 @@ router.get('/',                         verifyToken,                            
 router.patch('/theme',                  verifyToken,   validateRequest({ body: setThemeSchema }),       settingsController.setTheme)
 router.patch('/systemnotification',     verifyToken,                                   settingsController.toggleSystemNotification)
 router.patch('/promotionalnotification',verifyToken,                                   settingsController.togglePromotionalNotification)
-router.patch('/setapplock',             verifyToken,   validateRequest({ body: setAppLockSchema }),     settingsController.setAppLock)
-router.patch('/removeapplock',          verifyToken,                                   settingsController.removeAppLock)
 
 module.exports = router

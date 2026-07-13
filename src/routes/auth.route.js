@@ -23,6 +23,9 @@ router.post('/username',                                                        
 router.post('/signup',                validateRequest({body: signupSchema}),                   authController.signUp);
 router.post('/login',                 validateRequest({body: loginSchema}),                    authController.login);
 router.post('/verify-loginpin',       verifyToken,     validateRequest({body: loginPinSchema}),       authController.verifyLoginPin);
+router.post('/set-loginpin',       verifyToken,     validateRequest({body: loginPinSchema}),       authController.setLoginPin);
+router.put('/update-loginpin',       verifyToken,     validateRequest({body: loginPinSchema}),       authController.updateLoginPin);
+router.delete('/remove-loginpin',       verifyToken,     validateRequest({body: loginPinSchema}),       authController.removeLoginPin);
 
 router.post('/send-otp-phone',  otpRateLimiter,  verifyToken, validateRequest({body: sendOtpToPhoneSchema}),    authController.sendOtpToPhone)
 router.post('/verify-otp-phone',        verifyToken, validateRequest({body: verifyOtpForPhoneSchema}),    authController.verifyAndAddPhone)

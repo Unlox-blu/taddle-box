@@ -6,7 +6,6 @@ CREATE TABLE IF NOT EXISTS settings (
                               CHECK (theme IN ('light', 'dark')),
   promotional_notification  BOOLEAN DEFAULT TRUE,
   system_notification       BOOLEAN DEFAULT TRUE,
-  app_lock                  CHAR(4) CHECK (app_lock ~ '^[0-9]{4}$'),
   created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   updated_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   PRIMARY KEY(user_id)

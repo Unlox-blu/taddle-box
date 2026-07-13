@@ -151,6 +151,32 @@ const findByIdAppLock = async ({userId}) => {
 }
 }
 
+const setAppLock = async ({userId, pin}) => {
+  try {
+    await pool.query(
+      `UPDATE ${AuthModel.USER_TABLE} 
+      SET app_lock = $1, app_lock_enabled = TRUE, updated_at = NOW() 
+      WHERE id = $2`,
+      [pin, userId]
+    )
+  } catch (error) {
+    throw error
+  }
+}
+
+const removeAppLock = async ({userId}) => {
+  try {
+    await pool.query(
+      `UPDATE ${AuthModel.USER_TABLE} 
+      SET app_lock = NULL, app_lock_enabled = FALSE, updated_at = NOW() 
+      WHERE id = $1`,
+      [userId]
+    )
+  } catch (error) {
+    throw error
+  }
+}
+
 
 const getRefreshTokenById = async ({userId}) => {
   try {
@@ -179,32 +205,6 @@ const updatePhone = async (userId, countryCode, phoneNumber) => {
   }
 };
 
-
-const updateAppLock = async (userId, pin) => {
-  try {
-    await pool.query(
-      `UPDATE ${AuthModel.USER_TABLE} 
-      SET app_lock = $1, app_lock_enabled = TRUE, updated_at = NOW() 
-      WHERE id = $2`,
-      [pin, userId]
-    )
-  } catch (error) {
-    throw error
-  }
-}
-
-const removeAppLock = async (userId, pin) => {
-  try {
-    await pool.query(
-      `UPDATE ${AuthModel.USER_TABLE} 
-      SET app_lock = NULL, app_lock_enabled = FALSE, updated_at = NOW() 
-      WHERE id = $1`,
-      [userId]
-    )
-  } catch (error) {
-    throw error
-  }
-}
 
 const updateRefreshToken = async ({userId, tokenHash}) => {
   try {
@@ -333,7 +333,7 @@ const findByEmailVerifyToken = async (ResetToken) => {
 
 
 module.exports = {
-  findByIdPrivate, findByEmail, findByEmailLogin, create, updateAppLock,
+  findByIdPrivate, findByEmail, findByEmailLogin, create, setAppLock,
   removeAppLock, updatePhone, updatePrivacy, updateRefreshToken,
   getRefreshTokenById, updateEmailVerifyToken, findByEmailVerifyToken,
   updatePasswordResetToken, findByPasswordResetToken, getPasswordByUserId,

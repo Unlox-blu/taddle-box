@@ -47,7 +47,9 @@ const loginSchema = z.object({
 }).strict();
 
 const loginPinSchema = z.object({
-  pin: z.string().regex(/^[0-9]{4}$/, 'Invalid app lock'),
+  pin: z.string().regex(/^[0-9]{4}$/, 'Invalid app lock').optional(),
+  currentPin: z.string().regex(/^[0-9]{4}$/, 'Invalid app lock').optional(),
+  newPin: z.string().regex(/^[0-9]{4}$/, 'Invalid app lock').optional(),
 }).strict();
 
 const googleAuthSchema = z.object({

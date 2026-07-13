@@ -88,6 +88,42 @@ class AuthController {
     }
   };
 
+  setLoginPin = async (req, res, next) => {
+    try {
+      const userId = req.userId;
+      const { pin } = req.body;
+      await this.authSvc.setLoginPin({ userId, pin });
+
+      res.json(apiResponse(null, 'Pin Set successfuly'));
+    } catch (error) {
+      next(error);
+    }
+  };
+
+  updateLoginPin = async (req, res, next) => {
+    try {
+      const userId = req.userId;
+      const { currentPin, newPin } = req.body;
+      
+      await this.authSvc.updateLoginPin({ userId, currentPin, newPin });
+
+      res.json(apiResponse(null, 'Pin update successfuly'));
+    } catch (error) {
+      next(error);
+    }
+  };
+
+  removeLoginPin = async (req, res, next) => {
+    try {
+      const userId = req.userId;
+      const { currentPin } = req.body;
+      await this.authSvc.removeLoginPin({ userId, currentPin });
+
+      res.json(apiResponse(null, 'Pin removed successfuly'));
+    } catch (error) {
+      next(error);
+    }
+  };
 
   sendOtpToPhone = async (req, res, next) => {
     try {

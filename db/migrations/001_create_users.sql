@@ -38,6 +38,8 @@ CREATE TABLE IF NOT EXISTS users (
   email_verified_at         TIMESTAMPTZ,
   last_login_at             TIMESTAMPTZ,
   deleted_at                TIMESTAMPTZ,
+  app_lock                  VARCHAR(4)   CHECK (length(app_lock) = 4),
+  app_lock_enabled          BOOLEAN      NOT NULL DEFAULT FALSE,
   created_at                TIMESTAMPTZ  NOT NULL DEFAULT NOW(),
   updated_at                TIMESTAMPTZ  NOT NULL DEFAULT NOW()
 );

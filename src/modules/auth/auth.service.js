@@ -240,6 +240,51 @@ class AuthService {
     }
   }
 
+  async setLoginPin({userId, pin}) {
+    try {
+      const user = await this.authUserRepo.findByIdAppLock({userId})
+      
+      if(user.appLockEnabled)
+          throw createError('Pin lock already set', 400);
+
+      await this.authUserRepo.setAppLock({userId, pin})
+    } catch (error) {
+      throw error
+    }
+  }
+
+  async updateLoginPin({userId, currentPin, newPin}) {
+    try {
+      const user = await this.authUserRepo.findByIdAppLock({userId})
+      
+      if(!user.appLockEnabled)
+          throw createError('Pin lock already not set', 400);
+
+      if(user.appLock !== currentPin)
+          throw createError('Wrong current pin', 400);
+      
+      await this.authUserRepo.setAppLock({userId, pin: newPin})
+    } catch (error) {
+      throw error
+    }
+  }
+
+  async removeLoginPin({userId, currentPin}) {
+    try {
+      const user = await this.authUserRepo.findByIdAppLock({userId})
+      
+      if(!user.appLockEnabled)
+          throw createError('Pin lock already not set', 400);
+
+      if(user.appLock !== currentPin)
+          throw createError('Wrong current pin', 400);
+
+      await this.authUserRepo.removeAppLock({userId})
+    } catch (error) {
+      throw error
+    }
+  }
+
   async sendOtpToPhone({countryCode, phoneNumber}) {
     try {
       // send otp to phone

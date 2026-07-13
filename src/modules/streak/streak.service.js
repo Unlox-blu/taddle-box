@@ -14,26 +14,23 @@ class StreakService {
         
         if(!previousStreak ){
             await this.streakRepo.create(userId)
-            await this.taskSvc.updateStreak(userId, 1)
+            await this.taskSvc.updateStreak({userId, streak: 1})
             return 
         }
 
         const currentDate = new Date();
-        const previousDate = new Date(previousStreak.end_date);
+        const previousDate = new Date(previousStreak.endDate);
 
         if(this.#isSameday(currentDate, previousDate)){
             throw createError("Streak is already updated", 400)
-        }
-
-        if(this.#isYesterday(currentDate, previousDate)){
+        }else if(this.#isYesterday(currentDate, previousDate)){
             const streak = await this.streakRepo.updateById(previousStreak.id)
             const count = parent(streak.streak_count, 10)
-            this.taskSvc.updateStreak(userId, count)
-            return
+        }else{
+            await this.streakRepo.create(userId)
         }
 
-        await this.streakRepo.create(userId)
-        await this.taskSvc.updateStreak(userId, 1)
+        await this.taskSvc.updateStreak({userId, streak: 1})
         return
     } catch (error) {
         throw error

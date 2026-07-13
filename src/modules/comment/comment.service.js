@@ -29,9 +29,9 @@ class CommentService {
       const post = await this.postRepo.findById(postId);
       if (!post) throw createError('Post not found', 404);
 
-      const { author_id: authorId } = post;
+      const { author_id: postAuthorId } = post;
 
-      const author = await this.userRepo.findById(authorId);
+      const author = await this.userRepo.findById(postAuthorId);
 
       if (post.community_id && post.community_privacy !== 'public') {
         //do authorization
@@ -79,7 +79,7 @@ class CommentService {
 
       await addJob('notification:post_comment', data);
 
-      this.feedSvc.updatePreferences(authorId, post.category || [], post.tags || []);
+      this.feedSvc.updatePreferences({userId: authorId, categories: post.category || [], tags: post.tags || []});
       return CommentModel.format(comment);
     } catch (error) {
       throw error;
@@ -118,6 +118,7 @@ class CommentService {
     try {
       const comment = await this.commentRepo.findById(commentId);
       if (!comment) throw createError('Comment not found', 404);
+      
       if (comment.author_id !== userId)
         throw createError('Not authorized to edit this comment', 403);
 
@@ -160,6 +161,9 @@ class CommentService {
 
   async like({ commentId, userId }) {
     try {
+      const comment = await this.commentRepo.findById(commentId);
+      if (!comment) throw createError('Comment not found', 404);
+
       const alreadyLiked = await this.commentRepo.isLikedByUser(commentId, userId);
       if (alreadyLiked) throw createError('Comment already liked', 409);
       await this.commentRepo.addLike(commentId, userId);
@@ -171,6 +175,9 @@ class CommentService {
 
   async unlike({ commentId, userId }) {
     try {
+      const comment = await this.commentRepo.findById(commentId);
+      if (!comment) throw createError('Comment not found', 404);
+      
       const isLiked = await this.commentRepo.isLikedByUser(commentId, userId);
       if (!isLiked) throw createError('Comment not liked', 409);
 

@@ -8,9 +8,9 @@ const { addNotificationJob } = require('../../jobs/queues/notification.queue');
 const { addJob } = require('../../jobs/queues/job.queue');
 
 class CommunityService {
-  constructor({ communityRepository, postRepository, userRepository, mediaService}) {
+  constructor({ communityRepository, postService, userRepository, mediaService}) {
     this.communityRepo = communityRepository;
-    this.postRepo = postRepository;
+    this.postSvc = postService;
     this.userRepo = userRepository;
     this.mediaSvc = mediaService;
   }
@@ -181,8 +181,8 @@ class CommunityService {
         if (!isMember || isMember.status !== 'active')
           throw createError('You are not the member of this privet community', 403);
       }
-
-      const { rows, total } = await this.postRepo.findManyByCommunity(communityId, limit, offset);
+      
+      const { rows, total } = await this.postSvc.findPostByCommunity(communityId, limit, offset);
       return { posts: rows.map(PostModel.format), total };
     } catch (error) {
       throw error;

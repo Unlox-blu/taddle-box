@@ -8,7 +8,7 @@ const PostService = require('./post.service')
 const PostController = require('./post.controller')
 
 // Dependencies from other modules
-const {communityRepository} = require('../community/community.container')
+const communityRepository = require('../community/community.repository')
 const {userRepository, followerRepository} = require('../user/user.container')
 const {bookmarkRepository} = require('../bookmark/bookmark.container')
 const {feedService} = require('../feed/feed.container')
@@ -27,9 +27,9 @@ const postService = new PostService({
   bookmarkRepository,
   notificationService,
 })
-
 // Instantiate Controller
 const postController = new PostController({ postService })
+
 
 // Export controller as default, but also export service and repository for other modules
 module.exports = {postController, postService, postRepository}

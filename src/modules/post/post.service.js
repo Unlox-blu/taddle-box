@@ -3,6 +3,7 @@
 const { createError } = require('../../utils/error.util');
 const PostModel = require('./post.model');
 const { addNotificationJob } = require('../../jobs/queues/notification.queue');
+const { addJob } = require('../../jobs/queues/job.queue');
 
 class PostService {
   constructor({ postRepository, communityRepository, followerRepository, bookmarkRepository, notificationService, feedService, userRepository, taskService }) {
@@ -110,7 +111,7 @@ class PostService {
       if (post.author_id !== authorId) throw createError('Not authorized to edit this post', 403);
       const updated = await this.postRepo.update(postId, data);
       
-      this.feedSvc.updatePreferences(authorId, data.category || [], data.tags || [])
+      this.feedSvc.updatePreferences({userId: authorId, categories: data.category || [], tags: data.tags || []})
       return PostModel.format(updated);
     } catch (error) {
       throw error;
@@ -137,7 +138,7 @@ class PostService {
 
       const authorId = post.author_id  
       const author = await this.userRepo.findById(authorId)
-      if(author.privacy !== 'public') {
+      if(authorId !== userId && author.privacy !== 'public') {
         const isFollow = await this.followerRepo.findByFollowerIdAndFollowingId(userId, authorId)
         if(!isFollow || isFollow !== 'active')
           throw createError("You are not following the Post Author It's private account", 403)
@@ -159,7 +160,7 @@ class PostService {
       
       await addJob('notification:post_like', jobdata)
 
-      this.feedSvc.updatePreferences(userId, post.category || [], post.tags || [])
+      this.feedSvc.updatePreferences({userId, categories: post.category || [], tags: post.tags || []})
     } catch (error) {
       throw error;
     }
@@ -203,7 +204,7 @@ class PostService {
       
       const authorId = post.author_id  
       const author = await this.userRepo.findById(authorId)
-      if(author.privacy !== 'public') {
+      if(authorId !== userId && author.privacy !== 'public') {
         const isFollow = await this.followerRepo.findByFollowerIdAndFollowingId(userId, authorId)
         if(!isFollow || isFollow !== 'active')
           throw createError("You are not following the Post Author It's private account", 403)
@@ -238,6 +239,16 @@ class PostService {
       await this.postRepo.hardDelete(postId);
     } catch (error) {
       throw error;
+    }
+  }
+
+  async findPostByCommunity({communityId, limit, offset}) {
+    try {
+      const { rows, total } = await this.postRepo.findManyByCommunity(communityId, limit, offset);
+
+      return { rows, total }
+    } catch (error) {
+      throw error
     }
   }
 }

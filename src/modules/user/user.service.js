@@ -96,7 +96,7 @@ class UserService {
       const user = await this.userRepo.findByUsername(username);
       if (!user) throw createError('User not found', 404);
 
-      if(user.privacy !== 'public'){
+      if(user.id !== userId && user.privacy !== 'public'){
         const isFollow = await this.followersRepo.findByFollowerIdAndFollowingId( userId, user.id );
   
         if(!isFollow || isFollow.status !== 'active')
@@ -119,7 +119,7 @@ class UserService {
       const user = await this.userRepo.findByUsername(username);
       if (!user) throw createError('User not found', 404);
 
-      if(user.privacy !== 'public'){
+      if(user.id !== userId && user.privacy !== 'public'){
         const isFollow = await this.followersRepo.findByFollowerIdAndFollowingId( userId, user.id );
   
         if(!isFollow || isFollow.status !== 'active')

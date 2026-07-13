@@ -14,7 +14,7 @@ class FeedService {
     try {
 
       const follow = await this.followerRepo.findByFollowerId(userId, 100, 0)
-      const followingId = follow.followers.map(ele => ele.following_id)
+      const followingId = follow.followings.map(ele => ele.following_id)
 
 
       const visitedKey = `visitedfeed:${userId}`;

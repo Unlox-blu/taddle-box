@@ -9,7 +9,7 @@ const getSignedUrlSchema = z.object({
   folder: z.enum(ALLOWED_FOLDERS, {
     error_map: () => ({ message: `Folder must be one of: ${ALLOWED_FOLDERS.join(', ')}` })
   }),
-  postId: z.string().uuid({ message: "Invalid PostId" }),
+  postId: z.string().uuid({ message: "Invalid PostId" }).optional(),
   fileSize: z.coerce
     .number({ invalid_type_error: "File size must be a valid number" })
     .int()

@@ -12,6 +12,8 @@ class MediaController {
     try {
       const userId = req.userId;
       const mediaData = req.body;
+      const file = req.files
+      console.log(file)
       const result = await this.mediaSvc.getImageSignedUrl({userId, mediaData});
       res.json(apiResponse(result, 'Signed URL generated'));
     } catch (error) {

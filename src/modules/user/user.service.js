@@ -48,7 +48,7 @@ class UserService {
       const user = await this.userRepo.findAvatarAndBanner(userId)
 
       if(user.avatarUrl) {
-        this.mediaSvc.clearS3Storage({userId, mediaId: user.avatarUrl})
+        await this.mediaSvc.clearS3Storage({userId, mediaId: user.avatarUrl})
       }
 
       const updateAvatar = await this.userRepo.updateAvatar(userId, avatarMediaId);

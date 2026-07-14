@@ -39,6 +39,29 @@ const findBySlug = async (slug) => {
   }
 };
 
+const findManyCommunity = async ({limit, offset}) => {
+  try {
+    const {rows} = await pool.query(
+      `SELECT ${CommunityModel.LIST_FIELDS},
+      avatar_media.cloudfront_url AS avatar_media_url,
+      COUNT(*) OVER() AS total 
+      FROM ${CommunityModel.TABLE} c
+      LEFT JOIN media AS avatar_media ON avatar_media.id = avatar_url
+      WHERE privacy = 'public'
+      ORDER BY member_count DESC
+      LIMIT $1 OFFSET $2`,
+      [limit, offset]
+    )
+    const total = rows[0] ? rows[0].total : 0
+    const communities = rows.length ? rows.map(CommunityModel.format) : []
+
+    return {communities, total: parseInt(total, 10) }
+
+  } catch (error) {
+    throw error
+  }
+}
+
 const create = async (data) => {
   try {
     const { rows } = await pool.query(
@@ -293,6 +316,7 @@ const isMember = async (communityId, userId) => {
 module.exports = {
   findById,
   findBySlug,
+  findManyCommunity,
   create,
   update,
   findAvatarAndBanner,

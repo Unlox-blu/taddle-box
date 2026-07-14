@@ -29,6 +29,17 @@ class CommunityController {
     }
   };
 
+  discoverCommunity = async (req, res, next) => {
+    try {
+      const userId = req.userId
+      const { limit, offset, page } = getPaginationParams(req.query);
+      const {communities, total} = await this.communitySvc.discoverCommunity({userId, limit, offset});
+      res.json(apiResponse(communities, 'Community fetched successfully', paginationMeta(total, page, limit)));
+    } catch (error) {
+      next(error);
+    }
+  };
+
   update = async (req, res, next) => {
     try {
       const { communityId } = req.params;

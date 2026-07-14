@@ -42,6 +42,16 @@ class CommunityService {
     }
   }
 
+  async discoverCommunity({userId, limit, offset}) {
+    try {
+      const {communities, total} = await this.communityRepo.findManyCommunity({limit, offset});
+      
+      return {communities, total};
+    } catch (error) {
+      throw error;
+    }
+  }
+
   async update({communityId, userId, userRole, body: data}) {
     try {
       const community = await this.communityRepo.findById(communityId);

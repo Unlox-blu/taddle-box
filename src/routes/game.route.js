@@ -15,7 +15,7 @@ router.get('/match/:matchId',   verifyToken,  validateRequest({params: matchIdPa
 router.post('/create-match',    verifyToken,  validateRequest({body: createMatchSchema}),   gameController.createGameMatch);
 router.patch('/update-match',   verifyToken,  validateRequest({body: updateMatchSchema}),   gameController.updateGameMatch);
 
-router.post('/game-stats',       verifyToken,                                               gameController.createGameStats);
+router.post('/game-stats',      verifyToken,                                                gameController.createGameStats);
 router.get('/game-stats',       verifyToken,                                                gameController.getGameStats);
 
 router.get('/',                 verifyToken,  validateRequest({query: paginationSchema}),   gameController.getGames);

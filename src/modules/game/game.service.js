@@ -89,6 +89,32 @@ class GameService {
       throw error;
     }
   }
+
+  async getGameStats({userId}) {
+    try {
+      const gameStats = await this.gameRepo.findGameStatsByUserId({userId})
+      if(!gameStats)
+        throw createError("game Stats not exist", 404)
+      
+      return gameStats
+    } catch (error) {
+      throw error;
+    }
+  }
+
+  async createGameStats({userId}) {
+    try {
+      const isGameStatsExixt = await this.gameRepo.findGameStatsByUserId({userId})
+      if(isGameStatsExixt)
+        throw createError("game Stats already exist", 400)
+
+      const gameStats = await this.gameRepo.createGameStatsByUserId({userId})
+
+      return gameStats
+    } catch (error) {
+      throw error;
+    }
+  }
 }
 
 module.exports = GameService;

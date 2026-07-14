@@ -2,6 +2,7 @@
 
 const GAME_TABLE = 'game';
 const GAME_MATCH_TABLE = 'game_match';
+const GAME_STATS_TABLE = 'game_stats';
 
 const GAME_FIELDS = [
     'id', 'name', 'slug', 'description', 'thumbnail', 'category', 
@@ -11,6 +12,11 @@ const GAME_FIELDS = [
 const GAME_MATCH_FIELDS = [
     'id', 'user_id', 'game_id', 'mode', 'result', 'score', 'duration', 'xp_earned', 
     'category', 'difficulty', 'metadata', 'created_at', 'updated_at'
+].join(', ');
+
+const GAME_STATS_FIELDS = [
+    'id', 'user_id', 'games_played', 'wins', 'losses', 'draws', 'current_streak', 'best_streak', 
+    'total_xp', 'created_at', 'updated_at'
 ].join(', ');
 
 const formatGame = (row) => {
@@ -50,7 +56,25 @@ const formatGameMatch = (row) => {
   };
 };
 
+const formatGameStats = (row) => {
+  if (!row) return null;
+  return {
+    id: row.id,
+    userId: row.user_id,
+    gamesPlayed: row.games_played,
+    wins: row.wins,
+    losses: row.losses,
+    draws: row.draws,
+    currentStreak: row.current_streak,
+    bestStreak: row.best_streak,
+    totalXP: row.total_xp,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+  };
+};
+
 module.exports = {
-  GAME_TABLE, GAME_MATCH_TABLE, GAME_FIELDS, GAME_MATCH_FIELDS, 
-  formatGame, formatGameMatch
+  GAME_TABLE, GAME_MATCH_TABLE, GAME_STATS_TABLE, 
+  GAME_FIELDS, GAME_MATCH_FIELDS, GAME_STATS_FIELDS,
+  formatGame, formatGameMatch, formatGameStats
 }

@@ -87,6 +87,26 @@ class GameController {
     }
   };
 
+  getGameStats = async (req, res, next) => {
+    try {
+      const userId = req.userId;
+      const gameStats = await this.gameSvc.getGameStats({userId});
+      res.json(apiResponse(gameStats, "game stats fetched successfuly"));
+    } catch (error) {
+      next(error);
+    }
+  };
+
+  createGameStats = async (req, res, next) => {
+    try {
+      const userId = req.userId;
+      const gameStats = await this.gameSvc.createGameStats({userId});
+      res.status(201).json(apiResponse(gameStats, "game created successfuly"));
+    } catch (error) {
+      next(error);
+    }
+  };
+
 }
 
 

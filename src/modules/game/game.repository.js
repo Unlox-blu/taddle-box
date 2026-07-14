@@ -141,8 +141,39 @@ const findGameMatchById = async ({matchId}) => {
       WHERE id = $1`,
       [matchId]
     )    
-    const match = rows[0] ? gameModel.formatGame(rows[0]) : null
+    const match = rows[0] ? gameModel.formatGameMatch(rows[0]) : null
     return  match ;
+  } catch (error) {
+    throw error
+  }
+}
+
+const findGameStatsByUserId = async ({userId}) => {
+  try {
+    const {rows} = await pool.query(
+      `SELECT ${gameModel.GAME_STATS_FIELDS}
+      FROM ${gameModel.GAME_STATS_TABLE}
+      WHERE user_id = $1`,
+      [userId]
+    )    
+    const gameStats = rows[0] ? gameModel.formatGameStats(rows[0]) : null
+    return  gameStats ;
+  } catch (error) {
+    throw error
+  }
+}
+
+const createGameStatsByUserId = async ({userId}) => {
+  try {
+    const {rows} = await pool.query(
+      `INSERT INTO ${gameModel.GAME_STATS_TABLE}
+      (user_id)
+      VALUES ($1)
+      RETURNING *`,
+      [userId]
+    )    
+    const gameStats = rows[0] ? gameModel.formatGameStats(rows[0]) : null
+    return  gameStats ;
   } catch (error) {
     throw error
   }
@@ -151,8 +182,10 @@ const findGameMatchById = async ({matchId}) => {
 
 
 
+
+
 module.exports = {
                   findManyGames, findManyGamesBydDfficulty, findGameById, searchGames,
                   createGameMatche, updateGameMatcheByMatchId, findManyGameMatshs, 
-                  findGameMatchById
+                  findGameMatchById, findGameStatsByUserId, createGameStatsByUserId
                  }

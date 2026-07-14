@@ -8,58 +8,66 @@ class GameService {
     this.gameRepo = gameRepository;
   }
 
-  async getStatus({ userId }) {
+  async getGames({userId, limit, offset}) {
     try {
-
-      const cacheKey = `user:status:${userId}`;
-
-      const cached = await redis.get(cacheKey);
-
-      if(cached){
-        return cached === 'online' ? {status: 'online', redis:true} : {lastSeen: cached, redis:true}
-      }
-
-      const status = await this.activeStatusRepo.findByUserId(userId);
-      if(!status)
-        throw createError("status not found", 404)
-      
-      return status.isActive === 'online' ? {status: 'online'} : {lastSeen: status.lastSeen};
+      const {games, total} = await this.gameRepo.findManyGames({limit, offset})
+      return {games, total}
     } catch (error) {
       throw error;
     }
   }
 
-  async createStatus({ userId }) {
+  async searchGames({userId, query, limit, offset,}) {
     try {
-      const status = await this.activeStatusRepo.findByUserId(userId);
-      if(status)
-        throw createError("Status is already exits", 409)
-      
-      await this.activeStatusRepo.create(userId);
+      const {games, total} = await this.gameRepo.searchGames({query, limit, offset})
+      return {games, total}
     } catch (error) {
       throw error;
     }
   }
 
-  async setOnline({ userId }) {
+  async getGameById({userId, gameId}) {
     try {
-      await this.activeStatusRepo.setOnline(userId);
+      const {game} = await this.gameRepo.findGameById({gameId})
+      return {game}
     } catch (error) {
       throw error;
     }
   }
 
-  async setOffline({ userId }) {
+  async getGameMatch({userId, limit, offset}) {
     try {
-      await this.activeStatusRepo.setOffline(userId);
+      const {matchs, total} = await this.gameRepo.findManyGameMatshs({userId, limit, offset})
+      return {matchs, total}
     } catch (error) {
       throw error;
     }
   }
 
-  async hardDelete({ userId }) {
+  async getGameMatchById({userId, matchId}) {
     try {
-      await this.activeStatusRepo.hardDelete(userId);
+      const {match} = await this.gameRepo.findGameMatchById({matchId})
+      return {match}
+    } catch (error) {
+      throw error;
+    }
+  }
+
+  async createGameMatch({userId, matchData}) {
+    try {
+      matchData.userId = userId
+      const {match} = await this.gameRepo.createGameMatche({matchData})
+      return {match}
+    } catch (error) {
+      throw error;
+    }
+  }
+
+  async updateGameMatch({userId, matchData}) {
+    try {
+      matchData.userId = userId
+      const {match} = await this.gameRepo.updateGameMatcheByMatchId({matchData})
+      return {match}
     } catch (error) {
       throw error;
     }

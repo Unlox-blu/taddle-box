@@ -4,9 +4,9 @@ const { z } = require('zod');
 
 
 const searchQuerySchema = z.object({
-  type: z.string().optional(),
-  query: z.string().optional(),
-  filter: z.string().optional(),
+  type: z.string().default('post').optional(),
+  query: z.string().default('').optional(),
+  filter: z.string().default('').optional(),
   page: z.coerce
     .number({ invalid_type_error: "Page must be a number" })
     .int()

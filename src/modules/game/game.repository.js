@@ -49,7 +49,7 @@ const findGameById = async ({gameId}) => {
       [gameId]
     )    
     const game = rows[0] ? gameModel.formatGame(rows[0]) : null
-    return { game };
+    return  game ;
   } catch (error) {
     throw error
   }
@@ -89,7 +89,7 @@ const createGameMatche = async ({matchData}) => {
       ]
     )
     const match = gameModel.formatGameMatch(rows[0])
-    return {match}
+    return match
   } catch (error) {
     throw error
   }
@@ -108,7 +108,7 @@ const updateGameMatcheByMatchId = async ({matchData}) => {
       ]
     )
     const match = gameModel.formatGameMatch(rows[0])
-    return {match}
+    return match
   } catch (error) {
     throw error
   }
@@ -119,13 +119,13 @@ const findManyGameMatshs = async ({userId, limit, offset}) => {
     const {rows} = await pool.query(
       `SELECT ${gameModel.GAME_MATCH_FIELDS}, COUNT(*) OVER() AS total
       FROM ${gameModel.GAME_MATCH_TABLE}
-      WHERE user_is = $1
+      WHERE user_id = $1
       ORDER BY created_at DESC
-      LIMIT $1 OFFSET $2`,
+      LIMIT $2 OFFSET $3`,
       [userId, limit, offset]
     )
     const total = rows[0]?.total || 0;
-    const matchs = rows.map(gameModel.formatGame)
+    const matchs = rows.map(gameModel.formatGameMatch)
     return { matchs, total: parseInt(total, 10) };
   } catch (error) {
     throw error
@@ -142,7 +142,7 @@ const findGameMatchById = async ({matchId}) => {
       [matchId]
     )    
     const match = rows[0] ? gameModel.formatGame(rows[0]) : null
-    return { match };
+    return  match ;
   } catch (error) {
     throw error
   }

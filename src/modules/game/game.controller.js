@@ -35,7 +35,7 @@ class GameController {
     try {
       const userId = req.userId;
       const {gameId} = req.params;
-      const {game} = await this.gameSvc.getGameById({userId, gameId});
+      const game = await this.gameSvc.getGameById({userId, gameId});
       res.json(apiResponse(game, "game fetched successfuly"));
     } catch (error) {
       next(error);
@@ -58,7 +58,7 @@ class GameController {
     try {
       const userId = req.userId;
       const {matchId} = req.params
-      const {match} = await this.gameSvc.getGameMatchById({userId, matchId});
+      const match = await this.gameSvc.getGameMatchById({userId, matchId});
       res.json(apiResponse(match, "matches fetched successfuly"));
     } catch (error) {
       next(error);
@@ -69,7 +69,7 @@ class GameController {
     try {
       const userId = req.userId;
       const matchData = req.body
-      const {match} = await this.gameSvc.createGameMatch({userId, matchData});
+      const match = await this.gameSvc.createGameMatch({userId, matchData});
       res.status(201).json(apiResponse(match, "matches created successfuly"));
     } catch (error) {
       next(error);
@@ -80,7 +80,7 @@ class GameController {
     try {
       const userId = req.userId;
       const matchData = req.body
-      const {match} = await this.gameSvc.updateGameMatch({userId, matchData});
+      const match = await this.gameSvc.updateGameMatch({userId, matchData});
       res.json(apiResponse(match, "matches updated successfuly"));
     } catch (error) {
       next(error);

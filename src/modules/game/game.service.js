@@ -19,6 +19,7 @@ class GameService {
 
   async searchGames({userId, query, limit, offset,}) {
     try {
+      query = query ? query : ''
       const {games, total} = await this.gameRepo.searchGames({query, limit, offset})
       return {games, total}
     } catch (error) {
@@ -28,8 +29,11 @@ class GameService {
 
   async getGameById({userId, gameId}) {
     try {
-      const {game} = await this.gameRepo.findGameById({gameId})
-      return {game}
+      const game = await this.gameRepo.findGameById({gameId})
+      if(!game)
+        createError("Game not found", 404)
+
+      return game
     } catch (error) {
       throw error;
     }
@@ -46,8 +50,11 @@ class GameService {
 
   async getGameMatchById({userId, matchId}) {
     try {
-      const {match} = await this.gameRepo.findGameMatchById({matchId})
-      return {match}
+      const match = await this.gameRepo.findGameMatchById({matchId})
+      if(!match)
+        createError("Match not found", 404)
+      
+      return match
     } catch (error) {
       throw error;
     }
@@ -56,8 +63,13 @@ class GameService {
   async createGameMatch({userId, matchData}) {
     try {
       matchData.userId = userId
-      const {match} = await this.gameRepo.createGameMatche({matchData})
-      return {match}
+      const {gameId} = matchData
+      const isGameExist = await this.gameRepo.findGameById({gameId})
+      if(!isGameExist)
+        throw createError("Game not exist", 404)
+
+      const match = await this.gameRepo.createGameMatche({matchData}) 
+      return match
     } catch (error) {
       throw error;
     }
@@ -66,8 +78,13 @@ class GameService {
   async updateGameMatch({userId, matchData}) {
     try {
       matchData.userId = userId
-      const {match} = await this.gameRepo.updateGameMatcheByMatchId({matchData})
-      return {match}
+      const {matchId} = matchData
+      const isMatchExist = await this.gameRepo.findGameMatchById({matchId})
+      if(!isMatchExist)
+        throw createError("Match not exist", 404)
+
+      const match = await this.gameRepo.updateGameMatcheByMatchId({matchData})
+      return match
     } catch (error) {
       throw error;
     }

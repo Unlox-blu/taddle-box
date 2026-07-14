@@ -27,6 +27,7 @@ router.use('/active-status', require('./activestatus.route'));
 router.use('/app-config',    require('./appconfig.route'));
 router.use('/bookmark',      require('./bookmark.route'));
 router.use('/save',          require('./save.route'));
+router.use('/game',          require('./game.route'));
 
 // Expose auth-only router (used by app.js for stricter rate limiting)
 router.authOnly = authRoute;

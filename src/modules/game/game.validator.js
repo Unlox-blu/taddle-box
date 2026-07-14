@@ -59,20 +59,20 @@ const paginationSchema = z.object({
 
 
 const createMatchSchema = z.object({
-  gameId: z.uuid({message: "Invalied game Id"}),
-  mode : z.string().enum(ALLOWED_MODE, {
+  gameId: z.string().uuid({message: "Invalied game Id"}),
+  mode : z.enum(ALLOWED_MODE, {
             error_map: () => ({ message: `Mode must be one of: ${ALLOWED_MODE.join(', ')}` })
           }),
   category: z.string().optional(),
-  difficulty: z.string().enum(DIFFICULTY_TYPE, {
+  difficulty: z.enum(DIFFICULTY_TYPE, {
             error_map: () => ({ message: `difficulty must be one of: ${DIFFICULTY_TYPE.join(', ')}` })
           }).optional(),
-  metadata: z.preprocess(typeCheck, z.object()).optional()
+  metadata: z.preprocess(typeCheck, z.record(z.any())).optional()
 })
 
 const updateMatchSchema = z.object({
-  matchId: z.uuid({message: "Invalied match Id"}),
-  result : z.string().enum(RESULT_TYPE, {
+  matchId: z.string().uuid({message: "Invalied match Id"}),
+  result : z.enum(RESULT_TYPE, {
             error_map: () => ({ message: `Result must be one of: ${RESULT_TYPE.join(', ')}` })
           }),
   score: z.number().nonnegative({ message: "Score cannot be negative" }),

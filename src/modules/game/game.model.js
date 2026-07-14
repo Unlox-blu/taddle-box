@@ -10,7 +10,7 @@ const GAME_FIELDS = [
 
 const GAME_MATCH_FIELDS = [
     'id', 'user_id', 'game_id', 'mode', 'result', 'score', 'duration', 'xp_earned', 
-    'category', 'difficulty', 'is_active', 'metadata', 'created_at', 'updated_at'
+    'category', 'difficulty', 'metadata', 'created_at', 'updated_at'
 ].join(', ');
 
 const formatGame = (row) => {

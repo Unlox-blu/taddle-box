@@ -10,7 +10,7 @@ const { paginationSchema, searchSchema, gameIdParamSchema, matchIdParamSchema, c
 
 
 
-router.get('/match',            verifyToken,  validateRequest({query: paginationSchema}),   gameController.getGameMatch);
+router.get('/match/history',    verifyToken,  validateRequest({query: paginationSchema}),   gameController.getGameMatch);
 router.get('/match/:matchId',   verifyToken,  validateRequest({params: matchIdParamSchema}),gameController.getGameMatchById);
 router.post('/create-match',    verifyToken,  validateRequest({body: createMatchSchema}),   gameController.createGameMatch);
 router.patch('/update-match',   verifyToken,  validateRequest({body: updateMatchSchema}),   gameController.updateGameMatch);

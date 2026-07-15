@@ -21,10 +21,13 @@ CREATE TABLE IF NOT EXISTS users (
   avatar_url                UUID REFERENCES media(id) ON DELETE SET NULL,
   banner_url                UUID REFERENCES media(id) ON DELETE SET NULL,
   bio                       TEXT,
+  location                  VARCHAR(255),
+  college                   VARCHAR(255),
+  interests                 JSONB,
   website_url               TEXT,
   role                      VARCHAR(20)  NOT NULL DEFAULT 'user'
                               CHECK (role IN ('user','moderator','admin','superadmin')),
-  is_verified               BOOLEAN      NOT NULL DEFAULT FALSE,
+  flags                     INTEGER NOT NULL DEFAULT 0,  -- (email/phone/isVerified) 
   is_active                 BOOLEAN      NOT NULL DEFAULT TRUE,
   is_banned                 BOOLEAN      NOT NULL DEFAULT FALSE,
   follower_count            INTEGER      NOT NULL DEFAULT 0 CHECK (follower_count  >= 0),

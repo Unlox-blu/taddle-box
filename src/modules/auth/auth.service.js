@@ -25,6 +25,11 @@ const COOKIE_OPTS = {
 const OTP_PREFIX = 'otp:';
 const USERNAME_PREFIX = 'reserved_username:';
 
+const FLAGS=   {
+  EMAIL_VERIFIED: 1 << 0, // 1
+  PHONE_VERIFIED: 1 << 1, // 2
+};
+
 class AuthService {
   constructor({
     authUserRepository,
@@ -45,8 +50,8 @@ class AuthService {
   async sendOtpToEmail({email}) {
     try {
       const isEmailExist = await this.authUserRepo.isEmailExist({email});
-      if (isEmailExist) 
-        throw createError('Email is already registered', 409);
+      if (!isEmailExist) 
+        throw createError('Email is not exist', 404);
       
       const otp = crypto.randomInt(1000, 10000).toString();
       const expIn = new Date(Date.now() + parseInt(config.OTP_EXPIRES_IN, 10));
@@ -71,12 +76,12 @@ class AuthService {
     }
   }
 
-  async verifyOtpForEmail({email, otp}) {
+  async verifyOtpForEmail({ email, otp}) {
     try {
       const otpKey = `${OTP_PREFIX}:${email}`
       const cashedOtp = await redis.get(otpKey)
       const otpObj = cashedOtp ? JSON.parse(cashedOtp) : null
-      console.log(otpObj)
+      
       const currentTime = new Date(Date.now());
 
       if (!otpObj || new Date(otpObj.otpExpIn) < currentTime)
@@ -85,20 +90,61 @@ class AuthService {
       if (otpObj.otp !== otp) 
         throw createError('Invalied Otp', 409);
 
-      const verificationExpiresAt = new Date(Date.now() +  parseInt(config.VALIDATE_OTP_VERIFICATION, 10));
-
-      const otpVerifyObj = {
-        email: email,
-        isVerified: true,
-        verificationExpAt: verificationExpiresAt
-      }
-      await redis.setex(otpKey, 60*10, JSON.stringify(otpVerifyObj))
+      await this.authUserRepo.verifyEmail()
+      await redis.del(otpKey)
     } catch (error) {
       throw error;
     }
   }
 
-  async usernameAvailable({username, usernameToken}) {
+  async sendOtpToPhone({countryCode, phone}) {
+    try {
+      // send otp to phone
+      const isPhoneExist = await this.authUserRepo.isPhoneExist({phone});
+      if (!isPhoneExist) 
+        throw createError('Phone is not exist', 404);
+      
+      const otp = crypto.randomInt(100000, 1000000).toString();
+      const expIn = new Date(Date.now() + parseInt(config.OTP_EXPIRES_IN, 10));
+      
+      const otpKey = `${OTP_PREFIX}:${phone}`
+      const otpObj = {
+        phone: phone,
+        otp: 123456,
+        otpExpIn: expIn,
+        isVerified: false
+      }
+      await redis.setex(otpKey, 60*5, JSON.stringify(otpObj))
+
+    } catch (error) {
+      throw error
+    }
+  }
+
+  async verifyPhone({userId, otp, countryCode, phone}) {
+    try {
+      // verify phone first
+
+      const otpKey = `${OTP_PREFIX}:${phone}`
+      const cashedOtp = await redis.get(otpKey)
+      const otpObj = cashedOtp ? JSON.parse(cashedOtp) : null
+      
+      const currentTime = new Date(Date.now());
+
+      if (!otpObj || new Date(otpObj.otpExpIn) < currentTime)
+        throw createError('Otp is expired', 409);
+
+      if (otpObj.otp !== otp) 
+        throw createError('Invalied Otp', 409);
+
+      await this.authUserRepo.verifyPhone()
+      await redis.del(otpKey)
+    } catch (error) {
+      throw error
+    }
+  }
+
+  async usernameAvailable({username}) {
     try {
       const isUserNameExistDB = await this.authUserRepo.isUsernameExist({username})
 
@@ -106,28 +152,28 @@ class AuthService {
         throw createError('Username already taken', 400)
 
 
-      const usernameKey = `${USERNAME_PREFIX}:${username}`
-      const isUserNameExistRedis = await redis.get(usernameKey)
+      // const usernameKey = `${USERNAME_PREFIX}:${username}`
+      // const isUserNameExistRedis = await redis.get(usernameKey)
 
-      if(isUserNameExistRedis && !usernameToken)
-        throw createError('UserName already taken', 400)
+      // if(isUserNameExistRedis && !usernameToken)
+      //   throw createError('UserName already taken', 400)
 
-      if(isUserNameExistRedis && usernameToken){
-        const usernameTokenHash = hashToken(usernameToken);
+      // if(isUserNameExistRedis && usernameToken){
+      //   const usernameTokenHash = hashToken(usernameToken);
 
-        if(isUserNameExistRedis !== usernameTokenHash)
-          throw createError('UserName already taken', 400)
-      }
+      //   if(isUserNameExistRedis !== usernameTokenHash)
+      //     throw createError('UserName already taken', 400)
+      // }
 
-      const rawToken = generateRandomToken();
-      const tokenHash = hashToken(rawToken);
+      // const rawToken = generateRandomToken();
+      // const tokenHash = hashToken(rawToken);
       
-      await redis.setex(usernameKey, 60 * 5, tokenHash)
+      // await redis.setex(usernameKey, 60 * 5, tokenHash)
 
-      return {
-              usernameToken: rawToken,
-              cookieOpts : COOKIE_OPTS
-            }
+      // return {
+      //         usernameToken: rawToken,
+      //         cookieOpts : COOKIE_OPTS
+      //       }
 
     } catch (error) {
       throw error
@@ -136,20 +182,8 @@ class AuthService {
 
   async signUp({userData, usernameToken}) {
     try {
-      const {name, username, email, password, gender, dateOfBirth} = userData
+      const {name, username, email, countryCode, phone, password, dateOfBirth, location, college, interests} = userData
       
-      const otpKey = `${OTP_PREFIX}:${email}`
-      const isEmailVerified = await redis.get(otpKey)
-      const isEmailVerifiedObj = isEmailVerified ? JSON.parse(isEmailVerified) : null
-
-      
-      if (!isEmailVerifiedObj || !isEmailVerifiedObj.isVerified)
-        throw createError('Verified the email first', 400);
-      
-      const currentTime = new Date(Date.now());
-
-      if(!isEmailVerifiedObj.verificationExpAt || new Date(isEmailVerifiedObj.verificationExpAt) < currentTime) 
-        throw createError('Verified the email again', 403);
 
       const [existingEmail, existingUsername] = await Promise.all([
         this.authUserRepo.isEmailExist({email}),
@@ -158,22 +192,9 @@ class AuthService {
       if (existingEmail) throw createError('Email is already registered', 409);
       if (existingUsername) throw createError('Username is already taken', 409);
 
-      const usernameKey = `${USERNAME_PREFIX}:${username}`
-      const isUserNameExistRedis = await redis.get(usernameKey)
-      
-      if(usernameToken && isUserNameExistRedis){
-        const usernameTokenHash = hashToken(usernameToken);
-        if(isUserNameExistRedis !== usernameTokenHash)
-          throw createError('UserName already taken', 400)
-      }
-
       const passwordHash = await hashPassword(password);
-      const newUser = await this.authUserRepo.create({ name, username, email, gender, dateOfBirth, passwordHash, isVerified: true });
+      const newUser = await this.authUserRepo.create({ name, username, email, countryCode, phone, passwordHash, dateOfBirth, location, college, interests, isVerified: false });
 
-      // Delete the email verification 
-      await redis.del(otpKey)
-
-      await redis.del(usernameKey)
 
       // Auto-create wallet for new user
       await this.walletSvc.createWallet({userId: newUser.id});
@@ -187,11 +208,11 @@ class AuthService {
       // // Auto-create activeStatus for new user
       await this.activeStatusSvc.createStatus({userId: newUser.id});
 
-      const jobdata = {
-        to: email,
-        name: username
-      }
-      await addJob('email:welcome', jobdata);
+      // const jobdata = {
+      //   to: email,
+      //   name: username
+      // }
+      // await addJob('email:welcome', jobdata);
 
       return { user: newUser };
     } catch (error) {
@@ -211,16 +232,32 @@ class AuthService {
       const valid = await comparePassword(password, user.passwordHash);
       if (!valid) throw createError('Invalid email or password', 401);
 
-      const result = await this.#issueTokens(user);
+
+      const userId = user.id
+      const isVerified = await this.authUserRepo.getFlagByID({userId})
+
+      const isEmailVerified = (isVerified.flags & FLAGS.EMAIL_VERIFIED) !== 0
+      const isPhoneVerified = (isVerified.flags & FLAGS.PHONE_VERIFIED) !== 0
+
+      if(!isEmailVerified && !isPhoneVerified) 
+          return {success:  false, message: "Email and Phone are not verified", userId }
+
+      if(!isEmailVerified) 
+          return {success:  false, message: "Email is not verified", userId }
+
+      if(!isPhoneVerified) 
+          return {success:  false, message: "Phone is not verified", userId }
+
+      const { userData, sessionData }  = await this.#issueTokens(user);
 
 
       const jobdata = {
         to: email,
         name: user.name
       }
-      await addJob('email:welcome_back', jobdata);
+      await addJob('email:welcome', jobdata);
 
-      return result;
+      return {success:  true,  userData, sessionData  };
     } catch (error) {
       throw error;
     }
@@ -285,24 +322,6 @@ class AuthService {
     }
   }
 
-  async sendOtpToPhone({countryCode, phoneNumber}) {
-    try {
-      // send otp to phone
-
-    } catch (error) {
-      throw error
-    }
-  }
-
-  async verifyAndAddPhone({userId, otp, countryCode, phoneNumber}) {
-    try {
-      // verify phone first
-
-      await this.authUserRepo.updatePhone(userId, countryCode, phoneNumber)
-    } catch (error) {
-      throw error
-    }
-  }
 
   // Authenticates or registers via Google ID token.
   // async googleAuth(idToken) {
@@ -349,8 +368,8 @@ class AuthService {
       if (!user || user.refreshTokenHash !== hashToken(refreshToken)) {
         throw createError('Invalid refresh token', 401);
       }
-
-      return this.#issueTokens(user);
+      const { userData, sessionData } = this.#issueTokens(user);
+      return { userData, sessionData };
     } catch (error) {
       throw error;
     }
@@ -470,13 +489,17 @@ class AuthService {
       await this.authUserRepo.updateRefreshToken({userId, tokenHash});
       await this.authUserRepo.updateLastLogin({userId});
 
-      return {
-        userId: user.id,
-        role: user.role,
-        accessToken,
-        refreshToken,
-        cookieOpts: COOKIE_OPTS,
-      };
+      const userData = {
+                          userId: user.id,
+                          role: user.role,
+                       }
+
+      const sessionData = {
+                            accessToken,
+                            refreshToken,
+                            cookieOpts: COOKIE_OPTS
+                          }
+      return { userData, sessionData };
     } catch (error) {
       throw error;
     }

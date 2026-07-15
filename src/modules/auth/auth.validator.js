@@ -19,6 +19,23 @@ const usernameRules = z
   
 const transformToLowerCase = (val) => typeof val === 'string' ? val.trim().toLowerCase() : val
 
+const typeCheck = (val) => {
+  if (typeof val === 'string') {
+    try {
+      return JSON.parse(val);
+    } catch {
+      return val;
+    }
+  }
+  if (val && typeof val === "object" && !Array.isArray(val)) {
+      return Object.values(val);
+    }
+    return val;
+  }
+
+
+
+
 const minAge = config.MIN_AGE_LIMIT  
 const ageLimit = new Date();
 ageLimit.setFullYear(ageLimit.getFullYear() - minAge);
@@ -29,16 +46,20 @@ const sendOtpToEmailSchema = z.object({
 
 const verifyOtpForEmail = z.object({
   email: z.string().email('Invalid email address').transform((val) => val.toLowerCase()),
-  otp: z.string().length(4, "Otp must contain 4 numbers only").regex(/^[0-9]+$/, "otp can contain only numbers 0-9")
+  otp: z.string().length(6, "Otp must contain 6 numbers only").regex(/^[0-9]+$/, "otp can contain only numbers 0-9")
 }).strict()  
 
 const signupSchema = z.object({
   name: z.string().min(2, 'Name must be at least 2 characters').max(100),
   username: usernameRules,
-  dateOfBirth: z.coerce.date({ errorMap: () => ({ message: 'Invalid date of birth' }) }).max(ageLimit, `You must be at least ${minAge} years old`),
-  gender: z.preprocess(transformToLowerCase, z.enum(['male', 'female', 'other'], { errorMap: () => ({ message: 'Invalid gender' }) })),
   email: z.preprocess(transformToLowerCase, z.string().email('Invalid email address')),
+  countryCode: z.string().min(1, "Phone number is required").regex(/^\+[0-9]{1,4}$/, "Country code contain digits followed by + only"),
+  phone: z.string().min(3, "Phone number is required").regex(/^[0-9]{3,15}$/, "Phone number must contain digits only minimum 3 digits"),
   password: passwordRules,
+  dateOfBirth: z.coerce.date({ errorMap: () => ({ message: 'Invalid date of birth' }) }).max(ageLimit, `You must be at least ${minAge} years old`),
+  location: z.string().min(1, "Location is required"),
+  college: z.string().min(1, "College is required"),
+  interests: z.preprocess(typeCheck, z.array(z.string()).default([])),
 }).strict();
 
 const loginSchema = z.object({

@@ -28,7 +28,7 @@ const AUTH_FIELDS = [
   'u.role',
   'u.app_lock_enabled',
   'u.app_lock',
-  'u.is_verified',
+  'u.flags',
   'u.is_active',
   'u.is_banned',
   'u.google_id',
@@ -43,7 +43,7 @@ const SECURE_FIELDS = [
   'u.app_lock_enabled',
   'u.app_lock',
   'u.role',
-  'u.is_verified',
+  'u.flags',
   'u.is_active',
   'u.email_verified_at',
   'u.last_login_at',
@@ -69,7 +69,7 @@ const PRIVATE_FIELDS = [
   'u.bio',
   'u.website_url',
   'u.role',
-  'u.is_verified',
+  'u.flags',
   'u.is_active',
   'u.follower_count',
   'u.following_count',
@@ -83,7 +83,7 @@ const PRIVATE_FIELDS = [
   'u.theme',
 ].join(', ');
 
-const TOKEN = ['u.id', 'u.role', 'u.is_active', 'u.is_banned', 'u.is_verified', 'u.privacy'].join(
+const TOKEN = ['u.id', 'u.role', 'u.is_active', 'u.is_banned', 'u.flags', 'u.privacy'].join(
   ', '
 );
 
@@ -96,7 +96,9 @@ const LOGIN = [
   'u.role',
   'u.is_active',
   'u.is_banned',
-  'u.is_verified',
+  'u.flags',
+  'u.country_code',
+  'u.phone_number',
   'u.refresh_token_hash',
   'u.last_login_at',
 ].join(', ');
@@ -110,7 +112,7 @@ const GOOGLE_LOGIN = [
   'u.role',
   'u.is_active',
   'u.is_banned',
-  'u.is_verified',
+  'u.flags',
 ].join(', ');
 
 const EMAIL_VERIFY = [
@@ -139,7 +141,7 @@ const PUBLIC_PROFILE = [
   'u.follower_count',
   'u.following_count',
   'u.post_count',
-  'u.is_verified',
+  'u.flags',
   'u.created_at',
   'u.privacy',
 ].join(', ');
@@ -160,7 +162,7 @@ const PRIVATE_PROFILE = [
   'u.role',
   'u.theme',
   'u.privacy',
-  'u.is_verified',
+  'u.flags',
   'u.is_active',
   'u.follower_count',
   'u.following_count',
@@ -171,17 +173,17 @@ const PRIVATE_PROFILE = [
   'u.updated_at',
 ].join(', ');
 
-const FEED_AUTHOR = ['u.id', 'u.name', 'u.username', 'u.avatar_url', 'u.is_verified'].join(', ');
+const FEED_AUTHOR = ['u.id', 'u.name', 'u.username', 'u.avatar_url', 'u.flags'].join(', ');
 
-const SEARCH = ['u.id', 'u.name', 'u.username', 'u.avatar_url', 'u.bio', 'u.is_verified'].join(
+const SEARCH = ['u.id', 'u.name', 'u.username', 'u.avatar_url', 'u.bio', 'u.flags'].join(
   ', '
 );
 
-const FOLLOW_LIST = ['u.id', 'u.name', 'u.username', 'u.avatar_url', 'u.bio', 'u.is_verified'].join(
+const FOLLOW_LIST = ['u.id', 'u.name', 'u.username', 'u.avatar_url', 'u.bio', 'u.flags'].join(
   ', '
 );
 
-const NOTIFICATION = ['u.id', 'u.name', 'u.username', 'u.avatar_url', 'u.is_verified'].join(', ');
+const NOTIFICATION = ['u.id', 'u.name', 'u.username', 'u.avatar_url', 'u.flags'].join(', ');
 
 const CHAT = ['u.id', 'u.name', 'u.username', 'u.avatar_url'].join(', ');
 
@@ -191,7 +193,7 @@ const ADMIN = [
   'u.username',
   'u.email',
   'u.role',
-  'u.is_verified',
+  'u.flags',
   'u.is_active',
   'u.is_banned',
   'u.follower_count',
@@ -231,7 +233,7 @@ const format = (row) => {
     bio: row.bio,
     websiteUrl: row.website_url,
     role: row.role,
-    isVerified: row.is_verified,
+    flags: row.flags,
     isActive: row.is_active,
     followerCount: row.follower_count,
     followingCount: row.following_count,

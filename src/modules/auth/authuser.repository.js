@@ -19,6 +19,20 @@ const isEmailExist = async ({email}) => {
   }
 }
 
+const isPhoneExist = async ({phone}) => {
+  try {
+    const { rows } = await pool.query(
+      `SELECT id 
+      FROM ${AuthModel.USER_TABLE} u
+      WHERE u.phone_number = $1 AND u.deleted_at IS NULL`,
+      [phone]
+    );
+    return rows[0] || null;
+  } catch (error) {
+    throw error
+  }
+}
+
 
 const isUsernameExist = async ({username}) => {
   try {
@@ -33,6 +47,7 @@ const isUsernameExist = async ({username}) => {
     throw error
   }
 }
+
 
 const findByIdUser = async ({userId}) => {
   try {
@@ -65,13 +80,13 @@ const findByEmailUser = async ({email}) => {
 };
 
 
-const create = async ({name, username, email, passwordHash, isVerified, gender, dateOfBirth}) => {
+const create = async ({name, username, email, countryCode, phone, passwordHash, dateOfBirth, location, college, interests}) => {
   try {
     const { rows } = await pool.query(
-      `INSERT INTO ${AuthModel.USER_TABLE} (name, username, email, password_hash, is_verified, gender, date_of_birth)
-     VALUES ($1, $2, $3, $4, $5, $6, $7)
+      `INSERT INTO ${AuthModel.USER_TABLE} (name, username, email, country_code, phone_number, password_hash, date_of_birth, location, college, interests)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
      RETURNING ${AuthModel.RETURNING_USER_FIELDS}`,
-      [name, username, email, passwordHash, isVerified, gender, dateOfBirth]
+      [name, username, email, countryCode, phone, passwordHash, dateOfBirth, location, college, JSON.stringify(interests) || '[]']
     );
     const safe = rows[0] ? AuthModel.sanitize(rows[0]) : null
     return safe ? AuthModel.format(safe) : null;
@@ -79,6 +94,47 @@ const create = async ({name, username, email, passwordHash, isVerified, gender, 
     throw error;
   }
 };
+
+
+const getFlagByID = async ({userId}) => {
+  try {
+    const { rows } = await pool.query(
+      `SELECT flags 
+      FROM ${AuthModel.USER_TABLE} 
+      WHERE id = $1 AND deleted_at IS NULL`,
+      [userId]
+    );
+    return rows[0];
+  } catch (error) {
+    throw error
+  }
+}
+
+const verifyEmail = async ({userId}) => {
+  try {
+    await pool.query(
+      `UPDATE ${AuthModel.USER_TABLE}
+      SET flags = flags | 1
+      WHERE id = $1`,
+      [userId]
+    )
+  } catch (error) {
+    throw error
+  }
+}
+
+const verifyPhone = async ({userId}) => {
+  try {
+    await pool.query(
+      `UPDATE ${AuthModel.USER_TABLE}
+      SET flags = flags | 2
+      WHERE id = $1`,
+      [userId]
+    )
+  } catch (error) {
+    throw error
+  }
+}
 
 const findByEmail = async ({email}) => {
   try {
@@ -333,10 +389,10 @@ const findByEmailVerifyToken = async (ResetToken) => {
 
 
 module.exports = {
-  findByIdPrivate, findByEmail, findByEmailLogin, create, setAppLock,
+  findByIdPrivate, findByEmail, getFlagByID, verifyEmail, verifyPhone, findByEmailLogin, create, setAppLock,
   removeAppLock, updatePhone, updatePrivacy, updateRefreshToken,
   getRefreshTokenById, updateEmailVerifyToken, findByEmailVerifyToken,
   updatePasswordResetToken, findByPasswordResetToken, getPasswordByUserId,
-  updatePassword, updateLastLogin, softDelete, isEmailExist, isUsernameExist,
+  updatePassword, updateLastLogin, softDelete, isEmailExist, isPhoneExist, isUsernameExist,
   findByIdSecure, findByIdAppLock, findByEmailUser, findByIdUser,
 };

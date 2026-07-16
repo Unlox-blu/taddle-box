@@ -38,7 +38,7 @@ class AuthController {
         ...sessionData.cookieOpts,
         maxAge: config.REFRESH_TOKEN_COOKIE_MAX_AGE_SECONDS
       });
-      res.json(apiResponse(null, 'Otp send successfully'));
+      res.json(apiResponse({ verificationToken: sessionData.verificationToken }, 'Otp send successfully'));
     } catch (error) {
       next(error);
     }
@@ -50,10 +50,9 @@ class AuthController {
       const countryCode = req.countryCode 
       const phone = req.phone 
       const {emailOtp, phoneOtp} = req.body
-      const {COOKIE_OPTS} = await this.authSvc.verifyOtp({email, emailOtp, countryCode, phone, phoneOtp})
+      await this.authSvc.verifyOtp({email, emailOtp, countryCode, phone, phoneOtp})
 
-      res.clearCookie('verification_token', {...COOKIE_OPTS});
-      res.json(apiResponse(null, 'Phone added successfully'));
+      res.json(apiResponse(null, 'OTP verified successfully'));
     } catch (error) {
       next(error)
     }
@@ -63,8 +62,13 @@ class AuthController {
   signUp = async (req, res, next) => {
     try {
       const userData = req.body;
-      const { user, sessionData } = await this.authSvc.signUp({userData});
+      const email = req.email;
+      const countryCode = req.countryCode;
+      const phone = req.phone;
+      
+      const { user, sessionData, COOKIE_OPTS } = await this.authSvc.signUp({email, countryCode, phone, userData});
 
+      res.clearCookie('verification_token', {...COOKIE_OPTS});
       res.cookie('access_token', sessionData.accessToken, {
         ...sessionData.cookieOpts,
         maxAge: config.ACCESS_TOKEN_COOKIE_MAX_AGE_SECONDS
@@ -73,7 +77,7 @@ class AuthController {
         ...sessionData.cookieOpts,
         maxAge: config.REFRESH_TOKEN_COOKIE_MAX_AGE_SECONDS
       });
-      res.json(apiResponse({user}, 'Account created.'));
+      res.json(apiResponse({user, sessionData}, 'Account created.'));
     } catch (error) {
       next(error);
     }
@@ -99,7 +103,7 @@ class AuthController {
         ...sessionData.cookieOpts,
         maxAge: config.REFRESH_TOKEN_COOKIE_MAX_AGE_SECONDS
       });
-      res.json(apiResponse(userData, 'Logged in successfully'));
+      res.json(apiResponse({ ...userData, sessionData }, 'Logged in successfully'));
     } catch (error) {
       next(error);
     }

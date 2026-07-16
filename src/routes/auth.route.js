@@ -47,6 +47,7 @@ router.post(
 
 router.post(
   '/signup', 
+  verifyOtpToken,
   validateRequest({ body: signupSchema }), 
   authController.signUp
 );

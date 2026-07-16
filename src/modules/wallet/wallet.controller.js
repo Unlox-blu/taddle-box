@@ -31,12 +31,35 @@ class WalletController {
     }
   };
 
-  createTopup = async (req, res, next) => {
+  convertXpToCash = async (req, res, next) => {
+    try {
+      const userId = req.userId;
+      const { xpAmount } = req.body;
+      const data = await this.walletSvc.convertXpToCash({ userId, xpAmount });
+      res.json(apiResponse(data, 'XP converted to Cash successfully.'));
+    } catch (error) {
+      next(error);
+    }
+  };
+
+  initiateWithdrawal = async (req, res, next) => {
     try {
       const userId = req.userId;
       const { amountCents } = req.body;
-      const order = await this.walletSvc.createTopup({userId, amountCents});
-      res.json(apiResponse(order, 'Order created. Open Razorpay checkout.'));
+      const data = await this.walletSvc.initiateWithdrawal({ userId, amountCents });
+      res.json(apiResponse(data, 'Withdrawal initiated.'));
+    } catch (error) {
+      next(error);
+    }
+  };
+
+  confirmWithdrawalWebhook = async (req, res, next) => {
+    try {
+      // In production, this route should be authenticated via API KEY or Webhook Signature
+      // For now, assuming the external backend securely passed userId
+      const { userId, amountCents, externalTxId } = req.body;
+      const data = await this.walletSvc.confirmWithdrawalWebhook({ userId, amountCents, externalTxId });
+      res.json(apiResponse(data, 'Withdrawal confirmed and deducted.'));
     } catch (error) {
       next(error);
     }

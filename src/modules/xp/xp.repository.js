@@ -29,8 +29,9 @@ const findByUserId = async (userId) => {
   return XpModel.formatXP(rows[0]);
 };
 
-const incrementXp = async (userId, amount) => {
-  const { rows } = await pool.query(
+const incrementXp = async (userId, amount, client) => {
+  const db = client || pool;
+  const { rows } = await db.query(
     `
     UPDATE ${XpModel.TABLE}
     SET xp = xp + $2,
@@ -43,8 +44,9 @@ const incrementXp = async (userId, amount) => {
   return XpModel.formatXP(rows[0]);
 };
 
-const decrementXp = async (userId, amount) => {
-  const { rows } = await pool.query(
+const decrementXp = async (userId, amount, client) => {
+  const db = client || pool;
+  const { rows } = await db.query(
     `
     UPDATE ${XpModel.TABLE}
     SET xp = GREATEST(0, xp - $2),
@@ -59,9 +61,9 @@ const decrementXp = async (userId, amount) => {
 
 // XP Transactions
 
-const createTransaction = async (data) => {
-  
-  const { rows } = await pool.query(
+const createTransaction = async (data, client) => {
+  const db = client || pool;
+  const { rows } = await db.query(
     `
     INSERT INTO ${XpModel.TRANSACTIONS_TABLE} (
     xp_id,

@@ -1,14 +1,17 @@
 'use strict';
 
-// ─── src/routes/wallet.route.js ──────────────────────────────────────────────
 const router = require('express').Router();
 const { walletController } = require('../modules/wallet/wallet.container');
 const { verifyToken }      = require('../middlewares/auth.middleware');
-const { validateRequest }         = require('../middlewares/validator.middleware');
-const { topupSchema, paginationQuerySchema }      = require('../modules/wallet/wallet.validator');
 
-router.get('/me',                verifyToken,                                                       walletController.getWallet);
-router.get('/me/transactions',   verifyToken, validateRequest({ query: paginationQuerySchema }),    walletController.getTransactions);
-router.post('/topup',            verifyToken, validateRequest({ body: topupSchema }),               walletController.createTopup);
+router.get('/me',                verifyToken,  walletController.getWallet);
+router.get('/me/transactions',   verifyToken,  walletController.getTransactions);
+
+// Core Redemption Flows
+router.post('/convert-xp',       verifyToken,  walletController.convertXpToCash);
+router.post('/withdraw/initiate',verifyToken,  walletController.initiateWithdrawal);
+
+// Webhook for External Backend
+router.post('/withdraw/webhook',               walletController.confirmWithdrawalWebhook);
 
 module.exports = router;

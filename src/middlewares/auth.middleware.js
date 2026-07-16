@@ -16,15 +16,19 @@ const verifyToken = (req, _res, next) => {
 
     if (!token) throw createError('Authentication required', 401);
 
-    const payload = verifyAccessToken(token);
-    req.userId = payload.userId;
-    req.userRole = payload.role;
-    next();
+    try {
+      const payload = verifyAccessToken(token);
+      req.userId = payload.userId;
+      req.userRole = payload.role;
+      next();
+    } catch (e) {
+      console.log(`Token verification failed. Error:`, e.message);
+      throw e;
+    }
   } catch (err) {
     next(err);
   }
 };
-
 
 const optionalAuth = (req, _res, next) => {
   try {

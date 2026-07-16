@@ -1,7 +1,7 @@
 'use strict';
 
-const config = require('../../config/app.config')
-const redis = require('../../config/redis')
+const config = require('../../config/app.config');
+const redis = require('../../config/redis');
 const crypto = require('crypto');
 const { hashPassword, comparePassword } = require('../../utils/password.util');
 const {
@@ -26,7 +26,7 @@ const COOKIE_OPTS = {
 const OTP_PREFIX = 'otp:';
 const USERNAME_PREFIX = 'reserved_username:';
 
-const FLAGS=   {
+const FLAGS = {
   EMAIL_VERIFIED: 1 << 0, // 1
   PHONE_VERIFIED: 1 << 1, // 2
 };
@@ -48,14 +48,11 @@ class AuthService {
     this.activeStatusSvc = activeStatusService;
   }
 
-
-  async usernameAvailable({username}) {
+  async usernameAvailable({ username }) {
     try {
-      const isUserNameExistDB = await this.authUserRepo.isUsernameExist({username})
+      const isUserNameExistDB = await this.authUserRepo.isUsernameExist({ username });
 
-      if(isUserNameExistDB)
-        throw createError('Username already taken', 400)
-
+      if (isUserNameExistDB) throw createError('Username already taken', 400);
 
       // const usernameKey = `${USERNAME_PREFIX}:${username}`
       // const isUserNameExistRedis = await redis.get(usernameKey)
@@ -72,28 +69,26 @@ class AuthService {
 
       // const rawToken = generateRandomToken();
       // const tokenHash = hashToken(rawToken);
-      
+
       // await redis.setex(usernameKey, 60 * 5, tokenHash)
 
       // return {
       //         usernameToken: rawToken,
       //         cookieOpts : COOKIE_OPTS
       //       }
-
     } catch (error) {
-      throw error
+      throw error;
     }
   }
 
-  async sendOtp ({email, countryCode, phone}) {
+  async sendOtp({ email, countryCode, phone }) {
     try {
       const otpExpIn = new Date(Date.now() + parseInt(config.OTP_EXPIRES_IN, 10));
 
       const verificationKey = `${OTP_PREFIX}:${email}:${countryCode}${phone}`;
 
-
-      const emailOtp = crypto.randomInt(100000, 1000000).toString()
-      const phoneOtp = crypto.randomInt(100000, 1000000).toString()
+      const emailOtp = crypto.randomInt(100000, 1000000).toString();
+      const phoneOtp = crypto.randomInt(100000, 1000000).toString();
 
       const verificationObj = {
         email: {
@@ -104,30 +99,29 @@ class AuthService {
         phone: {
           countryCode,
           value: phone,
-          otp: "123456", // phoneOtp
+          otp: '123456', // phoneOtp
           isVerified: false,
         },
         otpExpIn,
       };
 
-
-      await redis.setex(verificationKey, 60*5, JSON.stringify(verificationObj))
+      await redis.setex(verificationKey, 60 * 5, JSON.stringify(verificationObj));
 
       const emailJobdata = {
         to: email,
-        otp: emailOtp
-      }
-      await addJob('email:otp-verification', emailJobdata)
+        otp: emailOtp,
+      };
+      await addJob('email:otp-verification', emailJobdata);
 
-      const {sessionData} = await this.#issueVerificationTokens({email, countryCode, phone})
+      const { sessionData } = await this.#issueVerificationTokens({ email, countryCode, phone });
 
-      return sessionData
+      return sessionData;
     } catch (error) {
-      throw error
+      throw error;
     }
   }
 
-  async verifyOtp({email, emailOtp, countryCode, phone, phoneOtp}) {
+  async verifyOtp({ email, emailOtp, countryCode, phone, phoneOtp }) {
     try {
       const currentTime = new Date(Date.now());
 
@@ -157,54 +151,70 @@ class AuthService {
       verificationObj.phone.isVerified = true;
       verificationObj.phone.otp = null;
 
-      await redis.setex( verificationKey, 60 * 5, JSON.stringify(verificationObj) );
+      await redis.setex(verificationKey, 60 * 5, JSON.stringify(verificationObj));
 
-      return {COOKIE_OPTS}
+      return;
     } catch (error) {
-      throw error
+      throw error;
     }
   }
 
-  async signUp({email, phone, userData}) {
+  async signUp({ email, countryCode, phone, userData }) {
     try {
-      const {name, username, email, countryCode, phone, password, dateOfBirth, location, college, interests} = userData
-      
+      const { name, username, password, dateOfBirth, location, college, interests } = userData;
+
       const verificationKey = `${OTP_PREFIX}:${email}:${countryCode}${phone}`;
 
       const cachedVerification = await redis.get(verificationKey);
       const verificationObj = cachedVerification ? JSON.parse(cachedVerification) : null;
 
-      if(!verificationObj || !verificationObj.phone.isVerified || !verificationObj.email.isVerified)
-        throw createError("Email and Phone is not verified!!", 400)
+      if (
+        !verificationObj ||
+        !verificationObj.phone.isVerified ||
+        !verificationObj.email.isVerified
+      )
+        throw createError('Email and Phone is not verified!!', 400);
 
       const [existingEmail, existingUsername, existingPhone] = await Promise.all([
-        this.authUserRepo.isEmailExist({email}),
-        this.authUserRepo.isUsernameExist({username}),
-        this.authUserRepo.isPhoneExist({countryCode, phone}),
+        this.authUserRepo.isEmailExist({ email }),
+        this.authUserRepo.isUsernameExist({ username }),
+        this.authUserRepo.isPhoneExist({ countryCode, phone }),
       ]);
       if (existingEmail) throw createError('Email is already registered', 409);
       if (existingPhone) throw createError('Phone is already registered', 409);
       if (existingUsername) throw createError('Username is already taken', 409);
 
       const passwordHash = await hashPassword(password);
-      const newUser = await this.authUserRepo.create({ name, username, email, countryCode, phone, passwordHash, dateOfBirth, location, college, interests, isVerified: true });
+      const newUser = await this.authUserRepo.create({
+        name,
+        username,
+        email,
+        countryCode,
+        phone,
+        passwordHash,
+        dateOfBirth,
+        location,
+        college,
+        interests,
+        isVerified: true,
+      });
 
-      const userId = newUser.id
+      const userId = newUser.id;
 
-      await this.authUserRepo.verifyEmail({userId})
-      await this.authUserRepo.verifyPhone({userId})
-      
+      await this.authUserRepo.verifyEmail({ userId });
+      await this.authUserRepo.verifyPhone({ userId });
+
       // Auto-create wallet for new user
-      await this.walletSvc.createWallet({userId});
-      
+      await this.walletSvc.createWallet({ userId });
+
       // // Auto-create XP wallet for new user
       await this.xpSvc.createXPwallet({ userId });
-      
+
       // // Auto-create task for new user
-      await this.taskSvc.createTask({userId});
-      
+      await this.taskSvc.createTask({ userId });
+
       // // Auto-create activeStatus for new user
-      await this.activeStatusSvc.createStatus({userId});
+      await this.activeStatusSvc.createStatus({ userId });
 
       // const jobdata = {
       //   to: email,
@@ -212,18 +222,18 @@ class AuthService {
       // }
       // await addJob('email:welcome', jobdata);
 
-      await redis.del( verificationKey);
-      const { sessionData }  = await this.#issueTokens(newUser);
+      await redis.del(verificationKey);
+      const { sessionData } = await this.#issueTokens(newUser);
 
-      return {  user: newUser, sessionData };
+      return { user: newUser, sessionData, COOKIE_OPTS };
     } catch (error) {
       throw error;
     }
   }
-  
+
   async login({ email, password }) {
     try {
-      const user = await this.authUserRepo.findByEmailLogin({email});
+      const user = await this.authUserRepo.findByEmailLogin({ email });
 
       if (!user) throw createError('Invalid email or password', 401);
       if (user.isBanned) throw createError('Your account has been suspended', 403);
@@ -233,24 +243,20 @@ class AuthService {
       const valid = await comparePassword(password, user.passwordHash);
       if (!valid) throw createError('Invalid email or password', 401);
 
+      const userId = user.id;
+      const isVerified = await this.authUserRepo.getFlagByID({ userId });
 
-      const userId = user.id
-      const isVerified = await this.authUserRepo.getFlagByID({userId})
+      const isEmailVerified = (isVerified.flags & FLAGS.EMAIL_VERIFIED) !== 0;
+      const isPhoneVerified = (isVerified.flags & FLAGS.PHONE_VERIFIED) !== 0;
 
-      const isEmailVerified = (isVerified.flags & FLAGS.EMAIL_VERIFIED) !== 0
-      const isPhoneVerified = (isVerified.flags & FLAGS.PHONE_VERIFIED) !== 0
+      if (!isEmailVerified && !isPhoneVerified)
+        return { success: false, message: 'Email and Phone are not verified', userId };
 
-      if(!isEmailVerified && !isPhoneVerified) 
-          return {success:  false, message: "Email and Phone are not verified", userId }
+      if (!isEmailVerified) return { success: false, message: 'Email is not verified', userId };
 
-      if(!isEmailVerified) 
-          return {success:  false, message: "Email is not verified", userId }
+      if (!isPhoneVerified) return { success: false, message: 'Phone is not verified', userId };
 
-      if(!isPhoneVerified) 
-          return {success:  false, message: "Phone is not verified", userId }
-
-      const { userData, sessionData }  = await this.#issueTokens(user);
-
+      const { userData, sessionData } = await this.#issueTokens(user);
 
       // const jobdata = {
       //   to: email,
@@ -259,10 +265,10 @@ class AuthService {
       // await addJob('email:welcome', jobdata);
       const verifiedField = {
         email: false,
-        phone: false
-      }
+        phone: false,
+      };
 
-      return {success:  true,  userData, sessionData  };
+      return { success: true, userData, sessionData };
     } catch (error) {
       throw error;
     }
@@ -270,63 +276,55 @@ class AuthService {
 
   async verifyLoginPin({ userId, pin }) {
     try {
-      const user = await this.authUserRepo.findByIdAppLock({userId})
-      
-      if(!user.appLockEnabled)
-          throw createError('Pin lock not set', 400);
-        
-      if(user.appLock !== pin)
-          throw createError('Invalid lock pin', 401);
+      const user = await this.authUserRepo.findByIdAppLock({ userId });
+
+      if (!user.appLockEnabled) throw createError('Pin lock not set', 400);
+
+      if (user.appLock !== pin) throw createError('Invalid lock pin', 401);
     } catch (error) {
       throw error;
     }
   }
 
-  async setLoginPin({userId, pin}) {
+  async setLoginPin({ userId, pin }) {
     try {
-      const user = await this.authUserRepo.findByIdAppLock({userId})
-      
-      if(user.appLockEnabled)
-          throw createError('Pin lock already set', 400);
+      const user = await this.authUserRepo.findByIdAppLock({ userId });
 
-      await this.authUserRepo.setAppLock({userId, pin})
+      if (user.appLockEnabled) throw createError('Pin lock already set', 400);
+
+      await this.authUserRepo.setAppLock({ userId, pin });
     } catch (error) {
-      throw error
+      throw error;
     }
   }
 
-  async updateLoginPin({userId, currentPin, newPin}) {
+  async updateLoginPin({ userId, currentPin, newPin }) {
     try {
-      const user = await this.authUserRepo.findByIdAppLock({userId})
-      
-      if(!user.appLockEnabled)
-          throw createError('Pin lock already not set', 400);
+      const user = await this.authUserRepo.findByIdAppLock({ userId });
 
-      if(user.appLock !== currentPin)
-          throw createError('Wrong current pin', 400);
-      
-      await this.authUserRepo.setAppLock({userId, pin: newPin})
+      if (!user.appLockEnabled) throw createError('Pin lock already not set', 400);
+
+      if (user.appLock !== currentPin) throw createError('Wrong current pin', 400);
+
+      await this.authUserRepo.setAppLock({ userId, pin: newPin });
     } catch (error) {
-      throw error
+      throw error;
     }
   }
 
-  async removeLoginPin({userId, currentPin}) {
+  async removeLoginPin({ userId, currentPin }) {
     try {
-      const user = await this.authUserRepo.findByIdAppLock({userId})
-      
-      if(!user.appLockEnabled)
-          throw createError('Pin lock already not set', 400);
+      const user = await this.authUserRepo.findByIdAppLock({ userId });
 
-      if(user.appLock !== currentPin)
-          throw createError('Wrong current pin', 400);
+      if (!user.appLockEnabled) throw createError('Pin lock already not set', 400);
 
-      await this.authUserRepo.removeAppLock({userId})
+      if (user.appLock !== currentPin) throw createError('Wrong current pin', 400);
+
+      await this.authUserRepo.removeAppLock({ userId });
     } catch (error) {
-      throw error
+      throw error;
     }
   }
-
 
   // Authenticates or registers via Google ID token.
   // async googleAuth(idToken) {
@@ -361,15 +359,15 @@ class AuthService {
   // }
 
   // Rotates refresh token. Validates hash against DB.
-  
-  async refreshToken({refreshToken}) {
+
+  async refreshToken({ refreshToken }) {
     try {
       if (!refreshToken) throw createError('Refresh token missing', 401);
 
       const payload = verifyRefreshToken(refreshToken);
-      const userId = payload.userId
-      const user = await this.authUserRepo.getRefreshTokenById({userId});
-      
+      const userId = payload.userId;
+      const user = await this.authUserRepo.getRefreshTokenById({ userId });
+
       if (!user || user.refreshTokenHash !== hashToken(refreshToken)) {
         throw createError('Invalid refresh token', 401);
       }
@@ -381,58 +379,57 @@ class AuthService {
   }
 
   // Clears refresh token in DB (invalidates all sessions for this token family).
-  async logout({userId}) {
+  async logout({ userId }) {
     try {
-      await this.authUserRepo.updateRefreshToken({userId, tokenHash: null});
+      await this.authUserRepo.updateRefreshToken({ userId, tokenHash: null });
     } catch (error) {
       throw error;
     }
   }
 
-  async changePassword({userId, currentPassword, newPassword}) {
+  async changePassword({ userId, currentPassword, newPassword }) {
     try {
-      const user = await this.authUserRepo.getPasswordByUserId({userId})
+      const user = await this.authUserRepo.getPasswordByUserId({ userId });
 
-      if(!user || !user.passwordHash)
-        throw createError("Invalid current password", 400)
+      if (!user || !user.passwordHash) throw createError('Invalid current password', 400);
 
       const valid = await comparePassword(currentPassword, user.passwordHash);
-      if (!valid) 
-        throw createError('Invalid current password', 400);
+      if (!valid) throw createError('Invalid current password', 400);
 
       const passwordHash = await hashPassword(newPassword);
-      await this.authUserRepo.updatePassword({userId, passwordHash});
+      await this.authUserRepo.updatePassword({ userId, passwordHash });
     } catch (error) {
-      throw error
+      throw error;
     }
   }
 
   // Sends password reset email if email belongs to a password-based account.
-  async forgotPassword({email}) {
+  async forgotPassword({ email }) {
     try {
-      const user = await this.authUserRepo.findByEmailUser({email});
-      
+      const user = await this.authUserRepo.findByEmailUser({ email });
+
       if (user) {
         const rawToken = generateRandomToken();
         const tokenHash = hashToken(rawToken);
-        const tokenExp = new Date(Date.now() + parseInt(config.PASSWORD_RESET_TOKEN_EXPIRES_IN, 10));
-        await this.authUserRepo.updatePasswordResetToken({userId: user.id, tokenHash, tokenExp});
+        const tokenExp = new Date(
+          Date.now() + parseInt(config.PASSWORD_RESET_TOKEN_EXPIRES_IN, 10)
+        );
+        await this.authUserRepo.updatePasswordResetToken({ userId: user.id, tokenHash, tokenExp });
 
         const jobdata = {
-          to: user.email, 
-          name: user.username, 
-          token: rawToken
-        }
-        await addJob('email:password_reset', jobdata)
+          to: user.email,
+          name: user.username,
+          token: rawToken,
+        };
+        await addJob('email:password_reset', jobdata);
       }
-      
     } catch (error) {
       throw error;
     }
   }
 
   // Resets password using a valid reset token.
-  async resetPassword({token, password}) {
+  async resetPassword({ token, password }) {
     try {
       const tokenHash = hashToken(token);
       const user = await this.authUserRepo.findByPasswordResetToken(tokenHash);
@@ -444,37 +441,37 @@ class AuthService {
 
       const passwordHash = await hashPassword(password);
 
-      const userId = user.id
-      await this.authUserRepo.updatePassword({userId, passwordHash});
+      const userId = user.id;
+      await this.authUserRepo.updatePassword({ userId, passwordHash });
 
-      const userDetail = await this.authUserRepo.findByIdUser({userId})
+      const userDetail = await this.authUserRepo.findByIdUser({ userId });
 
       const jobdata = {
-        to: userDetail.email, 
-        name: userDetail.username, 
+        to: userDetail.email,
+        name: userDetail.username,
         title: 'Password Reset Successfully!',
-        successMessage: 'Password Reset Successfully!'
-      }
-      await addJob('email:success', jobdata)
+        successMessage: 'Password Reset Successfully!',
+      };
+      await addJob('email:success', jobdata);
     } catch (error) {
       throw error;
     }
   }
 
-  async getMe({userId}) {
+  async getMe({ userId }) {
     try {
-      const user = await this.authUserRepo.findByIdPrivate({userId});
+      const user = await this.authUserRepo.findByIdPrivate({ userId });
       if (!user) throw createError('User not found', 404);
 
       const totalKeys = Object.keys(user).length;
 
       const completedKeys = Object.values(user).filter(
-        value => value !== null && value !== undefined
+        (value) => value !== null && value !== undefined
       ).length;
 
-      const completionPercentage = Math.round( (completedKeys / totalKeys) * 100 );
+      const completionPercentage = Math.round((completedKeys / totalKeys) * 100);
 
-      await this.taskSvc.updateProfileCompletion(userId, completionPercentage)
+      await this.taskSvc.updateProfileCompletion(userId, completionPercentage);
       return user;
     } catch (error) {
       throw error;
@@ -484,41 +481,41 @@ class AuthService {
   // Private
   async #issueTokens(user) {
     try {
-      const userId = user.id
-      const role = user.role
+      const userId = user.id;
+      const role = user.role;
       const payload = { userId, role };
       const accessToken = generateAccessToken(payload);
       const refreshToken = generateRefreshToken(payload);
 
       const tokenHash = hashToken(refreshToken);
-      await this.authUserRepo.updateRefreshToken({userId, tokenHash});
-      await this.authUserRepo.updateLastLogin({userId});
+      await this.authUserRepo.updateRefreshToken({ userId, tokenHash });
+      await this.authUserRepo.updateLastLogin({ userId });
 
       const userData = {
-                          userId: user.id,
-                          role: user.role,
-                       }
+        userId: user.id,
+        role: user.role,
+      };
 
       const sessionData = {
-                            accessToken,
-                            refreshToken,
-                            cookieOpts: COOKIE_OPTS
-                          }
+        accessToken,
+        refreshToken,
+        cookieOpts: COOKIE_OPTS,
+      };
       return { userData, sessionData };
     } catch (error) {
       throw error;
     }
   }
-  async #issueVerificationTokens({email, countryCode, phone}) {
+  async #issueVerificationTokens({ email, countryCode, phone }) {
     try {
       const payload = { email, countryCode, phone };
       const verificationToken = generateVerificationToken(payload);
       const tokenHash = hashToken(verificationToken);
 
       const sessionData = {
-                            verificationToken,
-                            cookieOpts: COOKIE_OPTS
-                          }
+        verificationToken,
+        cookieOpts: COOKIE_OPTS,
+      };
       return { sessionData };
     } catch (error) {
       throw error;

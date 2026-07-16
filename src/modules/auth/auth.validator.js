@@ -47,7 +47,18 @@ const sendOtpToEmailSchema = z.object({
 const verifyOtpForEmail = z.object({
   email: z.string().email('Invalid email address').transform((val) => val.toLowerCase()),
   otp: z.string().length(6, "Otp must contain 6 numbers only").regex(/^[0-9]+$/, "otp can contain only numbers 0-9")
-}).strict()  
+}).strict() 
+
+const sendOtpSchema = z.object({
+  email: z.preprocess(transformToLowerCase, z.string().email('Invalid email address')),
+  countryCode: z.string().min(1, "Phone number is required").regex(/^\+[0-9]{1,4}$/, "Country code contain digits followed by + only"),
+  phone: z.string().min(3, "Phone number is required").regex(/^[0-9]{3,15}$/, "Phone number must contain digits only minimum 3 digits"),
+}).strict()
+
+const verifyOtp = z.object({
+  emailOtp: z.string().length(6, "Otp must contain 6 numbers only").regex(/^[0-9]+$/, "otp can contain only numbers 0-9"),
+  phoneOtp: z.string().length(6, "Otp must contain 6 numbers only").regex(/^[0-9]+$/, "otp can contain only numbers 0-9")
+}).strict() 
 
 const signupSchema = z.object({
   name: z.string().min(2, 'Name must be at least 2 characters').max(100),
@@ -107,6 +118,8 @@ const changePasswordSchema = z.object({
 module.exports = {
   sendOtpToEmailSchema,
   verifyOtpForEmail,
+  sendOtpSchema,
+  verifyOtp,
   signupSchema,
   loginSchema,
   loginPinSchema,

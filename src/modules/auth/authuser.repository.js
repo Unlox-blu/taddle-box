@@ -19,13 +19,13 @@ const isEmailExist = async ({email}) => {
   }
 }
 
-const isPhoneExist = async ({phone}) => {
+const isPhoneExist = async ({countryCode, phone}) => {
   try {
     const { rows } = await pool.query(
       `SELECT id 
       FROM ${AuthModel.USER_TABLE} u
-      WHERE u.phone_number = $1 AND u.deleted_at IS NULL`,
-      [phone]
+      WHERE u.phone_number = $1 AND u.country_code = $2 AND u.deleted_at IS NULL`,
+      [phone, countryCode]
     );
     return rows[0] || null;
   } catch (error) {

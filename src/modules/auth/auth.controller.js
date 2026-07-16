@@ -8,46 +8,6 @@ class AuthController {
     this.authSvc = authService;
   }
 
-  sendOtpToEmail = async (req, res, next) => {
-    try {
-      const { email } = req.body;
-      await this.authSvc.sendOtpToEmail({email});
-      res.json(apiResponse(null, 'Otp send successfully'));
-    } catch (error) {
-      next(error);
-    }
-  };
-
-  verifyOtpForEmail = async (req, res, next) => {
-    try {
-      const { email, otp } = req.body;
-      await this.authSvc.verifyOtpForEmail({email, otp});
-      res.json(apiResponse(null, 'Email verified successfully'));
-    } catch (error) {
-      next(error);
-    }
-  };
-
-  sendOtpToPhone = async (req, res, next) => {
-    try {
-      const { countryCode, phoneNumber } = req.body;
-      await this.authSvc.sendOtpToPhone({countryCode, phoneNumber});
-      res.json(apiResponse(null, 'Otp send successfully'));
-    } catch (error) {
-      next(error);
-    }
-  };
-
-  verifyPhone = async (req, res, next) => {
-    try {
-      const userId = req.userId 
-      const {otp, countryCode, phoneNumber} = res.body
-      await this.authSvc.verifyPhone({userId, otp, countryCode, phoneNumber})
-      res.json(apiResponse(null, 'Phone added successfully'));
-    } catch (error) {
-      next(error)
-    }
-  }
 
   usernameAvailable = async (req, res, next) => {
     try {
@@ -69,11 +29,51 @@ class AuthController {
     }
   }
 
+  sendOtp = async (req, res, next) => {
+    try {
+      const { email, countryCode, phone } = req.body;
+      const sessionData = await this.authSvc.sendOtp ({email, countryCode, phone});
+
+      res.cookie('verification_token', sessionData.verificationToken, {
+        ...sessionData.cookieOpts,
+        maxAge: config.REFRESH_TOKEN_COOKIE_MAX_AGE_SECONDS
+      });
+      res.json(apiResponse(null, 'Otp send successfully'));
+    } catch (error) {
+      next(error);
+    }
+  };
+
+  verifyOtp = async (req, res, next) => {
+    try {
+      const email = req.email 
+      const countryCode = req.countryCode 
+      const phone = req.phone 
+      const {emailOtp, phoneOtp} = req.body
+      const {COOKIE_OPTS} = await this.authSvc.verifyOtp({email, emailOtp, countryCode, phone, phoneOtp})
+
+      res.clearCookie('verification_token', {...COOKIE_OPTS});
+      res.json(apiResponse(null, 'Phone added successfully'));
+    } catch (error) {
+      next(error)
+    }
+  }
+
+
   signUp = async (req, res, next) => {
     try {
       const userData = req.body;
-      const { user } = await this.authSvc.signUp({userData});
-      res.status(201).json(apiResponse(userData, 'Account created.'));
+      const { user, sessionData } = await this.authSvc.signUp({userData});
+
+      res.cookie('access_token', sessionData.accessToken, {
+        ...sessionData.cookieOpts,
+        maxAge: config.ACCESS_TOKEN_COOKIE_MAX_AGE_SECONDS
+      });
+      res.cookie('refresh_token', sessionData.refreshToken, {
+        ...sessionData.cookieOpts,
+        maxAge: config.REFRESH_TOKEN_COOKIE_MAX_AGE_SECONDS
+      });
+      res.json(apiResponse({user}, 'Account created.'));
     } catch (error) {
       next(error);
     }

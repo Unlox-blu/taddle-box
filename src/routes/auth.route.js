@@ -18,40 +18,32 @@ const {
   sendOtpToPhoneSchema,
   verifyOtpForPhoneSchema,
   loginPinSchema,
+  sendOtpSchema,
+  verifyOtp,
 } = require('../modules/auth/auth.validator');
+const { verifyOtpToken } = require('../middlewares/verification.middleware');
 
-router.post(
-  '/send-otp-email',
-  otpRateLimiter,
-  validateRequest({ body: sendOtpToEmailSchema }),
-  authController.sendOtpToEmail
-);
-
-router.post(
-  '/verify-otp-email',
-  validateRequest({ body: verifyOtpForEmail }),
-  authController.verifyOtpForEmail
-);
-
-router.post(
-  '/send-otp-phone',
-  otpRateLimiter,
-  verifyToken,
-  validateRequest({ body: sendOtpToPhoneSchema }),
-  authController.sendOtpToPhone
-);
-
-router.post(
-  '/verify-otp-phone',
-  verifyToken,
-  validateRequest({ body: verifyOtpForPhoneSchema }),
-  authController.verifyPhone
-);
 
 router.post(
   '/username', 
   authController.usernameAvailable
 );
+
+
+router.post(
+  '/send-otp',
+  otpRateLimiter,
+  validateRequest({ body: sendOtpSchema }),
+  authController.sendOtp
+);
+
+router.post(
+  '/verify-otp',
+  verifyOtpToken,
+  validateRequest({ body: verifyOtp }),
+  authController.verifyOtp
+);
+
 
 router.post(
   '/signup', 

@@ -1,3 +1,4 @@
+const NOTIFICATIONS: any[] = [];
 import React, { useMemo, useState } from 'react';
 import {
   View, Text, ScrollView, TouchableOpacity, StyleSheet,
@@ -9,7 +10,7 @@ import { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { fontSizes, spacing, radii, type ColorPalette } from '../../theme';
 import { useTheme, useThemeColors } from '../../context/ThemeContext';
 import type { HomeStackParamList, Notification } from '../../types';
-import { NOTIFICATIONS } from '../../types/mockData';
+// removed mockData import
 
 type Props = NativeStackScreenProps<HomeStackParamList, 'Notifications'>;
 

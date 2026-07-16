@@ -1,3 +1,4 @@
+const LEADERBOARD: any[] = [];
 import React, { useMemo, useState } from 'react';
 import {
   View, Text, ScrollView, TouchableOpacity,
@@ -12,7 +13,7 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { StatusBar } from 'expo-status-bar';
 import { fontSizes, spacing, radii, type ColorPalette } from '../../theme';
 import { useTheme, useThemeColors } from '../../context/ThemeContext';
-import { LEADERBOARD } from '../../types/mockData';
+// removed mockData import
 import { useCommunities } from '../../context/CommunityContext';
 import type { Community, CommunityStackParamList } from '../../types';
 

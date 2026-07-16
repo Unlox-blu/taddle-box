@@ -11,18 +11,37 @@ import { colors, radii, fontSizes, spacing } from '../../theme';
 import Button from '../../components/common/Button';
 import type { AuthStackParamList } from '../../types';
 import { useAuth } from '../../context/AuthContext';
+import { authService } from '../../services/auth.service';
 
 const OTP_LENGTH = 6;
 type Props = NativeStackScreenProps<AuthStackParamList, 'OTP'>;
 
 export default function OTPScreen({ navigation, route }: Props) {
   const { signIn } = useAuth();
-  const [otp, setOtp]           = useState<string[]>(Array(OTP_LENGTH).fill(''));
+  
+  const [step, setStep] = useState<'email' | 'phone'>('email');
+  const [emailOtp, setEmailOtp] = useState<string[]>(Array(OTP_LENGTH).fill(''));
+  const [phoneOtp, setPhoneOtp] = useState<string[]>(Array(OTP_LENGTH).fill(''));
+  
   const [loading, setLoading]   = useState(false);
   const [verified, setVerified] = useState(false);
   const [timer, setTimer]       = useState(30);
   const refs = useRef<(TextInput | null)[]>([]);
   const checkAnim = useRef(new Animated.Value(0)).current;
+
+  // @ts-ignore
+  const signupData = route.params?.signupData || {};
+  // @ts-ignore
+  const verificationToken = route.params?.verificationToken;
+
+  // Reset state if email/phone changes (edge case: user went back to edit)
+  useEffect(() => {
+    setStep('email');
+    setEmailOtp(Array(OTP_LENGTH).fill(''));
+    setPhoneOtp(Array(OTP_LENGTH).fill(''));
+    setTimer(30);
+    setVerified(false);
+  }, [signupData.email, signupData.phone]);
 
   useEffect(() => {
     if (timer <= 0) return;
@@ -30,32 +49,83 @@ export default function OTPScreen({ navigation, route }: Props) {
     return () => clearTimeout(t);
   }, [timer]);
 
+  const activeOtp = step === 'email' ? emailOtp : phoneOtp;
+  const setActiveOtp = step === 'email' ? setEmailOtp : setPhoneOtp;
+
   const handleInput = (val: string, idx: number) => {
     if (!/^\d*$/.test(val)) return;
-    const next = [...otp];
+    const next = [...activeOtp];
     next[idx] = val.slice(-1);
-    setOtp(next);
+    setActiveOtp(next);
     if (val && idx < OTP_LENGTH - 1) refs.current[idx + 1]?.focus();
     if (next.every(d => d !== '') && next.join('').length === OTP_LENGTH) {
-      handleVerify(next.join(''));
+      if (step === 'email') {
+        handleNextStep();
+      } else {
+        handleVerify(next.join(''));
+      }
     }
   };
 
   const handleKeyPress = (key: string, idx: number) => {
-    if (key === 'Backspace' && !otp[idx] && idx > 0) {
+    if (key === 'Backspace' && !activeOtp[idx] && idx > 0) {
       refs.current[idx - 1]?.focus();
     }
   };
 
-  const handleVerify = async (code: string) => {
+  const handleNextStep = () => {
+    setStep('phone');
+    setTimer(30);
+    // Focus first input of next step
+    setTimeout(() => refs.current[0]?.focus(), 100);
+  };
+
+  const handleVerify = async (finalPhoneCode?: string) => {
     setLoading(true);
-    await new Promise(r => setTimeout(r, 1000));
-    setLoading(false);
-    setVerified(true);
-    Animated.spring(checkAnim, { toValue: 1, useNativeDriver: true, tension: 50 }).start();
-    setTimeout(() => {
-      signIn();
-    }, 1200);
+    try {
+      const eCode = emailOtp.join('');
+      const pCode = finalPhoneCode || phoneOtp.join('');
+
+      // 1. Verify both OTPs
+      await authService.verifyOtp({ emailOtp: eCode, phoneOtp: pCode }, verificationToken);
+
+      // 2. Signup user
+      const res = await authService.signup(signupData, verificationToken);
+      
+      setVerified(true);
+      Animated.spring(checkAnim, { toValue: 1, useNativeDriver: true, tension: 50 }).start();
+      
+      const accessToken = res.data?.sessionData?.accessToken || res.sessionData?.accessToken || res.data?.accessToken;
+      const refreshToken = res.data?.sessionData?.refreshToken || res.sessionData?.refreshToken || res.data?.refreshToken;
+      
+      setTimeout(() => {
+        signIn(accessToken, refreshToken);
+      }, 1200);
+
+    } catch (e: any) {
+      console.log('OTP Verify Error:', JSON.stringify(e.response?.data, null, 2));
+      const errors = e.response?.data?.errors;
+      const errMsg = errors ? JSON.stringify(errors) : (e.response?.data?.message || e.message);
+      alert(errMsg || 'Verification failed');
+      // If verification failed, reset phone so they can try again
+      setPhoneOtp(Array(OTP_LENGTH).fill(''));
+      refs.current[0]?.focus();
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleResend = async () => {
+    setTimer(30);
+    try {
+      await authService.sendOtp({
+        email: signupData.email,
+        countryCode: signupData.countryCode,
+        phone: signupData.phone
+      });
+    } catch (e) {
+      // Ignore
+    }
   };
 
   const checkScale = checkAnim.interpolate({ inputRange: [0, 1], outputRange: [0, 1] });
@@ -64,7 +134,7 @@ export default function OTPScreen({ navigation, route }: Props) {
     <LinearGradient colors={['#070714', '#0E0E24']} style={styles.container}>
       <StatusBar style="light" />
 
-      <TouchableOpacity onPress={() => navigation.goBack()} style={styles.back}>
+      <TouchableOpacity onPress={() => step === 'phone' ? setStep('email') : navigation.goBack()} style={styles.back}>
         <Ionicons name="arrow-back" size={22} color={colors.text.secondary} />
       </TouchableOpacity>
 
@@ -79,19 +149,23 @@ export default function OTPScreen({ navigation, route }: Props) {
         ) : (
           <>
             <View style={styles.phoneIcon}>
-              <Text style={styles.phoneEmoji}>📱</Text>
+              <Text style={styles.phoneEmoji}>{step === 'email' ? '✉️' : '📱'}</Text>
             </View>
-            <Text style={styles.title}>Verify your number</Text>
+            <Text style={styles.title}>
+              Verify your {step === 'email' ? 'Email' : 'Phone'}
+            </Text>
             <Text style={styles.subtitle}>
               We sent a 6-digit code to{'\n'}
-              <Text style={styles.phone}>{route.params.phone}</Text>
+              <Text style={styles.phone}>
+                {step === 'email' ? signupData.email : signupData.phone}
+              </Text>
             </Text>
 
             {/* OTP Inputs */}
             <View style={styles.otpRow}>
-              {otp.map((digit, i) => (
+              {activeOtp.map((digit, i) => (
                 <TextInput
-                  key={i}
+                  key={`${step}-${i}`}
                   ref={r => { refs.current[i] = r; }}
                   style={[styles.otpBox, digit ? styles.otpBoxFilled : null]}
                   value={digit}
@@ -100,6 +174,7 @@ export default function OTPScreen({ navigation, route }: Props) {
                   maxLength={1}
                   keyboardType="number-pad"
                   textAlign="center"
+                  autoFocus={i === 0}
                 />
               ))}
             </View>
@@ -109,19 +184,19 @@ export default function OTPScreen({ navigation, route }: Props) {
               {timer > 0 ? (
                 <Text style={styles.timerText}>Resend in <Text style={{ color: colors.primaryLight }}>{timer}s</Text></Text>
               ) : (
-                <TouchableOpacity onPress={() => setTimer(30)}>
+                <TouchableOpacity onPress={handleResend}>
                   <Text style={styles.resendText}>Resend OTP →</Text>
                 </TouchableOpacity>
               )}
             </View>
 
             <Button
-              label="Verify & Continue →"
-              onPress={() => handleVerify(otp.join(''))}
+              label={step === 'email' ? "Next →" : "Verify & Complete →"}
+              onPress={step === 'email' ? handleNextStep : () => handleVerify()}
               variant="primary"
               fullWidth
               loading={loading}
-              disabled={otp.some(d => !d)}
+              disabled={activeOtp.some(d => !d)}
             />
           </>
         )}

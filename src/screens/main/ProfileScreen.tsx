@@ -10,7 +10,8 @@ import { StatusBar } from 'expo-status-bar';
 import { fontSizes, spacing, radii, type ColorPalette } from '../../theme';
 import { useTheme, useThemeColors } from '../../context/ThemeContext';
 import XPProgressBar from '../../components/home/XPProgressBar';
-import { CURRENT_USER } from '../../types/mockData';
+// removed mockData import
+import { useAuth } from '../../context/AuthContext';
 
 const { width } = Dimensions.get('window');
 const POST_SIZE = (width - spacing.lg * 2 - 4) / 3;
@@ -149,14 +150,14 @@ export default function ProfileScreen() {
   const colors = useThemeColors();
   const styles = useMemo(() => makeStyles(colors), [colors]);
   const [tab, setTab] = useState<Tab>('posts');
-  const user = CURRENT_USER;
+  const { user } = useAuth();
 
   return (
     <View style={[styles.container, { paddingTop: insets.top }]}>
       <StatusBar style={isDark ? 'light' : 'dark'} />
 
       <View style={styles.topRow}>
-        <Text style={styles.topHandle}>{user.handle}</Text>
+        <Text style={styles.topHandle}>@{user?.username || 'user'}</Text>
         <View style={styles.topActions}>
           <TouchableOpacity style={styles.iconBtn}>
             <Ionicons name="share-social-outline" size={20} color={colors.text.secondary} />
@@ -175,25 +176,25 @@ export default function ProfileScreen() {
           <View style={styles.profileHero}>
             <View style={styles.avatarWrap}>
               <LinearGradient colors={[colors.primary, colors.cyanDark]} style={styles.avatar}>
-                <Text style={styles.avatarEmoji}>{user.avatar}</Text>
+                <Text style={styles.avatarEmoji}>{user?.avatarUrl ? null : '👾'}</Text>
               </LinearGradient>
               <LinearGradient colors={[colors.xpGold, colors.xpOrange]} style={styles.levelBadge}>
-                <Text style={styles.levelBadgeText}>{user.level}</Text>
+                <Text style={styles.levelBadgeText}>{user?.level || 1}</Text>
               </LinearGradient>
             </View>
             <View style={styles.profileInfo}>
-              <Text style={styles.profileName}>{user.name}</Text>
-              <Text style={styles.profileHandle}>{user.handle} · 🏅 {user.rank}</Text>
-              <Text style={styles.profileBio}>{user.bio}</Text>
+              <Text style={styles.profileName}>{user?.name || 'Taddle User'}</Text>
+              <Text style={styles.profileHandle}>@{user?.username || 'user'} · 🏅 {user?.rank || 'Beginner'}</Text>
+              <Text style={styles.profileBio}>{user?.bio || 'No bio yet.'}</Text>
             </View>
           </View>
 
           <View style={styles.statsRow}>
             {[
-              { label: 'Posts',     value: user.posts.toLocaleString()     },
-              { label: 'Followers', value: (user.followers / 1000).toFixed(1) + 'k' },
-              { label: 'Following', value: user.following.toLocaleString() },
-              { label: 'Total XP',  value: '12.8k', highlight: true        },
+              { label: 'Posts',     value: (user?.postCount || 0).toLocaleString()     },
+              { label: 'Followers', value: ((user?.followerCount || 0) >= 1000 ? ((user?.followerCount || 0) / 1000).toFixed(1) + 'k' : (user?.followerCount || 0).toString()) },
+              { label: 'Following', value: (user?.followingCount || 0).toLocaleString() },
+              { label: 'Total XP',  value: (user?.xp || 0).toLocaleString(), highlight: true        },
             ].map(s => (
               <View key={s.label} style={styles.statItem}>
                 <Text style={[styles.statVal, s.highlight && { color: colors.xpGold }]}>
@@ -216,10 +217,10 @@ export default function ProfileScreen() {
         </LinearGradient>
 
         <XPProgressBar
-          level={user.level}
-          rank={user.rank}
-          currentXP={user.xp}
-          targetXP={user.xpToNext}
+          level={user?.level || 1}
+          rank={user?.rank || 'Beginner'}
+          currentXP={user?.xp || 0}
+          targetXP={user?.xpToNext || 500}
         />
 
         <Text style={styles.sectionLabel}>Achievements 🏆</Text>
@@ -227,7 +228,7 @@ export default function ProfileScreen() {
           horizontal showsHorizontalScrollIndicator={false}
           contentContainerStyle={styles.badgeScroll}
         >
-          {user.badges.map(b => {
+          {(user?.badges || []).map((b: any) => {
             const bStyle = BADGE_COLORS[b.color] ?? { bg: colors.bg.elevated, border: colors.border };
             return (
               <View key={b.id} style={styles.badgeItem}>

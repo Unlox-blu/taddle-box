@@ -11,6 +11,7 @@ import { colors, radii, fontSizes, spacing } from '../../theme';
 import Button from '../../components/common/Button';
 import Input  from '../../components/common/Input';
 import type { AuthStackParamList } from '../../types';
+import { authService } from '../../services/auth.service';
 
 type Props = NativeStackScreenProps<AuthStackParamList, 'Register'>;
 
@@ -28,13 +29,15 @@ export default function RegisterScreen({ navigation }: Props) {
 
   // Step 0 — Account
   const [name, setName]         = useState('');
+  const [username, setUsername] = useState('');
   const [email, setEmail]       = useState('');
+  const [countryCode, setCountryCode] = useState('+91');
   const [phone, setPhone]       = useState('');
   const [password, setPassword] = useState('');
 
   // Step 1 — Profile
-  const [age, setAge]         = useState('');
-  const [city, setCity]       = useState('');
+  const [dateOfBirth, setDateOfBirth] = useState('');
+  const [location, setLocation] = useState('');
   const [college, setCollege] = useState('');
 
   // Step 2 — Interests
@@ -50,9 +53,37 @@ export default function RegisterScreen({ navigation }: Props) {
 
   const handleSubmit = async () => {
     setLoading(true);
-    await new Promise(r => setTimeout(r, 1200));
-    setLoading(false);
-    navigation.navigate('OTP', { phone });
+    try {
+      const signupData = {
+        name: name.trim(),
+        username: username.trim(),
+        email: email.trim().toLowerCase(),
+        countryCode: countryCode.trim().startsWith('+') ? countryCode.trim() : '+' + countryCode.trim(),
+        phone: phone.replace(/\D/g, ''), // Remove all non-digit characters (spaces, dashes, etc.)
+        password,
+        dateOfBirth: dateOfBirth.trim(),
+        location: location.trim(),
+        college: college.trim(),
+        interests
+      };
+
+      const res = await authService.sendOtp({ 
+        email: signupData.email, 
+        countryCode: signupData.countryCode, 
+        phone: signupData.phone 
+      });
+      const verificationToken = res.data?.verificationToken || res.verificationToken;
+      
+      // @ts-ignore
+      navigation.navigate('OTP', { signupData, verificationToken });
+    } catch (e: any) {
+      console.log('OTP Error response:', JSON.stringify(e.response?.data, null, 2));
+      const errors = e.response?.data?.errors;
+      const errMsg = errors ? JSON.stringify(errors) : (e.response?.data?.message || e.message);
+      alert(errMsg || 'Failed to send OTP');
+    } finally {
+      setLoading(false);
+    }
   };
 
   return (
@@ -91,8 +122,16 @@ export default function RegisterScreen({ navigation }: Props) {
               <Text style={styles.stepSub}>Let's get you started in 3 quick steps</Text>
               <View style={styles.form}>
                 <Input label="Full Name"    icon="person-outline"  value={name}     onChangeText={setName}     placeholder="Arjun Kumar" />
+                <Input label="Username"     icon="at-outline"      value={username} onChangeText={setUsername} placeholder="arjunkumar_1" autoCapitalize="none" />
                 <Input label="Email"        icon="mail-outline"    value={email}    onChangeText={setEmail}    placeholder="arjun@iitd.ac.in" keyboardType="email-address" autoCapitalize="none" />
-                <Input label="Phone Number" icon="call-outline"    value={phone}    onChangeText={setPhone}    placeholder="+91 98765 43210" keyboardType="phone-pad" />
+                <View style={{ flexDirection: 'row', gap: 8 }}>
+                  <View style={{ flex: 0.35 }}>
+                    <Input label="Code" icon="globe-outline" value={countryCode} onChangeText={setCountryCode} placeholder="+91" keyboardType="phone-pad" />
+                  </View>
+                  <View style={{ flex: 0.65 }}>
+                    <Input label="Phone Number" icon="call-outline" value={phone} onChangeText={setPhone} placeholder="98765 43210" keyboardType="phone-pad" />
+                  </View>
+                </View>
                 <Input label="Password"     icon="lock-closed-outline" value={password} onChangeText={setPassword} placeholder="Min. 8 characters" secureTextEntry />
               </View>
             </View>
@@ -104,8 +143,8 @@ export default function RegisterScreen({ navigation }: Props) {
               <Text style={styles.stepTitle}>Tell us about you 👤</Text>
               <Text style={styles.stepSub}>Help your community know you better</Text>
               <View style={styles.form}>
-                <Input label="Age"                icon="calendar-outline" value={age}     onChangeText={setAge}     placeholder="21" keyboardType="numeric" />
-                <Input label="City / Location"    icon="location-outline" value={city}    onChangeText={setCity}    placeholder="Bangalore" />
+                <Input label="Date of Birth"      icon="calendar-outline" value={dateOfBirth}     onChangeText={setDateOfBirth}     placeholder="YYYY-MM-DD" />
+                <Input label="City / Location"    icon="location-outline" value={location}    onChangeText={setLocation}    placeholder="Bangalore" />
                 <Input label="College/University" icon="school-outline"   value={college} onChangeText={setCollege} placeholder="IIT Delhi" />
               </View>
             </View>

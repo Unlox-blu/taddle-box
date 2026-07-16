@@ -9,7 +9,8 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import * as ImagePicker from 'expo-image-picker';
 import { colors, fontSizes, spacing, radii } from '../../theme';
-import { CURRENT_USER } from '../../types/mockData';
+import { useAuth } from '../../context/AuthContext';
+// removed mockData import
 import { usePosts }        from '../../context/PostsContext';
 import { useCommunities }  from '../../context/CommunityContext';
 import type { Post } from '../../types';
@@ -31,6 +32,7 @@ const RATIO_DIMS: Record<AspectRatio, { width: number; height: number }> = {
 };
 
 export default function CreatePostModal({ visible, onClose, preselectedCommunityId }: Props) {
+  const { user: CURRENT_USER } = useAuth();
   const insets = useSafeAreaInsets();
   const { addPost } = usePosts();
   const { communities } = useCommunities();
@@ -177,10 +179,10 @@ export default function CreatePostModal({ visible, onClose, preselectedCommunity
           {/* ── User + destination ── */}
           <View style={styles.userRow}>
             <View style={styles.avatarBubble}>
-              <Text style={styles.avatarText}>{CURRENT_USER.avatar}</Text>
+              <Text style={styles.avatarText}>{CURRENT_USER?.avatarUrl ? null : '👾'}</Text>
             </View>
             <View style={styles.userMeta}>
-              <Text style={styles.userName}>{CURRENT_USER.name}</Text>
+              <Text style={styles.userName}>{(CURRENT_USER?.name || 'Taddle User')}</Text>
               <View style={styles.postTypeRow}>
                 <TouchableOpacity
                   style={[styles.typePill, postType === 'feed' && styles.typePillActive]}

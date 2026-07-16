@@ -14,7 +14,7 @@ import { useTheme, useThemeColors } from '../../context/ThemeContext';
 import PostCard          from '../../components/home/PostCard';
 import SpotlightCarousel from '../../components/home/SpotlightCarousel';
 import SideDrawer        from '../../components/home/SideDrawer';
-import { CURRENT_USER }  from '../../types/mockData';
+import { useAuth } from '../../context/AuthContext';
 import { usePosts }      from '../../context/PostsContext';
 import type { HomeStackParamList, Post } from '../../types';
 
@@ -37,6 +37,7 @@ const MILESTONES = [
 // ─── Main screen ──────────────────────────────────────────────────────────────
 
 export default function HomeScreen() {
+  const { user: CURRENT_USER } = useAuth();
   const insets     = useSafeAreaInsets();
   const navigation = useNavigation<HomeNavProp>();
   const { isDark } = useTheme();
@@ -45,7 +46,7 @@ export default function HomeScreen() {
 
   const [activeTrend, setActiveTrend] = useState('All');
   const [refreshing,  setRefreshing]  = useState(false);
-  const [notifCount]                  = useState(3);
+  const [notifCount]                  = useState(0);
   const [drawerOpen,  setDrawerOpen]  = useState(false);
   const [streakOpen,  setStreakOpen]  = useState(false);
 
@@ -141,7 +142,7 @@ export default function HomeScreen() {
           >
             <Text style={styles.miniEmoji}>⚡</Text>
             <View style={styles.miniText}>
-              <Text style={[styles.miniVal, { color: colors.xpGold }]}>{CURRENT_USER.xp.toLocaleString()}</Text>
+              <Text style={[styles.miniVal, { color: colors.xpGold }]}>{(CURRENT_USER?.xp || 0).toLocaleString()}</Text>
               <Text style={[styles.miniLabel, { color: colors.text.muted }]}>Total XP</Text>
             </View>
             <Ionicons name="chevron-forward" size={13} color="rgba(251,191,36,0.45)" />

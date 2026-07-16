@@ -3,6 +3,7 @@ import { View, Text, Animated, StyleSheet, Dimensions } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { StatusBar } from 'expo-status-bar';
+import * as SecureStore from 'expo-secure-store';
 import { colors, fontSizes } from '../../theme';
 import type { AuthStackParamList } from '../../types';
 
@@ -16,6 +17,9 @@ export default function SplashScreen({ navigation }: Props) {
   const tagOpac   = useRef(new Animated.Value(0)).current;
 
   useEffect(() => {
+    let hasSeen = false;
+    SecureStore.getItemAsync('hasSeenOnboarding').then(res => { hasSeen = !!res; }).catch(() => {});
+
     Animated.sequence([
       Animated.parallel([
         Animated.spring(scale,  { toValue: 1,    useNativeDriver: true, tension: 50, friction: 7 }),
@@ -25,7 +29,9 @@ export default function SplashScreen({ navigation }: Props) {
       Animated.delay(200),
       Animated.timing(tagOpac, { toValue: 1, duration: 500, useNativeDriver: true }),
       Animated.delay(900),
-    ]).start(() => navigation.replace('Onboarding'));
+    ]).start(() => {
+      navigation.replace(hasSeen ? 'Welcome' : 'Onboarding');
+    });
   }, []);
 
   return (

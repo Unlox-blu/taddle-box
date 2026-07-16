@@ -20,7 +20,7 @@ export type AuthStackParamList = {
   Welcome:        undefined;
   Login:          undefined;
   Register:       undefined;
-  OTP:            { phone: string };
+  OTP:            { phone: string; accessToken?: string; refreshToken?: string };
   ForgotPassword: undefined;
   CompleteProfile: undefined;
 };

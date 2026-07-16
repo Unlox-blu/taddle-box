@@ -1,3 +1,4 @@
+const COMMENTS: any[] = [];
 import React, { useMemo, useState, useRef } from 'react';
 import {
   View, Text, FlatList, TouchableOpacity, TextInput,
@@ -10,7 +11,8 @@ import { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { fontSizes, spacing, radii, type ColorPalette } from '../../theme';
 import { useTheme, useThemeColors } from '../../context/ThemeContext';
 import type { HomeStackParamList, Comment } from '../../types';
-import { COMMENTS, CURRENT_USER } from '../../types/mockData';
+import { useAuth } from '../../context/AuthContext';
+// removed mockData import
 
 type Props = NativeStackScreenProps<HomeStackParamList, 'Comments'>;
 
@@ -107,6 +109,7 @@ function makeStyles(c: ColorPalette) {
 }
 
 export default function CommentsScreen({ navigation, route }: Props) {
+  const { user: CURRENT_USER } = useAuth();
   const { post } = route.params;
   const insets   = useSafeAreaInsets();
   const inputRef = useRef<TextInput>(null);
@@ -127,9 +130,9 @@ export default function CommentsScreen({ navigation, route }: Props) {
       postId: post.id,
       author: {
         id: CURRENT_USER.id,
-        name: CURRENT_USER.name,
-        handle: CURRENT_USER.handle,
-        avatar: CURRENT_USER.avatar,
+        name: (CURRENT_USER?.name || 'Taddle User'),
+        handle: (CURRENT_USER?.username || 'user'),
+        avatar: CURRENT_USER?.avatarUrl ? null : '👾',
       },
       text: trimmed,
       likes: 0,
@@ -199,7 +202,7 @@ export default function CommentsScreen({ navigation, route }: Props) {
         {/* Input bar */}
         <View style={[styles.inputBar, { paddingBottom: Math.max(insets.bottom, 12) }]}>
           <View style={styles.inputAvatar}>
-            <Text style={styles.inputAvatarEmoji}>{CURRENT_USER.avatar}</Text>
+            <Text style={styles.inputAvatarEmoji}>{CURRENT_USER?.avatarUrl ? null : '👾'}</Text>
           </View>
           <TextInput
             ref={inputRef}

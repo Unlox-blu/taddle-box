@@ -8,7 +8,8 @@ import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { fontSizes, spacing, radii } from '../../theme';
 import { useThemeColors } from '../../context/ThemeContext';
-import { CURRENT_USER } from '../../types/mockData';
+import { useAuth } from '../../context/AuthContext';
+// removed mockData import
 
 const { width: SW } = Dimensions.get('window');
 const DRAWER_W     = Math.min(Math.round(SW * 0.82), 320);
@@ -33,6 +34,7 @@ type MenuRow = {
 export default function SideDrawer({
   visible, onClose, onNavigateTab, onNavigateStack, onProfile,
 }: Props) {
+  const { user } = useAuth();
   const insets = useSafeAreaInsets();
   const colors = useThemeColors();
 
@@ -123,31 +125,31 @@ export default function SideDrawer({
             activeOpacity={0.75}
           >
             <LinearGradient colors={['#4C1D95', '#7C3AED']} style={styles.avatar}>
-              <Text style={styles.avatarText}>{CURRENT_USER.avatar}</Text>
+              <Text style={styles.avatarText}>{user?.avatarUrl ? null : '👾'}</Text>
             </LinearGradient>
             <View style={styles.profileInfo}>
-              <Text style={[styles.profileName,    { color: colors.text.primary   }]}>{CURRENT_USER.name}</Text>
-              <Text style={[styles.profileHandle,  { color: colors.primaryLight   }]}>{CURRENT_USER.handle}</Text>
-              <Text style={[styles.profileCollege, { color: colors.text.muted     }]}>{CURRENT_USER.college}</Text>
+              <Text style={[styles.profileName,    { color: colors.text.primary   }]}>{user?.name || 'Taddle User'}</Text>
+              <Text style={[styles.profileHandle,  { color: colors.primaryLight   }]}>@{user?.username || 'user'}</Text>
+              <Text style={[styles.profileCollege, { color: colors.text.muted     }]}>{user?.college || 'No college selected'}</Text>
             </View>
             <Ionicons name="chevron-forward" size={18} color={colors.text.muted} />
           </TouchableOpacity>
 
           {/* Stats strip */}
           <View style={[styles.statsStrip, { backgroundColor: colors.bg.card, borderColor: colors.border }]}>
-            <StatBox value={CURRENT_USER.followers.toLocaleString()} label="Followers" colors={colors} />
+            <StatBox value={(user?.followerCount || 0).toLocaleString()} label="Followers" colors={colors} />
             <View style={[styles.statDiv, { backgroundColor: colors.border }]} />
-            <StatBox value={CURRENT_USER.following.toLocaleString()} label="Following" colors={colors} />
+            <StatBox value={(user?.followingCount || 0).toLocaleString()} label="Following" colors={colors} />
             <View style={[styles.statDiv, { backgroundColor: colors.border }]} />
-            <StatBox value={`${CURRENT_USER.posts}`} label="Posts" colors={colors} />
+            <StatBox value={`${user?.postCount || 0}`} label="Posts" colors={colors} />
           </View>
 
           {/* Rank / XP row */}
           <View style={styles.rankRow}>
             <View style={[styles.rankBadge, { backgroundColor: 'rgba(124,58,237,0.18)', borderColor: 'rgba(124,58,237,0.35)' }]}>
-              <Text style={[styles.rankBadgeText, { color: colors.primaryLight }]}>⚡ {CURRENT_USER.rank}</Text>
+              <Text style={[styles.rankBadgeText, { color: colors.primaryLight }]}>⚡ {user?.rank || 'Beginner'}</Text>
             </View>
-            <Text style={[styles.rankXP, { color: colors.text.muted }]}>Lv {CURRENT_USER.level} · {CURRENT_USER.xp.toLocaleString()} XP</Text>
+            <Text style={[styles.rankXP, { color: colors.text.muted }]}>Lv {user?.level || 1} · {(user?.xp || 0).toLocaleString()} XP</Text>
           </View>
 
           <View style={[styles.divider, { backgroundColor: colors.border }]} />

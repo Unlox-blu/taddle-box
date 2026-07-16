@@ -1,0 +1,29 @@
+import { apiClient } from './apiClient';
+import type { Post } from '../types';
+
+export const postsService = {
+  getFeed: async (page = 1, limit = 20): Promise<{ data: Post[] }> => {
+    const response = await apiClient.get(`/feed?page=${page}&limit=${limit}`);
+    return response.data;
+  },
+
+  createPost: async (postData: any): Promise<{ data: Post }> => {
+    const response = await apiClient.post('/posts', postData);
+    return response.data;
+  },
+
+  toggleLike: async (postId: string) => {
+    const response = await apiClient.post(`/posts/${postId}/like`);
+    return response.data;
+  },
+
+  toggleSave: async (postId: string) => {
+    const response = await apiClient.post(`/save/${postId}`);
+    return response.data;
+  },
+
+  deletePost: async (postId: string) => {
+    const response = await apiClient.delete(`/posts/${postId}`);
+    return response.data;
+  }
+};

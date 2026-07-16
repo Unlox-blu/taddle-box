@@ -6,10 +6,14 @@ import {
 import { LinearGradient } from 'expo-linear-gradient';
 import { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { StatusBar } from 'expo-status-bar';
+import * as SecureStore from 'expo-secure-store';
 import { colors, radii, fontSizes, spacing } from '../../theme';
 import Button from '../../components/common/Button';
 import type { AuthStackParamList, OnboardingSlide } from '../../types';
-import { ONBOARDING_SLIDES } from '../../types/mockData';
+const ONBOARDING_SLIDES: OnboardingSlide[] = [
+  { id: '1', title: 'Welcome', subtitle: 'Join the community', emoji: '👋', gradient: ['#4ade80', '#3b82f6'] },
+  { id: '2', title: 'Connect', subtitle: 'Meet new people', emoji: '🤝', gradient: ['#f472b6', '#a855f7'] }
+];
 
 const { width, height } = Dimensions.get('window');
 type Props = NativeStackScreenProps<AuthStackParamList, 'Onboarding'>;
@@ -19,15 +23,19 @@ export default function OnboardingScreen({ navigation }: Props) {
   const flatRef = useRef<FlatList>(null);
   const scrollX = useRef(new Animated.Value(0)).current;
 
-  const next = () => {
+  const next = async () => {
     if (index < ONBOARDING_SLIDES.length - 1) {
       flatRef.current?.scrollToIndex({ index: index + 1, animated: true });
     } else {
+      await SecureStore.setItemAsync('hasSeenOnboarding', 'true');
       navigation.replace('Welcome');
     }
   };
 
-  const skip = () => navigation.replace('Welcome');
+  const skip = async () => {
+    await SecureStore.setItemAsync('hasSeenOnboarding', 'true');
+    navigation.replace('Welcome');
+  };
 
   const renderItem: ListRenderItem<OnboardingSlide> = ({ item }) => (
     <LinearGradient

@@ -1,4 +1,5 @@
-import React, { createContext, useContext, useReducer } from 'react';
+import React, { createContext, useContext, useReducer, useCallback } from 'react';
+import { gamesService } from '../services/games.service';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -26,60 +27,42 @@ export type PlayerStats = {
   bestStreak:    number;
 };
 
-// ─── Helpers ──────────────────────────────────────────────────────────────────
-
-const BOT_NAMES = ['ChessBot Pro', 'QuickAI', 'GrandMaster Bot', 'EasyBot', 'TurboAI'];
-const randomBot = () => BOT_NAMES[Math.floor(Math.random() * BOT_NAMES.length)];
-
-function formatNow(): string {
-  const d    = new Date();
-  const time = d.toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', hour12: true });
-  const today = new Date(); today.setHours(0, 0, 0, 0);
-  const day   = new Date(d); day.setHours(0, 0, 0, 0);
-  return day.getTime() === today.getTime() ? `Today · ${time}` : `${d.toLocaleDateString('en-IN', { day: 'numeric', month: 'short' })} · ${time}`;
-}
-
-// ─── Seed history ─────────────────────────────────────────────────────────────
-
-const SEED_MATCHES: GameMatch[] = [
-  { id: 'm1', gameId: 'g1', gameName: 'Chess',         gameEmoji: '♟️', mode: 'bot',        result: 'win',  xpEarned: 120, score: '1–0',     duration: '4m 12s', opponent: 'ChessBot Pro',    playedAt: 'Today · 11:30 AM'     },
-  { id: 'm2', gameId: 'g2', gameName: 'Ludo',          gameEmoji: '🎲', mode: 'quick',      result: 'loss', xpEarned: 10,  score: '2nd',     duration: '7m 44s', opponent: 'Priya_Dev',        playedAt: 'Today · 10:15 AM'     },
-  { id: 'm3', gameId: 'g3', gameName: 'Block Blaster', gameEmoji: '💥', mode: 'bot',        result: 'win',  xpEarned: 55,  score: '1840 pts', duration: '3m 02s', opponent: 'GrandMaster Bot',  playedAt: 'Yesterday · 9:00 PM'  },
-  { id: 'm4', gameId: 'g1', gameName: 'Chess',         gameEmoji: '♟️', mode: 'tournament', result: 'win',  xpEarned: 150, score: '1–0',     duration: '6m 50s', opponent: 'Champion_Raj',     playedAt: 'Yesterday · 4:20 PM'  },
-  { id: 'm5', gameId: 'g4', gameName: 'Candy Connect', gameEmoji: '🍬', mode: 'quick',      result: 'loss', xpEarned: 10,  score: '3240 pts', duration: '2m 18s', opponent: 'Sana_Codes',       playedAt: 'Jun 11 · 8:00 PM'    },
-  { id: 'm6', gameId: 'g2', gameName: 'Ludo',          gameEmoji: '🎲', mode: 'bot',        result: 'win',  xpEarned: 75,  score: '1st',     duration: '9m 31s', opponent: 'EasyBot',          playedAt: 'Jun 10 · 3:10 PM'    },
-];
-
 // ─── State & Actions ──────────────────────────────────────────────────────────
 
 type State = {
   matches: GameMatch[];
   stats:   PlayerStats;
+  isLoading: boolean;
 };
 
 type Action =
-  | { type: 'ADD_MATCH'; match: Omit<GameMatch, 'id' | 'playedAt' | 'opponent'> };
+  | { type: 'SET_DATA'; matches: GameMatch[]; stats: PlayerStats }
+  | { type: 'SET_LOADING'; isLoading: boolean }
+  | { type: 'ADD_MATCH'; match: GameMatch; newStats: PlayerStats };
+
+const INITIAL: State = {
+  matches: [],
+  stats: {
+    totalXP:       0,
+    gamesPlayed:   0,
+    wins:          0,
+    currentStreak: 0,
+    bestStreak:    0,
+  },
+  isLoading: false,
+};
 
 function reducer(state: State, action: Action): State {
   switch (action.type) {
+    case 'SET_DATA':
+      return { ...state, matches: action.matches, stats: action.stats, isLoading: false };
+    case 'SET_LOADING':
+      return { ...state, isLoading: action.isLoading };
     case 'ADD_MATCH': {
-      const match: GameMatch = {
-        ...action.match,
-        id:       `m_${Date.now()}`,
-        playedAt: formatNow(),
-        opponent: action.match.mode === 'bot' ? randomBot() : 'Online Player',
-      };
-      const isWin = match.result === 'win';
-      const newStreak = isWin ? state.stats.currentStreak + 1 : 0;
       return {
-        matches: [match, ...state.matches],
-        stats: {
-          totalXP:       state.stats.totalXP + match.xpEarned,
-          gamesPlayed:   state.stats.gamesPlayed + 1,
-          wins:          state.stats.wins + (isWin ? 1 : 0),
-          currentStreak: newStreak,
-          bestStreak:    Math.max(state.stats.bestStreak, newStreak),
-        },
+        matches: [action.match, ...state.matches],
+        stats: action.newStats,
+        isLoading: state.isLoading
       };
     }
     default:
@@ -87,38 +70,49 @@ function reducer(state: State, action: Action): State {
   }
 }
 
-const INITIAL: State = {
-  matches: SEED_MATCHES,
-  stats: {
-    totalXP:       2980,
-    gamesPlayed:   142,
-    wins:          97,
-    currentStreak: 3,
-    bestStreak:    12,
-  },
-};
-
 // ─── Context ──────────────────────────────────────────────────────────────────
 
 type GamesContextType = {
   matches:  GameMatch[];
   stats:    PlayerStats;
-  addMatch: (match: Omit<GameMatch, 'id' | 'playedAt' | 'opponent'>) => void;
+  isLoading: boolean;
+  fetchGamesData: () => Promise<void>;
+  addMatch: (matchData: any) => Promise<void>;
 };
 
 const GamesContext = createContext<GamesContextType>({
   matches:  [],
   stats:    INITIAL.stats,
-  addMatch: () => {},
+  isLoading: false,
+  fetchGamesData: async () => {},
+  addMatch: async () => {},
 });
 
 export function GamesProvider({ children }: { children: React.ReactNode }) {
   const [state, dispatch] = useReducer(reducer, INITIAL);
+
+  const fetchGamesData = useCallback(async () => {
+    dispatch({ type: 'SET_LOADING', isLoading: true });
+    try {
+      // In a real scenario, you'd have an endpoint that returns the match history and player stats
+      // const res = await gamesService.getMatchHistory();
+      // For now, setting to empty to clean up the dummy data
+      dispatch({ type: 'SET_DATA', matches: [], stats: INITIAL.stats });
+    } catch (e) {
+      console.error('Failed to fetch games data', e);
+      dispatch({ type: 'SET_LOADING', isLoading: false });
+    }
+  }, []);
+
   return (
     <GamesContext.Provider value={{
       matches:  state.matches,
       stats:    state.stats,
-      addMatch: (match) => dispatch({ type: 'ADD_MATCH', match }),
+      isLoading: state.isLoading,
+      fetchGamesData,
+      addMatch: async (matchData) => {
+        // Implement API call to submit match result here
+      },
     }}>
       {children}
     </GamesContext.Provider>

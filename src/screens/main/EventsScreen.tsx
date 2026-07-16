@@ -1,3 +1,4 @@
+const EVENTS: any[] = [];
 import React, { useMemo, useState } from 'react';
 import {
   View, Text, ScrollView, TouchableOpacity,
@@ -10,7 +11,7 @@ import { StatusBar } from 'expo-status-bar';
 import { fontSizes, spacing, radii, type ColorPalette } from '../../theme';
 import { useTheme, useThemeColors } from '../../context/ThemeContext';
 import Button from '../../components/common/Button';
-import { EVENTS } from '../../types/mockData';
+// removed mockData import
 import type { Event } from '../../types';
 
 const FILTERS = ['All', '🔴 Live', '💻 Online', '📍 Offline', '🏆 Contest'];

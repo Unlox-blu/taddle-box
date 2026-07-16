@@ -1,3 +1,5 @@
+const LEADERBOARD: any[] = [];
+const GAMES: any[] = [];
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import {
   View, Text, ScrollView, TouchableOpacity, StyleSheet,
@@ -8,7 +10,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { StatusBar } from 'expo-status-bar';
 import { fontSizes, spacing, radii, type ColorPalette } from '../../theme';
-import { GAMES, LEADERBOARD } from '../../types/mockData';
+// removed mockData import
 import { useGames, type PlayMode, type GameMatch } from '../../context/GamesContext';
 import { useWallet } from '../../context/WalletContext';
 import { useThemeColors } from '../../context/ThemeContext';
@@ -227,11 +229,11 @@ export default function GamesScreen() {
               >
                 <Text style={styles.lbTitle}>🔥 Leaderboard</Text>
                 <TouchableOpacity onPress={() => setScreenModal('leaderboard')}>
-                  <Text style={styles.lbAll}>See all →</Text>
+                  <Text style={[styles.sectionLabel, { color: colors.text.muted, fontSize: fontSizes.xs, paddingHorizontal: 0, marginBottom: 0 }]}>TOP PLAYERS →</Text>
                 </TouchableOpacity>
               </LinearGradient>
-              {LEADERBOARD.map((e, i) => (
-                <View key={e.rank} style={[styles.lbRow, i === LEADERBOARD.length - 1 && { borderBottomWidth: 0 }]}>
+              {LEADERBOARD.slice(0, 3).filter(Boolean).map((e, i) => (
+                <View key={e.rank} style={[styles.lbRow, i === 2 && { borderBottomWidth: 0 }]}>
                   <Text style={[styles.lbRank, { color: RANK_COLORS[i] }]}>{e.rank}</Text>
                   <View style={styles.lbAvatar}><Text style={{ fontSize: 16 }}>{e.avatar}</Text></View>
                   <Text style={styles.lbName}>{e.user}</Text>
@@ -964,7 +966,7 @@ function LeaderboardModal({ visible, onClose }: { visible: boolean; onClose: () 
         <ScrollView contentContainerStyle={{ paddingBottom: 40 }}>
           {/* Top 3 podium */}
           <View style={styles.podium}>
-            {[LEADERBOARD[1], LEADERBOARD[0], LEADERBOARD[2]].map((e, i) => {
+            {[LEADERBOARD[1], LEADERBOARD[0], LEADERBOARD[2]].filter(Boolean).map((e, i) => {
               const isCenter = i === 1;
               const medals = ['🥈', '🥇', '🥉'];
               return (

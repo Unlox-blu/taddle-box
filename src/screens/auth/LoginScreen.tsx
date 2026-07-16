@@ -1,32 +1,38 @@
-import React, { useState } from 'react';
+import React, { useState } from "react";
 import {
-  View, Text, TouchableOpacity, StyleSheet,
-  ScrollView, KeyboardAvoidingView, Platform,
-} from 'react-native';
-import { LinearGradient } from 'expo-linear-gradient';
-import { NativeStackScreenProps } from '@react-navigation/native-stack';
-import { StatusBar } from 'expo-status-bar';
-import { Ionicons } from '@expo/vector-icons';
-import { colors, radii, fontSizes, spacing } from '../../theme';
-import Button from '../../components/common/Button';
-import Input  from '../../components/common/Input';
-import type { AuthStackParamList } from '../../types';
-import { useAuth } from '../../context/AuthContext';
+  View,
+  Text,
+  TouchableOpacity,
+  StyleSheet,
+  ScrollView,
+  KeyboardAvoidingView,
+  Platform,
+} from "react-native";
+import { LinearGradient } from "expo-linear-gradient";
+import { NativeStackScreenProps } from "@react-navigation/native-stack";
+import { StatusBar } from "expo-status-bar";
+import { Ionicons } from "@expo/vector-icons";
+import { colors, radii, fontSizes, spacing } from "../../theme";
+import Button from "../../components/common/Button";
+import Input from "../../components/common/Input";
+import type { AuthStackParamList } from "../../types";
+import { useAuth } from "../../context/AuthContext";
+import { authService } from "../../services/auth.service";
 
-type Props = NativeStackScreenProps<AuthStackParamList, 'Login'>;
+type Props = NativeStackScreenProps<AuthStackParamList, "Login">;
 
 export default function LoginScreen({ navigation }: Props) {
   const { signIn } = useAuth();
-  const [email,    setEmail]    = useState('');
-  const [password, setPassword] = useState('');
-  const [loading,  setLoading]  = useState(false);
-  const [errors,   setErrors]   = useState<Record<string, string>>({});
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [loading, setLoading] = useState(false);
+  const [errors, setErrors] = useState<Record<string, string>>({});
 
   const validate = () => {
     const e: Record<string, string> = {};
-    if (!email.trim())    e.email    = 'Email is required';
-    else if (!/\S+@\S+\.\S+/.test(email)) e.email = 'Enter a valid email';
-    if (!password.trim()) e.password = 'Password is required';
+    if (!email.trim()) e.email = "Email is required";
+    else if (!/\S+@\S+\.\S+/.test(email)) e.email = "Enter a valid email";
+    if (!password.trim()) e.password = "Password is required";
     setErrors(e);
     return Object.keys(e).length === 0;
   };
@@ -34,18 +40,33 @@ export default function LoginScreen({ navigation }: Props) {
   const handleLogin = async () => {
     if (!validate()) return;
     setLoading(true);
-    // Simulate API call
-    await new Promise(r => setTimeout(r, 1200));
-    setLoading(false);
-    signIn();
+    try {
+      const res = await authService.login(email, password);
+      const accessToken =
+        res.data?.sessionData?.accessToken ||
+        res.sessionData?.accessToken ||
+        res.data?.accessToken ||
+        res.data?.data?.sessionData?.accessToken;
+      if (!accessToken)
+        throw new Error("Could not extract access token from backend response");
+      const refreshToken =
+        res.data?.sessionData?.refreshToken ||
+        res.sessionData?.refreshToken ||
+        res.data?.refreshToken;
+      await signIn(accessToken, refreshToken);
+    } catch (e: any) {
+      setErrors({ email: e.response?.data?.message || "Login failed" });
+    } finally {
+      setLoading(false);
+    }
   };
 
   return (
-    <LinearGradient colors={['#070714', '#0E0E24']} style={styles.container}>
+    <LinearGradient colors={["#070714", "#0E0E24"]} style={styles.container}>
       <StatusBar style="light" />
 
       <KeyboardAvoidingView
-        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+        behavior={Platform.OS === "ios" ? "padding" : undefined}
         style={styles.kav}
       >
         <ScrollView
@@ -54,8 +75,15 @@ export default function LoginScreen({ navigation }: Props) {
           keyboardShouldPersistTaps="handled"
         >
           {/* Back */}
-          <TouchableOpacity onPress={() => navigation.goBack()} style={styles.back}>
-            <Ionicons name="arrow-back" size={22} color={colors.text.secondary} />
+          <TouchableOpacity
+            onPress={() => navigation.goBack()}
+            style={styles.back}
+          >
+            <Ionicons
+              name="arrow-back"
+              size={22}
+              color={colors.text.secondary}
+            />
           </TouchableOpacity>
 
           {/* Header */}
@@ -87,7 +115,7 @@ export default function LoginScreen({ navigation }: Props) {
             />
 
             <TouchableOpacity
-              onPress={() => navigation.navigate('ForgotPassword')}
+              onPress={() => navigation.navigate("ForgotPassword")}
               style={styles.forgotRow}
             >
               <Text style={styles.forgotText}>Forgot password?</Text>
@@ -117,7 +145,11 @@ export default function LoginScreen({ navigation }: Props) {
               <Text style={styles.socialLabel}>Google</Text>
             </TouchableOpacity>
             <TouchableOpacity style={styles.socialBtn}>
-              <Ionicons name="logo-apple" size={18} color={colors.text.primary} />
+              <Ionicons
+                name="logo-apple"
+                size={18}
+                color={colors.text.primary}
+              />
               <Text style={styles.socialLabel}>Apple</Text>
             </TouchableOpacity>
           </View>
@@ -125,7 +157,7 @@ export default function LoginScreen({ navigation }: Props) {
           {/* Sign up link */}
           <View style={styles.registerRow}>
             <Text style={styles.registerText}>Don't have an account? </Text>
-            <TouchableOpacity onPress={() => navigation.navigate('Register')}>
+            <TouchableOpacity onPress={() => navigation.navigate("Register")}>
               <Text style={styles.registerLink}>Sign up free →</Text>
             </TouchableOpacity>
           </View>
@@ -140,39 +172,45 @@ const styles = StyleSheet.create({
   kav: { flex: 1 },
   scroll: { flexGrow: 1, padding: 24, paddingTop: 60 },
   back: {
-    width: 40, height: 40,
+    width: 40,
+    height: 40,
     borderRadius: radii.md,
     backgroundColor: colors.bg.card,
     borderWidth: 1,
     borderColor: colors.border,
-    alignItems: 'center', justifyContent: 'center',
+    alignItems: "center",
+    justifyContent: "center",
     marginBottom: 28,
   },
   header: { marginBottom: 32 },
   title: {
     fontSize: fontSizes.h2,
-    fontWeight: '800',
+    fontWeight: "800",
     color: colors.text.primary,
     marginBottom: 6,
   },
   subtitle: { fontSize: fontSizes.md, color: colors.text.muted },
   form: { gap: 2 },
-  forgotRow: { alignItems: 'flex-end', marginBottom: 4 },
-  forgotText: { fontSize: fontSizes.sm, color: colors.primaryLight, fontWeight: '600' },
+  forgotRow: { alignItems: "flex-end", marginBottom: 4 },
+  forgotText: {
+    fontSize: fontSizes.sm,
+    color: colors.primaryLight,
+    fontWeight: "600",
+  },
   dividerRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
+    flexDirection: "row",
+    alignItems: "center",
     gap: 12,
     marginVertical: 28,
   },
   line: { flex: 1, height: 1, backgroundColor: colors.border },
   dividerText: { fontSize: fontSizes.xs, color: colors.text.muted },
-  socialRow: { flexDirection: 'row', gap: 12, marginBottom: 32 },
+  socialRow: { flexDirection: "row", gap: 12, marginBottom: 32 },
   socialBtn: {
     flex: 1,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
     gap: 8,
     backgroundColor: colors.bg.card,
     borderWidth: 1,
@@ -180,13 +218,25 @@ const styles = StyleSheet.create({
     borderRadius: radii.md,
     paddingVertical: 12,
   },
-  socialIcon:  { fontSize: fontSizes.md, fontWeight: '800', color: colors.text.primary },
-  socialLabel: { fontSize: fontSizes.sm, color: colors.text.primary, fontWeight: '600' },
+  socialIcon: {
+    fontSize: fontSizes.md,
+    fontWeight: "800",
+    color: colors.text.primary,
+  },
+  socialLabel: {
+    fontSize: fontSizes.sm,
+    color: colors.text.primary,
+    fontWeight: "600",
+  },
   registerRow: {
-    flexDirection: 'row',
-    justifyContent: 'center',
-    alignItems: 'center',
+    flexDirection: "row",
+    justifyContent: "center",
+    alignItems: "center",
   },
   registerText: { fontSize: fontSizes.sm, color: colors.text.muted },
-  registerLink: { fontSize: fontSizes.sm, color: colors.primaryLight, fontWeight: '700' },
+  registerLink: {
+    fontSize: fontSizes.sm,
+    color: colors.primaryLight,
+    fontWeight: "700",
+  },
 });

@@ -3,8 +3,8 @@ import {
   View, Text, ScrollView, TouchableOpacity, StyleSheet,
   Modal, TextInput, KeyboardAvoidingView, Platform,
   Alert, Share, Switch, Animated,
-} from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { WebView } from 'react-native-webview';
 import { useNavigation } from '@react-navigation/native';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
@@ -47,6 +47,7 @@ export default function WalletScreen() {
 
   const [txnFilter,    setTxnFilter]    = useState<TxnFilter>('All');
   const [activeModal,  setActiveModal]  = useState<ActiveModal>('none');
+  const [handoffUrl,   setHandoffUrl]   = useState<string | null>(null);
   const scrollRef = useRef<ScrollView>(null);
 
   // ── Computed stats ──
@@ -258,8 +259,15 @@ export default function WalletScreen() {
         visible={activeModal === 'withdraw'}
         cashBalance={wallet.cashBalance}
         linkedUPI={wallet.linkedUPI}
-        onWithdraw={withdraw}
-        onLinkUPI={() => { closeModal(); setTimeout(() => openModal('linkUPI'), 300); }}
+        onWithdraw={async (amount) => {
+          try {
+            const url = await withdraw(amount);
+            if (url) setHandoffUrl(url);
+          } catch (e) {
+            console.log(e);
+          }
+        }}
+        onLinkUPI={() => openModal('linkUPI')}
         onClose={closeModal}
       />
       <LinkUPIModal
@@ -286,6 +294,30 @@ export default function WalletScreen() {
         onLinkUPI={() => { closeModal(); setTimeout(() => openModal('linkUPI'), 300); }}
         onClose={closeModal}
       />
+
+      {handoffUrl && (
+        <Modal visible={true} animationType="slide" onRequestClose={() => setHandoffUrl(null)}>
+          <View style={{ flex: 1, paddingTop: insets.top, backgroundColor: colors.bg.base }}>
+            <View style={{ flexDirection: 'row', justifyContent: 'space-between', padding: 16, backgroundColor: colors.bg.base }}>
+              <Text style={{ color: colors.text.primary, fontSize: 18, fontWeight: 'bold' }}>Complete Withdrawal</Text>
+              <TouchableOpacity onPress={() => setHandoffUrl(null)}>
+                <Text style={{ color: colors.primary }}>Close</Text>
+              </TouchableOpacity>
+            </View>
+            <WebView 
+              source={{ uri: handoffUrl }} 
+              style={{ flex: 1 }} 
+              onNavigationStateChange={(state) => {
+                // If it hits a success/failure URL, close it
+                if (state.url.includes('success') || state.url.includes('failure')) {
+                  setTimeout(() => setHandoffUrl(null), 2000);
+                }
+              }}
+            />
+          </View>
+        </Modal>
+      )}
+
     </View>
   );
 }

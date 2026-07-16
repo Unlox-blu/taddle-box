@@ -164,7 +164,7 @@ export default function UserProfileScreen({ navigation, route }: Props) {
         <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backBtn}>
           <Ionicons name="arrow-back" size={22} color={colors.text.primary} />
         </TouchableOpacity>
-        <Text style={styles.headerHandle}>{user.handle}</Text>
+        <Text style={styles.headerHandle}>@{user?.username || 'user'}</Text>
         <TouchableOpacity style={styles.iconBtn}>
           <Ionicons name="share-social-outline" size={20} color={colors.text.secondary} />
         </TouchableOpacity>
@@ -178,25 +178,25 @@ export default function UserProfileScreen({ navigation, route }: Props) {
           <View style={styles.profileRow}>
             <View style={styles.avatarWrap}>
               <LinearGradient colors={[colors.primary, colors.cyanDark]} style={styles.avatar}>
-                <Text style={styles.avatarEmoji}>{user.avatar}</Text>
+                <Text style={styles.avatarEmoji}>{user?.avatarUrl ? null : '👾'}</Text>
               </LinearGradient>
               <LinearGradient colors={[colors.xpGold, colors.xpOrange]} style={styles.levelBadge}>
-                <Text style={styles.levelText}>{user.level}</Text>
+                <Text style={styles.levelText}>{user?.level || 1}</Text>
               </LinearGradient>
             </View>
             <View style={styles.profileInfo}>
-              <Text style={styles.name}>{user.name}</Text>
-              <Text style={styles.handleRank}>{user.handle} · 🏅 {user.rank}</Text>
-              <Text style={styles.bio}>{user.bio}</Text>
+              <Text style={styles.name}>{user?.name || 'Taddle User'}</Text>
+              <Text style={styles.handleRank}>@{user?.username || 'user'} · 🏅 {user?.rank || 'Beginner'}</Text>
+              <Text style={styles.bio}>{user?.bio || 'No bio yet.'}</Text>
             </View>
           </View>
 
           <View style={styles.statsRow}>
             {[
-              { label: 'Posts',     value: user.posts.toLocaleString() },
+              { label: 'Posts',     value: (user?.postCount || 0).toLocaleString() },
               { label: 'Followers', value: ((user.followers + (followed ? 1 : 0)) / 1000).toFixed(1) + 'k' },
-              { label: 'Following', value: user.following.toLocaleString() },
-              { label: 'Total XP',  value: user.xp.toLocaleString(), highlight: true },
+              { label: 'Following', value: (user?.followingCount || 0).toLocaleString() },
+              { label: 'Total XP',  value: (user?.xp || 0).toLocaleString(), highlight: true },
             ].map(s => (
               <View key={s.label} style={styles.statItem}>
                 <Text style={[styles.statVal, s.highlight && { color: colors.xpGold }]}>
@@ -230,10 +230,10 @@ export default function UserProfileScreen({ navigation, route }: Props) {
         </LinearGradient>
 
         <XPProgressBar
-          level={user.level}
-          rank={user.rank}
-          currentXP={user.xp}
-          targetXP={user.xpToNext}
+          level={user?.level || 1}
+          rank={user?.rank || 'Beginner'}
+          currentXP={user?.xp || 0}
+          targetXP={user?.xpToNext || 500}
         />
 
         <View style={styles.infoCard}>
@@ -257,7 +257,7 @@ export default function UserProfileScreen({ navigation, route }: Props) {
               horizontal showsHorizontalScrollIndicator={false}
               contentContainerStyle={styles.badgeScroll}
             >
-              {user.badges.map(b => {
+              {(user?.badges || []).map((b: any) => {
                 const bs = BADGE_COLORS[b.color] ?? { bg: colors.bg.elevated, border: colors.border };
                 return (
                   <View key={b.id} style={styles.badgeItem}>

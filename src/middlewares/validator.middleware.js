@@ -16,12 +16,14 @@ const validateRequest = ({ body, query, params }) => (req, _res, next) => {
     const result = schema.safeParse(req[key]);
 
     if (!result.success) {
-      const errors = result.error.errors.map((e) => ({
+      const errors = result.error.errors.map((e) =>{ 
+        return ({
         field: [key, ...e.path].join('.'), 
         message: e.message,
-      }));
+      })});
 
-      const err = createError('Validation failed', 400);
+      const detailedMessage = errors.map(e => e.message).join(', ');
+      const err = createError(detailedMessage, 400);
       err.errors = errors;
       return next(err);
     }

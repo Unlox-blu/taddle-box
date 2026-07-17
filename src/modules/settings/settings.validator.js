@@ -8,7 +8,7 @@ const setThemeSchema = z.object({
 }).strict();
 
 const setAppLockSchema = z.object({
-  pin: z.string().regex(/^[0-9]{4}$/, 'Invalid app lock'),
+  pin: z.string().regex(/^[0-9]{4}$/, 'PIN must be exactly 4 digits'),
 }).strict();
 
 module.exports = { setThemeSchema, setAppLockSchema };

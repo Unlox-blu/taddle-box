@@ -2,7 +2,6 @@
 
 const { createError } = require('../../utils/error.util');
 const PostModel = require('./post.model');
-const { addNotificationJob } = require('../../jobs/queues/notification.queue');
 const { addJob } = require('../../jobs/queues/job.queue');
 
 class PostService {
@@ -28,7 +27,7 @@ class PostService {
 
         const isMember = await this.communityRepo.isMember(communityId, authorId);
         if (!isMember || isMember.status !== 'active')
-          throw createError('You must be a member to post in this community', 403);
+          throw createError("Only community members can make posts", 403);
       }
 
       const post = await this.postRepo.create({ ...data, authorId });
@@ -63,13 +62,13 @@ class PostService {
 
           const isMember = await this.communityRepo.isMember(communityId, userId);
           if (!isMember || isMember.status !== 'active')
-            throw createError('This is private community', 403);
+            throw createError("You are not a member of this private community", 403);
         }
       }
       else if(author.privacy !== 'public') {
         const isFollow = await this.followerRepo.findByFollowerIdAndFollowingId(userId, authorId)
         if(!isFollow || isFollow !== 'active')
-          throw createError("You are not following the Post Author It's private account", 403)
+          throw createError("You don't have permission to view posts from this private account", 403);
       }
       return PostModel.format(post);
     } catch (error) {
@@ -90,7 +89,7 @@ class PostService {
       if(author.privacy !== 'public') {
         const isFollow = await this.followerRepo.findByFollowerIdAndFollowingId(userId, authorId)
         if(!isFollow || isFollow !== 'active')
-          throw createError("You are not following the Post Author It's private account", 403)
+          throw createError("You don't have permission to view posts from this private account", 403);
       }
 
       const { rows, total } = await this.postRepo.findManyByUser(authorId, limit, offset);
@@ -141,11 +140,11 @@ class PostService {
       if(authorId !== userId && author.privacy !== 'public') {
         const isFollow = await this.followerRepo.findByFollowerIdAndFollowingId(userId, authorId)
         if(!isFollow || isFollow !== 'active')
-          throw createError("You are not following the Post Author It's private account", 403)
+          throw createError("You don't have permission to like posts", 403);
       }  
 
       const alreadyLiked = await this.postRepo.isLikedByUser(postId, userId);
-      if (alreadyLiked) throw createError('Post already liked', 409);
+      if (alreadyLiked) throw createError("Post has already been liked", 409);
       
       await this.postRepo.addLike(postId, userId);
       await this.postRepo.incrementLikeCount(postId);
@@ -169,7 +168,7 @@ class PostService {
   async unlikePost({postId, userId}) {
     try {
       const isLiked = await this.postRepo.isLikedByUser(postId, userId);
-      if (!isLiked) throw createError('Post already not liked', 409);
+      if (!isLiked) throw createError("Post is not liked", 404);
       await this.postRepo.removeLike(postId, userId);
       await this.postRepo.decrementLikeCount(postId);
     } catch (error) {
@@ -187,7 +186,7 @@ class PostService {
       if(author.privacy !== 'public') {
         const isFollow = await this.followerRepo.findByFollowerIdAndFollowingId(userId, authorId)
         if(!isFollow || isFollow !== 'active')
-          throw createError("You are not following the Post Author It's private account", 403)
+          throw createError("You don't have permission to view posts from this private account", 403);
       }
 
       await this.postRepo.incrementShareCount(postId);
@@ -207,7 +206,7 @@ class PostService {
       if(authorId !== userId && author.privacy !== 'public') {
         const isFollow = await this.followerRepo.findByFollowerIdAndFollowingId(userId, authorId)
         if(!isFollow || isFollow !== 'active')
-          throw createError("You are not following the Post Author It's private account", 403)
+          throw createError("You don't have permission to bookmark posts of this private account", 403);
       }
 
       const isBookmarked = await this.bookmarkRepo.findByUserIdAndPostId(userId, postId)

@@ -22,12 +22,12 @@ class SharekService {
 
         if(author.privacy !== 'public') {
             if(!userId)
-                throw createError("It is a privet account you are not authorized", 403)
+                throw createError("You are not authorized", 403)
             
             const isFollow = await this.shareRepo.findByFollowerIdAndFollowingId(userId, authorId)
 
             if(!isFollow)
-                throw createError("It is a privet account you are not authorized", 403)
+                throw createError("You are not authorized to view post of this private account", 403);
         }
 
         return post

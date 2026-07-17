@@ -54,28 +54,28 @@ class AuthService {
 
       if (isUserNameExistDB) throw createError('Username already taken', 400);
 
-      // const usernameKey = `${USERNAME_PREFIX}:${username}`
-      // const isUserNameExistRedis = await redis.get(usernameKey)
+    } catch (error) {
+      throw error;
+    }
+  }
 
-      // if(isUserNameExistRedis && !usernameToken)
-      //   throw createError('UserName already taken', 400)
+  async isEmailExist({ email }) {
+    try {
+      const isEmailRegistered = await this.authUserRepo.isEmailExist({ email });
 
-      // if(isUserNameExistRedis && usernameToken){
-      //   const usernameTokenHash = hashToken(usernameToken);
+      if (isEmailRegistered) throw createError('Email is already registered', 400);
 
-      //   if(isUserNameExistRedis !== usernameTokenHash)
-      //     throw createError('UserName already taken', 400)
-      // }
+    } catch (error) {
+      throw error;
+    }
+  }
 
-      // const rawToken = generateRandomToken();
-      // const tokenHash = hashToken(rawToken);
+  async isPhoneExist({ countryCode, phone }) {
+    try {
+      const isPhoneRegistered = await this.authUserRepo.isPhoneExist({ countryCode, phone });
 
-      // await redis.setex(usernameKey, 60 * 5, tokenHash)
+      if (isPhoneRegistered) throw createError('Phone is already registered', 400);
 
-      // return {
-      //         usernameToken: rawToken,
-      //         cookieOpts : COOKIE_OPTS
-      //       }
     } catch (error) {
       throw error;
     }
@@ -83,13 +83,21 @@ class AuthService {
 
   async sendOtp({ email, countryCode, phone }) {
     try {
-      const otpExpIn = new Date(Date.now() + parseInt(config.OTP_EXPIRES_IN, 10));
 
+      const [existingEmail, existingPhone] = await Promise.all([
+        this.authUserRepo.isEmailExist({ email }),
+        this.authUserRepo.isPhoneExist({ countryCode, phone }),
+        ]);
+      if (existingEmail) throw createError('Email is already registered', 409);
+      if (existingPhone) throw createError('Phone is already registered', 409);
+
+      
       const verificationKey = `${OTP_PREFIX}:${email}:${countryCode}${phone}`;
-
+      
       const emailOtp = crypto.randomInt(100000, 1000000).toString();
       const phoneOtp = crypto.randomInt(100000, 1000000).toString();
-
+      
+      const otpExpIn = new Date(Date.now() + parseInt(config.OTP_EXPIRES_IN, 10));
       const verificationObj = {
         email: {
           value: email,
@@ -216,11 +224,11 @@ class AuthService {
       // // Auto-create activeStatus for new user
       await this.activeStatusSvc.createStatus({ userId });
 
-      // const jobdata = {
-      //   to: email,
-      //   name: username
-      // }
-      // await addJob('email:welcome', jobdata);
+      const jobdata = {
+        to: email,
+        name: username
+      }
+      await addJob('email:welcome', jobdata);
 
       await redis.del(verificationKey);
       const { sessionData } = await this.#issueTokens(newUser);
@@ -258,15 +266,11 @@ class AuthService {
 
       const { userData, sessionData } = await this.#issueTokens(user);
 
-      // const jobdata = {
-      //   to: email,
-      //   name: user.name
-      // }
-      // await addJob('email:welcome', jobdata);
-      const verifiedField = {
-        email: false,
-        phone: false,
-      };
+      const jobdata = {
+        to: email,
+        name: user.name
+      }
+      await addJob('email:welcome', jobdata);
 
       return { success: true, userData, sessionData };
     } catch (error) {
@@ -278,9 +282,13 @@ class AuthService {
     try {
       const user = await this.authUserRepo.findByIdAppLock({ userId });
 
-      if (!user.appLockEnabled) throw createError('Pin lock not set', 400);
+      if (!user.appLockEnabled) 
+        throw createError('App lock is not enabled', 400);
+      
 
-      if (user.appLock !== pin) throw createError('Invalid lock pin', 401);
+      if (user.appLock !== pin) 
+        throw createError('Invalid PIN', 401);
+      
     } catch (error) {
       throw error;
     }
@@ -290,7 +298,7 @@ class AuthService {
     try {
       const user = await this.authUserRepo.findByIdAppLock({ userId });
 
-      if (user.appLockEnabled) throw createError('Pin lock already set', 400);
+      if (user.appLockEnabled) throw createError('App lock PIN is already set', 400);
 
       await this.authUserRepo.setAppLock({ userId, pin });
     } catch (error) {
@@ -302,9 +310,13 @@ class AuthService {
     try {
       const user = await this.authUserRepo.findByIdAppLock({ userId });
 
-      if (!user.appLockEnabled) throw createError('Pin lock already not set', 400);
+      if (!user.appLockEnabled) 
+        throw createError('App lock is not enabled', 400);
+      
 
-      if (user.appLock !== currentPin) throw createError('Wrong current pin', 400);
+      if (user.appLock !== currentPin) 
+        throw createError('Current PIN is incorrect', 401);
+      
 
       await this.authUserRepo.setAppLock({ userId, pin: newPin });
     } catch (error) {
@@ -316,9 +328,11 @@ class AuthService {
     try {
       const user = await this.authUserRepo.findByIdAppLock({ userId });
 
-      if (!user.appLockEnabled) throw createError('Pin lock already not set', 400);
+      if (!user.appLockEnabled) 
+        throw createError('App lock is not enabled', 400);
 
-      if (user.appLock !== currentPin) throw createError('Wrong current pin', 400);
+      if (user.appLock !== currentPin) 
+        throw createError('Current PIN is incorrect', 401);
 
       await this.authUserRepo.removeAppLock({ userId });
     } catch (error) {
@@ -362,7 +376,7 @@ class AuthService {
 
   async refreshToken({ refreshToken }) {
     try {
-      if (!refreshToken) throw createError('Refresh token missing', 401);
+      if (!refreshToken) throw createError('Refresh token is required', 401);
 
       const payload = verifyRefreshToken(refreshToken);
       const userId = payload.userId;
@@ -394,7 +408,7 @@ class AuthService {
       if (!user || !user.passwordHash) throw createError('Invalid current password', 400);
 
       const valid = await comparePassword(currentPassword, user.passwordHash);
-      if (!valid) throw createError('Invalid current password', 400);
+      if (!valid) throw createError('Current password is incorrect', 400);
 
       const passwordHash = await hashPassword(newPassword);
       await this.authUserRepo.updatePassword({ userId, passwordHash });

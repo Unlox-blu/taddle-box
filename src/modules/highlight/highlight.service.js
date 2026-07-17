@@ -1,7 +1,5 @@
 'use strict';
 
-const { createError } = require('../../utils/error.util');
-
 
 class HighlightService {
   constructor({ highlightRepository }) {

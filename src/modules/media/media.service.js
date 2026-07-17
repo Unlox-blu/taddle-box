@@ -27,7 +27,7 @@ class MediaService {
           throw createError('You are not authorized', 403)
       }
       
-      if (!ALLOWED_FOLDERS.includes(folder)) throw createError('Invalid upload folder', 400);
+      if (!ALLOWED_FOLDERS.includes(folder)) throw createError("Upload folder is not allowed", 400);
       if (fileSize > MAX_IMAGE_BYTES)
         throw createError(`File size exceeds ${process.env.MAX_FILE_SIZE_MB || 10}MB limit`, 400);
       

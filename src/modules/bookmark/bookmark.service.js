@@ -21,7 +21,7 @@ class BookmarkService {
     try {
       const isBookmarked = await this.bookmarkRepo.findByUserIdAndPostId(userId, postId)
       if(isBookmarked) 
-        throw createError("It already bookmarked", 409)
+        throw createError("Post is already bookmarked", 409)
       
       await this.bookmarkRepo.create(userId, postId);
     } catch (error) {
@@ -33,7 +33,7 @@ class BookmarkService {
     try {
       const isBookmarked = await this.bookmarkRepo.findByUserIdAndPostId(userId, postId)
       if(!isBookmarked) 
-        throw createError("It already not bookmarked", 409)
+        throw createError("Post is not bookmarked", 404)
 
       await this.bookmarkRepo.hardDelete(userId, postId);
     } catch (error) {

@@ -21,7 +21,7 @@ class SaveService {
     try {
       const isSaved = await this.saveRepo.findByUserIdAndEventId(userId, eventId)
       if(isSaved) 
-        throw createError("It already saved", 409)
+        throw createError("Event is already saved", 409)
       
       await this.saveRepo.create(userId, eventId);
     } catch (error) {
@@ -33,7 +33,7 @@ class SaveService {
     try {
       const isSaved = await this.saveRepo.findByUserIdAndEventId(userId, eventId)
       if(!isSaved) 
-        throw createError("It already not saved", 409)
+        throw createError("You have not saved this event", 404);
 
       await this.saveRepo.hardDelete(userId, eventId);
     } catch (error) {

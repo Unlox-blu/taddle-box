@@ -21,7 +21,7 @@ class TaskService {
     try {
         const isExist = await this.taskRepo.findByUserId(userId)
         if(isExist)
-          throw createError("Task acc already exist", 409)
+          throw createError("Task account already exist", 409)
 
         const task = await this.taskRepo.create(userId)
         return task

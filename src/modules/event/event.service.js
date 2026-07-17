@@ -2,7 +2,6 @@
 
 const { createError } = require('../../utils/error.util');
 const config  = require('../../config/app.config');
-const { addEmailJob } = require('../../jobs/queues/email.queue');
 const { generateEventInvite } = require('../../integrations/calendar/calendar.service');
 const { addJob } = require('../../jobs/queues/job.queue');
 
@@ -32,10 +31,10 @@ class EventService {
       if (!event) throw createError('Event not found', 404);
 
       if (event.status !== 'upcoming') 
-        throw createError('Event is not open for registration', 400);
+        throw createError("Event registration is closed", 400);
 
       const existing = await this.eventRepo.getAttendee(eventId, userId);
-      if (existing) throw createError('Already registered for this event', 409);
+      if (existing) throw createError("Already registered for this event", 409);
       
       const status = (!event.maxAttendees || event.attendeeCount >= event.maxAttendees) ? 'registered' : 'waitlisted'
 
@@ -106,7 +105,7 @@ class EventService {
     try {
       const isSaved = await this.saveRepo.findByUserIdAndEventId(userId, eventId)
       if(!isSaved)
-        throw createError("Event already not saved", 409)
+        throw createError("You have not saved this event", 404);
 
       await this.saveRepo.hardDelete(userId, eventId)
     } catch (error) {
@@ -118,7 +117,7 @@ class EventService {
     try {
       const isAttendee = await this.eventRepo.getAttendee(eventId, userId);
       if (!isAttendee || isAttendee.status === 'cancelled')
-        throw createError('You already cancelled', 409);
+        throw createError("You have already cancelled your registration", 409);
 
       if(isAttendee.razorpay_payment_id || isAttendee.razorpay_order_id) {
         // Payment refund process

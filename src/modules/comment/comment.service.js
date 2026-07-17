@@ -2,7 +2,6 @@
 
 const { createError } = require('../../utils/error.util');
 const CommentModel = require('./comment.model');
-const { addNotificationJob } = require('../../jobs/queues/notification.queue');
 const { addJob } = require('../../jobs/queues/job.queue');
 
 class CommentService {
@@ -38,12 +37,12 @@ class CommentService {
         const isMember = await this.communityRepo.isMember(post.community_id, authorId);
 
         if (!isMember || isMember.status !== 'active') {
-          throw createError('You are not allowed to comment in this community post', 403);
+          throw createError("You are not allowed to comment on this community post", 403);
         }
       } else if (author.privacy !== 'public') {
         const isFollow = await this.followerRepo.findByFollowerIdAndFollowingId(userId, authorId);
         if (!isFollow || isFollow !== 'active')
-          throw createError("You are not following the Post Author It's private account", 403);
+          throw createError("You must follow the post author to access this post", 403);
       }
 
       // Compute nested thread path + depth
@@ -51,8 +50,8 @@ class CommentService {
       let path = [];
       if (parentId) {
         const parent = await this.commentRepo.findById(parentId);
-        if (!parent) throw createError('Parent comment not found', 404);
-        if (parent.depth >= 5) throw createError('Maximum reply depth reached', 400);
+        if (!parent) throw createError("Parent comment not found", 404);
+        if (parent.depth >= 5) throw createError("Maximum reply depth exceeded", 400);
         depth = parent.depth + 1;
         path = [...(parent.path || []), parent.id];
       }
@@ -99,12 +98,12 @@ class CommentService {
         const isMember = await this.communityRepo.isMember(post.community_id, authorId);
 
         if (!isMember || isMember.status !== 'active') {
-          throw createError('You are not allowed to comment in this community post', 403);
+          throw createError("You are not allowed to get the comment of this community post", 403);
         }
       } else if (author.privacy !== 'public') {
         const isFollow = await this.followerRepo.findByFollowerIdAndFollowingId(userId, authorId);
         if (!isFollow || isFollow !== 'active')
-          throw createError("You are not following the Post Author It's private account", 403);
+          throw createError("You must follow the post author to access this post comment", 403);
       }
 
       const { rows, total } = await this.commentRepo.findByPost(postId, limit, offset, parentId);
@@ -120,7 +119,7 @@ class CommentService {
       if (!comment) throw createError('Comment not found', 404);
       
       if (comment.author_id !== userId)
-        throw createError('Not authorized to edit this comment', 403);
+        throw createError("You are not authorized to edit this comment", 403);
 
       const updated = await this.commentRepo.update(commentId, content);
 
@@ -150,7 +149,7 @@ class CommentService {
 
       const isOwner = comment.author_id === userId;
       const isMod = ['admin', 'moderator', 'superadmin'].includes(userRole);
-      if (!isOwner && !isMod) throw createError('Not authorized to delete this comment', 403);
+      if (!isOwner && !isMod) throw createError("You are not authorized to delete this comment", 403);
 
       await this.commentRepo.softDelete(commentId);
       await this.postRepo.decrementCommentCount(comment.post_id);
@@ -165,7 +164,7 @@ class CommentService {
       if (!comment) throw createError('Comment not found', 404);
 
       const alreadyLiked = await this.commentRepo.isLikedByUser(commentId, userId);
-      if (alreadyLiked) throw createError('Comment already liked', 409);
+      throw createError("You have already liked this comment", 409);
       await this.commentRepo.addLike(commentId, userId);
       await this.commentRepo.incrementLikeCount(commentId);
     } catch (error) {
@@ -179,7 +178,7 @@ class CommentService {
       if (!comment) throw createError('Comment not found', 404);
       
       const isLiked = await this.commentRepo.isLikedByUser(commentId, userId);
-      if (!isLiked) throw createError('Comment not liked', 409);
+      if (!isLiked) throw createError("You have not liked this comment", 404);
 
       await this.commentRepo.removeLike(commentId, userId);
       await this.commentRepo.decrementLikeCount(commentId);

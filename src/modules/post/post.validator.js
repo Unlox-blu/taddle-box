@@ -44,27 +44,26 @@ const updatePostSchema = z.object({
 });
 
 const postIdParamsSchema = z.object({
-  postId: z.string().uuid({message: "Invalied PostId"})
+  postId: z.string().uuid({ message: 'Invalid post ID format' })
 }).strict();
 
 const authorIdParamsSchema = z.object({
-  authorId: z.string().uuid({message: "Invalied authorId"})
+  authorId: z.string().uuid({ message: 'Invalid author ID format' })
 }).strict();
 
 
 const paginationQuerySchema = z.object({
-  // Converts string to number, ensures it is a positive integer, defaults to 1 if missing
   page: z.coerce
-    .number({ invalid_type_error: "Page must be a number" })
-    .int()
-    .positive()
+    .number({ invalid_type_error: 'Page must be a number' })
+    .int({ message: 'Page must be an integer' })
+    .positive({ message: 'Page must be greater than zero' })
     .default(1).optional(),
 
   limit: z.coerce
-    .number({ invalid_type_error: "Limit must be a number" })
-    .int()
-    .positive()
-    .max(100, "Maximum limit allowed is 100")
+    .number({ invalid_type_error: 'Limit must be a number' })
+    .int({ message: 'Limit must be an integer' })
+    .positive({ message: 'Limit must be greater than zero' })
+    .max(100, 'Maximum limit allowed is 100')
     .default(10).optional(),
 }).strict();
 

@@ -37,11 +37,11 @@ const usernameSchema = z.object({
 }).strict()
 
 const userIdSchema = z.object({
-  userId: z.string().uuid({message: "Invalied user Id"})
+  userId: z.string().uuid({ message: 'Invalid user ID format' })
 }).strict()
 
 const followerIdSchema = z.object({
-  followerId: z.string().uuid({message: "Invalied follower Id"})
+  followerId: z.string().uuid({ message: 'Invalid follower ID format' })
 }).strict()
 
 module.exports = { updateProfileSchema, updateUsernameSchema, updatePrivacySchema, updateBannerSchema, updateAvatarSchema, usernameSchema, userIdSchema, followerIdSchema };

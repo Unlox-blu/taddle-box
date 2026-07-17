@@ -12,17 +12,33 @@ class AuthController {
   usernameAvailable = async (req, res, next) => {
     try {
       const {username} = req.body
-      // const usernameToken = req.cookie?.user_name_token || null
-      // const token = await this.authSvc.usernameAvailable({username, usernameToken})
-
       const token = await this.authSvc.usernameAvailable({username})
-      
-      // res.cookie('user_name_token', token, {
-      //   ...token.cookieOpts,
-      //   // maxAge: config.REFRESH_TOKEN_COOKIE_MAX_AGE_SECONDS 
-      //   maxAge: 6 * 5 
-      // });
+    
       res.json(apiResponse(null, 'Username is available'));
+
+    } catch (error) {
+      next(error)
+    }
+  }
+
+  isEmailExist = async (req, res, next) => {
+    try {
+      const {email} = req.body
+      const token = await this.authSvc.isEmailExist({email})
+      
+      res.json(apiResponse(null, 'Email is available'));
+
+    } catch (error) {
+      next(error)
+    }
+  }
+
+  isPhoneExist = async (req, res, next) => {
+    try {
+      const {countryCode, phone} = req.body
+      const token = await this.authSvc.isPhoneExist({countryCode, phone})
+      
+      res.json(apiResponse(null, 'Phone is available'));
 
     } catch (error) {
       next(error)

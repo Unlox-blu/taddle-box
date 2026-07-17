@@ -7,7 +7,10 @@ class AppConfigService {
 
   async getAppConfig() {
     try {
-        return await this.appConfigRepo.findAppConfig()
+        const appConfig = await this.appConfigRepo.findAppConfig()
+        if(!appConfig)
+          return {}
+        return appConfig
     } catch (error) {
       throw error;
     }

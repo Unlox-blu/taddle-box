@@ -1,11 +1,6 @@
 'use strict';
 
 const { createError } = require('../../utils/error.util');
-const UserModel = require('./user.model');
-const FollowersModel = require('./followers.model');
-const { uploadFile } = require('../../integrations/storage/cloudinary.service');
-const { startNotificationWorker } = require('../../jobs/workers/notification/notification.worker');
-const { addNotificationJob } = require('../../jobs/queues/notification.queue');
 const { addJob } = require('../../jobs/queues/job.queue');
 
 class UserService {
@@ -100,7 +95,7 @@ class UserService {
         const isFollow = await this.followersRepo.findByFollowerIdAndFollowingId( userId, user.id );
   
         if(!isFollow || isFollow.status !== 'active')
-          throw createError('You are not authorized to get the follower', 403)
+          throw createError("You are not authorized to view this user's followers", 403);
       }
 
       const { followers, total } = await this.followersRepo.findByFollowingId(
@@ -123,7 +118,7 @@ class UserService {
         const isFollow = await this.followersRepo.findByFollowerIdAndFollowingId( userId, user.id );
   
         if(!isFollow || isFollow.status !== 'active')
-          throw createError('You are not authorized to get the follower', 403)
+          throw createError("You are not authorized to view this user's followings", 403);
       }
 
       const { followings, total } = await this.followersRepo.findByFollowerId(
@@ -165,10 +160,10 @@ class UserService {
       const followingId = followingUser.id;
       const privacy = followingUser.privacy
       
-      if (followerId === followingId) throw createError('You cannot follow yourself', 409);
+      if (followerId === followingId) throw createError("You can't follow yourself", 409);
 
       const isFollow = await this.followersRepo.findByFollowerIdAndFollowingId( followerId, followingId );
-      if (isFollow) throw createError('You already following this profile', 409);
+      if (isFollow) throw createError("You are already following this user", 409);
 
 
       const follower = await this.userRepo.findById(followerId)
@@ -204,10 +199,10 @@ class UserService {
       const isFollow = await this.followersRepo.findByFollowerIdAndFollowingId( followerId, followingId );
 
       if(!isFollow)
-        throw createError('He did not request to follow', 400);
+        throw createError("No follow request found", 404);
 
       if (isFollow.status === 'active') 
-        throw createError('He already following this profile', 409);
+        throw createError("The user is already following you", 409);
 
       await this.followersRepo.approvefollower(followerId, followingId)
       await this.userRepo.incrementFollowingCount(followerId);
@@ -234,13 +229,11 @@ class UserService {
 
       const followingId = targetUser.id;
 
-      if (followerId === followingId) throw createError('You cannot unFollow yourself', 409);
-
       const isFollow = await this.followersRepo.findByFollowerIdAndFollowingId(
         followerId,
         followingId
       );
-      if (!isFollow) throw createError('You are not following this profile', 409);
+      if (!isFollow) throw createError("You are not following this profile", 404);
 
       await this.followersRepo.hardDelete(followerId, followingId);
 
@@ -257,8 +250,6 @@ class UserService {
       if (!targetUser) throw createError('User not found', 404);
 
       const followerId = targetUser.id;
-
-      if (followerId === followingId) throw createError('You cannot remove yourself', 400);
 
       const isFollowing = await this.followersRepo.findByFollowerIdAndFollowingId(
         followerId,

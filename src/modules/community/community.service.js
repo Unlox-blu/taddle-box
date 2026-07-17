@@ -1,10 +1,7 @@
 'use strict';
 
 const { createError } = require('../../utils/error.util');
-const CommunityModel = require('./community.model');
 const PostModel = require('../post/post.model');
-const { uploadFile } = require('../../integrations/storage/cloudinary.service');
-const { addNotificationJob } = require('../../jobs/queues/notification.queue');
 const { addJob } = require('../../jobs/queues/job.queue');
 
 class CommunityService {
@@ -20,7 +17,7 @@ class CommunityService {
       const slug = data.name.toLowerCase().replace(/\s+/g, '-').replace(/[^a-z0-9-]/g, '');
 
       const existing = await this.communityRepo.findBySlug(slug);
-      if (existing) throw createError('A community with this name already exists', 409);
+      if (existing) throw createError("A community with this name already exists", 409);
 
       const community = await this.communityRepo.create({ ...data, slug, ownerId });
 
@@ -59,7 +56,7 @@ class CommunityService {
 
       const isOwner = community.ownerId === userId;
       const isAdmin = userRole === 'admin' || userRole === 'superadmin';
-      if (!isOwner && !isAdmin) throw createError('Not authorized to update this community', 403);
+      if (!isOwner && !isAdmin) throw createError("You do not have permission to update this community", 403);
 
       const updated = await this.communityRepo.update(communityId, data);
       return updated;
@@ -103,7 +100,7 @@ class CommunityService {
       if (!community) throw createError('Community not found', 404);
 
       if (community.ownerId !== userId && userRole !== 'superadmin') {
-        throw createError('Only the owner can delete this community', 403);
+        throw createError("Only the owner can delete this community", 403);
       }
 
       await this.communityRepo.softDelete(communityId);
@@ -118,7 +115,7 @@ class CommunityService {
       if (!community) throw createError('Community not found', 404);
       
       const alreadyMember = await this.communityRepo.isMember(communityId, userId);
-      if (alreadyMember) throw createError('Already a member of this community', 409);
+      if (alreadyMember) throw createError("You are already a member of this community", 409);
       
       const isPending = community.privacy === 'private';
       const status = isPending ? 'pending' : 'active';
@@ -156,7 +153,7 @@ class CommunityService {
         throw createError('Owner cannot leave the community', 400);
 
       const isMember = await this.communityRepo.isMember(communityId, userId);
-      if (!isMember) throw createError('Already not the member of this community', 403);
+      if (!isMember) throw createError("You are not a member of this community", 404);
 
       await this.communityRepo.removeMember(communityId, userId);
       await this.communityRepo.decrementMemberCount(communityId);
@@ -173,7 +170,7 @@ class CommunityService {
       if (community.privacy === 'private') {
         const isMember = await this.communityRepo.isMember(communityId, userId);
         if (!isMember || isMember.status !== 'active')
-          throw createError('You are not the member of this privet community', 403);
+          throw createError("Only community members can access this private community", 403);
       }
       return this.communityRepo.getMembers(communityId, 'active', limit, offset);
     } catch (error) {
@@ -189,7 +186,7 @@ class CommunityService {
       if (community.privacy === 'private') {
         const isMember = await this.communityRepo.isMember(communityId, userId);
         if (!isMember || isMember.status !== 'active')
-          throw createError('You are not the member of this privet community', 403);
+          throw createError("Only community members can access this private community", 403);
       }
       
       const { rows, total } = await this.postSvc.findPostByCommunity(communityId, limit, offset);
@@ -207,13 +204,13 @@ class CommunityService {
       const member = await this.communityRepo.getMember(communityId, approvalId);
       const canApprove = member?.role === 'admin' || ['admin', 'superadmin'].includes(approvalRole);
 
-      if (!canApprove) throw createError('Not authorized to approve members', 403);
+      if (!canApprove) throw createError("Only community moderators can approve members", 403);
 
       const isMember = await this.communityRepo.isMember(communityId, targetUserId);
-      if (!isMember) throw createError('Not request to be a member for this community', 409);
+      if (!isMember) throw createError("No join request found for this community", 404);
 
       if (isMember.status === 'active')
-        throw createError('Already a member of this community', 409);
+        throw createError("He is already a member of this community", 409);
 
       await this.communityRepo.updateMemberStatus(communityId, targetUserId, 'active');
       await this.communityRepo.incrementMemberCount(communityId);
@@ -244,10 +241,10 @@ class CommunityService {
         member?.role === 'admin' ||
         member?.role === 'moderator' ||
         ['admin', 'superadmin'].includes(approvalRole);
-      if (!canApprove) throw createError('Not authorized to approve members', 403);
+      if (!canApprove) throw createError("Only community admins can remove members", 403);
 
       const notMember = await this.communityRepo.isMember(communityId, targetUserId);
-      if (!notMember) throw createError('Already not a member of this community', 409);
+      if (!notMember) throw createError("He is not a member of this community", 404);
 
       await this.communityRepo.removeMember(communityId, targetUserId);
       await this.communityRepo.decrementMemberCount(communityId);

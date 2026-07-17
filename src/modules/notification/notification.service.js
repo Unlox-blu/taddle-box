@@ -1,6 +1,5 @@
 'use strict';
 
-const NotificationModel = require('./notification.model');
 const {
   emitNotification,
   emitWalletUpdate: _emitWallet,

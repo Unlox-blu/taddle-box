@@ -6,27 +6,38 @@ const { verifyToken } = require('../middlewares/auth.middleware');
 const { otpRateLimiter } = require('../middlewares/rate-limiter.middleware');
 const { validateRequest } = require('../middlewares/validator.middleware');
 const {
-  signupSchema,
-  loginSchema,
-  googleAuthSchema,
-  forgotPasswordSchema,
-  resetPasswordSchema,
-  changePasswordSchema,
-  validateEmail,
-  verifyOtpForEmail,
-  sendOtpToEmailSchema,
-  sendOtpToPhoneSchema,
-  verifyOtpForPhoneSchema,
-  loginPinSchema,
+  usernameSchema,
+  emailSchema,
+  phoneSchema,
   sendOtpSchema,
   verifyOtp,
+  signupSchema,
+  loginSchema,
+  loginPinSchema,
+  googleAuthSchema,
+  changePasswordSchema,
+  forgotPasswordSchema,
+  resetPasswordSchema,
 } = require('../modules/auth/auth.validator');
 const { verifyOtpToken } = require('../middlewares/verification.middleware');
 
 
 router.post(
   '/username', 
+  validateRequest({ body: usernameSchema }),
   authController.usernameAvailable
+);
+
+router.post(
+  '/email', 
+  validateRequest({ body: emailSchema }),
+  authController.isEmailExist
+);
+
+router.post(
+  '/phone', 
+  validateRequest({ body: phoneSchema }),
+  authController.isPhoneExist
 );
 
 

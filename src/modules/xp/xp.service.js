@@ -22,7 +22,7 @@ class XpService {
   async getXP({ userId }) {
     try {
       const xp = await this.xpRepo.findByUserId(userId);
-      if (!xp) throw createError('xp not found', 404);
+      if (!xp) throw createError('xp wallet not found', 404);
       return xp;
     } catch (error) {
       throw error;
@@ -34,7 +34,7 @@ class XpService {
       const xpWallet = await this.xpRepo.findByUserId(userId);
 
       if (!xpWallet) {
-        throw createError('XP not found', 404);
+        throw createError('XP wallet not found', 404);
       }
 
       const { rows, total } = await this.xpRepo.getUserTransactions(xpWallet.id, limit, offset);
@@ -53,7 +53,7 @@ class XpService {
       const xpWallet = await this.xpRepo.findByUserId(userId);
 
       if (!xpWallet) {
-        throw createError('XP not found', 404);
+        throw createError('XP wallet not found', 404);
       }
 
       const balanceBefore = xpWallet.Xp;
@@ -81,7 +81,7 @@ class XpService {
       const xpWallet = await this.xpRepo.findByUserId(userId);
 
       if (!xpWallet) {
-        throw createError('XP not found', 404);
+        throw createError('XP wallet not found', 404);
       }
 
       if (xpWallet.Xp < xp) {

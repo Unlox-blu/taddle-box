@@ -66,7 +66,7 @@ class GameService {
       const {gameId} = matchData
       const isGameExist = await this.gameRepo.findGameById({gameId})
       if(!isGameExist)
-        throw createError("Game not exist", 404)
+        throw createError("Game not found", 404)
 
       const match = await this.gameRepo.createGameMatche({matchData}) 
       return match
@@ -81,7 +81,7 @@ class GameService {
       const {matchId} = matchData
       const isMatchExist = await this.gameRepo.findGameMatchById({matchId})
       if(!isMatchExist)
-        throw createError("Match not exist", 404)
+        throw createError("Match not found", 404)
 
       const match = await this.gameRepo.updateGameMatcheByMatchId({matchData})
       return match
@@ -94,7 +94,7 @@ class GameService {
     try {
       const gameStats = await this.gameRepo.findGameStatsByUserId({userId})
       if(!gameStats)
-        throw createError("game Stats not exist", 404)
+        throw createError("game Stats not found", 404)
       
       return gameStats
     } catch (error) {
@@ -106,7 +106,7 @@ class GameService {
     try {
       const isGameStatsExixt = await this.gameRepo.findGameStatsByUserId({userId})
       if(isGameStatsExixt)
-        throw createError("game Stats already exist", 400)
+        throw createError("Game Stats already exist", 409)
 
       const gameStats = await this.gameRepo.createGameStatsByUserId({userId})
 

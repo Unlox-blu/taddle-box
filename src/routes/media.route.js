@@ -21,7 +21,4 @@ router.get('/:mediaId/status',            verifyToken, mediaController.getMediaS
 router.get('/',                           verifyToken, validateRequest({query: paginationQuerySchema}), mediaController.getMedia);
 
 
-// temporary for development 
-router.get('/getbucket',                  verifyToken, uploadRateLimiter, mediaController.gets3Uploaded);
-
 module.exports = router;

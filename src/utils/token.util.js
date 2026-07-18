@@ -6,17 +6,19 @@ const config = require('../config/app.config');
 const { createError } = require('./error.util');
 
 const generateAccessToken = (payload) =>
-  jwt.sign(payload, config.ACCESS_TOKEN_SECRET, { expiresIn: config.ACCESS_TOKEN_EXPIRES_IN });
+  jwt.sign(payload, config.TOKEN_SECRET, { expiresIn: config.ACCESS_TOKEN_EXPIRES_IN });
 
 const generateRefreshToken = (payload) =>
-  jwt.sign(payload, config.REFRESH_TOKEN_SECRET, { expiresIn: config.REFRESH_TOKEN_EXPIRES_IN });
+  jwt.sign(payload, config.TOKEN_SECRET, { expiresIn: config.REFRESH_TOKEN_EXPIRES_IN });
 
 const generateVerificationToken = (payload) =>
-  jwt.sign(payload, config.VERIFICATION_TOKEN_SECRET, { expiresIn: config.VERIFICATION_TOKEN_EXPIRES_IN });
+  jwt.sign(payload, config.TOKEN_SECRET, { expiresIn: config.VERIFICATION_TOKEN_EXPIRES_IN });
+
+
 
 const verifyAccessToken = (token) => {
   try {
-    return jwt.verify(token, config.ACCESS_TOKEN_SECRET);
+    return jwt.verify(token, config.TOKEN_SECRET);
   } catch {
     throw createError('Invalid or expired access token', 401);
   }
@@ -24,7 +26,7 @@ const verifyAccessToken = (token) => {
 
 const verifyRefreshToken = (token) => {
   try {
-    return jwt.verify(token, config.REFRESH_TOKEN_SECRET);
+    return jwt.verify(token, config.TOKEN_SECRET);
   } catch {
     throw createError('Invalid or expired refresh token', 401);
   }
@@ -32,7 +34,7 @@ const verifyRefreshToken = (token) => {
 
 const verifyVerificationToken = (token) => {
   try {
-    return jwt.verify(token, config.VERIFICATION_TOKEN_SECRET);
+    return jwt.verify(token, config.TOKEN_SECRET);
   } catch {
     throw createError('Invalid or expired verification token', 401);
   }

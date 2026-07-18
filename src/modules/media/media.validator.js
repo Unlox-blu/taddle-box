@@ -13,7 +13,7 @@ const getSignedUrlSchema = z.object({
   fileSize: z.coerce
     .number({ invalid_type_error: 'File size must be a valid number' })
     .int()
-    .positive()
+    .positive({ message: 'File size must be a positive number' })
     .max(MAX_IMAGE_BYTES, { message: `File size exceeds the maximum limit of ${process.env.MAX_FILE_SIZE_MB || '10'}MB` }),
 
   mimetype: z.string().regex(/^image\/(jpeg|png|webp|gif)$/, {

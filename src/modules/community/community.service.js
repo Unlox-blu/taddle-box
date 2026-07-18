@@ -2,7 +2,7 @@
 
 const { createError } = require('../../utils/error.util');
 const PostModel = require('../post/post.model');
-const { addJob } = require('../../jobs/queues/job.queue');
+const { notificationService } = require('../notification/notification.container');
 
 class CommunityService {
   constructor({ communityRepository, postService, userRepository, mediaService}) {
@@ -134,10 +134,26 @@ class CommunityService {
       }
       
       if(isPending){
-        await addJob('notification:request_to_join_community', jobdata)
+        await notificationService.publishNotification({
+          type: 'REQUEST_TO_JOIN_COMMUNITY',
+          recipientId: adminsId[0],
+          actorId: userId,
+          entityId: communityId,
+          entityType: 'community',
+          title: 'Join request',
+          message: `${user.name} requested to join the community`,
+        })
       }else {
         await this.communityRepo.incrementMemberCount(communityId);
-        await addJob('notification:new_member_join_community', jobdata)
+        await notificationService.publishNotification({
+          type: 'FOLLOW',
+          recipientId: adminsId[0],
+          actorId: userId,
+          entityId: communityId,
+          entityType: 'community',
+          title: 'New community member',
+          message: `${user.name} joined the community`,
+        })
       }
 
       return { status };
@@ -225,7 +241,15 @@ class CommunityService {
         approvalId: approvalId
       }
       
-      await addJob('notification:approved_to_join_community', jobdata)
+      await notificationService.publishNotification({
+        type: 'FOLLOW',
+        recipientId: targetUserId,
+        actorId: approvalId,
+        entityId: communityId,
+        entityType: 'community',
+        title: 'Community request approved',
+        message: `${user.name} approved your request`,
+      })
     } catch (error) {
       throw error;
     }

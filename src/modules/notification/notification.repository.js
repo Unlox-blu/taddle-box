@@ -6,7 +6,7 @@ const NotificationModel = require('./notification.model');
 const create = async (data) => {
   try {
     const { rows } = await pool.query(
-      `INSERT INTO ${NotificationModel.TABLE}
+      `INSERT INTO ${NotificationModel.NOTIFICATION_TABLE}
        (recipient_id, sender_id, type, title, message, resource_type, resource_id)
      VALUES ($1,$2,$3,$4,$5,$6,$7)
      RETURNING ${NotificationModel.LIST_FIELDS}`,
@@ -30,7 +30,7 @@ const findByUser = async (userId, limit, offset, unreadOnly = false) => {
   try {
     const { rows } = await pool.query(
       `SELECT ${NotificationModel.LIST_FIELDS}, COUNT(*) OVER() AS total
-      FROM ${NotificationModel.TABLE}
+      FROM ${NotificationModel.NOTIFICATION_TABLE}
       WHERE recipient_id = $1 AND ($4 = FALSE OR is_read = FALSE)
       ORDER BY created_at DESC 
       LIMIT $2 OFFSET $3`,
@@ -47,7 +47,7 @@ const findByUser = async (userId, limit, offset, unreadOnly = false) => {
 const markOneRead = async (notificationId, userId) => {
   try {
     await pool.query(
-      `UPDATE ${NotificationModel.TABLE} 
+      `UPDATE ${NotificationModel.NOTIFICATION_TABLE} 
        SET is_read = TRUE, read_at = NOW()
        WHERE id = $1 AND recipient_id = $2`,
       [notificationId, userId]
@@ -60,7 +60,7 @@ const markOneRead = async (notificationId, userId) => {
 const markAllRead = async (userId) => {
   try {
     await pool.query(
-      `UPDATE ${NotificationModel.TABLE} 
+      `UPDATE ${NotificationModel.NOTIFICATION_TABLE} 
        SET is_read = TRUE, read_at = NOW()
        WHERE recipient_id = $1 AND is_read = FALSE`,
       [userId]
@@ -74,7 +74,7 @@ const getUnreadCount = async (userId) => {
   try {
     const { rows } = await pool.query(
       `SELECT COUNT(*) AS count 
-      FROM ${NotificationModel.TABLE} 
+      FROM ${NotificationModel.NOTIFICATION_TABLE} 
       WHERE recipient_id = $1 AND is_read = FALSE`,
       [userId]
     );
@@ -84,4 +84,46 @@ const getUnreadCount = async (userId) => {
   }
 };
 
-module.exports = { create, findByUser, markOneRead, markAllRead, getUnreadCount };
+const createDefaultPreferences = async (userId) => {
+  const { rows } = await pool.query(
+    `INSERT INTO ${NotificationModel.PREFERENCE_TABLE} (user_id)
+     VALUES ($1)
+     ON CONFLICT (user_id) DO NOTHING
+     RETURNING *`,
+    [userId]
+  );
+  return rows[0] || null;
+};
+
+const findPreferenceByUserId = async (userId) => {
+  const { rows } = await pool.query(
+    `SELECT * FROM ${NotificationModel.PREFERENCE_TABLE} WHERE user_id = $1`,
+    [userId]
+  );
+  return rows[0] || null;
+};
+
+const upsertPreferences = async (userId, updates) => {
+  const fields = [];
+  const values = [userId];
+  let idx = 2;
+
+  Object.entries(updates).forEach(([key, value]) => {
+    fields.push(`${key} = $${idx}`);
+    values.push(value);
+    idx += 1;
+  });
+
+  const query = `
+    INSERT INTO ${NotificationModel.PREFERENCE_TABLE} (user_id, ${Object.keys(updates).join(', ')})
+    VALUES ($1, ${Object.keys(updates).map((_, i) => `$${i + 2}`).join(', ')})
+    ON CONFLICT (user_id) DO UPDATE SET ${fields.join(', ')}, updated_at = NOW()
+    RETURNING *
+  `;
+
+  const { rows } = await pool.query(query, values);
+  return rows[0];
+};
+
+
+module.exports = { create, findByUser, markOneRead, markAllRead, getUnreadCount, createDefaultPreferences, findPreferenceByUserId, upsertPreferences };

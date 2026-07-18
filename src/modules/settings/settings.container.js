@@ -15,4 +15,4 @@ const settingsService = new SettingsService({ settingsRepository })
 const settingsController = new SettingsController({ settingsService })
 
 // Export controller as default, but also export service and repository for other modules
-module.exports = {settingsController, settingsService}
+module.exports = { settingsController, settingsService, settingsRepository };

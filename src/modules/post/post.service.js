@@ -2,7 +2,7 @@
 
 const { createError } = require('../../utils/error.util');
 const PostModel = require('./post.model');
-const { addJob } = require('../../jobs/queues/job.queue');
+const { notificationService } = require('../notification/notification.container');
 
 class PostService {
   constructor({ postRepository, communityRepository, followerRepository, bookmarkRepository, notificationService, feedService, userRepository, taskService }) {
@@ -157,7 +157,15 @@ class PostService {
         emiterId: user.id
       }
       
-      await addJob('notification:post_like', jobdata)
+      await notificationService.publishNotification({
+        type: 'POST_LIKE',
+        recipientId: post.author_id,
+        actorId: user.id,
+        entityId: post.id,
+        entityType: 'post',
+        title: 'Post liked',
+        message: `${user.name} liked your post`,
+      })
 
       this.feedSvc.updatePreferences({userId, categories: post.category || [], tags: post.tags || []})
     } catch (error) {

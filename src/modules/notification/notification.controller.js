@@ -45,6 +45,24 @@ class NotificationController {
       next(error);
     }
   };
+
+  getPreferences = async (req, res, next) => {
+    try {
+      const preferences = await this.notifSvc.getPreferences(req.userId);
+      res.json(apiResponse(preferences, 'Notification preferences fetched successfully'));
+    } catch (error) {
+      next(error);
+    }
+  };
+
+  updatePreferences = async (req, res, next) => {
+    try {
+      const preferences = await this.notifSvc.updatePreferences(req.userId, req.body || {});
+      res.json(apiResponse(preferences, 'Notification preferences updated successfully'));
+    } catch (error) {
+      next(error);
+    }
+  };
 }
 
 module.exports = NotificationController;

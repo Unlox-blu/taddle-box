@@ -1,7 +1,7 @@
 'use strict';
 
 const { createError } = require('../../utils/error.util');
-const { addJob } = require('../../jobs/queues/job.queue');
+const { notificationService } = require('../notification/notification.container');
 
 class UserService {
   constructor({ userRepository, followerRepository, mediaService, bookmarkService, saveService, storageIntegration, taskService }) {
@@ -178,7 +178,15 @@ class UserService {
 
       if(privacy === "private") {
         await this.followersRepo.createPendingFolow(followerId, followingId);
-        await addJob('notification:request_to_follow', jobdata)
+        await notificationService.publishNotification({
+          type: 'REQUEST_TO_FOLLOW',
+          recipientId: followingId,
+          actorId: followerId,
+          entityId: followingId,
+          entityType: 'user',
+          title: 'Request to follow',
+          message: `${follower.name} requested to follow you`,
+        })
         return {message: "Request to follow"}
       }
 
@@ -186,7 +194,15 @@ class UserService {
       await this.followersRepo.createFolow(followerId, followingId);
       await this.userRepo.incrementFollowingCount(followerId);
       await this.userRepo.incrementFollowerCount(followingId);
-      await addJob('notification:new_follower',jobdata)
+      await notificationService.publishNotification({
+        type: 'FOLLOW',
+        recipientId: followingId,
+        actorId: followerId,
+        entityId: followingId,
+        entityType: 'user',
+        title: 'New follower',
+        message: `${follower.name} started following you`,
+      })
 
       return {message: 'Follow successfully'}
     } catch (error) {
@@ -215,7 +231,15 @@ class UserService {
         followingName: following.name, 
         followingname: following.username
       }
-      await addJob('notification:approved_to_follow', jobdata)
+      await notificationService.publishNotification({
+        type: 'FOLLOW',
+        recipientId: followerId,
+        actorId: followingId,
+        entityId: followingId,
+        entityType: 'user',
+        title: 'Follow request approved',
+        message: `${following.name} approved your request`,
+      })
       return {message: "Request approved to follow"}
     } catch (error) {
       throw error

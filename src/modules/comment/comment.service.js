@@ -2,7 +2,6 @@
 
 const { createError } = require('../../utils/error.util');
 const CommentModel = require('./comment.model');
-const { addJob } = require('../../jobs/queues/job.queue');
 
 class CommentService {
   constructor({
@@ -67,16 +66,16 @@ class CommentService {
       await this.postRepo.incrementCommentCount(postId);
 
       const user = await this.userRepo.findById(authorId);
-      const data = {
-        postId: post.id,
-        recipientId: post.author_id,
-        emiterName: user.name,
-        emiterUsername: user.username,
-        emiterId: user.id,
-        comment: content,
-      };
 
-      await addJob('notification:post_comment', data);
+      await this.notifSvc.publishNotification({
+        type: 'COMMENT',
+        recipientId: post.author_id,
+        actorId: user.id,
+        entityId: post.id,
+        entityType: 'post',
+        title: 'New comment',
+        message: content,
+      });
 
       this.feedSvc.updatePreferences({userId: authorId, categories: post.category || [], tags: post.tags || []});
       return CommentModel.format(comment);
@@ -125,16 +124,16 @@ class CommentService {
 
       const post = await this.postRepo.findById(comment.post_id);
       const user = await this.userRepo.findById(userId);
-      const data = {
-        postId: post.id,
-        recipientId: post.author_id,
-        emiterName: user.name,
-        emiterUsername: user.username,
-        emiterId: user.id,
-        comment: content,
-      };
 
-      await addJob('notification:post_comment', data);
+      await this.notifSvc.publishNotification({
+        type: 'COMMENT',
+        recipientId: post.author_id,
+        actorId: user.id,
+        entityId: post.id,
+        entityType: 'post',
+        title: 'New comment',
+        message: content,
+      });
 
       return CommentModel.format(updated);
     } catch (error) {

@@ -1,6 +1,8 @@
 'use strict';
 
-const TABLE = 'notifications';
+const NOTIFICATION_TABLE = 'notifications';
+
+const PREFERENCE_TABLE = 'notification_preferences';
 
 const LIST_FIELDS = [
   'id', 'sender_id', 'type', 'title', 'message',
@@ -38,4 +40,4 @@ const format = (row) => {
   };
 };
 
-module.exports = { TABLE, LIST_FIELDS, NOTIFICATION_TYPES, format };
+module.exports = { NOTIFICATION_TABLE, PREFERENCE_TABLE, LIST_FIELDS, NOTIFICATION_TYPES, format,  };

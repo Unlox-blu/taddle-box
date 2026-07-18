@@ -3,13 +3,12 @@
 const { Worker } = require('bullmq');
 const redis = require('../../../config/redis');
 const { logger } = require('../../../middlewares/logger.middleware');
-const notificationJobProcessor = require('./notification.jobprocessor');
-
+const { buildNotificationJobProcessor } = require('../../../modules/notification/notification.worker');
 
 const startNotificationWorker = () => {
   const worker = new Worker(
     'notification',
-    notificationJobProcessor,
+    buildNotificationJobProcessor(),
     { connection: redis, concurrency: 10 }
   );
 

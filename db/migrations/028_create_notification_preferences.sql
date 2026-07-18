@@ -1,0 +1,49 @@
+CREATE TABLE IF NOT EXISTS notification_preferences (
+  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  likes BOOLEAN NOT NULL DEFAULT TRUE,
+  comments BOOLEAN NOT NULL DEFAULT TRUE,
+  replies BOOLEAN NOT NULL DEFAULT TRUE,
+  mentions BOOLEAN NOT NULL DEFAULT TRUE,
+  follows BOOLEAN NOT NULL DEFAULT TRUE,
+  communities BOOLEAN NOT NULL DEFAULT TRUE,
+  events BOOLEAN NOT NULL DEFAULT TRUE,
+  marketing BOOLEAN NOT NULL DEFAULT FALSE,
+  quiet_hours_start VARCHAR(5) DEFAULT '22:00',
+  quiet_hours_end VARCHAR(5) DEFAULT '07:00',
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  UNIQUE (user_id)
+);
+
+CREATE TABLE IF NOT EXISTS notification_batches (
+  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  recipient_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  type VARCHAR(50) NOT NULL,
+  entity_type VARCHAR(50),
+  entity_id UUID,
+  batch_key VARCHAR(255) NOT NULL,
+  payload JSONB NOT NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  expires_at TIMESTAMPTZ NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS notification_delivery_logs (
+  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  notification_id UUID REFERENCES notifications(id) ON DELETE CASCADE,
+  recipient_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  channel VARCHAR(20) NOT NULL,
+  status VARCHAR(20) NOT NULL DEFAULT 'queued',
+  meta JSONB,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS notification_schedule (
+  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  notification_id UUID REFERENCES notifications(id) ON DELETE CASCADE,
+  recipient_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  run_at TIMESTAMPTZ NOT NULL,
+  payload JSONB NOT NULL,
+  status VARCHAR(20) NOT NULL DEFAULT 'pending',
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);

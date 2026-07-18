@@ -28,15 +28,6 @@ CREATE TABLE IF NOT EXISTS notification_batches (
   expires_at TIMESTAMPTZ NOT NULL
 );
 
-CREATE TABLE IF NOT EXISTS notification_delivery_logs (
-  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-  notification_id UUID REFERENCES notifications(id) ON DELETE CASCADE,
-  recipient_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-  channel VARCHAR(20) NOT NULL,
-  status VARCHAR(20) NOT NULL DEFAULT 'queued',
-  meta JSONB,
-  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-);
 
 CREATE TABLE IF NOT EXISTS notification_schedule (
   id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),

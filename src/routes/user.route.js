@@ -15,6 +15,7 @@ router.patch('/update-username',            verifyToken,     validateRequest({bo
 router.patch('/update-privacy',             verifyToken,     validateRequest({body: updatePrivacySchema}),  userController.updatePrivacy);
 router.get('/bookmarked',                   verifyToken,                                                    userController.getbookmarked);
 router.get('/save',                         verifyToken,                                                    userController.getsaved);
+router.delete('/me',                        verifyToken,                                                    userController.deleteAccount);
 
 // follow/unfollow routes
 router.get('/:username',                    optionalAuth,    validateRequest({params: usernameSchema}),     userController.getProfile);

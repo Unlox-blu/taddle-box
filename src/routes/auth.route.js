@@ -132,6 +132,7 @@ router.post(
 // ─── Social Login Routes ──────────────────────────────────────────────────────
 router.post('/google', authController.googleAuth);
 router.post('/apple', authController.appleAuth);
+router.post('/apple/callback', authController.appleCallback);
 
 router.get(
   '/me', 

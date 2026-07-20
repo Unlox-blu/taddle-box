@@ -47,8 +47,8 @@ class AuthController {
 
   sendOtp = async (req, res, next) => {
     try {
-      const { email, countryCode, phone } = req.body;
-      const sessionData = await this.authSvc.sendOtp ({email, countryCode, phone});
+      const { email, countryCode, phone, socialToken } = req.body;
+      const sessionData = await this.authSvc.sendOtp ({email, countryCode, phone, socialToken});
 
       res.cookie('verification_token', sessionData.verificationToken, {
         ...sessionData.cookieOpts,
@@ -81,8 +81,9 @@ class AuthController {
       const email = req.email;
       const countryCode = req.countryCode;
       const phone = req.phone;
+      const socialToken = userData.socialToken; // Extract from userData
       
-      const { user, sessionData, COOKIE_OPTS } = await this.authSvc.signUp({email, countryCode, phone, userData});
+      const { user, sessionData, COOKIE_OPTS } = await this.authSvc.signUp({email, countryCode, phone, userData, socialToken});
 
       res.clearCookie('verification_token', {...COOKIE_OPTS});
       res.cookie('access_token', sessionData.accessToken, {
@@ -178,6 +179,12 @@ class AuthController {
     try {
       const { idToken } = req.body;
       const result = await this.authSvc.googleAuth(idToken);
+      
+      if (result.action === 'REGISTER_SOCIAL') {
+        res.json(apiResponse(result, 'Social Registration Required'));
+        return;
+      }
+
       res.cookie('access_token', result.sessionData.accessToken, {
         ...result.sessionData.cookieOpts,
         maxAge: config.ACCESS_TOKEN_COOKIE_MAX_AGE_SECONDS,
@@ -196,6 +203,12 @@ class AuthController {
     try {
       const { identityToken, fullName } = req.body;
       const result = await this.authSvc.appleAuth(identityToken, fullName);
+      
+      if (result.action === 'REGISTER_SOCIAL') {
+        res.json(apiResponse(result, 'Social Registration Required'));
+        return;
+      }
+
       res.cookie('access_token', result.sessionData.accessToken, {
         ...result.sessionData.cookieOpts,
         maxAge: config.ACCESS_TOKEN_COOKIE_MAX_AGE_SECONDS,
@@ -207,6 +220,51 @@ class AuthController {
       res.json(apiResponse({ user: result.userData, sessionData: result.sessionData }, 'Apple auth successful'));
     } catch (error) {
       next(error);
+    }
+  };
+
+  appleCallback = async (req, res, next) => {
+    let returnUrl = 'taddlebox://apple-auth';
+    try {
+      const { id_token: identityToken, user, state } = req.body;
+      
+      if (state) {
+        try {
+          const parsedState = JSON.parse(decodeURIComponent(state));
+          if (parsedState.returnUrl) returnUrl = parsedState.returnUrl;
+        } catch (e) {
+          console.error("Failed to parse state", e);
+        }
+      }
+
+      let fullName;
+      if (user) {
+        try {
+          const parsedUser = JSON.parse(user);
+          fullName = parsedUser?.name?.firstName 
+            ? `${parsedUser.name.firstName} ${parsedUser.name.lastName || ''}`.trim() 
+            : undefined;
+        } catch (e) {
+          console.error("Failed to parse Apple user data", e);
+        }
+      }
+
+      const result = await this.authSvc.appleAuth(identityToken, fullName);
+      const separator = returnUrl.includes('?') ? '&' : '?';
+
+      if (result.action === 'REGISTER_SOCIAL') {
+        const dataStr = encodeURIComponent(JSON.stringify(result.data));
+        const redirectUri = `${returnUrl}${separator}action=REGISTER_SOCIAL&socialToken=${result.socialToken}&data=${dataStr}`;
+        res.redirect(redirectUri);
+        return;
+      }
+      
+      const redirectUri = `${returnUrl}${separator}accessToken=${result.sessionData.accessToken}&refreshToken=${result.sessionData.refreshToken}`;
+      res.redirect(redirectUri);
+    } catch (error) {
+      const separator = returnUrl ? (returnUrl.includes('?') ? '&' : '?') : '?';
+      const base = returnUrl || 'taddlebox://apple-auth';
+      res.redirect(`${base}${separator}error=${encodeURIComponent(error.message || 'Authentication failed')}`);
     }
   };
 

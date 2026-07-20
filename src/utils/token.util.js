@@ -14,6 +14,9 @@ const generateRefreshToken = (payload) =>
 const generateVerificationToken = (payload) =>
   jwt.sign(payload, config.TOKEN_SECRET, { expiresIn: config.VERIFICATION_TOKEN_EXPIRES_IN });
 
+const generateSocialToken = (payload) =>
+  jwt.sign(payload, config.TOKEN_SECRET, { expiresIn: '30m' });
+
 
 
 const verifyAccessToken = (token) => {
@@ -40,6 +43,14 @@ const verifyVerificationToken = (token) => {
   }
 };
 
+const verifySocialToken = (token) => {
+  try {
+    return jwt.verify(token, config.TOKEN_SECRET);
+  } catch {
+    throw createError('Invalid or expired social token', 401);
+  }
+};
+
 //Generates a cryptographically secure random token
 const generateRandomToken = () => crypto.randomBytes(32).toString('hex');
 
@@ -50,9 +61,11 @@ module.exports = {
   generateAccessToken,
   generateRefreshToken,
   generateVerificationToken,
+  generateSocialToken,
   verifyAccessToken,
   verifyRefreshToken,
   verifyVerificationToken,
+  verifySocialToken,
   generateRandomToken,
   hashToken,
 };

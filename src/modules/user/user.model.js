@@ -13,12 +13,12 @@ const PRIVATE_FIELDS = [
   'u.date_of_birth', 'u.avatar_url', 'u.banner_url', 'u.bio', 'u.website_url', 'u.role', 
   'u.is_verified', 'u.is_active', 'u.follower_count', 'u.following_count', 'u.post_count',
   'u.email_verified_at', 'u.last_login_at', 'u.google_id', 'u.created_at', 'u.updated_at',
-  'u.privacy', 'u.theme'
+  'u.privacy', 'u.theme', 'u.apple_refresh_token'
 ].join(', ');
 
 const AUTH_FIELDS = [
   'u.id', 'u.email', 'u.name', 'u.username', 'u.password_hash', 'u.role', 'u.app_lock_enabled', 'u.app_lock',
-  'u.is_verified', 'u.is_active', 'u.is_banned', 'u.google_id', 'u.refresh_token_hash',
+  'u.is_verified', 'u.is_active', 'u.is_banned', 'u.google_id', 'u.refresh_token_hash', 'u.apple_refresh_token'
 ].join(', ');
 
 const SEARCH_FIELDS = [
@@ -92,6 +92,7 @@ const format = (row) => {
     gender: row.gender,
     appLock: row.app_lock,
     appLockEnabled: row.app_lock_enabled,
+    appleRefreshToken: row.apple_refresh_token,
   };
 };
 

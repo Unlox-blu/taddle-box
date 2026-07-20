@@ -165,6 +165,16 @@ class UserController {
       next(error);
     }
   };
+
+  deleteAccount = async (req, res, next) => {
+    try {
+      const userId = req.userId;
+      const result = await this.userSvc.deleteAccount(userId);
+      res.json(apiResponse(null, result.message));
+    } catch (error) {
+      next(error);
+    }
+  };
 }
 
 module.exports = UserController;

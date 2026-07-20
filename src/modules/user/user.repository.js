@@ -211,13 +211,13 @@ const findByGoogleId = async (googleId) => {
   }
 };
 
-const create = async ({name, username, email, passwordHash, isVerified, gender, dateOfBirth}) => {
+const create = async ({name, username, email, passwordHash, isVerified, gender, dateOfBirth, appleRefreshToken}) => {
   try {
     const { rows } = await pool.query(
-      `INSERT INTO ${UserModel.TABLE} (name, username, email, password_hash, is_verified, gender, date_of_birth)
-     VALUES ($1, $2, $3, $4, $5, $6, $7)
+      `INSERT INTO ${UserModel.TABLE} (name, username, email, password_hash, is_verified, gender, date_of_birth, apple_refresh_token)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
      RETURNING *`,
-      [name, username, email, passwordHash, isVerified, gender, dateOfBirth]
+      [name, username, email, passwordHash, isVerified, gender, dateOfBirth, appleRefreshToken]
     );
     return UserModel.sanitize(rows[0]);
   } catch (error) {
@@ -320,6 +320,17 @@ const softDelete = async (userId) => {
   try {
     await pool.query(
       `UPDATE ${UserModel.TABLE} SET deleted_at = NOW(), is_active = FALSE, updated_at = NOW() WHERE id = $1`,
+      [userId]
+    );
+  } catch (error) {
+    throw error;
+  }
+};
+
+const hardDelete = async (userId) => {
+  try {
+    await pool.query(
+      `DELETE FROM ${UserModel.TABLE} WHERE id = $1`,
       [userId]
     );
   } catch (error) {
@@ -529,6 +540,7 @@ module.exports = {
   incrementFollowingCount,
   decrementFollowingCount,
   softDelete,
+  hardDelete,
   search,
   isEmailExist,
   isUsernameExist,

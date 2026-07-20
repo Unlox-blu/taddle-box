@@ -59,6 +59,7 @@ const sendOtpSchema = z.object({
   email: z.preprocess(transformToLowerCase, z.string().email('Invalid email address')),
   countryCode: z.string().min(1, "Phone number is required").regex(/^\+[0-9]{1,4}$/, "Country code contain digits followed by + only"),
   phone: z.string().min(3, "Phone number is required").regex(/^[0-9]{3,15}$/, "Phone number must contain digits only minimum 3 digits"),
+  socialToken: z.string().optional(),
 }).strict()
 
 const verifyOtp = z.object({
@@ -77,6 +78,7 @@ const signupSchema = z.object({
   location: z.string().min(1, "Location is required"),
   college: z.string().min(1, "College is required"),
   interests: z.preprocess(typeCheck, z.array(z.string()).default([])),
+  socialToken: z.string().optional(),
 }).strict();
 
 const loginSchema = z.object({

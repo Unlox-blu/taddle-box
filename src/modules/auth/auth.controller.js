@@ -174,22 +174,41 @@ class AuthController {
     }
   };
 
-  // googleAuth = async (req, res, next) => {
-  //   try {
-  //     const result = await this.authSvc.googleAuth(req.body.idToken);
-  //     res.cookie('access_token', result.accessToken, {
-  //       ...result.cookieOpts,
-  //       maxAge: 15 * 60 * 1000,
-  //     });
-  //     res.cookie('refresh_token', result.refreshToken, {
-  //       ...result.cookieOpts,
-  //       maxAge: 7 * 24 * 60 * 60 * 1000,
-  //     });
-  //     res.json(apiResponse({ userId: result.userId, role: result.role }, 'Google auth successful'));
-  //   } catch (error) {
-  //     next(error);
-  //   }
-  // };
+  googleAuth = async (req, res, next) => {
+    try {
+      const { idToken } = req.body;
+      const result = await this.authSvc.googleAuth(idToken);
+      res.cookie('access_token', result.sessionData.accessToken, {
+        ...result.sessionData.cookieOpts,
+        maxAge: config.ACCESS_TOKEN_COOKIE_MAX_AGE_SECONDS,
+      });
+      res.cookie('refresh_token', result.sessionData.refreshToken, {
+        ...result.sessionData.cookieOpts,
+        maxAge: config.REFRESH_TOKEN_COOKIE_MAX_AGE_SECONDS,
+      });
+      res.json(apiResponse({ user: result.userData, sessionData: result.sessionData }, 'Google auth successful'));
+    } catch (error) {
+      next(error);
+    }
+  };
+
+  appleAuth = async (req, res, next) => {
+    try {
+      const { identityToken, fullName } = req.body;
+      const result = await this.authSvc.appleAuth(identityToken, fullName);
+      res.cookie('access_token', result.sessionData.accessToken, {
+        ...result.sessionData.cookieOpts,
+        maxAge: config.ACCESS_TOKEN_COOKIE_MAX_AGE_SECONDS,
+      });
+      res.cookie('refresh_token', result.sessionData.refreshToken, {
+        ...result.sessionData.cookieOpts,
+        maxAge: config.REFRESH_TOKEN_COOKIE_MAX_AGE_SECONDS,
+      });
+      res.json(apiResponse({ user: result.userData, sessionData: result.sessionData }, 'Apple auth successful'));
+    } catch (error) {
+      next(error);
+    }
+  };
 
   refreshToken = async (req, res, next) => {
     try {

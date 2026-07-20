@@ -80,13 +80,13 @@ const findByEmailUser = async ({email}) => {
 };
 
 
-const create = async ({name, username, email, countryCode, phone, passwordHash, dateOfBirth, location, college, interests}) => {
+const create = async ({name, username, email, countryCode, phone, passwordHash, dateOfBirth, location, college, interests, googleId, appleId, avatarUrl}) => {
   try {
     const { rows } = await pool.query(
-      `INSERT INTO ${AuthModel.USER_TABLE} (name, username, email, country_code, phone_number, password_hash, date_of_birth, location, college, interests)
-     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+      `INSERT INTO ${AuthModel.USER_TABLE} (name, username, email, country_code, phone_number, password_hash, date_of_birth, location, college, interests, google_id, apple_id, avatar_url)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
      RETURNING ${AuthModel.RETURNING_USER_FIELDS}`,
-      [name, username, email, countryCode, phone, passwordHash, dateOfBirth, location, college, JSON.stringify(interests) || '[]']
+      [name, username, email, countryCode, phone, passwordHash, dateOfBirth, location, college, JSON.stringify(interests) || '[]', googleId, appleId, avatarUrl]
     );
     const safe = rows[0] ? AuthModel.sanitize(rows[0]) : null
     return safe ? AuthModel.format(safe) : null;

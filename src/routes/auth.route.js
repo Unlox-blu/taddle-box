@@ -129,6 +129,10 @@ router.post(
   authController.resetPassword
 );
 
+// ─── Social Login Routes ──────────────────────────────────────────────────────
+router.post('/google', authController.googleAuth);
+router.post('/apple', authController.appleAuth);
+
 router.get(
   '/me', 
   verifyToken, 

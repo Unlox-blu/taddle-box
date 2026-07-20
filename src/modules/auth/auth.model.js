@@ -32,6 +32,7 @@ const AUTH_FIELDS = [
   'u.is_active',
   'u.is_banned',
   'u.google_id',
+  'u.apple_id',
   'u.refresh_token_hash',
 ].join(', ');
 
@@ -48,6 +49,7 @@ const SECURE_FIELDS = [
   'u.email_verified_at',
   'u.last_login_at',
   'u.google_id',
+  'u.apple_id',
   'u.created_at',
   'u.updated_at',
   'u.privacy',
@@ -77,6 +79,7 @@ const PRIVATE_FIELDS = [
   'u.email_verified_at',
   'u.last_login_at',
   'u.google_id',
+  'u.apple_id',
   'u.created_at',
   'u.updated_at',
   'u.privacy',
@@ -247,6 +250,7 @@ const format = (row) => {
     updatedAt: row.updated_at,
     passwordHash: row.password_hash,
     googleId: row.google_id,
+    appleId: row.apple_id,
     isBanned: row.is_banned,
     refreshTokenHash: row.refresh_token_hash,
     emailVerifyTokenHash: row.email_verify_token_hash,

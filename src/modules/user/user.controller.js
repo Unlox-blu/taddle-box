@@ -102,7 +102,6 @@ class UserController {
     try {
       const { limit, offset, page } = getPaginationParams(req.query);
       const userId = req.userId;
-      console.log('req.user', req.userId);
       const {bookmark, total} = await this.userSvc.getbookmarked({userId, limit, offset});
       res.json(apiResponse(bookmark, 'Bookmarked fetched successfully', paginationMeta(total, page, limit)));
     } catch (error) {
@@ -114,7 +113,6 @@ class UserController {
     try {
       const { limit, offset, page } = getPaginationParams(req.query);
       const userId = req.userId;
-      console.log('req.user', req.userId);
       const {saved, total} = await this.userSvc.getsaved({userId, limit, offset});
       res.json(apiResponse(saved, 'Saved fetched successfully', paginationMeta(total, page, limit)));
     } catch (error) {

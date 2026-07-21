@@ -3,7 +3,7 @@
 const pool = require('../../config/database');
 const NotificationModel = require('./notification.model');
 
-const create = async (data) => {
+const createNotification = async (data) => {
   try {
     const { rows } = await pool.query(
       `INSERT INTO ${NotificationModel.NOTIFICATION_TABLE}
@@ -25,6 +25,48 @@ const create = async (data) => {
     throw error;
   }
 };
+
+const createBatchNotification = async (data) => {
+  const { rows } = await pool.query(
+      `INSERT INTO ${NotificationModel.NOTIFICATION_BATCH_TABLE}
+       (recipient_id, sender_id, type, title, resource_type, resource_id)
+     VALUES ($1,$2,$3,$4,$5,$6)
+     RETURNING ${NotificationModel.NOTIFICATION_BATCH_FIELDS}`,
+      [
+        data.recipientId,
+        data.senderId || [],
+        data.type,
+        data.title,
+        data.resourceType || null,
+        data.resourceId || null,
+      ]
+    );
+    return NotificationModel.format(rows[0]);
+}
+
+const addToBatchNotification = async ({recipientId, senderId, resourceId}) => {
+  try {
+  await pool.query(
+      ` UPDATE ${NotificationModel.NOTIFICATION_BATCH_TABLE}
+      SET sender_id = array_append(sender_id, $1)
+      WHERE id = (
+          SELECT id
+          FROM ${NotificationModel.NOTIFICATION_BATCH_TABLE}
+          WHERE recipient_id = $2
+            AND resource_id = $3
+          ORDER BY created_at DESC
+          LIMIT 1
+      )`,
+      [senderId, recipientId, resourceId]
+    );
+  } catch (error) {
+    console.log(error)
+    throw error
+  }
+}
+
+
+
 
 const findByUser = async (userId, limit, offset, unreadOnly = false) => {
   try {
@@ -126,4 +168,4 @@ const upsertPreferences = async (userId, updates) => {
 };
 
 
-module.exports = { create, findByUser, markOneRead, markAllRead, getUnreadCount, createDefaultPreferences, findPreferenceByUserId, upsertPreferences };
+module.exports = { createNotification, createBatchNotification, addToBatchNotification, findByUser, markOneRead, markAllRead, getUnreadCount, createDefaultPreferences, findPreferenceByUserId, upsertPreferences };

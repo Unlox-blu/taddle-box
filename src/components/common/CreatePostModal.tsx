@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useState, useRef } from "react";
 import {
   Modal,
   View,
@@ -12,6 +12,7 @@ import {
   Image,
   Dimensions,
   Alert,
+  Animated,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { LinearGradient } from "expo-linear-gradient";
@@ -19,10 +20,13 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import * as ImagePicker from "expo-image-picker";
 import * as DocumentPicker from "expo-document-picker";
 import { Video, Audio, ResizeMode } from "expo-av";
+import * as FileSystem from "expo-file-system/legacy";
 import { colors, fontSizes, spacing, radii } from "../../theme";
 import { useAuth } from "../../context/AuthContext";
 import { usePosts } from "../../context/PostsContext";
 import { mediaService } from "../../services/media.service";
+import { hashtagService } from "../../services/hashtag.service";
+import { userService } from "../../services/user.service";
 import { useCommunities } from "../../context/CommunityContext";
 import type { Post } from "../../types";
 import { MentionInput } from "react-native-controlled-mentions";
@@ -47,11 +51,17 @@ export interface MediaItem {
   height?: number;
 }
 
-const HASHTAG_TRIGGER_CONFIG = {
-  '#': {
-    trigger: '#',
-    textStyle: { color: colors.primaryLight, fontWeight: '700' as const },
-  }
+const MENTION_AND_HASHTAG_CONFIG = {
+  "#": {
+    trigger: "#",
+    allowedSpacesCount: 0,
+    textStyle: { color: colors.primaryLight, fontWeight: "700" as const },
+  },
+  "@": {
+    trigger: "@",
+    allowedSpacesCount: 0,
+    textStyle: { color: colors.primaryLight, fontWeight: "700" as const },
+  },
 };
 
 export default function CreatePostModal({
@@ -66,19 +76,66 @@ export default function CreatePostModal({
 
   const [title, setTitle] = useState("");
   const [content, setContent] = useState("");
-  const [postType, setPostType] = useState<"feed" | "community">(
-    preselectedCommunityId ? "community" : "feed",
+  const [postType, setPostType] = useState<"feed" | "community" | null>(
+    preselectedCommunityId ? "community" : null,
   );
   const [selectedComId, setSelComId] = useState<string | null>(
     preselectedCommunityId ?? null,
   );
   const [showPicker, setShowPicker] = useState(false);
   const [showHashtagInput, setShowHashtagInput] = useState(false);
+  const [hashtagInput, setHashtagInput] = useState("");
+
+  const formatTagsOnSpace = React.useCallback(
+    (text: string, currentUsers: any[]) => {
+      // 1. Revert hashtags being appended to
+      let fixedText = text.replace(
+        /\{#\}\[([^\]]+)\]\([^)]+\)([a-z0-9_]+)/gi,
+        (match, name, appended) => {
+          return `#${name}${appended}`;
+        },
+      );
+
+      // 2. Revert mentions being appended to: {@}[name](id)abc → @nameabc
+      fixedText = fixedText.replace(
+        /\{@\}\[([^\]]+)\]\([^)]+\)([a-z0-9_]+)/gi,
+        (match, name, appended) => {
+          return `@${name}${appended}`;
+        },
+      );
+
+      // 3. Auto-format new plain-text hashtags on space
+      fixedText = fixedText.replace(
+        /(^|\s)#([a-z0-9_]+)(?=\s)/gi,
+        (match, prefix, name) => {
+          return `${prefix}{#}[${name}](${name})`;
+        },
+      );
+
+      // 4. Auto-format new plain-text mentions on space (only if valid in dynamicUsers)
+      fixedText = fixedText.replace(
+        /(^|\s)@([a-z0-9_]+)(?=\s)/gi,
+        (match, prefix, username) => {
+          const user = currentUsers.find(
+            (u) => u.username.toLowerCase() === username.toLowerCase(),
+          );
+          if (user) {
+            return `${prefix}{@}[${user.username}](${user.id})`;
+          }
+          return match;
+        },
+      );
+
+      return fixedText;
+    },
+    [],
+  );
 
   // ── Hashtags & Mentions ─────────────────────────────────────────
   const [hashtags, setHashtags] = useState<string[]>([]);
-  const [hashtagInput, setHashtagInput] = useState("");
-  const [activeInput, setActiveInput] = useState<"title" | "content" | "hashtag" | null>(null);
+  const [activeInput, setActiveInput] = useState<
+    "title" | "content" | "hashtag" | null
+  >(null);
 
   // Triggers state from react-native-controlled-mentions
   const [titleTriggers, setTitleTriggers] = useState<any>();
@@ -89,6 +146,7 @@ export default function CreatePostModal({
   const [audioItem, setAudioItem] = useState<MediaItem | null>(null);
   const [pickLoading, setPickLoading] = useState(false);
   const [uploading, setUploading] = useState(false);
+  const [currentMediaPage, setCurrentMediaPage] = useState(0);
 
   // GIF state
   const [showGifPicker, setShowGifPicker] = useState(false);
@@ -126,7 +184,53 @@ export default function CreatePostModal({
 
   const joinedCommunities = communities.filter((c) => c.isJoined);
   const selectedComm = joinedCommunities.find((c) => c.id === selectedComId);
-  const canPost = title.trim().length > 0;
+
+  // ── Validation ────────────────────────────────────────────────
+  const hasTitle = title.trim().length > 0;
+  const hasText = content.trim().length > 0;
+  const hasVisualMedia = mediaItems.length > 0;
+  const hasContent = hasText || hasVisualMedia;
+
+  // Shake refs
+  const shakeAudienceAnim = useRef(new Animated.Value(0)).current;
+  const shakeMediaAnim = useRef(new Animated.Value(0)).current;
+  const shakeHashtagAnim = useRef(new Animated.Value(0)).current;
+
+  const shake = (anim: Animated.Value) => {
+    anim.setValue(0);
+    Animated.sequence([
+      Animated.timing(anim, {
+        toValue: 8,
+        duration: 60,
+        useNativeDriver: true,
+      }),
+      Animated.timing(anim, {
+        toValue: -8,
+        duration: 60,
+        useNativeDriver: true,
+      }),
+      Animated.timing(anim, {
+        toValue: 6,
+        duration: 50,
+        useNativeDriver: true,
+      }),
+      Animated.timing(anim, {
+        toValue: -6,
+        duration: 50,
+        useNativeDriver: true,
+      }),
+      Animated.timing(anim, {
+        toValue: 3,
+        duration: 40,
+        useNativeDriver: true,
+      }),
+      Animated.timing(anim, {
+        toValue: 0,
+        duration: 40,
+        useNativeDriver: true,
+      }),
+    ]).start();
+  };
 
   // ── Media picker ────────────────────────────────────────────────
   const pickMedia = async (kind: "gallery" | "audio") => {
@@ -232,44 +336,84 @@ export default function CreatePostModal({
     setShowGifPicker(false);
   };
 
-  // ── Hashtag helpers ─────────────────────────────────────────────
-  const globalTags = React.useMemo(() => {
-    const tags = new Set<string>();
-    posts.forEach((p) => {
-      if (p.hashtags && Array.isArray(p.hashtags)) {
-        p.hashtags.forEach((t: string) => tags.add(t.toLowerCase()));
-      }
-    });
+  const [dynamicTags, setDynamicTags] = useState<string[]>([]);
+  const [dynamicUsers, setDynamicUsers] = useState<any[]>([]);
 
-    if (tags.size === 0) {
-      [
-        "trending",
-        "photography",
-        "design",
-        "art",
-        "music",
-        "fashion",
-        "nature",
-        "travel",
-        "fitness",
-        "food",
-        "tech",
-        "coding",
-      ].forEach((t) => tags.add(t));
+  const activeTrigger = React.useMemo(() => {
+    if (activeInput === "title" && titleTriggers) {
+      if (titleTriggers["#"]?.keyword != null) return "#";
+      if (titleTriggers["@"]?.keyword != null) return "@";
+    } else if (activeInput === "content" && contentTriggers) {
+      if (contentTriggers["#"]?.keyword != null) return "#";
+      if (contentTriggers["@"]?.keyword != null) return "@";
     }
+    if (activeInput === "hashtag") return "#";
+    return null;
+  }, [titleTriggers, contentTriggers, activeInput]);
 
-    return Array.from(tags);
-  }, [posts]);
+  const activeHashtagQuery = React.useMemo(() => {
+    if (activeInput === "hashtag")
+      return (hashtagInput || "")
+        .trim()
+        .toLowerCase()
+        .replace(/[^a-z0-9_]/g, "");
+    let keyword = "";
+    if (activeInput === "title" && titleTriggers && titleTriggers["#"]) {
+      keyword = titleTriggers["#"].keyword || "";
+    } else if (
+      activeInput === "content" &&
+      contentTriggers &&
+      contentTriggers["#"]
+    ) {
+      keyword = contentTriggers["#"].keyword || "";
+    }
+    return (keyword || "").toLowerCase().replace(/[^a-z0-9_]/g, "");
+  }, [hashtagInput, titleTriggers, contentTriggers, activeInput]);
 
-  // Pill Suggestions
+  const activeMentionQuery = React.useMemo(() => {
+    let keyword = "";
+    if (activeInput === "title" && titleTriggers && titleTriggers["@"]) {
+      keyword = titleTriggers["@"].keyword || "";
+    } else if (
+      activeInput === "content" &&
+      contentTriggers &&
+      contentTriggers["@"]
+    ) {
+      keyword = contentTriggers["@"].keyword || "";
+    }
+    return (keyword || "").toLowerCase();
+  }, [titleTriggers, contentTriggers, activeInput]);
+
+  React.useEffect(() => {
+    const handler = setTimeout(() => {
+      if (activeTrigger === "#") {
+        hashtagService
+          .getHashtags(activeHashtagQuery)
+          .then((res) => {
+            if (res?.data) setDynamicTags(res.data);
+          })
+          .catch((e) => console.error("Failed to fetch hashtags", e));
+      } else if (activeTrigger === "@") {
+        userService
+          .searchUsers(activeMentionQuery)
+          .then((res) => {
+            if (res?.data) setDynamicUsers(res.data);
+          })
+          .catch((e) => console.error("Failed to fetch users", e));
+      }
+    }, 200);
+
+    return () => clearTimeout(handler);
+  }, [activeHashtagQuery, activeMentionQuery, activeTrigger]);
+
   const suggestedTags = React.useMemo(() => {
-    if (activeInput !== "hashtag" || !hashtagInput) return [];
-    const query = hashtagInput.trim().replace(/^#/, "").toLowerCase();
-    return globalTags
-      .map((t) => t.replace(/^#/, ""))
-      .filter((t) => t.includes(query) && t !== query)
-      .slice(0, 15);
-  }, [globalTags, hashtagInput, activeInput]);
+    if (!activeHashtagQuery) return [];
+    let tags = dynamicTags.filter(
+      (t) => typeof t === "string" && t.toLowerCase() !== activeHashtagQuery,
+    );
+    tags = [activeHashtagQuery, ...tags];
+    return tags.slice(0, 15);
+  }, [dynamicTags, activeHashtagQuery]);
 
   const renderPillSuggestions = () => {
     if (activeInput !== "hashtag" || suggestedTags.length === 0) return null;
@@ -325,9 +469,25 @@ export default function CreatePostModal({
                   marginRight: 8,
                 }}
               >
-                <Text style={{ color: colors.text.secondary, fontSize: 10, fontWeight: "bold" }}>#</Text>
+                <Text
+                  style={{
+                    color: colors.text.secondary,
+                    fontSize: 10,
+                    fontWeight: "bold",
+                  }}
+                >
+                  #
+                </Text>
               </View>
-              <Text numberOfLines={1} style={{ color: colors.text.primary, fontSize: fontSizes.xs, fontWeight: "500", flex: 1 }}>
+              <Text
+                numberOfLines={1}
+                style={{
+                  color: colors.text.primary,
+                  fontSize: fontSizes.xs,
+                  fontWeight: "500",
+                  flex: 1,
+                }}
+              >
                 {tag}
               </Text>
             </TouchableOpacity>
@@ -338,25 +498,129 @@ export default function CreatePostModal({
   };
 
   const renderV3Suggestions = () => {
+    if (activeTrigger === "@") {
+      let keyword: string | undefined;
+      let onSelect: ((suggestion: any) => void) | undefined;
+
+      if (activeInput === "title" && titleTriggers && titleTriggers["@"]) {
+        keyword = titleTriggers["@"].keyword;
+        onSelect = titleTriggers["@"].onSelect;
+      } else if (
+        activeInput === "content" &&
+        contentTriggers &&
+        contentTriggers["@"]
+      ) {
+        keyword = contentTriggers["@"].keyword;
+        onSelect = contentTriggers["@"].onSelect;
+      }
+
+      if (keyword == null || !onSelect) return null;
+
+      const filteredUsers = dynamicUsers.filter(
+        (u) =>
+          u.username.toLowerCase().includes(keyword!.toLowerCase()) ||
+          u.name.toLowerCase().includes(keyword!.toLowerCase()),
+      );
+
+      if (filteredUsers.length === 0) return null;
+
+      return (
+        <View
+          style={{
+            backgroundColor: colors.bg.elevated,
+            borderRadius: radii.sm,
+            borderWidth: 1,
+            borderColor: colors.border,
+            maxHeight: 120,
+            marginTop: 0,
+            width: "100%",
+            position: "absolute",
+            top: "100%",
+            zIndex: 999,
+            elevation: 10,
+          }}
+        >
+          <ScrollView keyboardShouldPersistTaps="handled">
+            {filteredUsers.map((u) => (
+              <TouchableOpacity
+                key={u.id}
+                style={{
+                  padding: spacing.sm,
+                  flexDirection: "row",
+                  alignItems: "center",
+                }}
+                onPress={() => onSelect!({ id: u.id, name: u.username })}
+              >
+                <View
+                  style={[
+                    styles.avatarBubble,
+                    {
+                      width: 24,
+                      height: 24,
+                      borderRadius: 12,
+                      marginRight: 8,
+                      borderWidth: 1,
+                    },
+                  ]}
+                >
+                  {u.avatar_url ? (
+                    <Image
+                      source={{ uri: u.avatar_url }}
+                      style={{ width: 24, height: 24, borderRadius: 12 }}
+                    />
+                  ) : (
+                    <Text style={{ fontSize: 12 }}>👾</Text>
+                  )}
+                </View>
+                <Text
+                  numberOfLines={1}
+                  style={{
+                    color: colors.text.primary,
+                    fontSize: fontSizes.sm,
+                    fontWeight: "500",
+                  }}
+                >
+                  {u.name}{" "}
+                  <Text
+                    style={{ color: colors.text.muted, fontSize: fontSizes.xs }}
+                  >
+                    @{u.username}
+                  </Text>
+                </Text>
+              </TouchableOpacity>
+            ))}
+          </ScrollView>
+        </View>
+      );
+    }
+
     let keyword: string | undefined;
     let onSelect: ((suggestion: any) => void) | undefined;
-    
-    if (activeInput === 'title' && titleTriggers && titleTriggers['#']) {
-       keyword = titleTriggers['#'].keyword;
-       onSelect = titleTriggers['#'].onSelect;
-    } else if (activeInput === 'content' && contentTriggers && contentTriggers['#']) {
-       keyword = contentTriggers['#'].keyword;
-       onSelect = contentTriggers['#'].onSelect;
+
+    if (activeInput === "title" && titleTriggers && titleTriggers["#"]) {
+      keyword = titleTriggers["#"].keyword;
+      onSelect = titleTriggers["#"].onSelect;
+    } else if (
+      activeInput === "content" &&
+      contentTriggers &&
+      contentTriggers["#"]
+    ) {
+      keyword = contentTriggers["#"].keyword;
+      onSelect = contentTriggers["#"].onSelect;
     }
 
     if (keyword == null || !onSelect) return null;
 
-    const query = keyword.toLowerCase();
-    const suggestedTags = Array.from(globalTags).filter((tag) =>
-      tag.toLowerCase().includes(query),
+    const query = activeHashtagQuery;
+    let v3Tags = dynamicTags.filter(
+      (tag) => typeof tag === "string" && tag.toLowerCase() !== query,
     );
 
-    if (suggestedTags.length === 0) return null;
+    if (query.length > 0) {
+      v3Tags = [query, ...v3Tags];
+    }
+
+    if (v3Tags.length === 0) return null;
 
     return (
       <View
@@ -366,19 +630,44 @@ export default function CreatePostModal({
           borderWidth: 1,
           borderColor: colors.border,
           maxHeight: 120,
-          marginTop: spacing.xs,
-          width: 160,
+          marginTop: 0,
+          width: "100%",
+          position: "absolute",
+          top: "100%",
+          zIndex: 999,
+          elevation: 10,
         }}
       >
         <ScrollView keyboardShouldPersistTaps="handled">
-          {suggestedTags.map((tag) => (
+          {v3Tags.map((tag) => (
             <TouchableOpacity
               key={tag}
-              style={{ padding: spacing.sm, flexDirection: "row", alignItems: "center" }}
+              style={{
+                padding: spacing.sm,
+                flexDirection: "row",
+                alignItems: "center",
+              }}
               onPress={() => onSelect!({ id: tag, name: tag })}
             >
-              <Text style={{ color: colors.text.secondary, fontSize: 10, fontWeight: "bold", marginRight: 4 }}>#</Text>
-              <Text numberOfLines={1} style={{ color: colors.text.primary, fontSize: fontSizes.xs, fontWeight: "500", flex: 1 }}>
+              <Text
+                style={{
+                  color: colors.text.secondary,
+                  fontSize: 10,
+                  fontWeight: "bold",
+                  marginRight: 4,
+                }}
+              >
+                #
+              </Text>
+              <Text
+                numberOfLines={1}
+                style={{
+                  color: colors.text.primary,
+                  fontSize: fontSizes.xs,
+                  fontWeight: "500",
+                  flex: 1,
+                }}
+              >
                 {tag}
               </Text>
             </TouchableOpacity>
@@ -389,13 +678,36 @@ export default function CreatePostModal({
   };
 
   const extractTags = (text: string) => {
-    const matches = text.match(/#[\w]+/g);
-    return matches ? matches.map((t) => t.toLowerCase()) : [];
+    const plainText = text.replace(/\{#\}\[([^\]]+)\]\([^)]+\)/g, "#$1");
+    const tags = new Set<string>();
+    const matches = Array.from(plainText.matchAll(/(?:^|\s)(#[a-z0-9_]+)/gi));
+    matches.forEach((m) => tags.add(m[1].toLowerCase()));
+    return Array.from(tags);
+  };
+
+  const extractMentions = (text: string) => {
+    // Library encodes confirmed mentions as {@ }[name](id) in the raw value string
+    const mentionsMap = new Map<string, { id: string; name: string }>();
+    const matches = Array.from(text.matchAll(/\{@\}\[([^\]]+)\]\(([^)]+)\)/g));
+    matches.forEach((m) => {
+      mentionsMap.set(m[2], { name: m[1], id: m[2] });
+    });
+    return Array.from(mentionsMap.values());
   };
 
   const autoHashtags = Array.from(
     new Set([...extractTags(title), ...extractTags(content)]),
   );
+  // text OR media — either is sufficient
+  const hasHashtag = autoHashtags.length > 0 || hashtags.length > 0;
+
+  // Read confirmed mentions from raw text (library writes {@ }[name](id) for selected mentions)
+  const autoMentions = React.useMemo(() => {
+    const all = [...extractMentions(title), ...extractMentions(content)];
+    const seen = new Map<string, { id: string; name: string }>();
+    all.forEach((m) => seen.set(m.id, m));
+    return Array.from(seen.values());
+  }, [title, content]);
 
   const addHashtag = () => {
     const tag = hashtagInput.trim().replace(/^#+/, "");
@@ -407,8 +719,21 @@ export default function CreatePostModal({
     }
     setHashtagInput("");
   };
-
   // ── Submit ──────────────────────────────────────────────────────
+  const handleTitleChange = React.useCallback(
+    (val: string) => {
+      setTitle(formatTagsOnSpace(val, dynamicUsers));
+    },
+    [dynamicUsers, formatTagsOnSpace],
+  );
+
+  const handleContentChange = React.useCallback(
+    (val: string) => {
+      setContent(formatTagsOnSpace(val, dynamicUsers));
+    },
+    [dynamicUsers, formatTagsOnSpace],
+  );
+
   const resetAndClose = () => {
     setTitle("");
     setContent("");
@@ -425,64 +750,26 @@ export default function CreatePostModal({
     onClose();
   };
 
-  const renderMentionSuggestions = (
-    keyword: string | undefined,
-    onSuggestionPress: (suggestion: { id: string; name: string }) => void
-  ) => {
-    if (keyword == null) return null;
-    const query = keyword.toLowerCase();
-    const suggestions = globalTags
-      .map((t) => t.replace(/^#/, ""))
-      .filter((t) => t.includes(query) && t !== query)
-      .slice(0, 15);
-
-    if (suggestions.length === 0) return null;
-
-    return (
-      <View
-        style={{
-          backgroundColor: colors.bg.elevated,
-          borderRadius: radii.sm,
-          borderWidth: 1,
-          borderColor: colors.border,
-          maxHeight: 120,
-          marginTop: 4,
-          zIndex: 1000,
-          elevation: 10,
-          shadowColor: "#000",
-          shadowOffset: { width: 0, height: 4 },
-          shadowOpacity: 0.3,
-          shadowRadius: 10,
-        }}
-      >
-        <ScrollView keyboardShouldPersistTaps="always">
-          {suggestions.map((tag, index) => (
-            <TouchableOpacity
-              key={tag}
-              style={{
-                flexDirection: "row",
-                alignItems: "center",
-                paddingVertical: 8,
-                paddingHorizontal: 12,
-                borderBottomWidth: index === suggestions.length - 1 ? 0 : 1,
-                borderBottomColor: colors.border,
-              }}
-              onPress={() => onSuggestionPress({ id: `#${tag}`, name: tag })}
-            >
-              <View style={{ width: 18, height: 18, borderRadius: 9, backgroundColor: colors.bg.surface, justifyContent: 'center', alignItems: 'center', marginRight: 8 }}>
-                <Text style={{ color: colors.text.secondary, fontSize: 10, fontWeight: 'bold' }}>#</Text>
-              </View>
-              <Text numberOfLines={1} style={{ color: colors.text.primary, fontSize: fontSizes.sm, fontWeight: '500', flex: 1 }}>
-                {tag}
-              </Text>
-            </TouchableOpacity>
-          ))}
-        </ScrollView>
-      </View>
-    );
-  };
-
   const handlePost = async () => {
+    // ── Validation with shakes & Alert ────────────────────────
+    const errors = [];
+    if (!postType) errors.push("• Audience selection is required");
+    if (!hasTitle) errors.push("• Title is required");
+    if (!hasContent) errors.push("• Either Text Content or Media is required");
+    if (!hasHashtag) errors.push("• At least one hashtag is required");
+
+    if (errors.length > 0) {
+      if (!postType) shake(shakeAudienceAnim);
+      if (!hasContent) shake(shakeMediaAnim);
+      if (!hasHashtag) shake(shakeHashtagAnim);
+
+      Alert.alert(
+        "Incomplete Post",
+        "Please provide the missing information:\n\n" + errors.join("\n"),
+      );
+      return;
+    }
+
     setUploading(true);
     try {
       const uploadedMedia = [];
@@ -503,7 +790,19 @@ export default function CreatePostModal({
           );
           uploadedMedia.push({ id: res.data.mediaId, type: "video" });
         } else {
-          // image or audio
+          // For GIFs from the Klipy CDN, download locally first before uploading
+          let uploadUri = item.uri;
+          let tempPath: string | null = null;
+          if (item.mimeType === "image/gif" && item.uri.startsWith("http")) {
+            const fileName = item.name || `gif-${Date.now()}.gif`;
+            tempPath = `${FileSystem.cacheDirectory}${fileName}`;
+            const downloadResult = await FileSystem.downloadAsync(
+              item.uri,
+              tempPath,
+            );
+            uploadUri = downloadResult.uri;
+          }
+
           const folder = "posts";
           const res = await mediaService.getSignedUrl(
             folder,
@@ -512,11 +811,18 @@ export default function CreatePostModal({
           );
           await mediaService.uploadFileDirect(
             res.data.signedUrl!,
-            item.uri,
+            uploadUri,
             item.mimeType || "image/jpeg",
           );
           await mediaService.confirmUpload(res.data.mediaId, res.data.s3Key!);
           uploadedMedia.push({ id: res.data.mediaId, type: item.type });
+
+          // Clean up temp GIF file
+          if (tempPath) {
+            FileSystem.deleteAsync(tempPath, { idempotent: true }).catch(
+              () => {},
+            );
+          }
         }
       }
 
@@ -525,6 +831,7 @@ export default function CreatePostModal({
         content: content.trim(),
         communityId: postType === "community" ? selectedComId : undefined,
         tags: Array.from(new Set([...autoHashtags, ...hashtags])),
+        mentions: autoMentions.map((m) => m.id),
         visibility: postType === "community" ? "community_only" : "public",
         status: "published",
         media: uploadedMedia,
@@ -583,13 +890,10 @@ export default function CreatePostModal({
             <Ionicons name="close" size={24} color={colors.text.secondary} />
           </TouchableOpacity>
           <Text style={styles.headerTitle}>Create Post</Text>
-          <TouchableOpacity
-            onPress={handlePost}
-            disabled={!canPost || uploading}
-          >
+          <TouchableOpacity onPress={handlePost} disabled={uploading}>
             <LinearGradient
               colors={
-                canPost && !uploading
+                !uploading
                   ? [colors.primary, colors.cyanDark]
                   : [colors.bg.elevated, colors.bg.elevated]
               }
@@ -600,7 +904,7 @@ export default function CreatePostModal({
               <Text
                 style={[
                   styles.postBtnText,
-                  (!canPost || uploading) && styles.postBtnTextDisabled,
+                  uploading && styles.postBtnTextDisabled,
                 ]}
               >
                 {uploading ? "Posting..." : "Post"}
@@ -627,72 +931,46 @@ export default function CreatePostModal({
                 {CURRENT_USER?.name || "Taddle User"}
               </Text>
               <View style={styles.postTypeRow}>
-                <TouchableOpacity
-                  style={[
-                    styles.typePill,
-                    postType === "feed" && styles.typePillActive,
-                  ]}
-                  onPress={() => {
-                    setPostType("feed");
-                    setSelComId(null);
-                  }}
-                >
-                  <Ionicons
-                    name="globe-outline"
-                    size={11}
-                    color={
-                      postType === "feed"
-                        ? colors.primaryLight
-                        : colors.text.muted
-                    }
-                  />
-                  <Text
+                <Animated.View style={{ transform: [{ translateX: shakeAudienceAnim }] }}>
+                  <TouchableOpacity
                     style={[
-                      styles.typePillText,
-                      postType === "feed" && styles.typePillTextActive,
+                      styles.typePill,
+                      postType && styles.typePillActive,
                     ]}
+                    onPress={() => setShowPicker(true)}
                   >
-                    Feed
-                  </Text>
-                </TouchableOpacity>
-
-                <TouchableOpacity
-                  style={[
-                    styles.typePill,
-                    postType === "community" && styles.typePillActive,
-                  ]}
-                  onPress={() => {
-                    setPostType("community");
-                    setShowPicker(true);
-                  }}
-                >
-                  <Ionicons
-                    name="people-outline"
-                    size={11}
-                    color={
-                      postType === "community"
-                        ? colors.primaryLight
-                        : colors.text.muted
-                    }
-                  />
-                  <Text
-                    style={[
-                      styles.typePillText,
-                      postType === "community" && styles.typePillTextActive,
-                    ]}
-                  >
-                    {selectedComm ? selectedComm.name : "Community"}
-                  </Text>
-                  <Ionicons
-                    name="chevron-down"
-                    size={11}
-                    color={
-                      postType === "community"
-                        ? colors.primaryLight
-                        : colors.text.muted
-                    }
-                  />
-                </TouchableOpacity>
+                    <Ionicons
+                      name={
+                        postType === "feed"
+                          ? "globe-outline"
+                          : postType === "community"
+                          ? "people-outline"
+                          : "earth"
+                      }
+                      size={11}
+                      color={postType ? colors.primaryLight : colors.text.muted}
+                    />
+                    <Text
+                      style={[
+                        styles.typePillText,
+                        postType && styles.typePillTextActive,
+                      ]}
+                    >
+                      {postType === "feed"
+                        ? "Public"
+                        : postType === "community"
+                        ? selectedComm
+                          ? selectedComm.name
+                          : "Community"
+                        : "Select Audience"}
+                    </Text>
+                    <Ionicons
+                      name="chevron-down"
+                      size={11}
+                      color={postType ? colors.primaryLight : colors.text.muted}
+                    />
+                  </TouchableOpacity>
+                </Animated.View>
               </View>
             </View>
           </View>
@@ -713,14 +991,14 @@ export default function CreatePostModal({
               placeholder="An interesting title..."
               placeholderTextColor={colors.text.muted}
               value={title}
-              onChange={setTitle}
+              onChange={handleTitleChange}
               onFocus={() => setActiveInput("title")}
-              triggersConfig={HASHTAG_TRIGGER_CONFIG}
+              triggersConfig={MENTION_AND_HASHTAG_CONFIG}
               onTriggersChange={setTitleTriggers}
               maxLength={300}
               autoFocus
             />
-            {activeInput === 'title' && renderV3Suggestions()}
+            {activeInput === "title" && renderV3Suggestions()}
           </View>
           <View
             style={{
@@ -735,14 +1013,14 @@ export default function CreatePostModal({
               placeholderTextColor={colors.text.muted}
               multiline
               value={content}
-              onChange={setContent}
+              onChange={handleContentChange}
               onFocus={() => setActiveInput("content")}
-              triggersConfig={HASHTAG_TRIGGER_CONFIG}
+              triggersConfig={MENTION_AND_HASHTAG_CONFIG}
               onTriggersChange={setContentTriggers}
               maxLength={500}
               textAlignVertical="top"
             />
-            {activeInput === 'content' && renderV3Suggestions()}
+            {activeInput === "content" && renderV3Suggestions()}
           </View>
           <View
             style={{
@@ -767,7 +1045,24 @@ export default function CreatePostModal({
           {mediaItems.length > 0 && (
             <View style={styles.previewWrapper}>
               {/* Previews (Horizontal Scroll) */}
-              <ScrollView horizontal showsHorizontalScrollIndicator={false}>
+              <ScrollView
+                horizontal
+                showsHorizontalScrollIndicator={false}
+                snapToInterval={previewW + 10}
+                decelerationRate="fast"
+                onScroll={(e) => {
+                  const x = e.nativeEvent.contentOffset.x;
+                  const page = Math.max(
+                    0,
+                    Math.min(
+                      mediaItems.length - 1,
+                      Math.round(x / (previewW + 10)),
+                    ),
+                  );
+                  if (page !== currentMediaPage) setCurrentMediaPage(page);
+                }}
+                scrollEventThrottle={16}
+              >
                 <View
                   style={{
                     flexDirection: "row",
@@ -816,46 +1111,97 @@ export default function CreatePostModal({
                   ))}
                 </View>
               </ScrollView>
+
+              {/* Pagination Dots */}
+              {mediaItems.length > 1 && (
+                <View
+                  style={{
+                    flexDirection: "row",
+                    justifyContent: "center",
+                    gap: 6,
+                    marginTop: 12,
+                  }}
+                >
+                  {mediaItems.map((_, i) => (
+                    <View
+                      key={i}
+                      style={{
+                        width: 6,
+                        height: 6,
+                        borderRadius: 3,
+                        backgroundColor:
+                          i === currentMediaPage
+                            ? colors.primaryLight
+                            : colors.border,
+                      }}
+                    />
+                  ))}
+                </View>
+              )}
             </View>
           )}
 
           {/* Action Toolbar */}
           <View style={styles.toolbar}>
-            <TouchableOpacity
-              onPress={() => pickMedia("gallery")}
-              style={styles.toolbarBtn}
-              disabled={pickLoading}
+            {/* Gallery + GIF icon group — shakes when no content */}
+            <Animated.View
+              style={{
+                flexDirection: "row",
+                gap: spacing.lg,
+                transform: [{ translateX: shakeMediaAnim }],
+              }}
             >
-              <Ionicons
-                name="image-outline"
-                size={24}
-                color={colors.primaryLight}
-              />
-              <View style={styles.toolbarBadge}>
-                <Ionicons name="add" size={10} color="#fff" />
-              </View>
-              {mediaItems.length > 0 && (
-                <View style={styles.toolbarCountBadge}>
-                  <Text style={styles.toolbarBadgeText}>
-                    {mediaItems.length}
-                  </Text>
+              <TouchableOpacity
+                onPress={() => pickMedia("gallery")}
+                style={styles.toolbarBtn}
+                disabled={pickLoading}
+              >
+                <Ionicons
+                  name="image-outline"
+                  size={24}
+                  color={colors.primaryLight}
+                />
+                <View style={styles.toolbarBadge}>
+                  <Ionicons name="add" size={10} color="#fff" />
                 </View>
-              )}
-            </TouchableOpacity>
-            <TouchableOpacity
-              onPress={() => setShowGifPicker(true)}
-              style={styles.toolbarBtn}
-              disabled={pickLoading}
-            >
-              <Ionicons
-                name="film-outline"
-                size={24}
-                color={colors.primaryLight}
-              />
-              <View style={styles.toolbarBadge}>
-                <Ionicons name="add" size={10} color="#fff" />
-              </View>
-            </TouchableOpacity>
+                {mediaItems.filter((m) => m.mimeType !== "image/gif").length >
+                  0 && (
+                  <View style={styles.toolbarCountBadge}>
+                    <Text style={styles.toolbarBadgeText}>
+                      {
+                        mediaItems.filter((m) => m.mimeType !== "image/gif")
+                          .length
+                      }
+                    </Text>
+                  </View>
+                )}
+              </TouchableOpacity>
+              <TouchableOpacity
+                onPress={() => setShowGifPicker(true)}
+                style={styles.toolbarBtn}
+                disabled={pickLoading}
+              >
+                <Ionicons
+                  name="film-outline"
+                  size={24}
+                  color={colors.primaryLight}
+                />
+                <View style={styles.toolbarBadge}>
+                  <Ionicons name="add" size={10} color="#fff" />
+                </View>
+                {mediaItems.filter((m) => m.mimeType === "image/gif").length >
+                  0 && (
+                  <View style={styles.toolbarCountBadge}>
+                    <Text style={styles.toolbarBadgeText}>
+                      {
+                        mediaItems.filter((m) => m.mimeType === "image/gif")
+                          .length
+                      }
+                    </Text>
+                  </View>
+                )}
+              </TouchableOpacity>
+            </Animated.View>
 
             {audioItem ? (
               <View
@@ -913,29 +1259,60 @@ export default function CreatePostModal({
               </TouchableOpacity>
             )}
 
-            {/* Hashtag Toggle */}
-            <TouchableOpacity
-              onPress={() => setShowHashtagInput(!showHashtagInput)}
-              style={[styles.toolbarBtn, { marginLeft: "auto" }]}
+            {/* Mentions & Hashtag Icons Group — separate so only # shakes */}
+            <View
+              style={{
+                flexDirection: "row",
+                alignItems: "center",
+                gap: spacing.sm,
+                marginLeft: "auto",
+              }}
             >
-              <Ionicons
-                name="pricetag-outline"
-                size={24}
-                color={colors.primaryLight}
-              />
-              {hashtags.length + autoHashtags.length > 0 && (
-                <View
-                  style={[
-                    styles.toolbarCountBadge,
-                    { bottom: -2, left: -2, top: "auto", right: "auto" },
-                  ]}
+              {/* Mentions Icon — static, no shake */}
+              <View style={styles.toolbarBtn}>
+                <Ionicons name="at" size={26} color={colors.primaryLight} />
+                {autoMentions.length > 0 && (
+                  <View
+                    style={[
+                      styles.toolbarCountBadge,
+                      { bottom: -2, left: -2, top: "auto", right: "auto" },
+                    ]}
+                  >
+                    <Text style={styles.toolbarBadgeText}>
+                      {autoMentions.length}
+                    </Text>
+                  </View>
+                )}
+              </View>
+
+              {/* Hashtag Toggle */}
+              <Animated.View
+                style={{ transform: [{ translateX: shakeHashtagAnim }] }}
+              >
+                <TouchableOpacity
+                  onPress={() => setShowHashtagInput(!showHashtagInput)}
+                  style={styles.toolbarBtn}
                 >
-                  <Text style={styles.toolbarBadgeText}>
-                    {hashtags.length + autoHashtags.length}
-                  </Text>
-                </View>
-              )}
-            </TouchableOpacity>
+                  <Ionicons
+                    name="pricetag-outline"
+                    size={24}
+                    color={colors.primaryLight}
+                  />
+                  {hashtags.length + autoHashtags.length > 0 && (
+                    <View
+                      style={[
+                        styles.toolbarCountBadge,
+                        { bottom: -2, left: -2, top: "auto", right: "auto" },
+                      ]}
+                    >
+                      <Text style={styles.toolbarBadgeText}>
+                        {hashtags.length + autoHashtags.length}
+                      </Text>
+                    </View>
+                  )}
+                </TouchableOpacity>
+              </Animated.View>
+            </View>
           </View>
 
           {/* ── Hashtags ── */}
@@ -1048,64 +1425,154 @@ export default function CreatePostModal({
             </View>
           )}
 
-          {/* ── Community picker ── */}
-          {showPicker && (
-            <View style={styles.communitySheet}>
-              <View style={styles.communitySheetHeader}>
-                <Text style={styles.communitySheetTitle}>
-                  Post to Community
-                </Text>
-                <TouchableOpacity onPress={() => setShowPicker(false)}>
-                  <Ionicons
-                    name="close"
-                    size={20}
-                    color={colors.text.secondary}
-                  />
-                </TouchableOpacity>
-              </View>
-
-              {joinedCommunities.length === 0 ? (
-                <View style={styles.emptyComm}>
-                  <Text style={styles.emptyCommText}>
-                    You haven't joined any communities yet.
-                  </Text>
-                </View>
-              ) : (
-                joinedCommunities.map((comm) => {
-                  const active = selectedComId === comm.id;
-                  return (
-                    <TouchableOpacity
-                      key={comm.id}
-                      style={[
-                        styles.communityOption,
-                        active && styles.communityOptionActive,
-                      ]}
-                      onPress={() => {
-                        setSelComId(comm.id);
-                        setShowPicker(false);
-                      }}
+          {/* ── Mentions ── */}
+          {autoMentions.length > 0 && (
+            <View style={styles.section}>
+              <Text style={styles.sectionLabel}>Mentions</Text>
+              <View style={styles.hashtagChips}>
+                {autoMentions.map((user) => (
+                  <View
+                    key={`mention-${user.id}`}
+                    style={[styles.hashChip, styles.hashChipAuto]}
+                  >
+                    <Text
+                      style={[styles.hashChipText, styles.hashChipTextAuto]}
                     >
-                      <Text style={styles.communityAvatar}>{comm.avatar}</Text>
-                      <View style={styles.communityInfo}>
-                        <Text style={styles.communityName}>{comm.name}</Text>
-                        <Text style={styles.communityMeta}>
-                          {comm.members.toLocaleString()} members ·{" "}
-                          {comm.category}
-                        </Text>
-                      </View>
-                      {active && (
-                        <Ionicons
-                          name="checkmark-circle"
-                          size={20}
-                          color={colors.primaryLight}
-                        />
-                      )}
-                    </TouchableOpacity>
-                  );
-                })
-              )}
+                      @{user.name}
+                    </Text>
+                  </View>
+                ))}
+              </View>
             </View>
           )}
+
+          {/* ── Audience picker ── */}
+          <Modal visible={showPicker} transparent animationType="fade">
+            <View style={styles.gifModalContainer}>
+              <View style={[styles.gifModalContent, { padding: 0 }]}>
+                <View style={[styles.gifHeader, { padding: spacing.md, borderBottomWidth: 1, borderBottomColor: colors.border, marginBottom: 0 }]}>
+                  <Text style={styles.gifTitle}>Select Audience</Text>
+                  <TouchableOpacity onPress={() => setShowPicker(false)}>
+                    <Ionicons
+                      name="close"
+                      size={24}
+                      color={colors.text.secondary}
+                    />
+                  </TouchableOpacity>
+                </View>
+
+                <ScrollView
+                  style={{ flex: 1, padding: spacing.md }}
+                  showsVerticalScrollIndicator={false}
+                >
+                  <TouchableOpacity
+                    style={[
+                      styles.communityOption,
+                      postType === "feed" && styles.communityOptionActive,
+                    ]}
+                    onPress={() => {
+                      setPostType("feed");
+                      setSelComId(null);
+                      setShowPicker(false);
+                    }}
+                  >
+                    <View style={{
+                      width: 40, height: 40, borderRadius: 20, backgroundColor: colors.bg.base,
+                      alignItems: 'center', justifyContent: 'center', marginRight: spacing.md
+                    }}>
+                      <Ionicons
+                        name="globe-outline"
+                        size={20}
+                        color={
+                          postType === "feed"
+                            ? colors.primaryLight
+                            : colors.text.secondary
+                        }
+                      />
+                    </View>
+                    <View style={styles.communityInfo}>
+                      <Text
+                        style={[
+                          styles.communityName,
+                          postType === "feed" && { color: colors.primaryLight },
+                        ]}
+                      >
+                        Public (Feed)
+                      </Text>
+                      <Text style={styles.communityMeta}>
+                        Anyone on Taddle can see this
+                      </Text>
+                    </View>
+                    {postType === "feed" && (
+                      <Ionicons
+                        name="checkmark-circle"
+                        size={20}
+                        color={colors.primaryLight}
+                      />
+                    )}
+                  </TouchableOpacity>
+
+                  <View style={{ height: 1, backgroundColor: colors.border, marginVertical: spacing.md }} />
+
+                  <Text style={[styles.sectionLabel, { marginBottom: spacing.sm }]}>
+                    Your Communities
+                  </Text>
+                  {joinedCommunities.length === 0 ? (
+                    <View style={styles.emptyComm}>
+                      <Text style={styles.emptyCommText}>
+                        You haven't joined any communities yet.
+                      </Text>
+                    </View>
+                  ) : (
+                    joinedCommunities.map((comm) => {
+                      const active =
+                        postType === "community" && selectedComId === comm.id;
+                      return (
+                        <TouchableOpacity
+                          key={comm.id}
+                          style={[
+                            styles.communityOption,
+                            active && styles.communityOptionActive,
+                          ]}
+                          onPress={() => {
+                            setPostType("community");
+                            setSelComId(comm.id);
+                            setShowPicker(false);
+                          }}
+                        >
+                          <Text style={styles.communityAvatar}>
+                            {comm.avatar}
+                          </Text>
+                          <View style={styles.communityInfo}>
+                            <Text
+                              style={[
+                                styles.communityName,
+                                active && { color: colors.primaryLight },
+                              ]}
+                            >
+                              {comm.name}
+                            </Text>
+                            <Text style={styles.communityMeta}>
+                              {comm.members.toLocaleString()} members ·{" "}
+                              {comm.category}
+                            </Text>
+                          </View>
+                          {active && (
+                            <Ionicons
+                              name="checkmark-circle"
+                              size={20}
+                              color={colors.primaryLight}
+                            />
+                          )}
+                        </TouchableOpacity>
+                      );
+                    })
+                  )}
+                  <View style={{ height: 40 }} />
+                </ScrollView>
+              </View>
+            </View>
+          </Modal>
         </ScrollView>
       </KeyboardAvoidingView>
 

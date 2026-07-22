@@ -28,17 +28,9 @@ import type { HomeStackParamList, Post } from "../../types";
 import { streakService } from "../../services/streak.service";
 import { notificationService } from "../../services/notification.service";
 import { xpService } from "../../services/xp.service";
+import { hashtagService } from "../../services/hashtag.service";
 
 type HomeNavProp = NativeStackNavigationProp<HomeStackParamList, "HomeMain">;
-
-const TREND_CHIPS = [
-  "All",
-  "#Hackathon",
-  "#GameTime",
-  "#CollegeFest",
-  "#DevLife",
-  "#StudyTips",
-];
 
 const WEEK_LABELS = ["M", "T", "W", "T", "F", "S", "S"];
 const TODAY_INDEX = new Date().getDay() === 0 ? 6 : new Date().getDay() - 1; // 0 is Monday, 6 is Sunday
@@ -55,6 +47,7 @@ export default function HomeScreen() {
   const { posts, toggleLike, toggleSave, fetchFeed } = usePosts();
 
   const [activeTrend, setActiveTrend] = useState("All");
+  const [trendChips, setTrendChips] = useState<string[]>(["All"]);
   const [refreshing, setRefreshing] = useState(false);
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [streakOpen, setStreakOpen] = useState(false);
@@ -124,6 +117,16 @@ export default function HomeScreen() {
       }
 
       fetchFeed(true);
+      
+      hashtagService.getHashtags().then((res) => {
+        if (res?.data) {
+          const tags = res.data
+            .filter((t: any) => typeof t === 'string' && t.trim().length > 0)
+            .map((t: string) => `#${t.toLowerCase()}`);
+          setTrendChips(["All", ...tags]);
+        }
+      }).catch(e => console.error("Failed to fetch hashtags for feed", e));
+      
     } catch (e) {
       console.error("Failed to init home data:", e);
     }
@@ -347,7 +350,7 @@ export default function HomeScreen() {
           showsHorizontalScrollIndicator={false}
           contentContainerStyle={styles.trendScroll}
         >
-          {TREND_CHIPS.map((chip) => (
+          {trendChips.map((chip) => (
             <TouchableOpacity
               key={chip}
               onPress={() => setActiveTrend(chip)}

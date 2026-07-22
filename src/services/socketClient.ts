@@ -1,8 +1,16 @@
 import { io, Socket } from 'socket.io-client';
 import * as SecureStore from 'expo-secure-store';
 import { Platform } from 'react-native';
+import Constants from 'expo-constants';
 
-const SOCKET_URL = Platform.OS === 'android' ? 'http://10.0.2.2:8080' : 'http://192.168.1.17:8080';
+const debuggerHost = Constants.expoConfig?.hostUri;
+const localhost = debuggerHost?.split(':')[0];
+const fallbackIp = Platform.OS === "android" ? "10.0.2.2" : "localhost";
+const currentIp = localhost || fallbackIp;
+
+const SOCKET_URL = process.env.EXPO_PUBLIC_BACKEND_URL 
+  ? process.env.EXPO_PUBLIC_BACKEND_URL 
+  : `http://${currentIp}:8080`;
 
 class SocketService {
   public socket: Socket | null = null;
@@ -18,6 +26,9 @@ class SocketService {
 
       this.socket = io(SOCKET_URL, {
         auth: { token },
+        extraHeaders: {
+          "ngrok-skip-browser-warning": "true"
+        }
       });
 
       this.socket.on('connect', () => {

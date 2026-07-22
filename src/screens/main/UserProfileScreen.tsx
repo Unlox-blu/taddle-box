@@ -238,7 +238,7 @@ export default function UserProfileScreen({ navigation, route }: Props) {
 
         <View style={styles.infoCard}>
           {[
-            { icon: 'school-outline',          label: 'College',     value: user.college },
+            { icon: 'school-outline',          label: 'Organization',     value: user.organization },
             { icon: 'people-outline',          label: 'Communities', value: '8 joined'  },
             { icon: 'game-controller-outline', label: 'Games',       value: '142 played'},
           ].map(item => (

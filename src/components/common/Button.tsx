@@ -65,7 +65,7 @@ export default function Button({
         isGhost && styles.ghost,
         fullWidth && styles.fullWidth,
         (disabled || loading) && styles.disabled,
-        style,
+        isGhost && style, // Only apply to inner if it's a ghost button
       ]}
     >
       {loading ? (
@@ -73,7 +73,7 @@ export default function Button({
       ) : (
         <Text style={[
           styles.label,
-          { fontSize: sz.fontSize, color: TEXT_COLORS[variant] },
+          { fontSize: sz.fontSize, color: TEXT_COLORS[variant], textAlign: 'center' },
           variant === 'xp' && styles.xpLabel,
           textStyle,
         ]}>
@@ -95,6 +95,7 @@ export default function Button({
         { borderRadius: sz.radius },
         fullWidth && styles.fullWidth,
         (disabled || loading) && styles.disabled,
+        style,
       ]}
     >
       {inner}

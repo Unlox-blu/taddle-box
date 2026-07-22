@@ -53,7 +53,7 @@ export interface User {
   following: number;
   posts: number;
   bio: string;
-  college: string;
+  organization: string;
   badges: Badge[];
 }
 

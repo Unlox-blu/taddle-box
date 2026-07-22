@@ -1,5 +1,6 @@
 import React, { useMemo, useRef } from 'react';
-import { View, Text, TouchableOpacity, StyleSheet, Animated, Image, Dimensions } from 'react-native';
+import { View, Text, TouchableOpacity, StyleSheet, Animated, Image, Dimensions, ScrollView } from 'react-native';
+import { Video, ResizeMode } from 'expo-av';
 import { Ionicons } from '@expo/vector-icons';
 import { radii, fontSizes, spacing, type ColorPalette } from '../../theme';
 import { useThemeColors } from '../../context/ThemeContext';
@@ -80,6 +81,12 @@ function makeStyles(c: ColorPalette) {
       paddingHorizontal: spacing.md,
       paddingBottom: spacing.md,
     },
+    title: {
+      fontSize: fontSizes.lg,
+      fontWeight: '700',
+      color: c.text.primary,
+      marginBottom: 6,
+    },
     content: {
       fontSize: fontSizes.md,
       color: c.text.primary,
@@ -131,7 +138,7 @@ export default function PostCard({ post, onLike, onSave, onComment, onShare, onA
           <View style={styles.meta}>
             <Text style={styles.author}>{post.author.name}</Text>
             <Text style={styles.sub}>
-              in <Text style={styles.community}>{post.community}</Text>
+              in <Text style={styles.community}>{typeof post.community === 'object' ? post.community?.name : post.community}</Text>
               {' · '}{post.createdAt}
             </Text>
           </View>
@@ -141,9 +148,45 @@ export default function PostCard({ post, onLike, onSave, onComment, onShare, onA
         </View>
       </View>
 
-      {/* Real media (from device picker) */}
-      {post.mediaUri ? (
-        <MediaBanner uri={post.mediaUri} ratio={post.mediaAspectRatio ?? '1:1'} />
+      {/* Multi-Media Banner */}
+      {((post as any).media && (post as any).media.length > 0) ? (
+        <ScrollView horizontal pagingEnabled showsHorizontalScrollIndicator={false} snapToInterval={CARD_W} decelerationRate="fast">
+          {((post as any).media).map((m: any, idx: number) => {
+            const url = m.cloudfront_url || m.url || m.uri;
+            const isAudio = m.media_type === 'audio' || m.type === 'audio';
+            const isVideo = m.media_type === 'video' || m.type === 'video';
+            const hasAudioTrack = ((post as any).media).some((i: any) => i.media_type === 'audio' || i.type === 'audio');
+            
+            if (isAudio) {
+              return (
+                <View key={idx} style={[styles.imageBanner, { width: CARD_W, height: CARD_W }]}>
+                  <Ionicons name="musical-notes" size={48} color={colors.primaryLight} />
+                  <Text style={{color: '#fff', marginTop: 10}}>Audio File</Text>
+                  <Video source={{ uri: url }} shouldPlay isLooping={false} style={{ width: 0, height: 0 }} />
+                </View>
+              );
+            }
+            if (isVideo) {
+              return (
+                <View key={idx} style={{ width: CARD_W, height: CARD_W, backgroundColor: '#000' }}>
+                  <Video 
+                    source={{ uri: url }} 
+                    style={{ width: CARD_W, height: CARD_W }} 
+                    resizeMode={ResizeMode.COVER} 
+                    shouldPlay 
+                    isLooping 
+                    isMuted={hasAudioTrack} 
+                  />
+                </View>
+              );
+            }
+            return url ? (
+              <Image key={idx} source={{ uri: url }} style={{ width: CARD_W, height: CARD_W }} resizeMode="cover" />
+            ) : null;
+          })}
+        </ScrollView>
+      ) : post.mediaUri ? (
+        <Image source={{ uri: post.mediaUri }} style={{ width: CARD_W, height: CARD_W }} resizeMode="cover" />
       ) : post.type === 'image' && post.image ? (
         <View style={styles.imageBanner}>
           <Text style={styles.imageBannerEmoji}>{post.image}</Text>
@@ -155,9 +198,16 @@ export default function PostCard({ post, onLike, onSave, onComment, onShare, onA
 
       {/* Body */}
       <View style={styles.body}>
-        <Text style={styles.content}>{post.content}</Text>
+        {!!(post as any).title && <Text style={styles.title}>{(post as any).title}</Text>}
+        <Text style={styles.content}>
+          {(post.content || '').split(/(@\w+)/g).map((part: string, i: number) =>
+            part.startsWith('@') ? (
+              <Text key={i} style={{ color: colors.primaryLight, fontWeight: '700' }}>{part}</Text>
+            ) : part
+          )}
+        </Text>
         <View style={styles.tags}>
-          {post.hashtags.map(tag => (
+          {(post.hashtags || []).map(tag => (
             <Text key={tag} style={styles.tag}>{tag}</Text>
           ))}
         </View>
@@ -174,13 +224,13 @@ export default function PostCard({ post, onLike, onSave, onComment, onShare, onA
             />
           </Animated.View>
           <Text style={[styles.actionText, post.isLiked && { color: colors.pink }]}>
-            {post.likes.toLocaleString()}
+            {(post.likes ?? (post as any).likesCount ?? 0).toLocaleString()}
           </Text>
         </TouchableOpacity>
 
         <TouchableOpacity style={styles.action} onPress={() => onComment?.(post)}>
           <Ionicons name="chatbubble-outline" size={18} color={colors.text.muted} />
-          <Text style={styles.actionText}>{post.comments}</Text>
+          <Text style={styles.actionText}>{(post.comments ?? (post as any).commentsCount ?? 0).toLocaleString()}</Text>
         </TouchableOpacity>
 
         <TouchableOpacity style={styles.action} onPress={() => onShare?.(post)}>
@@ -202,13 +252,3 @@ export default function PostCard({ post, onLike, onSave, onComment, onShare, onA
   );
 }
 
-function MediaBanner({ uri, ratio }: { uri: string; ratio: '1:1' | '16:9' }) {
-  const height = ratio === '1:1' ? CARD_W : Math.round((CARD_W * 9) / 16);
-  return (
-    <Image
-      source={{ uri }}
-      style={{ width: CARD_W, height }}
-      resizeMode="cover"
-    />
-  );
-}

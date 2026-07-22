@@ -1,79 +1,22 @@
 import React, { useRef, useState, useEffect, useCallback } from 'react';
 import {
   View, Text, FlatList, TouchableOpacity,
-  StyleSheet, Dimensions, ListRenderItem,
+  StyleSheet, Dimensions, ListRenderItem, ActivityIndicator
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
+import { useNavigation } from '@react-navigation/native';
 import { fontSizes, spacing, radii, type ColorPalette } from '../../theme';
 import { useThemeColors } from '../../context/ThemeContext';
+import { highlightService, Highlight } from '../../services/highlight.service';
 
 const { width: SW } = Dimensions.get('window');
 const CARD_W  = SW - spacing.lg * 2;
 const CARD_H  = 168;
 const ITEM_W  = CARD_W + spacing.md;
 
-type SpotlightItem = {
-  id:       string;
-  title:    string;
-  subtitle: string;
-  meta:     string;
-  tag:      string;
-  tagColor: string;
-  emoji:    string;
-  gradient: [string, string];
-};
-
-const SPOTLIGHTS: SpotlightItem[] = [
-  {
-    id: 'sp1', emoji: '⚡',
-    title:    'HackFest 2026',
-    subtitle: "India's Biggest College Hackathon",
-    meta:     'Jun 20–22 · Online & Offline · 48h',
-    tag:      'Registrations Open',
-    tagColor: '#10B981',
-    gradient: ['#1E1B4B', '#4C1D95'],
-  },
-  {
-    id: 'sp2', emoji: '🌐',
-    title:    'Web3 Dev Webinar',
-    subtitle: 'Building DApps from Scratch',
-    meta:     'Today · 6:00 PM IST · Free',
-    tag:      '🔴 Live Today',
-    tagColor: '#EF4444',
-    gradient: ['#1C0B2E', '#5B21B6'],
-  },
-  {
-    id: 'sp3', emoji: '🎭',
-    title:    'Cultural Fest – Mela 26',
-    subtitle: 'Music, Dance & Gaming Contests',
-    meta:     'Jul 5 · Campus + Online',
-    tag:      '🎟 This Weekend',
-    tagColor: '#F59E0B',
-    gradient: ['#1A1200', '#78350F'],
-  },
-  {
-    id: 'sp4', emoji: '📚',
-    title:    'DSA Bootcamp',
-    subtitle: 'Crack Placements in 30 Days',
-    meta:     'Starts Jun 15 · Free · 200+ enrolled',
-    tag:      'Free Entry',
-    tagColor: '#06B6D4',
-    gradient: ['#0C1A2E', '#0E4C6A'],
-  },
-  {
-    id: 'sp5', emoji: '🚀',
-    title:    'Startup Pitch Contest',
-    subtitle: 'Win ₹1,00,000 in Prize Money',
-    meta:     'Jun 25 · IIT Delhi · Apply by Jun 18',
-    tag:      'Apply Now',
-    tagColor: '#EC4899',
-    gradient: ['#1A001A', '#6D1278'],
-  },
-];
-
 function makeStyles(c: ColorPalette) {
   return StyleSheet.create({
-    container:    { marginBottom: spacing.md },
+    container:    { marginBottom: spacing.md, minHeight: CARD_H + 40 },
     sectionLabel: {
       fontSize: fontSizes.xs, fontWeight: '700',
       color: c.text.muted, letterSpacing: 0.5,
@@ -114,47 +57,108 @@ function makeStyles(c: ColorPalette) {
 }
 
 export default function SpotlightCarousel() {
+  const navigation = useNavigation<any>();
   const colors = useThemeColors();
   const styles = React.useMemo(() => makeStyles(colors), [colors]);
 
+  const [spotlights, setSpotlights] = useState<Highlight[]>([]);
+  const [loading, setLoading] = useState(true);
   const [activeIdx, setActiveIdx] = useState(0);
-  const flatRef   = useRef<FlatList<SpotlightItem>>(null);
+  const flatRef   = useRef<FlatList<Highlight>>(null);
   const timerRef  = useRef<ReturnType<typeof setInterval> | null>(null);
   const activeRef = useRef(0);
 
+  useEffect(() => {
+    fetchHighlights();
+  }, []);
+
+  const fetchHighlights = async () => {
+    try {
+      setLoading(true);
+      const res = await highlightService.getHighlights();
+      setSpotlights(res.data || []);
+    } catch (e) {
+      console.error('Failed to fetch highlights', e);
+    } finally {
+      setLoading(false);
+    }
+  };
+
   const startTimer = useCallback(() => {
     if (timerRef.current) clearInterval(timerRef.current);
+    if (spotlights.length === 0) return;
+    
     timerRef.current = setInterval(() => {
-      const next = (activeRef.current + 1) % SPOTLIGHTS.length;
+      const next = (activeRef.current + 1) % spotlights.length;
       activeRef.current = next;
       setActiveIdx(next);
       flatRef.current?.scrollToIndex({ index: next, animated: true });
     }, 3600);
-  }, []);
+  }, [spotlights.length]);
 
   useEffect(() => {
-    startTimer();
+    if (spotlights.length > 0) {
+      startTimer();
+    }
     return () => { if (timerRef.current) clearInterval(timerRef.current); };
-  }, [startTimer]);
+  }, [startTimer, spotlights]);
 
-  const renderItem: ListRenderItem<SpotlightItem> = ({ item }) => (
-    <TouchableOpacity activeOpacity={0.88} style={{ width: CARD_W }}>
-      <LinearGradient
-        colors={item.gradient}
-        style={styles.card}
-        start={{ x: 0, y: 0 }}
-        end={{ x: 1, y: 1 }}
+  if (loading) {
+    return (
+      <View style={[styles.container, { justifyContent: 'center', alignItems: 'center' }]}>
+        <ActivityIndicator size="small" color={colors.primary} />
+      </View>
+    );
+  }
+
+  if (spotlights.length === 0) return null;
+
+  const renderItem: ListRenderItem<Highlight> = ({ item, index }) => {
+    const fallbacks = [
+      { emoji: '⚡', tag: 'Featured', tagColor: '#10B981', gradient: ['#1E1B4B', '#4C1D95'] },
+      { emoji: '🌐', tag: 'Live', tagColor: '#EF4444', gradient: ['#1C0B2E', '#5B21B6'] },
+      { emoji: '🎭', tag: 'Event', tagColor: '#F59E0B', gradient: ['#1A1200', '#78350F'] },
+      { emoji: '📚', tag: 'Study', tagColor: '#06B6D4', gradient: ['#0C1A2E', '#0E4C6A'] },
+      { emoji: '🚀', tag: 'Contest', tagColor: '#EC4899', gradient: ['#1A001A', '#6D1278'] },
+    ];
+    const style = fallbacks[index % fallbacks.length];
+    
+    const handlePress = (item: Highlight) => {
+      if (!item.type) return;
+      if (item.type === 'game') {
+        navigation.navigate('Games');
+      } else if (item.type === 'event') {
+        navigation.navigate('Events');
+      } else if (item.type === 'post') {
+        // If there's a specific post, it would be ideal to go to Comments/Details,
+        // but since we only have sourceId, navigating to Community tab is a good fallback
+        navigation.navigate('Community');
+      }
+    };
+
+    return (
+      <TouchableOpacity 
+        activeOpacity={0.88} 
+        style={{ width: CARD_W }}
+        onPress={() => handlePress(item)}
       >
-        <View style={[styles.tag, { borderColor: `${item.tagColor}55`, backgroundColor: `${item.tagColor}1A` }]}>
-          <Text style={[styles.tagText, { color: item.tagColor }]}>{item.tag}</Text>
-        </View>
-        <Text style={styles.emoji}>{item.emoji}</Text>
-        <Text style={styles.cardTitle}>{item.title}</Text>
-        <Text style={styles.cardSubtitle}>{item.subtitle}</Text>
-        <Text style={styles.cardMeta}>{item.meta}</Text>
-      </LinearGradient>
-    </TouchableOpacity>
-  );
+        <LinearGradient
+          colors={(item.gradient || style.gradient) as [string, string]}
+          style={styles.card}
+          start={{ x: 0, y: 0 }}
+          end={{ x: 1, y: 1 }}
+        >
+          <View style={[styles.tag, { borderColor: `${item.tagColor || style.tagColor}55`, backgroundColor: `${item.tagColor || style.tagColor}1A` }]}>
+            <Text style={[styles.tagText, { color: item.tagColor || style.tagColor }]}>{item.tag || style.tag}</Text>
+          </View>
+          <Text style={styles.emoji}>{item.emoji || style.emoji}</Text>
+          <Text style={styles.cardTitle}>{item.title}</Text>
+          <Text style={styles.cardSubtitle}>{(item as any).subtitle || (item as any).description}</Text>
+          <Text style={styles.cardMeta}>{item.meta || new Date((item as any).createdAt || Date.now()).toLocaleDateString()}</Text>
+        </LinearGradient>
+      </TouchableOpacity>
+    );
+  };
 
   return (
     <View style={styles.container}>
@@ -162,9 +166,9 @@ export default function SpotlightCarousel() {
 
       <FlatList
         ref={flatRef}
-        data={SPOTLIGHTS}
+        data={spotlights}
         renderItem={renderItem}
-        keyExtractor={i => i.id}
+        keyExtractor={i => i.id.toString()}
         horizontal
         pagingEnabled={false}
         snapToInterval={ITEM_W}
@@ -174,7 +178,7 @@ export default function SpotlightCarousel() {
         getItemLayout={(_, idx) => ({ length: ITEM_W, offset: ITEM_W * idx, index: idx })}
         onMomentumScrollEnd={e => {
           const idx = Math.round(e.nativeEvent.contentOffset.x / ITEM_W);
-          const clamped = Math.max(0, Math.min(idx, SPOTLIGHTS.length - 1));
+          const clamped = Math.max(0, Math.min(idx, spotlights.length - 1));
           activeRef.current = clamped;
           setActiveIdx(clamped);
           startTimer();
@@ -182,7 +186,7 @@ export default function SpotlightCarousel() {
       />
 
       <View style={styles.dots}>
-        {SPOTLIGHTS.map((_, i) => (
+        {spotlights.map((_, i) => (
           <View
             key={i}
             style={[styles.dot, i === activeIdx && styles.dotActive]}

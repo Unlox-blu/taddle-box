@@ -16,7 +16,7 @@ import { fontSizes, spacing, radii, type ColorPalette } from "../../theme";
 import { useWallet } from "../../context/WalletContext";
 import { useTheme, useThemeColors } from "../../context/ThemeContext";
 import { useAuth } from "../../context/AuthContext";
-// removed mockData import
+import { authService } from "../../services/auth.service";
 import type { HomeStackParamList } from "../../types";
 
 type NavProp = NativeStackNavigationProp<HomeStackParamList, "Settings">;
@@ -45,13 +45,29 @@ export default function SettingsScreen() {
   };
 
   const handleDeleteAccount = () => {
-    Alert.alert(
+    Alert.prompt(
       "Delete Account",
-      "This action is permanent and cannot be undone. All your data, posts, and XP will be lost.",
+      "This action is permanent and cannot be undone. Type 'DELETE' to confirm.",
       [
         { text: "Cancel", style: "cancel" },
-        { text: "Delete", style: "destructive", onPress: () => {} },
+        { 
+          text: "Delete", 
+          style: "destructive", 
+          onPress: async (text) => {
+            if (text !== 'DELETE') {
+              Alert.alert('Error', 'You must type DELETE to confirm.');
+              return;
+            }
+            try {
+              await authService.deleteAccount();
+              await signOut();
+            } catch (e: any) {
+              Alert.alert('Error', e.message || 'Failed to delete account');
+            }
+          }
+        },
       ],
+      "plain-text"
     );
   };
 

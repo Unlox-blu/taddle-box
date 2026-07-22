@@ -1,7 +1,7 @@
 import React, { useMemo, useState } from 'react';
 import {
   View, Text, ScrollView, TouchableOpacity,
-  StyleSheet, Dimensions,
+  StyleSheet, Dimensions, Image,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
@@ -51,6 +51,11 @@ function makeStyles(c: ColorPalette) {
       width: 80, height: 80, borderRadius: 40,
       alignItems: 'center', justifyContent: 'center',
       borderWidth: 3, borderColor: c.bg.base,
+      overflow: 'hidden',
+    },
+    avatarImage: {
+      width: '100%',
+      height: '100%',
     },
     avatarEmoji: { fontSize: 36 },
     levelBadge: {
@@ -176,7 +181,11 @@ export default function ProfileScreen() {
           <View style={styles.profileHero}>
             <View style={styles.avatarWrap}>
               <LinearGradient colors={[colors.primary, colors.cyanDark]} style={styles.avatar}>
-                <Text style={styles.avatarEmoji}>{user?.avatarUrl ? null : '👾'}</Text>
+                {user?.avatarUrl ? (
+                  <Image source={{ uri: user.avatarUrl }} style={styles.avatarImage} />
+                ) : (
+                  <Text style={styles.avatarEmoji}>👾</Text>
+                )}
               </LinearGradient>
               <LinearGradient colors={[colors.xpGold, colors.xpOrange]} style={styles.levelBadge}>
                 <Text style={styles.levelBadgeText}>{user?.level || 1}</Text>
@@ -249,7 +258,7 @@ export default function ProfileScreen() {
           {[
             { icon: 'people-outline',          label: 'Communities', value: '8 joined'   },
             { icon: 'game-controller-outline',  label: 'Games',       value: '142 played' },
-            { icon: 'school-outline',           label: 'College',     value: user.college },
+            { icon: 'school-outline',           label: 'Organization',     value: user.organization },
           ].map(s => (
             <View key={s.label} style={styles.commStatItem}>
               <Ionicons name={s.icon as any} size={16} color={colors.primaryLight} />

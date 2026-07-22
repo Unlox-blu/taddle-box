@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import {
   View,
   Text,
@@ -7,6 +7,7 @@ import {
   ScrollView,
   KeyboardAvoidingView,
   Platform,
+  Alert,
 } from "react-native";
 import { LinearGradient } from "expo-linear-gradient";
 import { NativeStackScreenProps } from "@react-navigation/native-stack";
@@ -18,6 +19,17 @@ import Input from "../../components/common/Input";
 import type { AuthStackParamList } from "../../types";
 import { useAuth } from "../../context/AuthContext";
 import { authService } from "../../services/auth.service";
+import * as WebBrowser from 'expo-web-browser';
+import * as Google from 'expo-auth-session/providers/google';
+import * as AppleAuthentication from 'expo-apple-authentication';
+import * as AuthSession from 'expo-auth-session';
+import * as Linking from 'expo-linking';
+
+WebBrowser.maybeCompleteAuthSession();
+
+import Constants from 'expo-constants';
+
+
 
 type Props = NativeStackScreenProps<AuthStackParamList, "Login">;
 
@@ -27,6 +39,11 @@ export default function LoginScreen({ navigation }: Props) {
   const [password, setPassword] = useState("");
   const [loading, setLoading] = useState(false);
   const [errors, setErrors] = useState<Record<string, string>>({});
+  const [appleAuthAvailable, setAppleAuthAvailable] = useState(false);
+
+  useEffect(() => {
+    AppleAuthentication.isAvailableAsync().then(setAppleAuthAvailable);
+  }, []);
 
   const validate = () => {
     const e: Record<string, string> = {};
@@ -55,15 +72,157 @@ export default function LoginScreen({ navigation }: Props) {
         res.data?.refreshToken;
       await signIn(accessToken, refreshToken);
     } catch (e: any) {
-      setErrors({ email: e.response?.data?.message || "Login failed" });
+      alert(e instanceof Error ? e.message : "Login failed");
     } finally {
       setLoading(false);
+    }
+  };
+
+  const webId = process.env.EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID;
+  const androidId = process.env.EXPO_PUBLIC_GOOGLE_ANDROID_CLIENT_ID;
+  const iosId = process.env.EXPO_PUBLIC_GOOGLE_IOS_CLIENT_ID;
+  const hasGoogleConfig = !!webId || !!iosId || !!androidId;
+
+  const handleGoogleLogin = async () => {
+    if (!hasGoogleConfig || !webId) {
+      Alert.alert(
+        "Service Unavailable",
+        "Google Sign-In is currently unavailable on this platform."
+      );
+      return;
+    }
+
+    try {
+      const webUrl = process.env.EXPO_PUBLIC_BACKEND_URL || 'https://taddlebox.com';
+      const redirectUri = `${webUrl}/api/v1/auth/google/callback`;
+      const returnUrl = Linking.createURL('google-auth');
+      const state = encodeURIComponent(JSON.stringify({ returnUrl }));
+      const nonce = Math.random().toString(36).substring(2);
+      
+      const authUrl = `https://accounts.google.com/o/oauth2/v2/auth?client_id=${webId}&redirect_uri=${encodeURIComponent(redirectUri)}&response_type=id_token&response_mode=form_post&scope=openid%20profile%20email&state=${state}&nonce=${nonce}`;
+
+      const result = await WebBrowser.openAuthSessionAsync(authUrl, returnUrl);
+
+      if (result.type === 'success' && result.url) {
+        const urlParams = Linking.parse(result.url);
+        const { action, socialToken, data, accessToken, refreshToken, error } = urlParams.queryParams || {};
+        
+        if (error) {
+          Alert.alert("Google Sign-In Error", decodeURIComponent(error as string));
+          return;
+        }
+
+        if (action === 'REGISTER_SOCIAL' && socialToken && data) {
+           const socialData = JSON.parse(decodeURIComponent(data as string));
+           // @ts-ignore
+           navigation.navigate('Register', { socialToken: socialToken as string, socialData });
+           return;
+        }
+        
+        if (accessToken && refreshToken) {
+          await signIn(accessToken as string, refreshToken as string);
+        } else {
+          Alert.alert("Error", "Authentication failed. Tokens not received.");
+        }
+      }
+    } catch (error: any) {
+      if (error.code !== 'ERR_REQUEST_CANCELED') {
+        Alert.alert("Error", error.message);
+      }
+    }
+  };
+
+  const handleAppleLogin = async () => {
+    if (appleAuthAvailable) {
+      try {
+        const credential = await AppleAuthentication.signInAsync({
+          requestedScopes: [
+            AppleAuthentication.AppleAuthenticationScope.FULL_NAME,
+            AppleAuthentication.AppleAuthenticationScope.EMAIL,
+          ],
+        });
+
+        const fullName = credential.fullName?.givenName
+          ? `${credential.fullName.givenName} ${credential.fullName.familyName || ""}`.trim()
+          : undefined;
+
+        if (credential.identityToken) {
+          setLoading(true);
+          try {
+            const res = await authService.appleLogin(credential.identityToken, fullName);
+            const resultData = res.data || res;
+
+            if (resultData.action === 'REGISTER_SOCIAL') {
+               // @ts-ignore
+               navigation.navigate('Register', { socialToken: resultData.socialToken, socialData: resultData.data });
+               return;
+            }
+
+            const accessToken = resultData.sessionData?.accessToken || resultData.accessToken;
+            const refreshToken = resultData.sessionData?.refreshToken || resultData.refreshToken;
+            if (!accessToken) throw new Error("Could not extract access token");
+            await signIn(accessToken, refreshToken);
+          } catch (e: any) {
+            alert(e instanceof Error ? e.message : "Apple Login failed on backend");
+          } finally {
+            setLoading(false);
+          }
+        }
+      } catch (e: any) {
+        if (e.code !== 'ERR_REQUEST_CANCELED') {
+          Alert.alert("Apple Sign-In Error", e.message);
+        }
+      }
+    } else {
+      const appleServiceId = process.env.EXPO_PUBLIC_APPLE_SERVICE_ID;
+      const webUrl = process.env.EXPO_PUBLIC_BACKEND_URL || 'https://taddlebox.com';
+      
+      if (!appleServiceId) {
+        Alert.alert("Service Unavailable", "Apple Sign-In is currently unavailable on this platform.");
+        return;
+      }
+      
+      try {
+        const redirectUri = `${webUrl}/auth/apple/callback`;
+        const returnUrl = Linking.createURL('apple-auth');
+        const state = encodeURIComponent(JSON.stringify({ returnUrl }));
+        
+        const authUrl = `https://appleid.apple.com/auth/authorize?client_id=${appleServiceId}&redirect_uri=${encodeURIComponent(redirectUri)}&response_type=code%20id_token&response_mode=form_post&scope=name%20email&state=${state}`;
+        
+        const result = await WebBrowser.openAuthSessionAsync(authUrl, returnUrl);
+        
+        if (result.type === 'success' && result.url) {
+          const urlParams = Linking.parse(result.url);
+          const { action, socialToken, data, accessToken, refreshToken, error } = urlParams.queryParams || {};
+          
+          if (error) {
+            Alert.alert("Apple Sign-In Error", decodeURIComponent(error as string));
+            return;
+          }
+
+          if (action === 'REGISTER_SOCIAL' && socialToken && data) {
+             const socialData = JSON.parse(decodeURIComponent(data as string));
+             // @ts-ignore
+             navigation.navigate('Register', { socialToken: socialToken as string, socialData });
+             return;
+          }
+          
+          if (accessToken && refreshToken) {
+            await signIn(accessToken as string, refreshToken as string);
+          } else {
+            Alert.alert("Error", "Authentication failed. Tokens not received.");
+          }
+        }
+      } catch (error: any) {
+        Alert.alert("Error", error.message);
+      }
     }
   };
 
   return (
     <LinearGradient colors={["#070714", "#0E0E24"]} style={styles.container}>
       <StatusBar style="light" />
+
 
       <KeyboardAvoidingView
         behavior={Platform.OS === "ios" ? "padding" : undefined}
@@ -140,11 +299,11 @@ export default function LoginScreen({ navigation }: Props) {
 
           {/* Social */}
           <View style={styles.socialRow}>
-            <TouchableOpacity style={styles.socialBtn}>
-              <Text style={styles.socialIcon}>G</Text>
+            <TouchableOpacity style={styles.socialBtn} onPress={handleGoogleLogin}>
+              <Ionicons name="logo-google" size={18} color={colors.text.primary} />
               <Text style={styles.socialLabel}>Google</Text>
             </TouchableOpacity>
-            <TouchableOpacity style={styles.socialBtn}>
+            <TouchableOpacity style={styles.socialBtn} onPress={handleAppleLogin}>
               <Ionicons
                 name="logo-apple"
                 size={18}

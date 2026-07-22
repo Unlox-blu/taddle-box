@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import {
   View, TextInput, Text, TouchableOpacity,
-  StyleSheet, ViewStyle, TextInputProps,
+  StyleSheet, ViewStyle, TextInputProps, ActivityIndicator
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { colors, radii, fontSizes, spacing } from '../../theme';
@@ -13,11 +13,12 @@ interface InputProps extends TextInputProps {
   rightIcon?: keyof typeof Ionicons.glyphMap;
   onRightIconPress?: () => void;
   containerStyle?: ViewStyle;
+  onPress?: () => void;
 }
 
 export default function Input({
   label, icon, error, rightIcon, onRightIconPress,
-  containerStyle, secureTextEntry, ...rest
+  containerStyle, secureTextEntry, onPress, ...rest
 }: InputProps) {
   const [focused, setFocused] = useState(false);
   const [secure, setSecure] = useState(secureTextEntry ?? false);
@@ -32,22 +33,45 @@ export default function Input({
         focused && styles.containerFocused,
         !!error && styles.containerError,
       ]}>
-        {icon && (
-          <Ionicons
-            name={icon}
-            size={18}
-            color={focused ? colors.primaryLight : colors.text.muted}
-            style={styles.leftIcon}
-          />
+        {onPress ? (
+          <TouchableOpacity style={{ flex: 1, flexDirection: 'row', alignItems: 'center' }} onPress={onPress} activeOpacity={0.7}>
+            {icon && (
+              <Ionicons
+                name={icon}
+                size={18}
+                color={focused ? colors.primaryLight : colors.text.muted}
+                style={styles.leftIcon}
+              />
+            )}
+            <View pointerEvents="none" style={{ flex: 1 }}>
+              <TextInput
+                style={styles.input}
+                placeholderTextColor={colors.text.muted}
+                editable={false}
+                {...rest}
+              />
+            </View>
+          </TouchableOpacity>
+        ) : (
+          <>
+            {icon && (
+              <Ionicons
+                name={icon}
+                size={18}
+                color={focused ? colors.primaryLight : colors.text.muted}
+                style={styles.leftIcon}
+              />
+            )}
+            <TextInput
+              style={styles.input}
+              placeholderTextColor={colors.text.muted}
+              onFocus={() => setFocused(true)}
+              onBlur={() => setFocused(false)}
+              secureTextEntry={secure}
+              {...rest}
+            />
+          </>
         )}
-        <TextInput
-          style={styles.input}
-          placeholderTextColor={colors.text.muted}
-          onFocus={() => setFocused(true)}
-          onBlur={() => setFocused(false)}
-          secureTextEntry={secure}
-          {...rest}
-        />
         {isPassword && (
           <TouchableOpacity onPress={() => setSecure(v => !v)} style={styles.rightIconBtn}>
             <Ionicons
@@ -58,8 +82,12 @@ export default function Input({
           </TouchableOpacity>
         )}
         {rightIcon && !isPassword && (
-          <TouchableOpacity onPress={onRightIconPress} style={styles.rightIconBtn}>
-            <Ionicons name={rightIcon} size={18} color={colors.text.muted} />
+          <TouchableOpacity onPress={onRightIconPress} style={styles.rightIconBtn} disabled={rightIcon === 'sync'}>
+            {rightIcon === 'sync' ? (
+              <ActivityIndicator size="small" color={colors.primaryLight} />
+            ) : (
+              <Ionicons name={rightIcon} size={18} color={colors.text.muted} />
+            )}
           </TouchableOpacity>
         )}
       </View>

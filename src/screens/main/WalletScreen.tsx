@@ -3,6 +3,7 @@ import {
   View, Text, ScrollView, TouchableOpacity, StyleSheet,
   Modal, TextInput, KeyboardAvoidingView, Platform,
   Alert, Share, Switch, Animated,
+} from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { WebView } from 'react-native-webview';
 import { useNavigation } from '@react-navigation/native';

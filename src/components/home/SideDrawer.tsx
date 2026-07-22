@@ -1,54 +1,88 @@
-import React, { useEffect, useRef } from 'react';
+import React, { useEffect, useRef, useState } from "react";
 import {
-  View, Text, TouchableOpacity, TouchableWithoutFeedback,
-  Animated, StyleSheet, Dimensions, ScrollView, Modal,
-} from 'react-native';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { Ionicons } from '@expo/vector-icons';
-import { LinearGradient } from 'expo-linear-gradient';
-import { fontSizes, spacing, radii } from '../../theme';
-import { useThemeColors } from '../../context/ThemeContext';
-import { useAuth } from '../../context/AuthContext';
-// removed mockData import
+  View,
+  Text,
+  TouchableOpacity,
+  TouchableWithoutFeedback,
+  Animated,
+  StyleSheet,
+  Dimensions,
+  ScrollView,
+  Modal,
+  Image,
+} from "react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { Ionicons } from "@expo/vector-icons";
+import { LinearGradient } from "expo-linear-gradient";
+import { fontSizes, spacing, radii } from "../../theme";
+import { useThemeColors } from "../../context/ThemeContext";
+import { useAuth } from "../../context/AuthContext";
+import { xpService } from "../../services/xp.service";
 
-const { width: SW } = Dimensions.get('window');
-const DRAWER_W     = Math.min(Math.round(SW * 0.82), 320);
-const CLOSE_DELAY  = 280; // ms — wait for drawer to slide out before navigating
+const { width: SW } = Dimensions.get("window");
+const DRAWER_W = Math.min(Math.round(SW * 0.82), 320);
+const CLOSE_DELAY = 280; // ms — wait for drawer to slide out before navigating
 
 interface Props {
-  visible:          boolean;
-  onClose:          () => void;
-  onNavigateTab:    (tab: string) => void;
-  onNavigateStack:  (screen: string) => void;
-  onProfile:        () => void;
+  visible: boolean;
+  onClose: () => void;
+  onNavigateTab: (tab: string) => void;
+  onNavigateStack: (screen: string) => void;
+  onProfile: () => void;
 }
 
 type MenuRow = {
-  icon:    keyof typeof Ionicons.glyphMap;
-  label:   string;
-  badge?:  string;
+  icon: keyof typeof Ionicons.glyphMap;
+  label: string;
+  badge?: string;
   onPress: () => void;
   purple?: boolean;
 };
 
 export default function SideDrawer({
-  visible, onClose, onNavigateTab, onNavigateStack, onProfile,
+  visible,
+  onClose,
+  onNavigateTab,
+  onNavigateStack,
+  onProfile,
 }: Props) {
   const { user } = useAuth();
   const insets = useSafeAreaInsets();
   const colors = useThemeColors();
 
-  const slideX   = useRef(new Animated.Value(-DRAWER_W)).current;
+  const [localXP, setLocalXP] = useState(0);
+
+  const slideX = useRef(new Animated.Value(-DRAWER_W)).current;
   const backdrop = useRef(new Animated.Value(0)).current;
 
   useEffect(() => {
     const cfg = visible
-      ? { slide: 0,         back: 1, dur: 280 }
+      ? { slide: 0, back: 1, dur: 280 }
       : { slide: -DRAWER_W, back: 0, dur: 220 };
     Animated.parallel([
-      Animated.spring(slideX,   { toValue: cfg.slide, damping: 24, stiffness: 220, useNativeDriver: true }),
-      Animated.timing(backdrop, { toValue: cfg.back,  duration: cfg.dur,           useNativeDriver: true }),
+      Animated.spring(slideX, {
+        toValue: cfg.slide,
+        damping: 24,
+        stiffness: 220,
+        useNativeDriver: true,
+      }),
+      Animated.timing(backdrop, {
+        toValue: cfg.back,
+        duration: cfg.dur,
+        useNativeDriver: true,
+      }),
     ]).start();
+
+    if (visible) {
+      // Fetch dynamic XP when drawer opens
+      xpService.getXP()
+        .then(res => {
+          if (res?.data?.Xp !== undefined) {
+            setLocalXP(res.data.Xp);
+          }
+        })
+        .catch(err => console.error("Failed to fetch XP for drawer", err));
+    }
   }, [visible]);
 
   // Delay navigation until after the close animation finishes — prevents flicker
@@ -69,29 +103,43 @@ export default function SideDrawer({
 
   const mainMenu: MenuRow[] = [
     {
-      icon: 'wallet-outline', label: 'Wallet', purple: true,
-      onPress: () => closeAndNavigateTab('Wallet'),
+      icon: "wallet-outline",
+      label: "Wallet",
+      purple: true,
+      onPress: () => closeAndNavigateTab("Wallet"),
     },
     {
-      icon: 'bookmark-outline', label: 'Bookmarks', purple: true,
-      onPress: () => closeAndNavigateStack('Bookmarks'),
+      icon: "bookmark-outline",
+      label: "Bookmarks",
+      purple: true,
+      onPress: () => closeAndNavigateStack("Bookmarks"),
     },
   ];
 
   const moreMenu: MenuRow[] = [
     {
-      icon: 'shield-checkmark-outline', label: 'Privacy Policy',
-      onPress: () => { onClose(); },
+      icon: "shield-checkmark-outline",
+      label: "Privacy Policy",
+      onPress: () => {
+        onClose();
+      },
     },
     {
-      icon: 'document-text-outline', label: 'User Agreement',
-      onPress: () => { onClose(); },
+      icon: "document-text-outline",
+      label: "User Agreement",
+      onPress: () => {
+        onClose();
+      },
     },
     {
-      icon: 'settings-outline', label: 'Settings',
-      onPress: () => closeAndNavigateStack('Settings'),
+      icon: "settings-outline",
+      label: "Settings",
+      onPress: () => closeAndNavigateStack("Settings"),
     },
   ];
+
+  const level = Math.floor(localXP / 1000) + 1;
+  const rank = level < 5 ? "Beginner" : level < 15 ? "Intermediate" : "Pro";
 
   return (
     <Modal
@@ -117,54 +165,122 @@ export default function SideDrawer({
         ]}
       >
         <ScrollView showsVerticalScrollIndicator={false} bounces={false}>
-
           {/* ── Profile header ── */}
           <TouchableOpacity
             style={styles.profileRow}
             onPress={closeAndProfile}
             activeOpacity={0.75}
           >
-            <LinearGradient colors={['#4C1D95', '#7C3AED']} style={styles.avatar}>
-              <Text style={styles.avatarText}>{user?.avatarUrl ? null : '👾'}</Text>
+            <LinearGradient
+              colors={["#4C1D95", "#7C3AED"]}
+              style={styles.avatar}
+            >
+              {user?.avatarUrl ? (
+                <Image
+                  source={{ uri: user.avatarUrl }}
+                  style={styles.avatarImage}
+                />
+              ) : (
+                <Text style={styles.avatarText}>👾</Text>
+              )}
             </LinearGradient>
             <View style={styles.profileInfo}>
-              <Text style={[styles.profileName,    { color: colors.text.primary   }]}>{user?.name || 'Taddle User'}</Text>
-              <Text style={[styles.profileHandle,  { color: colors.primaryLight   }]}>@{user?.username || 'user'}</Text>
-              <Text style={[styles.profileCollege, { color: colors.text.muted     }]}>{user?.college || 'No college selected'}</Text>
+              <Text
+                style={[styles.profileName, { color: colors.text.primary }]}
+              >
+                {user?.name || "Taddle User"}
+              </Text>
+              <Text
+                style={[styles.profileHandle, { color: colors.primaryLight }]}
+              >
+                @{user?.username || "user"}
+              </Text>
+              <Text
+                style={[styles.profileCollege, { color: colors.text.muted }]}
+              >
+                {user?.organization || "No organization selected"}
+              </Text>
             </View>
-            <Ionicons name="chevron-forward" size={18} color={colors.text.muted} />
+            <Ionicons
+              name="chevron-forward"
+              size={18}
+              color={colors.text.muted}
+            />
           </TouchableOpacity>
 
           {/* Stats strip */}
-          <View style={[styles.statsStrip, { backgroundColor: colors.bg.card, borderColor: colors.border }]}>
-            <StatBox value={(user?.followerCount || 0).toLocaleString()} label="Followers" colors={colors} />
-            <View style={[styles.statDiv, { backgroundColor: colors.border }]} />
-            <StatBox value={(user?.followingCount || 0).toLocaleString()} label="Following" colors={colors} />
-            <View style={[styles.statDiv, { backgroundColor: colors.border }]} />
-            <StatBox value={`${user?.postCount || 0}`} label="Posts" colors={colors} />
+          <View
+            style={[
+              styles.statsStrip,
+              { backgroundColor: colors.bg.card, borderColor: colors.border },
+            ]}
+          >
+            <StatBox
+              value={(user?.followerCount || 0).toLocaleString()}
+              label="Followers"
+              colors={colors}
+            />
+            <View
+              style={[styles.statDiv, { backgroundColor: colors.border }]}
+            />
+            <StatBox
+              value={(user?.followingCount || 0).toLocaleString()}
+              label="Following"
+              colors={colors}
+            />
+            <View
+              style={[styles.statDiv, { backgroundColor: colors.border }]}
+            />
+            <StatBox
+              value={`${user?.postCount || 0}`}
+              label="Posts"
+              colors={colors}
+            />
           </View>
 
           {/* Rank / XP row */}
           <View style={styles.rankRow}>
-            <View style={[styles.rankBadge, { backgroundColor: 'rgba(124,58,237,0.18)', borderColor: 'rgba(124,58,237,0.35)' }]}>
-              <Text style={[styles.rankBadgeText, { color: colors.primaryLight }]}>⚡ {user?.rank || 'Beginner'}</Text>
+            <View
+              style={[
+                styles.rankBadge,
+                {
+                  backgroundColor: "rgba(124,58,237,0.18)",
+                  borderColor: "rgba(124,58,237,0.35)",
+                },
+              ]}
+            >
+              <Text
+                style={[styles.rankBadgeText, { color: colors.primaryLight }]}
+              >
+                ⚡ {rank}
+              </Text>
             </View>
-            <Text style={[styles.rankXP, { color: colors.text.muted }]}>Lv {user?.level || 1} · {(user?.xp || 0).toLocaleString()} XP</Text>
+            <Text style={[styles.rankXP, { color: colors.text.muted }]}>
+              Lv {level} · {localXP.toLocaleString()} XP
+            </Text>
           </View>
 
           <View style={[styles.divider, { backgroundColor: colors.border }]} />
 
-          {mainMenu.map(row => <DrawerRow key={row.label} colors={colors} {...row} />)}
+          {mainMenu.map((row) => (
+            <DrawerRow key={row.label} colors={colors} {...row} />
+          ))}
 
           <View style={[styles.divider, { backgroundColor: colors.border }]} />
 
-          {moreMenu.map(row => <DrawerRow key={row.label} colors={colors} {...row} />)}
+          {moreMenu.map((row) => (
+            <DrawerRow key={row.label} colors={colors} {...row} />
+          ))}
 
           <View style={[styles.divider, { backgroundColor: colors.border }]} />
 
           <View style={styles.footer}>
-            <Text style={[styles.footerApp,     { color: colors.text.muted }]}>TADDLEBOX</Text>
-            <Text style={[styles.footerVersion, { color: colors.text.muted }]}>v1.0.0 · Made for college students ❤️</Text>
+            <Text style={[styles.footerApp, { color: colors.text.muted }]}>
+              TADDLEBOX
+            </Text>
+            <Text style={[styles.footerVersion, { color: colors.text.muted }]}>
+              v1.0.0
+            </Text>
           </View>
 
           <View style={{ height: insets.bottom + 24 }} />
@@ -176,26 +292,62 @@ export default function SideDrawer({
 
 // ── sub-components ───────────────────────────────────────────────────────────
 
-function StatBox({ value, label, colors }: { value: string; label: string; colors: ReturnType<typeof useThemeColors> }) {
+function StatBox({
+  value,
+  label,
+  colors,
+}: {
+  value: string;
+  label: string;
+  colors: ReturnType<typeof useThemeColors>;
+}) {
   return (
     <View style={styles.statBox}>
-      <Text style={[styles.statVal,   { color: colors.text.primary }]}>{value}</Text>
-      <Text style={[styles.statLabel, { color: colors.text.muted   }]}>{label}</Text>
+      <Text style={[styles.statVal, { color: colors.text.primary }]}>
+        {value}
+      </Text>
+      <Text style={[styles.statLabel, { color: colors.text.muted }]}>
+        {label}
+      </Text>
     </View>
   );
 }
 
-function DrawerRow({ icon, label, badge, onPress, purple, colors }: MenuRow & { colors: ReturnType<typeof useThemeColors> }) {
+function DrawerRow({
+  icon,
+  label,
+  badge,
+  onPress,
+  purple,
+  colors,
+}: MenuRow & { colors: ReturnType<typeof useThemeColors> }) {
   return (
-    <TouchableOpacity style={styles.menuRow} onPress={onPress} activeOpacity={0.7}>
-      <View style={[
-        styles.menuIconWrap,
-        { backgroundColor: purple ? 'rgba(124,58,237,0.14)' : colors.bg.card },
-        purple && { borderWidth: 1, borderColor: 'rgba(124,58,237,0.25)' },
-      ]}>
-        <Ionicons name={icon} size={20} color={purple ? colors.primaryLight : colors.text.secondary} />
+    <TouchableOpacity
+      style={styles.menuRow}
+      onPress={onPress}
+      activeOpacity={0.7}
+    >
+      <View
+        style={[
+          styles.menuIconWrap,
+          {
+            backgroundColor: purple ? "rgba(124,58,237,0.14)" : colors.bg.card,
+          },
+          purple && { borderWidth: 1, borderColor: "rgba(124,58,237,0.25)" },
+        ]}
+      >
+        <Ionicons
+          name={icon}
+          size={20}
+          color={purple ? colors.primaryLight : colors.text.secondary}
+        />
       </View>
-      <Text style={[styles.menuLabel, { color: purple ? colors.text.primary : colors.text.secondary }]}>
+      <Text
+        style={[
+          styles.menuLabel,
+          { color: purple ? colors.text.primary : colors.text.secondary },
+        ]}
+      >
         {label}
       </Text>
       {badge !== undefined && (
@@ -203,7 +355,12 @@ function DrawerRow({ icon, label, badge, onPress, purple, colors }: MenuRow & { 
           <Text style={styles.badgeText}>{badge}</Text>
         </View>
       )}
-      <Ionicons name="chevron-forward" size={15} color={colors.text.muted} style={{ marginLeft: 'auto' }} />
+      <Ionicons
+        name="chevron-forward"
+        size={15}
+        color={colors.text.muted}
+        style={{ marginLeft: "auto" }}
+      />
     </TouchableOpacity>
   );
 }
@@ -211,58 +368,93 @@ function DrawerRow({ icon, label, badge, onPress, purple, colors }: MenuRow & { 
 // ── styles ───────────────────────────────────────────────────────────────────
 
 const styles = StyleSheet.create({
-  backdrop: { ...StyleSheet.absoluteFillObject, backgroundColor: 'rgba(0,0,0,0.65)' },
+  backdrop: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: "rgba(0,0,0,0.65)",
+  },
   panel: {
-    position: 'absolute', left: 0, top: 0, bottom: 0,
-    width: DRAWER_W, borderRightWidth: 1,
+    position: "absolute",
+    left: 0,
+    top: 0,
+    bottom: 0,
+    width: DRAWER_W,
+    borderRightWidth: 1,
   },
   profileRow: {
-    flexDirection: 'row', alignItems: 'center',
-    paddingHorizontal: spacing.lg, paddingTop: spacing.md, paddingBottom: spacing.md, gap: 12,
+    flexDirection: "row",
+    alignItems: "center",
+    paddingHorizontal: spacing.lg,
+    paddingTop: spacing.md,
+    paddingBottom: spacing.md,
+    gap: 12,
   },
   avatar: {
-    width: 58, height: 58, borderRadius: 29,
-    alignItems: 'center', justifyContent: 'center',
-    borderWidth: 2, borderColor: 'rgba(124,58,237,0.4)',
+    width: 60,
+    height: 60,
+    borderRadius: 30,
+    alignItems: "center",
+    justifyContent: "center",
+    overflow: "hidden",
   },
-  avatarText:    { fontSize: 28 },
-  profileInfo:   { flex: 1 },
-  profileName:   { fontSize: fontSizes.md, fontWeight: '800' },
+  avatarImage: {
+    width: "100%",
+    height: "100%",
+  },
+  avatarText: { fontSize: 30 },
+  profileInfo: { flex: 1 },
+  profileName: { fontSize: fontSizes.md, fontWeight: "800" },
   profileHandle: { fontSize: fontSizes.sm, marginTop: 2 },
-  profileCollege:{ fontSize: fontSizes.xs, marginTop: 2 },
+  profileCollege: { fontSize: fontSizes.xs, marginTop: 2 },
   statsStrip: {
-    flexDirection: 'row',
+    flexDirection: "row",
     marginHorizontal: spacing.lg,
-    borderRadius: radii.md, paddingVertical: spacing.sm,
+    borderRadius: radii.md,
+    paddingVertical: spacing.sm,
     borderWidth: 1,
   },
-  statBox:  { flex: 1, alignItems: 'center', paddingVertical: 4 },
-  statDiv:  { width: 1, marginVertical: 4 },
-  statVal:  { fontSize: fontSizes.md, fontWeight: '800' },
-  statLabel:{ fontSize: fontSizes.xs, marginTop: 2 },
+  statBox: { flex: 1, alignItems: "center", paddingVertical: 4 },
+  statDiv: { width: 1, marginVertical: 4 },
+  statVal: { fontSize: fontSizes.md, fontWeight: "800" },
+  statLabel: { fontSize: fontSizes.xs, marginTop: 2 },
   rankRow: {
-    flexDirection: 'row', alignItems: 'center',
-    paddingHorizontal: spacing.lg, paddingTop: spacing.sm, paddingBottom: spacing.md, gap: 10,
+    flexDirection: "row",
+    alignItems: "center",
+    paddingHorizontal: spacing.lg,
+    paddingTop: spacing.sm,
+    paddingBottom: spacing.md,
+    gap: 10,
   },
   rankBadge: {
-    borderRadius: radii.full, borderWidth: 1,
-    paddingVertical: 3, paddingHorizontal: 10,
+    borderRadius: radii.full,
+    borderWidth: 1,
+    paddingVertical: 3,
+    paddingHorizontal: 10,
   },
-  rankBadgeText: { fontSize: fontSizes.xs, fontWeight: '700' },
-  rankXP:        { fontSize: fontSizes.xs },
-  divider:       { height: 1, marginVertical: spacing.xs },
+  rankBadgeText: { fontSize: fontSizes.xs, fontWeight: "700" },
+  rankXP: { fontSize: fontSizes.xs },
+  divider: { height: 1, marginVertical: spacing.xs },
   menuRow: {
-    flexDirection: 'row', alignItems: 'center',
-    paddingHorizontal: spacing.lg, paddingVertical: 13, gap: 14,
+    flexDirection: "row",
+    alignItems: "center",
+    paddingHorizontal: spacing.lg,
+    paddingVertical: 13,
+    gap: 14,
   },
   menuIconWrap: {
-    width: 38, height: 38, borderRadius: radii.md,
-    alignItems: 'center', justifyContent: 'center',
+    width: 38,
+    height: 38,
+    borderRadius: radii.md,
+    alignItems: "center",
+    justifyContent: "center",
   },
-  menuLabel: { flex: 1, fontSize: fontSizes.md, fontWeight: '600' },
+  menuLabel: { flex: 1, fontSize: fontSizes.md, fontWeight: "600" },
   badge: { borderRadius: radii.full, paddingHorizontal: 8, paddingVertical: 2 },
-  badgeText: { fontSize: fontSizes.xs, color: '#fff', fontWeight: '700' },
-  footer:        { paddingHorizontal: spacing.lg, paddingTop: spacing.md, alignItems: 'center' },
-  footerApp:     { fontSize: fontSizes.sm, fontWeight: '800', letterSpacing: 1 },
+  badgeText: { fontSize: fontSizes.xs, color: "#fff", fontWeight: "700" },
+  footer: {
+    paddingHorizontal: spacing.lg,
+    paddingTop: spacing.md,
+    alignItems: "center",
+  },
+  footerApp: { fontSize: fontSizes.sm, fontWeight: "800", letterSpacing: 1 },
   footerVersion: { fontSize: fontSizes.xs, marginTop: 4 },
 });

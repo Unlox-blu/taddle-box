@@ -66,12 +66,7 @@ export default function SplashScreen({ navigation }: Props) {
         Play · Earn · Connect
       </Animated.Text>
 
-      {/* Dots loader */}
-      <View style={styles.loader}>
-        {[0, 1, 2].map(i => (
-          <Animated.View key={i} style={[styles.loaderDot, { opacity }]} />
-        ))}
-      </View>
+
     </LinearGradient>
   );
 }

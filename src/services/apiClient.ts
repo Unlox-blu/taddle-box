@@ -2,11 +2,18 @@ import axios from "axios";
 import * as SecureStore from "expo-secure-store";
 import { Platform } from "react-native";
 
-// Use actual local IP address for physical devices/simulator
-const API_URL =
-  Platform.OS === "android"
-    ? "http://10.0.2.2:8080/api/v1"
-    : "http://192.168.1.17:8080/api/v1";
+import Constants from "expo-constants";
+
+const debuggerHost = Constants.expoConfig?.hostUri;
+const localhost = debuggerHost?.split(':')[0];
+
+// Use dynamic IP for physical devices, fallback to Android emulator IP or localhost
+const fallbackIp = Platform.OS === "android" ? "10.0.2.2" : "localhost";
+const currentIp = localhost || fallbackIp;
+
+const API_URL = process.env.EXPO_PUBLIC_BACKEND_URL 
+  ? `${process.env.EXPO_PUBLIC_BACKEND_URL}/api/v1` 
+  : `http://${currentIp}:8080/api/v1`;
 
 export const apiClient = axios.create({
   baseURL: API_URL,

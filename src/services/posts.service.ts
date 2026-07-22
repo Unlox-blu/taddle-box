@@ -8,7 +8,7 @@ export const postsService = {
   },
 
   createPost: async (postData: any): Promise<{ data: Post }> => {
-    const response = await apiClient.post('/posts', postData);
+    const response = await apiClient.post('/posts/create-post', postData);
     return response.data;
   },
 

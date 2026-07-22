@@ -2,6 +2,10 @@
   "expo": {
     "name": "TADDLEBOX",
     "slug": "taddlebox",
+    "scheme": [
+      "taddlebox",
+      "com.googleusercontent.apps.457988255858-nqu9g22d1ud9lodha84jsfobvrr9ft40"
+    ],
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
@@ -22,6 +26,9 @@
       },
       "package": "com.taddlebox.app"
     },
-    "plugins": ["expo-font"]
+    "plugins": [
+      "expo-font",
+      "@react-native-community/datetimepicker"
+    ]
   }
 }

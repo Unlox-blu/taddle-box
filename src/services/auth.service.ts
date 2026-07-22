@@ -8,7 +8,7 @@ export const authService = {
     return response.data; // Expected to return tokens and user data
   },
   
-  sendOtp: async (data: { email: string; countryCode: string; phone: string }) => {
+  sendOtp: async (data: { email: string; countryCode: string; phone: string; socialToken?: string }) => {
     const response = await apiClient.post('/auth/send-otp', data);
     return response.data;
   },
@@ -32,6 +32,21 @@ export const authService = {
 
   logout: async () => {
     const response = await apiClient.post('/auth/logout');
+    return response.data;
+  },
+
+  appleLogin: async (identityToken: string, fullName?: string) => {
+    const response = await apiClient.post('/auth/apple', { identityToken, fullName });
+    return response.data;
+  },
+
+  deleteAccount: async () => {
+    const response = await apiClient.delete('/users/me');
+    return response.data;
+  },
+
+  checkUsername: async (username: string) => {
+    const response = await apiClient.post('/auth/username', { username });
     return response.data;
   },
 };

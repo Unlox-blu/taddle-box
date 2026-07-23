@@ -12,6 +12,8 @@ const validateRequest = ({ body, query, params }) => (req, _res, next) => {
   
   for (const [key, schema] of Object.entries(targets)) {
     if (!schema) continue; 
+    
+    if (key === 'body') console.log("VALIDATING BODY:", req[key]);
 
     const result = schema.safeParse(req[key]);
 
@@ -22,7 +24,7 @@ const validateRequest = ({ body, query, params }) => (req, _res, next) => {
         message: e.message,
       })});
 
-      const detailedMessage = errors.map(e => e.message).join(', ');
+      const detailedMessage = errors.map(e => `${e.field}: ${e.message}`).join(', ');
       const err = createError(detailedMessage, 400);
       err.errors = errors;
       return next(err);

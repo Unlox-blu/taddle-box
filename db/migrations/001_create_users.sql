@@ -18,11 +18,16 @@ CREATE TABLE IF NOT EXISTS users (
   theme                     VARCHAR(10) NOT NULL DEFAULT 'light'
                               CHECK (theme IN ('light', 'dark', 'system')),
   google_id                 VARCHAR(255) UNIQUE,
+  apple_id                  VARCHAR(255) UNIQUE,
+  apple_refresh_token       TEXT,
   avatar_url                UUID REFERENCES media(id) ON DELETE SET NULL,
   banner_url                UUID REFERENCES media(id) ON DELETE SET NULL,
   bio                       TEXT,
   location                  VARCHAR(255),
-  college                   VARCHAR(255),
+  latitude                  DECIMAL(9,6),
+  longitude                 DECIMAL(9,6),
+  occupation                VARCHAR(100),
+  organization              VARCHAR(255),
   interests                 JSONB,
   website_url               TEXT,
   role                      VARCHAR(20)  NOT NULL DEFAULT 'user'
@@ -30,6 +35,7 @@ CREATE TABLE IF NOT EXISTS users (
   flags                     INTEGER NOT NULL DEFAULT 0,  -- (email/phone/isVerified) 
   is_active                 BOOLEAN      NOT NULL DEFAULT TRUE,
   is_banned                 BOOLEAN      NOT NULL DEFAULT FALSE,
+  is_verified               BOOLEAN      NOT NULL DEFAULT FALSE,
   follower_count            INTEGER      NOT NULL DEFAULT 0 CHECK (follower_count  >= 0),
   following_count           INTEGER      NOT NULL DEFAULT 0 CHECK (following_count >= 0),
   post_count                INTEGER      NOT NULL DEFAULT 0 CHECK (post_count      >= 0),

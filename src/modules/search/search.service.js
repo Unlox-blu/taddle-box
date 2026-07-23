@@ -36,6 +36,14 @@ class SearchService {
       throw error;
     }
   }
+
+  async getHashtags(q = '') {
+    try {
+      return await this.searchRepo.getHashtags(q);
+    } catch (error) {
+      throw error;
+    }
+  }
 }
 
 module.exports = SearchService;

@@ -13,6 +13,7 @@ const { authRateLimiter, globalRateLimiter } = require('./middlewares/rate-limit
 const { notFoundHandler, globalErrorHandler } = require('./utils/error.util');
 
 const app = express();
+app.set('trust proxy', 1);
 
 // Request ID
 app.use(requestIdMiddleware);

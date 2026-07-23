@@ -199,6 +199,39 @@ class AuthController {
     }
   };
 
+  googleCallback = async (req, res, next) => {
+    let returnUrl = 'taddlebox://google-auth';
+    try {
+      const { id_token: identityToken, state } = req.body;
+      
+      if (state) {
+        try {
+          const parsedState = JSON.parse(decodeURIComponent(state));
+          if (parsedState.returnUrl) returnUrl = parsedState.returnUrl;
+        } catch (e) {
+          console.error("Failed to parse state", e);
+        }
+      }
+
+      const result = await this.authSvc.googleAuth(identityToken);
+      const separator = returnUrl.includes('?') ? '&' : '?';
+
+      if (result.action === 'REGISTER_SOCIAL') {
+        const dataStr = encodeURIComponent(JSON.stringify(result.data));
+        const redirectUri = `${returnUrl}${separator}action=REGISTER_SOCIAL&socialToken=${result.socialToken}&data=${dataStr}`;
+        res.redirect(redirectUri);
+        return;
+      }
+      
+      const redirectUri = `${returnUrl}${separator}accessToken=${result.sessionData.accessToken}&refreshToken=${result.sessionData.refreshToken}`;
+      res.redirect(redirectUri);
+    } catch (error) {
+      const separator = returnUrl ? (returnUrl.includes('?') ? '&' : '?') : '?';
+      const base = returnUrl || 'taddlebox://google-auth';
+      res.redirect(`${base}${separator}error=${encodeURIComponent(error.message || 'Authentication failed')}`);
+    }
+  };
+
   appleAuth = async (req, res, next) => {
     try {
       const { identityToken, fullName } = req.body;

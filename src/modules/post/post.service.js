@@ -31,12 +31,32 @@ class PostService {
       }
 
       const post = await this.postRepo.create({ ...data, authorId });
+      
+      const populatedPost = await this.postRepo.findById(post.id);
 
+      this.feedSvc.updatePreferences({userId: authorId, categories: data.category || [], tags: data.tags || []}).catch(err => console.error('Feed pref update failed:', err));
+      this.taskSvc.incrementPostCount({userId: authorId}).catch(err => console.error('Task increment failed:', err));
+
+      // Handle mentions
+      const content = data.content || '';
+      const mentionMatches = content.match(/@(\w+)/g) || [];
+      const mentionedUsernames = [...new Set(mentionMatches.map(m => m.slice(1)))];
       
-      this.feedSvc.updatePreferences({userId: authorId, categories: data.category || [], tags: data.tags || []})
-      this.taskSvc.incrementPostCount({authorId})
+      for (const username of mentionedUsernames) {
+        this.userRepo.findByUsername(username).then(user => {
+          if (user && user.id !== authorId) {
+            this.notifSvc.createNotification({
+              userId: user.id,
+              actorId: authorId,
+              type: 'mention',
+              sourceId: post.id,
+              message: `mentioned you in a post`
+            }).catch(e => console.error(`Failed to notify mentioned user ${username}`, e));
+          }
+        }).catch(e => console.error(`Failed to find user ${username}`, e));
+      }
       
-      return PostModel.format(post);
+      return PostModel.format(populatedPost);
     } catch (error) {
       throw error; 
     }

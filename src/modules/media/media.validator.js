@@ -16,8 +16,8 @@ const getSignedUrlSchema = z.object({
     .positive({ message: 'File size must be a positive number' })
     .max(MAX_IMAGE_BYTES, { message: `File size exceeds the maximum limit of ${process.env.MAX_FILE_SIZE_MB || '10'}MB` }),
 
-  mimetype: z.string().regex(/^image\/(jpeg|png|webp|gif)$/, {
-    message: "Invalid file type. Only JPEG, PNG, WEBP, and GIF images are allowed"
+  mimetype: z.string().regex(/^(image\/(jpeg|png|webp|gif)|audio\/(mpeg|mp3|wav|ogg|aac|mp4|webm))$/, {
+    message: "Invalid file type. Only JPEG, PNG, WEBP, GIF images and standard audio files are allowed"
   })
 }).strict();
 

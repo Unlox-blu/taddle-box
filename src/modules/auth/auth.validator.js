@@ -76,8 +76,12 @@ const signupSchema = z.object({
   password: passwordRules,
   dateOfBirth: z.coerce.date({ errorMap: () => ({ message: 'Invalid date of birth' }) }).max(ageLimit, `You must be at least ${minAge} years old`),
   location: z.string().min(1, "Location is required"),
-  college: z.string().min(1, "College is required"),
-  interests: z.preprocess(typeCheck, z.array(z.string()).default([])),
+  latitude: z.coerce.number({ required_error: 'Latitude is required' }),
+  longitude: z.coerce.number({ required_error: 'Longitude is required' }),
+  gender: z.enum(['male', 'female', 'other'], { required_error: 'Gender is required' }),
+  occupation: z.enum(['Student', 'Working Professional', 'Self-employed / Freelancer', 'Other'], { required_error: 'Occupation Type is required' }),
+  organization: z.string().optional(),
+  interests: z.preprocess(typeCheck, z.array(z.string()).min(3, "Please select at least 3 interests").default([])),
   socialToken: z.string().optional(),
 }).strict();
 

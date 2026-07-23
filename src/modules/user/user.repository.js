@@ -211,13 +211,13 @@ const findByGoogleId = async (googleId) => {
   }
 };
 
-const create = async ({name, username, email, passwordHash, isVerified, gender, dateOfBirth, appleRefreshToken}) => {
+const create = async ({name, username, email, passwordHash, isVerified, gender, dateOfBirth, appleRefreshToken, occupation, organization, location, latitude, longitude, interests}) => {
   try {
     const { rows } = await pool.query(
-      `INSERT INTO ${UserModel.TABLE} (name, username, email, password_hash, is_verified, gender, date_of_birth, apple_refresh_token)
-     VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+      `INSERT INTO ${UserModel.TABLE} (name, username, email, password_hash, is_verified, gender, date_of_birth, apple_refresh_token, occupation, organization, location, latitude, longitude, interests)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
      RETURNING *`,
-      [name, username, email, passwordHash, isVerified, gender, dateOfBirth, appleRefreshToken]
+      [name, username, email, passwordHash, isVerified, gender, dateOfBirth, appleRefreshToken, occupation, organization, location, latitude, longitude, interests ? JSON.stringify(interests) : null]
     );
     return UserModel.sanitize(rows[0]);
   } catch (error) {

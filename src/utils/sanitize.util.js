@@ -7,6 +7,9 @@ const sanitizeString = (str) =>
 // Recursively sanitizes all string values in an object
 const sanitizeObject = (obj) => {
   if (typeof obj !== 'object' || obj === null) return obj;
+  if (Array.isArray(obj)) {
+    return obj.map(v => typeof v === 'string' ? sanitizeString(v) : typeof v === 'object' ? sanitizeObject(v) : v);
+  }
   return Object.fromEntries(
     Object.entries(obj).map(([k, v]) => [
       k,

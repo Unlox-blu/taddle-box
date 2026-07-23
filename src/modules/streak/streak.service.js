@@ -25,7 +25,7 @@ class StreakService {
             throw createError("Streak is already updated", 400)
         }else if(this.#isYesterday(currentDate, previousDate)){
             const streak = await this.streakRepo.updateById(previousStreak.id)
-            const count = parent(streak.streak_count, 10)
+            const count = parseInt(streak.streakCount, 10)
         }else{
             await this.streakRepo.create(userId)
         }

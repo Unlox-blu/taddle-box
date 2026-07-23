@@ -19,9 +19,23 @@ const getSignedUploadUrl = (s3Key, mimeType, fileSizeBytes) => {
     Bucket: BUCKET_NAME,
     Key: s3Key,
     ContentType: mimeType,
-    ContentLength: fileSizeBytes,
   });
   return getSignedUrl(s3Client, command, { expiresIn: 300 }); // 5 min
+};
+
+const uploadBuffer = async (s3Key, buffer, mimeType) => {
+  try {
+    const command = new PutObjectCommand({
+      Bucket: BUCKET_NAME,
+      Key: s3Key,
+      Body: buffer,
+      ContentType: mimeType,
+    });
+    await s3Client.send(command);
+    return `${CLOUDFRONT_DOMAIN}/${s3Key}`;
+  } catch (error) {
+    throw error;
+  }
 };
 
 
@@ -60,4 +74,4 @@ const getBucketFiles = async () => {
   }
 }
 
-module.exports = { generateS3Key, getSignedUploadUrl, confirmUpload, deleteFile, getBucketFiles };
+module.exports = { generateS3Key, getSignedUploadUrl, uploadBuffer, confirmUpload, deleteFile, getBucketFiles };

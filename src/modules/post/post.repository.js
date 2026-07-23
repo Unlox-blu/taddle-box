@@ -117,8 +117,8 @@ const create = async (data) => {
   try {
     const { rows } = await pool.query(
       `INSERT INTO ${PostModel.TABLE}
-       (author_id, community_id, title, content, media, post_type, tags, category, visibility, status, poll_data, link_data, published_at)
-     VALUES ($1, $2, $3, $4, $5, $6, $7::text[], $8::text[], $9, $10::varchar, $11, $12, CASE WHEN $10::varchar = 'published' THEN NOW() ELSE NULL END)
+       (author_id, community_id, title, content, media, tags, category, visibility, status, poll_data, link_data, published_at)
+     VALUES ($1, $2, $3, $4, $5, $6::text[], $7::text[], $8, $9::varchar, $10, $11, CASE WHEN $9::varchar = 'published' THEN NOW() ELSE NULL END)
      RETURNING *`,
       [
         data.authorId,
@@ -126,7 +126,6 @@ const create = async (data) => {
         data.title || null,
         data.content || null,
         data.media ? JSON.stringify(data.media) : '[]',
-        data.postType || 'text',
         data.tags || [],
         data.category || [],
         data.visibility || 'public',

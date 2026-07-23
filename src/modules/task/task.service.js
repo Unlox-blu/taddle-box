@@ -34,13 +34,15 @@ class TaskService {
     try {
         const task = await this.taskRepo.incrementPostCount(userId)
         
-        const postCount = parseInt(task.postCount, 10)
+        if (task) {
+          const postCount = parseInt(task.postCount, 10)
 
-        if(postCount === 1 || postCount % 5 === 0){
-          const xp = 5
-          const transactionType = "bonus"
-          const sourceType = "Post"
-          await this.xpSvc.creditXP({ userId, xp, transactionType, sourceType })
+          if(postCount === 1 || postCount % 5 === 0){
+            const xp = 5
+            const transactionType = "bonus"
+            const sourceType = "Post"
+            await this.xpSvc.creditXP({ userId, xp, transactionType, sourceType })
+          }
         }
 
         return task

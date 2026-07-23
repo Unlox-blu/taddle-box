@@ -7,7 +7,7 @@ const VIEWS_TABLE = 'post_views';
 // Full detail view — used in single post fetch with author + community JOINs
 const DETAIL_FIELDS = [
   'p.id', 'p.author_id', 'p.community_id', 'p.title', 'p.content',
-  'p.media', 'p.post_type', 'p.tags', 'p.category', 'p.status',
+  'p.media', 'p.tags', 'p.category', 'p.status',
   'p.visibility', 'p.likes_count', 'p.comments_count', 'p.shares_count',
   'p.views_count', 'p.is_pinned', 'p.poll_data', 'p.link_data',
   'p.published_at', 'p.created_at', 'p.updated_at',
@@ -19,7 +19,7 @@ const DETAIL_FIELDS = [
 // Light list view — used in feed and browse
 const LIST_FIELDS = [
   'p.id', 'p.author_id', 'p.community_id', 'p.title',
-  'p.media', 'p.post_type', 'p.tags', 'p.status', 'p.visibility',
+  'p.media', 'p.tags', 'p.status', 'p.visibility',
   'p.likes_count', 'p.comments_count', 'p.shares_count', 'p.views_count',
   'p.is_pinned', 'p.published_at', 'p.created_at',
   'u.name AS author_name', 'u.username AS author_username',
@@ -28,7 +28,6 @@ const LIST_FIELDS = [
   'ca.cloudfront_url AS community_avatar',
 ].join(', ');
 
-const POST_TYPES = ['text', 'image', 'video', 'link', 'poll'];
 const POST_STATUSES = ['draft', 'published', 'archived', 'removed'];
 const VISIBILITIES = ['public', 'community_only', 'private'];
 
@@ -45,7 +44,6 @@ const format = (row) => {
     title: row.title,
     content: row.content,
     media: row.media || [],
-    postType: row.post_type,
     tags: row.tags || [],
     category: row.category || [],
     status: row.status,
@@ -55,6 +53,8 @@ const format = (row) => {
     sharesCount: row.shares_count,
     viewsCount: row.views_count,
     isPinned: row.is_pinned,
+    isLiked: row.is_liked || false,
+    isSaved: row.is_bookmarked || false,
     pollData: row.poll_data || null,
     linkData: row.link_data || null,
     author: {
@@ -79,6 +79,6 @@ const format = (row) => {
 module.exports = {
   TABLE, LIKES_TABLE, VIEWS_TABLE,
   DETAIL_FIELDS, LIST_FIELDS,
-  POST_TYPES, POST_STATUSES, VISIBILITIES,
+  POST_STATUSES, VISIBILITIES,
   sanitize, format,
 };

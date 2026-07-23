@@ -106,7 +106,27 @@ const searchPost = async (query, limit, offset) => {
   }
 };
 
+const getHashtags = async (q = '') => {
+  try {
+    const { rows } = await pool.query(
+      `SELECT LOWER(t.tag) AS hashtag, COUNT(*) AS count
+       FROM ${SearchModel.POST_TABLE} p, unnest(p.tags) AS t(tag)
+       WHERE p.deleted_at IS NULL 
+         AND p.status = 'published' 
+         AND p.visibility = 'public' 
+         AND p.tags IS NOT NULL
+         AND LOWER(t.tag) ILIKE $1
+       GROUP BY LOWER(t.tag)
+       ORDER BY count DESC, hashtag ASC
+       LIMIT 15`,
+       [`%${q}%`]
+    );
+    return rows.map(r => r.hashtag);
+  } catch (error) {
+    throw error;
+  }
+};
 
 module.exports = {
-    searchUser, searchCommunity, searchEvent, searchPost,
+    searchUser, searchCommunity, searchEvent, searchPost, getHashtags
 }

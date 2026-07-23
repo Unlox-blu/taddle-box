@@ -52,8 +52,22 @@ const bootstrap = async () => {
     // logger.info('BullMQ workers started');
 
     // Start server
-    server.listen(config.PORT, () => {
+    server.listen(config.PORT, async () => {
       logger.info(`Server running on port ${config.PORT} [${config.NODE_ENV}]`);
+      
+      if (config.NODE_ENV === 'development' && process.env.NGROK_AUTHTOKEN && process.env.NGROK_DOMAIN) {
+        try {
+          const ngrok = require('@ngrok/ngrok');
+          const listener = await ngrok.forward({
+            addr: config.PORT,
+            authtoken: process.env.NGROK_AUTHTOKEN,
+            domain: process.env.NGROK_DOMAIN
+          });
+          logger.info(`Ngrok tunnel established at: ${listener.url()}`);
+        } catch (ngrokErr) {
+          logger.error('Failed to start ngrok', { error: ngrokErr.message });
+        }
+      }
     });
 
     // Graceful shutdown

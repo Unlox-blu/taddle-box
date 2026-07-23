@@ -20,6 +20,12 @@ class FeedService {
       const visitedKey = `visitedfeed:${userId}`;
       const cacheKey = `feed:${userId}:${page}`;
 
+      // If fetching the first page (refreshing feed), clear the visited cache
+      if (page === 1) {
+        await redis.del(visitedKey);
+        await redis.del(cacheKey); // Optional: clear this page's cache to get fresh results
+      }
+
       // Try Redis cache first
       const cached = await redis.get(cacheKey);
       
@@ -27,8 +33,8 @@ class FeedService {
         return { posts: JSON.parse(cached), total: null, fromCache: true };
       }
 
-      const visited = await redis.get(visitedKey) 
-      const seenPost = visited ? JSON.parse(visited) : []
+      const visited = await redis.get(visitedKey);
+      const seenPost = visited ? JSON.parse(visited) : [];
 
 
       // Fetch user preferences

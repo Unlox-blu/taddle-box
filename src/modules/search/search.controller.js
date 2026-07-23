@@ -23,6 +23,16 @@ class SearchController {
       next(error);
     }
   };
+
+  getHashtags = async (req, res, next) => {
+    try {
+      const q = req.query.q || '';
+      const hashtags = await this.searchSvc.getHashtags(q);
+      res.json(apiResponse({dataType: 'hashtags', data: hashtags}, `Hashtags fetched`));
+    } catch (error) {
+      next(error);
+    }
+  };
 }
 
 module.exports = SearchController;

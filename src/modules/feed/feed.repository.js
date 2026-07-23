@@ -7,6 +7,8 @@ const getPersonalizedPosts = async (userId, followingIds, prefCategory, prefTags
   try {
     const { rows } = await pool.query(
       `SELECT ${PostModel.LIST_FIELDS},
+       EXISTS(SELECT 1 FROM post_likes pl WHERE pl.post_id = p.id AND pl.user_id = $1) AS is_liked,
+       EXISTS(SELECT 1 FROM bookmark bm WHERE bm.post_id = p.id AND bm.user_id = $1) AS is_bookmarked,
        (CASE WHEN p.author_id = ANY($2::uuid[]) THEN 10 ELSE 0 END
         + EXTRACT(EPOCH FROM (NOW() - p.published_at)) / -3600.0 * 0.5
         + p.likes_count * 0.3 + p.comments_count * 0.5) AS score,

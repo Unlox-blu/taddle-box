@@ -41,6 +41,8 @@ class AuthService {
     xpService,
     taskService,
     activeStatusService,
+    mediaRepository,
+    storageIntegration,
   }) {
     this.authUserRepo = authUserRepository;
     this.verifyEmailRepo = verifyEmailRepository;
@@ -48,6 +50,8 @@ class AuthService {
     this.xpSvc = xpService;
     this.taskSvc = taskService;
     this.activeStatusSvc = activeStatusService;
+    this.mediaRepo = mediaRepository;
+    this.storageSvc = storageIntegration;
   }
 
   async usernameAvailable({ username }) {
@@ -186,7 +190,7 @@ class AuthService {
 
   async signUp({ email, countryCode, phone, userData, socialToken }) {
     try {
-      const { name, username, password, dateOfBirth, location, college, interests } = userData;
+      const { name, username, password, dateOfBirth, gender, location, latitude, longitude, occupation, organization, interests } = userData;
 
       let verifiedEmail = email;
       let socialProviderId = null;
@@ -236,8 +240,12 @@ class AuthService {
         phone,
         passwordHash,
         dateOfBirth,
+        gender,
         location,
-        college,
+        latitude,
+        longitude,
+        occupation,
+        organization,
         interests,
         isVerified: true,
       };
@@ -247,11 +255,44 @@ class AuthService {
         createData.appleId = socialProviderId;
         createData.appleRefreshToken = 'placeholder_token_for_now';
       }
-      if (socialAvatarUrl) createData.avatarUrl = socialAvatarUrl;
 
       const newUser = await this.authUserRepo.create(createData);
 
       const userId = newUser.id;
+
+      if (socialAvatarUrl) {
+        try {
+          // Download the image
+          const response = await fetch(socialAvatarUrl);
+          if (response.ok) {
+            const arrayBuffer = await response.arrayBuffer();
+            const buffer = Buffer.from(arrayBuffer);
+            const contentType = response.headers.get('content-type') || 'image/jpeg';
+            
+            // Upload to S3
+            const s3Key = this.storageSvc.generateS3Key('avatars', userId, contentType);
+            await this.storageSvc.uploadBuffer(s3Key, buffer, contentType);
+            const cloudfrontUrl = `${config.CLOUDFRONT_DOMAIN}/${s3Key}`; // or rely on confirmUpload
+
+            // Insert into media table
+            const media = await this.mediaRepo.create({
+              uploaderId: userId,
+              mediaType: 'image',
+              s3Key: s3Key,
+              mimeType: contentType,
+              sizeBytes: buffer.length,
+              processingStatus: 'ready'
+            });
+
+            // Update user with media ID
+            await this.authUserRepo.updateAvatar(userId, media.id);
+            // Optionally update cloudfrontUrl if needed
+            await this.mediaRepo.updateStatus(media.id, 'ready', cloudfrontUrl);
+          }
+        } catch (err) {
+          console.error('Failed to download/upload social avatar:', err);
+        }
+      }
 
       await this.authUserRepo.verifyEmail({ userId });
       await this.authUserRepo.verifyPhone({ userId });

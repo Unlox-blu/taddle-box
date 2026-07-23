@@ -9,11 +9,10 @@ const PUBLIC_FIELDS = [
 ].join(', ');
 
 const PRIVATE_FIELDS = [
-  'u.id', 'u.name', 'u.username', 'u.email', 'u.gender', 'u.country_code', 'u.phone_number', 'u.app_lock_enabled', 
   'u.date_of_birth', 'u.avatar_url', 'u.banner_url', 'u.bio', 'u.website_url', 'u.role', 
   'u.is_verified', 'u.is_active', 'u.follower_count', 'u.following_count', 'u.post_count',
   'u.email_verified_at', 'u.last_login_at', 'u.google_id', 'u.created_at', 'u.updated_at',
-  'u.privacy', 'u.theme', 'u.apple_refresh_token'
+  'u.privacy', 'u.theme', 'u.apple_refresh_token', 'u.occupation', 'u.organization', 'u.location', 'u.interests'
 ].join(', ');
 
 const AUTH_FIELDS = [
@@ -58,8 +57,8 @@ const format = (row) => {
     name: row.name,
     username: row.username,
     email: row.email,
-    avatarUrl: row.avatar_url,
-    bannerUrl: row.banner_url,
+    avatarUrl: row.avatar_media_url || row.avatar_url,
+    bannerUrl: row.banner_media_url || row.banner_url,
     bio: row.bio,
     websiteUrl: row.website_url,
     role: row.role,
@@ -93,6 +92,10 @@ const format = (row) => {
     appLock: row.app_lock,
     appLockEnabled: row.app_lock_enabled,
     appleRefreshToken: row.apple_refresh_token,
+    occupation: row.occupation,
+    organization: row.organization,
+    location: row.location,
+    interests: row.interests,
   };
 };
 

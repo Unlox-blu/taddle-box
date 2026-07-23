@@ -9,6 +9,7 @@ class PostController {
   }
 
   createPost = async (req, res, next) => {
+    console.log("CREATE POST BODY:", req.body);
     try {
       const userId = req.userId;
       const body = req.body;

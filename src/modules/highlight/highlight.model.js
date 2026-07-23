@@ -4,7 +4,7 @@ const SPOTLIGHT_TABLE = 'spotlight';
 
 
 const SPOTLIGHT_FIELDS = [
-    'id', 'title', 'description', 'created_at', 'updated_at'
+    'id', 'title', 'description', 'type', 'source_id', 'created_at', 'updated_at'
 ].join(', ');
 
 const format = (row) => {
@@ -13,6 +13,8 @@ const format = (row) => {
     id: row.id,
     title: row.title,
     description: row.description,
+    type: row.type,
+    sourceId: row.source_id,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   };

@@ -7,6 +7,6 @@ CREATE TABLE IF NOT EXISTS device_notification (
   notifications_enabled     BOOLEAN DEFAULT TRUE,
   platform                  VARCHAR(50),
   created_at                TIMESTAMPTZ DEFAULT NOW(),
-  updated_at                TIMESTAMPTZ DEFAULT NOW(),
+  updated_at                TIMESTAMPTZ DEFAULT NOW()
 );
 

@@ -1,6 +1,6 @@
 'use strict';
 
-const { verifyAccessToken } = require('../utils/token.util');
+const { decodeToken } = require('../utils/token.util');
 const { createError } = require('../utils/error.util');
 
 const verifyToken = (req, _res, next) => {
@@ -17,7 +17,7 @@ const verifyToken = (req, _res, next) => {
     if (!token) throw createError('Authentication required', 401);
 
     try {
-      const payload = verifyAccessToken(token);
+      const payload = decodeToken(token);
       req.userId = payload.userId;
       req.userRole = payload.role;
       next();
@@ -40,7 +40,7 @@ const optionalAuth = (req, _res, next) => {
       token = req.cookies.access_token;
     }
     if (token) {
-      const payload = verifyAccessToken(token);
+      const payload = decodeToken(token);
       req.userId = payload.userId;
       req.userRole = payload.role;
     }

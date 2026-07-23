@@ -18,6 +18,8 @@ const {
   changePasswordSchema,
   forgotPasswordSchema,
   resetPasswordSchema,
+  appleAuthSchema,
+  appleAuthCallbackSchema,
 } = require('../modules/auth/auth.validator');
 const { verifyOtpToken } = require('../middlewares/verification.middleware');
 
@@ -127,6 +129,23 @@ router.post(
   '/reset-password',
   validateRequest({ body: resetPasswordSchema }),
   authController.resetPassword
+);
+
+// ─── Social Login Routes ──────────────────────────────────────────────────────
+router.post(
+  '/google',
+  validateRequest({ body: googleAuthSchema }), 
+  authController.googleAuth
+);
+router.post(
+  '/apple', 
+  validateRequest({ body: appleAuthSchema }),
+  authController.appleAuth
+);
+router.post(
+  '/apple/callback', 
+  validateRequest({ body: appleAuthCallbackSchema }),
+  authController.appleCallback
 );
 
 router.get(

@@ -59,6 +59,7 @@ const sendOtpSchema = z.object({
   email: z.preprocess(transformToLowerCase, z.string().email('Invalid email address')),
   countryCode: z.string().min(1, "Phone number is required").regex(/^\+[0-9]{1,4}$/, "Country code contain digits followed by + only"),
   phone: z.string().min(3, "Phone number is required").regex(/^[0-9]{3,15}$/, "Phone number must contain digits only minimum 3 digits"),
+  socialToken: z.string().optional(),
 }).strict()
 
 const verifyOtp = z.object({
@@ -77,6 +78,7 @@ const signupSchema = z.object({
   location: z.string().min(1, "Location is required"),
   college: z.string().min(1, "College is required"),
   interests: z.preprocess(typeCheck, z.array(z.string()).default([])),
+  socialToken: z.string().optional(),
 }).strict();
 
 const loginSchema = z.object({
@@ -92,7 +94,18 @@ const loginPinSchema = z.object({
 
 const googleAuthSchema = z.object({
   idToken: z.string().min(1, 'Google ID token is required'),
-});
+}).strict();
+
+const appleAuthSchema = z.object({
+  identityToken: z.string().min(1, 'Google ID token is required'),
+  fullName: z.string().min(1, 'Full Name must have at least 1 character').optional(),
+}).strict();
+
+const appleAuthCallbackSchema = z.object({
+  id_token: z.string().min(1, 'Google ID token is required'),
+  user: z.string().min(1, 'User must have at least 1 character').optional(),
+  state: z.string().min(1, 'State must have at least 1 character').optional(),
+}).strict();
 
 const changePasswordSchema = z.object({
   currentPassword: z.string().min(1, 'Current password is required'),
@@ -112,7 +125,6 @@ const resetPasswordSchema = z.object({
 
 
 
-
 module.exports = {
   usernameSchema,
   emailSchema,
@@ -123,6 +135,8 @@ module.exports = {
   loginSchema,
   loginPinSchema,
   googleAuthSchema,
+  appleAuthSchema,
+  appleAuthCallbackSchema,
   forgotPasswordSchema,
   resetPasswordSchema,
   changePasswordSchema,

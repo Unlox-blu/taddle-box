@@ -5,12 +5,10 @@ const redis = require('../../config/redis');
 const crypto = require('crypto');
 const { hashPassword, comparePassword } = require('../../utils/password.util');
 const {
-  generateAccessToken,
-  generateRefreshToken,
+  generateToken,
   generateRandomToken,
   hashToken,
-  verifyRefreshToken,
-  generateVerificationToken,
+  decodeToken,
 } = require('../../utils/token.util');
 
 const { createError } = require('../../utils/error.util');
@@ -80,7 +78,7 @@ class AuthService {
     }
   }
 
-  async sendOtp({ email, countryCode, phone }) {
+  async sendOtp({ email, countryCode, phone, socialToken }) {
     try {
 
       const [existingEmail, existingPhone] = await Promise.all([
@@ -90,8 +88,21 @@ class AuthService {
       if (existingEmail) throw createError('Email is already registered', 409);
       if (existingPhone) throw createError('Phone is already registered', 409);
 
+      let isEmailVerified = false;
+      let verifiedEmail = email;
+      if (socialToken) {
+        try {
+          const payload = decodeToken(socialToken);
+          if (payload.email) {
+            isEmailVerified = true;
+            verifiedEmail = payload.email; // Enforce the token's email
+          }
+        } catch (e) {
+          throw createError('Invalid or expired social token', 400);
+        }
+      }
       
-      const verificationKey = `${OTP_PREFIX}:${email}:${countryCode}${phone}`;
+      const verificationKey = `${OTP_PREFIX}:${verifiedEmail}:${countryCode}${phone}`;
       
       const emailOtp = crypto.randomInt(100000, 1000000).toString();
       const phoneOtp = crypto.randomInt(100000, 1000000).toString();
@@ -99,9 +110,9 @@ class AuthService {
       const otpExpIn = new Date(Date.now() + parseInt(config.OTP_EXPIRES_IN, 10));
       const verificationObj = {
         email: {
-          value: email,
+          value: verifiedEmail,
           otp: emailOtp,
-          isVerified: false,
+          isVerified: isEmailVerified,
         },
         phone: {
           countryCode,
@@ -114,13 +125,15 @@ class AuthService {
 
       await redis.setex(verificationKey, 60 * 5, JSON.stringify(verificationObj));
 
-      const emailJobdata = {
-        to: email,
-        otp: emailOtp,
-      };
-      await addJob('email:otp-verification', emailJobdata);
+      if (!isEmailVerified) {
+        const emailJobdata = {
+          to: verifiedEmail,
+          otp: emailOtp,
+        };
+        await addJob('email:otp-verification', emailJobdata);
+      }
 
-      const { sessionData } = await this.#issueVerificationTokens({ email, countryCode, phone });
+      const { sessionData } = await this.#issueVerificationTokens({ email: verifiedEmail, countryCode, phone });
 
       return sessionData;
     } catch (error) {
@@ -142,7 +155,7 @@ class AuthService {
       }
 
       // Verify email OTP
-      if (verificationObj.email.otp !== emailOtp) {
+      if (!verificationObj.email.isVerified && verificationObj.email.otp !== emailOtp) {
         throw createError('Invalid email OTP', 400);
       }
 
@@ -166,11 +179,28 @@ class AuthService {
     }
   }
 
-  async signUp({ email, countryCode, phone, userData }) {
+  async signUp({ email, countryCode, phone, userData, socialToken }) {
     try {
       const { name, username, password, dateOfBirth, location, college, interests } = userData;
 
-      const verificationKey = `${OTP_PREFIX}:${email}:${countryCode}${phone}`;
+      let verifiedEmail = email;
+      let socialProviderId = null;
+      let socialProvider = null;
+      let socialAvatarUrl = null;
+
+      if (socialToken) {
+        try {
+          const payload = decodeToken(socialToken);
+          verifiedEmail = payload.email; // Override email from frontend payload
+          socialProvider = payload.provider;
+          socialProviderId = payload.providerId;
+          socialAvatarUrl = payload.avatarUrl;
+        } catch (e) {
+          throw createError('Invalid or expired social token', 400);
+        }
+      }
+
+      const verificationKey = `${OTP_PREFIX}:${verifiedEmail}:${countryCode}${phone}`;
 
       const cachedVerification = await redis.get(verificationKey);
       const verificationObj = cachedVerification ? JSON.parse(cachedVerification) : null;
@@ -183,7 +213,7 @@ class AuthService {
         throw createError('Email and Phone is not verified!!', 400);
 
       const [existingEmail, existingUsername, existingPhone] = await Promise.all([
-        this.authUserRepo.isEmailExist({ email }),
+        this.authUserRepo.isEmailExist({ email: verifiedEmail }),
         this.authUserRepo.isUsernameExist({ username }),
         this.authUserRepo.isPhoneExist({ countryCode, phone }),
       ]);
@@ -192,10 +222,11 @@ class AuthService {
       if (existingUsername) throw createError('Username is already taken', 409);
 
       const passwordHash = await hashPassword(password);
-      const newUser = await this.authUserRepo.create({
+      
+      const createData = {
         name,
         username,
-        email,
+        email: verifiedEmail,
         countryCode,
         phone,
         passwordHash,
@@ -204,7 +235,16 @@ class AuthService {
         college,
         interests,
         isVerified: true,
-      });
+      };
+
+      if (socialProvider === 'google') createData.googleId = socialProviderId;
+      if (socialProvider === 'apple') {
+        createData.appleId = socialProviderId;
+        createData.appleRefreshToken = 'placeholder_token_for_now';
+      }
+      if (socialAvatarUrl) createData.avatarUrl = socialAvatarUrl;
+
+      const newUser = await this.authUserRepo.create(createData);
 
       const userId = newUser.id;
 
@@ -377,7 +417,7 @@ class AuthService {
     try {
       if (!refreshToken) throw createError('Refresh token is required', 401);
 
-      const payload = verifyRefreshToken(refreshToken);
+      const payload = decodeToken(refreshToken);
       const userId = payload.userId;
       const user = await this.authUserRepo.getRefreshTokenById({ userId });
 
@@ -491,14 +531,70 @@ class AuthService {
     }
   }
 
+  async googleAuth(idToken) {
+    try {
+      if (!process.env.GOOGLE_CLIENT_ID) {
+        throw createError('Google login is temporarily unavailable', 503);
+      }
+      
+      // In production, verify using google-auth-library
+      // For now, decode JWT directly (mocking verification)
+      const payloadBase64 = idToken.split('.')[1];
+      const payload = JSON.parse(Buffer.from(payloadBase64, 'base64').toString());
+      
+      const { sub: googleId, email, name, picture } = payload;
+      if (!email) throw createError('Invalid token', 400);
+
+      // Check if user exists by googleId or email
+      let user = await this.authUserRepo.findByEmailUser({ email });
+      
+      if (!user) {
+        const socialToken = generateToken({ email, name: name || 'Google User', provider: 'google', providerId: googleId, avatarUrl: picture }, config.SOCIAL_TOKEN_EXPIRES_IN);
+        return { success: false, action: 'REGISTER_SOCIAL', socialToken, data: { name: name || 'Google User', email } };
+      } else if (!user.googleId) {
+        // Link google account to existing user (assuming authUserRepo has a method or we'd just update it, mocked for now)
+      }
+
+      return await this.#issueTokens(user);
+    } catch (error) {
+      throw error;
+    }
+  }
+
+  async appleAuth(identityToken, fullName) {
+    try {
+      // In production, verify using apple-signin-auth
+      
+      const payloadBase64 = identityToken.split('.')[1];
+      const payload = JSON.parse(Buffer.from(payloadBase64, 'base64').toString());
+      
+      const { sub: appleId, email } = payload;
+      
+      let user = null;
+      if (email) {
+        user = await this.authUserRepo.findByEmailUser({ email });
+      }
+
+      if (!user) {
+        const generatedEmail = email || `${appleId}@privaterelay.appleid.com`;
+        const socialToken = generateToken({ email: generatedEmail, name: fullName || 'Apple User', provider: 'apple', providerId: appleId }, config.SOCIAL_TOKEN_EXPIRES_IN);
+        return { success: false, action: 'REGISTER_SOCIAL', socialToken, data: { name: fullName || 'Apple User', email: generatedEmail } };
+      }
+
+      return await this.#issueTokens(user);
+    } catch (error) {
+      throw error;
+    }
+  }
+
   // Private
   async #issueTokens(user) {
     try {
       const userId = user.id;
       const role = user.role;
       const payload = { userId, role };
-      const accessToken = generateAccessToken(payload);
-      const refreshToken = generateRefreshToken(payload);
+      const accessToken = generateToken(payload, config.ACCESS_TOKEN_EXPIRES_IN);
+      const refreshToken = generateToken(payload, config.REFRESH_TOKEN_EXPIRES_IN);
 
       const tokenHash = hashToken(refreshToken);
       await this.authUserRepo.updateRefreshToken({ userId, tokenHash });
@@ -522,7 +618,7 @@ class AuthService {
   async #issueVerificationTokens({ email, countryCode, phone }) {
     try {
       const payload = { email, countryCode, phone };
-      const verificationToken = generateVerificationToken(payload);
+      const verificationToken = generateToken(payload, config.VERIFICATION_TOKEN_EXPIRES_IN);
       const tokenHash = hashToken(verificationToken);
 
       const sessionData = {

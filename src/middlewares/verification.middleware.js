@@ -1,6 +1,6 @@
 'use strict';
 
-const { verifyVerificationToken } = require('../utils/token.util');
+const { decodeToken } = require('../utils/token.util');
 const { createError } = require('../utils/error.util');
 
 const verifyOtpToken = (req, _res, next) => {
@@ -16,7 +16,7 @@ const verifyOtpToken = (req, _res, next) => {
 
     if (!token) throw createError('Verification required', 401);
 
-    const payload = verifyVerificationToken(token);
+    const payload = decodeToken(token);
     
     req.email = payload.email;
     req.countryCode = payload.countryCode

@@ -2,6 +2,7 @@
 
 const { createError } = require('../../utils/error.util');
 const { notificationService } = require('../notification/notification.container');
+const appleUtil = require('../../utils/apple.util');
 
 class UserService {
   constructor({ userRepository, followerRepository, mediaService, bookmarkService, saveService, storageIntegration, taskService }) {
@@ -285,6 +286,23 @@ class UserService {
 
       await this.userRepo.decrementFollowingCount(followingId);
       await this.userRepo.decrementFollowerCount(followerId);
+    } catch (error) {
+      throw error;
+    }
+  }
+
+  async deleteAccount(userId) {
+    try {
+      const user = await this.userRepo.findByIdAuth(userId);
+      if (!user) throw createError('User not found', 404);
+
+      // If they signed in with Apple and we have a refresh token, we revoke it here.
+      if (user.appleRefreshToken) {
+        await appleUtil.revokeAppleToken(user.appleRefreshToken); 
+      }
+
+      await this.userRepo.hardDelete(userId);
+      return { message: 'Account deleted successfully' };
     } catch (error) {
       throw error;
     }

@@ -2,9 +2,11 @@ import React, { useMemo, useRef } from 'react';
 import { View, Text, TouchableOpacity, StyleSheet, Animated, Image, Dimensions, ScrollView } from 'react-native';
 import { Video, ResizeMode } from 'expo-av';
 import { Ionicons } from '@expo/vector-icons';
+import { useNavigation } from '@react-navigation/native';
+import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { radii, fontSizes, spacing, type ColorPalette } from '../../theme';
 import { useThemeColors } from '../../context/ThemeContext';
-import type { Post } from '../../types';
+import type { Post, HomeStackParamList } from '../../types';
 
 const CARD_W = Dimensions.get('window').width - spacing.lg * 2;
 
@@ -15,6 +17,7 @@ interface PostCardProps {
   onComment?: (post: Post) => void;
   onShare?: (post: Post) => void;
   onAuthorPress?: (post: Post) => void;
+  isActive?: boolean;
 }
 
 function makeStyles(c: ColorPalette) {
@@ -110,10 +113,11 @@ function makeStyles(c: ColorPalette) {
   });
 }
 
-export default function PostCard({ post, onLike, onSave, onComment, onShare, onAuthorPress }: PostCardProps) {
+export default function PostCard({ post, isActive, onLike, onSave, onComment, onShare, onAuthorPress }: PostCardProps) {
   const colors = useThemeColors();
   const styles = useMemo(() => makeStyles(colors), [colors]);
   const scale = useRef(new Animated.Value(1)).current;
+  const navigation = useNavigation<NativeStackNavigationProp<HomeStackParamList>>();
 
   const handleLike = () => {
     Animated.sequence([
@@ -136,16 +140,77 @@ export default function PostCard({ post, onLike, onSave, onComment, onShare, onA
             <Text style={styles.avatarEmoji}>{post.author.avatar}</Text>
           </View>
           <View style={styles.meta}>
-            <Text style={styles.author}>{post.author.name}</Text>
+            <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
+              <Text style={styles.author}>{post.author.name}</Text>
+              <View style={styles.xpPill}>
+                <Text style={styles.xpText}>⚡ +{post.xpEarned}</Text>
+              </View>
+            </View>
+            <Text style={[styles.sub, { color: colors.text.secondary, fontWeight: '500' }]}>
+              @{post.author.handle || post.author.name.toLowerCase().replace(/\s+/g, '')}
+            </Text>
             <Text style={styles.sub}>
-              in <Text style={styles.community}>{typeof post.community === 'object' ? post.community?.name : post.community}</Text>
+              in <Text style={styles.community}>{typeof post.community === 'object' ? (post.community as any)?.name : post.community}</Text>
               {' · '}{post.createdAt}
             </Text>
           </View>
         </TouchableOpacity>
-        <View style={styles.xpPill}>
-          <Text style={styles.xpText}>⚡ +{post.xpEarned}</Text>
-        </View>
+      </View>
+
+      {/* Body Text Before Media */}
+      <View style={[styles.body, { paddingTop: 0 }]}>
+        {!!(post as any).title && <Text style={styles.title}>{(post as any).title}</Text>}
+        {!!post.content && (
+          <Text style={styles.content}>
+            {(post.content || '').split(/(\{@\}\[[^\]]+\]\([^)]+\)|\{#\}\[[^\]]+\]\([^)]+\)|@\w+|#\w+)/g).map((part: string, i: number) => {
+              const mentionMatch = part.match(/^\{@\}\[([^\]]+)\]\(([^)]+)\)$/);
+              if (mentionMatch) {
+                const name = mentionMatch[1];
+                const id = mentionMatch[2];
+                return (
+                  <Text key={i} style={{ color: colors.primaryLight, fontWeight: '700' }} onPress={() => navigation.navigate('UserProfile', { user: { id, name, handle: name, avatar: '', level: 1, xp: 0, xpToNext: 100 } } as any)}>
+                    @{name}
+                  </Text>
+                );
+              }
+
+              const hashMatch = part.match(/^\{#\}\[([^\]]+)\]\(([^)]+)\)$/);
+              if (hashMatch) {
+                const tag = hashMatch[1];
+                return (
+                  <Text key={i} style={{ color: colors.cyanLight }} onPress={() => navigation.navigate('Search', { query: tag })}>
+                    #{tag}
+                  </Text>
+                );
+              }
+
+              if (part.startsWith('@')) {
+                return (
+                  <Text key={i} style={{ color: colors.primaryLight, fontWeight: '700' }} onPress={() => navigation.navigate('UserProfile', { user: { id: part.slice(1), name: part.slice(1), handle: part.slice(1), avatar: '', level: 1, xp: 0, xpToNext: 100 } } as any)}>
+                    {part}
+                  </Text>
+                );
+              }
+
+              if (part.startsWith('#')) {
+                return (
+                  <Text key={i} style={{ color: colors.cyanLight }} onPress={() => navigation.navigate('Search', { query: part.replace('#', '') })}>
+                    {part}
+                  </Text>
+                );
+              }
+
+              return <Text key={i}>{part}</Text>;
+            })}
+          </Text>
+        )}
+        {(post.hashtags || []).length > 0 && (
+          <View style={styles.tags}>
+            {(post.hashtags || []).map(tag => (
+              <Text key={tag} style={styles.tag}>{tag}</Text>
+            ))}
+          </View>
+        )}
       </View>
 
       {/* Multi-Media Banner */}
@@ -162,7 +227,7 @@ export default function PostCard({ post, onLike, onSave, onComment, onShare, onA
                 <View key={idx} style={[styles.imageBanner, { width: CARD_W, height: CARD_W }]}>
                   <Ionicons name="musical-notes" size={48} color={colors.primaryLight} />
                   <Text style={{color: '#fff', marginTop: 10}}>Audio File</Text>
-                  <Video source={{ uri: url }} shouldPlay isLooping={false} style={{ width: 0, height: 0 }} />
+                  <Video source={{ uri: url }} shouldPlay={isActive ?? true} isLooping={false} style={{ width: 0, height: 0 }} />
                 </View>
               );
             }
@@ -173,7 +238,7 @@ export default function PostCard({ post, onLike, onSave, onComment, onShare, onA
                     source={{ uri: url }} 
                     style={{ width: CARD_W, height: CARD_W }} 
                     resizeMode={ResizeMode.COVER} 
-                    shouldPlay 
+                    shouldPlay={isActive ?? true} 
                     isLooping 
                     isMuted={hasAudioTrack} 
                   />
@@ -196,22 +261,7 @@ export default function PostCard({ post, onLike, onSave, onComment, onShare, onA
         </View>
       ) : null}
 
-      {/* Body */}
-      <View style={styles.body}>
-        {!!(post as any).title && <Text style={styles.title}>{(post as any).title}</Text>}
-        <Text style={styles.content}>
-          {(post.content || '').split(/(@\w+)/g).map((part: string, i: number) =>
-            part.startsWith('@') ? (
-              <Text key={i} style={{ color: colors.primaryLight, fontWeight: '700' }}>{part}</Text>
-            ) : part
-          )}
-        </Text>
-        <View style={styles.tags}>
-          {(post.hashtags || []).map(tag => (
-            <Text key={tag} style={styles.tag}>{tag}</Text>
-          ))}
-        </View>
-      </View>
+
 
       {/* Actions */}
       <View style={styles.actions}>

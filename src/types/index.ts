@@ -7,6 +7,7 @@ export type HomeStackParamList = {
   StoryViewer:   { stories: Story[]; initialIndex: number };
   Bookmarks:     undefined;
   Settings:      undefined;
+  Search:        { query?: string } | undefined;
 };
 
 export type CommunityStackParamList = {

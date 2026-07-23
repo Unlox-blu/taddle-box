@@ -9,6 +9,7 @@ import UserProfileScreen    from '../screens/main/UserProfileScreen';
 import StoryViewerScreen    from '../screens/main/StoryViewerScreen';
 import BookmarksScreen      from '../screens/main/BookmarksScreen';
 import SettingsScreen       from '../screens/main/SettingsScreen';
+import SearchScreen         from '../screens/main/SearchScreen';
 
 const Stack = createNativeStackNavigator<HomeStackParamList>();
 
@@ -26,6 +27,7 @@ export default function HomeStackNavigator() {
       />
       <Stack.Screen name="Bookmarks" component={BookmarksScreen} />
       <Stack.Screen name="Settings"  component={SettingsScreen}  />
+      <Stack.Screen name="Search"    component={SearchScreen}  options={{ animation: 'fade' }} />
     </Stack.Navigator>
   );
 }

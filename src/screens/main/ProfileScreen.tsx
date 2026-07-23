@@ -10,7 +10,7 @@ import { StatusBar } from 'expo-status-bar';
 import { fontSizes, spacing, radii, type ColorPalette } from '../../theme';
 import { useTheme, useThemeColors } from '../../context/ThemeContext';
 import XPProgressBar from '../../components/home/XPProgressBar';
-// removed mockData import
+import MainHeader from '../../components/common/MainHeader';
 import { useAuth } from '../../context/AuthContext';
 
 const { width } = Dimensions.get('window');
@@ -161,17 +161,7 @@ export default function ProfileScreen() {
     <View style={[styles.container, { paddingTop: insets.top }]}>
       <StatusBar style={isDark ? 'light' : 'dark'} />
 
-      <View style={styles.topRow}>
-        <Text style={styles.topHandle}>@{user?.username || 'user'}</Text>
-        <View style={styles.topActions}>
-          <TouchableOpacity style={styles.iconBtn}>
-            <Ionicons name="share-social-outline" size={20} color={colors.text.secondary} />
-          </TouchableOpacity>
-          <TouchableOpacity style={styles.iconBtn}>
-            <Ionicons name="settings-outline" size={20} color={colors.text.secondary} />
-          </TouchableOpacity>
-        </View>
-      </View>
+      <MainHeader />
 
       <ScrollView showsVerticalScrollIndicator={false}>
         <LinearGradient

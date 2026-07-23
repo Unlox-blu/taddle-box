@@ -14,6 +14,7 @@ import { fontSizes, spacing, radii, type ColorPalette } from '../../theme';
 import { useGames, type PlayMode, type GameMatch } from '../../context/GamesContext';
 import { useWallet } from '../../context/WalletContext';
 import { useThemeColors } from '../../context/ThemeContext';
+import MainHeader from '../../components/common/MainHeader';
 import type { Game } from '../../types';
 
 const { width: SCREEN_W } = Dimensions.get('window');
@@ -118,6 +119,8 @@ export default function GamesScreen() {
   return (
     <View style={[styles.container, { paddingTop: insets.top }]}>
       <StatusBar style="light" />
+
+      <MainHeader />
 
       {/* ── Header ── */}
       <LinearGradient colors={['rgba(124,58,237,0.18)', 'transparent']} style={styles.headerGrad}>

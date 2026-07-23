@@ -15,6 +15,7 @@ import { useCommunities } from '../../context/CommunityContext';
 import { usePosts }        from '../../context/PostsContext';
 import PostCard             from '../../components/home/PostCard';
 import CreatePostModal      from '../../components/common/CreatePostModal';
+import CommentsModal        from '../../components/home/CommentsModal';
 import type { CommunityStackParamList, Post } from '../../types';
 
 const COMMUNITY_MOCK_POST_IDS: Record<string, string[]> = {
@@ -176,6 +177,8 @@ export default function CommunityDetailScreen() {
   const community = communities.find(c => c.id === communityId);
   const [filter, setFilter]         = useState<FeedFilter>('All');
   const [showCreate, setShowCreate]  = useState(false);
+  const [commentsVisible, setCommentsVisible] = useState(false);
+  const [activeCommentPost, setActiveCommentPost] = useState<Post | null>(null);
 
   if (!community) return null;
 
@@ -194,10 +197,8 @@ export default function CommunityDetailScreen() {
     : communityPosts;
 
   const handleComment = (post: Post) => {
-    (navigation as any).getParent()?.getParent()?.navigate('Home', {
-      screen: 'Comments',
-      params: { post },
-    });
+    setActiveCommentPost(post);
+    setCommentsVisible(true);
   };
 
   const handleShare = async (post: Post) => {
@@ -343,6 +344,12 @@ export default function CommunityDetailScreen() {
         visible={showCreate}
         onClose={() => setShowCreate(false)}
         preselectedCommunityId={community.id}
+      />
+
+      <CommentsModal
+        visible={commentsVisible}
+        onClose={() => setCommentsVisible(false)}
+        post={activeCommentPost}
       />
     </View>
   );

@@ -11,6 +11,7 @@ import { StatusBar } from 'expo-status-bar';
 import { fontSizes, spacing, radii, type ColorPalette } from '../../theme';
 import { useTheme, useThemeColors } from '../../context/ThemeContext';
 import Button from '../../components/common/Button';
+import MainHeader from '../../components/common/MainHeader';
 // removed mockData import
 import type { Event } from '../../types';
 
@@ -151,6 +152,8 @@ export default function EventsScreen() {
   return (
     <View style={[styles.container, { paddingTop: insets.top }]}>
       <StatusBar style={isDark ? 'light' : 'dark'} />
+
+      <MainHeader />
 
       <View style={styles.header}>
         <Text style={styles.title}>Events 🎯</Text>

@@ -11,8 +11,9 @@ import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { StatusBar } from 'expo-status-bar';
 import { fontSizes, spacing, radii, type ColorPalette } from '../../theme';
-import { useWallet } from '../../context/WalletContext';
 import { useThemeColors } from '../../context/ThemeContext';
+import { useWallet } from '../../context/WalletContext';
+import MainHeader from '../../components/common/MainHeader';
 import type { Transaction } from '../../types';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -82,6 +83,8 @@ export default function WalletScreen() {
   return (
     <View style={[styles.container, { paddingTop: insets.top }]}>
       <StatusBar style="light" />
+
+      <MainHeader />
 
       {/* ── Header ── */}
       <View style={styles.header}>

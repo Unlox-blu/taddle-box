@@ -1,9 +1,8 @@
-import React, { useState, useRef, useCallback, useEffect } from "react";
+﻿import React, { useState, useRef, useCallback, useEffect } from "react";
 import {
   View,
   Text,
   ScrollView,
-  FlatList,
   TouchableOpacity,
   StyleSheet,
   RefreshControl,
@@ -21,8 +20,7 @@ import { fontSizes, spacing, radii } from "../../theme";
 import { useTheme, useThemeColors } from "../../context/ThemeContext";
 import PostCard from "../../components/home/PostCard";
 import SpotlightCarousel from "../../components/home/SpotlightCarousel";
-import MainHeader from "../../components/common/MainHeader";
-import CommentsModal from "../../components/home/CommentsModal";
+import SideDrawer from "../../components/home/SideDrawer";
 import { useAuth } from "../../context/AuthContext";
 import { usePosts } from "../../context/PostsContext";
 import type { HomeStackParamList, Post } from "../../types";
@@ -37,7 +35,7 @@ type HomeNavProp = NativeStackNavigationProp<HomeStackParamList, "HomeMain">;
 const WEEK_LABELS = ["M", "T", "W", "T", "F", "S", "S"];
 const TODAY_INDEX = new Date().getDay() === 0 ? 6 : new Date().getDay() - 1; // 0 is Monday, 6 is Sunday
 
-// ─── Main screen ──────────────────────────────────────────────────────────────
+// ΓöÇΓöÇΓöÇ Main screen ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
 
 export default function HomeScreen() {
   const { user: CURRENT_USER } = useAuth();
@@ -51,29 +49,18 @@ export default function HomeScreen() {
   const [activeTrend, setActiveTrend] = useState("All");
   const [trendChips, setTrendChips] = useState<string[]>(["All"]);
   const [refreshing, setRefreshing] = useState(false);
+  const [drawerOpen, setDrawerOpen] = useState(false);
   const [streakOpen, setStreakOpen] = useState(false);
 
   const [realStreak, setRealStreak] = useState(0);
   const [completedDays, setCompletedDays] = useState<number[]>([TODAY_INDEX]); // Mock for UI visual if needed, could calculate from streak start
   const [unreadCount, setUnreadCount] = useState(0);
   const [localXP, setLocalXP] = useState(CURRENT_USER?.xp || 0);
-  const [activePostId, setActivePostId] = useState<string | null>(null);
-
-  const [commentsVisible, setCommentsVisible] = useState(false);
-  const [activeCommentPost, setActiveCommentPost] = useState<Post | null>(null);
-
-  const viewabilityConfig = useRef({ itemVisiblePercentThreshold: 60 }).current;
-  const onViewableItemsChanged = useRef(({ viewableItems }: any) => {
-    if (viewableItems.length > 0) {
-      const newActiveId = viewableItems[0].item.id;
-      setActivePostId((prev: string | null) => prev === newActiveId ? prev : newActiveId);
-    }
-  }).current;
 
   // Sync XP if CURRENT_USER changes
   useEffect(() => {
     if (CURRENT_USER?.xp !== undefined) {
-      setLocalXP((prev: number) => prev === CURRENT_USER.xp ? prev : CURRENT_USER.xp);
+      setLocalXP(CURRENT_USER.xp);
     }
   }, [CURRENT_USER?.xp]);
 
@@ -130,18 +117,16 @@ export default function HomeScreen() {
       }
 
       fetchFeed(true);
-
-      hashtagService
-        .getHashtags()
-        .then((res) => {
-          if (res?.data) {
-            const tags = res.data
-              .filter((t: any) => typeof t === "string" && t.trim().length > 0)
-              .map((t: string) => `#${t.toLowerCase()}`);
-            setTrendChips(["All", ...tags]);
-          }
-        })
-        .catch((e) => console.error("Failed to fetch hashtags for feed", e));
+      
+      hashtagService.getHashtags().then((res) => {
+        if (res?.data) {
+          const tags = res.data
+            .filter((t: any) => typeof t === 'string' && t.trim().length > 0)
+            .map((t: string) => `#${t.toLowerCase()}`);
+          setTrendChips(["All", ...tags]);
+        }
+      }).catch(e => console.error("Failed to fetch hashtags for feed", e));
+      
     } catch (e) {
       console.error("Failed to init home data:", e);
     }
@@ -219,10 +204,8 @@ export default function HomeScreen() {
 
   const handleAuthorPress = (post: Post) =>
     navigation.navigate("UserProfile", { user: post.author });
-  const handleComment = (post: Post) => {
-    setActiveCommentPost(post);
-    setCommentsVisible(true);
-  };
+  const handleComment = (post: Post) =>
+    navigation.navigate("Comments", { post });
   const handleShare = async (post: Post) => {
     try {
       await Share.share({
@@ -240,13 +223,42 @@ export default function HomeScreen() {
     >
       <StatusBar style={isDark ? "light" : "dark"} />
 
-      {/* ── Header ────────────────────────────────── */}
-      <MainHeader />
+      {/* ΓöÇΓöÇ Header ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ */}
+      <View style={[styles.header, { borderBottomColor: colors.border }]}>
+        <TouchableOpacity
+          style={styles.iconBtn}
+          onPress={() => setDrawerOpen(true)}
+          activeOpacity={0.7}
+        >
+          <Ionicons name="menu-outline" size={26} color={colors.text.primary} />
+        </TouchableOpacity>
 
-      {/* ── Scrollable feed ───────────────────────── */}
-      <FlatList
-        data={filteredPosts}
-        keyExtractor={(item) => item.id}
+        <Text style={[styles.logo, { color: colors.text.primary }]}>
+          TADDLEBOX
+        </Text>
+
+        <TouchableOpacity
+          style={styles.iconBtn}
+          onPress={() => navigation.navigate("Notifications")}
+          activeOpacity={0.7}
+        >
+          <Ionicons
+            name="notifications-outline"
+            size={22}
+            color={colors.text.secondary}
+          />
+          {unreadCount > 0 && (
+            <View style={[styles.notifDot, { borderColor: colors.bg.base }]}>
+              <Text style={styles.notifDotText}>
+                {unreadCount > 99 ? "99+" : unreadCount}
+              </Text>
+            </View>
+          )}
+        </TouchableOpacity>
+      </View>
+
+      {/* ΓöÇΓöÇ Scrollable feed ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ */}
+      <ScrollView
         showsVerticalScrollIndicator={false}
         refreshControl={
           <RefreshControl
@@ -255,165 +267,156 @@ export default function HomeScreen() {
             tintColor={colors.primary}
           />
         }
-        onViewableItemsChanged={onViewableItemsChanged}
-        viewabilityConfig={viewabilityConfig}
-        style={{ flex: 1 }}
-        contentContainerStyle={{ flexGrow: 1 }}
-        ListHeaderComponent={
-          <View>
-            {/* ── Streak & XP mini cards ─────────────────── */}
-            <View style={styles.miniRow}>
-              <TouchableOpacity
-                style={[
-                  styles.miniCard,
-                  {
-                    backgroundColor: "rgba(251,191,36,0.08)",
-                    borderColor: "rgba(251,191,36,0.22)",
-                  },
-                ]}
-                onPress={() => setStreakOpen(true)}
-                activeOpacity={0.8}
-              >
-                <Text style={styles.miniEmoji}>🔥</Text>
-                <View style={styles.miniText}>
-                  <Text
-                    style={[styles.miniVal, { color: colors.text.primary }]}
-                  >
-                    {realStreak} Days
-                  </Text>
-                  <Text
-                    style={[styles.miniLabel, { color: colors.text.muted }]}
-                  >
-                    Streak
-                  </Text>
-                </View>
-                <Ionicons
-                  name="chevron-forward"
-                  size={13}
-                  color="rgba(251,191,36,0.45)"
-                />
-              </TouchableOpacity>
-
-              <Animated.View
-                ref={xpCardRef}
-                style={[
-                  styles.xpCardWrap,
-                  { transform: [{ scale: xpBounceAnim }] },
-                ]}
-              >
-                <TouchableOpacity
-                  style={[
-                    styles.miniCard,
-                    {
-                      backgroundColor: "rgba(124,58,237,0.08)",
-                      borderColor: "rgba(124,58,237,0.22)",
-                    },
-                  ]}
-                  onPress={() =>
-                    navigation.getParent()?.navigate("Wallet" as never)
-                  }
-                  activeOpacity={0.8}
-                >
-                  <Text style={styles.miniEmoji}>⚡</Text>
-                  <View style={styles.miniText}>
-                    <Text style={[styles.miniVal, { color: colors.xpGold }]}>
-                      {localXP.toLocaleString()}
-                    </Text>
-                    <Text
-                      style={[styles.miniLabel, { color: colors.text.muted }]}
-                    >
-                      Total XP
-                    </Text>
-                  </View>
-                  <Ionicons
-                    name="chevron-forward"
-                    size={13}
-                    color="rgba(251,191,36,0.45)"
-                  />
-                </TouchableOpacity>
-              </Animated.View>
-            </View>
-            <SpotlightCarousel />
-
-            {/* Daily reward */}
-            <DailyRewardCard onClaimPos={handleRewardClaim} />
-
-            {/* Feed */}
-            <Text style={[styles.sectionLabel, { color: colors.text.muted }]}>
-              Feed
-            </Text>
-
-            {/* Trending chips */}
-            <ScrollView
-              horizontal
-              showsHorizontalScrollIndicator={false}
-              contentContainerStyle={styles.trendScroll}
-            >
-              {trendChips.map((chip) => (
-                <TouchableOpacity
-                  key={chip}
-                  onPress={() => setActiveTrend(chip)}
-                  style={[
-                    styles.chip,
-                    {
-                      borderColor:
-                        activeTrend === chip
-                          ? colors.primary
-                          : colors.borderHover,
-                    },
-                    activeTrend === chip && {
-                      backgroundColor: "rgba(124,58,237,0.18)",
-                    },
-                  ]}
-                >
-                  <Text
-                    style={[
-                      styles.chipText,
-                      {
-                        color:
-                          activeTrend === chip
-                            ? colors.primaryLight
-                            : colors.text.secondary,
-                      },
-                      activeTrend === chip && { fontWeight: "700" },
-                    ]}
-                  >
-                    {chip}
-                  </Text>
-                </TouchableOpacity>
-              ))}
-            </ScrollView>
-          </View>
-        }
-        ListEmptyComponent={
-          <View
-            style={{ flex: 1, alignItems: "center", justifyContent: "center" }}
+      >
+        {/* ΓöÇΓöÇ Streak & XP mini cards ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ */}
+        <View style={styles.miniRow}>
+          <TouchableOpacity
+            style={[
+              styles.miniCard,
+              {
+                backgroundColor: "rgba(251,191,36,0.08)",
+                borderColor: "rgba(251,191,36,0.22)",
+              },
+            ]}
+            onPress={() => setStreakOpen(true)}
+            activeOpacity={0.8}
           >
-            <Text
+            <Text style={styles.miniEmoji}>≡ƒöÑ</Text>
+            <View style={styles.miniText}>
+              <Text style={[styles.miniVal, { color: colors.text.primary }]}>
+                {realStreak} Days
+              </Text>
+              <Text style={[styles.miniLabel, { color: colors.text.muted }]}>
+                Streak
+              </Text>
+            </View>
+            <Ionicons
+              name="chevron-forward"
+              size={13}
+              color="rgba(251,191,36,0.45)"
+            />
+          </TouchableOpacity>
+
+          <Animated.View
+            ref={xpCardRef}
+            style={[
+              styles.xpCardWrap,
+              { transform: [{ scale: xpBounceAnim }] },
+            ]}
+          >
+            <TouchableOpacity
               style={[
-                styles.emptyFilter,
-                { color: colors.text.muted, marginTop: 0 },
+                styles.miniCard,
+                {
+                  backgroundColor: "rgba(124,58,237,0.08)",
+                  borderColor: "rgba(124,58,237,0.22)",
+                },
+              ]}
+              onPress={() =>
+                navigation.getParent()?.navigate("Wallet" as never)
+              }
+              activeOpacity={0.8}
+            >
+              <Text style={styles.miniEmoji}>ΓÜí</Text>
+              <View style={styles.miniText}>
+                <Text style={[styles.miniVal, { color: colors.xpGold }]}>
+                  {localXP.toLocaleString()}
+                </Text>
+                <Text style={[styles.miniLabel, { color: colors.text.muted }]}>
+                  Total XP
+                </Text>
+              </View>
+              <Ionicons
+                name="chevron-forward"
+                size={13}
+                color="rgba(251,191,36,0.45)"
+              />
+            </TouchableOpacity>
+          </Animated.View>
+        </View>
+        <SpotlightCarousel />
+
+        {/* Daily reward */}
+        <DailyRewardCard onClaimPos={handleRewardClaim} />
+
+        {/* Feed */}
+        <Text style={[styles.sectionLabel, { color: colors.text.muted }]}>
+          Feed
+        </Text>
+
+        {/* Trending chips */}
+        <ScrollView
+          horizontal
+          showsHorizontalScrollIndicator={false}
+          contentContainerStyle={styles.trendScroll}
+        >
+          {trendChips.map((chip) => (
+            <TouchableOpacity
+              key={chip}
+              onPress={() => setActiveTrend(chip)}
+              style={[
+                styles.chip,
+                {
+                  borderColor:
+                    activeTrend === chip ? colors.primary : colors.borderHover,
+                },
+                activeTrend === chip && {
+                  backgroundColor: "rgba(124,58,237,0.18)",
+                },
               ]}
             >
-              No posts found
-            </Text>
-          </View>
-        }
-        renderItem={({ item }) => (
-          <PostCard
-            post={item}
-            isActive={item.id === activePostId}
-            onAuthorPress={handleAuthorPress}
-            onComment={handleComment}
-            onShare={handleShare}
-            onLike={toggleLike}
-            onSave={toggleSave}
-          />
+              <Text
+                style={[
+                  styles.chipText,
+                  {
+                    color:
+                      activeTrend === chip
+                        ? colors.primaryLight
+                        : colors.text.secondary,
+                  },
+                  activeTrend === chip && { fontWeight: "700" },
+                ]}
+              >
+                {chip}
+              </Text>
+            </TouchableOpacity>
+          ))}
+        </ScrollView>
+
+        {filteredPosts.length === 0 ? (
+          <Text style={[styles.emptyFilter, { color: colors.text.muted }]}>
+            No posts found
+          </Text>
+        ) : (
+          filteredPosts.map((post) => (
+            <PostCard
+              key={post.id}
+              post={post}
+              onAuthorPress={handleAuthorPress}
+              onComment={handleComment}
+              onShare={handleShare}
+              onLike={toggleLike}
+              onSave={toggleSave}
+            />
+          ))
         )}
-        ListFooterComponent={<View style={{ height: 110 }} />}
+
+        <View style={{ height: 110 }} />
+      </ScrollView>
+
+      {/* ΓöÇΓöÇ Side Drawer ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ */}
+      <SideDrawer
+        visible={drawerOpen}
+        onClose={() => setDrawerOpen(false)}
+        onNavigateTab={(tab) => navigation.getParent()?.navigate(tab as never)}
+        onNavigateStack={(screen) => {
+          if (screen === "Bookmarks") navigation.navigate("Bookmarks");
+          else if (screen === "Settings") navigation.navigate("Settings");
+        }}
+        onProfile={() => navigation.getParent()?.navigate("Profile" as never)}
       />
 
-      {/* ── Streak Modal ───────────────────────────── */}
+      {/* ΓöÇΓöÇ Streak Modal ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ */}
       <StreakModal
         visible={streakOpen}
         onClose={() => setStreakOpen(false)}
@@ -421,13 +424,7 @@ export default function HomeScreen() {
         completedDays={completedDays}
       />
 
-      <CommentsModal
-        visible={commentsVisible}
-        onClose={() => setCommentsVisible(false)}
-        post={activeCommentPost}
-      />
-
-      {/* ── XP reward particle (flies to XP card on claim) ── */}
+      {/* ΓöÇΓöÇ XP reward particle (flies to XP card on claim) ΓöÇΓöÇ */}
       <Animated.View
         pointerEvents="none"
         style={[
@@ -439,14 +436,14 @@ export default function HomeScreen() {
         ]}
       >
         <View style={styles.xpParticleInner}>
-          <Text style={styles.xpParticleText}>⚡ +50 XP</Text>
+          <Text style={styles.xpParticleText}>ΓÜí +50 XP</Text>
         </View>
       </Animated.View>
     </View>
   );
 }
 
-// ─── Daily Reward Card (animated claim + auto-remove) ─────────────────────────
+// ΓöÇΓöÇΓöÇ Daily Reward Card (animated claim + auto-remove) ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
 
 function DailyRewardCard({
   onClaimPos,
@@ -471,7 +468,7 @@ function DailyRewardCard({
       onClaimPos?.(px + w / 2, py + h / 2);
     });
 
-    // 1 — icon bounce
+    // 1 ΓÇö icon bounce
     Animated.sequence([
       Animated.spring(iconScale, {
         toValue: 1.55,
@@ -487,7 +484,7 @@ function DailyRewardCard({
       }),
     ]).start();
 
-    // 2 — floating "+50 XP" text rises and fades
+    // 2 ΓÇö floating "+50 XP" text rises and fades
     Animated.parallel([
       Animated.timing(floatOpac, {
         toValue: 1,
@@ -507,7 +504,7 @@ function DailyRewardCard({
       }).start(),
     );
 
-    // 3 — after 1.8 s card fades + slides down then unmounts
+    // 3 ΓÇö after 1.8 s card fades + slides down then unmounts
     setTimeout(() => {
       Animated.parallel([
         Animated.timing(cardOpac, {
@@ -550,13 +547,13 @@ function DailyRewardCard({
         ]}
         pointerEvents="none"
       >
-        🎁 +50 XP
+        ≡ƒÄü +50 XP
       </Animated.Text>
 
       <Animated.View
         style={[styles.rewardIcon, { transform: [{ scale: iconScale }] }]}
       >
-        <Text style={{ fontSize: 26 }}>{claimed ? "✅" : "🎁"}</Text>
+        <Text style={{ fontSize: 26 }}>{claimed ? "Γ£à" : "≡ƒÄü"}</Text>
       </Animated.View>
 
       <View style={styles.rewardInfo}>
@@ -600,7 +597,7 @@ function DailyRewardCard({
   );
 }
 
-// ─── Streak Modal ─────────────────────────────────────────────────────────────
+// ΓöÇΓöÇΓöÇ Streak Modal ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
 
 function StreakModal({
   visible,
@@ -640,7 +637,7 @@ function StreakModal({
           <View style={[sm.handle, { backgroundColor: colors.border }]} />
 
           <View style={sm.titleRow}>
-            <Text style={sm.titleEmoji}>🔥</Text>
+            <Text style={sm.titleEmoji}>≡ƒöÑ</Text>
             <View style={{ flex: 1 }}>
               <Text style={[sm.title, { color: colors.text.primary }]}>
                 Daily Streak
@@ -681,7 +678,7 @@ function StreakModal({
                     {d}
                   </Text>
                   <Text style={sm.dotIcon}>
-                    {done ? "✓" : today ? "🔥" : ""}
+                    {done ? "Γ£ô" : today ? "≡ƒöÑ" : ""}
                   </Text>
                 </View>
               );
@@ -695,14 +692,13 @@ function StreakModal({
   );
 }
 
-// ─── Styles ───────────────────────────────────────────────────────────────────
+// ΓöÇΓöÇΓöÇ Styles ΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇΓöÇ
 
 const styles = StyleSheet.create({
   container: { flex: 1 },
   header: {
     flexDirection: "row",
     alignItems: "center",
-    justifyContent: "space-between",
     paddingHorizontal: spacing.lg,
     paddingVertical: 10,
     borderBottomWidth: 1,
@@ -715,14 +711,11 @@ const styles = StyleSheet.create({
     borderRadius: radii.md,
   },
   logo: {
-    position: "absolute",
-    left: 0,
-    right: 0,
+    flex: 1,
     textAlign: "center",
     fontSize: fontSizes.xl,
     fontWeight: "900",
     letterSpacing: 1.5,
-    zIndex: -1,
   },
   notifDot: {
     position: "absolute",

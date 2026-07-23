@@ -37,13 +37,17 @@ function reducer(state: State, action: Action): State {
     case 'TOGGLE_LIKE':
       return {
         ...state,
-        posts: state.posts.map(p =>
-          p.id !== action.id ? p : {
+        posts: state.posts.map(p => {
+          if (p.id !== action.id) return p;
+          const currentLikes = p.likes ?? (p as any).likesCount ?? 0;
+          const newLikes = p.isLiked ? Math.max(0, currentLikes - 1) : currentLikes + 1;
+          return {
             ...p,
             isLiked: !p.isLiked,
-            likes: p.isLiked ? Math.max(0, p.likes - 1) : p.likes + 1,
-          }
-        ),
+            likes: newLikes,
+            likesCount: newLikes,
+          };
+        }),
       };
 
     case 'TOGGLE_SAVE':
@@ -98,7 +102,7 @@ export function PostsProvider({ children }: { children: React.ReactNode }) {
     try {
       const nextPage = refresh ? 1 : state.page + 1;
       const res = await postsService.getFeed(nextPage, 20);
-      const newPosts = res.data || [];
+      const newPosts = Array.isArray(res) ? res : (res.data || []);
       const hasMore = newPosts.length === 20;
 
       if (refresh) {
@@ -131,10 +135,15 @@ export function PostsProvider({ children }: { children: React.ReactNode }) {
     },
 
     toggleLike: async (id) => {
+      // Find current state
+      const post = state.posts.find(p => p.id === id);
+      if (!post) return;
+      const isCurrentlyLiked = !!post.isLiked;
+
       // Optimistic UI update
       dispatch({ type: 'TOGGLE_LIKE', id });
       try {
-        await postsService.toggleLike(id);
+        await postsService.toggleLike(id, isCurrentlyLiked);
       } catch (e) {
         // Revert on failure
         dispatch({ type: 'TOGGLE_LIKE', id });
@@ -143,10 +152,15 @@ export function PostsProvider({ children }: { children: React.ReactNode }) {
     },
 
     toggleSave: async (id) => {
+      // Find current state
+      const post = state.posts.find(p => p.id === id);
+      if (!post) return;
+      const isCurrentlySaved = !!post.isSaved;
+
       // Optimistic UI update
       dispatch({ type: 'TOGGLE_SAVE', id });
       try {
-        await postsService.toggleSave(id);
+        await postsService.toggleSave(id, isCurrentlySaved);
       } catch (e) {
         // Revert on failure
         dispatch({ type: 'TOGGLE_SAVE', id });

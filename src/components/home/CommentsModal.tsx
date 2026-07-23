@@ -2,7 +2,7 @@ const COMMENTS: any[] = [];
 import React, { useMemo, useState, useRef } from 'react';
 import {
   View, Text, FlatList, TouchableOpacity, TextInput,
-  StyleSheet, KeyboardAvoidingView, Platform,
+  StyleSheet, KeyboardAvoidingView, Platform, Modal,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
@@ -14,8 +14,13 @@ import type { HomeStackParamList, Comment } from '../../types';
 import { useAuth } from '../../context/AuthContext';
 import SmartInput from '../../components/common/SmartInput';
 
-type Props = NativeStackScreenProps<HomeStackParamList, 'Comments'>;
+import type { Post } from '../../types';
 
+interface Props {
+  visible: boolean;
+  onClose: () => void;
+  post: Post | null;
+}
 function makeStyles(c: ColorPalette) {
   return StyleSheet.create({
     container: { flex: 1, backgroundColor: c.bg.base },
@@ -114,9 +119,8 @@ function makeStyles(c: ColorPalette) {
   });
 }
 
-export default function CommentsScreen({ navigation, route }: Props) {
+export default function CommentsModal({ visible, onClose, post }: Props) {
   const { user: CURRENT_USER } = useAuth();
-  const { post } = route.params;
   const insets   = useSafeAreaInsets();
   const inputRef = useRef<TextInput>(null);
   const { isDark } = useTheme();
@@ -125,8 +129,10 @@ export default function CommentsScreen({ navigation, route }: Props) {
 
   const [text,     setText]     = useState('');
   const [comments, setComments] = useState<Comment[]>(
-    COMMENTS.filter(c => c.postId === post.id)
+    post ? COMMENTS.filter(c => c.postId === post.id) : []
   );
+
+  if (!post) return null;
 
   const handleSend = () => {
     const trimmed = text.trim();
@@ -158,18 +164,24 @@ export default function CommentsScreen({ navigation, route }: Props) {
   };
 
   return (
-    <KeyboardAvoidingView
-      style={{ flex: 1 }}
-      behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+    <Modal
+      visible={visible}
+      animationType="slide"
+      presentationStyle="formSheet"
+      onRequestClose={onClose}
     >
-      <View style={[styles.container, { paddingTop: insets.top }]}>
-        <StatusBar style={isDark ? 'light' : 'dark'} />
+      <KeyboardAvoidingView
+        style={{ flex: 1 }}
+        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+      >
+        <View style={[styles.container, { paddingTop: Platform.OS === 'android' ? insets.top : 0 }]}>
+          <StatusBar style={isDark ? 'light' : 'dark'} />
 
-        {/* Header */}
-        <View style={styles.header}>
-          <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backBtn}>
-            <Ionicons name="arrow-back" size={22} color={colors.text.primary} />
-          </TouchableOpacity>
+          {/* Header */}
+          <View style={styles.header}>
+            <TouchableOpacity onPress={onClose} style={styles.backBtn}>
+              <Ionicons name="close" size={24} color={colors.text.primary} />
+            </TouchableOpacity>
           <View style={styles.headerCenter}>
             <Text style={styles.title}>Comments</Text>
             <Text style={styles.subtitle}>{comments.length} comments</Text>
@@ -229,8 +241,9 @@ export default function CommentsScreen({ navigation, route }: Props) {
             <Ionicons name="send" size={17} color="#fff" />
           </TouchableOpacity>
         </View>
-      </View>
-    </KeyboardAvoidingView>
+        </View>
+      </KeyboardAvoidingView>
+    </Modal>
   );
 }
 

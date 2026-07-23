@@ -16,6 +16,7 @@ import { useTheme, useThemeColors } from '../../context/ThemeContext';
 // removed mockData import
 import { useCommunities } from '../../context/CommunityContext';
 import type { Community, CommunityStackParamList } from '../../types';
+import MainHeader from '../../components/common/MainHeader';
 
 type Nav = NativeStackNavigationProp<CommunityStackParamList, 'CommunityList'>;
 
@@ -288,6 +289,8 @@ export default function CommunityScreen() {
     <View style={[styles.container, { paddingTop: insets.top }]}>
       <StatusBar style={isDark ? 'light' : 'dark'} />
 
+      <MainHeader />
+
       <View style={styles.header}>
         <View>
           <Text style={styles.title}>Communities</Text>
@@ -298,23 +301,6 @@ export default function CommunityScreen() {
         <TouchableOpacity style={styles.createBtn} onPress={() => setShowCreate(true)}>
           <Ionicons name="add" size={20} color={colors.primaryLight} />
         </TouchableOpacity>
-      </View>
-
-      <View style={styles.searchBar}>
-        <Ionicons name="search-outline" size={16} color={colors.text.muted} />
-        <TextInput
-          style={styles.searchInput}
-          placeholder="Search communities..."
-          placeholderTextColor={colors.text.muted}
-          value={search}
-          onChangeText={setSearch}
-          returnKeyType="search"
-        />
-        {search.length > 0 && (
-          <TouchableOpacity onPress={() => setSearch('')} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
-            <Ionicons name="close-circle" size={16} color={colors.text.muted} />
-          </TouchableOpacity>
-        )}
       </View>
 
       <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.chips}>
@@ -563,6 +549,7 @@ function CreateCommunityModal({
               </TouchableOpacity>
             ))}
           </ScrollView>
+          {/* Removed dedicated search bar; integrated in MainHeader */}
 
           <Text style={styles.fieldLabel}>
             Name <Text style={styles.required}>*</Text>

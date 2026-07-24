@@ -57,6 +57,20 @@ class XpService {
         throw createError('XP wallet not found', 404);
       }
 
+      // Prevent duplicate daily login
+      if (sourceType === 'Daily Login') {
+        const recent = await this.xpRepo.checkRecentTransactionBySource(xpWallet.id, sourceType, 24);
+        if (recent) throw createError('Daily Login already claimed today', 400);
+      }
+
+      // Prevent duplicate post views
+      if (sourceType && sourceType.startsWith('view_post_')) {
+        const existing = await this.xpRepo.getTransactionsBySource(xpWallet.id, sourceType);
+        if (existing && existing.length > 0) {
+          throw createError('XP already claimed for this post view', 400);
+        }
+      }
+
       const balanceBefore = xpWallet.Xp;
 
       const updatedXP = await this.xpRepo.incrementXp(userId, xp);

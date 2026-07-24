@@ -2,7 +2,9 @@ CREATE TABLE IF NOT EXISTS wallets (
   id            UUID    PRIMARY KEY DEFAULT uuid_generate_v4(),
   user_id       UUID    NOT NULL UNIQUE REFERENCES users(id) ON DELETE CASCADE,
   balance_cents INTEGER NOT NULL DEFAULT 0 CHECK (balance_cents >= 0),
+  held_balance_cents INTEGER NOT NULL DEFAULT 0 CHECK (held_balance_cents >= 0),
   currency      CHAR(3) NOT NULL DEFAULT 'INR',
+  linked_upi    TEXT,
   is_active     BOOLEAN NOT NULL DEFAULT TRUE,
   created_at    TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   updated_at    TIMESTAMPTZ NOT NULL DEFAULT NOW()

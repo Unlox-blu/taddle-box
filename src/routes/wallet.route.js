@@ -8,6 +8,7 @@ router.get('/me',                verifyToken,  walletController.getWallet);
 router.get('/me/transactions',   verifyToken,  walletController.getTransactions);
 
 // Core Redemption Flows
+router.post('/upi',              verifyToken,  walletController.linkUPI);
 router.post('/convert-xp',       verifyToken,  walletController.convertXpToCash);
 router.post('/withdraw/initiate',verifyToken,  walletController.initiateWithdrawal);
 

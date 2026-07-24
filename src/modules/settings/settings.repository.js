@@ -122,6 +122,51 @@ const togglePromotionalNotification = async (userId) => {
 
 
 
+const toggleNotifXP = async (userId) => {
+  const { rows } = await pool.query(
+    `
+    UPDATE ${SettingsModel.TABLE}
+    SET
+      notif_xp = NOT notif_xp,
+      updated_at = NOW()
+    WHERE user_id = $1
+    RETURNING notif_xp
+  `,
+    [userId]
+  );
+  return SettingsModel.format(rows[0]);
+};
+
+const toggleNotifWithdraw = async (userId) => {
+  const { rows } = await pool.query(
+    `
+    UPDATE ${SettingsModel.TABLE}
+    SET
+      notif_withdraw = NOT notif_withdraw,
+      updated_at = NOW()
+    WHERE user_id = $1
+    RETURNING notif_withdraw
+  `,
+    [userId]
+  );
+  return SettingsModel.format(rows[0]);
+};
+
+const toggleNotifPromos = async (userId) => {
+  const { rows } = await pool.query(
+    `
+    UPDATE ${SettingsModel.TABLE}
+    SET
+      notif_promos = NOT notif_promos,
+      updated_at = NOW()
+    WHERE user_id = $1
+    RETURNING notif_promos
+  `,
+    [userId]
+  );
+  return SettingsModel.format(rows[0]);
+};
+
 module.exports = {
   create,
   findByUserId,
@@ -132,4 +177,7 @@ module.exports = {
   setTheme,
   toggleSystemNotification,
   togglePromotionalNotification,
+  toggleNotifXP,
+  toggleNotifWithdraw,
+  toggleNotifPromos,
 };

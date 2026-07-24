@@ -55,7 +55,37 @@ class SettingsController {
     try {
       const userId = req.userId;
       const notification = await this.settingsSvc.togglePromotionalNotification({userId});
-      res.json(apiResponse(notification, `Notification ${notification.notification ? "No": "Off"} successfuly`));
+      res.json(apiResponse(notification, `Notification toggled successfully`));
+    } catch (error) {
+      next(error);
+    }
+  };
+
+  toggleNotifXP = async (req, res, next) => {
+    try {
+      const userId = req.userId;
+      const data = await this.settingsSvc.toggleNotifXP({userId});
+      res.json(apiResponse(data, `Notification toggled successfully`));
+    } catch (error) {
+      next(error);
+    }
+  };
+
+  toggleNotifWithdraw = async (req, res, next) => {
+    try {
+      const userId = req.userId;
+      const data = await this.settingsSvc.toggleNotifWithdraw({userId});
+      res.json(apiResponse(data, `Notification toggled successfully`));
+    } catch (error) {
+      next(error);
+    }
+  };
+
+  toggleNotifPromos = async (req, res, next) => {
+    try {
+      const userId = req.userId;
+      const data = await this.settingsSvc.toggleNotifPromos({userId});
+      res.json(apiResponse(data, `Notification toggled successfully`));
     } catch (error) {
       next(error);
     }

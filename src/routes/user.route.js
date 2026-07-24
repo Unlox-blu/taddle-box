@@ -16,6 +16,11 @@ router.patch('/update-privacy',             verifyToken,     validateRequest({bo
 router.get('/bookmarked',                   verifyToken,                                                    userController.getbookmarked);
 router.get('/save',                         verifyToken,                                                    userController.getsaved);
 router.delete('/me',                        verifyToken,                                                    userController.deleteAccount);
+// Security / App Lock
+router.post('/pin/setup',                   verifyToken,                                                    userController.setupAppLock);
+router.post('/pin/verify',                  verifyToken,                                                    userController.verifyAppLock);
+router.post('/pin/reset',                   verifyToken,                                                    userController.resetAppLock);
+router.post('/pin/remove',                  verifyToken,                                                    userController.removeAppLock);
 
 // follow/unfollow routes
 router.get('/:username',                    optionalAuth,    validateRequest({params: usernameSchema}),     userController.getProfile);

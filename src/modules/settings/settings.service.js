@@ -77,6 +77,36 @@ class SettingsService {
       throw error;
     }
   }
+
+  async toggleNotifXP({ userId }) {
+    try {
+      const settings = await this.settingsRepo.findByUserId(userId);
+      if (!settings) throw createError('settings not found', 404);
+      return await this.settingsRepo.toggleNotifXP(userId);
+    } catch (error) {
+      throw error;
+    }
+  }
+
+  async toggleNotifWithdraw({ userId }) {
+    try {
+      const settings = await this.settingsRepo.findByUserId(userId);
+      if (!settings) throw createError('settings not found', 404);
+      return await this.settingsRepo.toggleNotifWithdraw(userId);
+    } catch (error) {
+      throw error;
+    }
+  }
+
+  async toggleNotifPromos({ userId }) {
+    try {
+      const settings = await this.settingsRepo.findByUserId(userId);
+      if (!settings) throw createError('settings not found', 404);
+      return await this.settingsRepo.toggleNotifPromos(userId);
+    } catch (error) {
+      throw error;
+    }
+  }
 }
 
 module.exports = SettingsService;

@@ -1,6 +1,6 @@
 'use strict';
 
-const { verifyToken } = require('../../utils/token.util');
+const { decodeToken } = require('../../utils/token.util');
 
 
 const socketAuthMiddleware = (socket, next) => {
@@ -22,7 +22,7 @@ const socketAuthMiddleware = (socket, next) => {
 
     if (!token) return next(new Error('Authentication required'));
 
-    const payload = verifyToken(token);
+    const payload = decodeToken(token);
     socket.userId = payload.userId;
     socket.userRole = payload.role;
     next();

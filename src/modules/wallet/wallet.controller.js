@@ -42,6 +42,17 @@ class WalletController {
     }
   };
 
+  linkUPI = async (req, res, next) => {
+    try {
+      const userId = req.userId;
+      const { upiId } = req.body;
+      const data = await this.walletSvc.linkUPI({ userId, upiId });
+      res.json(apiResponse(data, 'UPI linked successfully.'));
+    } catch (error) {
+      next(error);
+    }
+  };
+
   initiateWithdrawal = async (req, res, next) => {
     try {
       const userId = req.userId;

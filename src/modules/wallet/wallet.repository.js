@@ -29,6 +29,18 @@ const create = async (userId) => {
   }
 };
 
+const updateUPI = async (userId, upiId) => {
+  try {
+    const { rows } = await pool.query(
+      `UPDATE ${WalletModel.TABLE} SET linked_upi = $1, updated_at = NOW() WHERE user_id = $2 RETURNING ${WalletModel.WALLET_FIELDS}`,
+      [upiId, userId]
+    );
+    return rows[0] ? WalletModel.formatWallet(rows[0]) : null;
+  } catch (error) {
+    throw error;
+  }
+};
+
 // Must be called inside a transaction (pass pg client)
 const lockForUpdate = async (walletId, client) => {
   try {

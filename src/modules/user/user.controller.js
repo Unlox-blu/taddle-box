@@ -173,6 +173,49 @@ class UserController {
       next(error);
     }
   };
+  setupAppLock = async (req, res, next) => {
+    try {
+      const userId = req.userId;
+      const { pin } = req.body;
+      const result = await this.userSvc.setupAppLock({ userId, pin });
+      res.json(apiResponse(result, 'PIN setup successfully'));
+    } catch (error) {
+      next(error);
+    }
+  };
+
+  verifyAppLock = async (req, res, next) => {
+    try {
+      const userId = req.userId;
+      const { pin } = req.body;
+      const result = await this.userSvc.verifyAppLock({ userId, pin });
+      res.json(apiResponse(result, 'PIN verified'));
+    } catch (error) {
+      next(error);
+    }
+  };
+
+  resetAppLock = async (req, res, next) => {
+    try {
+      const userId = req.userId;
+      const { password, newPin } = req.body;
+      const result = await this.userSvc.resetAppLock({ userId, password, newPin });
+      res.json(apiResponse(result, 'PIN reset successfully'));
+    } catch (error) {
+      next(error);
+    }
+  };
+
+  removeAppLock = async (req, res, next) => {
+    try {
+      const userId = req.userId;
+      const { pin } = req.body;
+      const result = await this.userSvc.removeAppLock({ userId, pin });
+      res.json(apiResponse(result, 'PIN removed successfully'));
+    } catch (error) {
+      next(error);
+    }
+  };
 }
 
 module.exports = UserController;

@@ -277,6 +277,19 @@ const updatePhone = async (userId, countryCode, phoneNumber) => {
   }
 };
 
+const updateEmail = async (userId, email) => {
+  try {
+    await pool.query(
+      `UPDATE ${AuthModel.USER_TABLE} 
+      SET email = $1, updated_at = NOW() 
+      WHERE id = $2`,
+      [email, userId]
+    );
+  } catch (error) {
+    throw error;
+  }
+};
+
 const updateAvatar = async (userId, mediaId) => {
   try {
     await pool.query(
@@ -423,5 +436,5 @@ module.exports = {
   getRefreshTokenById, updateEmailVerifyToken, findByEmailVerifyToken,
   updatePasswordResetToken, findByPasswordResetToken, getPasswordByUserId,
   updatePassword, updateLastLogin, softDelete, isEmailExist, isPhoneExist, isUsernameExist,
-  findByIdSecure, findByIdAppLock, findByEmailUser, findByIdUser, updateAvatar,
+  findByIdSecure, findByIdAppLock, findByEmailUser, findByIdUser, updateAvatar, updateEmail,
 };

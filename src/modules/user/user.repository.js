@@ -241,11 +241,12 @@ const createWithGoogle = async ({ name, username, email, googleId, googleAvatar 
 
 const updateAppLock = async (userId, pin) => {
   try {
+    const isEnabled = pin !== null;
     await pool.query(
       `UPDATE ${UserModel.TABLE} 
-      SET app_lock = $1, app_lock_enabled = TRUE, updated_at = NOW() 
+      SET app_lock = $1, app_lock_enabled = $3, updated_at = NOW() 
       WHERE id = $2`,
-      [pin, userId]
+      [pin, userId, isEnabled]
     )
   } catch (error) {
     throw error

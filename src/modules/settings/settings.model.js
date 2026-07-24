@@ -7,6 +7,9 @@ const LIST_FIELDS = [
   'theme',
   'promotional_notification',
   'system_notification',
+  'notif_xp',
+  'notif_withdraw',
+  'notif_promos',
   'created_at',
   'updated_at'
 ].join(', ');
@@ -18,6 +21,9 @@ const format = (row) => {
     theme: row.theme,
     promotionalNotification: row.promotional_notification,
     systemNotification: row.system_notification,
+    notifXP: row.notif_xp,
+    notifWithdraw: row.notif_withdraw,
+    notifPromos: row.notif_promos,
     createdAt: row.created_at,
     updatedAt: row.updated_at
   };

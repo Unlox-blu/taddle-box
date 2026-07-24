@@ -125,8 +125,36 @@ const resetPasswordSchema = z.object({
   password: passwordRules,
 }).strict();
 
+const verifyPasswordSchema = z.object({
+  password: z.string().min(1, 'Password is required'),
+}).strict();
 
+const sendPhoneOtpSchema = z.object({
+  countryCode: z.string().min(1).regex(/^\+[0-9]{1,4}$/),
+  phone: z.string().min(3).regex(/^[0-9]{3,15}$/),
+  purpose: z.enum(['change_email', 'change_phone']),
+}).strict();
 
+const sendEmailOtpSchema = z.object({
+  email: z.preprocess(transformToLowerCase, z.string().email()),
+  purpose: z.enum(['change_email', 'change_phone']),
+}).strict();
+
+const verifySingleOtpSchema = z.object({
+  otp: z.string().length(6).regex(/^[0-9]+$/),
+  purpose: z.enum(['change_email', 'change_phone']),
+}).strict();
+
+const updatePhoneSchema = z.object({
+  changeToken: z.string().min(1, 'Change token is required'),
+  countryCode: z.string().min(1).regex(/^\+[0-9]{1,4}$/),
+  phone: z.string().min(3).regex(/^[0-9]{3,15}$/),
+}).strict();
+
+const updateEmailSchema = z.object({
+  changeToken: z.string().min(1, 'Change token is required'),
+  email: z.preprocess(transformToLowerCase, z.string().email()),
+}).strict();
 
 
 module.exports = {
@@ -144,4 +172,10 @@ module.exports = {
   forgotPasswordSchema,
   resetPasswordSchema,
   changePasswordSchema,
+  verifyPasswordSchema,
+  sendPhoneOtpSchema,
+  sendEmailOtpSchema,
+  verifySingleOtpSchema,
+  updatePhoneSchema,
+  updateEmailSchema,
 };

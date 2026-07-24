@@ -6,6 +6,9 @@ CREATE TABLE IF NOT EXISTS settings (
                               CHECK (theme IN ('light', 'dark', 'system')),
   promotional_notification  BOOLEAN DEFAULT TRUE,
   system_notification       BOOLEAN DEFAULT TRUE,
+  notif_xp                  BOOLEAN DEFAULT TRUE,
+  notif_withdraw            BOOLEAN DEFAULT TRUE,
+  notif_promos              BOOLEAN DEFAULT FALSE,
   created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   updated_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   PRIMARY KEY(user_id)

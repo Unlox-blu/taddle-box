@@ -14,6 +14,9 @@ router.get('/',                         verifyToken,                            
 router.patch('/theme',                  verifyToken,   validateRequest({ body: setThemeSchema }),       settingsController.setTheme)
 router.patch('/systemnotification',     verifyToken,                                   settingsController.toggleSystemNotification)
 router.patch('/promotionalnotification',verifyToken,                                   settingsController.togglePromotionalNotification)
+router.patch('/notifxp',                verifyToken,                                   settingsController.toggleNotifXP)
+router.patch('/notifwithdraw',          verifyToken,                                   settingsController.toggleNotifWithdraw)
+router.patch('/notifpromos',            verifyToken,                                   settingsController.toggleNotifPromos)
 router.get('/notifications/preferences', verifyToken,                                  notificationController.getPreferences)
 router.put('/notifications/preferences', verifyToken,                                  notificationController.updatePreferences)
 

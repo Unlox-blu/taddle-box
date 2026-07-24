@@ -4,6 +4,8 @@ const { createError } = require('../../utils/error.util');
 const { notificationService } = require('../notification/notification.container');
 const appleUtil = require('../../utils/apple.util');
 
+const bcrypt = require('bcryptjs');
+
 class UserService {
   constructor({ userRepository, followerRepository, mediaService, bookmarkService, saveService, storageIntegration, taskService }) {
     this.userRepo = userRepository;
@@ -306,6 +308,58 @@ class UserService {
     } catch (error) {
       throw error;
     }
+  }
+
+  async setupAppLock({ userId, pin }) {
+    if (!pin || pin.length !== 4) throw createError('PIN must be 4 digits', 400);
+    const hash = await bcrypt.hash(pin, 10);
+    await this.userRepo.updateAppLock(userId, hash);
+    return { message: 'App lock PIN set successfully' };
+  }
+
+  async verifyAppLock({ userId, pin }) {
+    if (!pin) throw createError('PIN is required', 400);
+    const user = await this.userRepo.findByIdPrivate(userId);
+    if (!user || !user.appLock) throw createError('App lock is not set up', 400);
+    
+    const isValid = await bcrypt.compare(pin, user.appLock);
+    if (!isValid) throw createError('Invalid PIN', 401);
+    
+    return { valid: true };
+  }
+
+  async resetAppLock({ userId, password, newPin }) {
+    if (!newPin || newPin.length !== 4) throw createError('New PIN must be 4 digits', 400);
+    if (!password) throw createError('Password is required', 400);
+    
+    const user = await this.userRepo.findByIdPrivate(userId);
+    if (!user) throw createError('User not found', 404);
+
+    // Verify password (assuming auth format is passwordHash)
+    const { rows } = await require('../../config/database').query('SELECT password_hash FROM users WHERE id = $1', [userId]);
+    const passwordHash = rows[0]?.password_hash;
+    if (!passwordHash) throw createError('Password not set for this account', 400);
+
+    const isPasswordValid = await bcrypt.compare(password, passwordHash);
+    if (!isPasswordValid) throw createError('Invalid password', 401);
+
+    const hash = await bcrypt.hash(newPin, 10);
+    await this.userRepo.updateAppLock(userId, hash);
+    return { message: 'App lock PIN reset successfully' };
+  }
+
+  async removeAppLock({ userId, pin }) {
+    if (!pin) throw createError('PIN is required', 400);
+    
+    const user = await this.userRepo.findByIdPrivate(userId);
+    if (!user || !user.appLock) throw createError('App lock is not set up', 400);
+
+    const isValid = await bcrypt.compare(pin, user.appLock);
+    if (!isValid) throw createError('Invalid PIN', 401);
+
+    // Set app_lock to NULL
+    await this.userRepo.updateAppLock(userId, null);
+    return { message: 'App lock PIN removed successfully' };
   }
 }
 

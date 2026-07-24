@@ -117,19 +117,34 @@ const getUserTransactions = async (xpId, limit, offset) => {
   return {rows: rows.map(XpModel.formatTransaction), total};
 };
 
-const getTransactionsBySource = async (userId, sourceType) => {
+const getTransactionsBySource = async (xpId, sourceType) => {
   const { rows } = await pool.query(
     `
     SELECT ${XpModel.TRANSACTION_FIELDS}
     FROM ${XpModel.TRANSACTIONS_TABLE}
-    WHERE user_id = $1
+    WHERE xp_id = $1
     AND source_type = $2
     ORDER BY created_at DESC
     `,
-    [userId, sourceType]
+    [xpId, sourceType]
   );
 
   return rows.map(XpModel.formatTransaction);
+};
+
+const checkRecentTransactionBySource = async (xpId, sourceType, hours) => {
+  const { rows } = await pool.query(
+    `
+    SELECT id
+    FROM ${XpModel.TRANSACTIONS_TABLE}
+    WHERE xp_id = $1
+    AND source_type = $2
+    AND created_at >= NOW() - INTERVAL '1 hour' * $3
+    LIMIT 1
+    `,
+    [xpId, sourceType, hours]
+  );
+  return rows.length > 0;
 };
 
 const updateTransactionStatus = async (id, status) => {
@@ -168,5 +183,6 @@ module.exports = {
   getUserTransactions,
   getTransactionsBySource,
   updateTransactionStatus,
+  checkRecentTransactionBySource,
   getTransactionCount,
 };

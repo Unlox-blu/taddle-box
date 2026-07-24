@@ -18,16 +18,17 @@ const findById = async (commentId) => {
   }
 };
 
-const findByPost = async (postId, limit, offset, parentId = null) => {
+const findByPost = async (postId, limit, offset, parentId = null, userId = null) => {
   try {
     const { rows } = await pool.query(
-      `SELECT ${CommentModel.LIST_FIELDS}, COUNT(*) OVER() AS total
+      `SELECT ${CommentModel.LIST_FIELDS}, COUNT(*) OVER() AS total,
+       EXISTS(SELECT 1 FROM ${CommentModel.LIKES_TABLE} cl WHERE cl.comment_id = c.id AND cl.user_id = $5) as is_liked
      FROM ${CommentModel.TABLE} c JOIN users u ON u.id = c.author_id
      WHERE c.post_id = $1 AND c.deleted_at IS NULL
        AND ($2::uuid IS NULL AND c.parent_id IS NULL OR c.parent_id = $2::uuid)
      ORDER BY c.created_at ASC
      LIMIT $3 OFFSET $4`,
-      [postId, parentId, limit, offset]
+      [postId, parentId, limit, offset, userId]
     );
     const total = rows[0]?.total || 0;
     return { rows, total: parseInt(total, 10) };

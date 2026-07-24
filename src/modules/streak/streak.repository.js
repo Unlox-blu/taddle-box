@@ -43,13 +43,15 @@ const findOneByUserId = async (userId) => {
 
 const create = async (userId) => {
     try {
-        await pool.query(
+        const { rows } = await pool.query(
         `INSERT INTO ${StreakModel.TABLE} 
         (user_id)
         VALUES ($1)
+        RETURNING *
         `,
         [userId]
         )
+        return StreakModel.format(rows[0]);
     } catch (error) {
         throw error
     }

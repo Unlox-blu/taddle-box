@@ -39,8 +39,8 @@ class CommentService {
           throw createError("You are not allowed to comment on this community post", 403);
         }
       } else if (author.privacy !== 'public') {
-        const isFollow = await this.followerRepo.findByFollowerIdAndFollowingId(userId, authorId);
-        if (!isFollow || isFollow !== 'active')
+        const isFollow = await this.followerRepo.findByFollowerIdAndFollowingId(authorId, postAuthorId);
+        if (!isFollow || isFollow.status !== 'active')
           throw createError("You must follow the post author to access this post", 403);
       }
 
@@ -105,7 +105,7 @@ class CommentService {
           throw createError("You must follow the post author to access this post comment", 403);
       }
 
-      const { rows, total } = await this.commentRepo.findByPost(postId, limit, offset, parentId);
+      const { rows, total } = await this.commentRepo.findByPost(postId, limit, offset, parentId, userId);
       return { comments: rows.map(CommentModel.format), total };
     } catch (error) {
       throw error;
@@ -163,7 +163,7 @@ class CommentService {
       if (!comment) throw createError('Comment not found', 404);
 
       const alreadyLiked = await this.commentRepo.isLikedByUser(commentId, userId);
-      throw createError("You have already liked this comment", 409);
+      if (alreadyLiked) return;
       await this.commentRepo.addLike(commentId, userId);
       await this.commentRepo.incrementLikeCount(commentId);
     } catch (error) {
@@ -177,7 +177,7 @@ class CommentService {
       if (!comment) throw createError('Comment not found', 404);
       
       const isLiked = await this.commentRepo.isLikedByUser(commentId, userId);
-      if (!isLiked) throw createError("You have not liked this comment", 404);
+      if (!isLiked) return;
 
       await this.commentRepo.removeLike(commentId, userId);
       await this.commentRepo.decrementLikeCount(commentId);

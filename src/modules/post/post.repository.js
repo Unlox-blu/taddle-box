@@ -15,6 +15,8 @@ const findById = async (postId) => {
                     'id', m.id,
                     'media_type', m.media_type,
                     'cloudfront_url', m.cloudfront_url,
+                    'width', m.width,
+                    'height', m.height,
                     's3_key', m.s3_key,
                     'processing_status', m.processing_status
                 ) ORDER BY m.created_at ASC 
@@ -51,6 +53,8 @@ const findManyByUser = async (userId, limit, offset) => {
                     'id', m.id,
                     'media_type', m.media_type,
                     'cloudfront_url', m.cloudfront_url,
+                    'width', m.width,
+                    'height', m.height,
                     'processing_status', m.processing_status
                 ) ORDER BY m.created_at ASC
             ) FILTER (WHERE m.id IS NOT NULL AND m.deleted_at IS NULL), 
@@ -87,6 +91,8 @@ const findManyByCommunity = async (communityId, limit, offset) => {
                     'id', m.id,
                     'media_type', m.media_type,
                     'cloudfront_url', m.cloudfront_url,
+                    'width', m.width,
+                    'height', m.height,
                     'processing_status', m.processing_status
                 ) ORDER BY m.created_at ASC
             ) FILTER (WHERE m.id IS NOT NULL AND m.deleted_at IS NULL), 
@@ -114,8 +120,11 @@ const findManyByCommunity = async (communityId, limit, offset) => {
 };
 
 const create = async (data) => {
+  const client = await pool.connect();
   try {
-    const { rows } = await pool.query(
+    await client.query('BEGIN');
+    
+    const { rows } = await client.query(
       `INSERT INTO ${PostModel.TABLE}
        (author_id, community_id, title, content, media, tags, category, visibility, status, poll_data, link_data, published_at)
      VALUES ($1, $2, $3, $4, $5, $6::text[], $7::text[], $8, $9::varchar, $10, $11, CASE WHEN $9::varchar = 'published' THEN NOW() ELSE NULL END)
@@ -134,9 +143,26 @@ const create = async (data) => {
         data.linkData ? JSON.stringify(data.linkData) : null,
       ]
     );
-    return rows[0];
+    
+    const post = rows[0];
+    
+    if (data.media && data.media.length > 0) {
+      const mediaIds = data.media.map(m => typeof m === 'object' && m !== null ? m.id : m).filter(Boolean);
+      if (mediaIds.length > 0) {
+        await client.query(
+          `UPDATE media SET post_id = $1 WHERE id = ANY($2::uuid[])`,
+          [post.id, mediaIds]
+        );
+      }
+    }
+    
+    await client.query('COMMIT');
+    return post;
   } catch (error) {
+    await client.query('ROLLBACK');
     throw error;
+  } finally {
+    client.release();
   }
 };
 

@@ -1,6 +1,7 @@
 'use strict';
 
 const { createError } = require('../../utils/error.util');
+const { emitXPUpdate } = require('../../sockets/notification.socket');
 
 class XpService {
   constructor({ xpRepository }) {
@@ -70,6 +71,8 @@ class XpService {
         status: 'completed',
       });
 
+      emitXPUpdate(userId, updatedXP.Xp);
+
       return xpTransaction;
     } catch (error) {
       throw error;
@@ -101,6 +104,8 @@ class XpService {
         balanceAfter: updatedXP.Xp,
         status: 'completed',
       });
+
+      emitXPUpdate(userId, updatedXP.Xp);
 
       return xpTransaction;
     } catch (error) {

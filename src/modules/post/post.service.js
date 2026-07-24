@@ -164,7 +164,7 @@ class PostService {
       }  
 
       const alreadyLiked = await this.postRepo.isLikedByUser(postId, userId);
-      if (alreadyLiked) throw createError("Post has already been liked", 409);
+      if (alreadyLiked) return;
       
       await this.postRepo.addLike(postId, userId);
       await this.postRepo.incrementLikeCount(postId);
@@ -187,7 +187,9 @@ class PostService {
         message: `${user.name} liked your post`,
       })
 
-      this.feedSvc.updatePreferences({userId, categories: post.category || [], tags: post.tags || []})
+      const categories = Array.isArray(post.category) ? post.category : (post.category ? [post.category] : []);
+      const tags = Array.isArray(post.tags) ? post.tags : (post.tags ? [post.tags] : []);
+      this.feedSvc.updatePreferences({userId, categories, tags}).catch(e => console.error('Failed to update feed prefs on like:', e));
     } catch (error) {
       throw error;
     }
@@ -196,7 +198,7 @@ class PostService {
   async unlikePost({postId, userId}) {
     try {
       const isLiked = await this.postRepo.isLikedByUser(postId, userId);
-      if (!isLiked) throw createError("Post is not liked", 404);
+      if (!isLiked) return;
       await this.postRepo.removeLike(postId, userId);
       await this.postRepo.decrementLikeCount(postId);
     } catch (error) {

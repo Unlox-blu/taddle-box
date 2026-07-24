@@ -68,7 +68,7 @@ class WalletService {
       await this.xpRepo.createTransaction({
         xpId: xpWallet.id,
         xp: xpAmount,
-        transactionType: 'debit',
+        transactionType: 'spent',
         sourceType: 'redeem',
         balanceBefore: balanceBeforeXp,
         balanceAfter: updatedXp.Xp,

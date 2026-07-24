@@ -18,7 +18,9 @@ const getSignedUrlSchema = z.object({
 
   mimetype: z.string().regex(/^(image\/(jpeg|png|webp|gif)|audio\/(mpeg|mp3|wav|ogg|aac|mp4|webm))$/, {
     message: "Invalid file type. Only JPEG, PNG, WEBP, GIF images and standard audio files are allowed"
-  })
+  }),
+  width: z.number().int().positive().optional(),
+  height: z.number().int().positive().optional()
 }).strict();
 
 const confirmUploadSchema = z.object({

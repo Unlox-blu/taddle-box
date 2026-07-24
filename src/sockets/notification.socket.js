@@ -44,4 +44,10 @@ const emitWalletUpdate = (userId, newBalanceCents) => {
   _io.to(`user:${userId}`).emit('wallet:updated', { balanceCents: newBalanceCents });
 };
 
-module.exports = { setupNotificationSocket, emitNotification, emitWalletUpdate };
+// Emits an XP balance update to a specific user.
+const emitXPUpdate = (userId, newXP) => {
+  if (!_io) return;
+  _io.to(`user:${userId}`).emit('xp:updated', { xp: newXP });
+};
+
+module.exports = { setupNotificationSocket, emitNotification, emitWalletUpdate, emitXPUpdate };

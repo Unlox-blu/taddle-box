@@ -80,6 +80,8 @@ const searchPost = async (query, limit, offset) => {
                           'id', m.id,
                           'media_type', m.media_type,
                           'cloudfront_url', m.cloudfront_url,
+                          'width', m.width,
+                          'height', m.height,
                           'processing_status', m.processing_status
                       ) ORDER BY m.created_at ASC
                   ) FILTER (WHERE m.id IS NOT NULL AND m.deleted_at IS NULL), 

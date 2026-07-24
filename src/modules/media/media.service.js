@@ -16,7 +16,7 @@ class MediaService {
   
   async getImageSignedUrl({userId, mediaData }) {
     try {
-      const { folder, postId, fileSize, mimetype } = mediaData
+      const { folder, postId, fileSize, mimetype, width, height } = mediaData
 
       if(postId){
         const post = await this.mediaRepo.findPostByPostId(postId)
@@ -34,14 +34,16 @@ class MediaService {
       const s3Key = this.storageSvc.generateS3Key(folder, userId, mimetype);
       const signedUrl = await this.storageSvc.getSignedUploadUrl(s3Key, mimetype, fileSize);
 
+      const typePrefix = mimetype.split('/')[0]; // 'image' or 'audio'
       const media = await this.mediaRepo.create({
         postId: postId || null,
         uploaderId: userId,
-        mediaType: 'image',
-        s3Key,
+        mediaType: typePrefix === 'audio' ? 'audio' : 'image',
         mimeType: mimetype,
         sizeBytes: fileSize,
         processingStatus: 'pending',
+        width,
+        height,
       });
 
       return { mediaId: media.id, signedUrl, s3Key };
@@ -101,8 +103,8 @@ class MediaService {
 
   async getVideoUploadUrl({userId: uploaderId, body: data }) {
     try {
-      const { fileSize, title } = data
-      const videoSize = parseInt(fileSize,10)
+      const { fileSize, title, postId, width, height } = data;
+      const videoSize = parseInt(fileSize, 10);
       
       if (videoSize > MAX_VIDEO_BYTES)
         throw createError(`Video exceeds ${process.env.MAX_VIDEO_SIZE_MB || 500}MB limit`, 400);
@@ -110,12 +112,15 @@ class MediaService {
       const { uploadLink, vimeoUri } = await this.videoSvc.createUpload(videoSize, title);
 
       const media = await this.mediaRepo.create({
+        postId: postId || null,
         uploaderId,
         mediaType: 'video',
         vimeoUri,
         mimeType: 'video/mp4',
         sizeBytes: videoSize,
         processingStatus: 'pending',
+        width,
+        height,
       });
 
       return { mediaId: media.id, uploadLink, vimeoUri };

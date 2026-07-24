@@ -5,6 +5,7 @@ const { z } = require('zod');
 
 const searchQuerySchema = z.object({
   type: z.string().default('post').optional(),
+  q: z.string().default('').optional(),
   query: z.string().default('').optional(),
   filter: z.string().default('').optional(),
   page: z.coerce

@@ -48,6 +48,8 @@ const findPost = async (postId) => {
                     'id', m.id,
                     'media_type', m.media_type,
                     'cloudfront_url', m.cloudfront_url,
+                    'width', m.width,
+                    'height', m.height,
                     's3_key', m.s3_key,
                     'processing_status', m.processing_status
                 ) ORDER BY m.created_at ASC 

@@ -37,6 +37,7 @@ const format = (row) => {
     },
     createdAt: row.created_at,
     updatedAt: row.updated_at,
+    isLiked: !!row.is_liked,
   };
 };
 

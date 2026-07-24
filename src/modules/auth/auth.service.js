@@ -562,6 +562,13 @@ class AuthService {
       const user = await this.authUserRepo.findByIdPrivate({ userId });
       if (!user) throw createError('User not found', 404);
 
+      try {
+        const xpWallet = await this.xpSvc.getXP({ userId });
+        user.xp = xpWallet ? xpWallet.Xp : 0;
+      } catch (err) {
+        user.xp = 0;
+      }
+
       const totalKeys = Object.keys(user).length;
 
       const completedKeys = Object.values(user).filter(

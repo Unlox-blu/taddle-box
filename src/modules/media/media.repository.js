@@ -8,8 +8,8 @@ const create = async (data) => {
   try {
     const { rows } = await pool.query(
       `INSERT INTO ${MediaModel.MEDIA_TABLE}
-       (post_id, uploader_id, media_type, s3_key, vimeo_uri, mime_type, size_bytes, processing_status)
-      VALUES ($1,$2,$3,$4,$5,$6,$7,$8)
+       (post_id, uploader_id, media_type, s3_key, vimeo_uri, mime_type, size_bytes, processing_status, width, height)
+      VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)
       RETURNING id`,
       [
         data.postId || null,
@@ -20,6 +20,8 @@ const create = async (data) => {
         data.mimeType,
         data.sizeBytes,
         data.processingStatus || 'pending',
+        data.width || null,
+        data.height || null,
       ]
     );
     return MediaModel.format(rows[0]);

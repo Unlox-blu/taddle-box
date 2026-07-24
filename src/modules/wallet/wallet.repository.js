@@ -71,6 +71,40 @@ const debitBalance = async (walletId, amountCents, client) => {
   }
 };
 
+const holdBalance = async (walletId, amountCents, client) => {
+  try {
+    const db = client || pool;
+    const { rows } = await db.query(
+      `UPDATE ${WalletModel.TABLE} 
+       SET balance_cents = balance_cents - $1, 
+           held_balance_cents = held_balance_cents + $1, 
+           updated_at = NOW()
+       WHERE id = $2 AND balance_cents >= $1 RETURNING balance_cents`,
+      [amountCents, walletId]
+    );
+    if (!rows[0]) throw new Error('Insufficient wallet balance');
+    return WalletModel.formatWallet(rows[0]);
+  } catch (error) {
+    throw error;
+  }
+};
+
+const releaseHoldBalance = async (walletId, amountCents, client) => {
+  try {
+    const db = client || pool;
+    const { rows } = await db.query(
+      `UPDATE ${WalletModel.TABLE} 
+       SET held_balance_cents = held_balance_cents - $1, 
+           updated_at = NOW()
+       WHERE id = $2 RETURNING balance_cents`,
+      [amountCents, walletId]
+    );
+    return WalletModel.formatWallet(rows[0]);
+  } catch (error) {
+    throw error;
+  }
+};
+
 const createTransaction = async (data, client) => {
   try {
     const db = client || pool;
@@ -128,9 +162,12 @@ const findTransactionByRazorpayOrderId = async (orderId) => {
 module.exports = {
   findByUserId,
   create,
+  updateUPI,
   lockForUpdate,
   creditBalance,
   debitBalance,
+  holdBalance,
+  releaseHoldBalance,
   createTransaction,
   getTransactions,
   findTransactionByRazorpayOrderId,

@@ -3,9 +3,10 @@
 const { createError } = require('../../utils/error.util');
 
 class StreakService {
-  constructor({ streakRepository, taskService }) {
+  constructor({ streakRepository, taskService, xpService }) {
     this.streakRepo = streakRepository;
     this.taskSvc = taskService;
+    this.xpSvc = xpService;
   }
 
   async createOrUpdate (userId) {
@@ -13,25 +14,38 @@ class StreakService {
         const previousStreak = await this.streakRepo.findOneByUserId(userId)
         
         if(!previousStreak ){
-            await this.streakRepo.create(userId)
+            const streak = await this.streakRepo.create(userId)
             await this.taskSvc.updateStreak({userId, streak: 1})
-            return 
+            return { streak, weeklyBonusEarned: false }
         }
 
         const currentDate = new Date();
         const previousDate = new Date(previousStreak.endDate);
+        
+        let newStreak = previousStreak;
+        let weeklyBonusEarned = false;
 
         if(this.#isSameday(currentDate, previousDate)){
             throw createError("Streak is already updated", 400)
         }else if(this.#isYesterday(currentDate, previousDate)){
-            const streak = await this.streakRepo.updateById(previousStreak.id)
-            const count = parseInt(streak.streakCount, 10)
+            newStreak = await this.streakRepo.updateById(previousStreak.id)
+            const count = parseInt(newStreak.streakCount, 10)
+            if (count > 0 && count % 7 === 0) {
+                // Grant weekly bonus
+                await this.xpSvc.creditXP({
+                    userId,
+                    xp: 150,
+                    transactionType: 'bonus',
+                    sourceType: 'Weekly Streak'
+                }).catch(e => console.error("Failed to grant weekly streak XP", e));
+                weeklyBonusEarned = true;
+            }
         }else{
-            await this.streakRepo.create(userId)
+            newStreak = await this.streakRepo.create(userId)
         }
 
         await this.taskSvc.updateStreak({userId, streak: 1})
-        return
+        return { streak: newStreak, weeklyBonusEarned }
     } catch (error) {
         throw error
     }

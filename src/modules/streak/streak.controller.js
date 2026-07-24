@@ -11,8 +11,8 @@ class StreakController {
   createOrUpdate = async (req, res, next) => {
     try {
         const userId = req.userId
-        const streak = await this.streakSvc.createOrUpdate(userId)
-        res.status(201).json(apiResponse(streak, 'New Streak created successfully'))
+        const { streak, weeklyBonusEarned } = await this.streakSvc.createOrUpdate(userId)
+        res.status(201).json(apiResponse({ streak, weeklyBonusEarned }, 'New Streak created successfully'))
     } catch (error) {
         next(error)
     }

@@ -90,6 +90,46 @@ class SettingsController {
       next(error);
     }
   };
+
+  togglePublicAccount = async (req, res, next) => {
+    try {
+      const userId = req.userId;
+      const data = await this.settingsSvc.togglePublicAccount({userId});
+      res.json(apiResponse(data, `Privacy setting toggled successfully`));
+    } catch (error) {
+      next(error);
+    }
+  };
+
+  toggleActivityStatus = async (req, res, next) => {
+    try {
+      const userId = req.userId;
+      const data = await this.settingsSvc.toggleActivityStatus({userId});
+      res.json(apiResponse(data, `Privacy setting toggled successfully`));
+    } catch (error) {
+      next(error);
+    }
+  };
+
+  toggleAllowTagging = async (req, res, next) => {
+    try {
+      const userId = req.userId;
+      const data = await this.settingsSvc.toggleAllowTagging({userId});
+      res.json(apiResponse(data, `Privacy setting toggled successfully`));
+    } catch (error) {
+      next(error);
+    }
+  };
+
+  toggleShowOnLeaderboard = async (req, res, next) => {
+    try {
+      const userId = req.userId;
+      const data = await this.settingsSvc.toggleShowOnLeaderboard({userId});
+      res.json(apiResponse(data, `Privacy setting toggled successfully`));
+    } catch (error) {
+      next(error);
+    }
+  };
 }
 
 module.exports = SettingsController;

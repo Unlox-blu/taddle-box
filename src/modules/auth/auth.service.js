@@ -645,56 +645,81 @@ class AuthService {
     }
   }
 
-  // Sends password reset email if email belongs to a password-based account.
+  // Sends password reset OTPs to both email and phone (if available).
   async forgotPassword({ email }) {
     try {
       const user = await this.authUserRepo.findByEmailUser({ email });
+      if (!user) return { hasPhone: false }; // Don't reveal if email exists
 
-      if (user) {
-        const rawToken = generateRandomToken();
-        const tokenHash = hashToken(rawToken);
-        const tokenExp = new Date(
-          Date.now() + parseInt(config.PASSWORD_RESET_TOKEN_EXPIRES_IN, 10)
-        );
-        await this.authUserRepo.updatePasswordResetToken({ userId: user.id, tokenHash, tokenExp });
+      // Get phone details
+      const phoneDetails = await this.authUserRepo.findPhoneByEmail({ email });
+      const hasPhone = !!(phoneDetails && phoneDetails.phone && phoneDetails.countryCode);
 
-        const jobdata = {
-          to: user.email,
-          name: user.username,
-          token: rawToken,
-        };
-        await addJob('email:password_reset', jobdata);
+      const emailOtp = crypto.randomInt(100000, 1000000).toString();
+      const phoneOtp = crypto.randomInt(100000, 1000000).toString();
+      const otpExpIn = new Date(Date.now() + 5 * 60 * 1000); // 5 minutes
+
+      // Store Email OTP
+      const emailKey = `${OTP_PREFIX}:email:reset_password:${email}`;
+      await redis.setex(emailKey, 60 * 5, JSON.stringify({ email, otp: emailOtp, otpExpIn }));
+      await addJob('email:otp-verification', { to: email, otp: emailOtp });
+
+      // Store Phone OTP (only if user has a phone number)
+      if (hasPhone) {
+        const phoneKey = `${OTP_PREFIX}:phone:reset_password:${phoneDetails.countryCode}${phoneDetails.phone}`;
+        await redis.setex(phoneKey, 60 * 5, JSON.stringify({ phone: phoneDetails.phone, countryCode: phoneDetails.countryCode, otp: phoneOtp, otpExpIn }));
+        await addJob('sms:otp-verification', { to: `${phoneDetails.countryCode}${phoneDetails.phone}`, otp: phoneOtp });
       }
+
+      return { hasPhone };
     } catch (error) {
       throw error;
     }
   }
 
-  // Resets password using a valid reset token.
-  async resetPassword({ token, password }) {
+  // Resets password by verifying OTPs then updating password.
+  async resetPassword({ email, emailOtp, phoneOtp, password }) {
     try {
-      const tokenHash = hashToken(token);
-      const user = await this.authUserRepo.findByPasswordResetToken(tokenHash);
-
       const currentTime = new Date(Date.now());
-      if (!user || !user.passwordResetTokenExp || user.passwordResetTokenExp < currentTime) {
-        throw createError('Password Reset Token is expired', 401);
+      const user = await this.authUserRepo.findByEmailUser({ email });
+      if (!user) throw createError('User not found', 404);
+
+      // Verify Email OTP
+      const emailKey = `${OTP_PREFIX}:email:reset_password:${email}`;
+      const emailCached = await redis.get(emailKey);
+      const emailData = emailCached ? JSON.parse(emailCached) : null;
+
+      if (!emailData || new Date(emailData.otpExpIn) < currentTime) {
+        throw createError('Email OTP has expired. Please request a new one.', 400);
+      }
+      if (emailData.otp !== emailOtp) {
+        throw createError('Invalid Email OTP', 400);
       }
 
+      // Verify Phone OTP (if user has phone)
+      const phoneDetails = await this.authUserRepo.findPhoneByEmail({ email });
+      let phoneKey = null;
+      if (phoneDetails && phoneDetails.phone && phoneDetails.countryCode) {
+        if (!phoneOtp) throw createError('Phone OTP is required', 400);
+        phoneKey = `${OTP_PREFIX}:phone:reset_password:${phoneDetails.countryCode}${phoneDetails.phone}`;
+        const phoneCached = await redis.get(phoneKey);
+        const phoneData = phoneCached ? JSON.parse(phoneCached) : null;
+        
+        if (!phoneData || new Date(phoneData.otpExpIn) < currentTime) {
+          throw createError('Phone OTP has expired. Please request a new one.', 400);
+        }
+        if (phoneData.otp !== phoneOtp) {
+          throw createError('Invalid Phone OTP', 400);
+        }
+      }
+
+      // Update password
       const passwordHash = await hashPassword(password);
-
-      const userId = user.id;
-      await this.authUserRepo.updatePassword({ userId, passwordHash });
-
-      const userDetail = await this.authUserRepo.findByIdUser({ userId });
-
-      const jobdata = {
-        to: userDetail.email,
-        name: userDetail.username,
-        title: 'Password Reset Successfully!',
-        successMessage: 'Password Reset Successfully!',
-      };
-      await addJob('email:success', jobdata);
+      await this.authUserRepo.updatePassword({ userId: user.id, passwordHash });
+      
+      // Cleanup
+      await redis.del(emailKey);
+      if (phoneKey) await redis.del(phoneKey);
     } catch (error) {
       throw error;
     }

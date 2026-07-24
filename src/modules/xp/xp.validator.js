@@ -6,7 +6,7 @@ const { z } = require('zod');
 const creditOrdebitXPSchema = z.object({
   xp: z.number({ required_error: 'Amount is required' }),
   transactionType: z.enum(['earned', 'spent', 'bonus'], { errorMap: () => ({ message: 'Invalid transaction type' }) }),
-  sourceType: z.string().min(1, { message: 'Source type cannot be empty' }).max(25, { message: 'Source type must be at most 25 characters' })
+  sourceType: z.string().min(1, { message: 'Source type cannot be empty' }).max(50, { message: 'Source type must be at most 50 characters' })
 }).strict();
 
 

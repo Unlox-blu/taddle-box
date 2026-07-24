@@ -22,7 +22,8 @@ class CommunityController {
   getBySlug = async (req, res, next) => {
     try {
       const { slug } = req.params;
-      const community = await this.communitySvc.getBySlug({slug});
+      const userId = req.userId;
+      const community = await this.communitySvc.getBySlug({slug, userId});
       res.json(apiResponse(community, 'Community fetched successfully'));
     } catch (error) {
       next(error);

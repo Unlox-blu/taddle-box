@@ -49,6 +49,8 @@ const format = (row) => {
     isActive: row.is_active,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
+    isJoined: Boolean(row.is_joined),
+    memberRole: row.member_role || null,
   };
 };
 

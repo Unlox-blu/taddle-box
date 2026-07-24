@@ -18,6 +18,18 @@ class EventController {
     }
   };
 
+  discover = async (req, res, next) => {
+    try {
+      const { limit, offset, page } = getPaginationParams(req.query);
+      const { q, filter } = req.query;
+      const userId = req.userId || null;
+      const { events, total } = await this.eventSvc.discover({ query: q, filter, limit, offset, userId });
+      res.json(apiResponse(events, 'Events discovered', paginationMeta(total, page, limit)));
+    } catch (error) {
+      next(error);
+    }
+  };
+
   register = async (req, res, next) => {
     try {
       const { eventId } = req.params;

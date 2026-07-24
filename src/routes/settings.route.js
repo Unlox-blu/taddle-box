@@ -17,6 +17,10 @@ router.patch('/promotionalnotification',verifyToken,                            
 router.patch('/notifxp',                verifyToken,                                   settingsController.toggleNotifXP)
 router.patch('/notifwithdraw',          verifyToken,                                   settingsController.toggleNotifWithdraw)
 router.patch('/notifpromos',            verifyToken,                                   settingsController.toggleNotifPromos)
+router.patch('/publicaccount',          verifyToken,                                   settingsController.togglePublicAccount)
+router.patch('/activitystatus',         verifyToken,                                   settingsController.toggleActivityStatus)
+router.patch('/allowtagging',           verifyToken,                                   settingsController.toggleAllowTagging)
+router.patch('/showonleaderboard',      verifyToken,                                   settingsController.toggleShowOnLeaderboard)
 router.get('/notifications/preferences', verifyToken,                                  notificationController.getPreferences)
 router.put('/notifications/preferences', verifyToken,                                  notificationController.updatePreferences)
 

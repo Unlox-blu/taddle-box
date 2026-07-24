@@ -121,7 +121,9 @@ const forgotPasswordSchema = z.object({
 }).strict();
 
 const resetPasswordSchema = z.object({
-  token: z.string('Token must be string').min(1, 'Reset token is required'),
+  email: z.preprocess(transformToLowerCase, z.string().email('Invalid email address')),
+  emailOtp: z.string().length(6, 'Email OTP must be 6 digits').regex(/^[0-9]+$/, 'Email OTP must be numeric'),
+  phoneOtp: z.string().length(6, 'Phone OTP must be 6 digits').regex(/^[0-9]+$/, 'Phone OTP must be numeric').optional(),
   password: passwordRules,
 }).strict();
 

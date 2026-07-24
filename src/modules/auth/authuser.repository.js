@@ -87,6 +87,20 @@ const findByEmailUser = async ({email}) => {
   }
 };
 
+const findPhoneByEmail = async ({ email }) => {
+  try {
+    const { rows } = await pool.query(
+      `SELECT id, phone_number AS phone, country_code AS "countryCode"
+       FROM ${AuthModel.USER_TABLE}
+       WHERE email = $1 AND deleted_at IS NULL`,
+      [email]
+    );
+    return rows[0] || null;
+  } catch (error) {
+    throw error;
+  }
+};
+
 
 const create = async ({name, username, email, countryCode, phone, passwordHash, dateOfBirth, gender, location, latitude, longitude, occupation, organization, interests, googleId, appleId, avatarUrl}) => {
   try {
@@ -436,5 +450,5 @@ module.exports = {
   getRefreshTokenById, updateEmailVerifyToken, findByEmailVerifyToken,
   updatePasswordResetToken, findByPasswordResetToken, getPasswordByUserId,
   updatePassword, updateLastLogin, softDelete, isEmailExist, isPhoneExist, isUsernameExist,
-  findByIdSecure, findByIdAppLock, findByEmailUser, findByIdUser, updateAvatar, updateEmail,
+  findByIdSecure, findByIdAppLock, findByEmailUser, findByIdUser, updateAvatar, updateEmail, findPhoneByEmail,
 };

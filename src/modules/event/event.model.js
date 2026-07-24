@@ -7,14 +7,14 @@ const LIST_FIELDS = [
   'id', 'organizer_id', 'community_id', 'title', 'cover_image_url', 'description',
   'event_type', 'status', 'start_time', 'end_time', 'timezone',
   'location', 'is_free', 'ticket_price_cents', 'currency', 'registration_deadline',
-  'attendee_count', 'max_attendees', 'tags', 'is_featured',
+  'attendee_count', 'max_attendees', 'tags', 'is_featured', 'xp_reward', 'cash_prize_cents',
 ].join(', ');
 
 const DETAIL_FIELDS = [
   'id', 'organizer_id', 'community_id', 'title', 'description', 'cover_image_url',
   'event_type', 'status', 'start_time', 'end_time', 'timezone', 'location',
   'is_free', 'ticket_price_cents', 'currency', 'registration_deadline',
-  'attendee_count', 'max_attendees', 'tags', 'is_featured', 'metadata',
+  'attendee_count', 'max_attendees', 'tags', 'is_featured', 'xp_reward', 'cash_prize_cents', 'metadata',
   'created_at', 'updated_at',
 ].join(', ');
 
@@ -44,6 +44,8 @@ const format = (row) => {
     maxAttendees: row.max_attendees,
     tags: row.tags || [],
     isFeatured: row.is_featured,
+    xpReward: row.xp_reward,
+    cashPrizeCents: row.cash_prize_cents,
     registrationDeadline: row.registration_deadline,
     createdAt: row.created_at,
     updatedAt: row.updated_at,

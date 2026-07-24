@@ -29,9 +29,9 @@ class CommunityService {
     }
   }
 
-  async getBySlug({slug}) {
+  async getBySlug({slug, userId}) {
     try {
-      const community = await this.communityRepo.findBySlug(slug);
+      const community = await this.communityRepo.findBySlug(slug, userId);
       if (!community) throw createError('Community not found', 404);
       return community;
     } catch (error) {
@@ -41,7 +41,7 @@ class CommunityService {
 
   async discoverCommunity({userId, limit, offset}) {
     try {
-      const {communities, total} = await this.communityRepo.findManyCommunity({limit, offset});
+      const {communities, total} = await this.communityRepo.findManyCommunity({limit, offset, userId});
       
       return {communities, total};
     } catch (error) {
@@ -205,7 +205,7 @@ class CommunityService {
           throw createError("Only community members can access this private community", 403);
       }
       
-      const { rows, total } = await this.postSvc.findPostByCommunity(communityId, limit, offset);
+      const { rows, total } = await this.postSvc.findPostByCommunity({ communityId, limit, offset });
       return { posts: rows.map(PostModel.format), total };
     } catch (error) {
       throw error;

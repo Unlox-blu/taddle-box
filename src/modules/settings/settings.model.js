@@ -10,6 +10,10 @@ const LIST_FIELDS = [
   'notif_xp',
   'notif_withdraw',
   'notif_promos',
+  'public_account',
+  'activity_status',
+  'allow_tagging',
+  'show_on_leaderboard',
   'created_at',
   'updated_at'
 ].join(', ');
@@ -24,6 +28,10 @@ const format = (row) => {
     notifXP: row.notif_xp,
     notifWithdraw: row.notif_withdraw,
     notifPromos: row.notif_promos,
+    publicAccount: row.public_account,
+    activityStatus: row.activity_status,
+    allowTagging: row.allow_tagging,
+    showOnLeaderboard: row.show_on_leaderboard,
     createdAt: row.created_at,
     updatedAt: row.updated_at
   };

@@ -24,8 +24,8 @@ const EVENT_FIELDS = [
 ].join(', ');
 
 const POST_FIELDS = [
-  'p.id', 'p.author_id', 'p.community_id', 'p.title',
-  'p.media', 'p.post_type', 'p.tags', 'p.status', 'p.visibility',
+  'p.id', 'p.author_id', 'p.community_id', 'p.title', 'p.content',
+  'p.media', 'p.tags', 'p.status', 'p.visibility',
   'p.likes_count', 'p.comments_count', 'p.shares_count', 'p.views_count',
   'p.is_pinned', 'p.published_at', 'p.created_at',
   'u.name AS author_name', 'u.username AS author_username',

@@ -3,17 +3,19 @@
 const pool = require('../../config/database');
 const CommunityModel = require('./community.model');
 
-const findById = async (communityId) => {
+const findById = async (communityId, userId = null) => {
   try {
     const { rows } = await pool.query(
       `SELECT ${CommunityModel.DETAIL_FIELDS},
       avatar_media.cloudfront_url AS avatar_media_url,
-      banner_media.cloudfront_url AS banner_media_url 
+      banner_media.cloudfront_url AS banner_media_url,
+      (SELECT EXISTS(SELECT 1 FROM ${CommunityModel.MEMBERS_TABLE} cm WHERE cm.community_id = c.id AND cm.user_id = $2)) AS is_joined,
+      (SELECT role FROM ${CommunityModel.MEMBERS_TABLE} cm WHERE cm.community_id = c.id AND cm.user_id = $2 LIMIT 1) AS member_role
       FROM ${CommunityModel.TABLE} c
       LEFT JOIN media AS avatar_media ON avatar_media.id = avatar_url
       LEFT JOIN media AS banner_media ON banner_media.id = banner_url
       WHERE c.id = $1 AND c.deleted_at IS NULL`,
-      [communityId]
+      [communityId, userId]
     );
     return rows[0] ? CommunityModel.format(rows[0]) : null;
   } catch (error) {
@@ -21,17 +23,19 @@ const findById = async (communityId) => {
   }
 };
 
-const findBySlug = async (slug) => {
+const findBySlug = async (slug, userId = null) => {
   try {
     const { rows } = await pool.query(
       `SELECT ${CommunityModel.DETAIL_FIELDS},
       avatar_media.cloudfront_url AS avatar_media_url,
-      banner_media.cloudfront_url AS banner_media_url 
+      banner_media.cloudfront_url AS banner_media_url,
+      (SELECT EXISTS(SELECT 1 FROM ${CommunityModel.MEMBERS_TABLE} cm WHERE cm.community_id = c.id AND cm.user_id = $2)) AS is_joined,
+      (SELECT role FROM ${CommunityModel.MEMBERS_TABLE} cm WHERE cm.community_id = c.id AND cm.user_id = $2 LIMIT 1) AS member_role
       FROM ${CommunityModel.TABLE} c
       LEFT JOIN media AS avatar_media ON avatar_media.id = avatar_url
       LEFT JOIN media AS banner_media ON banner_media.id = banner_url 
       WHERE c.slug = $1 AND c.deleted_at IS NULL`,
-      [slug]
+      [slug, userId]
     );
     return rows[0] ? CommunityModel.format(rows[0]) : null;
   } catch (error) {
@@ -39,18 +43,20 @@ const findBySlug = async (slug) => {
   }
 };
 
-const findManyCommunity = async ({limit, offset}) => {
+const findManyCommunity = async ({limit, offset, userId = null}) => {
   try {
     const {rows} = await pool.query(
       `SELECT ${CommunityModel.LIST_FIELDS},
       avatar_media.cloudfront_url AS avatar_media_url,
+      (SELECT EXISTS(SELECT 1 FROM ${CommunityModel.MEMBERS_TABLE} cm WHERE cm.community_id = c.id AND cm.user_id = $3)) AS is_joined,
+      (SELECT role FROM ${CommunityModel.MEMBERS_TABLE} cm WHERE cm.community_id = c.id AND cm.user_id = $3 LIMIT 1) AS member_role,
       COUNT(*) OVER() AS total 
       FROM ${CommunityModel.TABLE} c
       LEFT JOIN media AS avatar_media ON avatar_media.id = avatar_url
       WHERE privacy = 'public'
       ORDER BY member_count DESC
       LIMIT $1 OFFSET $2`,
-      [limit, offset]
+      [limit, offset, userId]
     )
     const total = rows[0] ? rows[0].total : 0
     const communities = rows.length ? rows.map(CommunityModel.format) : []
@@ -280,6 +286,28 @@ const decrementMemberCount = async (communityId) => {
   }
 };
 
+const incrementPostCount = async (communityId) => {
+  try {
+    await pool.query(
+      `UPDATE ${CommunityModel.TABLE} SET post_count = post_count + 1 WHERE id = $1`,
+      [communityId]
+    );
+  } catch (error) {
+    throw error;
+  }
+};
+
+const decrementPostCount = async (communityId) => {
+  try {
+    await pool.query(
+      `UPDATE ${CommunityModel.TABLE} SET post_count = GREATEST(0, post_count - 1) WHERE id = $1`,
+      [communityId]
+    );
+  } catch (error) {
+    throw error;
+  }
+};
+
 const search = async (query, filter, limit, offset) => {
   try {
     const q = query || '';
@@ -332,6 +360,8 @@ module.exports = {
   getMembers,
   incrementMemberCount,
   decrementMemberCount,
+  incrementPostCount,
+  decrementPostCount,
   search,
   isMember,
 };

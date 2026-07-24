@@ -345,8 +345,8 @@ class AuthController {
   forgotPassword = async (req, res, next) => {
     try {
       const { email } = req.body;
-      await this.authSvc.forgotPassword({email});
-      res.json(apiResponse(null, 'If that email exists, a reset link has been sent.'));
+      const result = await this.authSvc.forgotPassword({email});
+      res.json(apiResponse(result, 'If that email exists, an OTP has been sent.'));
     } catch (error) {
       next(error);
     }

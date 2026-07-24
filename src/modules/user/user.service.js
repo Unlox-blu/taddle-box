@@ -319,10 +319,10 @@ class UserService {
 
   async verifyAppLock({ userId, pin }) {
     if (!pin) throw createError('PIN is required', 400);
-    const user = await this.userRepo.findByIdPrivate(userId);
-    if (!user || !user.appLock) throw createError('App lock is not set up', 400);
+    const appLock = await this.userRepo.getAppLock(userId);
+    if (!appLock) throw createError('App lock is not set up', 400);
     
-    const isValid = await bcrypt.compare(pin, user.appLock);
+    const isValid = await bcrypt.compare(pin, appLock);
     if (!isValid) throw createError('Invalid PIN', 401);
     
     return { valid: true };
@@ -351,10 +351,10 @@ class UserService {
   async removeAppLock({ userId, pin }) {
     if (!pin) throw createError('PIN is required', 400);
     
-    const user = await this.userRepo.findByIdPrivate(userId);
-    if (!user || !user.appLock) throw createError('App lock is not set up', 400);
+    const appLock = await this.userRepo.getAppLock(userId);
+    if (!appLock) throw createError('App lock is not set up', 400);
 
-    const isValid = await bcrypt.compare(pin, user.appLock);
+    const isValid = await bcrypt.compare(pin, appLock);
     if (!isValid) throw createError('Invalid PIN', 401);
 
     // Set app_lock to NULL

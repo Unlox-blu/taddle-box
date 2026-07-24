@@ -67,7 +67,7 @@ class XpService {
       if (sourceType && sourceType.startsWith('view_post_')) {
         const existing = await this.xpRepo.getTransactionsBySource(xpWallet.id, sourceType);
         if (existing && existing.length > 0) {
-          throw createError('XP already claimed for this post view', 400);
+          return { alreadyClaimed: true, message: 'XP already claimed for this post view' };
         }
       }
 

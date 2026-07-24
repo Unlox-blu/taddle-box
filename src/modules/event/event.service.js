@@ -13,7 +13,14 @@ class EventService {
     this.saveRepo = saveRepository;
   }
 
-  
+  async discover({ query, filter, limit, offset, userId }) {
+    try {
+      const { event, total } = await this.eventRepo.search(query, filter, limit, offset, userId);
+      return { events: event, total };
+    } catch (error) {
+      throw error;
+    }
+  }
 
   async getById({eventId}) {
     try {
@@ -34,7 +41,7 @@ class EventService {
         throw createError("Event registration is closed", 400);
 
       const existing = await this.eventRepo.getAttendee(eventId, userId);
-      if (existing) throw createError("Already registered for this event", 409);
+      if (existing && existing.status !== 'cancelled') throw createError("Already registered for this event", 409);
       
       const status = (!event.maxAttendees || event.attendeeCount >= event.maxAttendees) ? 'registered' : 'waitlisted'
 

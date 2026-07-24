@@ -266,6 +266,18 @@ const removeAppLock = async (userId, pin) => {
   }
 }
 
+const getAppLock = async (userId) => {
+  try {
+    const { rows } = await pool.query(
+      `SELECT app_lock FROM ${UserModel.TABLE} WHERE id = $1`,
+      [userId]
+    );
+    return rows[0]?.app_lock;
+  } catch (error) {
+    throw error;
+  }
+};
+
 
 
 
@@ -518,6 +530,7 @@ module.exports = {
   createWithGoogle,
   updateProfile,
   updateAppLock,
+  getAppLock,
   removeAppLock,
   findAvatarAndBanner,
   updateAvatar,

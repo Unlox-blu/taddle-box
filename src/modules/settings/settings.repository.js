@@ -167,6 +167,38 @@ const toggleNotifPromos = async (userId) => {
   return SettingsModel.format(rows[0]);
 };
 
+const togglePublicAccount = async (userId) => {
+  const { rows } = await pool.query(
+    `UPDATE ${SettingsModel.TABLE} SET public_account = NOT public_account, updated_at = NOW() WHERE user_id = $1 RETURNING public_account`,
+    [userId]
+  );
+  return SettingsModel.format(rows[0]);
+};
+
+const toggleActivityStatus = async (userId) => {
+  const { rows } = await pool.query(
+    `UPDATE ${SettingsModel.TABLE} SET activity_status = NOT activity_status, updated_at = NOW() WHERE user_id = $1 RETURNING activity_status`,
+    [userId]
+  );
+  return SettingsModel.format(rows[0]);
+};
+
+const toggleAllowTagging = async (userId) => {
+  const { rows } = await pool.query(
+    `UPDATE ${SettingsModel.TABLE} SET allow_tagging = NOT allow_tagging, updated_at = NOW() WHERE user_id = $1 RETURNING allow_tagging`,
+    [userId]
+  );
+  return SettingsModel.format(rows[0]);
+};
+
+const toggleShowOnLeaderboard = async (userId) => {
+  const { rows } = await pool.query(
+    `UPDATE ${SettingsModel.TABLE} SET show_on_leaderboard = NOT show_on_leaderboard, updated_at = NOW() WHERE user_id = $1 RETURNING show_on_leaderboard`,
+    [userId]
+  );
+  return SettingsModel.format(rows[0]);
+};
+
 module.exports = {
   create,
   findByUserId,
@@ -180,4 +212,8 @@ module.exports = {
   toggleNotifXP,
   toggleNotifWithdraw,
   toggleNotifPromos,
+  togglePublicAccount,
+  toggleActivityStatus,
+  toggleAllowTagging,
+  toggleShowOnLeaderboard,
 };

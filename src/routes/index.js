@@ -11,6 +11,7 @@ router.use('/posts',         require('./post.route'));
 router.use('/communities',   require('./community.route'));
 router.use('/comments',      require('./comment.route'));
 router.use('/events',        require('./event.route'));
+router.use('/payments',      require('./payment.route'));
 router.use('/task',          require('./task.route'));
 router.use('/wallet',        require('./wallet.route'));
 router.use('/xp',            require('./xp.route'));

@@ -145,6 +145,154 @@ class AuthService {
     }
   }
 
+  async verifyPassword({ userId, password }) {
+    try {
+      const user = await this.authUserRepo.getPasswordByUserId({ userId });
+      if (!user || !user.passwordHash) throw createError('Invalid user or password not set', 400);
+
+      const valid = await comparePassword(password, user.passwordHash);
+      if (!valid) throw createError('Incorrect password', 400);
+
+      return { valid: true };
+    } catch (error) {
+      throw error;
+    }
+  }
+
+  async sendPhoneOtp({ userId, countryCode, phone, purpose }) {
+    try {
+      const existing = await this.authUserRepo.isPhoneExist({ countryCode, phone });
+      if (existing && existing.id !== userId) throw createError('Phone is already registered by another user', 409);
+
+      const otp = crypto.randomInt(100000, 1000000).toString();
+      const otpExpIn = new Date(Date.now() + parseInt(config.OTP_EXPIRES_IN, 10));
+      
+      const verificationKey = `${OTP_PREFIX}:phone:${userId}:${purpose}`;
+      const verificationObj = {
+        userId,
+        countryCode,
+        phone,
+        otp: '123456', // Simulated OTP
+        purpose,
+        otpExpIn,
+      };
+
+      await redis.setex(verificationKey, 60 * 5, JSON.stringify(verificationObj));
+
+      // SMS sending logic would go here
+
+      return { message: 'OTP sent to phone successfully' };
+    } catch (error) {
+      throw error;
+    }
+  }
+
+  async sendEmailOtp({ userId, email, purpose }) {
+    try {
+      const existing = await this.authUserRepo.isEmailExist({ email });
+      if (existing && existing.id !== userId) throw createError('Email is already registered by another user', 409);
+
+      const otp = crypto.randomInt(100000, 1000000).toString();
+      const otpExpIn = new Date(Date.now() + parseInt(config.OTP_EXPIRES_IN, 10));
+      
+      const verificationKey = `${OTP_PREFIX}:email:${userId}:${purpose}`;
+      const verificationObj = {
+        userId,
+        email,
+        otp,
+        purpose,
+        otpExpIn,
+      };
+
+      await redis.setex(verificationKey, 60 * 5, JSON.stringify(verificationObj));
+
+      const emailJobdata = {
+        to: email,
+        otp,
+      };
+      await addJob('email:otp-verification', emailJobdata);
+
+      return { message: 'OTP sent to email successfully' };
+    } catch (error) {
+      throw error;
+    }
+  }
+
+  async verifySingleOtp({ userId, type, otp, purpose }) {
+    try {
+      const currentTime = new Date(Date.now());
+      const verificationKey = `${OTP_PREFIX}:${type}:${userId}:${purpose}`;
+
+      const cachedVerification = await redis.get(verificationKey);
+      const verificationObj = cachedVerification ? JSON.parse(cachedVerification) : null;
+
+      if (!verificationObj || new Date(verificationObj.otpExpIn) < currentTime) {
+        throw createError('OTP is expired', 400);
+      }
+
+      if (verificationObj.otp !== otp) {
+        throw createError('Invalid OTP', 400);
+      }
+
+      // Generate a short-lived changeToken (5 minutes)
+      const changeTokenPayload = { userId, purpose, type, verifiedData: type === 'email' ? verificationObj.email : verificationObj.phone };
+      const changeToken = generateToken(changeTokenPayload, '5m');
+
+      // Clear the OTP from redis
+      await redis.del(verificationKey);
+
+      return { changeToken };
+    } catch (error) {
+      throw error;
+    }
+  }
+
+  async updatePhone({ userId, changeToken, countryCode, phone }) {
+    try {
+      let payload;
+      try {
+        payload = decodeToken(changeToken);
+      } catch (e) {
+        throw createError('Invalid or expired change token', 401);
+      }
+
+      if (payload.userId !== userId || payload.purpose !== 'change_phone') {
+        throw createError('Invalid change token', 401);
+      }
+
+      const existing = await this.authUserRepo.isPhoneExist({ countryCode, phone });
+      if (existing && existing.id !== userId) throw createError('Phone is already registered by another user', 409);
+
+      await this.authUserRepo.updatePhone(userId, countryCode, phone);
+      return { message: 'Phone updated successfully' };
+    } catch (error) {
+      throw error;
+    }
+  }
+
+  async updateEmail({ userId, changeToken, email }) {
+    try {
+      let payload;
+      try {
+        payload = decodeToken(changeToken);
+      } catch (e) {
+        throw createError('Invalid or expired change token', 401);
+      }
+
+      if (payload.userId !== userId || payload.purpose !== 'change_email') {
+        throw createError('Invalid change token', 401);
+      }
+
+      const existing = await this.authUserRepo.isEmailExist({ email });
+      if (existing && existing.id !== userId) throw createError('Email is already registered by another user', 409);
+
+      await this.authUserRepo.updateEmail(userId, email);
+      return { message: 'Email updated successfully' };
+    } catch (error) {
+      throw error;
+    }
+  }
+
   async verifyOtp({ email, emailOtp, countryCode, phone, phoneOtp }) {
     try {
       const currentTime = new Date(Date.now());

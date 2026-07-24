@@ -18,6 +18,12 @@ const {
   changePasswordSchema,
   forgotPasswordSchema,
   resetPasswordSchema,
+  verifyPasswordSchema,
+  sendPhoneOtpSchema,
+  sendEmailOtpSchema,
+  verifySingleOtpSchema,
+  updatePhoneSchema,
+  updateEmailSchema,
 } = require('../modules/auth/auth.validator');
 const { verifyOtpToken } = require('../middlewares/verification.middleware');
 
@@ -128,6 +134,17 @@ router.post(
   validateRequest({ body: resetPasswordSchema }),
   authController.resetPassword
 );
+
+router.post('/verify-password', verifyToken, validateRequest({ body: verifyPasswordSchema }), authController.verifyPassword);
+
+router.post('/send-phone-otp', verifyToken, validateRequest({ body: sendPhoneOtpSchema }), authController.sendPhoneOtp);
+router.post('/send-email-otp', verifyToken, validateRequest({ body: sendEmailOtpSchema }), authController.sendEmailOtp);
+
+router.post('/verify-phone-otp', verifyToken, validateRequest({ body: verifySingleOtpSchema }), authController.verifyPhoneOtp);
+router.post('/verify-email-otp', verifyToken, validateRequest({ body: verifySingleOtpSchema }), authController.verifyEmailOtp);
+
+router.patch('/update-phone', verifyToken, validateRequest({ body: updatePhoneSchema }), authController.updatePhone);
+router.patch('/update-email', verifyToken, validateRequest({ body: updateEmailSchema }), authController.updateEmail);
 
 // ─── Social Login Routes ──────────────────────────────────────────────────────
 router.post('/google', authController.googleAuth);

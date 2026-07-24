@@ -371,6 +371,83 @@ class AuthController {
       next(error);
     }
   };
+
+  verifyPassword = async (req, res, next) => {
+    try {
+      const userId = req.userId;
+      const { password } = req.body;
+      const result = await this.authSvc.verifyPassword({ userId, password });
+      res.json(apiResponse(result, 'Password verified successfully'));
+    } catch (error) {
+      next(error);
+    }
+  };
+
+  sendPhoneOtp = async (req, res, next) => {
+    try {
+      const userId = req.userId;
+      const { countryCode, phone, purpose } = req.body;
+      const result = await this.authSvc.sendPhoneOtp({ userId, countryCode, phone, purpose });
+      res.json(apiResponse(result, 'OTP sent successfully'));
+    } catch (error) {
+      next(error);
+    }
+  };
+
+  sendEmailOtp = async (req, res, next) => {
+    try {
+      const userId = req.userId;
+      const { email, purpose } = req.body;
+      const result = await this.authSvc.sendEmailOtp({ userId, email, purpose });
+      res.json(apiResponse(result, 'OTP sent successfully'));
+    } catch (error) {
+      next(error);
+    }
+  };
+
+  verifyPhoneOtp = async (req, res, next) => {
+    try {
+      const userId = req.userId;
+      const { otp, purpose } = req.body;
+      const result = await this.authSvc.verifySingleOtp({ userId, type: 'phone', otp, purpose });
+      res.json(apiResponse(result, 'OTP verified successfully'));
+    } catch (error) {
+      next(error);
+    }
+  };
+
+  verifyEmailOtp = async (req, res, next) => {
+    try {
+      const userId = req.userId;
+      const { otp, purpose } = req.body;
+      const result = await this.authSvc.verifySingleOtp({ userId, type: 'email', otp, purpose });
+      res.json(apiResponse(result, 'OTP verified successfully'));
+    } catch (error) {
+      next(error);
+    }
+  };
+
+  updatePhone = async (req, res, next) => {
+    try {
+      const userId = req.userId;
+      const { changeToken, countryCode, phone } = req.body;
+      const result = await this.authSvc.updatePhone({ userId, changeToken, countryCode, phone });
+      res.json(apiResponse(result, 'Phone updated successfully'));
+    } catch (error) {
+      next(error);
+    }
+  };
+
+  updateEmail = async (req, res, next) => {
+    try {
+      const userId = req.userId;
+      const { changeToken, email } = req.body;
+      const result = await this.authSvc.updateEmail({ userId, changeToken, email });
+      res.json(apiResponse(result, 'Email updated successfully'));
+    } catch (error) {
+      next(error);
+    }
+  };
 }
 
 module.exports = AuthController;

@@ -138,7 +138,7 @@ export default function CommentsScreen({ navigation, route }: Props) {
         id: CURRENT_USER.id,
         name: (CURRENT_USER?.name || 'Taddle User'),
         handle: (CURRENT_USER?.username || 'user'),
-        avatar: CURRENT_USER?.avatarUrl ? null : '👾',
+        avatar: '👾',
       },
       text: trimmed,
       likes: 0,

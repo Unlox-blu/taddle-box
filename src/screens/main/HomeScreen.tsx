@@ -14,6 +14,7 @@ import {
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
+import AsyncStorage from "@react-native-async-storage/async-storage";
 import { StatusBar } from "expo-status-bar";
 import { useNavigation, useIsFocused } from "@react-navigation/native";
 import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
@@ -24,6 +25,7 @@ import SpotlightCarousel from "../../components/home/SpotlightCarousel";
 import MainHeader from "../../components/common/MainHeader";
 import CommentsModal from "../../components/home/CommentsModal";
 import { useAuth } from "../../context/AuthContext";
+import { useWallet } from "../../context/WalletContext";
 import { usePosts } from "../../context/PostsContext";
 import type { HomeStackParamList, Post } from "../../types";
 
@@ -37,10 +39,25 @@ type HomeNavProp = NativeStackNavigationProp<HomeStackParamList, "HomeMain">;
 const WEEK_LABELS = ["M", "T", "W", "T", "F", "S", "S"];
 const TODAY_INDEX = new Date().getDay() === 0 ? 6 : new Date().getDay() - 1; // 0 is Monday, 6 is Sunday
 
+const calculateCompletedDays = (streakCount: number, endDateString?: string | null): number[] => {
+  if (!endDateString || streakCount <= 0) return [];
+  const end = new Date(endDateString);
+  const completed = [];
+  const endIndex = end.getDay() === 0 ? 6 : end.getDay() - 1;
+  
+  for (let i = 0; i < streakCount; i++) {
+    const dayIndex = endIndex - i;
+    if (dayIndex < 0) break; // reached previous week
+    completed.push(dayIndex);
+  }
+  return completed;
+};
+
 // ─── Main screen ──────────────────────────────────────────────────────────────
 
 export default function HomeScreen() {
   const { user: CURRENT_USER } = useAuth();
+  const { wallet } = useWallet();
   const insets = useSafeAreaInsets();
   const navigation = useNavigation<HomeNavProp>();
   const isFocused = useIsFocused();
@@ -52,9 +69,10 @@ export default function HomeScreen() {
   const [trendChips, setTrendChips] = useState<string[]>(["All"]);
   const [refreshing, setRefreshing] = useState(false);
   const [streakOpen, setStreakOpen] = useState(false);
+  const [showWeeklyBonusModal, setShowWeeklyBonusModal] = useState(false);
 
   const [realStreak, setRealStreak] = useState(0);
-  const [completedDays, setCompletedDays] = useState<number[]>([TODAY_INDEX]); // Mock for UI visual if needed, could calculate from streak start
+  const [completedDays, setCompletedDays] = useState<number[]>([]);
   const [unreadCount, setUnreadCount] = useState(0);
   const [localXP, setLocalXP] = useState(CURRENT_USER?.xp || 0);
   const [activePostId, setActivePostId] = useState<string | null>(null);
@@ -87,14 +105,16 @@ export default function HomeScreen() {
     try {
       // First get current streak to check if it's already updated today
       let currentStreak = 0;
+      let streakEndDate = null;
+      let weeklyBonus = false;
+
       try {
         const streakRes = await streakService.getCurrentStreak();
         currentStreak = streakRes?.data?.streakCount || 0;
+        streakEndDate = streakRes?.data?.endDate || null;
 
         const now = new Date();
-        const prev = streakRes?.data?.endDate
-          ? new Date(streakRes.data.endDate)
-          : null;
+        const prev = streakEndDate ? new Date(streakEndDate) : null;
 
         let isSameDay = false;
         if (prev) {
@@ -108,7 +128,11 @@ export default function HomeScreen() {
         if (!isSameDay) {
           try {
             const updateRes = await streakService.createOrUpdate();
-            if (updateRes?.data) currentStreak = updateRes.data.streakCount;
+            if (updateRes?.data?.streak) {
+              currentStreak = updateRes.data.streak.streakCount;
+              streakEndDate = updateRes.data.streak.endDate;
+              weeklyBonus = !!updateRes.data.weeklyBonusEarned;
+            }
           } catch (e) {
             // Already updated or other error
           }
@@ -117,11 +141,21 @@ export default function HomeScreen() {
         // Fallback or initial streak creation
         try {
           const updateRes = await streakService.createOrUpdate();
-          if (updateRes?.data) currentStreak = updateRes.data.streakCount;
+          if (updateRes?.data?.streak) {
+            currentStreak = updateRes.data.streak.streakCount;
+            streakEndDate = updateRes.data.streak.endDate;
+            weeklyBonus = !!updateRes.data.weeklyBonusEarned;
+          }
         } catch (err) {}
       }
 
       setRealStreak(currentStreak);
+      setCompletedDays(calculateCompletedDays(currentStreak, streakEndDate));
+      
+      if (weeklyBonus) {
+        setShowWeeklyBonusModal(true);
+        setLocalXP((prev: number) => prev + 150);
+      }
 
       const notifRes = await notificationService.getNotifications(1, 1, true);
 
@@ -147,6 +181,16 @@ export default function HomeScreen() {
     }
   };
 
+  const [hasDailyReward, setHasDailyReward] = useState(true);
+
+  useEffect(() => {
+    AsyncStorage.getItem('lastDailyClaim').then(date => {
+      if (date === new Date().toISOString().split('T')[0]) {
+        setHasDailyReward(false);
+      }
+    }).catch(() => {});
+  }, []);
+
   // XP fly-to-card animation
   const xpCardRef = useRef<View>(null);
   const xpBounceAnim = useRef(new Animated.Value(1)).current;
@@ -158,7 +202,8 @@ export default function HomeScreen() {
     async (fromX: number, fromY: number) => {
       try {
         await xpService.creditXP(50, "bonus", "Daily Login");
-        setLocalXP((prev) => prev + 50);
+        setLocalXP((prev: number) => prev + 50);
+        AsyncStorage.setItem('lastDailyClaim', new Date().toISOString().split('T')[0]).catch(() => {});
 
         xpCardRef.current?.measure((_, __, w, h, px, py) => {
           const toX = px + w / 2 - 30;
@@ -201,6 +246,7 @@ export default function HomeScreen() {
         });
       } catch (e) {
         console.error("Failed to claim daily reward", e);
+        setHasDailyReward(false);
       }
     },
     [],
@@ -209,7 +255,10 @@ export default function HomeScreen() {
   const filteredPosts =
     activeTrend === "All"
       ? posts
-      : posts.filter((p) => (p.hashtags || []).includes(activeTrend));
+      : posts.filter((p) => {
+          const normalizedTags = (p.hashtags || []).map(t => `#${t}`);
+          return normalizedTags.includes(activeTrend);
+        });
 
   const onRefresh = async () => {
     setRefreshing(true);
@@ -225,8 +274,20 @@ export default function HomeScreen() {
   };
   const handleShare = async (post: Post) => {
     try {
+      const shareTitle = (post as any).title || `${post.author.name}'s Post`;
+      const appUrl = `https://taddlebox.com/post/${post.id}`;
+      const firstMedia = (post as any).media?.[0]?.url || (post as any).media?.[0]?.cloudfront_url || post.mediaUri;
+      
+      const message = firstMedia 
+        ? `${shareTitle}\n\n${appUrl}\n\nMedia: ${firstMedia}`
+        : `${shareTitle}\n\n${appUrl}`;
+
       await Share.share({
-        message: `${post.content}\n\nShared from TADDLEBOX`,
+        message,
+        url: appUrl, // iOS uses this directly
+        title: shareTitle, // Android uses this in the intent
+      }, {
+        dialogTitle: 'Share Post'
       });
     } catch {}
   };
@@ -307,11 +368,15 @@ export default function HomeScreen() {
                     {
                       backgroundColor: "rgba(124,58,237,0.08)",
                       borderColor: "rgba(124,58,237,0.22)",
-                    },
+                    }
                   ]}
-                  onPress={() =>
-                    navigation.getParent()?.navigate("Wallet" as never)
-                  }
+                  onPress={() => {
+                    if (CURRENT_USER?.appLockEnabled) {
+                      navigation.navigate("LockScreen", { mode: 'app', returnScreen: 'Wallet' } as never);
+                    } else {
+                      navigation.getParent()?.navigate("Wallet" as never);
+                    }
+                  }}
                   activeOpacity={0.8}
                 >
                   <Text style={styles.miniEmoji}>⚡</Text>
@@ -336,7 +401,7 @@ export default function HomeScreen() {
             <SpotlightCarousel />
 
             {/* Daily reward */}
-            <DailyRewardCard onClaimPos={handleRewardClaim} />
+            {hasDailyReward && <DailyRewardCard onClaimPos={handleRewardClaim} />}
 
             {/* Feed */}
             <Text style={[styles.sectionLabel, { color: colors.text.muted }]}>
@@ -399,9 +464,10 @@ export default function HomeScreen() {
             </Text>
           </View>
         }
-        renderItem={({ item }) => (
+        renderItem={({ item, index }) => (
           <PostCard
             post={item}
+            index={index}
             isActive={item.id === activePostId}
             onAuthorPress={handleAuthorPress}
             onComment={handleComment}
@@ -419,6 +485,11 @@ export default function HomeScreen() {
         onClose={() => setStreakOpen(false)}
         streakCount={realStreak}
         completedDays={completedDays}
+      />
+
+      <WeeklyBonusModal 
+        visible={showWeeklyBonusModal}
+        onClose={() => setShowWeeklyBonusModal(false)}
       />
 
       <CommentsModal
@@ -688,8 +759,53 @@ function StreakModal({
             })}
           </View>
 
-          <View style={{ height: 32 }} />
+          <View style={{ flexDirection: 'row', alignItems: 'center', backgroundColor: "rgba(251,191,36,0.15)", padding: 12, borderRadius: 12, marginTop: 8, marginBottom: 32, gap: 10 }}>
+            <Text style={{ fontSize: 24 }}>🎁</Text>
+            <View style={{ flex: 1 }}>
+              <Text style={{ fontSize: 13, fontWeight: "700", color: colors.xpGold }}>7-Day Streak Reward</Text>
+              <Text style={{ fontSize: 11, color: colors.text.muted, marginTop: 2 }}>Complete a full week to earn an instant 150 XP bonus!</Text>
+            </View>
+          </View>
         </View>
+      </View>
+    </Modal>
+  );
+}
+
+// ─── Weekly Bonus Modal ───────────────────────────────────────────────────────
+
+function WeeklyBonusModal({ visible, onClose }: { visible: boolean; onClose: () => void }) {
+  const colors = useThemeColors();
+  const scale = useRef(new Animated.Value(0)).current;
+
+  useEffect(() => {
+    if (visible) {
+      Animated.spring(scale, { toValue: 1, speed: 12, bounciness: 12, useNativeDriver: true }).start();
+    } else {
+      scale.setValue(0);
+    }
+  }, [visible]);
+
+  return (
+    <Modal visible={visible} transparent animationType="fade" onRequestClose={onClose}>
+      <View style={[sm.wrap, { justifyContent: "center", alignItems: "center" }]}>
+        <TouchableWithoutFeedback onPress={onClose}>
+          <View style={sm.backdrop} />
+        </TouchableWithoutFeedback>
+        
+        <Animated.View style={[{ transform: [{ scale }] }, { width: "85%", backgroundColor: colors.bg.surface, borderRadius: radii.xl, padding: spacing.xl, alignItems: "center", borderColor: colors.xpGold, borderWidth: 2, shadowColor: colors.xpGold, shadowOpacity: 0.4, shadowRadius: 20 }]}>
+          <Text style={{ fontSize: 50, marginBottom: spacing.sm }}>🎉</Text>
+          <Text style={{ fontSize: fontSizes.xl, fontWeight: "900", color: colors.text.primary, textAlign: "center", marginBottom: spacing.xs }}>7-Day Streak!</Text>
+          <Text style={{ fontSize: fontSizes.sm, color: colors.text.muted, textAlign: "center", marginBottom: spacing.lg }}>You've maintained a full week streak. Keep it up!</Text>
+          
+          <View style={{ backgroundColor: "rgba(251,191,36,0.15)", paddingHorizontal: spacing.lg, paddingVertical: spacing.md, borderRadius: radii.md, marginBottom: spacing.xl }}>
+            <Text style={{ fontSize: fontSizes.lg, fontWeight: "800", color: colors.xpGold }}>+ 150 XP</Text>
+          </View>
+          
+          <TouchableOpacity onPress={onClose} style={{ backgroundColor: colors.xpGold, paddingHorizontal: spacing.xl, paddingVertical: 12, borderRadius: radii.full, width: "100%", alignItems: "center" }}>
+            <Text style={{ fontSize: fontSizes.md, fontWeight: "800", color: "#1A0A00" }}>Awesome!</Text>
+          </TouchableOpacity>
+        </Animated.View>
       </View>
     </Modal>
   );

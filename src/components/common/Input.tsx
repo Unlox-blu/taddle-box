@@ -5,6 +5,7 @@ import {
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { colors, radii, fontSizes, spacing } from '../../theme';
+import { useThemeColors } from '../../context/ThemeContext';
 
 interface InputProps extends TextInputProps {
   label?: string;
@@ -22,16 +23,18 @@ export default function Input({
 }: InputProps) {
   const [focused, setFocused] = useState(false);
   const [secure, setSecure] = useState(secureTextEntry ?? false);
+  const themeColors = useThemeColors();
 
   const isPassword = secureTextEntry;
 
   return (
     <View style={[styles.wrapper, containerStyle]}>
-      {label && <Text style={styles.label}>{label}</Text>}
+      {label && <Text style={[styles.label, { color: themeColors.text.secondary }]}>{label}</Text>}
       <View style={[
         styles.container,
-        focused && styles.containerFocused,
-        !!error && styles.containerError,
+        { backgroundColor: themeColors.bg.card, borderColor: themeColors.border },
+        focused && { borderColor: themeColors.primary, backgroundColor: 'rgba(124,58,237,0.08)' },
+        !!error && { borderColor: themeColors.danger },
       ]}>
         {onPress ? (
           <TouchableOpacity style={{ flex: 1, flexDirection: 'row', alignItems: 'center' }} onPress={onPress} activeOpacity={0.7}>
@@ -39,14 +42,14 @@ export default function Input({
               <Ionicons
                 name={icon}
                 size={18}
-                color={focused ? colors.primaryLight : colors.text.muted}
+                color={focused ? themeColors.primaryLight : themeColors.text.muted}
                 style={styles.leftIcon}
               />
             )}
             <View pointerEvents="none" style={{ flex: 1 }}>
               <TextInput
-                style={styles.input}
-                placeholderTextColor={colors.text.muted}
+                style={[styles.input, { color: themeColors.text.primary }]}
+                placeholderTextColor={themeColors.text.muted}
                 editable={false}
                 {...rest}
               />
@@ -58,13 +61,13 @@ export default function Input({
               <Ionicons
                 name={icon}
                 size={18}
-                color={focused ? colors.primaryLight : colors.text.muted}
+                color={focused ? themeColors.primaryLight : themeColors.text.muted}
                 style={styles.leftIcon}
               />
             )}
             <TextInput
-              style={styles.input}
-              placeholderTextColor={colors.text.muted}
+              style={[styles.input, { color: themeColors.text.primary }]}
+              placeholderTextColor={themeColors.text.muted}
               onFocus={() => setFocused(true)}
               onBlur={() => setFocused(false)}
               secureTextEntry={secure}
@@ -77,21 +80,21 @@ export default function Input({
             <Ionicons
               name={secure ? 'eye-off-outline' : 'eye-outline'}
               size={18}
-              color={colors.text.muted}
+              color={themeColors.text.muted}
             />
           </TouchableOpacity>
         )}
         {rightIcon && !isPassword && (
           <TouchableOpacity onPress={onRightIconPress} style={styles.rightIconBtn} disabled={rightIcon === 'sync'}>
             {rightIcon === 'sync' ? (
-              <ActivityIndicator size="small" color={colors.primaryLight} />
+              <ActivityIndicator size="small" color={themeColors.primaryLight} />
             ) : (
-              <Ionicons name={rightIcon} size={18} color={colors.text.muted} />
+              <Ionicons name={rightIcon} size={18} color={themeColors.text.muted} />
             )}
           </TouchableOpacity>
         )}
       </View>
-      {error ? <Text style={styles.error}>{error}</Text> : null}
+      {error ? <Text style={[styles.error, { color: themeColors.danger }]}>{error}</Text> : null}
     </View>
   );
 }
@@ -101,38 +104,26 @@ const styles = StyleSheet.create({
   label: {
     fontSize: fontSizes.sm,
     fontWeight: '600',
-    color: colors.text.secondary,
     marginBottom: 6,
     letterSpacing: 0.3,
   },
   container: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: colors.bg.card,
     borderWidth: 1,
-    borderColor: colors.border,
     borderRadius: radii.md,
     paddingHorizontal: spacing.md,
     minHeight: 50,
-  },
-  containerFocused: {
-    borderColor: colors.primary,
-    backgroundColor: 'rgba(124,58,237,0.08)',
-  },
-  containerError: {
-    borderColor: colors.danger,
   },
   leftIcon: { marginRight: spacing.sm },
   input: {
     flex: 1,
     fontSize: fontSizes.md,
-    color: colors.text.primary,
     paddingVertical: 12,
   },
   rightIconBtn: { padding: 4 },
   error: {
     fontSize: fontSizes.xs,
-    color: colors.danger,
     marginTop: 4,
     marginLeft: 2,
   },

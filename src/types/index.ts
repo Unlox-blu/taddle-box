@@ -1,13 +1,20 @@
 // ── Navigation param lists ──────────────────────────────────────
 export type HomeStackParamList = {
-  HomeMain:      undefined;
-  Notifications: undefined;
-  Comments:      { post: Post };
-  UserProfile:   { user: User };
-  StoryViewer:   { stories: Story[]; initialIndex: number };
-  Bookmarks:     undefined;
-  Settings:      undefined;
-  Search:        { query?: string } | undefined;
+  HomeMain:       undefined;
+  Notifications:  undefined;
+  Comments:       { post: Post };
+  UserProfile:    { user: User };
+  StoryViewer:    { stories: Story[]; initialIndex: number };
+  Bookmarks:      undefined;
+  Settings:       undefined;
+  EditProfile:    undefined;
+  Terms:          undefined;
+  Privacy:        undefined;
+  LockScreen:     { mode?: 'app' | 'wallet'; returnScreen?: keyof HomeStackParamList; isSetup?: boolean; isDisable?: boolean };
+  ChangePassword: undefined;
+  ChangePhone:    undefined;
+  ChangeEmail:    undefined;
+  Search:         { query?: string } | undefined;
 };
 
 export type CommunityStackParamList = {
@@ -38,6 +45,7 @@ export type MainTabParamList = {
 export type RootStackParamList = {
   Auth: undefined;
   Main: undefined;
+  ForceUpdate: undefined;
 };
 
 // ── Data models ─────────────────────────────────────────────────
@@ -45,6 +53,8 @@ export interface User {
   id: string;
   name: string;
   handle: string;
+  username?: string;
+  avatarUrl?: string;
   avatar: string;
   level: number;
   xp: number;
@@ -53,6 +63,9 @@ export interface User {
   followers: number;
   following: number;
   posts: number;
+  followerCount?: number;
+  followingCount?: number;
+  postCount?: number;
   bio: string;
   organization: string;
   badges: Badge[];
@@ -88,13 +101,24 @@ export interface Story {
 export interface Community {
   id: string;
   name: string;
+  slug: string;
   description: string;
-  banner: string;
-  avatar: string;
-  members: number;
+  avatarMediaId?: string;
+  bannerMediaId?: string;
+  avatarUrl?: string;
+  bannerUrl?: string;
+  privacy: 'public' | 'private' | 'restricted';
+  category: string[];
+  rules?: any;
+  ownerId: string;
+  memberCount: number;
+  postCount: number;
+  isVerified: boolean;
+  isActive: boolean;
+  createdAt: string;
+  updatedAt: string;
   isJoined: boolean;
-  isPrivate: boolean;
-  category: string;
+  memberRole?: 'member' | 'moderator' | 'admin' | null;
 }
 
 export interface Event {
@@ -130,6 +154,7 @@ export interface Transaction {
   amount: number;
   currency: 'INR' | 'XP';
   type: 'earn' | 'spend' | 'convert' | 'withdraw';
+  status?: string;
 }
 
 export interface Notification {

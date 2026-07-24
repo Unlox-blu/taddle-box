@@ -7,11 +7,12 @@ import { useAuth } from '../context/AuthContext';
 
 import AuthNavigator from './AuthNavigator';
 import MainNavigator from './MainNavigator';
+import ForceUpdateScreen from '../screens/main/ForceUpdateScreen';
 
 const Stack = createNativeStackNavigator<RootStackParamList>();
 
 export default function AppNavigator() {
-  const { isLoggedIn } = useAuth();
+  const { isLoggedIn, needsForceUpdate } = useAuth();
   const { isDark, colors } = useTheme();
 
   const navTheme = {
@@ -31,7 +32,9 @@ export default function AppNavigator() {
   return (
     <NavigationContainer theme={navTheme}>
       <Stack.Navigator screenOptions={{ headerShown: false, animation: 'fade' }}>
-        {isLoggedIn ? (
+        {needsForceUpdate ? (
+          <Stack.Screen name="ForceUpdate" component={ForceUpdateScreen} />
+        ) : isLoggedIn ? (
           <Stack.Screen name="Main" component={MainNavigator} />
         ) : (
           <Stack.Screen name="Auth" component={AuthNavigator} />

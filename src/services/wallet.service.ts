@@ -20,5 +20,10 @@ export const walletService = {
   initiateWithdrawal: async (amountCents: number) => {
     const response = await apiClient.post('/wallet/withdraw/initiate', { amountCents });
     return response.data;
+  },
+
+  linkUPI: async (upiId: string) => {
+    const response = await apiClient.post('/wallet/upi', { upiId });
+    return response.data;
   }
 };

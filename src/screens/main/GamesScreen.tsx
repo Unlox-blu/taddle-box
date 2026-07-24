@@ -14,6 +14,7 @@ import { fontSizes, spacing, radii, type ColorPalette } from '../../theme';
 import { useGames, type PlayMode, type GameMatch } from '../../context/GamesContext';
 import { useWallet } from '../../context/WalletContext';
 import { useThemeColors } from '../../context/ThemeContext';
+import { xpService } from '../../services/xp.service';
 import MainHeader from '../../components/common/MainHeader';
 import type { Game } from '../../types';
 
@@ -84,7 +85,7 @@ type ScreenModal = 'none' | 'history' | 'leaderboard';
 export default function GamesScreen() {
   const insets = useSafeAreaInsets();
   const { stats, matches } = useGames();
-  const { earnXP } = useWallet();
+  const {} = useWallet();
   const colors = useThemeColors();
   const styles = useMemo(() => makeStyles(colors), [colors]);
   const RANK_COLORS = useMemo(() => getRankColors(colors), [colors]);
@@ -348,7 +349,7 @@ export default function GamesScreen() {
           initialMode={playingMode}
           visible={showLobby}
           onClose={() => { setShowLobby(false); setPlayingGame(null); }}
-          onEarnXP={earnXP}
+          onEarnXP={(xpAmount) => xpService.creditXP(xpAmount, 'earned', 'games').catch(() => {})}
         />
       )}
 

@@ -11,6 +11,7 @@ import { PostsProvider }    from './src/context/PostsContext';
 import { CommunityProvider }from './src/context/CommunityContext';
 import { WalletProvider }   from './src/context/WalletContext';
 import { GamesProvider }    from './src/context/GamesContext';
+import AppLockOverlay       from './src/components/common/AppLockOverlay';
 
 SplashScreen.preventAutoHideAsync();
 
@@ -30,6 +31,7 @@ function AppShell() {
           backgroundColor={colors.bg.base}
         />
         <AppNavigator />
+        <AppLockOverlay />
       </SafeAreaProvider>
     </GestureHandlerRootView>
   );

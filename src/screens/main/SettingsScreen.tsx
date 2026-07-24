@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useState, useEffect, useCallback } from "react";
 import {
   View,
   Text,
@@ -7,6 +7,9 @@ import {
   ScrollView,
   Switch,
   Alert,
+  Linking,
+  Platform,
+  ActionSheetIOS,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
@@ -17,6 +20,11 @@ import { useWallet } from "../../context/WalletContext";
 import { useTheme, useThemeColors } from "../../context/ThemeContext";
 import { useAuth } from "../../context/AuthContext";
 import { authService } from "../../services/auth.service";
+import { appConfigService } from "../../services/appConfig.service";
+import { settingsService } from "../../services/settings.service";
+import * as SecureStore from "expo-secure-store";
+import * as LocalAuthentication from "expo-local-authentication";
+import { useFocusEffect } from "@react-navigation/native";
 import type { HomeStackParamList } from "../../types";
 
 type NavProp = NativeStackNavigationProp<HomeStackParamList, "Settings">;
@@ -26,12 +34,105 @@ export default function SettingsScreen() {
   const insets = useSafeAreaInsets();
   const navigation = useNavigation<NavProp>();
   const { wallet, toggleSetting } = useWallet();
-  const { isDark, colors, toggleTheme } = useTheme();
+  const { isDark, colors, themePreference, setThemePreference } = useTheme();
+  const { storeUrl } = useAuth();
+
+  const [checkingVersion, setCheckingVersion] = useState(false);
 
   const [publicAccount, setPublicAccount] = useState(true);
   const [activityStatus, setActivityStatus] = useState(true);
   const [allowTagging, setAllowTagging] = useState(true);
   const [showOnLeaderboard, setShowOnLeaderboard] = useState(true);
+  const [appBiometric, setAppBiometric] = useState(false);
+
+  useFocusEffect(
+    useCallback(() => {
+      SecureStore.getItemAsync("app_biometricEnabled").then((val) => {
+        setAppBiometric(val === "true");
+      });
+      // Fetch user settings (privacy toggles)
+      settingsService
+        .getSettings()
+        .then((res) => {
+          if (res?.data) {
+            setPublicAccount(res.data.publicAccount ?? true);
+            setActivityStatus(res.data.activityStatus ?? true);
+            setAllowTagging(res.data.allowTagging ?? true);
+            setShowOnLeaderboard(res.data.showOnLeaderboard ?? true);
+          }
+        })
+        .catch(console.error);
+    }, []),
+  );
+
+  const toggleBiometric = async () => {
+    // Biometric can only be enabled if PIN (App Lock) is set first
+    if (!CURRENT_USER?.appLockEnabled) {
+      Alert.alert(
+        "PIN Required",
+        "Please enable Global App Lock (PIN) before turning on biometric authentication.",
+        [
+          { text: "Cancel", style: "cancel" },
+          {
+            text: "Set Up PIN",
+            onPress: () =>
+              navigation.navigate("LockScreen", {
+                mode: "app",
+                isSetup: true,
+                returnScreen: "Settings",
+              }),
+          },
+        ],
+      );
+      return;
+    }
+
+    try {
+      const newValue = !appBiometric;
+      if (newValue) {
+        const hasHardware = await LocalAuthentication.hasHardwareAsync();
+        const isEnrolled = await LocalAuthentication.isEnrolledAsync();
+        if (!hasHardware || !isEnrolled) {
+          Alert.alert(
+            "Not Supported",
+            "Biometrics are not supported or not enrolled on this device.",
+          );
+          return;
+        }
+        const result = await LocalAuthentication.authenticateAsync({
+          promptMessage: "Authenticate to enable biometric app lock",
+          cancelLabel: "Cancel",
+        });
+        if (result.success) {
+          await SecureStore.setItemAsync("app_biometricEnabled", "true");
+          setAppBiometric(true);
+        }
+      } else {
+        await SecureStore.setItemAsync("app_biometricEnabled", "false");
+        setAppBiometric(false);
+      }
+    } catch (e) {
+      console.log("Biometric error", e);
+    }
+  };
+
+  const handleThemePicker = () => {
+    const options = [
+      { label: "📱 System Default", value: "system" as const },
+      { label: "🌙 Dark", value: "dark" as const },
+      { label: "☀️ Light", value: "light" as const },
+    ];
+    const current =
+      options.find((o) => o.value === themePreference)?.label ??
+      "System Default";
+    Alert.alert("App Theme", `Currently: ${current}`, [
+      ...options.map((o) => ({
+        text: o.label,
+        onPress: () => setThemePreference(o.value),
+      })),
+      { text: "Cancel", style: "cancel" as const },
+    ]);
+  };
 
   const handleLogout = () => {
     Alert.alert("Log Out", "Are you sure you want to log out?", [
@@ -50,25 +151,89 @@ export default function SettingsScreen() {
       "This action is permanent and cannot be undone. Type 'DELETE' to confirm.",
       [
         { text: "Cancel", style: "cancel" },
-        { 
-          text: "Delete", 
-          style: "destructive", 
-          onPress: async (text) => {
-            if (text !== 'DELETE') {
-              Alert.alert('Error', 'You must type DELETE to confirm.');
+        {
+          text: "Delete",
+          style: "destructive",
+          onPress: async (text?: string) => {
+            if (text !== "DELETE") {
+              Alert.alert("Error", "You must type DELETE to confirm.");
               return;
             }
             try {
               await authService.deleteAccount();
               await signOut();
             } catch (e: any) {
-              Alert.alert('Error', e.message || 'Failed to delete account');
+              Alert.alert("Error", e.message || "Failed to delete account");
             }
-          }
+          },
         },
       ],
-      "plain-text"
+      "plain-text",
     );
+  };
+
+  const handleLanguagePicker = () => {
+    if (Platform.OS === "ios") {
+      ActionSheetIOS.showActionSheetWithOptions(
+        {
+          options: ["Cancel", "English (Default)"],
+          cancelButtonIndex: 0,
+        },
+        (buttonIndex) => {
+          // Only English available for now
+        },
+      );
+    } else {
+      Alert.alert("Language", "Select your preferred language", [
+        { text: "Cancel", style: "cancel" },
+        { text: "English (Default)", onPress: () => {} },
+      ]);
+    }
+  };
+
+  const handleAppVersionCheck = async () => {
+    try {
+      setCheckingVersion(true);
+      const res = await appConfigService.getAppConfig();
+      const config = res.data;
+      const currentVersion = "1.0.0"; // Hardcoded for now
+
+      if (config.latestVersion && config.latestVersion > currentVersion) {
+        Alert.alert(
+          "Update Available",
+          `Version ${config.latestVersion} is available. Would you like to update now?`,
+          [
+            { text: "Later", style: "cancel" },
+            {
+              text: "Update",
+              onPress: () =>
+                Linking.openURL(
+                  config.storeUrl || "https://play.google.com/store",
+                ),
+            },
+          ],
+        );
+      } else {
+        Alert.alert(
+          "Up to Date ✅",
+          "You are running the latest version of Taddle.",
+        );
+      }
+    } catch (err) {
+      Alert.alert(
+        "Error",
+        "Failed to check for updates. Please try again later.",
+      );
+    } finally {
+      setCheckingVersion(false);
+    }
+  };
+
+  const handleRateApp = () => {
+    Linking.openURL(storeUrl || "https://play.google.com/store");
+    setTimeout(() => {
+      Alert.alert("Thank you! ⭐", "Your support means a lot to us.");
+    }, 1000);
   };
 
   return (
@@ -107,20 +272,23 @@ export default function SettingsScreen() {
           ]}
         >
           <View style={styles.accountAvatar}>
-            <Text style={{ fontSize: 28 }}>{CURRENT_USER?.avatarUrl ? null : '👾'}</Text>
+            <Text style={{ fontSize: 28 }}>
+              {CURRENT_USER?.avatarUrl ? null : "👾"}
+            </Text>
           </View>
           <View style={{ flex: 1 }}>
             <Text style={[styles.accountName, { color: colors.text.primary }]}>
-              {(CURRENT_USER?.name || 'Taddle User')}
+              {CURRENT_USER?.name || "Taddle User"}
             </Text>
             <Text
               style={[styles.accountHandle, { color: colors.primaryLight }]}
             >
-              {(CURRENT_USER?.username || 'user')}
+              {CURRENT_USER?.username || "user"}
             </Text>
           </View>
           <TouchableOpacity
             style={[styles.editBtn, { borderColor: "rgba(124,58,237,0.35)" }]}
+            onPress={() => navigation.navigate("EditProfile")}
           >
             <Text style={[styles.editBtnText, { color: colors.primaryLight }]}>
               Edit Profile
@@ -132,34 +300,54 @@ export default function SettingsScreen() {
         <SectionHeader title="Account & Security" />
         <SettingsGroup>
           <SettingsToggle
-            icon="lock-closed-outline"
-            label="PIN Lock"
-            description="Require PIN to open wallet"
-            value={wallet.pinEnabled}
-            onToggle={() => toggleSetting("pinEnabled")}
+            icon="shield-checkmark-outline"
+            label="Global App Lock"
+            description="Require PIN to open app"
+            value={CURRENT_USER?.appLockEnabled || false}
+            onToggle={() => {
+              if (CURRENT_USER?.appLockEnabled) {
+                navigation.navigate("LockScreen", {
+                  mode: "app",
+                  isSetup: false,
+                  isDisable: true,
+                  returnScreen: "Settings",
+                });
+              } else {
+                navigation.navigate("LockScreen", {
+                  mode: "app",
+                  isSetup: true,
+                  returnScreen: "Settings",
+                });
+              }
+            }}
           />
           <SettingsToggle
             icon="finger-print-outline"
-            label="Biometric Login"
-            description="Use fingerprint or Face ID"
-            value={wallet.biometricEnabled}
-            onToggle={() => toggleSetting("biometricEnabled")}
+            label="Biometric App Lock"
+            description={
+              CURRENT_USER?.appLockEnabled
+                ? "Use Face ID / Touch ID for App Lock"
+                : "Requires App Lock PIN to be set first"
+            }
+            value={appBiometric && !!CURRENT_USER?.appLockEnabled}
+            onToggle={toggleBiometric}
           />
           <SettingsRow
             icon="key-outline"
             label="Change Password"
-            onPress={() =>
-              Alert.alert(
-                "Coming Soon",
-                "Password change coming in next update.",
-              )
-            }
+            onPress={() => navigation.navigate("ChangePassword")}
           />
           <SettingsRow
-            icon="phone-portrait-outline"
-            label="Linked Phone"
-            value="+91 98765 43210"
-            onPress={() => {}}
+            icon="call-outline"
+            label="Phone"
+            value={CURRENT_USER?.phone ? `${CURRENT_USER.phone}` : "Not linked"}
+            onPress={() => navigation.navigate("ChangePhone")}
+          />
+          <SettingsRow
+            icon="mail-outline"
+            label="Email"
+            value={CURRENT_USER?.email ?? "Not linked"}
+            onPress={() => navigation.navigate("ChangeEmail")}
             last
           />
         </SettingsGroup>
@@ -199,28 +387,60 @@ export default function SettingsScreen() {
             label="Public Account"
             description="Anyone can see your posts"
             value={publicAccount}
-            onToggle={() => setPublicAccount((v) => !v)}
+            onToggle={async () => {
+              const old = publicAccount;
+              setPublicAccount(!old);
+              try {
+                await settingsService.togglePublicAccount();
+              } catch (e) {
+                setPublicAccount(old);
+              }
+            }}
           />
           <SettingsToggle
             icon="radio-button-on-outline"
             label="Activity Status"
             description="Show when you're online"
             value={activityStatus}
-            onToggle={() => setActivityStatus((v) => !v)}
+            onToggle={async () => {
+              const old = activityStatus;
+              setActivityStatus(!old);
+              try {
+                await settingsService.toggleActivityStatus();
+              } catch (e) {
+                setActivityStatus(old);
+              }
+            }}
           />
           <SettingsToggle
             icon="at-outline"
             label="Allow Tagging"
             description="Let others tag you in posts"
             value={allowTagging}
-            onToggle={() => setAllowTagging((v) => !v)}
+            onToggle={async () => {
+              const old = allowTagging;
+              setAllowTagging(!old);
+              try {
+                await settingsService.toggleAllowTagging();
+              } catch (e) {
+                setAllowTagging(old);
+              }
+            }}
           />
           <SettingsToggle
             icon="trophy-outline"
             label="Show on Leaderboard"
             description="Appear in public rankings"
             value={showOnLeaderboard}
-            onToggle={() => setShowOnLeaderboard((v) => !v)}
+            onToggle={async () => {
+              const old = showOnLeaderboard;
+              setShowOnLeaderboard(!old);
+              try {
+                await settingsService.toggleShowOnLeaderboard();
+              } catch (e) {
+                setShowOnLeaderboard(old);
+              }
+            }}
             last
           />
         </SettingsGroup>
@@ -229,23 +449,22 @@ export default function SettingsScreen() {
         <SectionHeader title="App Preferences" />
         <SettingsGroup>
           <SettingsRow
+            icon="color-palette-outline"
+            label="App Theme"
+            value={
+              themePreference === "system"
+                ? "📱 System"
+                : themePreference === "dark"
+                  ? "🌙 Dark"
+                  : "☀️ Light"
+            }
+            onPress={handleThemePicker}
+          />
+          <SettingsRow
             icon="language-outline"
             label="Language"
             value="English"
-            onPress={() =>
-              Alert.alert("Coming Soon", "More languages coming soon!")
-            }
-          />
-          <SettingsToggle
-            icon="color-palette-outline"
-            label="Dark Mode"
-            description={
-              isDark
-                ? "Currently using dark theme"
-                : "Currently using light theme"
-            }
-            value={isDark}
-            onToggle={toggleTheme}
+            onPress={handleLanguagePicker}
             last
           />
         </SettingsGroup>
@@ -256,25 +475,23 @@ export default function SettingsScreen() {
           <SettingsRow
             icon="document-text-outline"
             label="Terms of Service"
-            onPress={() => {}}
+            onPress={() => navigation.navigate("Terms")}
           />
           <SettingsRow
             icon="shield-checkmark-outline"
             label="Privacy Policy"
-            onPress={() => {}}
+            onPress={() => navigation.navigate("Privacy")}
           />
           <SettingsRow
             icon="star-outline"
             label="Rate the App"
-            onPress={() =>
-              Alert.alert("Thank you! ⭐", "Redirecting to app store...")
-            }
+            onPress={handleRateApp}
           />
           <SettingsRow
             icon="information-circle-outline"
             label="App Version"
-            value="1.0.0"
-            onPress={() => {}}
+            value={checkingVersion ? "Checking..." : "1.0.0"}
+            onPress={handleAppVersionCheck}
             last
           />
         </SettingsGroup>
@@ -399,7 +616,11 @@ function SettingsToggle({
   const colors = useThemeColors();
   return (
     <>
-      <View style={shared.row}>
+      <TouchableOpacity
+        style={shared.row}
+        onPress={onToggle}
+        activeOpacity={0.7}
+      >
         <View style={shared.rowIcon}>
           <Ionicons name={icon} size={19} color={colors.primaryLight} />
         </View>
@@ -420,7 +641,7 @@ function SettingsToggle({
           }}
           thumbColor={value ? colors.primaryLight : colors.text.muted}
         />
-      </View>
+      </TouchableOpacity>
       {!last && (
         <View style={[shared.rowDiv, { backgroundColor: colors.border }]} />
       )}

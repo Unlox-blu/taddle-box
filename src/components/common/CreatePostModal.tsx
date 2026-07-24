@@ -108,6 +108,28 @@ export default function CreatePostModal({
   // Audio preview state
   const [sound, setSound] = useState<Audio.Sound | null>(null);
 
+  // Clear memory on close/open
+  React.useEffect(() => {
+    if (!visible) {
+      setTitle("");
+      setContent("");
+      setHashtags([]);
+      setHashtagInput("");
+      setMediaItems([]);
+      setAudioItem(null);
+      setGifQuery("");
+      setShowGifPicker(false);
+      setShowHashtagInput(false);
+      setPostType(preselectedCommunityId ? "community" : null);
+      setSelComId(preselectedCommunityId ?? null);
+      setShowPicker(false);
+      setActiveInput(null);
+    } else {
+      setPostType(preselectedCommunityId ? "community" : null);
+      setSelComId(preselectedCommunityId ?? null);
+    }
+  }, [visible, preselectedCommunityId]);
+
   const [dynamicTags, setDynamicTags] = useState<string[]>([]);
   const activeHashtagQuery = React.useMemo(() => {
     return (hashtagInput || "")
@@ -259,6 +281,8 @@ export default function CreatePostModal({
   const shakeAudienceAnim = useRef(new Animated.Value(0)).current;
   const shakeMediaAnim = useRef(new Animated.Value(0)).current;
   const shakeHashtagAnim = useRef(new Animated.Value(0)).current;
+  const shakeTitleAnim = useRef(new Animated.Value(0)).current;
+  const shakeContentAnim = useRef(new Animated.Value(0)).current;
 
   const shake = (anim: Animated.Value) => {
     anim.setValue(0);
@@ -454,38 +478,32 @@ export default function CreatePostModal({
   );
 
   const resetAndClose = () => {
-    setTitle("");
-    setContent("");
-    setHashtags([]);
-    setHashtagInput("");
-    setMediaItems([]);
-    setAudioItem(null);
-    setGifQuery("");
-    setShowGifPicker(false);
-    setShowHashtagInput(false);
-    setPostType(preselectedCommunityId ? "community" : "feed");
-    setSelComId(preselectedCommunityId ?? null);
-    setShowPicker(false);
     onClose();
   };
 
   const handlePost = async () => {
-    // ── Validation with shakes & Alert ────────────────────────
-    const errors = [];
-    if (!postType) errors.push("• Audience selection is required");
-    if (!hasTitle) errors.push("• Title is required");
-    if (!hasContent) errors.push("• Either Text Content or Media is required");
-    if (!hasHashtag) errors.push("• At least one hashtag is required");
+    // ── Validation with shakes ────────────────────────────────
+    let hasValidationError = false;
 
-    if (errors.length > 0) {
-      if (!postType) shake(shakeAudienceAnim);
-      if (!hasContent) shake(shakeMediaAnim);
-      if (!hasHashtag) shake(shakeHashtagAnim);
+    if (!hasTitle) {
+      shake(shakeTitleAnim);
+      hasValidationError = true;
+    }
+    if (!hasContent) {
+      shake(shakeContentAnim);
+      shake(shakeMediaAnim);
+      hasValidationError = true;
+    }
+    if (!postType) {
+      shake(shakeAudienceAnim);
+      hasValidationError = true;
+    }
+    if (!hasHashtag) {
+      shake(shakeHashtagAnim);
+      hasValidationError = true;
+    }
 
-      Alert.alert(
-        "Incomplete Post",
-        "Please provide the missing information:\n\n" + errors.join("\n"),
-      );
+    if (hasValidationError) {
       return;
     }
 
@@ -501,6 +519,8 @@ export default function CreatePostModal({
           const res = await mediaService.getVideoUploadUrl(
             item.size || 10000000,
             item.name || "video.mp4",
+            item.width,
+            item.height,
           );
           await mediaService.uploadFileDirect(
             res.data.uploadLink!,
@@ -527,6 +547,8 @@ export default function CreatePostModal({
             folder,
             item.size || 1000000,
             item.mimeType || "image/jpeg",
+            item.width,
+            item.height,
           );
           await mediaService.uploadFileDirect(
             res.data.signedUrl!,
@@ -549,7 +571,7 @@ export default function CreatePostModal({
         title: title.trim(),
         content: content.trim(),
         communityId: postType === "community" ? selectedComId : undefined,
-        tags: Array.from(new Set([...autoHashtags, ...hashtags])),
+        tags: Array.from(new Set([...autoHashtags, ...hashtags])).map(t => t.startsWith('#') ? t.substring(1) : t),
         mentions: autoMentions.map((m) => m.id),
         visibility: postType === "community" ? "community_only" : "public",
         status: "published",
@@ -600,8 +622,8 @@ export default function CreatePostModal({
     >
       <KeyboardAvoidingView
         style={[styles.container, { paddingTop: insets.top || 16 }]}
-        behavior={Platform.OS === "ios" ? "padding" : undefined}
-        keyboardVerticalOffset={8}
+        behavior={Platform.OS === "ios" ? "padding" : "height"}
+        keyboardVerticalOffset={Platform.OS === "ios" ? 8 : 24}
       >
         {/* ── Header ── */}
         <View style={styles.header}>
@@ -694,11 +716,12 @@ export default function CreatePostModal({
           </View>
 
           {/* ── Content ── */}
-          <View
+          <Animated.View
             style={{
               position: "relative",
               zIndex: activeInput === "title" ? 100 : 1,
               elevation: activeInput === "title" ? 100 : 1,
+              transform: [{ translateX: shakeTitleAnim }],
             }}
           >
             <SmartInput
@@ -713,12 +736,13 @@ export default function CreatePostModal({
               maxLength={100}
               suggestionPosition="bottom"
             />
-          </View>
-          <View
+          </Animated.View>
+          <Animated.View
             style={{
               position: "relative",
               zIndex: activeInput === "content" ? 100 : 1,
               elevation: activeInput === "content" ? 100 : 1,
+              transform: [{ translateX: shakeContentAnim }],
             }}
           >
             <SmartInput
@@ -732,7 +756,7 @@ export default function CreatePostModal({
               suggestionPosition="top"
               textAlignVertical="top"
             />
-          </View>
+          </Animated.View>
           <View
             style={{
               flexDirection: "row",
@@ -1394,7 +1418,7 @@ const styles = StyleSheet.create({
   postBtnTextDisabled: { color: colors.text.muted },
 
   scroll: { flex: 1 },
-  scrollContent: { paddingHorizontal: spacing.lg, paddingBottom: 40 },
+  scrollContent: { paddingHorizontal: spacing.lg, paddingBottom: 200 },
 
   // User row
   userRow: {

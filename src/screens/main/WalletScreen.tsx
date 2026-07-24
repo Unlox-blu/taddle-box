@@ -2,7 +2,7 @@ import React, { useState, useRef, useMemo } from 'react';
 import {
   View, Text, ScrollView, TouchableOpacity, StyleSheet,
   Modal, TextInput, KeyboardAvoidingView, Platform,
-  Alert, Share, Switch, Animated,
+  Alert, Share, Switch, Animated, SafeAreaView,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { WebView } from 'react-native-webview';
@@ -13,7 +13,12 @@ import { StatusBar } from 'expo-status-bar';
 import { fontSizes, spacing, radii, type ColorPalette } from '../../theme';
 import { useThemeColors } from '../../context/ThemeContext';
 import { useWallet } from '../../context/WalletContext';
+import { useAuth } from '../../context/AuthContext';
 import MainHeader from '../../components/common/MainHeader';
+import PinPad from '../../components/common/PinPad';
+import { authService } from '../../services/auth.service';
+import * as LocalAuthentication from 'expo-local-authentication';
+import * as SecureStore from 'expo-secure-store';
 import type { Transaction } from '../../types';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -28,13 +33,6 @@ const TXN_META: Record<string, { icon: string; bg: string; label: string }> = {
   withdraw: { icon: '🏦', bg: 'rgba(6,182,212,0.11)',    label: 'Withdrawn' },
 };
 
-const UPI_APPS = [
-  { id: 'paytm',    name: 'Paytm',    suffix: '@paytm',   icon: '💙' },
-  { id: 'gpay',     name: 'GPay',     suffix: '@okicici', icon: '🔵' },
-  { id: 'phonepe',  name: 'PhonePe',  suffix: '@ybl',     icon: '💜' },
-  { id: 'bhim',     name: 'BHIM',     suffix: '@upi',     icon: '🟠' },
-];
-
 const QUICK_AMOUNTS = [100, 250, 500, 1000];
 const QUICK_XP      = [500, 1000, 5000];
 
@@ -43,7 +41,8 @@ const QUICK_XP      = [500, 1000, 5000];
 export default function WalletScreen() {
   const insets     = useSafeAreaInsets();
   const navigation = useNavigation();
-  const { wallet, withdraw, convertXP, earnXP, linkUPI, toggleSetting } = useWallet();
+  const { wallet, withdraw, convertXP, linkUPI, toggleSetting } = useWallet();
+  const { user } = useAuth();
   const colors = useThemeColors();
   const styles = useMemo(() => makeStyles(colors), [colors]);
 
@@ -273,6 +272,8 @@ export default function WalletScreen() {
         }}
         onLinkUPI={() => openModal('linkUPI')}
         onClose={closeModal}
+        pinEnabled={wallet.pinEnabled}
+        globalLock={user?.appLockEnabled || false}
       />
       <LinkUPIModal
         visible={activeModal === 'linkUPI'}
@@ -341,7 +342,9 @@ function TxnRow({ txn: t, isLast }: { txn: Transaction; isLast: boolean }) {
         <Text style={{ fontSize: 17 }}>{meta.icon}</Text>
       </View>
       <View style={styles.txnInfo}>
-        <Text style={styles.txnRowTitle} numberOfLines={1}>{t.title}</Text>
+        <Text style={styles.txnRowTitle} numberOfLines={1}>
+          {t.title} {t.status === 'pending' ? '(Pending)' : t.status === 'failed' ? '(Failed)' : ''}
+        </Text>
         <Text style={styles.txnDate}>{t.date}</Text>
       </View>
       <View style={styles.txnAmtCol}>
@@ -355,7 +358,9 @@ function TxnRow({ txn: t, isLast }: { txn: Transaction; isLast: boolean }) {
           : isNeg ? `-₹${Math.abs(t.amount).toLocaleString()}`
           :         `+₹${t.amount.toLocaleString()}`}
         </Text>
-        <Text style={styles.txnTypeBadge}>{meta.label}</Text>
+        <Text style={styles.txnTypeBadge}>
+          {t.status === 'pending' ? 'Pending' : t.status === 'failed' ? 'Failed' : meta.label}
+        </Text>
       </View>
     </View>
   );
@@ -364,7 +369,7 @@ function TxnRow({ txn: t, isLast }: { txn: Transaction; isLast: boolean }) {
 // ─── WithdrawModal ────────────────────────────────────────────────────────────
 
 function WithdrawModal({
-  visible, cashBalance, linkedUPI, onWithdraw, onLinkUPI, onClose,
+  visible, cashBalance, linkedUPI, onWithdraw, onLinkUPI, onClose, pinEnabled, globalLock
 }: {
   visible:     boolean;
   cashBalance: number;
@@ -372,11 +377,17 @@ function WithdrawModal({
   onWithdraw:  (amount: number) => void;
   onLinkUPI:   () => void;
   onClose:     () => void;
+  pinEnabled?: boolean;
+  globalLock?: boolean;
 }) {
   const insets = useSafeAreaInsets();
   const colors = useThemeColors();
   const styles = useMemo(() => makeStyles(colors), [colors]);
   const [amountStr, setAmountStr] = useState('');
+  const [verifyingPin, setVerifyingPin] = useState(false);
+  const [pinError, setPinError] = useState('');
+  const [isVerifying, setIsVerifying] = useState(false);
+  const [showBiometric, setShowBiometric] = useState(false);
   const amount = parseInt(amountStr, 10) || 0;
 
   const error = amount < 100              ? 'Minimum withdrawal is ₹100'
@@ -385,20 +396,95 @@ function WithdrawModal({
 
   const canSubmit = !error && amount > 0 && !!linkedUPI;
 
-  const reset = () => { setAmountStr(''); };
+  const reset = () => { setAmountStr(''); setVerifyingPin(false); setPinError(''); };
 
   const handleConfirm = () => {
     if (!linkedUPI) { onLinkUPI(); return; }
     if (error) { Alert.alert('Invalid Amount', error); return; }
-    Alert.alert(
-      'Confirm Withdrawal',
-      `Withdraw ₹${amount.toLocaleString()} to ${linkedUPI}?\n\nArrives within 1–2 business days.`,
-      [
-        { text: 'Cancel', style: 'cancel' },
-        { text: 'Withdraw', style: 'destructive', onPress: () => { onWithdraw(amount); reset(); onClose(); } },
-      ]
-    );
+    
+    if (pinEnabled || globalLock) {
+      setVerifyingPin(true);
+      checkBiometric();
+    } else {
+      executeWithdraw();
+    }
   };
+
+  const executeWithdraw = () => {
+    onWithdraw(amount);
+    reset();
+    onClose();
+  };
+
+  const checkBiometric = async () => {
+    const key = globalLock ? 'app_biometricEnabled' : 'wallet_biometricEnabled';
+    const enabled = await SecureStore.getItemAsync(key);
+    if (enabled === 'true') {
+      const hasHardware = await LocalAuthentication.hasHardwareAsync();
+      const isEnrolled = await LocalAuthentication.isEnrolledAsync();
+      if (hasHardware && isEnrolled) {
+        setShowBiometric(true);
+        triggerBiometric();
+      }
+    }
+  };
+
+  const triggerBiometric = async () => {
+    try {
+      setIsVerifying(true);
+      const result = await LocalAuthentication.authenticateAsync({
+        promptMessage: 'Authenticate to withdraw',
+        disableDeviceFallback: true,
+        cancelLabel: 'Use PIN'
+      });
+      if (result.success) {
+        executeWithdraw();
+      }
+    } catch (e) {
+      console.log('Biometric error', e);
+    } finally {
+      setIsVerifying(false);
+    }
+  };
+
+  const handlePinComplete = async (pin: string) => {
+    try {
+      setIsVerifying(true);
+      setPinError('');
+      await authService.verifyPin(pin);
+      executeWithdraw();
+    } catch (e: any) {
+      setPinError(e.response?.data?.message || 'Invalid PIN');
+    } finally {
+      setIsVerifying(false);
+    }
+  };
+
+  if (verifyingPin) {
+    return (
+      <Modal visible={visible} animationType="slide" presentationStyle="pageSheet" onRequestClose={() => { reset(); onClose(); }}>
+        <SafeAreaView style={[styles.modalShell, { backgroundColor: colors.bg.main, flex: 1 }]}>
+          <View style={styles.modalHeader}>
+            <TouchableOpacity onPress={() => setVerifyingPin(false)}>
+              <Ionicons name="arrow-back" size={24} color={colors.text.secondary} />
+            </TouchableOpacity>
+            <Text style={styles.modalTitle}>Security Check</Text>
+            <View style={{ width: 24 }} />
+          </View>
+          <PinPad
+            title="Enter PIN"
+            subtitle={`Authorize withdrawal of ₹${amount}`}
+            length={4}
+            onPinComplete={handlePinComplete}
+            onBiometric={triggerBiometric}
+            showBiometric={showBiometric}
+            error={pinError}
+            isVerifying={isVerifying}
+          />
+        </SafeAreaView>
+      </Modal>
+    );
+  }
 
   return (
     <Modal visible={visible} animationType="slide" presentationStyle="pageSheet" onRequestClose={() => { reset(); onClose(); }}>
@@ -556,21 +642,6 @@ function LinkUPIModal({
         </View>
 
         <ScrollView contentContainerStyle={styles.modalBody} keyboardShouldPersistTaps="handled">
-          {/* UPI app shortcuts */}
-          <Text style={styles.fieldLabel}>Quick select app</Text>
-          <View style={styles.upiAppRow}>
-            {UPI_APPS.map(app => (
-              <TouchableOpacity
-                key={app.id}
-                style={styles.upiAppBtn}
-                onPress={() => { setUpiId(prev => prev.split('@')[0] + app.suffix); setVerified(false); }}
-              >
-                <Text style={{ fontSize: 22 }}>{app.icon}</Text>
-                <Text style={styles.upiAppName}>{app.name}</Text>
-              </TouchableOpacity>
-            ))}
-          </View>
-
           {/* UPI input */}
           <Text style={styles.fieldLabel}>UPI ID</Text>
           <View style={[styles.upiInput, verified && styles.upiInputVerified]}>
@@ -837,6 +908,9 @@ function SettingsModal({
   const insets = useSafeAreaInsets();
   const colors = useThemeColors();
   const styles = useMemo(() => makeStyles(colors), [colors]);
+  const { user } = useAuth();
+  
+  const globalLock = user?.appLockEnabled;
 
   const Section = ({ title }: { title: string }) => (
     <Text style={styles.settingsSection}>{title}</Text>
@@ -848,21 +922,37 @@ function SettingsModal({
     icon: string; label: string; desc: string;
     settingKey: 'pinEnabled' | 'biometricEnabled' | 'notifXP' | 'notifWithdraw' | 'notifPromos';
     value: boolean;
+    disabled?: boolean;
+    onDisabledPress?: () => void;
   }) => (
     <View style={styles.settingsRow}>
       <View style={styles.settingsRowLeft}>
-        <Text style={styles.settingsRowIcon}>{icon}</Text>
-        <View>
-          <Text style={styles.settingsRowLabel}>{label}</Text>
-          <Text style={styles.settingsRowDesc}>{desc}</Text>
+        <View style={{ width: 30, alignItems: 'center' }}>
+          <Text style={styles.settingsRowIcon}>{icon}</Text>
+        </View>
+        <View style={{ flex: 1, paddingRight: 12 }}>
+          <Text style={styles.settingsRowLabel} numberOfLines={1}>{label}</Text>
+          <Text style={styles.settingsRowDesc} numberOfLines={2}>{desc}</Text>
         </View>
       </View>
-      <Switch
-        value={value}
-        onValueChange={() => onToggle(settingKey)}
-        trackColor={{ false: colors.bg.elevated, true: colors.primary }}
-        thumbColor={value ? '#fff' : colors.text.muted}
-      />
+      {disabled ? (
+        <TouchableOpacity onPress={onDisabledPress}>
+          <Switch
+            value={value}
+            disabled={true}
+            trackColor={{ false: colors.bg.elevated, true: colors.primary }}
+            thumbColor={value ? '#fff' : colors.text.muted}
+            style={{ opacity: 0.5 }}
+          />
+        </TouchableOpacity>
+      ) : (
+        <Switch
+          value={value}
+          onValueChange={() => onToggle(settingKey)}
+          trackColor={{ false: colors.bg.elevated, true: colors.primary }}
+          thumbColor={value ? '#fff' : colors.text.muted}
+        />
+      )}
     </View>
   );
 
@@ -914,14 +1004,18 @@ function SettingsModal({
           <View style={styles.settingsCard}>
             <ToggleRow
               icon="🔐" label="PIN Protection"
-              desc="Require PIN for withdrawals"
-              settingKey="pinEnabled" value={wallet.pinEnabled}
+              desc={globalLock ? "Enabled by Global App Lock" : "Require PIN for withdrawals"}
+              settingKey="pinEnabled" value={globalLock ? true : wallet.pinEnabled}
+              disabled={globalLock}
+              onDisabledPress={() => Alert.alert("Global Lock Active", "Wallet PIN is automatically enabled because you have Global App Lock turned on in your main Settings.")}
             />
             <View style={{ borderTopWidth: 1, borderTopColor: colors.border }}>
               <ToggleRow
                 icon="👆" label="Biometric Auth"
-                desc="Use fingerprint or face ID"
-                settingKey="biometricEnabled" value={wallet.biometricEnabled}
+                desc={globalLock ? "Enabled by Global App Lock" : "Use fingerprint or face ID"}
+                settingKey="biometricEnabled" value={globalLock ? true : wallet.biometricEnabled}
+                disabled={globalLock}
+                onDisabledPress={() => Alert.alert("Global Lock Active", "Wallet Biometrics are automatically enabled because you have Global App Lock turned on in your main Settings.")}
               />
             </View>
           </View>

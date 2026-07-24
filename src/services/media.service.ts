@@ -1,4 +1,5 @@
 import { apiClient } from './apiClient';
+import * as FileSystem from 'expo-file-system/legacy';
 
 export interface MediaUploadResponse {
   mediaId: string;
@@ -12,11 +13,13 @@ export const mediaService = {
   /**
    * Request an S3 signed URL for images/audio
    */
-  getSignedUrl: async (folder: 'avatars' | 'banners' | 'posts' | 'communities' | 'events', fileSize: number, mimetype: string): Promise<{ data: MediaUploadResponse }> => {
+  getSignedUrl: async (folder: 'avatars' | 'banners' | 'posts' | 'communities' | 'events', fileSize: number, mimetype: string, width?: number, height?: number): Promise<{ data: MediaUploadResponse }> => {
     const response = await apiClient.post('/media/signed-url', {
       folder,
       fileSize,
       mimetype,
+      width,
+      height,
     });
     return response.data;
   },
@@ -35,10 +38,12 @@ export const mediaService = {
   /**
    * Request an upload URL for videos (via Vimeo)
    */
-  getVideoUploadUrl: async (fileSize: number, title: string): Promise<{ data: MediaUploadResponse }> => {
+  getVideoUploadUrl: async (fileSize: number, title: string, width?: number, height?: number): Promise<{ data: MediaUploadResponse }> => {
     const response = await apiClient.post('/media/video/upload-url', {
       fileSize,
       title,
+      width,
+      height,
     });
     return response.data;
   },
@@ -47,23 +52,21 @@ export const mediaService = {
    * Perform the actual file upload to S3 or Vimeo (direct HTTP PUT)
    */
   uploadFileDirect: async (uploadUrl: string, fileUri: string, mimeType: string): Promise<void> => {
-    return new Promise((resolve, reject) => {
-      const xhr = new XMLHttpRequest();
-      xhr.open('PUT', uploadUrl);
-      xhr.setRequestHeader('Content-Type', mimeType);
+    try {
+      const result = await FileSystem.uploadAsync(uploadUrl, fileUri, {
+        httpMethod: 'PUT',
+        headers: {
+          'Content-Type': mimeType,
+        },
+        uploadType: FileSystem.FileSystemUploadType.BINARY_CONTENT,
+      });
       
-      xhr.onload = () => {
-        if (xhr.status >= 200 && xhr.status < 300) {
-          resolve();
-        } else {
-          reject(new Error(`Upload failed with status ${xhr.status}`));
-        }
-      };
-      
-      xhr.onerror = () => reject(new Error('Network error during upload'));
-      
-      // React Native's XHR polyfill handles { uri, type, name } for files automatically
-      xhr.send({ uri: fileUri, type: mimeType, name: 'upload' } as any);
-    });
+      if (result.status < 200 || result.status >= 300) {
+        throw new Error(`Upload failed with status ${result.status}`);
+      }
+    } catch (error) {
+      console.error('Error in uploadFileDirect:', error);
+      throw error;
+    }
   }
 };

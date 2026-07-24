@@ -33,7 +33,7 @@ function reducer(state: State, action: Action): State {
           c.id !== action.id ? c : {
             ...c,
             isJoined: !c.isJoined,
-            members: c.isJoined ? Math.max(0, c.members - 1) : c.members + 1,
+            memberCount: c.isJoined ? Math.max(0, c.memberCount - 1) : c.memberCount + 1,
           }
         ),
       };
@@ -115,7 +115,17 @@ export function CommunityProvider({ children }: { children: React.ReactNode }) {
     hasMore:      state.hasMore,
     fetchCommunities,
     toggleJoin,
-    addCommunity: async (community) => dispatch({ type: 'ADD_COMMUNITY', community }), // Typically wait for backend response here
+    addCommunity: async (communityData: any) => {
+      try {
+        const res = await communityService.createCommunity(communityData);
+        if (res.data) {
+          dispatch({ type: 'ADD_COMMUNITY', community: res.data });
+        }
+      } catch (e) {
+        console.error('Failed to create community:', e);
+        throw e;
+      }
+    },
   };
 
   return <CommunityContext.Provider value={value}>{children}</CommunityContext.Provider>;

@@ -1,6 +1,13 @@
 import React, { createContext, useContext, useReducer, useCallback, useEffect } from 'react';
 import type { Transaction } from '../types';
 import { walletService } from '../services/wallet.service';
+import { xpService } from '../services/xp.service';
+import { settingsService } from '../services/settings.service';
+import { useAuth } from './AuthContext';
+import { socketClient } from '../services/socketClient';
+import * as SecureStore from 'expo-secure-store';
+import * as LocalAuthentication from 'expo-local-authentication';
+import { Alert } from 'react-native';
 
 // ─── State & Actions ──────────────────────────────────────────────────────────
 
@@ -106,20 +113,78 @@ const WalletContext = createContext<WalletContextType>({
 
 export function WalletProvider({ children }: { children: React.ReactNode }) {
   const [wallet, dispatch] = useReducer(reducer, INITIAL);
+  const { user } = useAuth();
+
+  useEffect(() => {
+    if (user?.xp !== undefined) {
+      dispatch({ type: 'SET_DATA', payload: { xpBalance: user.xp } });
+    }
+  }, [user?.xp]);
+
+  useEffect(() => {
+    const handleWalletUpdated = (balanceCents: number) => {
+      dispatch({ type: 'SET_DATA', payload: { cashBalance: balanceCents } });
+    };
+    socketClient.socket?.on('wallet:updated', handleWalletUpdated);
+    return () => {
+      socketClient.socket?.off('wallet:updated', handleWalletUpdated);
+    };
+  }, []);
+
+  useEffect(() => {
+    const loadSecureSettings = async () => {
+      try {
+        const biometric = await SecureStore.getItemAsync('wallet_biometricEnabled');
+        const pin = await SecureStore.getItemAsync('wallet_pinEnabled');
+        if (biometric === 'true' && !wallet.biometricEnabled) dispatch({ type: 'TOGGLE_SETTING', key: 'biometricEnabled' });
+        if (pin === 'true' && !wallet.pinEnabled) dispatch({ type: 'TOGGLE_SETTING', key: 'pinEnabled' });
+      } catch (e) { console.error(e); }
+    };
+    loadSecureSettings();
+  }, []);
 
   const fetchWalletData = useCallback(async () => {
     dispatch({ type: 'SET_LOADING', isLoading: true });
     try {
-      const [walletRes, txnsRes] = await Promise.all([
+      const [walletRes, cashTxnsRes, xpTxnsRes, settingsRes] = await Promise.all([
         walletService.getWallet(),
-        walletService.getTransactions(1, 50)
+        walletService.getTransactions(1, 50),
+        xpService.getTransactions(1, 50),
+        settingsService.getSettings()
       ]);
       
+      const cashTxns = (cashTxnsRes.data || []).map((t: any) => ({
+        id: t.id,
+        title: t.description || (t.type === 'credit' ? 'Cash Added' : 'Cash Deducted'),
+        date: t.createdAt || new Date().toISOString(),
+        amount: (t.amountCents || 0) / 100,
+        currency: 'INR',
+        type: t.category === 'withdrawal' ? 'withdraw' : (t.type === 'credit' ? 'earn' : 'spend'),
+        status: t.status
+      }));
+
+      const xpTxns = (xpTxnsRes.data || []).map((t: any) => ({
+        id: t.id,
+        title: t.sourceType || (t.transactionType === 'earned' ? 'XP Earned' : 'XP Spent'),
+        date: t.createdAt || new Date().toISOString(),
+        amount: t.xp || 0,
+        currency: 'XP',
+        type: t.transactionType === 'earned' ? 'earn' : 'spend',
+        status: t.status || 'completed'
+      }));
+
+      const combinedTxns = [...cashTxns, ...xpTxns].sort((a, b) => 
+        new Date(b.date).getTime() - new Date(a.date).getTime()
+      );
+
       dispatch({ type: 'SET_DATA', payload: {
         cashBalance: walletRes.data?.balanceCents || 0,
-        // (Assume xp balance is fetched separately or part of auth user)
+        linkedUPI: walletRes.data?.linkedUpi || null,
+        notifXP: settingsRes.data?.notifXP ?? true,
+        notifWithdraw: settingsRes.data?.notifWithdraw ?? true,
+        notifPromos: settingsRes.data?.notifPromos ?? false,
       }});
-      dispatch({ type: 'SET_TRANSACTIONS', transactions: txnsRes.data || [] });
+      dispatch({ type: 'SET_TRANSACTIONS', transactions: combinedTxns });
     } catch (e) {
       console.error('Failed to fetch wallet data:', e);
       dispatch({ type: 'SET_LOADING', isLoading: false });
@@ -148,11 +213,38 @@ export function WalletProvider({ children }: { children: React.ReactNode }) {
         throw e;
       }
     },
-    earnXP: (amount, title) => { /* Mock or add to state */ },
-    earnCash: (amount, title) => { /* Mock or add to state */ },
-    linkUPI: (upi) => { /* Mock or api call */ },
-    linkBank: (bank) => { /* Mock or api call */ },
-    toggleSetting: (key) => dispatch({ type: 'TOGGLE_SETTING', key }),
+
+    linkUPI: async (upi) => { 
+      try {
+        await walletService.linkUPI(upi);
+        dispatch({ type: 'SET_DATA', payload: { linkedUPI: upi } });
+      } catch (e) {
+        console.error('Link UPI failed', e);
+      }
+    },
+    linkBank:      (bank) => { /* Mock or api call */ },
+    toggleSetting: async (key) => {
+      if (key === 'biometricEnabled' || key === 'pinEnabled') {
+        const newValue = !wallet[key];
+        try {
+          await SecureStore.setItemAsync(`wallet_${key}`, newValue ? 'true' : 'false');
+          dispatch({ type: 'TOGGLE_SETTING', key });
+        } catch (e) {
+          console.error('Toggle failed', e);
+        }
+      } else {
+        dispatch({ type: 'TOGGLE_SETTING', key });
+        try {
+          if (key === 'notifXP') await settingsService.toggleNotifXP();
+          if (key === 'notifWithdraw') await settingsService.toggleNotifWithdraw();
+          if (key === 'notifPromos') await settingsService.toggleNotifPromos();
+        } catch (e) {
+          console.error('Toggle setting failed', e);
+          // Revert on failure
+          dispatch({ type: 'TOGGLE_SETTING', key });
+        }
+      }
+    },
   };
 
   return <WalletContext.Provider value={value}>{children}</WalletContext.Provider>;

@@ -1,56 +1,84 @@
-import React, { useRef, useState, useEffect, useCallback } from 'react';
+import React, { useRef, useState, useEffect, useCallback } from "react";
 import {
-  View, Text, FlatList, TouchableOpacity,
-  StyleSheet, Dimensions, ListRenderItem, ActivityIndicator
-} from 'react-native';
-import { LinearGradient } from 'expo-linear-gradient';
-import { useNavigation } from '@react-navigation/native';
-import { fontSizes, spacing, radii, type ColorPalette } from '../../theme';
-import { useThemeColors } from '../../context/ThemeContext';
-import { highlightService, Highlight } from '../../services/highlight.service';
+  View,
+  Text,
+  FlatList,
+  TouchableOpacity,
+  StyleSheet,
+  Dimensions,
+  ListRenderItem,
+  ActivityIndicator,
+} from "react-native";
+import { LinearGradient } from "expo-linear-gradient";
+import { useNavigation } from "@react-navigation/native";
+import { fontSizes, spacing, radii, type ColorPalette } from "../../theme";
+import { useThemeColors } from "../../context/ThemeContext";
+import { highlightService, Highlight } from "../../services/highlight.service";
 
-const { width: SW } = Dimensions.get('window');
-const CARD_W  = SW - spacing.lg * 2;
-const CARD_H  = 168;
-const ITEM_W  = CARD_W + spacing.md;
+const { width: SW } = Dimensions.get("window");
+const CARD_W = SW - spacing.lg * 2;
+const CARD_H = 168;
+const ITEM_W = CARD_W + spacing.md;
 
 function makeStyles(c: ColorPalette) {
   return StyleSheet.create({
-    container:    { marginBottom: spacing.md, minHeight: CARD_H + 40 },
+    container: { marginBottom: spacing.md, minHeight: CARD_H + 40 },
     sectionLabel: {
-      fontSize: fontSizes.xs, fontWeight: '700',
-      color: c.text.muted, letterSpacing: 0.5,
-      paddingHorizontal: spacing.xl, marginBottom: 10,
+      fontSize: fontSizes.xs,
+      fontWeight: "700",
+      color: c.text.muted,
+      letterSpacing: 0.5,
+      paddingHorizontal: spacing.xl,
+      marginBottom: 10,
     },
     card: {
-      width: CARD_W, height: CARD_H,
+      width: CARD_W,
+      height: CARD_H,
       borderRadius: radii.lg,
       padding: spacing.lg,
-      justifyContent: 'flex-end',
-      overflow: 'hidden',
+      justifyContent: "flex-end",
+      overflow: "hidden",
       borderWidth: 1,
-      borderColor: 'rgba(255,255,255,0.07)',
+      borderColor: "rgba(255,255,255,0.07)",
     },
     tag: {
-      position: 'absolute', top: 14, right: 14,
-      paddingVertical: 4, paddingHorizontal: 10,
-      borderRadius: radii.full, borderWidth: 1,
+      position: "absolute",
+      top: 14,
+      right: 14,
+      paddingVertical: 4,
+      paddingHorizontal: 10,
+      borderRadius: radii.full,
+      borderWidth: 1,
     },
-    tagText:     { fontSize: fontSizes.xs, fontWeight: '700' },
-    emoji:       { fontSize: 44, marginBottom: 6 },
-    cardTitle:   { fontSize: fontSizes.lg, fontWeight: '800', color: '#fff' },
-    cardSubtitle:{ fontSize: fontSizes.sm, color: 'rgba(255,255,255,0.72)', marginTop: 2 },
-    cardMeta:    { fontSize: fontSizes.xs, color: 'rgba(255,255,255,0.45)', marginTop: 4 },
+    tagText: { fontSize: fontSizes.xs, fontWeight: "700" },
+    emoji: { fontSize: 44, marginBottom: 6 },
+    cardTitle: { fontSize: fontSizes.lg, fontWeight: "800", color: "#fff" },
+    cardSubtitle: {
+      fontSize: fontSizes.sm,
+      color: "rgba(255,255,255,0.72)",
+      marginTop: 2,
+    },
+    cardMeta: {
+      fontSize: fontSizes.xs,
+      color: "rgba(255,255,255,0.45)",
+      marginTop: 4,
+    },
     dots: {
-      flexDirection: 'row', justifyContent: 'center',
-      gap: 5, marginTop: 10,
+      flexDirection: "row",
+      justifyContent: "center",
+      gap: 5,
+      marginTop: 10,
     },
     dot: {
-      width: 6, height: 6, borderRadius: 3,
-      backgroundColor: 'rgba(255,255,255,0.18)',
+      width: 6,
+      height: 6,
+      borderRadius: 3,
+      backgroundColor: "rgba(255,255,255,0.18)",
     },
     dotActive: {
-      width: 22, height: 6, borderRadius: 3,
+      width: 22,
+      height: 6,
+      borderRadius: 3,
       backgroundColor: c.primary,
     },
   });
@@ -64,8 +92,8 @@ export default function SpotlightCarousel() {
   const [spotlights, setSpotlights] = useState<Highlight[]>([]);
   const [loading, setLoading] = useState(true);
   const [activeIdx, setActiveIdx] = useState(0);
-  const flatRef   = useRef<FlatList<Highlight>>(null);
-  const timerRef  = useRef<ReturnType<typeof setInterval> | null>(null);
+  const flatRef = useRef<FlatList<Highlight>>(null);
+  const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const activeRef = useRef(0);
 
   useEffect(() => {
@@ -78,7 +106,7 @@ export default function SpotlightCarousel() {
       const res = await highlightService.getHighlights();
       setSpotlights(res.data || []);
     } catch (e) {
-      console.error('Failed to fetch highlights', e);
+      console.error("Failed to fetch highlights", e);
     } finally {
       setLoading(false);
     }
@@ -87,7 +115,7 @@ export default function SpotlightCarousel() {
   const startTimer = useCallback(() => {
     if (timerRef.current) clearInterval(timerRef.current);
     if (spotlights.length === 0) return;
-    
+
     timerRef.current = setInterval(() => {
       const next = (activeRef.current + 1) % spotlights.length;
       activeRef.current = next;
@@ -100,12 +128,19 @@ export default function SpotlightCarousel() {
     if (spotlights.length > 0) {
       startTimer();
     }
-    return () => { if (timerRef.current) clearInterval(timerRef.current); };
+    return () => {
+      if (timerRef.current) clearInterval(timerRef.current);
+    };
   }, [startTimer, spotlights]);
 
   if (loading) {
     return (
-      <View style={[styles.container, { justifyContent: 'center', alignItems: 'center' }]}>
+      <View
+        style={[
+          styles.container,
+          { justifyContent: "center", alignItems: "center" },
+        ]}
+      >
         <ActivityIndicator size="small" color={colors.primary} />
       </View>
     );
@@ -115,30 +150,55 @@ export default function SpotlightCarousel() {
 
   const renderItem: ListRenderItem<Highlight> = ({ item, index }) => {
     const fallbacks = [
-      { emoji: '⚡', tag: 'Featured', tagColor: '#10B981', gradient: ['#1E1B4B', '#4C1D95'] },
-      { emoji: '🌐', tag: 'Live', tagColor: '#EF4444', gradient: ['#1C0B2E', '#5B21B6'] },
-      { emoji: '🎭', tag: 'Event', tagColor: '#F59E0B', gradient: ['#1A1200', '#78350F'] },
-      { emoji: '📚', tag: 'Study', tagColor: '#06B6D4', gradient: ['#0C1A2E', '#0E4C6A'] },
-      { emoji: '🚀', tag: 'Contest', tagColor: '#EC4899', gradient: ['#1A001A', '#6D1278'] },
+      {
+        emoji: "⚡",
+        tag: "Featured",
+        tagColor: "#10B981",
+        gradient: ["#1E1B4B", "#4C1D95"],
+      },
+      {
+        emoji: "🌐",
+        tag: "Live",
+        tagColor: "#EF4444",
+        gradient: ["#1C0B2E", "#5B21B6"],
+      },
+      {
+        emoji: "🎭",
+        tag: "Event",
+        tagColor: "#F59E0B",
+        gradient: ["#1A1200", "#78350F"],
+      },
+      {
+        emoji: "📚",
+        tag: "Study",
+        tagColor: "#06B6D4",
+        gradient: ["#0C1A2E", "#0E4C6A"],
+      },
+      {
+        emoji: "🚀",
+        tag: "Contest",
+        tagColor: "#EC4899",
+        gradient: ["#1A001A", "#6D1278"],
+      },
     ];
     const style = fallbacks[index % fallbacks.length];
-    
+
     const handlePress = (item: Highlight) => {
       if (!item.type) return;
-      if (item.type === 'game') {
-        navigation.navigate('Games');
-      } else if (item.type === 'event') {
-        navigation.navigate('Events');
-      } else if (item.type === 'post') {
+      if (item.type === "game") {
+        navigation.navigate("Games");
+      } else if (item.type === "event") {
+        navigation.navigate("Events");
+      } else if (item.type === "post") {
         // If there's a specific post, it would be ideal to go to Comments/Details,
         // but since we only have sourceId, navigating to Community tab is a good fallback
-        navigation.navigate('Community');
+        navigation.navigate("Community");
       }
     };
 
     return (
-      <TouchableOpacity 
-        activeOpacity={0.88} 
+      <TouchableOpacity
+        activeOpacity={0.88}
         style={{ width: CARD_W }}
         onPress={() => handlePress(item)}
       >
@@ -148,13 +208,35 @@ export default function SpotlightCarousel() {
           start={{ x: 0, y: 0 }}
           end={{ x: 1, y: 1 }}
         >
-          <View style={[styles.tag, { borderColor: `${item.tagColor || style.tagColor}55`, backgroundColor: `${item.tagColor || style.tagColor}1A` }]}>
-            <Text style={[styles.tagText, { color: item.tagColor || style.tagColor }]}>{item.tag || style.tag}</Text>
+          <View
+            style={[
+              styles.tag,
+              {
+                borderColor: `${item.tagColor || style.tagColor}55`,
+                backgroundColor: `${item.tagColor || style.tagColor}1A`,
+              },
+            ]}
+          >
+            <Text
+              style={[
+                styles.tagText,
+                { color: item.tagColor || style.tagColor },
+              ]}
+            >
+              {item.tag || style.tag}
+            </Text>
           </View>
           <Text style={styles.emoji}>{item.emoji || style.emoji}</Text>
           <Text style={styles.cardTitle}>{item.title}</Text>
-          <Text style={styles.cardSubtitle}>{(item as any).subtitle || (item as any).description}</Text>
-          <Text style={styles.cardMeta}>{item.meta || new Date((item as any).createdAt || Date.now()).toLocaleDateString()}</Text>
+          <Text style={styles.cardSubtitle}>
+            {(item as any).subtitle || (item as any).description}
+          </Text>
+          <Text style={styles.cardMeta}>
+            {item.meta ||
+              new Date(
+                (item as any).createdAt || Date.now(),
+              ).toLocaleDateString()}
+          </Text>
         </LinearGradient>
       </TouchableOpacity>
     );
@@ -162,21 +244,28 @@ export default function SpotlightCarousel() {
 
   return (
     <View style={styles.container}>
-      <Text style={styles.sectionLabel}>✨ SPOTLIGHT</Text>
+      <Text style={styles.sectionLabel}>SPOTLIGHT</Text>
 
       <FlatList
         ref={flatRef}
         data={spotlights}
         renderItem={renderItem}
-        keyExtractor={i => i.id.toString()}
+        keyExtractor={(i) => i.id.toString()}
         horizontal
         pagingEnabled={false}
         snapToInterval={ITEM_W}
         decelerationRate="fast"
         showsHorizontalScrollIndicator={false}
-        contentContainerStyle={{ paddingHorizontal: spacing.lg, gap: spacing.md }}
-        getItemLayout={(_, idx) => ({ length: ITEM_W, offset: ITEM_W * idx, index: idx })}
-        onMomentumScrollEnd={e => {
+        contentContainerStyle={{
+          paddingHorizontal: spacing.lg,
+          gap: spacing.md,
+        }}
+        getItemLayout={(_, idx) => ({
+          length: ITEM_W,
+          offset: ITEM_W * idx,
+          index: idx,
+        })}
+        onMomentumScrollEnd={(e) => {
           const idx = Math.round(e.nativeEvent.contentOffset.x / ITEM_W);
           const clamped = Math.max(0, Math.min(idx, spotlights.length - 1));
           activeRef.current = clamped;

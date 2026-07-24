@@ -14,7 +14,7 @@ export const streakService = {
     return response.data;
   },
 
-  createOrUpdate: async (): Promise<{ data: Streak }> => {
+  createOrUpdate: async (): Promise<{ data: { streak: Streak; weeklyBonusEarned: boolean } }> => {
     const response = await apiClient.post('/streak');
     return response.data;
   },

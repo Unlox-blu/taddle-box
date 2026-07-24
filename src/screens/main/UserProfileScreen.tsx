@@ -194,7 +194,7 @@ export default function UserProfileScreen({ navigation, route }: Props) {
           <View style={styles.statsRow}>
             {[
               { label: 'Posts',     value: (user?.postCount || 0).toLocaleString() },
-              { label: 'Followers', value: ((user.followers + (followed ? 1 : 0)) / 1000).toFixed(1) + 'k' },
+              { label: 'Followers', value: (((user?.followers || 0) + (followed ? 1 : 0)) / 1000).toFixed(1) + 'k' },
               { label: 'Following', value: (user?.followingCount || 0).toLocaleString() },
               { label: 'Total XP',  value: (user?.xp || 0).toLocaleString(), highlight: true },
             ].map(s => (
@@ -250,7 +250,7 @@ export default function UserProfileScreen({ navigation, route }: Props) {
           ))}
         </View>
 
-        {user.badges.length > 0 && (
+        {((user?.badges || []).length > 0) && (
           <>
             <Text style={styles.sectionLabel}>Achievements 🏆</Text>
             <ScrollView

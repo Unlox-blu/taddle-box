@@ -75,13 +75,14 @@ export default function SideDrawer({
 
     if (visible) {
       // Fetch dynamic XP when drawer opens
-      xpService.getXP()
-        .then(res => {
+      xpService
+        .getXP()
+        .then((res) => {
           if (res?.data?.Xp !== undefined) {
             setLocalXP(res.data.Xp);
           }
         })
-        .catch(err => console.error("Failed to fetch XP for drawer", err));
+        .catch((err) => console.error("Failed to fetch XP for drawer", err));
     }
   }, [visible]);
 
@@ -195,11 +196,30 @@ export default function SideDrawer({
               >
                 @{user?.username || "user"}
               </Text>
-              <Text
-                style={[styles.profileCollege, { color: colors.text.muted }]}
-              >
-                {user?.organization || "No organization selected"}
-              </Text>
+              {/* Rank / XP row */}
+              <View style={styles.rankRow}>
+                <View
+                  style={[
+                    styles.rankBadge,
+                    {
+                      backgroundColor: "rgba(124,58,237,0.18)",
+                      borderColor: "rgba(124,58,237,0.35)",
+                    },
+                  ]}
+                >
+                  <Text
+                    style={[
+                      styles.rankBadgeText,
+                      { color: colors.primaryLight },
+                    ]}
+                  >
+                    ⚡ {rank}
+                  </Text>
+                </View>
+                <Text style={[styles.rankXP, { color: colors.text.muted }]}>
+                  Lv {level}
+                </Text>
+              </View>
             </View>
             <Ionicons
               name="chevron-forward"
@@ -236,28 +256,6 @@ export default function SideDrawer({
               label="Posts"
               colors={colors}
             />
-          </View>
-
-          {/* Rank / XP row */}
-          <View style={styles.rankRow}>
-            <View
-              style={[
-                styles.rankBadge,
-                {
-                  backgroundColor: "rgba(124,58,237,0.18)",
-                  borderColor: "rgba(124,58,237,0.35)",
-                },
-              ]}
-            >
-              <Text
-                style={[styles.rankBadgeText, { color: colors.primaryLight }]}
-              >
-                ⚡ {rank}
-              </Text>
-            </View>
-            <Text style={[styles.rankXP, { color: colors.text.muted }]}>
-              Lv {level} · {localXP.toLocaleString()} XP
-            </Text>
           </View>
 
           <View style={[styles.divider, { backgroundColor: colors.border }]} />

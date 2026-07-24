@@ -2,6 +2,7 @@
 
 
 const {notificationRepository} = require('../../../modules/notification/notification.container');
+const {notificationService} = require('../../../modules/notification/notification.container');
 const { emitNotification } = require('../../../sockets/notification.socket');
 const NotificationModel = require('../../../modules/notification/notification.model');
 const { logger } = require('../../../middlewares/logger.middleware');
@@ -11,6 +12,12 @@ const notificationJobProcessor = async (job) => {
       logger.info(`[NotifWorker] Processing: ${job.name}`, { id: job.id });
 
       switch (job.name) {
+        case 'db_save': {
+          const { key } = job.data;
+          await notificationService.create({key})
+          break;
+        }
+
         case 'new_follower': {
           const { followingId, followerId, followerName, followerUsername } = job.data;
           const notif = await notificationRepository.create({

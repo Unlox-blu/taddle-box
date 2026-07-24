@@ -8,6 +8,7 @@ const notificationRepository = require('./notification.repository');
 const { addNotificationDeliveryJob } = require('../../jobs/queues/notification.queue');
 const { DEFAULT_NOTIFICATION_DEFINITIONS, PRIORITY, normalizeType, resolveNotificationPolicy } = require('./notification.constants');
 const {emitNotification, emitWalletUpdate} = require('../../sockets/notification.socket');
+const { addJob } = require('../../jobs/queues/job.queue');
 
 class NotificationService {
   constructor({
@@ -37,39 +38,75 @@ class NotificationService {
     return 0;
   }
 
-
+  async create({ recipientId, type, resourceType, resourceId, senderId = null, content = null }) {
+    return this.publishNotification({
+      recipientId, 
+      type,
+      resourceType,
+      resourceId,
+      senderId,
+      content
+    });
+  }
 
   async publishNotification(event) {
     const policy = resolveNotificationPolicy(event);
-    const payload = { ...event, policy, createdAt: new Date().toISOString() };
+    const { recipientId, type, resourceType, resourceId, senderId, content } = event
 
+    const title = policy.type === 'COMMENT' ? content ? `comment: ${content}` : policy.title : policy.title
+    const mode = policy.batch ? 'BATCH' : 'SINGLE'
+    
+    const notification = { 
+      recipientId,
+      notificationType: policy.type,
+      resourceType,
+      resourceId,
+      title: title,
+      mode: mode,
+      senderIds: [senderId],
+      senderCount: 1,
+      isRead: false,
+      createdAt: new Date().toISOString(), 
+      updatedAt: new Date().toISOString() 
+    };
 
-    if (!policy.save) return payload;
+    
+    if(policy.batch){
+      const batchKey = this.batchService.buildBatchKey({ recipientId, type: policy.type, resourceType, resourceId })
+      const cachedNotifications = await this.batchService.getBatch(batchKey)
+      
+      if(cachedNotifications) {
+        if(Array.isArray(cachedNotifications) && cachedNotifications.length <= 4) {
+          notification.mode = 'SINGLE'
+          const updatedNotifications = [...cachedNotifications, notification]
 
-    const notif = await this.notifRepo.create({
-      recipientId: event.recipientId,
-      senderId: event.actorId || null,
-      type: policy.type,
-      title: event.title || `${policy.type} notification`,
-      message: event.message || null,
-      resourceType: event.entityType || null,
-      resourceId: event.entityId || null,
-    });
+          await this.batchService.saveBatch({ batchKey, payload: updatedNotifications })
 
-    const persisted = NotificationModel.format(notif);
+          emitNotification(recipientId, notification)
+        }
+        else {
+          const batchNotification = cachedNotifications[cachedNotifications.length - 1]
+          batchNotification.mode = 'BATCH'
+          batchNotification.senderCount = cachedNotifications.length
+          batchNotification.title = `${cachedNotifications.length} ${policy.title}`
+          batchNotification.senderIds.push(senderId)
+          batchNotification.senderIds = batchNotification.senderIds.slice(-2);
 
-    if (policy.socket) {
-      emitNotification(event.recipientId, persisted);
+          cachedNotifications[ cachedNotifications.length - 1 ] = batchNotification;
+
+          await this.batchService.saveBatch({ batchKey, payload: cachedNotifications })
+
+          emitNotification(recipientId, batchNotification)
+        }
+      }
+      else{
+        await this.batchService.saveBatch({ batchKey, payload: notification })
+        addJob('notification:db_save', {batchKey}, {delay: 30 * 60 * 1000})
+        emitNotification(recipientId, notification)
+      }
     }
 
     if (policy.batch) {
-      await this.batchService.addToBatch({
-        recipientId: event.recipientId,
-        entityType: event.entityType,
-        entityId: event.entityId,
-        type: policy.type,
-        payload: persisted,
-      });
 
       const batchKey = `notification:batch:${policy.type}:${event.recipientId}:${event.entityType || 'default'}:${event.entityId || 'default'}`;
       await this.schedulerService.schedule({
@@ -77,6 +114,10 @@ class NotificationService {
         runAt: new Date(Date.now() + Math.max(policy.delay, 30000)),
         payload: { recipientId: event.recipientId, type: policy.type, entityId: event.entityId, payload: persisted },
       });
+    }
+
+    if (policy.socket) {
+      emitNotification(event.recipientId, persisted);
     }
 
     const recipientIsOnline = await this.redisService.isUserOnline(event.recipientId);
@@ -127,16 +168,15 @@ class NotificationService {
     return persisted;
   }
 
-  async create({ recipientId, senderId, type, title, message, resourceType = null, resourceId = null }) {
-    return this.publishNotification({
-      type,
-      recipientId,
-      actorId: senderId,
-      entityId: resourceId,
-      entityType: resourceType,
-      title,
-      message,
-    });
+
+
+
+  async create({key}) {
+    try {
+      console.log(key)
+    } catch (error) {
+      throw error
+    }
   }
 
   async getAll({ userId, limit, offset, unreadOnly }) {

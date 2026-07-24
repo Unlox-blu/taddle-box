@@ -19,20 +19,22 @@ const DEFAULT_NOTIFICATION_DEFINITIONS = {
     socket: true,
     push: true,
     batch: true,
-    delay: 300000,
+    delay: 120000,
     priority: PRIORITY.LOW,
     cooldown: 300000,
     category: 'likes',
+    title: 'like your post'
   },
   COMMENT: {
     save: true,
     socket: true,
     push: true,
     batch: true,
-    delay: 30000,
+    delay: 120000,
     priority: PRIORITY.MEDIUM,
-    cooldown: 600000,
+    cooldown: 300000,
     category: 'comments',
+    title: 'comment on post'
   },
   FOLLOW: {
     save: true,
@@ -43,49 +45,55 @@ const DEFAULT_NOTIFICATION_DEFINITIONS = {
     priority: PRIORITY.MEDIUM,
     cooldown: 1200000,
     category: 'follows',
+    title: 'start following you'
   },
   MENTION: {
     save: true,
     socket: true,
     push: true,
     batch: false,
-    delay: 0,
+    delay: 120000,
     priority: PRIORITY.HIGH,
     category: 'mentions',
+    title: 'mentioned you'
   },
   REPLY: {
     save: true,
     socket: true,
     push: true,
     batch: false,
-    delay: 0,
+    delay: 120000,
     priority: PRIORITY.HIGH,
     category: 'replies',
+    title: 'replied you'
   },
   PROMOTION: {
     save: true,
     socket: false,
     push: true,
     batch: true,
-    delay: 1800000,
+    delay: 120000,
     priority: PRIORITY.VERY_LOW,
     category: 'marketing',
+    title: 'promotion'
   },
   REQUEST_TO_FOLLOW: {
     save: true,
     socket: true,
     push: true,
     batch: false,
-    delay: 0,
+    delay: 120000,
     priority: PRIORITY.MEDIUM,
+    title: 'request to follow'
   },
   REQUEST_TO_JOIN_COMMUNITY: {
     save: true,
     socket: true,
     push: true,
     batch: false,
-    delay: 0,
+    delay: 120000,
     priority: PRIORITY.MEDIUM,
+    title: 'request to join community'
   },
 };
 
@@ -112,15 +120,16 @@ const resolveNotificationPolicy = (event = {}) => {
     const baseDefinition = DEFAULT_NOTIFICATION_DEFINITIONS[type] || DEFAULT_NOTIFICATION_DEFINITIONS.COMMENT;
 
     return {
-      save: baseDefinition.save !== false,
-      socket: baseDefinition.socket !== false,
-      push: baseDefinition.push !== false,
-      batch: Boolean(baseDefinition.batch),
+      save: baseDefinition.save,
+      socket: baseDefinition.socket,
+      push: baseDefinition.push,
+      batch: baseDefinition.batch,
       delay: Number(baseDefinition.delay || 0),
       priority: baseDefinition.priority || PRIORITY.MEDIUM,
       cooldown: Number(baseDefinition.cooldown || 0),
       category: baseDefinition.category || 'general',
       type,
+      title: baseDefinition.title,
     };
   };
 

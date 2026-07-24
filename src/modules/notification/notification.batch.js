@@ -7,27 +7,35 @@ class NotificationBatchService {
     this.redisClient = redisClient;
   }
 
-  buildBatchKey({ recipientId, type, resourceType, resourceId }) {
+  async buildBatchKey({ recipientId, type, resourceType, resourceId }) {
     if(type === 'FOLLOW')
       return `notification:batch:${type}:${recipientId}`;
 
     return `notification:batch:${type}:${recipientId}:${resourceType}:${resourceId}`;
   }
 
-  async saveBatch({ key, payload }) {
+  async saveBatch({ batchKey, payload }) {
     const serialized = JSON.stringify(payload);
-    await this.redisClient.set(key, serialized, 'EX', 1800);
-    return key;
+
+    try {
+      const result = await redis.setex(batchKey, 300, serialized);
+
+      const value = await redis.get(batchKey);
+    } catch (err) {
+      console.error("Redis error:", err);
+    }
   }
 
-  async getBatch(key) {
-    const value = await this.redisClient.get(key);
+  async getBatch(batchKey) {
+    // const value = await this.redisClient.get(batchKey);
+    const value = await redis.get(batchKey);
     if (!value) return null;
     return JSON.parse(value);
   }
 
-  async clearBatch(key) {
-    await this.redisClient.del(key);
+  async clearBatch(batchKey) {
+    // await this.redisClient.del(batchKey);
+    await redis.del(batchKey);
   }
 }
 

@@ -16,7 +16,6 @@ const {
 } = require('../../utils/token.util');
 
 const { createError } = require('../../utils/error.util');
-const { addEmailJob } = require('../../jobs/queues/email.queue');
 const { addJob } = require('../../jobs/queues/job.queue');
 
 const COOKIE_OPTS = {

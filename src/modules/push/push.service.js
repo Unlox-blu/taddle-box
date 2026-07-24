@@ -28,12 +28,12 @@ class PushService {
     }
   }
 
-  async sendToUser({ userId, title, message, data = {} }) {
+  async sendToUser({ recipientId, type, message, data = {} }) {
     try {
-      const tokens = await this.pushRepo.findByUser(userId);
+      const tokens = await this.pushRepo.findByUser(recipientId);
       const tokenList = tokens.map((t) => t.token);
       if (!tokenList.length) return [];
-      return await sendPush(tokenList, title, message, data);
+      return await sendPush(tokenList, type, message, data);
     } catch (error) {
       throw error;
     }

@@ -177,14 +177,12 @@ class PostService {
         emiterId: user.id
       }
       
-      await notificationService.publishNotification({
-        type: 'POST_LIKE',
+      await notificationService.create({
         recipientId: post.author_id,
-        actorId: user.id,
-        entityId: post.id,
-        entityType: 'post',
-        title: 'Post liked',
-        message: `${user.name} liked your post`,
+        type: 'POST_LIKE',
+        resourceType: 'post',
+        resourceId: post.id,
+        senderId: user.id,
       })
 
       this.feedSvc.updatePreferences({userId, categories: post.category || [], tags: post.tags || []})

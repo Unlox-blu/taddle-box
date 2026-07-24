@@ -126,4 +126,61 @@ const upsertPreferences = async (userId, updates) => {
 };
 
 
-module.exports = { create, findByUser, markOneRead, markAllRead, getUnreadCount, createDefaultPreferences, findPreferenceByUserId, upsertPreferences };
+async function insertNotifications(notifications) {
+  const values = [];
+  const placeholders = [];
+
+  notifications.forEach((n, index) => {
+    const offset = index * 11;
+
+    placeholders.push(`(
+      $${offset + 1},
+      $${offset + 2},
+      $${offset + 3},
+      $${offset + 4},
+      $${offset + 5},
+      $${offset + 6},
+      $${offset + 7}::uuid[],
+      $${offset + 8},
+      $${offset + 9},
+      $${offset + 10},
+      $${offset + 11}
+    )`);
+
+    values.push(
+      n.recipientId,
+      n.notificationType,
+      n.resourceType,
+      n.resourceId,
+      n.title,
+      n.mode,
+      n.senderIds,
+      n.senderCount,
+      n.isRead,
+      n.createdAt,
+      n.updatedAt
+    );
+  });
+
+  const query = `
+    INSERT INTO users_notifications (
+      recipient_id,
+      notification_type,
+      resource_type,
+      resource_id,
+      title,
+      mode,
+      sender_ids,
+      sender_count,
+      is_read,
+      created_at,
+      updated_at
+    )
+    VALUES ${placeholders.join(", ")}
+    RETURNING *;
+  `;
+
+  return pool.query(query, values);
+}
+
+module.exports = { create, findByUser, markOneRead, markAllRead, getUnreadCount, createDefaultPreferences, findPreferenceByUserId, upsertPreferences, insertNotifications };

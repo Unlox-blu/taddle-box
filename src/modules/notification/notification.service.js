@@ -2,27 +2,27 @@
 
 const NotificationModel = require('./notification.model');
 const NotificationBatchService = require('./notification.batch');
-const NotificationSchedulerService = require('./notification.scheduler');
-const NotificationRedisService = require('./notification.redis');
 const notificationRepository = require('./notification.repository');
-const { addNotificationDeliveryJob } = require('../../jobs/queues/notification.queue');
-const { DEFAULT_NOTIFICATION_DEFINITIONS, PRIORITY, normalizeType, resolveNotificationPolicy } = require('./notification.constants');
-const {emitNotification, emitWalletUpdate} = require('../../sockets/notification.socket');
+const {
+  DEFAULT_NOTIFICATION_DEFINITIONS,
+  PRIORITY,
+  normalizeType,
+  resolveNotificationPolicy,
+} = require('./notification.constants');
+const { emitNotification, emitWalletUpdate } = require('../../sockets/notification.socket');
 const { addJob } = require('../../jobs/queues/job.queue');
 
 class NotificationService {
   constructor({
     notificationRepository,
     pushService,
+    activeStatusService,
     batchService = new NotificationBatchService(),
-    schedulerService = new NotificationSchedulerService(),
-    redisService = new NotificationRedisService(),
   } = {}) {
     this.notifRepo = notificationRepository;
     this.pushSvc = pushService;
+    this.activeStatusSvc  = activeStatusService;
     this.batchService = batchService;
-    this.schedulerService = schedulerService;
-    this.redisService = redisService;
   }
 
   getQuietHoursDelay(priority) {
@@ -40,147 +40,115 @@ class NotificationService {
 
   async create({ recipientId, type, resourceType, resourceId, senderId = null, content = null }) {
     return this.publishNotification({
-      recipientId, 
+      recipientId,
       type,
       resourceType,
       resourceId,
       senderId,
-      content
+      content,
     });
   }
 
   async publishNotification(event) {
-    const policy = resolveNotificationPolicy(event);
-    const { recipientId, type, resourceType, resourceId, senderId, content } = event
+    try {
+      const policy = resolveNotificationPolicy(event);
+      const { recipientId, type, resourceType, resourceId, senderId, content } = event;
 
-    const title = policy.type === 'COMMENT' ? content ? `comment: ${content}` : policy.title : policy.title
-    const mode = policy.batch ? 'BATCH' : 'SINGLE'
-    
-    const notification = { 
-      recipientId,
-      notificationType: policy.type,
-      resourceType,
-      resourceId,
-      title: title,
-      mode: mode,
-      senderIds: [senderId],
-      senderCount: 1,
-      isRead: false,
-      createdAt: new Date().toISOString(), 
-      updatedAt: new Date().toISOString() 
-    };
+      const title =
+        policy.type === 'COMMENT' ? (content ? `comment: ${content}` : policy.title) : policy.title;
+      const mode = policy.batch ? 'BATCH' : 'SINGLE';
 
-    
-    if(policy.batch){
-      const batchKey = this.batchService.buildBatchKey({ recipientId, type: policy.type, resourceType, resourceId })
-      const cachedNotifications = await this.batchService.getBatch(batchKey)
-      
-      if(cachedNotifications) {
-        if(Array.isArray(cachedNotifications) && cachedNotifications.length <= 4) {
-          notification.mode = 'SINGLE'
-          const updatedNotifications = [...cachedNotifications, notification]
+      const notification = {
+        recipientId,
+        notificationType: policy.type,
+        resourceType,
+        resourceId,
+        title: title,
+        mode: mode,
+        senderIds: [senderId],
+        senderCount: 1,
+        isRead: false,
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+      };
 
-          await this.batchService.saveBatch({ batchKey, payload: updatedNotifications })
+      if (policy.batch) {
+        const batchKey = await this.batchService.buildBatchKey({
+          recipientId,
+          type: policy.type,
+          resourceType,
+          resourceId,
+        });
+        const cachedNotifications = await this.batchService.getBatch(batchKey);
 
-          emitNotification(recipientId, notification)
-        }
-        else {
-          const batchNotification = cachedNotifications[cachedNotifications.length - 1]
-          batchNotification.mode = 'BATCH'
-          batchNotification.senderCount = cachedNotifications.length
-          batchNotification.title = `${cachedNotifications.length} ${policy.title}`
-          batchNotification.senderIds.push(senderId)
-          batchNotification.senderIds = batchNotification.senderIds.slice(-2);
+        if (cachedNotifications) {
+          if (Array.isArray(cachedNotifications) && cachedNotifications.length <= 4) {
+            notification.mode = 'SINGLE';
+            const updatedNotifications = [...cachedNotifications, notification];
 
-          cachedNotifications[ cachedNotifications.length - 1 ] = batchNotification;
+            await this.batchService.saveBatch({ batchKey, payload: updatedNotifications });
 
-          await this.batchService.saveBatch({ batchKey, payload: cachedNotifications })
+            addJob('notification:emit', { recipientId, notification }, { delay: 5 * 1000 });
+          } else {
+            const batchNotification = cachedNotifications[cachedNotifications.length - 1];
+            batchNotification.mode = 'BATCH';
+            batchNotification.senderCount = cachedNotifications.length;
+            batchNotification.title = `${cachedNotifications.length} ${policy.title}`;
+            batchNotification.senderIds.push(senderId);
+            batchNotification.senderIds = batchNotification.senderIds.slice(-2);
 
-          emitNotification(recipientId, batchNotification)
+            cachedNotifications[cachedNotifications.length - 1] = batchNotification;
+
+            await this.batchService.saveBatch({ batchKey, payload: cachedNotifications });
+
+            addJob(
+              'notification:emit',
+              { recipientId, notification: batchNotification },
+              { delay: 5 * 1000 }
+            );
+          }
+        } else {
+          await this.batchService.saveBatch({ batchKey, payload: [notification] });
+          addJob('notification:db_save', { batchKey }, { delay: 60 * 1000 });
+          addJob('notification:emit', { recipientId, notification }, { delay: 5 * 1000 });
         }
       }
-      else{
-        await this.batchService.saveBatch({ batchKey, payload: notification })
-        addJob('notification:db_save', {batchKey}, {delay: 30 * 60 * 1000})
-        emitNotification(recipientId, notification)
-      }
+    } catch (error) {
+      throw error;
     }
-
-    if (policy.batch) {
-
-      const batchKey = `notification:batch:${policy.type}:${event.recipientId}:${event.entityType || 'default'}:${event.entityId || 'default'}`;
-      await this.schedulerService.schedule({
-        key: batchKey,
-        runAt: new Date(Date.now() + Math.max(policy.delay, 30000)),
-        payload: { recipientId: event.recipientId, type: policy.type, entityId: event.entityId, payload: persisted },
-      });
-    }
-
-    if (policy.socket) {
-      emitNotification(event.recipientId, persisted);
-    }
-
-    const recipientIsOnline = await this.redisService.isUserOnline(event.recipientId);
-    const effectivePolicy = { ...policy, push: policy.push && !recipientIsOnline };
-
-    const cooldownActive = await this.redisService.hasCooldown({
-      userId: event.recipientId,
-      type: policy.type,
-      entityId: event.entityId || 'default',
-    });
-
-    if (cooldownActive) {
-      effectivePolicy.push = false;
-    }
-
-    if (!effectivePolicy.push) return persisted;
-
-    const quietHoursDelay = this.getQuietHoursDelay(effectivePolicy.priority);
-    const deliveryDelay = quietHoursDelay > 0 ? quietHoursDelay : effectivePolicy.delay;
-    const jobId = `notification:${event.recipientId}:${policy.type}:${event.entityId || 'default'}`;
-
-    const deliveryPayload = {
-      notificationId: persisted.id,
-      recipientId: event.recipientId,
-      actorId: event.actorId,
-      type: policy.type,
-      title: persisted.title,
-      message: persisted.message,
-      entityType: event.entityType,
-      entityId: event.entityId,
-      priority: effectivePolicy.priority,
-      policy: effectivePolicy,
-      jobId,
-    };
-
-    addNotificationDeliveryJob(deliveryPayload, {
-      jobId: jobId,
-      delay: deliveryDelay,
-    });
-
-    await this.redisService.setCooldown({
-      userId: event.recipientId,
-      type: policy.type,
-      entityId: event.entityId || 'default',
-      ttl: Math.max(60, Math.floor((policy.cooldown || 300000) / 1000)),
-    });
-
-    return persisted;
   }
 
-
-
-
-  async create({key}) {
+  async pushNotification(payload) {
     try {
-      console.log(key)
+      const { recipientId, title, senderId, notificationType } = payload
+      const message = `${senderId.length} ${title}` 
+      const isActive = this.activeStatusSvc.getStatus({userId: recipientId})
+      if(isActive === 'online')
+        return
+
+      addJob('notification:push', { recipientId, type: notificationType, message, data: payload }, { delay: 5 * 1000 });
     } catch (error) {
-      throw error
+      throw error;
+    }
+  }
+
+  async save({ batchKey }) {
+    try {
+      const cachedNotifications = await this.batchService.getBatch(batchKey);
+
+      await this.notifRepo.insertNotifications(cachedNotifications);
+    } catch (error) {
+      throw error;
     }
   }
 
   async getAll({ userId, limit, offset, unreadOnly }) {
-    const { notifications, total } = await this.notifRepo.findByUser(userId, limit, offset, unreadOnly);
+    const { notifications, total } = await this.notifRepo.findByUser(
+      userId,
+      limit,
+      offset,
+      unreadOnly
+    );
     const unreadCount = await this.notifRepo.getUnreadCount(userId);
     return { notifications, total, unreadCount };
   }

@@ -7,14 +7,27 @@ const { emitNotification } = require('../../../sockets/notification.socket');
 const NotificationModel = require('../../../modules/notification/notification.model');
 const { logger } = require('../../../middlewares/logger.middleware');
 const { getPromotionalNotificationByUserId } = require('../../../modules/settings/settings.repository');
+const {pushService} = require('../../../modules/push/push.container')
 
 const notificationJobProcessor = async (job) => {
       logger.info(`[NotifWorker] Processing: ${job.name}`, { id: job.id });
 
       switch (job.name) {
         case 'db_save': {
-          const { key } = job.data;
-          await notificationService.create({key})
+          const { batchKey } = job.data;
+          await notificationService.save({batchKey})
+          break;
+        }
+
+        case 'emit': {
+          const {recipientId, notification} = job.data;
+          emitNotification(recipientId, notification)
+          break;
+        }
+
+        case 'push': {
+          const { recipientId, type, message, data } = job.data;
+          await pushService.sendToUser({ recipientId, type, message, data })
           break;
         }
 

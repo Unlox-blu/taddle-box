@@ -2,7 +2,6 @@
 const notificationRepository = require('./notification.repository')
 
 // Service
-const notificationStatus = require('./notification.status')
 const NotificationService = require('./notification.service');
 
 // Controller
@@ -17,5 +16,4 @@ module.exports = {
   notificationController,
   notificationService,
   notificationRepository,
-  notificationStatus,
 }

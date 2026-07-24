@@ -5,18 +5,13 @@ const redis = require('../../config/redis');
 const crypto = require('crypto');
 const { hashPassword, comparePassword } = require('../../utils/password.util');
 const {
-  generateAccessToken,
-  generateRefreshToken,
+  generateToken,
   generateRandomToken,
   hashToken,
-  verifyRefreshToken,
-  generateVerificationToken,
-  generateSocialToken,
-  verifySocialToken,
+  decodeToken,
 } = require('../../utils/token.util');
 
 const { createError } = require('../../utils/error.util');
-const { addEmailJob } = require('../../jobs/queues/email.queue');
 const { addJob } = require('../../jobs/queues/job.queue');
 
 const COOKIE_OPTS = {
@@ -101,7 +96,7 @@ class AuthService {
       let verifiedEmail = email;
       if (socialToken) {
         try {
-          const payload = verifySocialToken(socialToken);
+          const payload = decodeToken(socialToken);
           if (payload.email) {
             isEmailVerified = true;
             verifiedEmail = payload.email; // Enforce the token's email
@@ -199,7 +194,7 @@ class AuthService {
 
       if (socialToken) {
         try {
-          const payload = verifySocialToken(socialToken);
+          const payload = decodeToken(socialToken);
           verifiedEmail = payload.email; // Override email from frontend payload
           socialProvider = payload.provider;
           socialProviderId = payload.providerId;
@@ -463,7 +458,7 @@ class AuthService {
     try {
       if (!refreshToken) throw createError('Refresh token is required', 401);
 
-      const payload = verifyRefreshToken(refreshToken);
+      const payload = decodeToken(refreshToken);
       const userId = payload.userId;
       const user = await this.authUserRepo.getRefreshTokenById({ userId });
 
@@ -602,7 +597,7 @@ class AuthService {
       let user = await this.authUserRepo.findByEmailUser({ email });
       
       if (!user) {
-        const socialToken = generateSocialToken({ email, name: name || 'Google User', provider: 'google', providerId: googleId, avatarUrl: picture });
+        const socialToken = generateToken({ email, name: name || 'Google User', provider: 'google', providerId: googleId, avatarUrl: picture }, config.SOCIAL_TOKEN_EXPIRES_IN);
         return { success: false, action: 'REGISTER_SOCIAL', socialToken, data: { name: name || 'Google User', email } };
       } else if (!user.googleId) {
         // Link google account to existing user (assuming authUserRepo has a method or we'd just update it, mocked for now)
@@ -630,7 +625,7 @@ class AuthService {
 
       if (!user) {
         const generatedEmail = email || `${appleId}@privaterelay.appleid.com`;
-        const socialToken = generateSocialToken({ email: generatedEmail, name: fullName || 'Apple User', provider: 'apple', providerId: appleId });
+        const socialToken = generateToken({ email: generatedEmail, name: fullName || 'Apple User', provider: 'apple', providerId: appleId }, config.SOCIAL_TOKEN_EXPIRES_IN);
         return { success: false, action: 'REGISTER_SOCIAL', socialToken, data: { name: fullName || 'Apple User', email: generatedEmail } };
       }
 
@@ -646,8 +641,8 @@ class AuthService {
       const userId = user.id;
       const role = user.role;
       const payload = { userId, role };
-      const accessToken = generateAccessToken(payload);
-      const refreshToken = generateRefreshToken(payload);
+      const accessToken = generateToken(payload, config.ACCESS_TOKEN_EXPIRES_IN);
+      const refreshToken = generateToken(payload, config.REFRESH_TOKEN_EXPIRES_IN);
 
       const tokenHash = hashToken(refreshToken);
       await this.authUserRepo.updateRefreshToken({ userId, tokenHash });
@@ -671,7 +666,7 @@ class AuthService {
   async #issueVerificationTokens({ email, countryCode, phone }) {
     try {
       const payload = { email, countryCode, phone };
-      const verificationToken = generateVerificationToken(payload);
+      const verificationToken = generateToken(payload, config.VERIFICATION_TOKEN_EXPIRES_IN);
       const tokenHash = hashToken(verificationToken);
 
       const sessionData = {

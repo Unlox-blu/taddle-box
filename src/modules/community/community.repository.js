@@ -228,7 +228,7 @@ const updateMemberRole = async (communityId, userId, role) => {
 const getMembers = async (communityId, status, limit, offset) => {
   try {
     const { rows } = await pool.query(
-      `SELECT cm.*, u.name, u.username, u.avatar_url, u.is_verified, COUNT(*) OVER() AS total
+      `SELECT cm.*, u.name, u.username, u.avatar_url, COUNT(*) OVER() AS total
      FROM ${CommunityModel.MEMBERS_TABLE} cm
      JOIN users u ON u.id = cm.user_id
      WHERE cm.community_id = $1 AND cm.status = $2

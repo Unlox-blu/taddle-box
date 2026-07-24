@@ -16,7 +16,7 @@ const PRIORITY = {
 const DEFAULT_NOTIFICATION_DEFINITIONS = {
   POST_LIKE: {
     save: true,
-    socket: true,
+    socket: false,
     push: true,
     batch: true,
     delay: 300000,
@@ -26,17 +26,17 @@ const DEFAULT_NOTIFICATION_DEFINITIONS = {
   },
   COMMENT: {
     save: true,
-    socket: true,
+    socket: false,
     push: true,
     batch: true,
-    delay: 30000,
+    delay: 5000,
     priority: PRIORITY.MEDIUM,
     cooldown: 600000,
     category: 'comments',
   },
   FOLLOW: {
     save: true,
-    socket: true,
+    socket: false,
     push: true,
     batch: true,
     delay: 120000,
@@ -46,7 +46,7 @@ const DEFAULT_NOTIFICATION_DEFINITIONS = {
   },
   MENTION: {
     save: true,
-    socket: true,
+    socket: false,
     push: true,
     batch: false,
     delay: 0,
@@ -55,7 +55,7 @@ const DEFAULT_NOTIFICATION_DEFINITIONS = {
   },
   REPLY: {
     save: true,
-    socket: true,
+    socket: false,
     push: true,
     batch: false,
     delay: 0,
@@ -66,7 +66,7 @@ const DEFAULT_NOTIFICATION_DEFINITIONS = {
     save: true,
     socket: false,
     push: true,
-    batch: true,
+    batch: false,
     delay: 1800000,
     priority: PRIORITY.VERY_LOW,
     category: 'marketing',

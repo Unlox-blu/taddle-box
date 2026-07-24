@@ -7,17 +7,35 @@ class NotificationBatchService {
     this.redisClient = redisClient;
   }
 
-  async getBatchKey({ recipientId, entityType, entityId, type }) {
-    return `notification:batch:${type}:${recipientId}:${entityType}:${entityId}`;
+  getBatchKey({ recipientId, resourceType, resourceId, type }) {
+    return `notification_batch_${type}_${recipientId}_${resourceType}_${resourceId}`;
   }
 
-  async addToBatch({ recipientId, entityType, entityId, type, payload }) {
-    const key = await this.getBatchKey({ recipientId, entityType, entityId, type });
-    const serialized = JSON.stringify(payload);
-    await this.redisClient.set(key, serialized, 'EX', 1800);
-    return key;
-  }
+async addToBatch(data) {
+  const key = this.getBatchKey(data);
+  const actorsKey = `${key}:actors`;
 
+  const exists = await this.redisClient.exists(key);
+
+  await this.redisClient.hset(key, {
+    recipientId: data.recipientId,
+    resourceType: data.resourceType,
+    resourceId: data.resourceId,
+    type: data.type,
+    updatedAt: Date.now()
+  });
+
+  // Add sender to the set (duplicates are ignored)
+  await this.redisClient.sadd(actorsKey, data.senderId);
+
+  await this.redisClient.expire(key, 1800);
+  await this.redisClient.expire(actorsKey, 1800);
+
+  return {
+    key,
+    isNew: !exists
+  };
+}
   async getBatch({ recipientId, entityType, entityId, type }) {
     const key = await this.getBatchKey({ recipientId, entityType, entityId, type });
     const value = await this.redisClient.get(key);

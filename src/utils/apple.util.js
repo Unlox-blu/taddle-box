@@ -1,22 +1,23 @@
 const jwt = require('jsonwebtoken');
 const fs = require('fs');
 const axios = require('axios');
+const config = require('../config/app.config')
 
 /**
  * Generates the Apple Client Secret JWT required to communicate with Apple's API.
  * Requires APPLE_TEAM_ID, APPLE_SERVICE_ID, APPLE_KEY_ID, and APPLE_P8_PATH (or APPLE_P8_KEY) in .env.
  */
 const generateAppleClientSecret = () => {
-  const teamId = process.env.APPLE_TEAM_ID;
-  const clientId = process.env.APPLE_SERVICE_ID; // The Service ID
-  const keyId = process.env.APPLE_KEY_ID;
-  const p8Path = process.env.APPLE_P8_PATH;
+  const teamId = config.APPLE_TEAM_ID;
+  const clientId = config.APPLE_SERVICE_ID; // The Service ID
+  const keyId = config.APPLE_KEY_ID;
+  const p8Path = config.APPLE_P8_PATH;
   
   if (!teamId || !clientId || !keyId) {
     return null;
   }
 
-  let privateKey = process.env.APPLE_P8_KEY;
+  let privateKey = config.APPLE_P8_KEY;
   if (!privateKey && p8Path && fs.existsSync(p8Path)) {
     privateKey = fs.readFileSync(p8Path, 'utf8');
   }
@@ -48,7 +49,7 @@ const generateAppleClientSecret = () => {
 const revokeAppleToken = async (token) => {
   try {
     const clientSecret = generateAppleClientSecret();
-    const clientId = process.env.APPLE_SERVICE_ID;
+    const clientId = config.APPLE_SERVICE_ID;
 
     if (!clientSecret || !clientId) {
       console.warn('[Apple Util] Missing Apple credentials in .env. Skipping token revocation.');

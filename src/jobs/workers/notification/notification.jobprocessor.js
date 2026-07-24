@@ -6,6 +6,8 @@ const { emitNotification } = require('../../../sockets/notification.socket');
 const NotificationModel = require('../../../modules/notification/notification.model');
 const { logger } = require('../../../middlewares/logger.middleware');
 const { getPromotionalNotificationByUserId } = require('../../../modules/settings/settings.repository');
+const { pushService } = require('../../../modules/push/push.container');
+const emitNotificationBatch = require('../../../modules/notification/notification.worker');
 
 const notificationJobProcessor = async (job) => {
       logger.info(`[NotifWorker] Processing: ${job.name}`, { id: job.id });
@@ -159,6 +161,27 @@ const notificationJobProcessor = async (job) => {
             });
             emitNotification(id, NotificationModel.format(notif));
           }  
+          break;
+        }
+
+        case 'push': {
+          const payload = job.data || {};
+          logger.info(`[NotifDeliveryWorker] Processing: ${payload.type}`, { id: job.id, recipientId: payload.recipientId });
+          if (!payload.recipientId) return null;
+          
+          return pushService.sendToUser({
+          userId: payload.recipientId,
+          title: payload.title,
+          message: payload.message || "Push notification" ,
+          data: { senderId: payload.senderId, type: payload.type },
+        });
+          break;
+        }
+
+        case 'emit': {
+          const payload = job.data || {};
+          logger.info(`[EmitNotificationWorker] Processing: notification`, { id: job.id, recipientId: payload.recipientId });
+          await emitNotificationBatch(payload)
           break;
         }
 

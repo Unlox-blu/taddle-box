@@ -67,12 +67,12 @@ class CommentService {
 
       const user = await this.userRepo.findById(authorId);
 
-      await this.notifSvc.publishNotification({
+      await this.notifSvc.create({
         type: 'COMMENT',
         recipientId: post.author_id,
-        actorId: user.id,
-        entityId: post.id,
-        entityType: 'post',
+        senderId: user.id,
+        resourceId: post.id,
+        resourceType: 'post',
         title: 'New comment',
         message: content,
       });

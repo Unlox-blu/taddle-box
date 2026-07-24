@@ -98,7 +98,18 @@ const loginPinSchema = z.object({
 
 const googleAuthSchema = z.object({
   idToken: z.string().min(1, 'Google ID token is required'),
-});
+}).strict();
+
+const appleAuthSchema = z.object({
+  identityToken: z.string().min(1, 'Google ID token is required'),
+  fullName: z.string().min(1, 'Full Name must have at least 1 character').optional(),
+}).strict();
+
+const appleAuthCallbackSchema = z.object({
+  id_token: z.string().min(1, 'Google ID token is required'),
+  user: z.string().min(1, 'User must have at least 1 character').optional(),
+  state: z.string().min(1, 'State must have at least 1 character').optional(),
+}).strict();
 
 const changePasswordSchema = z.object({
   currentPassword: z.string().min(1, 'Current password is required'),
@@ -118,7 +129,6 @@ const resetPasswordSchema = z.object({
 
 
 
-
 module.exports = {
   usernameSchema,
   emailSchema,
@@ -129,6 +139,8 @@ module.exports = {
   loginSchema,
   loginPinSchema,
   googleAuthSchema,
+  appleAuthSchema,
+  appleAuthCallbackSchema,
   forgotPasswordSchema,
   resetPasswordSchema,
   changePasswordSchema,

@@ -5,49 +5,17 @@ const crypto = require('crypto');
 const config = require('../config/app.config');
 const { createError } = require('./error.util');
 
-const generateAccessToken = (payload) =>
-  jwt.sign(payload, config.TOKEN_SECRET, { expiresIn: config.ACCESS_TOKEN_EXPIRES_IN });
-
-const generateRefreshToken = (payload) =>
-  jwt.sign(payload, config.TOKEN_SECRET, { expiresIn: config.REFRESH_TOKEN_EXPIRES_IN });
-
-const generateVerificationToken = (payload) =>
-  jwt.sign(payload, config.TOKEN_SECRET, { expiresIn: config.VERIFICATION_TOKEN_EXPIRES_IN });
-
-const generateSocialToken = (payload) =>
-  jwt.sign(payload, config.TOKEN_SECRET, { expiresIn: '30m' });
 
 
 
-const verifyAccessToken = (token) => {
+const generateToken = (payload, expiresIn) =>
+  jwt.sign(payload, config.TOKEN_SECRET, { expiresIn: expiresIn });
+
+const decodeToken = (token) => {
   try {
     return jwt.verify(token, config.TOKEN_SECRET);
   } catch {
-    throw createError('Invalid or expired access token', 401);
-  }
-};
-
-const verifyRefreshToken = (token) => {
-  try {
-    return jwt.verify(token, config.TOKEN_SECRET);
-  } catch {
-    throw createError('Invalid or expired refresh token', 401);
-  }
-};
-
-const verifyVerificationToken = (token) => {
-  try {
-    return jwt.verify(token, config.TOKEN_SECRET);
-  } catch {
-    throw createError('Invalid or expired verification token', 401);
-  }
-};
-
-const verifySocialToken = (token) => {
-  try {
-    return jwt.verify(token, config.TOKEN_SECRET);
-  } catch {
-    throw createError('Invalid or expired social token', 401);
+    throw createError('Invalid or expired token', 401);
   }
 };
 
@@ -58,14 +26,8 @@ const generateRandomToken = () => crypto.randomBytes(32).toString('hex');
 const hashToken = (token) => crypto.createHash('sha256').update(token).digest('hex');
 
 module.exports = {
-  generateAccessToken,
-  generateRefreshToken,
-  generateVerificationToken,
-  generateSocialToken,
-  verifyAccessToken,
-  verifyRefreshToken,
-  verifyVerificationToken,
-  verifySocialToken,
+  generateToken,
+  decodeToken,
   generateRandomToken,
   hashToken,
 };

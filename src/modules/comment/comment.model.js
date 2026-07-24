@@ -8,7 +8,7 @@ const LIST_FIELDS = [
   'c.path', 'c.likes_count', 'c.status', 'c.created_at', 'c.updated_at',
   'u.id AS author_id', 'u.name AS author_name',
   'u.username AS author_username', 'u.avatar_url AS author_avatar',
-  'u.is_verified AS author_is_verified',
+
 ].join(', ');
 
 const sanitize = (row) => {

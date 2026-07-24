@@ -270,7 +270,7 @@ class AuthController {
         }
       }
 
-      let fullName;
+      let fullName = '';
       if (user) {
         try {
           const parsedUser = JSON.parse(user);

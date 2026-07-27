@@ -69,12 +69,15 @@ class UserService {
   async updateAvatar({userId, avatarMediaId}) {
     try {
       const user = await this.userRepo.findAvatarAndBanner(userId)
-
-      if(user.avatarUrl) {
-        await this.mediaSvc.clearS3Storage({userId, mediaId: user.avatarUrl})
-      }
+      const previousAvatarMediaId = user?.avatarUrl;
 
       const updateAvatar = await this.userRepo.updateAvatar(userId, avatarMediaId);
+
+      if(previousAvatarMediaId && previousAvatarMediaId !== avatarMediaId) {
+        this.mediaSvc.clearS3Storage({userId, mediaId: previousAvatarMediaId})
+          .catch(error => console.warn('Failed to clear previous avatar media:', error.message));
+      }
+
       return updateAvatar;
     } catch (error) {
       throw error;

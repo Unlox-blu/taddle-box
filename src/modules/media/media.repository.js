@@ -80,13 +80,13 @@ const findByUserId = async (uploaderId, limit, offset) => {
   }
 }
 
-const updateStatus = async (mediaId, status, cloudfrontUrl) => {
+const updateStatus = async (mediaId, status, cloudfrontUrl, s3Key = null) => {
   try {
     await pool.query(
       `UPDATE ${MediaModel.MEDIA_TABLE} 
-      SET processing_status = $1, cloudfront_url = COALESCE($2, cloudfront_url), updated_at = NOW()
-      WHERE id = $3`,
-      [status, cloudfrontUrl || null, mediaId]
+      SET processing_status = $1, cloudfront_url = COALESCE($2, cloudfront_url), s3_key = COALESCE($3, s3_key), updated_at = NOW()
+      WHERE id = $4`,
+      [status, cloudfrontUrl || null, s3Key, mediaId]
     );
   } catch (error) {
     throw error;

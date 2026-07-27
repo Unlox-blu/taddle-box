@@ -85,6 +85,11 @@ export const authService = {
     return response.data;
   },
 
+  updateAvatar: async (avatarMediaId: string) => {
+    const response = await apiClient.patch('/users/update-avatar', { avatarMediaId });
+    return response.data;
+  },
+
   changePassword: async (data: { currentPassword?: string; newPassword?: string }) => {
     const response = await apiClient.post('/auth/change-password', data);
     return response.data;

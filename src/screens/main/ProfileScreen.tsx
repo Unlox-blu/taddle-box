@@ -9,7 +9,7 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { StatusBar } from 'expo-status-bar';
 import { fontSizes, spacing, radii, type ColorPalette } from '../../theme';
 import { useTheme, useThemeColors } from '../../context/ThemeContext';
-import { useNavigation } from '@react-navigation/native';
+import { useFocusEffect, useNavigation } from '@react-navigation/native';
 import XPProgressBar from '../../components/home/XPProgressBar';
 import MainHeader from '../../components/common/MainHeader';
 import { useAuth } from '../../context/AuthContext';
@@ -148,24 +148,40 @@ export default function ProfileScreen() {
   const [loading, setLoading] = useState(true);
   const [qrModalVisible, setQrModalVisible] = useState(false);
 
-  React.useEffect(() => {
-    let active = true;
-    const loadData = async () => {
-      try {
-        if (!authUser?.username) return;
-        const profileRes = await userService.getProfile(authUser.username);
-        if (active && profileRes?.data) {
-          setProfile(profileRes.data);
-        }
-      } catch (e) {
-        console.warn('Failed to load own profile', e);
-      } finally {
-        if (active) setLoading(false);
+  const loadProfile = React.useCallback(async (showLoader = false) => {
+    if (!authUser?.username) {
+      setLoading(false);
+      return;
+    }
+
+    if (showLoader) setLoading(true);
+    try {
+      const profileRes = await userService.getProfile(authUser.username);
+      if (profileRes?.data) {
+        setProfile(profileRes.data);
       }
-    };
-    loadData();
-    return () => { active = false; };
+    } catch (e) {
+      console.warn('Failed to load own profile', e);
+    } finally {
+      setLoading(false);
+    }
   }, [authUser?.username]);
+
+  React.useEffect(() => {
+    loadProfile(true);
+  }, [loadProfile]);
+
+  useFocusEffect(
+    React.useCallback(() => {
+      loadProfile(false);
+    }, [loadProfile])
+  );
+
+  React.useEffect(() => {
+    if (authUser?.avatarUrl) {
+      setProfile((prev: any) => prev ? { ...prev, avatarUrl: authUser.avatarUrl } : prev);
+    }
+  }, [authUser?.avatarUrl]);
 
   const displayUser = profile || authUser;
 

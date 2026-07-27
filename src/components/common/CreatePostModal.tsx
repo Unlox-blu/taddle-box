@@ -31,6 +31,7 @@ import { userService } from "../../services/user.service";
 import { useCommunities } from "../../context/CommunityContext";
 import type { Post } from "../../types";
 import SmartInput from "./SmartInput";
+import { appLockBypass } from "../../utils/appLockBypass";
 
 const SCREEN_W = Dimensions.get("window").width;
 
@@ -361,37 +362,42 @@ export default function CreatePostModal({
           });
         }
       } else {
-        const { status } =
-          await ImagePicker.requestMediaLibraryPermissionsAsync();
-        if (status !== "granted") {
-          Alert.alert(
-            "Permission needed",
-            "Allow access to your media library to upload photos and videos.",
-          );
-          setPickLoading(false);
-          return;
-        }
+        appLockBypass.beginNativeFlow();
+        try {
+          const { status } =
+            await ImagePicker.requestMediaLibraryPermissionsAsync();
+          if (status !== "granted") {
+            Alert.alert(
+              "Permission needed",
+              "Allow access to your media library to upload photos and videos.",
+            );
+            setPickLoading(false);
+            return;
+          }
 
-        const result = await ImagePicker.launchImageLibraryAsync({
-          mediaTypes: ["images", "videos"],
-          allowsEditing: false,
-          allowsMultipleSelection: true,
-          quality: 0.85,
-        });
+          const result = await ImagePicker.launchImageLibraryAsync({
+            mediaTypes: ["images", "videos"],
+            allowsEditing: false,
+            allowsMultipleSelection: true,
+            quality: 0.85,
+          });
 
-        if (!result.canceled && result.assets.length > 0) {
-          const newItems = result.assets.map((a) => ({
-            uri: a.uri,
-            type: a.type === "video" ? ("video" as const) : ("image" as const),
-            name:
-              a.fileName || (a.type === "video" ? "video.mp4" : "image.jpg"),
-            mimeType:
-              a.mimeType || (a.type === "video" ? "video/mp4" : "image/jpeg"),
-            size: a.fileSize || 1000000,
-            width: a.width,
-            height: a.height,
-          }));
-          setMediaItems((prev) => [...prev, ...newItems]);
+          if (!result.canceled && result.assets.length > 0) {
+            const newItems = result.assets.map((a) => ({
+              uri: a.uri,
+              type: a.type === "video" ? ("video" as const) : ("image" as const),
+              name:
+                a.fileName || (a.type === "video" ? "video.mp4" : "image.jpg"),
+              mimeType:
+                a.mimeType || (a.type === "video" ? "video/mp4" : "image/jpeg"),
+              size: a.fileSize || 1000000,
+              width: a.width,
+              height: a.height,
+            }));
+            setMediaItems((prev) => [...prev, ...newItems]);
+          }
+        } finally {
+          appLockBypass.endNativeFlow();
         }
       }
     } catch {
@@ -702,9 +708,14 @@ export default function CreatePostModal({
           {/* ── User + destination ── */}
           <View style={styles.userRow}>
             <View style={styles.avatarBubble}>
-              <Text style={styles.avatarText}>
-                {CURRENT_USER?.avatarUrl ? null : "👾"}
-              </Text>
+              {CURRENT_USER?.avatarUrl ? (
+                <Image
+                  source={{ uri: CURRENT_USER.avatarUrl }}
+                  style={styles.avatarImage}
+                />
+              ) : (
+                <Text style={styles.avatarText}>👾</Text>
+              )}
             </View>
             <View style={styles.userMeta}>
               <Text style={styles.userName}>
@@ -1477,7 +1488,9 @@ function makeStyles(colors: ReturnType<typeof useThemeColors>) {
     justifyContent: "center",
     borderWidth: 2,
     borderColor: colors.primaryDark,
+    overflow: "hidden",
   },
+  avatarImage: { width: "100%", height: "100%", borderRadius: 23 },
   avatarText: { fontSize: 22 },
   userMeta: { flex: 1, gap: 6 },
   userName: {

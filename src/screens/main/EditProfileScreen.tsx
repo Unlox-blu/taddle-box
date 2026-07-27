@@ -3,13 +3,17 @@ import {
   View, Text, TextInput, TouchableOpacity, ScrollView, Image,
   StyleSheet, Alert, ActivityIndicator, KeyboardAvoidingView, Platform,
 } from 'react-native';
+import * as ImagePicker from 'expo-image-picker';
+import * as FileSystem from 'expo-file-system/legacy';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { useNavigation } from '@react-navigation/native';
 import { useAuth } from '../../context/AuthContext';
 import { useThemeColors } from '../../context/ThemeContext';
 import { authService } from '../../services/auth.service';
+import { mediaService } from '../../services/media.service';
 import { fontSizes, spacing, radii } from '../../theme';
+import { appLockBypass } from '../../utils/appLockBypass';
 
 export default function EditProfileScreen() {
   const navigation = useNavigation<any>();
@@ -20,6 +24,7 @@ export default function EditProfileScreen() {
   const [username,   setUsername]   = useState<string>(user?.username   ?? '');
   const [bio,        setBio]        = useState<string>(user?.bio        ?? '');
   const [website,    setWebsite]    = useState<string>(user?.websiteUrl ?? '');
+  const [avatarAsset, setAvatarAsset] = useState<ImagePicker.ImagePickerAsset | null>(null);
   const [saving,     setSaving]     = useState(false);
 
   // Track what actually changed
@@ -30,11 +35,59 @@ export default function EditProfileScreen() {
     website:  user?.websiteUrl ?? '',
   });
 
+  const avatarPreviewUri = avatarAsset?.uri || user?.avatarUrl;
   const hasChanges =
     name     !== originalRef.current.name     ||
     username !== originalRef.current.username ||
     bio      !== originalRef.current.bio      ||
-    website  !== originalRef.current.website;
+    website  !== originalRef.current.website ||
+    !!avatarAsset;
+
+  const pickAvatar = async () => {
+    appLockBypass.beginNativeFlow();
+    try {
+      const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
+      if (status !== 'granted') {
+        Alert.alert('Permission needed', 'Allow access to your media library to update your profile image.');
+        return;
+      }
+
+      const result = await ImagePicker.launchImageLibraryAsync({
+        mediaTypes: ['images'],
+        allowsEditing: true,
+        aspect: [1, 1],
+        quality: 0.85,
+      });
+
+      if (!result.canceled && result.assets.length > 0) {
+        setAvatarAsset(result.assets[0]);
+      }
+    } finally {
+      appLockBypass.endNativeFlow();
+    }
+  };
+
+  const getAvatarFileSize = async (asset: ImagePicker.ImagePickerAsset) => {
+    if (asset.fileSize) return asset.fileSize;
+    const info = await FileSystem.getInfoAsync(asset.uri);
+    return info.exists && 'size' in info ? info.size : 1000000;
+  };
+
+  const uploadAvatar = async (asset: ImagePicker.ImagePickerAsset) => {
+    const mimeType = asset.mimeType || 'image/jpeg';
+    const fileSize = await getAvatarFileSize(asset);
+    const res = await mediaService.getSignedUrl(
+      'avatars',
+      fileSize,
+      mimeType,
+      asset.width,
+      asset.height,
+    );
+
+    await mediaService.uploadFileDirect(res.data.signedUrl!, asset.uri, mimeType);
+    await mediaService.confirmUpload(res.data.mediaId, res.data.s3Key!);
+    await authService.updateAvatar(res.data.mediaId);
+  };
 
   const handleSave = async () => {
     if (!hasChanges) { navigation.goBack(); return; }
@@ -63,10 +116,20 @@ export default function EditProfileScreen() {
         tasks.push(authService.updateUsername(username.trim()));
       }
 
+      if (avatarAsset) {
+        tasks.push(uploadAvatar(avatarAsset));
+      }
+
       await Promise.all(tasks);
 
       // Optimistic update then refresh from backend
-      updateUser({ name: name.trim(), username: username.trim(), bio: bio.trim(), websiteUrl: website.trim() });
+      updateUser({
+        name: name.trim(),
+        username: username.trim(),
+        bio: bio.trim(),
+        websiteUrl: website.trim(),
+        ...(avatarAsset ? { avatarUrl: avatarAsset.uri } : {}),
+      });
       await refreshUser();
 
       Alert.alert('Saved!', 'Your profile has been updated.', [
@@ -133,15 +196,26 @@ export default function EditProfileScreen() {
 
       <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
         <ScrollView contentContainerStyle={styles.body} keyboardShouldPersistTaps="handled">
-          {/* Avatar placeholder – upload feature in next update */}
           <View style={styles.avatarRow}>
-            <View style={[styles.avatar, { backgroundColor: colors.bg.elevated, borderColor: colors.border }]}>
-              {user?.avatarUrl ? (
-                <Image source={{ uri: user.avatarUrl }} style={{ width: '100%', height: '100%', borderRadius: 40 }} />
+            <TouchableOpacity
+              onPress={pickAvatar}
+              disabled={saving}
+              style={[styles.avatar, { backgroundColor: colors.bg.elevated, borderColor: colors.border }]}
+            >
+              {avatarPreviewUri ? (
+                <Image source={{ uri: avatarPreviewUri }} style={styles.avatarImage} />
               ) : (
                 <Text style={{ fontSize: 36 }}>👾</Text>
               )}
-            </View>
+              <View style={[styles.avatarEditBadge, { backgroundColor: colors.primary }]}>
+                <Ionicons name="camera" size={16} color="#fff" />
+              </View>
+            </TouchableOpacity>
+            <TouchableOpacity onPress={pickAvatar} disabled={saving} style={styles.changePhotoBtn}>
+              <Text style={[styles.changePhotoText, { color: colors.primary }]}>
+                {avatarAsset ? 'Change selected photo' : 'Change photo'}
+              </Text>
+            </TouchableOpacity>
           </View>
 
           {field('Name',       name,     setName,     { placeholder: 'Your display name', autoCapitalize: 'words' })}
@@ -168,6 +242,19 @@ const styles = StyleSheet.create({
   body:        { padding: spacing.lg, gap: spacing.md },
   avatarRow:   { alignItems: 'center', marginBottom: spacing.md },
   avatar:      { width: 80, height: 80, borderRadius: 40, borderWidth: 2, alignItems: 'center', justifyContent: 'center' },
+  avatarImage: { width: '100%', height: '100%', borderRadius: 40 },
+  avatarEditBadge: {
+    position: 'absolute',
+    right: -2,
+    bottom: -2,
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  changePhotoBtn: { marginTop: spacing.sm, paddingVertical: 4, paddingHorizontal: spacing.sm },
+  changePhotoText: { fontSize: fontSizes.sm, fontWeight: '700' },
   fieldWrap:   { gap: 6 },
   fieldLabel:  { fontSize: fontSizes.xs, fontWeight: '700', textTransform: 'uppercase', letterSpacing: 0.5 },
   fieldInput:  { borderWidth: 1, borderRadius: radii.md, paddingHorizontal: spacing.md, paddingVertical: 11, fontSize: fontSizes.md },

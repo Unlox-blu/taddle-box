@@ -47,7 +47,7 @@ function makeStyles(c: ColorPalette) {
       height: 6,
       backgroundColor: 'rgba(255,255,255,0.07)',
       borderRadius: radii.full,
-      overflow: 'visible',
+      overflow: 'hidden',
       position: 'relative',
     },
     fillWrapper: {
@@ -56,18 +56,6 @@ function makeStyles(c: ColorPalette) {
       overflow: 'hidden',
     },
     fill: { flex: 1, borderRadius: radii.full },
-    dot: {
-      position: 'absolute',
-      right: -2, top: -4,
-      width: 14, height: 14,
-      borderRadius: 7,
-      backgroundColor: c.cyanLight,
-      shadowColor: c.cyan,
-      shadowOffset: { width: 0, height: 0 },
-      shadowOpacity: 0.8,
-      shadowRadius: 6,
-      elevation: 4,
-    },
     footer: {
       flexDirection: 'row',
       justifyContent: 'space-between',
@@ -127,7 +115,6 @@ export default function XPProgressBar({ level, rank, currentXP, targetXP }: XPPr
             style={styles.fill}
           />
         </Animated.View>
-        <View style={styles.dot} />
       </View>
 
       <View style={styles.footer}>

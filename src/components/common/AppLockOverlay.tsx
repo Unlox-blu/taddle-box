@@ -17,6 +17,7 @@ import { fontSizes, spacing } from "../../theme";
 import PinPad from "./PinPad";
 import { authService } from "../../services/auth.service";
 import { useAuth } from "../../context/AuthContext";
+import { appLockBypass } from "../../utils/appLockBypass";
 
 export default function AppLockOverlay() {
   const colors = useThemeColors();
@@ -49,6 +50,8 @@ export default function AppLockOverlay() {
     appStateRef.current = nextAppState;
 
     if (prev.match(/inactive|background/) && nextAppState === "active") {
+      if (appLockBypass.shouldBypassLock()) return;
+
       // App came back to foreground — lock if app lock is enabled
       if (isLoggedIn && user?.appLockEnabled) {
         lockAndCheck();

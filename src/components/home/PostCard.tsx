@@ -661,15 +661,7 @@ export default function PostCard({
               <Text style={{ color: colors.text.muted, fontSize: fontSizes.sm, fontWeight: '600' }}>Read more...</Text>
             </TouchableOpacity>
           )}
-          {(post.hashtags || []).length > 0 && (
-            <View style={styles.tags}>
-              {(post.hashtags || []).map((tag) => (
-                <Text key={tag} style={styles.tag}>
-                  #{tag}
-                </Text>
-              ))}
-            </View>
-          )}
+
         </View>
       </TouchableWithoutFeedback>
 

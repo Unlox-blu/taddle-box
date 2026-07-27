@@ -1,4 +1,4 @@
-import React, { useState, useRef, useMemo } from 'react';
+import React, { useState, useRef, useMemo, useEffect } from 'react';
 import {
   View, Text, ScrollView, TouchableOpacity, StyleSheet,
   Modal, TextInput, KeyboardAvoidingView, Platform,
@@ -6,7 +6,7 @@ import {
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { WebView } from 'react-native-webview';
-import { useNavigation } from '@react-navigation/native';
+import { useNavigation, useFocusEffect } from '@react-navigation/native';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { StatusBar } from 'expo-status-bar';
@@ -46,10 +46,34 @@ export default function WalletScreen() {
   const colors = useThemeColors();
   const styles = useMemo(() => makeStyles(colors), [colors]);
 
-  const [txnFilter,    setTxnFilter]    = useState<TxnFilter>('All');
-  const [activeModal,  setActiveModal]  = useState<ActiveModal>('none');
-  const [handoffUrl,   setHandoffUrl]   = useState<string | null>(null);
+  const [txnFilter,       setTxnFilter]       = useState<TxnFilter>('All');
+  const [activeModal,     setActiveModal]      = useState<ActiveModal>('none');
+  const [handoffUrl,      setHandoffUrl]       = useState<string | null>(null);
+  const [unlockError,     setUnlockError]      = useState('');
+  const [isUnlocking,     setIsUnlocking]      = useState(false);
+  const [walletUnlocked,  setWalletUnlocked]   = useState(false); // Local lock state
+  const [localPinEnabled, setLocalPinEnabled]  = useState(false); // Direct SecureStore read
   const scrollRef = useRef<ScrollView>(null);
+
+  // Read pinEnabled directly from SecureStore on mount (belt-and-suspenders)
+  useEffect(() => {
+    SecureStore.getItemAsync('wallet_pinEnabled').then(val => {
+      setLocalPinEnabled(val === 'true');
+    });
+  }, []);
+
+  // Re-lock wallet every time this screen is focused
+  useFocusEffect(
+    React.useCallback(() => {
+      // Lock on focus — user must re-enter PIN each time they come to wallet
+      // (unless global app lock already handles auth)
+      const pinOn = wallet.pinEnabled || localPinEnabled;
+      if (pinOn && !user?.appLockEnabled) {
+        setWalletUnlocked(false);
+        setUnlockError('');
+      }
+    }, [wallet.pinEnabled, localPinEnabled, user?.appLockEnabled])
+  );
 
   // ── Computed stats ──
   const thisMonthEarned = wallet.transactions
@@ -78,6 +102,86 @@ export default function WalletScreen() {
 
   const openModal = (m: ActiveModal) => setActiveModal(m);
   const closeModal = () => setActiveModal('none');
+
+  // ── Wallet Lock Check ──
+  const pinOn = wallet.pinEnabled || localPinEnabled;
+  const isWalletLocked = pinOn && !user?.appLockEnabled && !walletUnlocked;
+  
+  const handleWalletUnlock = async (pin: string) => {
+    try {
+      await authService.verifyPin(pin);
+      setWalletUnlocked(true);
+    } catch (e: any) {
+      const msg: string = e?.response?.data?.message || e?.message || 'Invalid PIN';
+      // If no PIN is set up (auto-healed by backend), clear stale SecureStore flag and let them in
+      if (msg.toLowerCase().includes('not set up') || msg.toLowerCase().includes('lock has been disabled')) {
+        await SecureStore.deleteItemAsync('wallet_pinEnabled');
+        setLocalPinEnabled(false);
+        setWalletUnlocked(true); // let them through — lock was stale
+      } else {
+        throw new Error(msg);
+      }
+    }
+  };
+
+  const triggerBiometric = async () => {
+    try {
+      const hasHardware = await LocalAuthentication.hasHardwareAsync();
+      const isEnrolled = await LocalAuthentication.isEnrolledAsync();
+      if (hasHardware && isEnrolled) {
+        setIsUnlocking(true);
+        const result = await LocalAuthentication.authenticateAsync({
+          promptMessage: 'Unlock Wallet',
+          disableDeviceFallback: true,
+          cancelLabel: 'Use PIN',
+        });
+        if (result.success) {
+          setWalletUnlocked(true);
+        }
+      }
+    } catch (e) {
+      console.log('Biometric error', e);
+    } finally {
+      setIsUnlocking(false);
+    }
+  };
+
+  useEffect(() => {
+    if (isWalletLocked && wallet.biometricEnabled && !walletUnlocked) {
+      triggerBiometric();
+    }
+  }, [isWalletLocked, wallet.biometricEnabled, walletUnlocked]);
+
+  if (isWalletLocked) {
+    return (
+      <View style={[styles.container, { paddingTop: insets.top }]}>
+        <StatusBar style="light" />
+        <MainHeader />
+        <View style={{ flex: 1, backgroundColor: colors.bg.base }}>
+          <PinPad
+            title="Wallet Locked"
+            subtitle="Enter your PIN to access your wallet"
+            length={4}
+            onPinComplete={async (pin) => {
+               try {
+                 setIsUnlocking(true);
+                 setUnlockError('');
+                 await handleWalletUnlock(pin);
+               } catch (e: any) {
+                 setUnlockError(e.message);
+               } finally {
+                 setIsUnlocking(false);
+               }
+            }}
+            error={unlockError}
+            isVerifying={isUnlocking}
+            showBiometric={wallet.biometricEnabled}
+            onBiometric={triggerBiometric}
+          />
+        </View>
+      </View>
+    );
+  }
 
   return (
     <View style={[styles.container, { paddingTop: insets.top }]}>
@@ -463,7 +567,7 @@ function WithdrawModal({
   if (verifyingPin) {
     return (
       <Modal visible={visible} animationType="slide" presentationStyle="pageSheet" onRequestClose={() => { reset(); onClose(); }}>
-        <SafeAreaView style={[styles.modalShell, { backgroundColor: colors.bg.main, flex: 1 }]}>
+        <SafeAreaView style={[styles.modalShell, { backgroundColor: colors.bg.base, flex: 1 }]}>
           <View style={styles.modalHeader}>
             <TouchableOpacity onPress={() => setVerifyingPin(false)}>
               <Ionicons name="arrow-back" size={24} color={colors.text.secondary} />
@@ -894,6 +998,55 @@ function HistoryModal({
   );
 }
 
+// ─── Shared Setting Components ──────────────────────────────────────────────────
+
+const Section = ({ title, styles }: { title: string; styles: any }) => (
+  <Text style={styles.settingsSection}>{title}</Text>
+);
+
+const ToggleRow = ({
+  icon, label, desc, settingKey, value, disabled, onDisabledPress, onToggle, colors, styles
+}: {
+  icon: string; label: string; desc: string;
+  settingKey: 'pinEnabled' | 'biometricEnabled' | 'notifXP' | 'notifWithdraw' | 'notifPromos';
+  value: boolean;
+  disabled?: boolean;
+  onDisabledPress?: () => void;
+  onToggle: (k: any) => void;
+  colors: any;
+  styles: any;
+}) => (
+  <View style={styles.settingsRow}>
+    <View style={styles.settingsRowLeft}>
+      <View style={{ width: 30, alignItems: 'center' }}>
+        <Text style={styles.settingsRowIcon}>{icon}</Text>
+      </View>
+      <View style={{ flex: 1, paddingRight: 12 }}>
+        <Text style={styles.settingsRowLabel} numberOfLines={1}>{label}</Text>
+        <Text style={styles.settingsRowDesc} numberOfLines={2}>{desc}</Text>
+      </View>
+    </View>
+    {disabled ? (
+      <TouchableOpacity onPress={onDisabledPress}>
+        <Switch
+          value={value}
+          disabled={true}
+          trackColor={{ false: colors.bg.elevated, true: colors.primary }}
+          thumbColor={value ? '#fff' : colors.text.muted}
+          style={{ opacity: 0.5 }}
+        />
+      </TouchableOpacity>
+    ) : (
+      <Switch
+        value={value}
+        onValueChange={() => onToggle(settingKey)}
+        trackColor={{ false: colors.bg.elevated, true: colors.primary }}
+        thumbColor={value ? '#fff' : colors.text.muted}
+      />
+    )}
+  </View>
+);
+
 // ─── SettingsModal ────────────────────────────────────────────────────────────
 
 function SettingsModal({
@@ -908,53 +1061,74 @@ function SettingsModal({
   const insets = useSafeAreaInsets();
   const colors = useThemeColors();
   const styles = useMemo(() => makeStyles(colors), [colors]);
-  const { user } = useAuth();
-  
+  const { user, refreshUser } = useAuth();
   const globalLock = user?.appLockEnabled;
 
-  const Section = ({ title }: { title: string }) => (
-    <Text style={styles.settingsSection}>{title}</Text>
-  );
+  const [setupPinVisible, setSetupPinVisible] = useState(false);
+  const [setupPinError, setSetupPinError] = useState('');
+  const [isSettingPin, setIsSettingPin] = useState(false);
 
-  const ToggleRow = ({
-    icon, label, desc, settingKey, value,
-  }: {
-    icon: string; label: string; desc: string;
-    settingKey: 'pinEnabled' | 'biometricEnabled' | 'notifXP' | 'notifWithdraw' | 'notifPromos';
-    value: boolean;
-    disabled?: boolean;
-    onDisabledPress?: () => void;
-  }) => (
-    <View style={styles.settingsRow}>
-      <View style={styles.settingsRowLeft}>
-        <View style={{ width: 30, alignItems: 'center' }}>
-          <Text style={styles.settingsRowIcon}>{icon}</Text>
-        </View>
-        <View style={{ flex: 1, paddingRight: 12 }}>
-          <Text style={styles.settingsRowLabel} numberOfLines={1}>{label}</Text>
-          <Text style={styles.settingsRowDesc} numberOfLines={2}>{desc}</Text>
-        </View>
-      </View>
-      {disabled ? (
-        <TouchableOpacity onPress={onDisabledPress}>
-          <Switch
-            value={value}
-            disabled={true}
-            trackColor={{ false: colors.bg.elevated, true: colors.primary }}
-            thumbColor={value ? '#fff' : colors.text.muted}
-            style={{ opacity: 0.5 }}
+  const handleToggle = (key: any) => {
+    if (key === 'pinEnabled' && !wallet.pinEnabled && !globalLock) {
+      // Trying to enable PIN when it's off and global lock isn't on.
+      // We should prompt them to setup a PIN if they don't have one globally!
+      setSetupPinVisible(true);
+    } else {
+      onToggle(key);
+    }
+  };
+
+  const handlePinComplete = async (pin: string) => {
+    try {
+      setIsSettingPin(true);
+      setSetupPinError('');
+      if (user?.appLock) {
+        // PIN exists — just verify to confirm user knows it before enabling wallet lock
+        await authService.verifyPin(pin);
+      } else {
+        // No PIN exists — create it
+        await authService.setupPin(pin, false);
+        await refreshUser(); // update user.appLock in AuthContext
+      }
+      onToggle('pinEnabled');
+      setSetupPinVisible(false);
+    } catch (e: any) {
+      const msg = e?.response?.data?.message || e?.message || 'Something went wrong';
+      if (msg.toLowerCase().includes('already set')) {
+         onToggle('pinEnabled');
+         setSetupPinVisible(false);
+      } else {
+         setSetupPinError(msg);
+      }
+    } finally {
+      setIsSettingPin(false);
+    }
+  };
+
+  if (setupPinVisible) {
+    return (
+      <Modal visible={visible} animationType="slide" presentationStyle="pageSheet" onRequestClose={() => setSetupPinVisible(false)}>
+        <SafeAreaView style={[styles.modalShell, { backgroundColor: colors.bg.base, flex: 1 }]}>
+          <View style={styles.modalHeader}>
+            <TouchableOpacity onPress={() => setSetupPinVisible(false)}>
+              <Ionicons name="arrow-back" size={24} color={colors.text.secondary} />
+            </TouchableOpacity>
+            <Text style={styles.modalTitle}>{user?.appLock ? 'Verify PIN' : 'Setup PIN'}</Text>
+            <View style={{ width: 24 }} />
+          </View>
+          <PinPad
+            title={user?.appLock ? "Enter your PIN" : "Create a 4-digit PIN"}
+            subtitle="This PIN will protect your wallet withdrawals"
+            length={4}
+            onPinComplete={handlePinComplete}
+            error={setupPinError}
+            isVerifying={isSettingPin}
           />
-        </TouchableOpacity>
-      ) : (
-        <Switch
-          value={value}
-          onValueChange={() => onToggle(settingKey)}
-          trackColor={{ false: colors.bg.elevated, true: colors.primary }}
-          thumbColor={value ? '#fff' : colors.text.muted}
-        />
-      )}
-    </View>
-  );
+        </SafeAreaView>
+      </Modal>
+    );
+  }
+
 
   return (
     <Modal visible={visible} animationType="slide" presentationStyle="pageSheet" onRequestClose={onClose}>
@@ -970,7 +1144,7 @@ function SettingsModal({
         <ScrollView contentContainerStyle={[styles.modalBody, { gap: 0 }]} showsVerticalScrollIndicator={false}>
 
           {/* Linked Accounts */}
-          <Section title="Linked Accounts" />
+          <Section title="Linked Accounts" styles={styles} />
           <View style={styles.settingsCard}>
             <TouchableOpacity style={styles.settingsRow} onPress={onLinkUPI}>
               <View style={styles.settingsRowLeft}>
@@ -1000,7 +1174,7 @@ function SettingsModal({
           </View>
 
           {/* Security */}
-          <Section title="Security" />
+          <Section title="Security" styles={styles} />
           <View style={styles.settingsCard}>
             <ToggleRow
               icon="🔐" label="PIN Protection"
@@ -1008,6 +1182,7 @@ function SettingsModal({
               settingKey="pinEnabled" value={globalLock ? true : wallet.pinEnabled}
               disabled={globalLock}
               onDisabledPress={() => Alert.alert("Global Lock Active", "Wallet PIN is automatically enabled because you have Global App Lock turned on in your main Settings.")}
+              onToggle={handleToggle} colors={colors} styles={styles}
             />
             <View style={{ borderTopWidth: 1, borderTopColor: colors.border }}>
               <ToggleRow
@@ -1016,24 +1191,25 @@ function SettingsModal({
                 settingKey="biometricEnabled" value={globalLock ? true : wallet.biometricEnabled}
                 disabled={globalLock}
                 onDisabledPress={() => Alert.alert("Global Lock Active", "Wallet Biometrics are automatically enabled because you have Global App Lock turned on in your main Settings.")}
+                onToggle={handleToggle} colors={colors} styles={styles}
               />
             </View>
           </View>
 
           {/* Notifications */}
-          <Section title="Notifications" />
+          <Section title="Notifications" styles={styles} />
           <View style={styles.settingsCard}>
-            <ToggleRow icon="⚡" label="XP Earned"    desc="Get notified when you earn XP"    settingKey="notifXP"       value={wallet.notifXP}       />
+            <ToggleRow icon="⚡" label="XP Earned"    desc="Get notified when you earn XP"    settingKey="notifXP"       value={wallet.notifXP}       onToggle={handleToggle} colors={colors} styles={styles} />
             <View style={{ borderTopWidth: 1, borderTopColor: colors.border }}>
-              <ToggleRow icon="🏦" label="Withdrawals" desc="Status updates for withdrawals"   settingKey="notifWithdraw" value={wallet.notifWithdraw} />
+              <ToggleRow icon="🏦" label="Withdrawals" desc="Status updates for withdrawals"   settingKey="notifWithdraw" value={wallet.notifWithdraw} onToggle={handleToggle} colors={colors} styles={styles} />
             </View>
             <View style={{ borderTopWidth: 1, borderTopColor: colors.border }}>
-              <ToggleRow icon="🎁" label="Promotions"  desc="Bonus XP offers and promotions"  settingKey="notifPromos"   value={wallet.notifPromos}   />
+              <ToggleRow icon="🎁" label="Promotions"  desc="Bonus XP offers and promotions"  settingKey="notifPromos"   value={wallet.notifPromos}   onToggle={handleToggle} colors={colors} styles={styles} />
             </View>
           </View>
 
           {/* About */}
-          <Section title="About" />
+          <Section title="About" styles={styles} />
           <View style={styles.settingsCard}>
             {[
               { label: 'Conversion Rate', value: '100 XP = ₹1.00' },

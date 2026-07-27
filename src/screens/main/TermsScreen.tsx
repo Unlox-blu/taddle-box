@@ -50,7 +50,7 @@ export default function TermsScreen() {
   const colors     = useThemeColors();
 
   return (
-    <SafeAreaView style={[styles.root, { backgroundColor: colors.bg.main }]}>
+    <SafeAreaView style={[styles.root, { backgroundColor: colors.bg.base }]}>
       <View style={[styles.header, { borderBottomColor: colors.border }]}>
         <TouchableOpacity onPress={() => navigation.goBack()} style={[styles.iconBtn, { borderColor: colors.border }]}>
           <Ionicons name="arrow-back" size={20} color={colors.text.primary} />

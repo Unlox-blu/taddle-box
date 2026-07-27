@@ -1,12 +1,6 @@
 import { apiClient } from "./apiClient";
 
-export interface Notification {
-  id: string;
-  title: string;
-  message: string;
-  isRead: boolean;
-  createdAt: string;
-}
+import { Notification } from "../types";
 
 export const notificationService = {
   getNotifications: async (
@@ -14,11 +8,49 @@ export const notificationService = {
     limit = 20,
     unreadOnly = false,
   ): Promise<{ data: Notification[]; meta: { unreadCount: number } }> => {
-    // The backend does not support the 'unread' query parameter, so we fetch all notifications
     const response = await apiClient.get(
       `/notifications?page=${page}&limit=${limit}`,
     );
-    return { data: response.data?.data, meta: response.data?.meta };
+    
+    const now = new Date();
+    const mappedData: Notification[] = (response.data?.data || []).map((n: any) => {
+      const createdAt = new Date(n.createdAt);
+      const diffHrs = (now.getTime() - createdAt.getTime()) / (1000 * 60 * 60);
+      
+      let group: 'today' | 'yesterday' | 'earlier' = 'earlier';
+      if (diffHrs < 24 && createdAt.getDate() === now.getDate()) group = 'today';
+      else if (diffHrs < 48 && createdAt.getDate() === now.getDate() - 1) group = 'yesterday';
+
+      let timeStr = '';
+      if (diffHrs < 1) timeStr = `${Math.floor(diffHrs * 60)}m ago`;
+      else if (diffHrs < 24) timeStr = `${Math.floor(diffHrs)}h ago`;
+      else timeStr = createdAt.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+
+      // Fallback avatar: first letter of the message if missing
+      const match = n.message?.match(/^(\S+)/);
+      const firstWord = match ? match[1] : 'U';
+
+      // backend type could be 'follow', 'like_post', etc. Map it to frontend Notification['type'].
+      let mappedType: Notification['type'] = 'mention';
+      if (n.type === 'follow') mappedType = 'follow';
+      else if (n.type?.includes('like')) mappedType = 'like';
+      else if (n.type?.includes('comment')) mappedType = 'comment';
+      else if (n.type?.includes('event')) mappedType = 'event';
+      else if (n.type === 'wallet_credit') mappedType = 'achievement';
+
+      return {
+        id: n.id,
+        type: mappedType,
+        avatar: firstWord.charAt(0).toUpperCase(),
+        actor: n.title || 'Notification',
+        text: n.message || '',
+        time: timeStr,
+        isRead: n.isRead,
+        group,
+      };
+    });
+
+    return { data: mappedData, meta: response.data?.meta };
   },
 
   markAllRead: async () => {

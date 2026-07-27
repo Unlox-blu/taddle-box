@@ -21,7 +21,8 @@ import * as ImagePicker from "expo-image-picker";
 import * as DocumentPicker from "expo-document-picker";
 import { Video, Audio, ResizeMode } from "expo-av";
 import * as FileSystem from "expo-file-system/legacy";
-import { colors, fontSizes, spacing, radii } from "../../theme";
+import { colors as staticColors, fontSizes, spacing, radii } from "../../theme";
+import { useThemeColors } from "../../context/ThemeContext";
 import { useAuth } from "../../context/AuthContext";
 import { usePosts } from "../../context/PostsContext";
 import { mediaService } from "../../services/media.service";
@@ -55,14 +56,33 @@ const MENTION_AND_HASHTAG_CONFIG = {
   "#": {
     trigger: "#",
     allowedSpacesCount: 0,
-    textStyle: { color: colors.primaryLight, fontWeight: "700" as const },
+    textStyle: { color: staticColors.primaryLight, fontWeight: "700" as const },
   },
   "@": {
     trigger: "@",
     allowedSpacesCount: 0,
-    textStyle: { color: colors.primaryLight, fontWeight: "700" as const },
+    textStyle: { color: staticColors.primaryLight, fontWeight: "700" as const },
   },
 };
+
+// Helper to detect pasted media URLs in content text
+const IMAGE_EXTS = /\.(jpg|jpeg|png|webp|gif)(\?.*)?$/i;
+const VIDEO_EXTS = /\.(mp4|mov|webm|m4v)(\?.*)?$/i;
+const AUDIO_EXTS = /\.(mp3|m4a|aac|wav|ogg)(\?.*)?$/i;
+const GIF_EXT   = /\.gif(\?.*)?$/i;
+const URL_RE    = /(https?:\/\/[^\s]+)/gi;
+
+function detectMediaInText(text: string): { uri: string; type: 'image' | 'video' | 'audio'; mimeType: string; name: string } | null {
+  const matches = text.match(URL_RE);
+  if (!matches) return null;
+  for (const url of matches) {
+    if (GIF_EXT.test(url))   return { uri: url, type: 'image',  mimeType: 'image/gif',   name: `pasted-${Date.now()}.gif` };
+    if (IMAGE_EXTS.test(url)) return { uri: url, type: 'image',  mimeType: 'image/jpeg',  name: `pasted-${Date.now()}.jpg` };
+    if (VIDEO_EXTS.test(url)) return { uri: url, type: 'video',  mimeType: 'video/mp4',   name: `pasted-${Date.now()}.mp4` };
+    if (AUDIO_EXTS.test(url)) return { uri: url, type: 'audio',  mimeType: 'audio/mpeg',  name: `pasted-${Date.now()}.mp3` };
+  }
+  return null;
+}
 
 export default function CreatePostModal({
   visible,
@@ -73,7 +93,8 @@ export default function CreatePostModal({
   const insets = useSafeAreaInsets();
   const { addPost, posts } = usePosts();
   const { communities } = useCommunities();
-
+  const colors = useThemeColors();  // ← dynamic theme colors
+  const styles = React.useMemo(() => makeStyles(colors), [colors]);
   const [title, setTitle] = useState("");
   const [content, setContent] = useState("");
   const [postType, setPostType] = useState<"feed" | "community" | null>(
@@ -473,8 +494,26 @@ export default function CreatePostModal({
   );
 
   const handleContentChange = React.useCallback(
-    (val: string) => setContent(val),
-    [],
+    (val: string) => {
+      setContent(val);
+      // Auto-detect pasted media/gif/audio URLs and add as media items
+      const detected = detectMediaInText(val);
+      if (detected) {
+        const alreadyAdded =
+          mediaItems.some(m => m.uri === detected.uri) ||
+          (audioItem?.uri === detected.uri);
+        if (!alreadyAdded) {
+          if (detected.type === 'audio') {
+            setAudioItem(detected);
+          } else {
+            setMediaItems(prev => [...prev, { ...detected, size: 500000 }]);
+          }
+          // Strip the URL from text after capturing it
+          setContent(val.replace(detected.uri, '').trim());
+        }
+      }
+    },
+    [mediaItems, audioItem],
   );
 
   const resetAndClose = () => {
@@ -1313,7 +1352,7 @@ export default function CreatePostModal({
                               {comm.name}
                             </Text>
                             <Text style={styles.communityMeta}>
-                              {comm.members.toLocaleString()} members ·{" "}
+                              {(comm.memberCount || 0).toLocaleString()} members ·{" "}
                               {comm.category}
                             </Text>
                           </View>
@@ -1390,8 +1429,9 @@ export default function CreatePostModal({
   );
 }
 
-const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: colors.bg.base },
+function makeStyles(colors: ReturnType<typeof useThemeColors>) {
+  return StyleSheet.create({
+    container: { flex: 1, backgroundColor: colors.bg.base },
 
   // Header
   header: {
@@ -1846,4 +1886,5 @@ const styles = StyleSheet.create({
   gifLoadingText: {
     color: colors.text.muted,
   },
-});
+}); // close StyleSheet.create
+} // close makeStyles

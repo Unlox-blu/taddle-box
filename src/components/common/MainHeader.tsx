@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
-import { View, Text, TouchableOpacity, StyleSheet } from 'react-native';
+import { View, Text, TouchableOpacity, StyleSheet, Image } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import { useNavigation } from '@react-navigation/native';
+import { useNavigation, useRoute } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { fontSizes, spacing, radii } from '../../theme';
 import { useThemeColors } from '../../context/ThemeContext';
@@ -11,6 +11,7 @@ import SideDrawer from '../home/SideDrawer';
 export default function MainHeader() {
   const colors = useThemeColors();
   const navigation = useNavigation<NativeStackNavigationProp<any>>();
+  const route = useRoute();
   const [unreadCount, setUnreadCount] = useState(0);
   const [isDrawerOpen, setDrawerOpen] = useState(false);
 
@@ -38,16 +39,26 @@ export default function MainHeader() {
         <Ionicons name="menu-outline" size={26} color={colors.text.primary} />
       </TouchableOpacity>
 
-      <View style={[StyleSheet.absoluteFill, { justifyContent: "center" }]} pointerEvents="none">
-        <Text style={[styles.logo, { color: colors.text.primary }]}>
-          TADDLEBOX
-        </Text>
+      <View style={[StyleSheet.absoluteFill, { justifyContent: "center", alignItems: 'center' }]} pointerEvents="none">
+        <Image
+          source={require('../../../Taddle_Box_Banner.png')}
+          style={{ height: 28, width: 140, resizeMode: 'contain', marginTop: 2 }} 
+        />
       </View>
 
       <View style={{flexDirection: 'row', alignItems: 'center'}}>
         <TouchableOpacity
           style={styles.iconBtn}
-          onPress={() => navigation.navigate("Search")}
+          onPress={() => {
+            let tab = 'all';
+            if (route.name === 'HomeMain') tab = 'all';
+            else if (route.name === 'Profile' || route.name === 'UserProfile') tab = 'people';
+            else if (route.name === 'Community' || route.name === 'CommunityList' || route.name === 'CommunityDetail') tab = 'communities';
+            else if (route.name === 'Events') tab = 'events';
+            else tab = 'posts'; // fallback
+            
+            navigation.navigate("Search", { tab });
+          }}
           activeOpacity={0.7}
         >
           <Ionicons name="search-outline" size={22} color={colors.text.secondary} />

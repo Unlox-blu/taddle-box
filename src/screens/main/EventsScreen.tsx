@@ -1,9 +1,9 @@
-const EVENTS: any[] = [];
-import React, { useMemo, useState } from 'react';
+import React, { useMemo, useState, useEffect } from 'react';
 import {
-  View, Text, ScrollView, TouchableOpacity,
+  View, Text, ScrollView, TouchableOpacity, FlatList, Modal, Alert, ActivityIndicator,
   StyleSheet,
 } from 'react-native';
+import { WebView } from 'react-native-webview';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
@@ -13,6 +13,7 @@ import { useTheme, useThemeColors } from '../../context/ThemeContext';
 import Button from '../../components/common/Button';
 import MainHeader from '../../components/common/MainHeader';
 // removed mockData import
+import { eventService } from '../../services/event.service';
 import type { Event } from '../../types';
 
 const FILTERS = ['All', '🔴 Live', '💻 Online', '📍 Offline', '🏆 Contest'];
@@ -130,8 +131,95 @@ function makeStyles(c: ColorPalette) {
     emptyEmoji:   { fontSize: 36 },
     emptyText:    { fontSize: fontSizes.md, fontWeight: '700', color: c.text.primary },
     emptySubtext: { fontSize: fontSizes.sm, color: c.text.muted },
+    
+    // Calendar Styles
+    calendarContainer: {
+      backgroundColor: c.bg.surface, marginHorizontal: spacing.lg, marginBottom: 16,
+      borderRadius: radii.xl, padding: spacing.md,
+      borderWidth: 1, borderColor: c.border,
+    },
+    calMonthHeader: { fontSize: fontSizes.lg, fontWeight: '800', color: c.text.primary, marginBottom: 12, marginLeft: 4 },
+    calHeader: { flexDirection: 'row', justifyContent: 'space-around', marginBottom: 8 },
+    calWeekDay: { width: 36, textAlign: 'center', fontSize: fontSizes.xs, color: c.text.muted, fontWeight: '700' },
+    calDay: { 
+      width: 36, height: 36, marginHorizontal: 4, marginVertical: 4,
+      alignItems: 'center', justifyContent: 'center', borderRadius: 18,
+    },
+    calDayEmpty: { width: 36, height: 36, marginHorizontal: 4, marginVertical: 4 },
+    calDayText: { fontSize: fontSizes.sm, color: c.text.primary, fontWeight: '500' },
+    calDaySelected: { backgroundColor: c.primary },
+    calDayTextSelected: { color: '#fff', fontWeight: '800' },
+    calDayTextToday: { color: c.primary, fontWeight: '800' },
+    calEventDot: { width: 4, height: 4, borderRadius: 2, backgroundColor: c.primaryLight, marginTop: 2, position: 'absolute', bottom: 4 },
+    calEventDotSelected: { backgroundColor: '#fff' },
   });
 }
+
+const CalendarView = ({ selectedDate, onSelectDate, events, styles }: any) => {
+  const today = new Date();
+  const year = today.getFullYear();
+  const month = today.getMonth();
+
+  const daysInMonth = new Date(year, month + 1, 0).getDate();
+  const firstDay = new Date(year, month, 1).getDay(); // 0 is Sunday
+
+  const days = [];
+  for (let i = 0; i < firstDay; i++) {
+    days.push(null);
+  }
+  for (let i = 1; i <= daysInMonth; i++) {
+    days.push(i);
+  }
+
+  const hasEventOnDate = (day: number) => {
+    const dStr = `${year}-${String(month + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+    return events.some((e: any) => e.rawDate && e.rawDate.startsWith(dStr));
+  };
+
+  const getDayStr = (day: number) => `${year}-${String(month + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+
+  const renderDay = ({ item }: any) => {
+    if (item === null) return <View style={styles.calDayEmpty} />;
+    
+    const dateStr = getDayStr(item);
+    const isSelected = selectedDate === dateStr;
+    const isToday = item === today.getDate() && month === new Date().getMonth();
+    const hasEvent = hasEventOnDate(item);
+
+    return (
+      <TouchableOpacity 
+        style={[styles.calDay, isSelected && styles.calDaySelected]} 
+        onPress={() => onSelectDate(isSelected ? null : dateStr)}
+      >
+        <Text style={[styles.calDayText, isSelected && styles.calDayTextSelected, isToday && !isSelected && styles.calDayTextToday]}>
+          {item}
+        </Text>
+        {hasEvent && <View style={[styles.calEventDot, isSelected && styles.calEventDotSelected]} />}
+      </TouchableOpacity>
+    );
+  };
+
+  const WEEKDAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+  const MONTHS = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
+  const monthName = `${MONTHS[month]} ${year}`;
+
+  return (
+    <View style={styles.calendarContainer}>
+      <Text style={styles.calMonthHeader}>{monthName}</Text>
+      <View style={styles.calHeader}>
+        {WEEKDAYS.map((d, i) => <Text key={i} style={styles.calWeekDay}>{d}</Text>)}
+      </View>
+      <FlatList
+        data={days}
+        numColumns={7}
+        keyExtractor={(item, index) => index.toString()}
+        renderItem={renderDay}
+        scrollEnabled={false}
+        columnWrapperStyle={{ justifyContent: 'space-around' }}
+      />
+    </View>
+  );
+};
 
 export default function EventsScreen() {
   const insets  = useSafeAreaInsets();
@@ -141,13 +229,84 @@ export default function EventsScreen() {
   const TYPE_META = useMemo(() => getTypeMeta(colors), [colors]);
 
   const [filter, setFilter] = useState('All');
-  const [events, setEvents] = useState(EVENTS);
+  const [events, setEvents] = useState<Event[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [showCalendar, setShowCalendar] = useState(false);
+  const [selectedDate, setSelectedDate] = useState<string | null>(null);
+  
+  // Payment Flow State
+  const [payuHtml, setPayuHtml] = useState<string | null>(null);
+  const [paymentEventId, setPaymentEventId] = useState<string | null>(null);
+  const [processingPayment, setProcessingPayment] = useState(false);
 
-  const featured = events.find(e => e.isFeatured);
-  const rest     = events.filter(e => !e.isFeatured);
+  useEffect(() => {
+    let active = true;
+    const fetchEvents = async () => {
+      try {
+        const res = await eventService.discoverEvents();
+        if (active && res.data) {
+          setEvents(res.data);
+        }
+      } catch (e) {
+        console.error('Failed to fetch events:', e);
+      } finally {
+        if (active) setLoading(false);
+      }
+    };
+    fetchEvents();
+    return () => { active = false; };
+  }, []);
 
-  const toggleRegister = (id: string) =>
-    setEvents(prev => prev.map(e => e.id === id ? { ...e, isRegistered: !e.isRegistered } : e));
+  const displayEvents = events.filter(e => {
+    if (selectedDate) {
+      if (!e.rawDate || !e.rawDate.startsWith(selectedDate)) return false;
+    }
+    if (filter === 'All') return true;
+    if (filter === '🔴 Live') return e.isLive;
+    if (filter === '💻 Online') return e.location === 'Online';
+    if (filter === '📍 Offline') return e.location !== 'Online';
+    if (filter === '🏆 Contest') return e.type === 'hackathon' || e.type === 'competition';
+    return true;
+  });
+
+  const featured = displayEvents.find(e => e.isFeatured);
+  const rest     = displayEvents.filter(e => !e.isFeatured && e.id !== featured?.id);
+
+  const toggleRegister = async (id: string) => {
+    const evIndex = events.findIndex(e => e.id === id);
+    if (evIndex === -1) return;
+    const ev = events[evIndex];
+    const isReg = ev.isRegistered;
+    
+    if (!isReg && !ev.isFree && ev.priceCents) {
+      setProcessingPayment(true);
+      try {
+        const payData = await eventService.initPayment(id, ev.priceCents);
+        setPayuHtml(payData.html);
+        setPaymentEventId(id);
+      } catch (e) {
+        console.error('Failed to init payment:', e);
+        Alert.alert('Payment Error', 'Could not initialize payment flow.');
+      } finally {
+        setProcessingPayment(false);
+      }
+      return; // Stop here, wait for webview success
+    }
+
+    // Optimistic
+    setEvents(prev => prev.map(e => e.id === id ? { ...e, isRegistered: !isReg } : e));
+    try {
+      if (isReg) {
+        await eventService.cancelRegistration(id);
+      } else {
+        await eventService.register(id);
+      }
+    } catch (e) {
+      // Revert
+      setEvents(prev => prev.map(e => e.id === id ? { ...e, isRegistered: isReg } : e));
+      console.error('Failed to toggle register:', e);
+    }
+  };
 
   return (
     <View style={[styles.container, { paddingTop: insets.top }]}>
@@ -157,8 +316,8 @@ export default function EventsScreen() {
 
       <View style={styles.header}>
         <Text style={styles.title}>Events 🎯</Text>
-        <TouchableOpacity style={styles.calendarBtn}>
-          <Ionicons name="calendar-outline" size={20} color={colors.text.secondary} />
+        <TouchableOpacity style={styles.calendarBtn} onPress={() => setShowCalendar(s => !s)}>
+          <Ionicons name={showCalendar ? "close-outline" : "calendar-outline"} size={20} color={colors.text.secondary} />
         </TouchableOpacity>
       </View>
 
@@ -177,6 +336,15 @@ export default function EventsScreen() {
             </TouchableOpacity>
           ))}
         </ScrollView>
+
+        {showCalendar && (
+          <CalendarView 
+            selectedDate={selectedDate} 
+            onSelectDate={setSelectedDate} 
+            events={events} 
+            styles={styles} 
+          />
+        )}
 
         {featured && (
           <View style={styles.featCard}>
@@ -199,7 +367,7 @@ export default function EventsScreen() {
 
             <View style={styles.featBody}>
               <Text style={styles.featType}>
-                {TYPE_META[featured.type].label.toUpperCase()} · NATIONAL LEVEL
+                {(TYPE_META[featured.type] || TYPE_META['meetup']).label.toUpperCase()} · NATIONAL LEVEL
               </Text>
               <Text style={styles.featTitle}>{featured.title}</Text>
               <View style={styles.featMeta}>
@@ -228,10 +396,20 @@ export default function EventsScreen() {
           </View>
         )}
 
-        <Text style={styles.sectionLabel}>Upcoming Events</Text>
-        {rest.map(ev => (
-          <EventCard key={ev.id} event={ev} onRegister={toggleRegister} styles={styles} colors={colors} typeMeta={TYPE_META} />
-        ))}
+        {displayEvents.length === 0 && selectedDate ? (
+          <View style={styles.emptyState}>
+            <Text style={styles.emptyEmoji}>📅</Text>
+            <Text style={styles.emptyText}>No events on this date</Text>
+            <Text style={styles.emptySubtext}>Try selecting a different day</Text>
+          </View>
+        ) : (
+          <>
+            {displayEvents.length > 0 && <Text style={styles.sectionLabel}>Upcoming Events</Text>}
+            {rest.map(ev => (
+              <EventCard key={ev.id} event={ev} onRegister={toggleRegister} styles={styles} colors={colors} typeMeta={TYPE_META} />
+            ))}
+          </>
+        )}
 
         <Text style={{ ...styles.sectionLabel, marginTop: 8 }}>
           My Registered Events
@@ -250,6 +428,54 @@ export default function EventsScreen() {
 
         <View style={{ height: 100 }} />
       </ScrollView>
+
+      {/* Payment Processing Indicator */}
+      {processingPayment && (
+        <View style={[StyleSheet.absoluteFill, { backgroundColor: 'rgba(0,0,0,0.6)', justifyContent: 'center', alignItems: 'center' }]}>
+          <ActivityIndicator size="large" color={colors.primary} />
+        </View>
+      )}
+
+      {/* PayU Webview Modal */}
+      <Modal visible={!!payuHtml} animationType="slide" onRequestClose={() => setPayuHtml(null)}>
+        <View style={{ flex: 1, backgroundColor: colors.bg.base, paddingTop: insets.top }}>
+          <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: spacing.md, paddingVertical: 10, borderBottomWidth: 1, borderBottomColor: colors.border }}>
+            <Text style={{ fontSize: fontSizes.lg, fontWeight: '700', color: colors.text.primary }}>Complete Payment</Text>
+            <TouchableOpacity onPress={() => setPayuHtml(null)}>
+              <Ionicons name="close" size={24} color={colors.text.primary} />
+            </TouchableOpacity>
+          </View>
+          {payuHtml && (
+            <WebView 
+              source={{ html: payuHtml }}
+              onNavigationStateChange={async (navState) => {
+                if (navState.url.includes('payu/success')) {
+                  // Payment Success
+                  setPayuHtml(null);
+                  if (paymentEventId) {
+                    try {
+                      // Call backend to actually register now
+                      setEvents(prev => prev.map(e => e.id === paymentEventId ? { ...e, isRegistered: true } : e));
+                      await eventService.register(paymentEventId);
+                      setPaymentEventId(null);
+                    } catch (e) {
+                      console.error('Failed to register after payment:', e);
+                      Alert.alert('Registration Error', 'Payment succeeded but registration failed. Please contact support.');
+                    }
+                  }
+                } else if (navState.url.includes('payu/failure')) {
+                  // Payment Failure
+                  setPayuHtml(null);
+                  setPaymentEventId(null);
+                  Alert.alert('Payment Failed', 'Your transaction could not be completed.');
+                }
+              }}
+              style={{ flex: 1 }}
+            />
+          )}
+        </View>
+      </Modal>
+
     </View>
   );
 }
@@ -263,7 +489,7 @@ function EventCard({
   colors: ColorPalette;
   typeMeta: Record<string, TypeMeta>;
 }) {
-  const meta = typeMeta[e.type];
+  const meta = typeMeta[e.type] || typeMeta['meetup'];
   return (
     <View style={styles.evCard}>
       <LinearGradient colors={meta.gradient} style={styles.evThumb}>

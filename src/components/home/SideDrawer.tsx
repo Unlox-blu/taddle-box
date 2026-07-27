@@ -12,12 +12,14 @@ import {
   Image,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { useNavigation } from "@react-navigation/native";
 import { Ionicons } from "@expo/vector-icons";
 import { LinearGradient } from "expo-linear-gradient";
 import { fontSizes, spacing, radii } from "../../theme";
 import { useThemeColors } from "../../context/ThemeContext";
 import { useAuth } from "../../context/AuthContext";
 import { xpService } from "../../services/xp.service";
+import XPProgressBar from "./XPProgressBar";
 
 const { width: SW } = Dimensions.get("window");
 const DRAWER_W = Math.min(Math.round(SW * 0.82), 320);
@@ -102,12 +104,23 @@ export default function SideDrawer({
     setTimeout(() => onProfile(), CLOSE_DELAY);
   };
 
+  const navigation = useNavigation<any>();
+
   const mainMenu: MenuRow[] = [
     {
       icon: "wallet-outline",
       label: "Wallet",
       purple: true,
-      onPress: () => closeAndNavigateTab("Wallet"),
+      onPress: () => {
+        if (user?.appLockEnabled) {
+          onClose();
+          setTimeout(() => {
+             navigation.navigate("LockScreen", { mode: 'app', returnScreen: 'Wallet' });
+          }, CLOSE_DELAY);
+        } else {
+          closeAndNavigateTab("Wallet");
+        }
+      },
     },
     {
       icon: "bookmark-outline",
@@ -196,30 +209,6 @@ export default function SideDrawer({
               >
                 @{user?.username || "user"}
               </Text>
-              {/* Rank / XP row */}
-              <View style={styles.rankRow}>
-                <View
-                  style={[
-                    styles.rankBadge,
-                    {
-                      backgroundColor: "rgba(124,58,237,0.18)",
-                      borderColor: "rgba(124,58,237,0.35)",
-                    },
-                  ]}
-                >
-                  <Text
-                    style={[
-                      styles.rankBadgeText,
-                      { color: colors.primaryLight },
-                    ]}
-                  >
-                    ⚡ {rank}
-                  </Text>
-                </View>
-                <Text style={[styles.rankXP, { color: colors.text.muted }]}>
-                  Lv {level}
-                </Text>
-              </View>
             </View>
             <Ionicons
               name="chevron-forward"
@@ -227,6 +216,10 @@ export default function SideDrawer({
               color={colors.text.muted}
             />
           </TouchableOpacity>
+
+          <View style={{ paddingBottom: spacing.sm }}>
+            <XPProgressBar level={level} rank={rank} currentXP={localXP} targetXP={Math.floor(localXP / 1000 + 1) * 1000} />
+          </View>
 
           {/* Stats strip */}
           <View

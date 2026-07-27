@@ -1,7 +1,7 @@
-import React, { useMemo, useState } from 'react';
+import React, { useMemo, useState, useEffect, useRef } from 'react';
 import {
   View, Text, ScrollView, TouchableOpacity,
-  StyleSheet, Share,
+  StyleSheet, Share, FlatList, Image
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useNavigation, useRoute, type RouteProp } from '@react-navigation/native';
@@ -13,17 +13,14 @@ import { fontSizes, spacing, radii, type ColorPalette } from '../../theme';
 import { useTheme, useThemeColors } from '../../context/ThemeContext';
 import { useCommunities } from '../../context/CommunityContext';
 import { usePosts }        from '../../context/PostsContext';
+import { communityService } from '../../services/community.service';
+import { postsService }     from '../../services/posts.service';
 import PostCard             from '../../components/home/PostCard';
 import CreatePostModal      from '../../components/common/CreatePostModal';
-import CommentsModal        from '../../components/home/CommentsModal';
-import type { CommunityStackParamList, Post } from '../../types';
+import SharedFeed           from '../../components/common/SharedFeed';
+import type { CommunityStackParamList, Post, Community } from '../../types';
 
-const COMMUNITY_MOCK_POST_IDS: Record<string, string[]> = {
-  c1: ['p3'],
-  c2: ['p2'],
-  c3: ['p1'],
-  c4: ['p3', 'p1'],
-};
+
 
 const BANNER_COLORS: Record<string, [string, string]> = {
   Tech:      ['#2a0a5e', '#0a1f5e'],
@@ -166,29 +163,63 @@ export default function CommunityDetailScreen() {
   const insets     = useSafeAreaInsets();
   const navigation = useNavigation<Nav>();
   const route      = useRoute<Route>();
-  const { communityId } = route.params;
+  const { communitySlug } = route.params as any; // fallback if types aren't synced perfectly in IDE yet
   const { isDark } = useTheme();
   const colors     = useThemeColors();
   const styles     = useMemo(() => makeStyles(colors), [colors]);
 
   const { communities, toggleJoin } = useCommunities();
-  const { posts, toggleLike, toggleSave } = usePosts();
+  // Removed usePosts since we'll handle likes/saves locally for community posts
 
-  const community = communities.find(c => c.id === communityId);
+  const [community, setCommunity] = useState<Community | null>(
+    communities.find(c => c.slug === communitySlug) || null
+  );
+  const [communityPosts, setCommunityPosts] = useState<Post[]>([]);
+  const [loadingPosts, setLoadingPosts] = useState(true);
+
   const [filter, setFilter]         = useState<FeedFilter>('All');
   const [showCreate, setShowCreate]  = useState(false);
-  const [commentsVisible, setCommentsVisible] = useState(false);
-  const [activeCommentPost, setActiveCommentPost] = useState<Post | null>(null);
+
+  // Fetch full details and posts on mount
+  useEffect(() => {
+    let active = true;
+    const loadData = async () => {
+      try {
+        const detailRes = await communityService.getCommunityDetail(communitySlug);
+        if (detailRes.data && active) {
+          setCommunity(detailRes.data);
+          
+          setLoadingPosts(true);
+          const postsRes = await communityService.getCommunityPosts(detailRes.data.id);
+          console.log("FETCHED POSTS:", JSON.stringify(postsRes).substring(0, 200));
+          if (postsRes.data && active) {
+            setCommunityPosts(postsRes.data);
+          }
+        }
+      } catch (e) {
+        console.log("Failed to load community details", e);
+      } finally {
+        if (active) setLoadingPosts(false);
+      }
+    };
+    loadData();
+    return () => { active = false; };
+  }, [communitySlug]);
+
+  // Sync isJoined status from global context to reflect toggleJoin instantly
+  useEffect(() => {
+    if (community) {
+      const contextComm = communities.find(c => c.id === community.id);
+      if (contextComm && (contextComm.isJoined !== community.isJoined || contextComm.memberCount !== community.memberCount)) {
+        setCommunity(prev => prev ? { ...prev, isJoined: contextComm.isJoined, memberCount: contextComm.memberCount } : prev);
+      }
+    }
+  }, [communities, community?.id]);
 
   if (!community) return null;
 
-  const bannerGradient = BANNER_COLORS[community.category] ?? ['#1a0a3e', '#0a1a3e'];
-  const avatarGradient = AVATAR_COLORS_MAP[community.category] ?? ['#7C3AED', '#4C1D95'];
-
-  const mockIds = COMMUNITY_MOCK_POST_IDS[community.id] ?? [];
-  const communityPosts: Post[] = posts.filter(p =>
-    p.community === community.name || mockIds.includes(p.id)
-  );
+  const bannerGradient = BANNER_COLORS[community.category?.[0]] ?? ['#1a0a3e', '#0a1a3e'];
+  const avatarGradient = AVATAR_COLORS_MAP[community.category?.[0]] ?? ['#7C3AED', '#4C1D95'];
 
   const displayPosts = filter === 'Trending'
     ? [...communityPosts].sort((a, b) => b.likes - a.likes)
@@ -196,22 +227,109 @@ export default function CommunityDetailScreen() {
     ? [...communityPosts].reverse()
     : communityPosts;
 
-  const handleComment = (post: Post) => {
-    setActiveCommentPost(post);
-    setCommentsVisible(true);
-  };
+  const renderHeader = () => (
+    <>
+      <LinearGradient colors={bannerGradient} style={styles.banner}>
+        {community.bannerUrl ? (
+          <Image source={{ uri: community.bannerUrl }} style={StyleSheet.absoluteFillObject} />
+        ) : (
+          <Text style={styles.bannerEmoji}>{community.bannerMediaId || '🔥'}</Text>
+        )}
+        {community.privacy === 'private' && (
+          <View style={styles.privateBadge}>
+            <Ionicons name="lock-closed" size={11} color="#fff" />
+            <Text style={styles.privateBadgeText}>Private</Text>
+          </View>
+        )}
+      </LinearGradient>
 
-  const handleShare = async (post: Post) => {
-    try {
-      await Share.share({ message: `${post.content}\n\nShared from TADDLEBOX` });
-    } catch {}
-  };
+      <View style={styles.infoCard}>
+        <View style={styles.avatarRow}>
+          <LinearGradient colors={avatarGradient} style={styles.avatar}>
+            {community.avatarUrl ? (
+              <Image source={{ uri: community.avatarUrl }} style={{ width: '100%', height: '100%', borderRadius: radii.md - 3 }} />
+            ) : (
+              <Text style={styles.avatarEmoji}>{community.avatarMediaId || '👾'}</Text>
+            )}
+          </LinearGradient>
+          <TouchableOpacity
+            style={[styles.joinBtn, community.isJoined && styles.joinBtnJoined]}
+            onPress={() => toggleJoin(community.id)}
+            activeOpacity={0.8}
+          >
+            {community.isJoined ? (
+              <LinearGradient
+                colors={['rgba(124,58,237,0.2)', 'rgba(124,58,237,0.2)']}
+                style={styles.joinBtnInner}
+              >
+                <Ionicons name="checkmark" size={14} color={colors.primaryLight} />
+                <Text style={styles.joinBtnTextJoined}>Joined</Text>
+              </LinearGradient>
+            ) : (
+              <LinearGradient
+                colors={[colors.primary, colors.cyanDark]}
+                start={{ x: 0, y: 0 }} end={{ x: 1, y: 0 }}
+                style={styles.joinBtnInner}
+              >
+                <Ionicons name="add" size={14} color="#fff" />
+                <Text style={styles.joinBtnText}>Join</Text>
+              </LinearGradient>
+            )}
+          </TouchableOpacity>
+        </View>
+
+        <Text style={styles.commName}>{community.name}</Text>
+        <Text style={styles.commDesc}>{community.description}</Text>
+
+        <View style={styles.statsRow}>
+          <View style={styles.statItem}>
+            <Text style={styles.statValue}>{community.memberCount || 0}</Text>
+            <Text style={styles.statLabel}>Members</Text>
+          </View>
+          <View style={styles.statDivider} />
+          <View style={styles.statItem}>
+            <Text style={styles.statValue}>{community.postCount || 0}</Text>
+            <Text style={styles.statLabel}>Posts</Text>
+          </View>
+          <View style={styles.statDivider} />
+          <View style={styles.statItem}>
+            <Text style={styles.statValue}>{community.category?.[0] || 'General'}</Text>
+            <Text style={styles.statLabel}>Category</Text>
+          </View>
+        </View>
+
+        {community.isJoined && (
+          <TouchableOpacity style={styles.writePostBtn} onPress={() => setShowCreate(true)}>
+            <View style={styles.writePostAvatar}>
+              <Text style={{ fontSize: 14 }}>🧑‍💻</Text>
+            </View>
+            <Text style={styles.writePostPlaceholder}>Write something in {community.name}…</Text>
+            <Ionicons name="image-outline" size={18} color={colors.text.muted} />
+          </TouchableOpacity>
+        )}
+      </View>
+
+      <View style={styles.filterBar}>
+        {(['All', 'Trending', 'New'] as FeedFilter[]).map(f => (
+          <TouchableOpacity
+            key={f}
+            style={[styles.filterTab, filter === f && styles.filterTabActive]}
+            onPress={() => setFilter(f)}
+          >
+            <Text style={[styles.filterTabText, filter === f && styles.filterTabTextActive]}>
+              {f === 'Trending' ? '🔥 Trending' : f === 'New' ? '✨ New' : '📋 All'}
+            </Text>
+          </TouchableOpacity>
+        ))}
+      </View>
+    </>
+  );
 
   return (
     <View style={[styles.container, { paddingTop: insets.top }]}>
       <StatusBar style={isDark ? 'light' : 'dark'} />
 
-      <View style={styles.topBar}>
+      <View style={[styles.topBar, { top: Math.max(10, insets.top) }]}>
         <TouchableOpacity style={styles.backBtn} onPress={() => navigation.goBack()}>
           <Ionicons name="arrow-back" size={22} color={colors.text.primary} />
         </TouchableOpacity>
@@ -222,134 +340,39 @@ export default function CommunityDetailScreen() {
         </TouchableOpacity>
       </View>
 
-      <ScrollView showsVerticalScrollIndicator={false} stickyHeaderIndices={[2]}>
-        <LinearGradient colors={bannerGradient} style={styles.banner}>
-          <Text style={styles.bannerEmoji}>{community.banner}</Text>
-          {community.isPrivate && (
-            <View style={styles.privateBadge}>
-              <Ionicons name="lock-closed" size={11} color="#fff" />
-              <Text style={styles.privateBadgeText}>Private</Text>
-            </View>
-          )}
-        </LinearGradient>
-
-        <View style={styles.infoCard}>
-          <View style={styles.avatarRow}>
-            <LinearGradient colors={avatarGradient} style={styles.avatar}>
-              <Text style={styles.avatarEmoji}>{community.avatar}</Text>
-            </LinearGradient>
-            <TouchableOpacity
-              style={[styles.joinBtn, community.isJoined && styles.joinBtnJoined]}
-              onPress={() => toggleJoin(community.id)}
-              activeOpacity={0.8}
-            >
-              {community.isJoined ? (
-                <LinearGradient
-                  colors={['rgba(124,58,237,0.2)', 'rgba(124,58,237,0.2)']}
-                  style={styles.joinBtnInner}
-                >
-                  <Ionicons name="checkmark" size={14} color={colors.primaryLight} />
-                  <Text style={styles.joinBtnTextJoined}>Joined</Text>
-                </LinearGradient>
-              ) : (
-                <LinearGradient
-                  colors={[colors.primary, colors.cyanDark]}
-                  start={{ x: 0, y: 0 }} end={{ x: 1, y: 0 }}
-                  style={styles.joinBtnInner}
-                >
-                  <Ionicons name="add" size={14} color="#fff" />
-                  <Text style={styles.joinBtnText}>Join</Text>
-                </LinearGradient>
-              )}
-            </TouchableOpacity>
-          </View>
-
-          <Text style={styles.commName}>{community.name}</Text>
-          <Text style={styles.commDesc}>{community.description}</Text>
-
-          <View style={styles.statsRow}>
-            <View style={styles.statItem}>
-              <Text style={styles.statValue}>{(community.members / 1000).toFixed(1)}k</Text>
-              <Text style={styles.statLabel}>Members</Text>
-            </View>
-            <View style={styles.statDivider} />
-            <View style={styles.statItem}>
-              <Text style={styles.statValue}>{communityPosts.length}</Text>
-              <Text style={styles.statLabel}>Posts</Text>
-            </View>
-            <View style={styles.statDivider} />
-            <View style={styles.statItem}>
-              <Text style={styles.statValue}>{community.category}</Text>
-              <Text style={styles.statLabel}>Category</Text>
-            </View>
-          </View>
-
-          {community.isJoined && (
-            <TouchableOpacity style={styles.writePostBtn} onPress={() => setShowCreate(true)}>
-              <View style={styles.writePostAvatar}>
-                <Text style={{ fontSize: 14 }}>🧑‍💻</Text>
-              </View>
-              <Text style={styles.writePostPlaceholder}>Write something in {community.name}…</Text>
-              <Ionicons name="image-outline" size={18} color={colors.text.muted} />
-            </TouchableOpacity>
-          )}
-        </View>
-
-        <View style={styles.filterBar}>
-          {(['All', 'Trending', 'New'] as FeedFilter[]).map(f => (
-            <TouchableOpacity
-              key={f}
-              style={[styles.filterTab, filter === f && styles.filterTabActive]}
-              onPress={() => setFilter(f)}
-            >
-              <Text style={[styles.filterTabText, filter === f && styles.filterTabTextActive]}>
-                {f === 'Trending' ? '🔥 Trending' : f === 'New' ? '✨ New' : '📋 All'}
+      <SharedFeed
+        posts={displayPosts}
+        setPosts={setCommunityPosts}
+        ListHeaderComponent={renderHeader()}
+        ListEmptyComponent={
+          !loadingPosts ? (
+            <View style={styles.emptyState}>
+              <Text style={styles.emptyEmoji}>💬</Text>
+              <Text style={styles.emptyTitle}>No posts yet</Text>
+              <Text style={styles.emptyDesc}>
+                {community.isJoined
+                  ? 'Be the first to post in this community!'
+                  : 'Join this community to see and create posts.'}
               </Text>
-            </TouchableOpacity>
-          ))}
-        </View>
-
-        {displayPosts.length === 0 ? (
-          <View style={styles.emptyState}>
-            <Text style={styles.emptyEmoji}>💬</Text>
-            <Text style={styles.emptyTitle}>No posts yet</Text>
-            <Text style={styles.emptyDesc}>
-              {community.isJoined
-                ? 'Be the first to post in this community!'
-                : 'Join this community to see and create posts.'}
-            </Text>
-            {community.isJoined && (
-              <TouchableOpacity style={styles.emptyBtn} onPress={() => setShowCreate(true)}>
-                <Text style={styles.emptyBtnText}>Create First Post</Text>
-              </TouchableOpacity>
-            )}
-          </View>
-        ) : (
-          displayPosts.map(post => (
-            <PostCard
-              key={post.id}
-              post={post}
-              onLike={toggleLike}
-              onSave={toggleSave}
-              onComment={handleComment}
-              onShare={handleShare}
-            />
-          ))
-        )}
-
-        <View style={{ height: 100 }} />
-      </ScrollView>
+              {community.isJoined && (
+                <TouchableOpacity style={styles.emptyBtn} onPress={() => setShowCreate(true)}>
+                  <Text style={styles.emptyBtnText}>Create First Post</Text>
+                </TouchableOpacity>
+              )}
+            </View>
+          ) : (
+            <View style={[styles.emptyState, { marginTop: 40 }]}>
+               <Text style={[styles.emptyTitle, { color: colors.text.muted }]}>Loading posts...</Text>
+            </View>
+          )
+        }
+        ListFooterComponent={<View style={{ height: 100 }} />}
+      />
 
       <CreatePostModal
         visible={showCreate}
         onClose={() => setShowCreate(false)}
         preselectedCommunityId={community.id}
-      />
-
-      <CommentsModal
-        visible={commentsVisible}
-        onClose={() => setCommentsVisible(false)}
-        post={activeCommentPost}
       />
     </View>
   );

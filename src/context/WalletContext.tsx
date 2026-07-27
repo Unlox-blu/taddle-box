@@ -25,6 +25,7 @@ export type WalletState = {
   notifWithdraw: boolean;
   notifPromos:  boolean;
   isLoading:    boolean;
+  isUnlocked:   boolean;
 };
 
 type Action =
@@ -33,7 +34,9 @@ type Action =
   | { type: 'SET_LOADING'; isLoading: boolean }
   | { type: 'WITHDRAW';    amount: number }
   | { type: 'CONVERT_XP'; xpAmount: number; cashGained: number; txn1: Transaction; txn2: Transaction }
-  | { type: 'TOGGLE_SETTING'; key: 'pinEnabled' | 'biometricEnabled' | 'notifXP' | 'notifWithdraw' | 'notifPromos' };
+  | { type: 'TOGGLE_SETTING'; key: 'pinEnabled' | 'biometricEnabled' | 'notifXP' | 'notifWithdraw' | 'notifPromos' }
+  | { type: 'UNLOCK' }
+  | { type: 'LOCK' };
 
 const INITIAL: WalletState = {
   cashBalance:     0,
@@ -49,6 +52,7 @@ const INITIAL: WalletState = {
   notifWithdraw:   true,
   notifPromos:     false,
   isLoading:       false,
+  isUnlocked:      false,
 };
 
 function reducer(state: WalletState, action: Action): WalletState {
@@ -82,6 +86,12 @@ function reducer(state: WalletState, action: Action): WalletState {
     case 'TOGGLE_SETTING':
       return { ...state, [action.key]: !state[action.key] };
 
+    case 'UNLOCK':
+      return { ...state, isUnlocked: true };
+
+    case 'LOCK':
+      return { ...state, isUnlocked: false };
+
     default:
       return state;
   }
@@ -97,6 +107,8 @@ type WalletContextType = {
   linkUPI:         (upiId: string) => void;
   linkBank:        (bank: string) => void;
   toggleSetting:   (key: 'pinEnabled' | 'biometricEnabled' | 'notifXP' | 'notifWithdraw' | 'notifPromos') => void;
+  unlockWallet:    () => void;
+  lockWallet:      () => void; // Used when App Lock re-locks or session ends
 };
 
 const WalletContext = createContext<WalletContextType>({
@@ -107,6 +119,8 @@ const WalletContext = createContext<WalletContextType>({
   linkUPI:       () => {},
   linkBank:      () => {},
   toggleSetting: () => {},
+  unlockWallet: () => {},
+  lockWallet: () => {},
 });
 
 // ─── Provider ─────────────────────────────────────────────────────────────────
@@ -245,6 +259,14 @@ export function WalletProvider({ children }: { children: React.ReactNode }) {
         }
       }
     },
+    
+    unlockWallet: useCallback(() => {
+      dispatch({ type: 'UNLOCK' });
+    }, []),
+    
+    lockWallet: useCallback(() => {
+      dispatch({ type: 'LOCK' });
+    }, []),
   };
 
   return <WalletContext.Provider value={value}>{children}</WalletContext.Provider>;

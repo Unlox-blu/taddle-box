@@ -7,6 +7,7 @@ import {
   Dimensions,
   Alert,
   Platform,
+  Image,
 } from "react-native";
 import { LinearGradient } from "expo-linear-gradient";
 import { NativeStackScreenProps } from "@react-navigation/native-stack";
@@ -222,17 +223,11 @@ export default function WelcomeScreen({ navigation }: Props) {
       <View style={styles.glow} />
 
       {/* Logo */}
-      <View style={styles.logoSection}>
-        <LinearGradient
-          colors={[colors.primary, colors.cyanDark]}
-          style={styles.iconBox}
-        >
-          <Text style={styles.iconEmoji}>⚡</Text>
-        </LinearGradient>
-        <Text style={styles.brand}>
-          <Text style={styles.brandW}>TADDL</Text>
-          <Text style={styles.brandG}>EBOX</Text>
-        </Text>
+      <View style={[styles.logoSection, { alignItems: 'center', justifyContent: 'center' }]}>
+        <Image 
+          source={require('../../../TaddleBox_Logo.png')} 
+          style={{ width: 140, height: 140, borderRadius: 70, resizeMode: 'contain', alignSelf: 'center', marginBottom: 12 }} 
+        />
         <Text style={styles.tagline}>
           To rant, spill, overshare & have zero regrets about it.
         </Text>

@@ -18,7 +18,7 @@ export default function ForceUpdateScreen() {
   };
 
   return (
-    <SafeAreaView style={[styles.container, { backgroundColor: colors.bg.main }]}>
+    <SafeAreaView style={[styles.container, { backgroundColor: colors.bg.base }]}>
       <View style={styles.content}>
         <View style={styles.iconBox}>
           <Ionicons name="cloud-download" size={60} color="#10B981" />

@@ -201,7 +201,7 @@ export default function ChangePasswordScreen({ navigation }: Props) {
   const isGeneralError = !isEmailError && !isPhoneError && !!error;
 
   return (
-    <SafeAreaView style={[styles.container, { backgroundColor: colors.bg.main }]}>
+    <SafeAreaView style={[styles.container, { backgroundColor: colors.bg.base }]}>
       <View style={[styles.header, { borderBottomColor: colors.border }]}>
         <TouchableOpacity onPress={() => mode === 'normal' ? navigation.goBack() : setMode('normal')} style={styles.backBtn}>
           <Ionicons name="arrow-back" size={24} color={colors.text.primary} />
@@ -220,7 +220,7 @@ export default function ChangePasswordScreen({ navigation }: Props) {
                 value={currentPassword}
                 onChangeText={(text) => { setCurrentPassword(text); setError(''); }}
                 icon="lock-closed-outline"
-                isPassword
+                secureTextEntry
                 containerStyle={styles.inputContainer}
               />
               <TouchableOpacity onPress={handleForgot} style={styles.forgotBtn} disabled={loading}>
@@ -232,7 +232,7 @@ export default function ChangePasswordScreen({ navigation }: Props) {
                 value={newPassword}
                 onChangeText={(text) => { setNewPassword(text); setError(''); }}
                 icon="key-outline"
-                isPassword
+                secureTextEntry
                 containerStyle={styles.inputContainer}
               />
               <Input
@@ -240,7 +240,7 @@ export default function ChangePasswordScreen({ navigation }: Props) {
                 value={confirmPassword}
                 onChangeText={(text) => { setConfirmPassword(text); setError(''); }}
                 icon="checkmark-circle-outline"
-                isPassword
+                secureTextEntry
                 containerStyle={styles.inputContainer}
               />
 
@@ -368,7 +368,7 @@ export default function ChangePasswordScreen({ navigation }: Props) {
                 value={newPassword}
                 onChangeText={(text) => { setNewPassword(text); setError(''); }}
                 icon="key-outline"
-                isPassword
+                secureTextEntry
                 containerStyle={styles.inputContainer}
               />
               <Input
@@ -376,7 +376,7 @@ export default function ChangePasswordScreen({ navigation }: Props) {
                 value={confirmPassword}
                 onChangeText={(text) => { setConfirmPassword(text); setError(''); }}
                 icon="checkmark-circle-outline"
-                isPassword
+                secureTextEntry
                 containerStyle={styles.inputContainer}
               />
 

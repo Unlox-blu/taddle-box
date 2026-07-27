@@ -158,7 +158,7 @@ export default function ChangeEmailScreen({ navigation }: Props) {
   };
 
   return (
-    <SafeAreaView style={[styles.container, { backgroundColor: colors.bg.main }]}>
+    <SafeAreaView style={[styles.container, { backgroundColor: colors.bg.base }]}>
       <View style={[styles.header, { borderBottomColor: colors.border }]}>
         <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backBtn}>
           <Ionicons name="arrow-back" size={24} color={colors.text.primary} />
@@ -180,7 +180,7 @@ export default function ChangeEmailScreen({ navigation }: Props) {
                 value={password}
                 onChangeText={(text) => { setPassword(text); setError(''); }}
                 icon="lock-closed-outline"
-                isPassword
+                secureTextEntry
                 containerStyle={styles.inputContainer}
               />
               {error ? <Text style={[styles.error, { color: colors.danger }]}>{error}</Text> : null}

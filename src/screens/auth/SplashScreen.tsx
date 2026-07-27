@@ -1,5 +1,5 @@
 import React, { useEffect, useRef } from 'react';
-import { View, Text, Animated, StyleSheet, Dimensions } from 'react-native';
+import { View, Text, Animated, StyleSheet, Dimensions, Image } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { StatusBar } from 'expo-status-bar';
@@ -45,21 +45,10 @@ export default function SplashScreen({ navigation }: Props) {
       <View style={styles.glow} />
 
       <Animated.View style={{ opacity, transform: [{ scale }, { translateY: logoSlide }], alignItems: 'center' }}>
-        {/* Icon */}
-        <LinearGradient
-          colors={[colors.primary, colors.cyanDark]}
-          start={{ x: 0, y: 0 }}
-          end={{ x: 1, y: 1 }}
-          style={styles.iconBox}
-        >
-          <Text style={styles.iconText}>⚡</Text>
-        </LinearGradient>
-
-        {/* Wordmark */}
-        <Text style={styles.wordmark}>
-          <Text style={styles.wordmarkWhite}>TADDL</Text>
-          <Text style={styles.wordmarkGrad}>EBOX</Text>
-        </Text>
+        <Image 
+          source={require('../../../TaddleBox_Logo.png')} 
+          style={{ width: 120, height: 120, borderRadius: 60, resizeMode: 'contain', alignSelf: 'center' }} 
+        />
       </Animated.View>
 
       <Animated.Text style={[styles.tagline, { opacity: tagOpac }]}>
@@ -82,8 +71,9 @@ const styles = StyleSheet.create({
     width: 400, height: 400,
     borderRadius: 200,
     backgroundColor: 'rgba(124,58,237,0.12)',
-    top: height * 0.2,
-    alignSelf: 'center',
+    top: '50%',
+    left: '50%',
+    transform: [{ translateX: -200 }, { translateY: -200 }],
   },
   iconBox: {
     width: 88, height: 88,

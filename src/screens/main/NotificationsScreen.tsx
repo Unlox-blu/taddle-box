@@ -1,7 +1,6 @@
-const NOTIFICATIONS: any[] = [];
-import React, { useMemo, useState } from 'react';
+import React, { useMemo, useState, useEffect } from 'react';
 import {
-  View, Text, ScrollView, TouchableOpacity, StyleSheet,
+  View, Text, ScrollView, TouchableOpacity, StyleSheet, ActivityIndicator,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
@@ -10,7 +9,7 @@ import { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { fontSizes, spacing, radii, type ColorPalette } from '../../theme';
 import { useTheme, useThemeColors } from '../../context/ThemeContext';
 import type { HomeStackParamList, Notification } from '../../types';
-// removed mockData import
+import { notificationService } from '../../services/notification.service';
 
 type Props = NativeStackScreenProps<HomeStackParamList, 'Notifications'>;
 
@@ -64,34 +63,53 @@ function makeStyles(c: ColorPalette) {
 
     row: {
       flexDirection: 'row', alignItems: 'flex-start',
-      paddingHorizontal: spacing.lg, paddingVertical: 14, gap: 12,
+      marginHorizontal: spacing.lg, paddingVertical: 14, paddingHorizontal: 16,
+      marginBottom: 8, gap: 14, borderRadius: radii.xl,
+      borderWidth: 1, borderColor: 'transparent',
     },
-    rowUnread: { backgroundColor: 'rgba(124,58,237,0.07)' },
+    rowUnread: {
+      backgroundColor: 'rgba(124, 58, 237, 0.08)',
+      borderColor: 'rgba(124, 58, 237, 0.2)',
+      shadowColor: c.primary, shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.1, shadowRadius: 10,
+    },
+    rowRead: {
+      backgroundColor: c.bg.card,
+      borderColor: c.border,
+    },
 
-    avatarWrap: { position: 'relative', width: 46 },
+    avatarWrap: { position: 'relative', width: 48 },
     avatar: {
-      width: 46, height: 46, borderRadius: 23,
-      backgroundColor: c.bg.card, borderWidth: 1, borderColor: c.border,
+      width: 48, height: 48, borderRadius: 24,
+      backgroundColor: c.bg.surface, borderWidth: 1, borderColor: c.borderHover,
       alignItems: 'center', justifyContent: 'center',
     },
-    avatarEmoji: { fontSize: 22 },
+    avatarEmoji: { fontSize: 24 },
     typeDot: {
-      position: 'absolute', bottom: -2, right: -2,
-      width: 18, height: 18, borderRadius: 9,
+      position: 'absolute', bottom: -2, right: -4,
+      width: 22, height: 22, borderRadius: 11,
       alignItems: 'center', justifyContent: 'center',
       borderWidth: 2, borderColor: c.bg.base,
     },
 
-    content: { flex: 1 },
+    content: { flex: 1, justifyContent: 'center' },
     notifText: { fontSize: fontSizes.sm, color: c.text.secondary, lineHeight: 20 },
-    actor:     { fontWeight: '700', color: c.text.primary },
-    notifBody: { fontWeight: '400' },
-    time:      { fontSize: fontSizes.xs, color: c.text.muted, marginTop: 4 },
+    actor:     { fontWeight: '800', color: c.text.primary, fontSize: fontSizes.md, marginBottom: 2 },
+    notifBody: { fontWeight: '500' },
+    time:      { fontSize: fontSizes.xs, color: c.text.muted, marginTop: 4, fontWeight: '600' },
 
     unreadDot: {
-      width: 8, height: 8, borderRadius: 4,
-      backgroundColor: c.primary, marginTop: 10, flexShrink: 0,
+      width: 10, height: 10, borderRadius: 5,
+      backgroundColor: c.primary, marginTop: 18, flexShrink: 0,
+      shadowColor: c.primary, shadowOpacity: 0.4, shadowRadius: 4, shadowOffset: { width: 0, height: 0 },
     },
+    
+    emptyState: {
+      alignItems: 'center', justifyContent: 'center',
+      paddingVertical: 60, marginHorizontal: spacing.xl,
+    },
+    emptyEmoji: { fontSize: 64, marginBottom: 16 },
+    emptyTitle: { fontSize: fontSizes.xl, fontWeight: '800', color: c.text.primary, marginBottom: 8, textAlign: 'center' },
+    emptySub: { fontSize: fontSizes.md, color: c.text.muted, textAlign: 'center', lineHeight: 22 },
   });
 }
 
@@ -102,11 +120,42 @@ export default function NotificationsScreen({ navigation }: Props) {
   const styles = useMemo(() => makeStyles(colors), [colors]);
   const notifColor = useMemo(() => getNotifColor(colors), [colors]);
 
-  const [notifs, setNotifs] = useState<Notification[]>(NOTIFICATIONS);
+  const [notifs, setNotifs] = useState<Notification[]>([]);
+  const [loading, setLoading] = useState(true);
 
-  const markAllRead = () => setNotifs(n => n.map(x => ({ ...x, isRead: true })));
-  const markRead    = (id: string) =>
+  useEffect(() => {
+    let active = true;
+    const fetchNotifs = async () => {
+      try {
+        const res = await notificationService.getNotifications();
+        if (active) setNotifs(res.data);
+      } catch (e) {
+        console.error('Failed to fetch notifications:', e);
+      } finally {
+        if (active) setLoading(false);
+      }
+    };
+    fetchNotifs();
+    return () => { active = false; };
+  }, []);
+
+  const markAllRead = async () => {
+    setNotifs(n => n.map(x => ({ ...x, isRead: true })));
+    try {
+      await notificationService.markAllRead();
+    } catch (e) {
+      console.error('Failed to mark all read:', e);
+    }
+  };
+
+  const markRead = async (id: string) => {
     setNotifs(n => n.map(x => x.id === id ? { ...x, isRead: true } : x));
+    try {
+      await notificationService.markOneRead(id);
+    } catch (e) {
+      console.error('Failed to mark one read:', e);
+    }
+  };
 
   const unreadCount = notifs.filter(n => !n.isRead).length;
 
@@ -134,45 +183,57 @@ export default function NotificationsScreen({ navigation }: Props) {
         </TouchableOpacity>
       </View>
 
-      <ScrollView showsVerticalScrollIndicator={false}>
-        {GROUPS.map(group => {
-          const items = notifs.filter(n => n.group === group.key);
-          if (!items.length) return null;
-          return (
-            <View key={group.key}>
-              <Text style={styles.groupLabel}>{group.label}</Text>
-              {items.map(notif => (
-                <TouchableOpacity
-                  key={notif.id}
-                  style={[styles.row, !notif.isRead && styles.rowUnread]}
-                  onPress={() => markRead(notif.id)}
-                  activeOpacity={0.7}
-                >
-                  <View style={styles.avatarWrap}>
-                    <View style={styles.avatar}>
-                      <Text style={styles.avatarEmoji}>{notif.avatar}</Text>
+      {loading ? (
+        <View style={[styles.emptyState, { paddingTop: 100 }]}>
+          <ActivityIndicator size="large" color={colors.primary} />
+        </View>
+      ) : notifs.length === 0 ? (
+        <View style={styles.emptyState}>
+          <Text style={styles.emptyEmoji}>📭</Text>
+          <Text style={styles.emptyTitle}>You're all caught up!</Text>
+          <Text style={styles.emptySub}>No new notifications right now. Check back later for updates on events, followers, and more.</Text>
+        </View>
+      ) : (
+        <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingTop: 8 }}>
+          {GROUPS.map(group => {
+            const items = notifs.filter(n => n.group === group.key);
+            if (!items.length) return null;
+            return (
+              <View key={group.key}>
+                <Text style={styles.groupLabel}>{group.label}</Text>
+                {items.map(notif => (
+                  <TouchableOpacity
+                    key={notif.id}
+                    style={[styles.row, notif.isRead ? styles.rowRead : styles.rowUnread]}
+                    onPress={() => markRead(notif.id)}
+                    activeOpacity={0.7}
+                  >
+                    <View style={styles.avatarWrap}>
+                      <View style={styles.avatar}>
+                        <Text style={styles.avatarEmoji}>{notif.avatar}</Text>
+                      </View>
+                      <View style={[styles.typeDot, { backgroundColor: notifColor[notif.type] }]}>
+                        <Ionicons name={NOTIF_ICON[notif.type] as any} size={10} color="#fff" />
+                      </View>
                     </View>
-                    <View style={[styles.typeDot, { backgroundColor: notifColor[notif.type] }]}>
-                      <Ionicons name={NOTIF_ICON[notif.type] as any} size={8} color="#fff" />
+
+                    <View style={styles.content}>
+                      <Text style={styles.actor} numberOfLines={1}>{notif.actor}</Text>
+                      <Text style={styles.notifText} numberOfLines={2}>
+                        <Text style={styles.notifBody}>{notif.text}</Text>
+                      </Text>
+                      <Text style={styles.time}>{notif.time}</Text>
                     </View>
-                  </View>
 
-                  <View style={styles.content}>
-                    <Text style={styles.notifText} numberOfLines={3}>
-                      <Text style={styles.actor}>{notif.actor} </Text>
-                      <Text style={styles.notifBody}>{notif.text}</Text>
-                    </Text>
-                    <Text style={styles.time}>{notif.time}</Text>
-                  </View>
-
-                  {!notif.isRead && <View style={styles.unreadDot} />}
-                </TouchableOpacity>
-              ))}
-            </View>
-          );
-        })}
-        <View style={{ height: 40 }} />
-      </ScrollView>
+                    {!notif.isRead && <View style={styles.unreadDot} />}
+                  </TouchableOpacity>
+                ))}
+              </View>
+            );
+          })}
+          <View style={{ height: 40 }} />
+        </ScrollView>
+      )}
     </View>
   );
 }

@@ -137,7 +137,7 @@ export default function AppLockOverlay() {
       transparent={false}
     >
       <SafeAreaView
-        style={[styles.container, { backgroundColor: colors.bg.main }]}
+        style={[styles.container, { backgroundColor: colors.bg.base }]}
       >
         <PinPad
           title="Enter App Lock PIN"

@@ -9,6 +9,7 @@
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
+    "primaryColor": "#7C3AED",
     "userInterfaceStyle": "dark",
     "splash": {
       "image": "./assets/splash.png",
@@ -17,7 +18,10 @@
     },
     "ios": {
       "supportsTablet": false,
-      "bundleIdentifier": "com.taddlebox.app"
+      "bundleIdentifier": "com.taddlebox.app",
+      "infoPlist": {
+        "NSFaceIDUsageDescription": "Taddlebox needs Face ID to securely unlock your wallet and app."
+      }
     },
     "android": {
       "adaptiveIcon": {
@@ -28,7 +32,8 @@
     },
     "plugins": [
       "expo-font",
-      "@react-native-community/datetimepicker"
+      "@react-native-community/datetimepicker",
+      "expo-local-authentication"
     ]
   }
 }

@@ -10,6 +10,7 @@ import {
   Linking,
   Platform,
   ActionSheetIOS,
+  Image,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
@@ -271,10 +272,12 @@ export default function SettingsScreen() {
             { backgroundColor: colors.bg.card, borderColor: colors.border },
           ]}
         >
-          <View style={styles.accountAvatar}>
-            <Text style={{ fontSize: 28 }}>
-              {CURRENT_USER?.avatarUrl ? null : "👾"}
-            </Text>
+          <View style={[styles.accountAvatar, { overflow: 'hidden' }]}>
+            {CURRENT_USER?.avatarUrl ? (
+              <Image source={{ uri: CURRENT_USER.avatarUrl }} style={{ width: '100%', height: '100%' }} />
+            ) : (
+              <Text style={{ fontSize: 28 }}>👾</Text>
+            )}
           </View>
           <View style={{ flex: 1 }}>
             <Text style={[styles.accountName, { color: colors.text.primary }]}>
@@ -310,6 +313,13 @@ export default function SettingsScreen() {
                   mode: "app",
                   isSetup: false,
                   isDisable: true,
+                  returnScreen: "Settings",
+                });
+              } else if (CURRENT_USER?.appLock) {
+                navigation.navigate("LockScreen", {
+                  mode: "app",
+                  isSetup: false,
+                  isVerifyToEnable: true,
                   returnScreen: "Settings",
                 });
               } else {

@@ -27,7 +27,8 @@ import CommentsModal from "../../components/home/CommentsModal";
 import { useAuth } from "../../context/AuthContext";
 import { useWallet } from "../../context/WalletContext";
 import { usePosts } from "../../context/PostsContext";
-import type { HomeStackParamList, Post } from "../../types";
+import SharedFeed from "../../components/common/SharedFeed";
+import type { Post, HomeStackParamList } from "../../types";
 
 import { streakService } from "../../services/streak.service";
 import { notificationService } from "../../services/notification.service";
@@ -75,18 +76,6 @@ export default function HomeScreen() {
   const [completedDays, setCompletedDays] = useState<number[]>([]);
   const [unreadCount, setUnreadCount] = useState(0);
   const [localXP, setLocalXP] = useState(CURRENT_USER?.xp || 0);
-  const [activePostId, setActivePostId] = useState<string | null>(null);
-
-  const [commentsVisible, setCommentsVisible] = useState(false);
-  const [activeCommentPost, setActiveCommentPost] = useState<Post | null>(null);
-
-  const viewabilityConfig = useRef({ itemVisiblePercentThreshold: 60 }).current;
-  const onViewableItemsChanged = useRef(({ viewableItems }: any) => {
-    if (viewableItems.length > 0) {
-      const newActiveId = viewableItems[0].item.id;
-      setActivePostId((prev: string | null) => prev === newActiveId ? prev : newActiveId);
-    }
-  }).current;
 
   // Sync XP if CURRENT_USER changes
   useEffect(() => {
@@ -255,8 +244,8 @@ export default function HomeScreen() {
   const filteredPosts =
     activeTrend === "All"
       ? posts
-      : posts.filter((p) => {
-          const normalizedTags = (p.hashtags || []).map(t => `#${t}`);
+      : posts.filter((p: any) => {
+          const normalizedTags = (p.hashtags || p.tags || []).map((t: string) => `#${t}`);
           return normalizedTags.includes(activeTrend);
         });
 
@@ -266,59 +255,19 @@ export default function HomeScreen() {
     setRefreshing(false);
   };
 
-  const handleAuthorPress = (post: Post) =>
-    navigation.navigate("UserProfile", { user: post.author });
-  const handleComment = (post: Post) => {
-    setActiveCommentPost(post);
-    setCommentsVisible(true);
-  };
-  const handleShare = async (post: Post) => {
-    try {
-      const shareTitle = (post as any).title || `${post.author.name}'s Post`;
-      const appUrl = `https://taddlebox.com/post/${post.id}`;
-      const firstMedia = (post as any).media?.[0]?.url || (post as any).media?.[0]?.cloudfront_url || post.mediaUri;
-      
-      const message = firstMedia 
-        ? `${shareTitle}\n\n${appUrl}\n\nMedia: ${firstMedia}`
-        : `${shareTitle}\n\n${appUrl}`;
-
-      await Share.share({
-        message,
-        url: appUrl, // iOS uses this directly
-        title: shareTitle, // Android uses this in the intent
-      }, {
-        dialogTitle: 'Share Post'
-      });
-    } catch {}
-  };
-
   return (
-    <View
-      style={[
-        styles.container,
-        { paddingTop: insets.top, backgroundColor: colors.bg.base },
-      ]}
-    >
+    <View style={[styles.container, { paddingTop: insets.top }]}>
       <StatusBar style={isDark ? "light" : "dark"} />
-
+      
       {/* ── Header ────────────────────────────────── */}
       <MainHeader />
-
-      {/* ── Scrollable feed ───────────────────────── */}
-      <FlatList
-        data={filteredPosts}
-        keyExtractor={(item) => item.id}
-        showsVerticalScrollIndicator={false}
-        refreshControl={
-          <RefreshControl
-            refreshing={refreshing}
-            onRefresh={onRefresh}
-            tintColor={colors.primary}
-          />
-        }
-        onViewableItemsChanged={onViewableItemsChanged}
-        viewabilityConfig={viewabilityConfig}
-        style={{ flex: 1 }}
+      
+      <SharedFeed
+        posts={filteredPosts}
+        refreshing={refreshing}
+        onRefresh={onRefresh}
+        onLike={toggleLike}
+        onSave={toggleSave}
         contentContainerStyle={{ flexGrow: 1 }}
         ListHeaderComponent={
           <View>
@@ -464,18 +413,6 @@ export default function HomeScreen() {
             </Text>
           </View>
         }
-        renderItem={({ item, index }) => (
-          <PostCard
-            post={item}
-            index={index}
-            isActive={item.id === activePostId}
-            onAuthorPress={handleAuthorPress}
-            onComment={handleComment}
-            onShare={handleShare}
-            onLike={toggleLike}
-            onSave={toggleSave}
-          />
-        )}
         ListFooterComponent={<View style={{ height: 110 }} />}
       />
 
@@ -490,12 +427,6 @@ export default function HomeScreen() {
       <WeeklyBonusModal 
         visible={showWeeklyBonusModal}
         onClose={() => setShowWeeklyBonusModal(false)}
-      />
-
-      <CommentsModal
-        visible={commentsVisible}
-        onClose={() => setCommentsVisible(false)}
-        post={activeCommentPost}
       />
 
       {/* ── XP reward particle (flies to XP card on claim) ── */}

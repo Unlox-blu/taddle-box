@@ -50,13 +50,18 @@ export const authService = {
     return response.data;
   },
 
-  setupPin: async (pin: string) => {
-    const response = await apiClient.post('/users/pin/setup', { pin });
+  setupPin: async (pin: string, enableGlobal: boolean = true) => {
+    const response = await apiClient.post('/users/pin/setup', { pin, enableGlobal });
     return response.data;
   },
 
   verifyPin: async (pin: string) => {
     const response = await apiClient.post('/users/pin/verify', { pin });
+    return response.data;
+  },
+
+  toggleGlobalAppLock: async (pin: string, isEnabled: boolean) => {
+    const response = await apiClient.post('/users/pin/toggle-global', { pin, isEnabled });
     return response.data;
   },
 

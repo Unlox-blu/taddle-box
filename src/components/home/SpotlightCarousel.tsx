@@ -10,6 +10,7 @@ import {
   ActivityIndicator,
 } from "react-native";
 import { LinearGradient } from "expo-linear-gradient";
+import { Ionicons } from "@expo/vector-icons";
 import { useNavigation } from "@react-navigation/native";
 import { fontSizes, spacing, radii, type ColorPalette } from "../../theme";
 import { useThemeColors } from "../../context/ThemeContext";
@@ -39,7 +40,7 @@ function makeStyles(c: ColorPalette) {
       justifyContent: "flex-end",
       overflow: "hidden",
       borderWidth: 1,
-      borderColor: "rgba(255,255,255,0.07)",
+      borderColor: c.border,
     },
     tag: {
       position: "absolute",
@@ -52,6 +53,7 @@ function makeStyles(c: ColorPalette) {
     },
     tagText: { fontSize: fontSizes.xs, fontWeight: "700" },
     emoji: { fontSize: 44, marginBottom: 6 },
+    // Card text is always white because spotlight cards always have dark gradient backgrounds
     cardTitle: { fontSize: fontSizes.lg, fontWeight: "800", color: "#fff" },
     cardSubtitle: {
       fontSize: fontSizes.sm,
@@ -73,13 +75,63 @@ function makeStyles(c: ColorPalette) {
       width: 6,
       height: 6,
       borderRadius: 3,
-      backgroundColor: "rgba(255,255,255,0.18)",
+      backgroundColor: c.border,
     },
     dotActive: {
       width: 22,
       height: 6,
       borderRadius: 3,
       backgroundColor: c.primary,
+    },
+    emptyContainer: {
+      marginHorizontal: spacing.xl,
+      marginBottom: spacing.md,
+      borderRadius: radii.lg,
+      overflow: "hidden",
+      height: CARD_H,
+      borderWidth: 1,
+      borderColor: c.border,
+    },
+    emptyGradient: {
+      flex: 1,
+      padding: spacing.lg,
+      alignItems: "center",
+      justifyContent: "center",
+    },
+    emptyIconRing: {
+      width: 52,
+      height: 52,
+      borderRadius: 26,
+      borderWidth: 1.5,
+      borderColor: c.primaryDark,
+      backgroundColor: "rgba(124,58,237,0.12)",
+      alignItems: "center",
+      justifyContent: "center",
+      marginBottom: spacing.sm,
+    },
+    emptyTitle: {
+      fontSize: fontSizes.base,
+      fontWeight: "700",
+      color: c.text.primary,
+      marginBottom: 4,
+      letterSpacing: 0.2,
+    },
+    emptySub: {
+      fontSize: fontSizes.xs,
+      color: c.text.muted,
+      textAlign: "center",
+      lineHeight: 17,
+    },
+    emptyDots: {
+      flexDirection: "row",
+      gap: 4,
+      marginTop: spacing.sm,
+    },
+    emptyDot: {
+      width: 5,
+      height: 5,
+      borderRadius: 3,
+      backgroundColor: c.primaryDark,
     },
   });
 }
@@ -146,7 +198,62 @@ export default function SpotlightCarousel() {
     );
   }
 
-  if (spotlights.length === 0) return null;
+  if (spotlights.length === 0) {
+    return (
+      <View>
+        <Text style={styles.sectionLabel}>SPOTLIGHT</Text>
+        <View style={styles.emptyContainer}>
+          <LinearGradient
+            colors={[colors.bg.surface, colors.bg.elevated, colors.bg.base] as any}
+            start={{ x: 0, y: 0 }}
+            end={{ x: 1, y: 1 }}
+            style={styles.emptyGradient}
+          >
+            {/* Decorative glow blobs */}
+            <View
+              style={{
+                position: "absolute",
+                top: 12,
+                left: 20,
+                width: 60,
+                height: 60,
+                borderRadius: 30,
+                backgroundColor: "rgba(124,58,237,0.12)",
+              }}
+            />
+            <View
+              style={{
+                position: "absolute",
+                bottom: 10,
+                right: 20,
+                width: 40,
+                height: 40,
+                borderRadius: 20,
+                backgroundColor: "rgba(167,139,250,0.08)",
+              }}
+            />
+
+            <View style={styles.emptyIconRing}>
+              <Ionicons
+                name="sparkles"
+                size={22}
+                color="rgba(167,139,250,0.9)"
+              />
+            </View>
+            <Text style={styles.emptyTitle}>No Spotlights Yet</Text>
+            <Text style={styles.emptySub}>
+              {"Stay tuned for exciting spotlights coming soon!"}
+            </Text>
+            <View style={styles.emptyDots}>
+              {[0, 1, 2].map((i) => (
+                <View key={i} style={styles.emptyDot} />
+              ))}
+            </View>
+          </LinearGradient>
+        </View>
+      </View>
+    );
+  }
 
   const renderItem: ListRenderItem<Highlight> = ({ item, index }) => {
     const fallbacks = [

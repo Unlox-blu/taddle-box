@@ -328,7 +328,7 @@ export default function ForgotPasswordScreen({ navigation }: Props) {
 
           {/* ── Step 3: New password ── */}
           {step === 3 && (
-            <Animated.View style={[{ width: '100%', alignItems: 'center' }, { transform: [{ scale: checkAnim._value === 1 ? checkScale : 1 }] }]}>
+            <Animated.View style={[{ width: '100%', alignItems: 'center' }, { transform: [{ scale: (checkAnim as any)._value === 1 ? checkScale : 1 }] }]}>
               <View style={[styles.iconBox, { backgroundColor: 'rgba(124,58,237,0.12)', borderColor: 'rgba(124,58,237,0.3)' }]}>
                 <Text style={{ fontSize: 40 }}>🔑</Text>
               </View>
@@ -340,7 +340,7 @@ export default function ForgotPasswordScreen({ navigation }: Props) {
                 icon="key-outline"
                 value={newPassword}
                 onChangeText={v => { setNewPassword(v); setErrorMsg(''); }}
-                isPassword
+                secureTextEntry
                 containerStyle={{ width: '100%', marginBottom: 12 }}
               />
               <Input
@@ -348,7 +348,7 @@ export default function ForgotPasswordScreen({ navigation }: Props) {
                 icon="checkmark-circle-outline"
                 value={confirmPassword}
                 onChangeText={v => { setConfirmPassword(v); setErrorMsg(''); }}
-                isPassword
+                secureTextEntry
                 containerStyle={{ width: '100%', marginBottom: 12 }}
               />
 

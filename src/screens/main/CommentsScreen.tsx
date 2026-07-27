@@ -1,7 +1,7 @@
 const COMMENTS: any[] = [];
 import React, { useMemo, useState, useRef } from 'react';
 import {
-  View, Text, FlatList, TouchableOpacity, TextInput,
+  View, Text, FlatList, TouchableOpacity, TextInput, Image,
   StyleSheet, KeyboardAvoidingView, Platform,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -207,8 +207,12 @@ export default function CommentsScreen({ navigation, route }: Props) {
 
         {/* Input bar */}
         <View style={[styles.inputBar, { paddingBottom: Math.max(insets.bottom, 12) }]}>
-          <View style={styles.inputAvatar}>
-            <Text style={styles.inputAvatarEmoji}>{CURRENT_USER?.avatarUrl ? null : '👾'}</Text>
+          <View style={[styles.inputAvatar, { overflow: 'hidden' }]}>
+            {CURRENT_USER?.avatarUrl ? (
+              <Image source={{ uri: CURRENT_USER.avatarUrl }} style={{ width: '100%', height: '100%' }} />
+            ) : (
+              <Text style={styles.inputAvatarEmoji}>👾</Text>
+            )}
           </View>
           <SmartInput
             style={styles.input}

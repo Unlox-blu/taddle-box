@@ -23,7 +23,7 @@ import { usePosts } from '../../context/PostsContext';
 
 type Props = NativeStackScreenProps<HomeStackParamList, 'Search'>;
 
-type SearchTab = 'posts' | 'people' | 'communities' | 'events' | 'hashtags';
+type SearchTab = 'all' | 'posts' | 'people' | 'communities' | 'events' | 'hashtags';
 
 export default function SearchScreen({ navigation, route }: Props) {
   const insets = useSafeAreaInsets();
@@ -31,11 +31,12 @@ export default function SearchScreen({ navigation, route }: Props) {
   const colors = useThemeColors();
   const styles = useMemo(() => makeStyles(colors), [colors]);
 
-  // If passed from hashtag click
+  // If passed from hashtag click or header context
   const initialQuery = (route.params as any)?.query || '';
+  const initialTab   = (route.params as any)?.tab || 'all';
 
   const [query, setQuery] = useState(initialQuery);
-  const [activeTab, setActiveTab] = useState<SearchTab>('posts');
+  const [activeTab, setActiveTab] = useState<SearchTab>(initialTab);
   const [results, setResults] = useState<any[]>([]);
   const [loading, setLoading] = useState(false);
 
@@ -48,21 +49,44 @@ export default function SearchScreen({ navigation, route }: Props) {
     }
     setLoading(true);
     try {
-      if (tab === 'hashtags') {
+      if (tab === 'all') {
+        // Fetch from multiple endpoints concurrently
+        const [postsRes, peopleRes, communitiesRes, eventsRes] = await Promise.all([
+          apiClient.get(`/search?type=posts&q=${encodeURIComponent(q)}`),
+          apiClient.get(`/search?type=people&q=${encodeURIComponent(q)}`),
+          apiClient.get(`/search?type=communities&q=${encodeURIComponent(q)}`),
+          apiClient.get(`/search?type=events&q=${encodeURIComponent(q)}`),
+        ]);
+
+        const extractData = (res: any, itemType: string) => {
+          let data = [];
+          if (res.data?.data && Array.isArray(res.data.data)) data = res.data.data;
+          else if (res.data?.data?.data && Array.isArray(res.data.data.data)) data = res.data.data.data;
+          return data.slice(0, 3).map((item: any) => ({ ...item, itemType }));
+        };
+
+        const allResults = [
+          ...extractData(peopleRes, 'people'),
+          ...extractData(communitiesRes, 'communities'),
+          ...extractData(eventsRes, 'events'),
+          ...extractData(postsRes, 'posts'),
+        ];
+        setResults(allResults);
+      } else if (tab === 'hashtags') {
         const res = await apiClient.get(`/search/hashtags?q=${encodeURIComponent(q)}`);
         if (res.data?.data && Array.isArray(res.data.data)) {
-            setResults(res.data.data);
+            setResults(res.data.data.map((h: any) => ({ ...h, itemType: 'hashtags' })));
         } else if (res.data?.data && Array.isArray(res.data.data.data)) {
-            setResults(res.data.data.data);
+            setResults(res.data.data.data.map((h: any) => ({ ...h, itemType: 'hashtags' })));
         } else {
             setResults([]);
         }
       } else {
         const res = await apiClient.get(`/search?type=${tab}&q=${encodeURIComponent(q)}`);
         if (res.data?.data && Array.isArray(res.data.data)) {
-            setResults(res.data.data);
+            setResults(res.data.data.map((i: any) => ({ ...i, itemType: tab })));
         } else if (res.data?.data?.data && Array.isArray(res.data.data.data)) {
-            setResults(res.data.data.data);
+            setResults(res.data.data.data.map((i: any) => ({ ...i, itemType: tab })));
         } else {
             setResults([]);
         }
@@ -94,7 +118,9 @@ export default function SearchScreen({ navigation, route }: Props) {
   );
 
   const renderItem = ({ item }: { item: any }) => {
-    if (activeTab === 'posts') {
+    const type = item.itemType || activeTab;
+
+    if (type === 'posts') {
       return (
         <PostCard
           post={item as Post}
@@ -106,7 +132,7 @@ export default function SearchScreen({ navigation, route }: Props) {
       );
     }
     
-    if (activeTab === 'people') {
+    if (type === 'people') {
       return (
         <TouchableOpacity
           style={styles.peopleRow}
@@ -127,7 +153,43 @@ export default function SearchScreen({ navigation, route }: Props) {
       );
     }
 
-    if (activeTab === 'hashtags') {
+    if (type === 'communities') {
+      return (
+        <TouchableOpacity style={styles.peopleRow} onPress={() => (navigation as any).navigate('Community', { screen: 'CommunityDetail', params: { communitySlug: item.slug } })}>
+          <View style={styles.avatarBubble}>
+            {item.avatar_url ? (
+              <Image source={{ uri: item.avatar_url }} style={styles.avatarImg} />
+            ) : (
+              <Text style={{ fontSize: 18 }}>🏘️</Text>
+            )}
+          </View>
+          <View style={styles.peopleInfo}>
+            <Text style={styles.peopleName}>{item.name}</Text>
+            <Text style={styles.peopleHandle}>{item.member_count || 0} members</Text>
+          </View>
+        </TouchableOpacity>
+      );
+    }
+
+    if (type === 'events') {
+      return (
+        <TouchableOpacity style={styles.peopleRow}>
+          <View style={styles.avatarBubble}>
+            {item.cover_image_url ? (
+              <Image source={{ uri: item.cover_image_url }} style={styles.avatarImg} />
+            ) : (
+              <Text style={{ fontSize: 18 }}>📅</Text>
+            )}
+          </View>
+          <View style={styles.peopleInfo}>
+            <Text style={styles.peopleName}>{item.title}</Text>
+            <Text style={styles.peopleHandle}>{item.location || 'Online'}</Text>
+          </View>
+        </TouchableOpacity>
+      );
+    }
+
+    if (type === 'hashtags') {
       return (
         <TouchableOpacity style={styles.hashtagRow}>
             <View style={styles.hashIconBubble}>
@@ -181,7 +243,7 @@ export default function SearchScreen({ navigation, route }: Props) {
         <FlatList
             horizontal
             showsHorizontalScrollIndicator={false}
-            data={['posts', 'people', 'communities', 'events', 'hashtags'] as SearchTab[]}
+            data={['all', 'posts', 'people', 'communities', 'events', 'hashtags'] as SearchTab[]}
             keyExtractor={item => item}
             contentContainerStyle={styles.tabsContainer}
             renderItem={({ item }) => renderTab(item, item.charAt(0).toUpperCase() + item.slice(1))}

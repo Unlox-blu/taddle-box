@@ -1,6 +1,6 @@
 import React, { useState, useRef } from 'react';
 import {
-  View, Text, TextInput, TouchableOpacity, ScrollView,
+  View, Text, TextInput, TouchableOpacity, ScrollView, Image,
   StyleSheet, Alert, ActivityIndicator, KeyboardAvoidingView, Platform,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -110,7 +110,7 @@ export default function EditProfileScreen() {
   );
 
   return (
-    <SafeAreaView style={[styles.root, { backgroundColor: colors.bg.main }]}>
+    <SafeAreaView style={[styles.root, { backgroundColor: colors.bg.base }]}>
       {/* Header */}
       <View style={[styles.header, { borderBottomColor: colors.border }]}>
         <TouchableOpacity onPress={() => navigation.goBack()} style={[styles.iconBtn, { borderColor: colors.border }]}>
@@ -136,9 +136,11 @@ export default function EditProfileScreen() {
           {/* Avatar placeholder – upload feature in next update */}
           <View style={styles.avatarRow}>
             <View style={[styles.avatar, { backgroundColor: colors.bg.elevated, borderColor: colors.border }]}>
-              <Text style={{ fontSize: 36 }}>
-                {user?.avatarUrl ? null : '👾'}
-              </Text>
+              {user?.avatarUrl ? (
+                <Image source={{ uri: user.avatarUrl }} style={{ width: '100%', height: '100%', borderRadius: 40 }} />
+              ) : (
+                <Text style={{ fontSize: 36 }}>👾</Text>
+              )}
             </View>
           </View>
 

@@ -19,7 +19,7 @@ export type HomeStackParamList = {
 
 export type CommunityStackParamList = {
   CommunityList:   undefined;
-  CommunityDetail: { communityId: string };
+  CommunityDetail: { communitySlug: string };
 };
 
 export type AuthStackParamList = {
@@ -106,6 +106,7 @@ export interface Community {
   avatarMediaId?: string;
   bannerMediaId?: string;
   avatarUrl?: string;
+  avatar?: string;
   bannerUrl?: string;
   privacy: 'public' | 'private' | 'restricted';
   category: string[];
@@ -127,6 +128,7 @@ export interface Event {
   type: 'hackathon' | 'webinar' | 'meetup' | 'competition' | 'workshop';
   banner: string;
   date: string;
+  rawDate?: string;
   time?: string;
   location: string;
   xpReward: number;
@@ -135,6 +137,8 @@ export interface Event {
   isLive: boolean;
   isFeatured: boolean;
   isRegistered: boolean;
+  isFree: boolean;
+  priceCents?: number;
 }
 
 export interface Game {

@@ -8,6 +8,7 @@ import {
   KeyboardAvoidingView,
   Platform,
   Alert,
+  Image,
 } from "react-native";
 import { LinearGradient } from "expo-linear-gradient";
 import { NativeStackScreenProps } from "@react-navigation/native-stack";
@@ -247,6 +248,10 @@ export default function LoginScreen({ navigation }: Props) {
 
           {/* Header */}
           <View style={styles.header}>
+            <Image 
+              source={require('../../../TaddleBox_Logo.png')} 
+              style={{ width: 80, height: 80, borderRadius: 40, resizeMode: 'cover', alignSelf: 'flex-start', marginBottom: 12, marginLeft: -8 }} 
+            />
             <Text style={styles.title}>Welcome back 👋</Text>
             <Text style={styles.subtitle}>Log in to continue your journey</Text>
           </View>

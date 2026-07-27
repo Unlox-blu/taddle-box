@@ -12,6 +12,11 @@ export const postsService = {
     return response.data;
   },
 
+  getUserPosts: async (authorId: string, page = 1, limit = 20): Promise<{ data: Post[] }> => {
+    const response = await apiClient.get(`/posts/user/${authorId}?page=${page}&limit=${limit}`);
+    return response.data;
+  },
+
   toggleLike: async (postId: string, isCurrentlyLiked: boolean) => {
     if (isCurrentlyLiked) {
       const response = await apiClient.delete(`/posts/${postId}/like`);

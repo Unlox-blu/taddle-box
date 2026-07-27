@@ -7,6 +7,8 @@ import {
   StyleSheet,
   KeyboardAvoidingView,
   Platform,
+  Dimensions,
+  Image,
   Modal,
 } from "react-native";
 import { LinearGradient } from "expo-linear-gradient";
@@ -501,10 +503,17 @@ export default function RegisterScreen({ navigation, route }: Props) {
           {/* Step 0: Account */}
           {step === 0 && (
             <View>
-              <Text style={styles.stepTitle}>Create your account 🚀</Text>
-              <Text style={styles.stepSub}>
-                Let's get you started in 3 quick steps
-              </Text>
+              {/* Header */}
+              <View style={{ marginBottom: 32 }}>
+                <Image 
+                  source={require('../../../TaddleBox_Logo.png')} 
+                  style={{ width: 80, height: 80, borderRadius: 40, resizeMode: 'cover', alignSelf: 'flex-start', marginBottom: 12, marginLeft: -8 }} 
+                />
+                <Text style={styles.stepTitle}>Create your account 🚀</Text>
+                <Text style={styles.stepSub}>
+                  Let's get you started in 3 quick steps
+                </Text>
+              </View>
               <View style={styles.form}>
                 <Input
                   label="Full Name"

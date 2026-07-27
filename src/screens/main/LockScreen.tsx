@@ -32,13 +32,13 @@ export default function LockScreen() {
   // mode: 'app' | 'wallet'
   // isSetup: if true, we are creating a new PIN
   // isDisable: if true, we are removing the PIN
+  // isVerifyToEnable: if true, we are verifying before enabling
   // returnScreen: screen to navigate back to upon success
-  const {
-    mode = "wallet",
-    returnScreen = "WalletMain",
-    isSetup = false,
-    isDisable = false,
-  } = route.params || {};
+  const { mode = "wallet" } = route.params || {};
+  const isSetup = route.params?.isSetup || false;
+  const isDisable = route.params?.isDisable || false;
+  const isVerifyToEnable = route.params?.isVerifyToEnable || false;
+  const returnScreen = route.params?.returnScreen || null;
 
   const [error, setError] = useState("");
   const [isVerifying, setIsVerifying] = useState(false);
@@ -121,11 +121,27 @@ export default function LockScreen() {
         await authService.removePin(pin);
         await refreshUser(); // refresh so appLockEnabled toggle updates
         Alert.alert("Success", "App Lock disabled.");
+      } else if (isVerifyToEnable) {
+        await authService.toggleGlobalAppLock(pin, true);
+        await refreshUser();
+        Alert.alert("Success", "Global App Lock enabled.");
       }
 
       handleSuccess();
     } catch (e: any) {
-      setError(e.response?.data?.message || "Invalid PIN");
+      const errMsg: string = e?.response?.data?.message || e?.message || 'Invalid PIN';
+      
+      // Backend auto-healed corrupt state (lock enabled but no PIN hash)
+      // The lock is now cleared server-side — treat it as success since they are now unlocked!
+      if (errMsg.toLowerCase().includes('not set up') || errMsg.toLowerCase().includes('lock has been disabled')) {
+        await refreshUser();
+        // Just let them through — whether they were disabling the lock, or trying to access the wallet,
+        // the lock is now gone so they are allowed to proceed.
+        handleSuccess();
+        return;
+      }
+
+      setError(errMsg);
       if (isSetup) {
         setSetupStep("enter");
         setFirstPin("");
@@ -138,29 +154,31 @@ export default function LockScreen() {
   const handleSuccess = () => {
     // For setup/disable flows, just go back to the existing screen (avoids
     // pushing a duplicate Settings screen onto the stack).
-    // For pure verify flows (e.g. unlocking wallet) replace with the target.
-    if (isSetup || isDisable) {
+    // For pure verify flows (e.g. unlocking wallet) navigate to target.
+    if (isSetup || isDisable || isVerifyToEnable) {
       navigation.goBack();
     } else if (returnScreen) {
-      navigation.replace(returnScreen);
+      // Tabs live in the parent (MainNavigator), so use getParent to navigate there
+      navigation.goBack(); // first close the lock screen
+      navigation.getParent()?.navigate(returnScreen as never);
     } else {
       navigation.goBack();
     }
   };
 
-  let title = mode === "app" ? "Enter App Lock PIN" : "Enter Wallet PIN";
-  let subtitle = "Please enter your 4-digit PIN to continue";
+  const title = isSetup
+    ? setupStep === "enter"
+      ? "Create a 4-digit PIN"
+      : "Confirm your PIN"
+    : isDisable
+      ? "Enter PIN to Disable App Lock"
+      : isVerifyToEnable
+        ? "Enter PIN to Enable App Lock"
+        : mode === "app" 
+          ? "Enter App Lock PIN" 
+          : "Enter Wallet PIN";
 
-  if (isSetup) {
-    title = setupStep === "enter" ? "Create PIN" : "Confirm PIN";
-    subtitle =
-      setupStep === "enter"
-        ? "Enter a new 4-digit PIN"
-        : "Re-enter your PIN to confirm";
-  } else if (isDisable) {
-    title = "Disable App Lock";
-    subtitle = "Enter your current PIN to disable";
-  }
+  const subtitle = "Please enter your 4-digit PIN to continue";
 
   const handleLogout = () => {
     Alert.alert(
@@ -179,7 +197,7 @@ export default function LockScreen() {
 
   return (
     <SafeAreaView
-      style={[styles.container, { backgroundColor: colors.bg.main }]}
+      style={[styles.container, { backgroundColor: colors.bg.base }]}
     >
       {navigation.canGoBack() && (
         <TouchableOpacity

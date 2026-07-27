@@ -9,7 +9,7 @@ const PUBLIC_FIELDS = [
 ].join(', ');
 
 const PRIVATE_FIELDS = [
-  'u.date_of_birth', 'u.avatar_url', 'u.banner_url', 'u.bio', 'u.website_url', 'u.role', 
+  'u.id', 'u.name', 'u.username', 'u.email', 'u.date_of_birth', 'u.avatar_url', 'u.banner_url', 'u.bio', 'u.website_url', 'u.role', 
  'u.is_active', 'u.follower_count', 'u.following_count', 'u.post_count',
   'u.email_verified_at', 'u.last_login_at', 'u.google_id', 'u.created_at', 'u.updated_at',
   'u.privacy', 'u.theme', 'u.apple_refresh_token', 'u.occupation', 'u.organization', 'u.location', 'u.interests'

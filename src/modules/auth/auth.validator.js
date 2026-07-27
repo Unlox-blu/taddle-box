@@ -73,7 +73,7 @@ const signupSchema = z.object({
   email: z.preprocess(transformToLowerCase, z.string().email('Invalid email address')),
   countryCode: z.string().min(1, "Phone number is required").regex(/^\+[0-9]{1,4}$/, "Country code contain digits followed by + only"),
   phone: z.string().min(3, "Phone number is required").regex(/^[0-9]{3,15}$/, "Phone number must contain digits only minimum 3 digits"),
-  password: passwordRules,
+  password: z.string().optional(),
   dateOfBirth: z.coerce.date({ errorMap: () => ({ message: 'Invalid date of birth' }) }).max(ageLimit, `You must be at least ${minAge} years old`),
   location: z.string().min(1, "Location is required"),
   latitude: z.coerce.number({ required_error: 'Latitude is required' }),
@@ -83,7 +83,16 @@ const signupSchema = z.object({
   organization: z.string().optional(),
   interests: z.preprocess(typeCheck, z.array(z.string()).min(3, "Please select at least 3 interests").default([])),
   socialToken: z.string().optional(),
-}).strict();
+}).strict().superRefine((data, ctx) => {
+  if (!data.socialToken) {
+    const result = passwordRules.safeParse(data.password);
+    if (!result.success) {
+      result.error.issues.forEach(issue => {
+        ctx.addIssue({ ...issue, path: ['password'] });
+      });
+    }
+  }
+});
 
 const loginSchema = z.object({
   email: z.preprocess(transformToLowerCase, z.string().email('Invalid email address')),

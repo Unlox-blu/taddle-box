@@ -190,6 +190,28 @@ const decrementFollowingCount = async (userId) => {
   }
 };
 
+const incrementPostCount = async (userId) => {
+  try {
+    await pool.query(
+      `UPDATE ${UserModel.TABLE} SET post_count = post_count + 1 WHERE id = $1`,
+      [userId]
+    );
+  } catch (error) {
+    throw error;
+  }
+};
+
+const decrementPostCount = async (userId) => {
+  try {
+    await pool.query(
+      `UPDATE ${UserModel.TABLE} SET post_count = GREATEST(0, post_count - 1) WHERE id = $1`,
+      [userId]
+    );
+  } catch (error) {
+    throw error;
+  }
+};
+
 
 
 
@@ -239,14 +261,28 @@ const createWithGoogle = async ({ name, username, email, googleId, googleAvatar 
   }
 };
 
-const updateAppLock = async (userId, pin) => {
+const updateAppLock = async (userId, pin, enableGlobal = null) => {
   try {
-    const isEnabled = pin !== null;
+    // If enableGlobal is true/false, it will set app_lock_enabled to that value.
+    // If enableGlobal is null, it preserves the existing app_lock_enabled state.
     await pool.query(
       `UPDATE ${UserModel.TABLE} 
-      SET app_lock = $1, app_lock_enabled = $3, updated_at = NOW() 
+      SET app_lock = $1, app_lock_enabled = COALESCE($3, app_lock_enabled), updated_at = NOW() 
       WHERE id = $2`,
-      [pin, userId, isEnabled]
+      [pin, userId, enableGlobal]
+    )
+  } catch (error) {
+    throw error
+  }
+}
+
+const toggleAppLockEnabled = async (userId, isEnabled) => {
+  try {
+    await pool.query(
+      `UPDATE ${UserModel.TABLE}
+       SET app_lock_enabled = $1, updated_at = NOW()
+       WHERE id = $2`,
+      [isEnabled, userId]
     )
   } catch (error) {
     throw error
@@ -530,6 +566,7 @@ module.exports = {
   createWithGoogle,
   updateProfile,
   updateAppLock,
+  toggleAppLockEnabled,
   getAppLock,
   removeAppLock,
   findAvatarAndBanner,
@@ -553,6 +590,8 @@ module.exports = {
   decrementFollowerCount,
   incrementFollowingCount,
   decrementFollowingCount,
+  incrementPostCount,
+  decrementPostCount,
   softDelete,
   hardDelete,
   search,

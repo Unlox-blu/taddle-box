@@ -21,6 +21,8 @@ const createCommunitySchema = z.object({
   privacy: z.enum(PRIVACY_TYPES).default('public'),
   category: z.preprocess(typeCheck ,z.array(z.string().max(50)).max(5).default([])),
   rules: z.preprocess(typeCheck, z.array(z.object({ title: z.string(), description: z.string() })).max(20)).optional(),
+  avatarMediaId: z.preprocess(val => val === '' ? undefined : val, z.string().uuid({ message: 'Invalid avatar media ID format' }).optional()),
+  bannerMediaId: z.preprocess(val => val === '' ? undefined : val, z.string().uuid({ message: 'Invalid banner media ID format' }).optional()),
 }).strict();
 
 const updateCommunitySchema = createCommunitySchema.partial();

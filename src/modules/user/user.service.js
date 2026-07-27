@@ -22,11 +22,36 @@ class UserService {
       const user = await this.userRepo.findByUsername(username);
       if (!user) throw createError('User not found', 404);
 
+      let finalUser = user;
       if (userId && userId === user.id) {
-        const privateUser = await this.userRepo.findByIdPrivate(user.id);
-        return privateUser;
+        finalUser = await this.userRepo.findByIdPrivate(user.id);
       }
-      return user;
+
+      // Aggregate XP, Level, Rank
+      try {
+        const pool = require('../../config/database');
+        
+        // Fetch XP
+        const xpRes = await pool.query(`SELECT xp FROM xp WHERE user_id = $1`, [finalUser.id]);
+        const xp = xpRes.rows[0] ? parseInt(xpRes.rows[0].xp, 10) : 0;
+        finalUser.xp = xp;
+        finalUser.level = Math.floor(xp / 1000) + 1;
+        finalUser.rank = finalUser.level > 10 ? 'Pro' : finalUser.level > 5 ? 'Intermediate' : 'Beginner';
+        finalUser.xpToNext = finalUser.level * 1000;
+
+        // Fetch communities count
+        const commRes = await pool.query(`SELECT COUNT(*) FROM community_members WHERE user_id = $1`, [finalUser.id]);
+        finalUser.communitiesJoinedCount = parseInt(commRes.rows[0].count, 10);
+        
+        // Badges placeholder (could query from a badges table if it exists)
+        finalUser.badges = [];
+        if (xp > 500) finalUser.badges.push({ id: 1, name: 'Active User', emoji: '🔥', color: 'purple' });
+        
+      } catch (err) {
+        console.error('Error fetching aggregated profile stats:', err);
+      }
+
+      return finalUser;
     } catch (error) {
       throw error;
     }
@@ -310,22 +335,33 @@ class UserService {
     }
   }
 
-  async setupAppLock({ userId, pin }) {
+  async setupAppLock({ userId, pin, enableGlobal }) {
     if (!pin || pin.length !== 4) throw createError('PIN must be 4 digits', 400);
     const hash = await bcrypt.hash(pin, 10);
-    await this.userRepo.updateAppLock(userId, hash);
+    await this.userRepo.updateAppLock(userId, hash, enableGlobal);
     return { message: 'App lock PIN set successfully' };
   }
 
   async verifyAppLock({ userId, pin }) {
     if (!pin) throw createError('PIN is required', 400);
     const appLock = await this.userRepo.getAppLock(userId);
-    if (!appLock) throw createError('App lock is not set up', 400);
+    if (!appLock) {
+      // Corrupt state: lock is enabled but no PIN hash — auto-heal by disabling the lock
+      await this.userRepo.removeAppLock(userId);
+      throw createError('App lock PIN not set up. Lock has been disabled — please set up a new PIN.', 400);
+    }
     
     const isValid = await bcrypt.compare(pin, appLock);
     if (!isValid) throw createError('Invalid PIN', 401);
     
     return { valid: true };
+  }
+
+  async toggleAppLockEnabled({ userId, pin, isEnabled }) {
+    // Verify PIN first
+    await this.verifyAppLock({ userId, pin });
+    await this.userRepo.toggleAppLockEnabled(userId, isEnabled);
+    return { message: `Global App Lock ${isEnabled ? 'enabled' : 'disabled'}` };
   }
 
   async resetAppLock({ userId, password, newPin }) {
@@ -352,13 +388,17 @@ class UserService {
     if (!pin) throw createError('PIN is required', 400);
     
     const appLock = await this.userRepo.getAppLock(userId);
-    if (!appLock) throw createError('App lock is not set up', 400);
+    if (!appLock) {
+      // Nothing to remove — just ensure app_lock_enabled is false and return success
+      await this.userRepo.removeAppLock(userId);
+      return { message: 'App lock cleared' };
+    }
 
     const isValid = await bcrypt.compare(pin, appLock);
     if (!isValid) throw createError('Invalid PIN', 401);
 
-    // Set app_lock to NULL
-    await this.userRepo.updateAppLock(userId, null);
+    // Wipe PIN hash and disable lock
+    await this.userRepo.removeAppLock(userId);
     return { message: 'App lock PIN removed successfully' };
   }
 }

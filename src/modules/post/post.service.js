@@ -36,6 +36,7 @@ class PostService {
 
       this.feedSvc.updatePreferences({userId: authorId, categories: data.category || [], tags: data.tags || []}).catch(err => console.error('Feed pref update failed:', err));
       this.taskSvc.incrementPostCount({userId: authorId}).catch(err => console.error('Task increment failed:', err));
+      this.userRepo.incrementPostCount(authorId).catch(err => console.error('User post increment failed:', err));
       if (communityId) {
         this.communityRepo.incrementPostCount(communityId).catch(err => console.error('Community post increment failed:', err));
       }
@@ -148,6 +149,7 @@ class PostService {
       const isMod = ['admin', 'moderator', 'superadmin'].includes(userRole);
       if (!isOwner && !isMod) throw createError('Not authorized to delete this post', 403);
       await this.postRepo.softDelete(postId);
+      this.userRepo.decrementPostCount(post.author_id).catch(err => console.error('User post decrement failed:', err));
       if (post.community_id) {
         this.communityRepo.decrementPostCount(post.community_id).catch(err => console.error('Community post decrement failed:', err));
       }
@@ -272,8 +274,10 @@ class PostService {
         throw createError('Not authorized to delete this post', 403);
 
       const post = await this.postRepo.findById(postId);
+      if (!post) throw createError('Post not found', 404);
       await this.postRepo.hardDelete(postId);
-      if (post && post.community_id) {
+      this.userRepo.decrementPostCount(post.author_id).catch(err => console.error('User post decrement failed:', err));
+      if (post.community_id) {
         this.communityRepo.decrementPostCount(post.community_id).catch(err => console.error('Community post decrement failed:', err));
       }
     } catch (error) {

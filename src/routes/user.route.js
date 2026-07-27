@@ -21,6 +21,7 @@ router.post('/pin/setup',                   verifyToken,                        
 router.post('/pin/verify',                  verifyToken,                                                    userController.verifyAppLock);
 router.post('/pin/reset',                   verifyToken,                                                    userController.resetAppLock);
 router.post('/pin/remove',                  verifyToken,                                                    userController.removeAppLock);
+router.post('/pin/toggle-global',           verifyToken,                                                    userController.toggleAppLock);
 
 // follow/unfollow routes
 router.get('/:username',                    optionalAuth,    validateRequest({params: usernameSchema}),     userController.getProfile);

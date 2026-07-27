@@ -176,8 +176,8 @@ class UserController {
   setupAppLock = async (req, res, next) => {
     try {
       const userId = req.userId;
-      const { pin } = req.body;
-      const result = await this.userSvc.setupAppLock({ userId, pin });
+      const { pin, enableGlobal } = req.body;
+      const result = await this.userSvc.setupAppLock({ userId, pin, enableGlobal });
       res.json(apiResponse(result, 'PIN setup successfully'));
     } catch (error) {
       next(error);
@@ -201,6 +201,17 @@ class UserController {
       const { password, newPin } = req.body;
       const result = await this.userSvc.resetAppLock({ userId, password, newPin });
       res.json(apiResponse(result, 'PIN reset successfully'));
+    } catch (error) {
+      next(error);
+    }
+  };
+
+  toggleAppLock = async (req, res, next) => {
+    try {
+      const userId = req.userId;
+      const { pin, isEnabled } = req.body;
+      const result = await this.userSvc.toggleAppLockEnabled({ userId, pin, isEnabled });
+      res.json(apiResponse(result, `Global App Lock ${isEnabled ? 'enabled' : 'disabled'}`));
     } catch (error) {
       next(error);
     }

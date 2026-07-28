@@ -9,7 +9,7 @@ CREATE TABLE IF NOT EXISTS users (
                               CHECK (country_code ~ '^\+[0-9]{1,4}$'),
   phone_number              VARCHAR(20)  UNIQUE
                               CHECK (phone_number ~ '^[0-9]{3,15}$'),
-  date_of_birth             DATE
+  date_of_birth             DATE,
   gender                    VARCHAR(20) 
                               CHECK (gender IN ('male', 'female', 'other')),
   password_hash             TEXT,

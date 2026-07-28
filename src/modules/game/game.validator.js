@@ -26,6 +26,14 @@ const matchIdParamSchema  = z.object({
   matchId: z.string().uuid({ message: "Invalid match ID format" }),
 }).strict();
 
+const tournamentIdParamSchema  = z.object({
+  tournamentId: z.string().uuid({ message: "Invalid tournament ID format" }),
+}).strict();
+
+const ticketIdParamSchema  = z.object({
+  ticketId: z.string().uuid({ message: "Invalid matchmaking ticket ID format" }),
+}).strict();
+
 const searchSchema = z.object({
   query: z.string().default(''),
   page: z.coerce
@@ -75,16 +83,27 @@ const updateMatchSchema = z.object({
   result : z.enum(RESULT_TYPE, {
             error_map: () => ({ message: `Result must be one of: ${RESULT_TYPE.join(', ')}` })
           }),
-  score: z.number().nonnegative({ message: "Score cannot be negative" }),
-  duration: z.number().nonnegative({ message: "Duration cannot be negative" }),
-  xpEarned: z.number().nonnegative({ message: "xpEarned cannot be negative" }),
+	  score: z.coerce.number().nonnegative({ message: "Score cannot be negative" }),
+	  duration: z.coerce.number().nonnegative({ message: "Duration cannot be negative" }),
+	  xpEarned: z.coerce.number().nonnegative({ message: "xpEarned cannot be negative" }).optional().default(0),
+		})
+
+const joinMatchmakingSchema = z.object({
+  gameId: z.string().uuid({ message: 'Invalid game ID format' }),
+  mode : z.enum(['QUICK', 'TOURNAMENT'], {
+            error_map: () => ({ message: "Mode must be QUICK or TOURNAMENT" })
+          }),
+  tournamentId: z.string().uuid({ message: 'Invalid tournament ID format' }).optional(),
 })
 
 module.exports = {
   gameIdParamSchema,
   matchIdParamSchema,
+  tournamentIdParamSchema,
+  ticketIdParamSchema,
   searchSchema,
   paginationSchema,
   createMatchSchema,
   updateMatchSchema,
+  joinMatchmakingSchema,
 };

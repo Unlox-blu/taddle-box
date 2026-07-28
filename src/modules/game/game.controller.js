@@ -87,7 +87,7 @@ class GameController {
     }
   };
 
-  getGameStats = async (req, res, next) => {
+	  getGameStats = async (req, res, next) => {
     try {
       const userId = req.userId;
       const gameStats = await this.gameSvc.getGameStats({userId});
@@ -95,7 +95,72 @@ class GameController {
     } catch (error) {
       next(error);
     }
-  };
+	  };
+
+	  getLeaderboard = async (req, res, next) => {
+	    try {
+	      const { limit, offset, page } = getPaginationParams(req.query);
+	      const { leaderboard, total } = await this.gameSvc.getLeaderboard({limit, offset});
+	      res.json(apiResponse(leaderboard, "game leaderboard fetched successfuly", paginationMeta(total, page, limit)));
+	    } catch (error) {
+	      next(error);
+	    }
+	  };
+
+	  getTournaments = async (req, res, next) => {
+	    try {
+	      const userId = req.userId;
+	      const { limit, offset, page } = getPaginationParams(req.query);
+	      const { tournaments, total } = await this.gameSvc.getTournaments({userId, limit, offset});
+	      res.json(apiResponse(tournaments, "game tournaments fetched successfuly", paginationMeta(total, page, limit)));
+	    } catch (error) {
+	      next(error);
+	    }
+	  };
+
+	  joinTournament = async (req, res, next) => {
+	    try {
+	      const userId = req.userId;
+	      const { tournamentId } = req.params;
+	      const tournament = await this.gameSvc.joinTournament({userId, tournamentId});
+	      res.json(apiResponse(tournament, "game tournament joined successfuly"));
+	    } catch (error) {
+	      next(error);
+	    }
+	  };
+
+	  joinMatchmaking = async (req, res, next) => {
+	    try {
+	      const userId = req.userId;
+	      const matchData = req.body;
+	      const result = await this.gameSvc.joinMatchmaking({userId, matchData});
+	      res.json(apiResponse(result, "matchmaking updated successfuly"));
+	    } catch (error) {
+	      next(error);
+	    }
+	  };
+
+	  getMatchmakingTicket = async (req, res, next) => {
+	    try {
+	      const userId = req.userId;
+	      const { ticketId } = req.params;
+	      const ticket = await this.gameSvc.getMatchmakingTicket({userId, ticketId});
+	      res.json(apiResponse(ticket, "matchmaking ticket fetched successfuly"));
+	    } catch (error) {
+	      next(error);
+	    }
+	  };
+
+	  cancelMatchmakingTicket = async (req, res, next) => {
+	    try {
+	      const userId = req.userId;
+	      const { ticketId } = req.params;
+	      const ticket = await this.gameSvc.cancelMatchmakingTicket({userId, ticketId});
+	      res.json(apiResponse(ticket, "matchmaking ticket cancelled successfuly"));
+	    } catch (error) {
+	      next(error);
+	    }
+	  };
 
   createGameStats = async (req, res, next) => {
     try {

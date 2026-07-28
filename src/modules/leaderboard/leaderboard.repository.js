@@ -1,0 +1,153 @@
+'use strict';
+
+const pool = require('../../config/database');
+
+const REWARDS = [500, 300, 150];
+
+const withRewards = (rows, type) =>
+  rows.map((row, index) => ({
+    rank: index + 1,
+    type,
+    id: row.id,
+    title: row.title,
+    subtitle: row.subtitle,
+    avatarUrl: row.avatar_url || null,
+    score: Number(row.score || 0),
+    metricLabel: row.metric_label,
+    rewardXP: REWARDS[index] || 0,
+  }));
+
+const getFeedLeaderboard = async ({limit}) => {
+  const {rows} = await pool.query(
+    `SELECT
+      u.id,
+      u.name AS title,
+      '@' || u.username AS subtitle,
+      avatar_media.cloudfront_url AS avatar_url,
+      COALESCE(SUM(p.likes_count * 3 + p.comments_count * 5 + p.views_count), 0)::INT AS score,
+      'Feed impact' AS metric_label
+    FROM users u
+    JOIN posts p ON p.author_id = u.id
+    LEFT JOIN media AS avatar_media ON avatar_media.id = u.avatar_url
+    WHERE p.status = 'published'
+      AND p.deleted_at IS NULL
+      AND p.created_at >= date_trunc('week', NOW())
+      AND u.deleted_at IS NULL
+    GROUP BY u.id, u.name, u.username, avatar_media.cloudfront_url
+    ORDER BY score DESC, u.name ASC
+    LIMIT $1`,
+    [limit]
+  );
+
+  return withRewards(rows, 'feed');
+};
+
+const getCommunityLeaderboard = async ({limit}) => {
+  const {rows} = await pool.query(
+    `SELECT
+      c.id,
+      c.name AS title,
+      COALESCE(array_to_string(c.category, ', '), 'Community') AS subtitle,
+      avatar_media.cloudfront_url AS avatar_url,
+      (
+        COALESCE(COUNT(DISTINCT cm.user_id), 0) * 4 +
+        COALESCE(COUNT(DISTINCT p.id), 0) * 8 +
+        c.member_count
+      )::INT AS score,
+      'Community growth' AS metric_label
+    FROM communities c
+    LEFT JOIN community_members cm
+      ON cm.community_id = c.id
+      AND cm.status = 'active'
+      AND cm.joined_at >= date_trunc('week', NOW())
+    LEFT JOIN posts p
+      ON p.community_id = c.id
+      AND p.status = 'published'
+      AND p.deleted_at IS NULL
+      AND p.created_at >= date_trunc('week', NOW())
+    LEFT JOIN media AS avatar_media ON avatar_media.id = c.avatar_url
+    WHERE c.is_active = TRUE AND c.deleted_at IS NULL
+    GROUP BY c.id, c.name, c.category, c.member_count, avatar_media.cloudfront_url
+    ORDER BY score DESC, c.member_count DESC, c.name ASC
+    LIMIT $1`,
+    [limit]
+  );
+
+  return withRewards(rows, 'community');
+};
+
+const getGamesLeaderboard = async ({limit}) => {
+  const {rows} = await pool.query(
+    `SELECT
+      u.id,
+      u.name AS title,
+      '@' || u.username AS subtitle,
+      avatar_media.cloudfront_url AS avatar_url,
+      COALESCE(SUM(gm.xp_earned + gm.score), 0)::INT AS score,
+      'Game score' AS metric_label
+    FROM users u
+    JOIN game_match gm ON gm.user_id = u.id
+    LEFT JOIN media AS avatar_media ON avatar_media.id = u.avatar_url
+    WHERE gm.result IS NOT NULL
+      AND gm.created_at >= date_trunc('week', NOW())
+      AND u.deleted_at IS NULL
+    GROUP BY u.id, u.name, u.username, avatar_media.cloudfront_url
+    ORDER BY score DESC, u.name ASC
+    LIMIT $1`,
+    [limit]
+  );
+
+  return withRewards(rows, 'games');
+};
+
+const getEventsLeaderboard = async ({limit}) => {
+  const {rows} = await pool.query(
+    `SELECT
+      e.id,
+      e.title,
+      COALESCE(u.name, 'Organizer') AS subtitle,
+      NULL AS avatar_url,
+      (
+        COALESCE(COUNT(ea.user_id), 0) * 5 +
+        e.attendee_count
+      )::INT AS score,
+      'Event traction' AS metric_label
+    FROM events e
+    JOIN users u ON u.id = e.organizer_id
+    LEFT JOIN event_attendees ea
+      ON ea.event_id = e.id
+      AND ea.status IN ('registered', 'attended')
+      AND ea.registered_at >= date_trunc('week', NOW())
+    WHERE e.deleted_at IS NULL
+      AND e.status IN ('upcoming', 'ongoing', 'completed')
+      AND e.created_at >= date_trunc('week', NOW())
+    GROUP BY e.id, e.title, u.name, e.attendee_count
+    ORDER BY score DESC, e.attendee_count DESC, e.start_time ASC
+    LIMIT $1`,
+    [limit]
+  );
+
+  return withRewards(rows, 'events');
+};
+
+const getWeeklyLeaderboards = async ({limit}) => {
+  const [feed, community, games, events] = await Promise.all([
+    getFeedLeaderboard({limit}),
+    getCommunityLeaderboard({limit}),
+    getGamesLeaderboard({limit}),
+    getEventsLeaderboard({limit}),
+  ]);
+
+  return {
+    weekStart: new Date().toISOString(),
+    rewards: REWARDS,
+    feed,
+    community,
+    games,
+    events,
+  };
+};
+
+module.exports = {
+  getWeeklyLeaderboards,
+};

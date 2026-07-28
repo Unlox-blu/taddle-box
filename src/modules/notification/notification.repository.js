@@ -3,6 +3,8 @@
 const pool = require('../../config/database');
 const NotificationModel = require('./notification.model');
 
+const isMissingRelation = (error) => error?.code === '42P01';
+
 const createNotification = async (data) => {
   try {
     const { rows } = await pool.query(
@@ -22,12 +24,14 @@ const createNotification = async (data) => {
     );
     return NotificationModel.format(rows[0]);
   } catch (error) {
+    if (isMissingRelation(error)) return null;
     throw error;
   }
 };
 
 const createBatchNotification = async (data) => {
-  const { rows } = await pool.query(
+  try {
+    const { rows } = await pool.query(
       `INSERT INTO ${NotificationModel.NOTIFICATION_BATCH_TABLE}
        (recipient_id, sender_id, type, title, resource_type, resource_id)
      VALUES ($1,$2,$3,$4,$5,$6)
@@ -42,6 +46,10 @@ const createBatchNotification = async (data) => {
       ]
     );
     return NotificationModel.format(rows[0]);
+  } catch (error) {
+    if (isMissingRelation(error)) return null;
+    throw error;
+  }
 }
 
 const addToBatchNotification = async ({recipientId, senderId, resourceId}) => {
@@ -60,6 +68,7 @@ const addToBatchNotification = async ({recipientId, senderId, resourceId}) => {
       [senderId, recipientId, resourceId]
     );
   } catch (error) {
+    if (isMissingRelation(error)) return;
     console.log(error)
     throw error
   }
@@ -82,6 +91,7 @@ const findByUser = async (userId, limit, offset, unreadOnly = false) => {
     const notifications = rows.map(NotificationModel.format)
     return { notifications, total: parseInt(total, 10) };
   } catch (error) {
+    if (isMissingRelation(error)) return { notifications: [], total: 0 };
     throw error;
   }
 };
@@ -95,6 +105,7 @@ const markOneRead = async (notificationId, userId) => {
       [notificationId, userId]
     );
   } catch (error) {
+    if (isMissingRelation(error)) return;
     throw error;
   }
 };
@@ -108,6 +119,7 @@ const markAllRead = async (userId) => {
       [userId]
     );
   } catch (error) {
+    if (isMissingRelation(error)) return;
     throw error;
   }
 };
@@ -122,6 +134,7 @@ const getUnreadCount = async (userId) => {
     );
     return parseInt(rows[0]?.count || 0, 10);
   } catch (error) {
+    if (isMissingRelation(error)) return 0;
     throw error;
   }
 };

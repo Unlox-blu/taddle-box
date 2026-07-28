@@ -67,7 +67,7 @@ class NotificationService {
   }
 
   async ensurePreferences(userId) {
-    const existing = await this.notifRepo.findByUserId(userId);
+    const existing = await this.notifRepo.findPreferenceByUserId(userId);
     if (existing) return existing;
     return this.notifRepo.createDefaultPreferences(userId);
   }

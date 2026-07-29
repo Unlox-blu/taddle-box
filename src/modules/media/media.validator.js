@@ -4,6 +4,7 @@ const { z } = require('zod');
 
 const ALLOWED_FOLDERS = ['avatars', 'banners', 'posts', 'communities', 'events'];
 const MAX_IMAGE_BYTES = parseInt(process.env.MAX_FILE_SIZE_MB || '10') * 1024 * 1024;
+const MAX_VIDEO_BYTES = parseInt(process.env.MAX_VIDEO_SIZE_MB || '500') * 1024 * 1024;
 
 const getSignedUrlSchema = z.object({
   folder: z.enum(ALLOWED_FOLDERS, {
@@ -14,10 +15,10 @@ const getSignedUrlSchema = z.object({
     .number({ invalid_type_error: 'File size must be a valid number' })
     .int()
     .positive({ message: 'File size must be a positive number' })
-    .max(MAX_IMAGE_BYTES, { message: `File size exceeds the maximum limit of ${process.env.MAX_FILE_SIZE_MB || '10'}MB` }),
+    .max(MAX_VIDEO_BYTES, { message: `File size exceeds the maximum limit of ${process.env.MAX_VIDEO_SIZE_MB || '500'}MB` }),
 
-  mimetype: z.string().regex(/^(image\/(jpeg|png|webp|gif)|audio\/(mpeg|mp3|wav|ogg|aac|mp4|webm))$/, {
-    message: "Invalid file type. Only JPEG, PNG, WEBP, GIF images and standard audio files are allowed"
+  mimetype: z.string().regex(/^(image\/(jpeg|png|webp|gif)|audio\/(mpeg|mp3|wav|ogg|aac|mp4|webm)|video\/(mp4|mov|webm|m4v|quicktime))$/, {
+    message: "Invalid file type. Only JPEG, PNG, WEBP, GIF images, standard audio and video files are allowed"
   }),
   width: z.number().int().positive().optional(),
   height: z.number().int().positive().optional()

@@ -29,17 +29,29 @@ class MediaService {
       }
       
       if (!ALLOWED_FOLDERS.includes(folder)) throw createError("Upload folder is not allowed", 400);
-      if (fileSize > MAX_IMAGE_BYTES)
-        throw createError(`File size exceeds ${process.env.MAX_FILE_SIZE_MB || 10}MB limit`, 400);
+      const typePrefix = mimetype.split('/')[0]; // 'image', 'audio', 'video'
+      
+      const isVideo = typePrefix === 'video';
+      const maxAllowedBytes = isVideo ? MAX_VIDEO_BYTES : MAX_IMAGE_BYTES;
+      const maxAllowedMB = isVideo 
+        ? (process.env.MAX_VIDEO_SIZE_MB || 500) 
+        : (process.env.MAX_FILE_SIZE_MB || 10);
+
+      if (fileSize > maxAllowedBytes) {
+        throw createError(`File size exceeds ${maxAllowedMB}MB limit`, 400);
+      }
       
       const s3Key = this.storageSvc.generateS3Key(folder, userId, mimetype);
       const signedUrl = await this.storageSvc.getSignedUploadUrl(s3Key, mimetype, fileSize);
+      
+      let finalMediaType = 'image';
+      if (typePrefix === 'audio') finalMediaType = 'audio';
+      if (typePrefix === 'video') finalMediaType = 'video';
 
-      const typePrefix = mimetype.split('/')[0]; // 'image' or 'audio'
       const media = await this.mediaRepo.create({
         postId: postId || null,
         uploaderId: userId,
-        mediaType: typePrefix === 'audio' ? 'audio' : 'image',
+        mediaType: finalMediaType,
         s3Key,
         mimeType: mimetype,
         sizeBytes: fileSize,

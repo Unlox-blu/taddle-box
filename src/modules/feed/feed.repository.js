@@ -35,7 +35,12 @@ const getPersonalizedPosts = async (userId, followingIds, prefCategory, prefTags
      LEFT JOIN media m ON p.id = m.post_id
      WHERE p.deleted_at IS NULL
        AND p.status = 'published'
-       AND p.visibility = 'public'
+       AND p.visibility IN ('public', 'community_only')
+       AND (
+           p.community_id IS NULL 
+           OR c.privacy = 'public' 
+           OR EXISTS (SELECT 1 FROM community_members cm WHERE cm.community_id = p.community_id AND cm.user_id = $1 AND cm.status = 'active')
+       )
        AND p.id <> ALL($3::uuid[])
        AND (p.author_id = ANY($2::uuid[]) OR p.author_id != $1 OR p.category && $4 OR p.tags && $5)
      GROUP BY p.id, u.id, ua.id, c.id, ca.id

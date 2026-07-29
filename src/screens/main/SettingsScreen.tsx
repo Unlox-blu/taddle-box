@@ -30,6 +30,26 @@ import type { HomeStackParamList } from "../../types";
 
 type NavProp = NativeStackNavigationProp<HomeStackParamList, "Settings">;
 
+const maskEmail = (email?: string) => {
+  if (!email) return "Not linked";
+  const [local, domain] = email.split("@");
+  if (!domain) return email;
+  if (local.length <= 2) {
+    return `${local.substring(0, 1)}*@${domain}`;
+  }
+  return `${local.substring(0, 2)}***${local.substring(local.length - 1)}@${domain}`;
+};
+
+const maskPhone = (phone?: string, countryCode?: string) => {
+  if (!phone) return "Not linked";
+  const full = countryCode ? `${countryCode}${phone}` : phone;
+  if (full.length <= 4) return full;
+  const start = full.substring(0, 3);
+  const end = full.substring(full.length - 2);
+  const stars = '*'.repeat(Math.max(1, full.length - 5));
+  return `${start}${stars}${end}`;
+};
+
 export default function SettingsScreen() {
   const { user: CURRENT_USER, signOut } = useAuth();
   const insets = useSafeAreaInsets();
@@ -147,30 +167,52 @@ export default function SettingsScreen() {
   };
 
   const handleDeleteAccount = () => {
-    Alert.prompt(
-      "Delete Account",
-      "This action is permanent and cannot be undone. Type 'DELETE' to confirm.",
-      [
-        { text: "Cancel", style: "cancel" },
-        {
-          text: "Delete",
-          style: "destructive",
-          onPress: async (text?: string) => {
-            if (text !== "DELETE") {
-              Alert.alert("Error", "You must type DELETE to confirm.");
-              return;
-            }
-            try {
-              await authService.deleteAccount();
-              await signOut();
-            } catch (e: any) {
-              Alert.alert("Error", e.message || "Failed to delete account");
-            }
+    if (Platform.OS === 'ios') {
+      Alert.prompt(
+        "Delete Account",
+        "This action is permanent and cannot be undone. Type 'DELETE' to confirm.",
+        [
+          { text: "Cancel", style: "cancel" },
+          {
+            text: "Delete",
+            style: "destructive",
+            onPress: async (text?: string) => {
+              if (text !== "DELETE") {
+                Alert.alert("Error", "You must type DELETE to confirm.");
+                return;
+              }
+              try {
+                await authService.deleteAccount();
+                await signOut();
+              } catch (e: any) {
+                Alert.alert("Error", e.message || "Failed to delete account");
+              }
+            },
           },
-        },
-      ],
-      "plain-text",
-    );
+        ],
+        "plain-text",
+      );
+    } else {
+      Alert.alert(
+        "Delete Account",
+        "This action is permanent and cannot be undone. Are you absolutely sure you want to delete your account?",
+        [
+          { text: "Cancel", style: "cancel" },
+          {
+            text: "Delete",
+            style: "destructive",
+            onPress: async () => {
+              try {
+                await authService.deleteAccount();
+                await signOut();
+              } catch (e: any) {
+                Alert.alert("Error", e.message || "Failed to delete account");
+              }
+            },
+          },
+        ]
+      );
+    }
   };
 
   const handleLanguagePicker = () => {
@@ -319,7 +361,6 @@ export default function SettingsScreen() {
                 navigation.navigate("LockScreen", {
                   mode: "app",
                   isSetup: false,
-                  isVerifyToEnable: true,
                   returnScreen: "Settings",
                 });
               } else {
@@ -350,13 +391,13 @@ export default function SettingsScreen() {
           <SettingsRow
             icon="call-outline"
             label="Phone"
-            value={CURRENT_USER?.phone ? `${CURRENT_USER.phone}` : "Not linked"}
+            value={(CURRENT_USER?.phone || CURRENT_USER?.phoneNumber) ? maskPhone((CURRENT_USER?.phone || CURRENT_USER?.phoneNumber), CURRENT_USER.countryCode) : "Not linked"}
             onPress={() => navigation.navigate("ChangePhone")}
           />
           <SettingsRow
             icon="mail-outline"
             label="Email"
-            value={CURRENT_USER?.email ?? "Not linked"}
+            value={CURRENT_USER?.email ? maskEmail(CURRENT_USER.email) : "Not linked"}
             onPress={() => navigation.navigate("ChangeEmail")}
             last
           />

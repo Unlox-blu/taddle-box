@@ -6,6 +6,7 @@ export type HomeStackParamList = {
   UserProfile:    { user: User };
   StoryViewer:    { stories: Story[]; initialIndex: number };
   Bookmarks:      undefined;
+  Leaderboards:   undefined;
   Settings:       undefined;
   EditProfile:    undefined;
   Terms:          undefined;
@@ -52,8 +53,12 @@ export type RootStackParamList = {
 export interface User {
   id: string;
   name: string;
+  email?: string;
   handle: string;
   username?: string;
+  countryCode?: string;
+  phone?: string;
+  phoneNumber?: string;
   avatarUrl?: string;
   avatar: string;
   level: number;
@@ -146,7 +151,6 @@ export interface Game {
   name: string;
   emoji: string;
   gradient: [string, string];
-  playersOnline: number;
   maxXp: number;
   isHot: boolean;
 }

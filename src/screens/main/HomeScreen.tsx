@@ -39,6 +39,18 @@ type HomeNavProp = NativeStackNavigationProp<HomeStackParamList, "HomeMain">;
 
 const WEEK_LABELS = ["M", "T", "W", "T", "F", "S", "S"];
 const TODAY_INDEX = new Date().getDay() === 0 ? 6 : new Date().getDay() - 1; // 0 is Monday, 6 is Sunday
+const getTodayKey = () => new Date().toISOString().split('T')[0];
+
+const isSameLocalDay = (dateString?: string | null) => {
+  if (!dateString) return false;
+  const date = new Date(dateString);
+  const today = new Date();
+  return (
+    date.getFullYear() === today.getFullYear() &&
+    date.getMonth() === today.getMonth() &&
+    date.getDate() === today.getDate()
+  );
+};
 
 const calculateCompletedDays = (streakCount: number, endDateString?: string | null): number[] => {
   if (!endDateString || streakCount <= 0) return [];
@@ -76,6 +88,7 @@ export default function HomeScreen() {
   const [completedDays, setCompletedDays] = useState<number[]>([]);
   const [unreadCount, setUnreadCount] = useState(0);
   const [localXP, setLocalXP] = useState(CURRENT_USER?.xp || 0);
+  const [hasDailyReward, setHasDailyReward] = useState(false);
 
   // Sync XP if CURRENT_USER changes
   useEffect(() => {
@@ -152,6 +165,26 @@ export default function HomeScreen() {
         setUnreadCount(notifRes.meta.unreadCount);
       }
 
+      const todayKey = getTodayKey();
+      let localClaimedToday = false;
+      try {
+        localClaimedToday = (await AsyncStorage.getItem('lastDailyClaim')) === todayKey;
+      } catch (e) {}
+
+      let serverClaimedToday = false;
+      try {
+        const txRes = await xpService.getTransactions(1, 20);
+        const transactions = Array.isArray(txRes?.data) ? txRes.data : [];
+        serverClaimedToday = transactions.some((tx: any) =>
+          tx?.sourceType === 'Daily Login' && isSameLocalDay(tx?.createdAt)
+        );
+        if (serverClaimedToday) {
+          AsyncStorage.setItem('lastDailyClaim', todayKey).catch(() => {});
+        }
+      } catch (e) {}
+
+      setHasDailyReward(!localClaimedToday && !serverClaimedToday);
+
       fetchFeed(true);
 
       hashtagService
@@ -170,16 +203,6 @@ export default function HomeScreen() {
     }
   };
 
-  const [hasDailyReward, setHasDailyReward] = useState(true);
-
-  useEffect(() => {
-    AsyncStorage.getItem('lastDailyClaim').then(date => {
-      if (date === new Date().toISOString().split('T')[0]) {
-        setHasDailyReward(false);
-      }
-    }).catch(() => {});
-  }, []);
-
   // XP fly-to-card animation
   const xpCardRef = useRef<View>(null);
   const xpBounceAnim = useRef(new Animated.Value(1)).current;
@@ -190,9 +213,15 @@ export default function HomeScreen() {
   const handleRewardClaim = useCallback(
     async (fromX: number, fromY: number) => {
       try {
-        await xpService.creditXP(50, "bonus", "Daily Login");
+        const res = await xpService.creditXP(50, "bonus", "Daily Login");
+        AsyncStorage.setItem('lastDailyClaim', getTodayKey()).catch(() => {});
+
+        if (res?.data?.alreadyClaimed || res?.alreadyClaimed) {
+          setHasDailyReward(false);
+          return;
+        }
+
         setLocalXP((prev: number) => prev + 50);
-        AsyncStorage.setItem('lastDailyClaim', new Date().toISOString().split('T')[0]).catch(() => {});
 
         xpCardRef.current?.measure((_, __, w, h, px, py) => {
           const toX = px + w / 2 - 30;

@@ -2,10 +2,9 @@ import { apiClient } from './apiClient';
 import type { User } from '../types';
 
 export const authService = {
-  login: async (email: string, password?: string) => {
-    // Assuming backend takes email/password or something similar
-    const response = await apiClient.post('/auth/login', { email, password });
-    return response.data; // Expected to return tokens and user data
+  login: async (identifier: string, password?: string) => {
+    const response = await apiClient.post('/auth/login', { identifier, password });
+    return response.data;
   },
   
   sendOtp: async (data: { email: string; countryCode: string; phone: string; socialToken?: string }) => {
@@ -90,53 +89,58 @@ export const authService = {
     return response.data;
   },
 
-  changePassword: async (data: { currentPassword?: string; newPassword?: string }) => {
+  changePassword: async (data: { currentPassword?: string; email?: string; countryCode?: string; phone?: string }) => {
     const response = await apiClient.post('/auth/change-password', data);
     return response.data;
   },
 
-  forgotPassword: async (email: string) => {
-    const response = await apiClient.post('/auth/forgot-password', { email });
+  verifyChangePasswordOtp: async (data: { emailOtp: string; phoneOtp?: string }) => {
+    const response = await apiClient.post('/auth/verify-change-password-otp', data);
     return response.data;
   },
 
-  resetPassword: async (data: { email: string; emailOtp: string; phoneOtp?: string; password: string }) => {
+  confirmChangePassword: async (data: { changeToken: string; newPassword: string }) => {
+    const response = await apiClient.post('/auth/confirm-change-password', data);
+    return response.data;
+  },
+
+  forgotPassword: async (identifier: string) => {
+    const response = await apiClient.post('/auth/forgot-password', { identifier });
+    return response.data;
+  },
+
+  verifyResetPasswordOtp: async (data: { email: string; emailOtp: string; phoneOtp?: string }) => {
+    const response = await apiClient.post('/auth/verify-reset-password-otp', data);
+    return response.data;
+  },
+
+  resetPassword: async (data: { token: string; password: string }) => {
     const response = await apiClient.post('/auth/reset-password', data);
     return response.data;
   },
 
-  verifyPassword: async (password: string) => {
-    const response = await apiClient.post('/auth/verify-password', { password });
+  verifyPassword: async (data: { password: string; email?: string; countryCode?: string; phone?: string }) => {
+    const response = await apiClient.post('/auth/verify-password', data);
     return response.data;
   },
 
-  sendPhoneOtp: async (data: { countryCode: string; phone: string; purpose: string }) => {
-    const response = await apiClient.post('/auth/send-phone-otp', data);
+  requestChangePhoneOtp: async (data: { newCountryCode: string; newPhone: string }) => {
+    const response = await apiClient.post('/auth/change-phone/request-otp', data);
     return response.data;
   },
 
-  sendEmailOtp: async (data: { email: string; purpose: string }) => {
-    const response = await apiClient.post('/auth/send-email-otp', data);
+  verifyChangePhoneOtp: async (data: { emailOtp: string; phoneOtp: string }) => {
+    const response = await apiClient.patch('/auth/change-phone/verify-update', data);
     return response.data;
   },
 
-  verifyPhoneOtp: async (data: { otp: string; purpose: string }) => {
-    const response = await apiClient.post('/auth/verify-phone-otp', data);
+  requestChangeEmailOtp: async (data: { newEmail: string }) => {
+    const response = await apiClient.post('/auth/change-email/request-otp', data);
     return response.data;
   },
 
-  verifyEmailOtp: async (data: { otp: string; purpose: string }) => {
-    const response = await apiClient.post('/auth/verify-email-otp', data);
-    return response.data;
-  },
-
-  updatePhone: async (data: { changeToken: string; countryCode: string; phone: string }) => {
-    const response = await apiClient.patch('/auth/update-phone', data);
-    return response.data;
-  },
-
-  updateEmail: async (data: { changeToken: string; email: string }) => {
-    const response = await apiClient.patch('/auth/update-email', data);
+  verifyChangeEmailOtp: async (data: { emailOtp: string; phoneOtp?: string }) => {
+    const response = await apiClient.patch('/auth/change-email/verify-update', data);
     return response.data;
   },
 };

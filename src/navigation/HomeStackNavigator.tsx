@@ -8,6 +8,7 @@ import CommentsScreen       from '../screens/main/CommentsScreen';
 import UserProfileScreen    from '../screens/main/UserProfileScreen';
 import StoryViewerScreen    from '../screens/main/StoryViewerScreen';
 import BookmarksScreen      from '../screens/main/BookmarksScreen';
+import LeaderboardsScreen   from '../screens/main/LeaderboardsScreen';
 import SettingsScreen       from '../screens/main/SettingsScreen';
 import LockScreen           from '../screens/main/LockScreen';
 import SearchScreen         from '../screens/main/SearchScreen';
@@ -32,8 +33,9 @@ export default function HomeStackNavigator() {
         component={StoryViewerScreen}
         options={{ animation: 'fade', gestureEnabled: false }}
       />
-      <Stack.Screen name="Bookmarks"    component={BookmarksScreen} />
-      <Stack.Screen name="Settings"     component={SettingsScreen}  />
+	      <Stack.Screen name="Bookmarks"    component={BookmarksScreen} />
+	      <Stack.Screen name="Leaderboards" component={LeaderboardsScreen} options={{ animation: 'slide_from_right' }} />
+	      <Stack.Screen name="Settings"     component={SettingsScreen}  />
       <Stack.Screen name="EditProfile"  component={EditProfileScreen} options={{ animation: 'slide_from_right' }} />
       <Stack.Screen name="Terms"        component={TermsScreen}       options={{ animation: 'slide_from_right' }} />
       <Stack.Screen name="Privacy"      component={PrivacyScreen}     options={{ animation: 'slide_from_right' }} />

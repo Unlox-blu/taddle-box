@@ -10,6 +10,7 @@ import Input from '../../components/common/Input';
 import Button from '../../components/common/Button';
 import { authService } from '../../services/auth.service';
 import { useAuth } from '../../context/AuthContext';
+import { maskEmail } from '../../utils/mask.util';
 
 type Props = NativeStackScreenProps<HomeStackParamList, 'ChangePhone'>;
 
@@ -23,20 +24,22 @@ export default function ChangePhoneScreen({ navigation }: Props) {
 
   // Step 1
   const [password, setPassword] = useState('');
+  const [email, setEmail] = useState('');
 
   // Step 2
-  const OTP_LENGTH = 6;
-  const [otp, setOtp] = useState<string[]>(Array(OTP_LENGTH).fill(''));
-  const otpRefs = useRef<(TextInput | null)[]>([]);
-  const [timer, setTimer] = useState(30);
-  const [changeToken, setChangeToken] = useState('');
-
-  // Step 3
   const [countryCode, setCountryCode] = useState('+91');
   const [phone, setPhone] = useState('');
 
+  // Step 3
+  const OTP_LENGTH = 6;
+  const [emailOtp, setEmailOtp] = useState<string[]>(Array(OTP_LENGTH).fill(''));
+  const [phoneOtp, setPhoneOtp] = useState<string[]>(Array(OTP_LENGTH).fill(''));
+  const emailOtpRefs = useRef<(TextInput | null)[]>([]);
+  const phoneOtpRefs = useRef<(TextInput | null)[]>([]);
+  const [timer, setTimer] = useState(30);
+
   useEffect(() => {
-    if (step === 2 && timer > 0) {
+    if (step === 3 && timer > 0) {
       const t = setTimeout(() => setTimer(v => v - 1), 1000);
       return () => clearTimeout(t);
     }
@@ -48,15 +51,42 @@ export default function ChangePhoneScreen({ navigation }: Props) {
       setError('Password is required');
       return;
     }
+    if (!email) {
+      setError('Current email is required');
+      return;
+    }
+    if (email.toLowerCase().trim() !== user?.email?.toLowerCase().trim()) {
+      setError('Current email address does not match your account');
+      return;
+    }
     try {
       setLoading(true);
-      await authService.verifyPassword(password);
-      // Password verified, send OTP to email
-      await authService.sendEmailOtp({ email: user.email, purpose: 'change_phone' });
+      await authService.verifyPassword({ password, email: email.toLowerCase().trim() });
       setStep(2);
-      setTimer(30);
     } catch (e: any) {
       setError(e.response?.data?.message || 'Incorrect password');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleRequestOtp = async () => {
+    setError('');
+    if (!phone) {
+      setError('New phone number is required');
+      return;
+    }
+    if (!countryCode.startsWith('+')) {
+      setError('Country code must start with +');
+      return;
+    }
+    try {
+      setLoading(true);
+      await authService.requestChangePhoneOtp({ newCountryCode: countryCode, newPhone: phone });
+      setStep(3);
+      setTimer(30);
+    } catch (e: any) {
+      setError(e.response?.data?.message || 'Failed to request OTPs');
     } finally {
       setLoading(false);
     }
@@ -66,19 +96,24 @@ export default function ChangePhoneScreen({ navigation }: Props) {
     if (timer > 0) return;
     try {
       setLoading(true);
-      await authService.sendEmailOtp({ email: user.email, purpose: 'change_phone' });
+      await authService.requestChangePhoneOtp({ newCountryCode: countryCode, newPhone: phone });
       setTimer(30);
     } catch (e: any) {
-      Alert.alert('Error', e.response?.data?.message || 'Failed to resend OTP');
+      Alert.alert('Error', e.response?.data?.message || 'Failed to resend OTPs');
     } finally {
       setLoading(false);
     }
   };
 
-  const handleOtpInput = (val: string, idx: number) => {
+  const handleOtpInput = (type: 'email' | 'phone', val: string, idx: number) => {
     if (!/^\d*$/.test(val)) return;
     setError('');
-    let next = [...otp];
+    
+    const currentOtp = type === 'email' ? emailOtp : phoneOtp;
+    const setOtp = type === 'email' ? setEmailOtp : setPhoneOtp;
+    const refs = type === 'email' ? emailOtpRefs : phoneOtpRefs;
+    
+    let next = [...currentOtp];
 
     if (val.length > 1) {
       const cleaned = val.replace(/\D/g, '');
@@ -89,9 +124,9 @@ export default function ChangePhoneScreen({ navigation }: Props) {
       }
       setOtp(next);
       if (idx + cleaned.length >= OTP_LENGTH) {
-        otpRefs.current[OTP_LENGTH - 1]?.blur();
+        refs.current[OTP_LENGTH - 1]?.blur();
       } else {
-        otpRefs.current[idx + cleaned.length]?.focus();
+        refs.current[idx + cleaned.length]?.focus();
       }
       return;
     }
@@ -99,56 +134,39 @@ export default function ChangePhoneScreen({ navigation }: Props) {
     next[idx] = val;
     setOtp(next);
     if (val !== '' && idx < OTP_LENGTH - 1) {
-      otpRefs.current[idx + 1]?.focus();
+      refs.current[idx + 1]?.focus();
     }
   };
 
-  const handleOtpBackspace = (e: any, idx: number) => {
-    if (e.nativeEvent.key === 'Backspace' && !otp[idx] && idx > 0) {
-      otpRefs.current[idx - 1]?.focus();
-      let next = [...otp];
+  const handleOtpBackspace = (type: 'email' | 'phone', e: any, idx: number) => {
+    const currentOtp = type === 'email' ? emailOtp : phoneOtp;
+    const setOtp = type === 'email' ? setEmailOtp : setPhoneOtp;
+    const refs = type === 'email' ? emailOtpRefs : phoneOtpRefs;
+
+    if (e.nativeEvent.key === 'Backspace' && !currentOtp[idx] && idx > 0) {
+      refs.current[idx - 1]?.focus();
+      let next = [...currentOtp];
       next[idx - 1] = '';
       setOtp(next);
     }
   };
 
-  const handleVerifyOtp = async () => {
-    const enteredOtp = otp.join('');
-    if (enteredOtp.length < OTP_LENGTH) {
-      setError('Please enter complete OTP');
+  const handleVerifyAndUpdate = async () => {
+    const eOtp = emailOtp.join('');
+    const pOtp = phoneOtp.join('');
+    if (eOtp.length < OTP_LENGTH || pOtp.length < OTP_LENGTH) {
+      setError('Please enter both complete OTPs');
       return;
     }
     try {
       setLoading(true);
-      const res = await authService.verifyEmailOtp({ otp: enteredOtp, purpose: 'change_phone' });
-      setChangeToken(res.data.changeToken);
-      setStep(3);
-    } catch (e: any) {
-      setError(e.response?.data?.message || 'Invalid OTP');
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const handleUpdatePhone = async () => {
-    setError('');
-    if (!phone) {
-      setError('Phone number is required');
-      return;
-    }
-    if (!countryCode.startsWith('+')) {
-      setError('Country code must start with +');
-      return;
-    }
-    try {
-      setLoading(true);
-      await authService.updatePhone({ changeToken, countryCode, phone });
+      await authService.verifyChangePhoneOtp({ emailOtp: eOtp, phoneOtp: pOtp });
       await refreshUser();
       Alert.alert('Success', 'Phone number updated successfully.', [
         { text: 'OK', onPress: () => navigation.goBack() }
       ]);
     } catch (e: any) {
-      setError(e.response?.data?.message || 'Failed to update phone number');
+      setError(e.response?.data?.message || 'Invalid OTP');
     } finally {
       setLoading(false);
     }
@@ -167,11 +185,20 @@ export default function ChangePhoneScreen({ navigation }: Props) {
       <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} style={{ flex: 1 }}>
         <ScrollView contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
           
-          {step === 1 && (
+           {step === 1 && (
             <View>
               <Text style={[styles.instruction, { color: colors.text.secondary }]}>
-                For your security, please verify your identity by entering your current password.
+                For your security, please verify your identity by entering your current password and registered email address.
               </Text>
+              <Input
+                label="Registered Email Address"
+                value={email}
+                onChangeText={(text) => { setEmail(text); setError(''); }}
+                icon="mail-outline"
+                autoCapitalize="none"
+                keyboardType="email-address"
+                containerStyle={styles.inputContainer}
+              />
               <Input
                 label="Current Password"
                 value={password}
@@ -188,42 +215,7 @@ export default function ChangePhoneScreen({ navigation }: Props) {
           {step === 2 && (
             <View>
               <Text style={[styles.instruction, { color: colors.text.secondary }]}>
-                We've sent a 6-digit OTP to your linked email address <Text style={{fontWeight:'700', color: colors.text.primary}}>{user.email}</Text>.
-              </Text>
-              
-              <View style={styles.otpContainer}>
-                {otp.map((digit, idx) => (
-                  <TextInput
-                    key={`otp-${idx}`}
-                    ref={(el) => { otpRefs.current[idx] = el; }}
-                    style={[
-                      styles.otpBox,
-                      { color: colors.text.primary, borderColor: digit ? colors.primary : colors.border, backgroundColor: colors.bg.surface }
-                    ]}
-                    keyboardType="number-pad"
-                    maxLength={6}
-                    value={digit}
-                    onChangeText={(val) => handleOtpInput(val, idx)}
-                    onKeyPress={(e) => handleOtpBackspace(e, idx)}
-                  />
-                ))}
-              </View>
-
-              <TouchableOpacity onPress={handleResendOtp} disabled={timer > 0} style={styles.resendBtn}>
-                <Text style={[styles.resendText, { color: timer > 0 ? colors.text.muted : colors.primary }]}>
-                  {timer > 0 ? `Resend OTP in ${timer}s` : 'Resend OTP'}
-                </Text>
-              </TouchableOpacity>
-
-              {error ? <Text style={[styles.error, { color: colors.danger }]}>{error}</Text> : null}
-              <Button label="Verify" onPress={handleVerifyOtp} variant="primary" fullWidth loading={loading} style={styles.btn} />
-            </View>
-          )}
-
-          {step === 3 && (
-            <View>
-              <Text style={[styles.instruction, { color: colors.text.secondary }]}>
-                Enter your new phone number below.
+                Enter your new phone number below. We will send a verification code to both your registered email and this new phone number.
               </Text>
               <View style={{ flexDirection: 'row', gap: 12 }}>
                 <View style={{ flex: 0.3 }}>
@@ -232,7 +224,6 @@ export default function ChangePhoneScreen({ navigation }: Props) {
                     value={countryCode}
                     onChangeText={setCountryCode}
                     keyboardType="phone-pad"
-                    containerStyle={styles.inputContainer}
                   />
                 </View>
                 <View style={{ flex: 0.7 }}>
@@ -241,12 +232,73 @@ export default function ChangePhoneScreen({ navigation }: Props) {
                     value={phone}
                     onChangeText={(text) => { setPhone(text); setError(''); }}
                     keyboardType="phone-pad"
-                    containerStyle={styles.inputContainer}
+                    icon="call-outline"
                   />
                 </View>
               </View>
               {error ? <Text style={[styles.error, { color: colors.danger }]}>{error}</Text> : null}
-              <Button label="Update Phone" onPress={handleUpdatePhone} variant="primary" fullWidth loading={loading} style={styles.btn} />
+              <Button label="Send OTPs" onPress={handleRequestOtp} variant="primary" fullWidth loading={loading} style={styles.btn} />
+            </View>
+          )}
+
+          {step === 3 && (
+            <View>
+              <Text style={[styles.instruction, { color: colors.text.secondary }]}>
+                We've sent 6-digit verification codes to your registered email ({maskEmail(user.email)}) and your new phone number.
+              </Text>
+              
+              <Text style={[styles.label, { color: colors.text.primary }]}>Email OTP</Text>
+              <View style={styles.otpContainer}>
+                {emailOtp.map((digit, idx) => (
+                  <TextInput
+                    key={`email-otp-${idx}`}
+                    ref={(el) => { emailOtpRefs.current[idx] = el; }}
+                    style={[
+                      styles.otpBox,
+                      { color: colors.text.primary, borderColor: digit ? colors.primary : colors.border, backgroundColor: colors.bg.surface }
+                    ]}
+                    keyboardType="number-pad"
+                    maxLength={6}
+                    value={digit}
+                    onChangeText={(val) => handleOtpInput('email', val, idx)}
+                    onKeyPress={(e) => handleOtpBackspace('email', e, idx)}
+                    textAlign="center"
+                    selectionColor={colors.primaryLight}
+                  />
+                ))}
+              </View>
+
+              <View style={{ height: spacing.lg }} />
+
+              <Text style={[styles.label, { color: colors.text.primary }]}>Phone OTP</Text>
+              <View style={styles.otpContainer}>
+                {phoneOtp.map((digit, idx) => (
+                  <TextInput
+                    key={`phone-otp-${idx}`}
+                    ref={(el) => { phoneOtpRefs.current[idx] = el; }}
+                    style={[
+                      styles.otpBox,
+                      { color: colors.text.primary, borderColor: digit ? colors.primary : colors.border, backgroundColor: colors.bg.surface }
+                    ]}
+                    keyboardType="number-pad"
+                    maxLength={6}
+                    value={digit}
+                    onChangeText={(val) => handleOtpInput('phone', val, idx)}
+                    onKeyPress={(e) => handleOtpBackspace('phone', e, idx)}
+                    textAlign="center"
+                    selectionColor={colors.primaryLight}
+                  />
+                ))}
+              </View>
+
+              <TouchableOpacity onPress={handleResendOtp} disabled={timer > 0} style={styles.resendBtn}>
+                <Text style={[styles.resendText, { color: timer > 0 ? colors.text.muted : colors.primary }]}>
+                  {timer > 0 ? `Resend OTPs in ${timer}s` : 'Resend OTPs'}
+                </Text>
+              </TouchableOpacity>
+
+              {error ? <Text style={[styles.error, { color: colors.danger }]}>{error}</Text> : null}
+              <Button label="Verify & Update" onPress={handleVerifyAndUpdate} variant="primary" fullWidth loading={loading} style={styles.btn} />
             </View>
           )}
 
@@ -259,21 +311,53 @@ export default function ChangePhoneScreen({ navigation }: Props) {
 const styles = StyleSheet.create({
   container: { flex: 1 },
   header: {
-    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
-    paddingHorizontal: spacing.md, paddingVertical: spacing.md, borderBottomWidth: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: spacing.lg,
+    paddingVertical: spacing.md,
+    borderBottomWidth: 1,
   },
   backBtn: { padding: spacing.xs },
-  title: { fontSize: fontSizes.lg, fontWeight: '600' },
-  content: { padding: spacing.xl },
-  instruction: { fontSize: fontSizes.md, lineHeight: 22, marginBottom: spacing.xl },
-  inputContainer: { width: '100%', marginBottom: spacing.md },
-  btn: { marginTop: spacing.md },
-  error: { fontSize: fontSizes.sm, textAlign: 'center', marginBottom: spacing.md },
-  otpContainer: { flexDirection: 'row', justifyContent: 'space-between', marginBottom: spacing.xl },
-  otpBox: {
-    width: 48, height: 56, borderWidth: 1, borderRadius: 12,
-    fontSize: 24, fontWeight: '700', textAlign: 'center',
+  title: { fontSize: fontSizes.xl, fontWeight: '700' },
+  content: { padding: spacing.xl, paddingBottom: spacing.xxl * 2 },
+  instruction: {
+    fontSize: fontSizes.md,
+    lineHeight: 22,
+    marginBottom: spacing.xl,
   },
-  resendBtn: { alignSelf: 'center', marginBottom: spacing.xl },
-  resendText: { fontSize: fontSizes.sm, fontWeight: '600' },
+  inputContainer: { marginBottom: spacing.lg },
+  btn: { marginTop: spacing.md },
+  error: {
+    fontSize: fontSizes.sm,
+    marginBottom: spacing.md,
+    textAlign: 'center',
+  },
+  label: {
+    fontSize: fontSizes.sm,
+    fontWeight: '600',
+    marginBottom: spacing.sm,
+    marginLeft: spacing.xs,
+  },
+  otpContainer: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+  },
+  otpBox: {
+    width: 48,
+    height: 56,
+    borderWidth: 1.5,
+    borderRadius: 12,
+    fontSize: fontSizes.xl,
+    fontWeight: '600',
+  },
+  resendBtn: {
+    alignSelf: 'center',
+    marginTop: spacing.xl,
+    padding: spacing.sm,
+  },
+  resendText: {
+    fontSize: fontSizes.md,
+    fontWeight: '600',
+  },
 });

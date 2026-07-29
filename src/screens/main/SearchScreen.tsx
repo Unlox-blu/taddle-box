@@ -25,6 +25,35 @@ type Props = NativeStackScreenProps<HomeStackParamList, 'Search'>;
 
 type SearchTab = 'all' | 'posts' | 'people' | 'communities' | 'events' | 'hashtags';
 
+const normalizePostResult = (item: any): Post => {
+  const author = item.author || {
+    id: item.authorId || item.author_id || '',
+    name: item.authorName || item.author_name || 'Unknown User',
+    username: item.authorUsername || item.author_username || 'unknown',
+    handle: item.authorUsername || item.author_username || 'unknown',
+    avatarUrl: item.authorAvatar || item.author_avatar || item.avatarUrl || item.avatar_url,
+    avatar: '',
+    level: 1,
+    xp: 0,
+    xpToNext: 100,
+  };
+
+  return {
+    ...item,
+    author,
+    media: item.media || [],
+    hashtags: item.hashtags || item.tags || [],
+    likes: item.likes ?? item.likesCount ?? item.likes_count ?? 0,
+    comments: item.comments ?? item.commentsCount ?? item.comments_count ?? 0,
+    shares: item.shares ?? item.sharesCount ?? item.shares_count ?? 0,
+    isLiked: !!(item.isLiked ?? item.is_liked),
+    isSaved: !!(item.isSaved ?? item.is_saved),
+    createdAt: item.createdAt || item.created_at,
+    publishedAt: item.publishedAt || item.published_at,
+    type: item.type || (item.media?.length ? 'image' : 'text'),
+  } as Post;
+};
+
 export default function SearchScreen({ navigation, route }: Props) {
   const insets = useSafeAreaInsets();
   const { isDark } = useTheme();
@@ -121,12 +150,13 @@ export default function SearchScreen({ navigation, route }: Props) {
     const type = item.itemType || activeTab;
 
     if (type === 'posts') {
+      const post = normalizePostResult(item);
       return (
         <PostCard
-          post={item as Post}
-          onLike={() => toggleLike(item.id)}
-          onSave={() => toggleSave(item.id)}
-          onComment={() => navigation.navigate('Comments', { post: item })}
+          post={post}
+          onLike={() => toggleLike(post.id)}
+          onSave={() => toggleSave(post.id)}
+          onComment={() => navigation.navigate('Comments', { post })}
           onShare={() => {}}
         />
       );

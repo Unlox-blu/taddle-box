@@ -4,6 +4,12 @@ import {
   Text,
   TouchableOpacity,
   TouchableWithoutFeedback,
+import React, { useMemo, useRef } from "react";
+import {
+  View,
+  Text,
+  TouchableOpacity,
+  TouchableWithoutFeedback,
   StyleSheet,
   Animated,
   Image,
@@ -12,6 +18,7 @@ import {
 } from "react-native";
 import { Video, ResizeMode } from "expo-av";
 import { Ionicons } from "@expo/vector-icons";
+import AsyncStorage from "@react-native-async-storage/async-storage";
 import { useNavigation } from "@react-navigation/native";
 import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
 import { radii, fontSizes, spacing, type ColorPalette } from "../../theme";
@@ -231,12 +238,35 @@ export default function PostCard({
     useNavigation<NativeStackNavigationProp<HomeStackParamList>>();
 
   const [currentMediaPage, setCurrentMediaPage] = React.useState(0);
-  const [isClaimed, setIsClaimed] = React.useState(claimedPosts.has(post.id));
+  const postId = String(post?.id || "");
+  const author = useMemo(() => {
+    const raw = (post as any)?.author || {};
+    return {
+      id: raw.id || (post as any)?.authorId || (post as any)?.author_id || "",
+      name: raw.name || (post as any)?.authorName || (post as any)?.author_name || "Unknown User",
+      username: raw.username || (post as any)?.authorUsername || (post as any)?.author_username || "unknown",
+      avatarUrl: raw.avatarUrl || raw.avatar_url || (post as any)?.authorAvatar || (post as any)?.author_avatar,
+      avatar: raw.avatar || "👾",
+    };
+  }, [post]);
+
+  const [isClaimed, setIsClaimed] = React.useState(claimedPosts.has(postId));
+  
+  React.useEffect(() => {
+    if (!isClaimed) {
+      AsyncStorage.getItem(`claimed_post_${postId}`).then(val => {
+        if (val === "true") {
+          setIsClaimed(true);
+          claimedPosts.add(postId);
+        }
+      }).catch(() => {});
+    }
+  }, [postId]);
   const [showPill, setShowPill] = React.useState(true);
   const [extraVideoTime, setExtraVideoTime] = React.useState(0);
   const [isMuted, setIsMuted] = React.useState(globalIsMuted);
   const [isExpanded, setIsExpanded] = React.useState(false);
-  const progressAnim = useRef(new Animated.Value(claimedPosts.has(post.id) ? 1 : 0)).current;
+  const progressAnim = useRef(new Animated.Value(claimedPosts.has(postId) ? 1 : 0)).current;
   const doubleTapAnim = useRef(new Animated.Value(0)).current;
   const pillOpacity = useRef(new Animated.Value(1)).current;
   const isPillVisible = useRef(true);
@@ -368,12 +398,9 @@ export default function PostCard({
       }).start(({ finished }) => {
         if (finished) {
           setIsClaimed(true);
-          claimedPosts.add(post.id);
-          xpService.creditXP(rewardXp, "earned", `view_post_${post.id}`).catch(() => {});
-        }
-      });
-    } else {
-      progressAnim.stopAnimation();
+          claimedPosts.add(postId);
+          AsyncStorage.setItem(`claimed_post_${postId}`, "true").catch(() => {});
+          xpService.creditXP(rewardXp, "earned", `view_post_${postId}`).catch(() => {});
       progressAnim.setValue(0);
     }
   }, [isActive, requiredTimeMs, isClaimed, rewardXp]);
@@ -412,7 +439,7 @@ export default function PostCard({
       }),
       Animated.spring(scale, { toValue: 1, useNativeDriver: true, speed: 50 }),
     ]).start();
-    onLike?.(post.id);
+    onLike?.(postId);
   };
 
   const renderParsedText = (text: string, baseStyle: any, lines?: number) => {
@@ -526,14 +553,14 @@ export default function PostCard({
           activeOpacity={0.7}
         >
           <View style={styles.avatar}>
-            {post.author.avatarUrl ? (
+            {author.avatarUrl ? (
               <Image
-                source={{ uri: post.author.avatarUrl }}
+                source={{ uri: author.avatarUrl }}
                 style={{ width: 44, height: 44, borderRadius: 22 }}
               />
             ) : (
               <Text style={styles.avatarEmoji}>
-                {post.author.avatar || "👾"}
+                {author.avatar}
               </Text>
             )}
           </View>
@@ -545,7 +572,7 @@ export default function PostCard({
                 justifyContent: "space-between",
               }}
             >
-              <Text style={styles.author}>{post.author.name}</Text>
+              <Text style={styles.author}>{author.name}</Text>
               {showPill && (
                 <Animated.View style={[
                   styles.xpPill, 
@@ -598,7 +625,7 @@ export default function PostCard({
                     },
                   ]}
                 >
-                  @{post.author.username}
+                  @{author.username}
                 </Text>,
                 <Text
                   key="time"
@@ -890,7 +917,7 @@ export default function PostCard({
 
         <View style={styles.spacer} />
 
-        <TouchableOpacity onPress={() => onSave?.(post.id)}>
+        <TouchableOpacity onPress={() => onSave?.(postId)}>
           <Ionicons
             name={post.isSaved ? "bookmark" : "bookmark-outline"}
             size={20}

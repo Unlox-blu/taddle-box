@@ -12,13 +12,17 @@ import Button from '../../components/common/Button';
 import Input from '../../components/common/Input';
 import type { AuthStackParamList } from '../../types';
 import { authService } from '../../services/auth.service';
+import { maskEmail, maskPhone } from '../../utils/mask.util';
 
 const OTP_LENGTH = 6;
 type Props = NativeStackScreenProps<AuthStackParamList, 'ForgotPassword'>;
 
 export default function ForgotPasswordScreen({ navigation }: Props) {
   const [step, setStep] = useState<1 | 2 | 3>(1);
-  const [email, setEmail] = useState('');
+  const [identifier, setIdentifier] = useState('');
+  const [resolvedEmail, setResolvedEmail] = useState('');
+  const [resolvedPhone, setResolvedPhone] = useState('');
+  const [resetToken, setResetToken] = useState('');
   
   const [emailOtp, setEmailOtp] = useState<string[]>(Array(OTP_LENGTH).fill(''));
   const [phoneOtp, setPhoneOtp] = useState<string[]>(Array(OTP_LENGTH).fill(''));
@@ -42,16 +46,19 @@ export default function ForgotPasswordScreen({ navigation }: Props) {
   }, [step, timer]);
 
   const handleSendOtp = async () => {
-    if (!email || !email.includes('@')) {
-      setErrorMsg('Please enter a valid email address');
+    if (!identifier.trim()) {
+      setErrorMsg('Please enter your email, phone number or username');
       return;
     }
     try {
       setLoading(true);
       setErrorMsg('');
-      const res = await authService.forgotPassword(email.toLowerCase().trim());
-      // The API returns { data: { hasPhone: boolean } } if successful
-      setHasPhone(!!res?.data?.hasPhone);
+      const res = await authService.forgotPassword(identifier.toLowerCase().trim());
+      const resolved = res.data?.email || res.email || '';
+      setResolvedEmail(resolved);
+      const phone = res.data?.phone || res.phone || '';
+      setResolvedPhone(phone);
+      setHasPhone(!!res?.data?.hasPhone || !!res?.hasPhone);
       setStep(2);
       setTimer(30);
     } catch (e: any) {
@@ -64,7 +71,7 @@ export default function ForgotPasswordScreen({ navigation }: Props) {
   const handleResend = async () => {
     if (timer > 0) return;
     try {
-      await authService.forgotPassword(email.toLowerCase().trim());
+      await authService.forgotPassword(identifier.toLowerCase().trim());
       setTimer(30);
       setEmailOtp(Array(OTP_LENGTH).fill(''));
       setPhoneOtp(Array(OTP_LENGTH).fill(''));
@@ -140,8 +147,21 @@ export default function ForgotPasswordScreen({ navigation }: Props) {
       setErrorMsg('Please enter the complete 6-digit OTPs');
       return;
     }
-    setStep(3);
-    setErrorMsg('');
+    try {
+      setLoading(true);
+      setErrorMsg('');
+      const res = await authService.verifyResetPasswordOtp({
+        email: resolvedEmail,
+        emailOtp: emailOtp.join(''),
+        phoneOtp: hasPhone ? phoneOtp.join('') : undefined,
+      });
+      setResetToken(res.data.token || res.token);
+      setStep(3);
+    } catch (e: any) {
+      setErrorMsg(e.response?.data?.message || 'Invalid OTP');
+    } finally {
+      setLoading(false);
+    }
   };
 
   const handleResetPassword = async () => {
@@ -157,9 +177,7 @@ export default function ForgotPasswordScreen({ navigation }: Props) {
     try {
       setLoading(true);
       await authService.resetPassword({
-        email: email.toLowerCase().trim(),
-        emailOtp: emailOtp.join(''),
-        phoneOtp: hasPhone ? phoneOtp.join('') : undefined,
+        token: resetToken,
         password: newPassword,
       });
       Animated.spring(checkAnim, { toValue: 1, useNativeDriver: true, tension: 50 }).start();
@@ -209,16 +227,16 @@ export default function ForgotPasswordScreen({ navigation }: Props) {
                 <Text style={{ fontSize: 40 }}>🔐</Text>
               </View>
               <Text style={styles.title}>Forgot Password?</Text>
-              <Text style={styles.subtitle}>Enter the email linked to your account to verify your identity.</Text>
+              <Text style={styles.subtitle}>Enter the email, phone number, or username linked to your account.</Text>
               <Input
-                label="Email Address"
-                icon="mail-outline"
-                value={email}
-                onChangeText={v => { setEmail(v); setErrorMsg(''); }}
-                placeholder="you@example.com"
-                keyboardType="email-address"
+                label="Email, Phone or Username"
+                icon="person-outline"
+                value={identifier}
+                onChangeText={v => { setIdentifier(v); setErrorMsg(''); }}
+                placeholder="Email, phone or username"
                 autoCapitalize="none"
                 containerStyle={{ width: '100%' }}
+                forceDark
               />
               {errorMsg ? <Text style={styles.errorText}>{errorMsg}</Text> : null}
               <Button label="Verify Identity →" onPress={handleSendOtp} variant="primary" fullWidth loading={loading} style={{ marginTop: 12 }} />
@@ -248,7 +266,7 @@ export default function ForgotPasswordScreen({ navigation }: Props) {
 
               {/* Email OTP Inputs */}
               <View style={styles.otpSection}>
-                <Text style={styles.otpSectionTitle}>Email Code sent to <Text style={styles.highlight}>{email}</Text></Text>
+                <Text style={styles.otpSectionTitle}>Email Code sent to <Text style={styles.highlight}>{maskEmail(resolvedEmail)}</Text></Text>
                 <View style={styles.otpRow}>
                   {emailOtp.map((digit, i) => (
                     <TextInput
@@ -265,8 +283,9 @@ export default function ForgotPasswordScreen({ navigation }: Props) {
                       maxLength={6}
                       textContentType="oneTimeCode"
                       autoComplete="sms-otp"
-                      keyboardType="number-pad"
                       textAlign="center"
+                      selectionColor={colors.primaryLight}
+                      keyboardType="number-pad"
                       autoFocus={i === 0}
                     />
                   ))}
@@ -276,7 +295,7 @@ export default function ForgotPasswordScreen({ navigation }: Props) {
               {/* Phone OTP Inputs */}
               {hasPhone && (
                 <View style={styles.otpSection}>
-                  <Text style={styles.otpSectionTitle}>Phone Code sent via SMS</Text>
+                  <Text style={styles.otpSectionTitle}>Phone Code sent to <Text style={styles.highlight}>{maskPhone(resolvedPhone)}</Text> via WhatsApp</Text>
                   <View style={styles.otpRow}>
                     {phoneOtp.map((digit, i) => (
                       <TextInput
@@ -342,6 +361,7 @@ export default function ForgotPasswordScreen({ navigation }: Props) {
                 onChangeText={v => { setNewPassword(v); setErrorMsg(''); }}
                 secureTextEntry
                 containerStyle={{ width: '100%', marginBottom: 12 }}
+                forceDark
               />
               <Input
                 label="Confirm New Password"
@@ -350,6 +370,7 @@ export default function ForgotPasswordScreen({ navigation }: Props) {
                 onChangeText={v => { setConfirmPassword(v); setErrorMsg(''); }}
                 secureTextEntry
                 containerStyle={{ width: '100%', marginBottom: 12 }}
+                forceDark
               />
 
               {errorMsg ? <Text style={styles.errorText}>{errorMsg}</Text> : null}
@@ -396,6 +417,7 @@ const styles = StyleSheet.create({
     width: 42, height: 52, borderRadius: radii.md,
     backgroundColor: colors.bg.card, borderWidth: 1.5, borderColor: colors.border,
     fontSize: fontSizes.lg, fontWeight: '800', color: colors.text.primary,
+    textAlign: 'center',
   },
   otpBoxFilled: {
     borderColor: colors.primary,

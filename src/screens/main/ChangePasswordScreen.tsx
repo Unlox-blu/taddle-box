@@ -10,6 +10,7 @@ import Input from '../../components/common/Input';
 import Button from '../../components/common/Button';
 import { authService } from '../../services/auth.service';
 import { useAuth } from '../../context/AuthContext';
+import { maskEmail, maskPhone } from '../../utils/mask.util';
 
 type Props = NativeStackScreenProps<HomeStackParamList, 'ChangePassword'>;
 const OTP_LENGTH = 6;
@@ -18,13 +19,23 @@ export default function ChangePasswordScreen({ navigation }: Props) {
   const colors = useThemeColors();
   const { user } = useAuth();
   
-  // mode: 'normal' (knows password), 'otp-sent' (forgot password, waiting for OTP), 'otp-verified' (can enter new password without old one)
-  const [mode, setMode] = useState<'normal' | 'otp-sent' | 'otp-verified'>('normal');
+  // mode: 'normal' (knows password), 'forgot-identifier' (enters details for forgot flow), 'otp-sent' (waiting for OTP), 'otp-verified' (enters new password without old one)
+  const [mode, setMode] = useState<'normal' | 'forgot-identifier' | 'otp-sent' | 'otp-verified'>('normal');
 
   const [currentPassword, setCurrentPassword] = useState('');
   const [newPassword, setNewPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
+  const [email, setEmail] = useState('');
+  const [countryCode, setCountryCode] = useState('+91');
+  const [phone, setPhone] = useState('');
   
+  // Forgot password flow states
+  const [isForgotFlow, setIsForgotFlow] = useState(false);
+  const [identifier, setIdentifier] = useState('');
+  const [resolvedEmail, setResolvedEmail] = useState('');
+  const [resolvedPhone, setResolvedPhone] = useState('');
+  const [changeToken, setChangeToken] = useState('');
+
   // OTP state
   const [emailOtp, setEmailOtp] = useState<string[]>(Array(OTP_LENGTH).fill(''));
   const [phoneOtp, setPhoneOtp] = useState<string[]>(Array(OTP_LENGTH).fill(''));
@@ -47,16 +58,18 @@ export default function ChangePasswordScreen({ navigation }: Props) {
   const handleSaveNormal = async () => {
     setError('');
     if (!currentPassword) return setError('Current password is required');
-    if (newPassword.length < 8) return setError('New password must be at least 8 characters');
-    if (newPassword !== confirmPassword) return setError('New passwords do not match');
-    if (currentPassword === newPassword) return setError('New password must be different from current password');
+    if (!email) return setError('Registered email is required');
 
     try {
       setLoading(true);
-      await authService.changePassword({ currentPassword, newPassword });
-      Alert.alert('Success', 'Your password has been changed successfully.', [
-        { text: 'OK', onPress: () => navigation.goBack() }
-      ]);
+      const res = await authService.changePassword({ currentPassword, email, countryCode, phone });
+      setHasPhone(!!res?.data?.hasPhone || !!res?.hasPhone);
+      const resolvedPhoneVar = res.data?.phone || res.phone || '';
+      setResolvedPhone(resolvedPhoneVar);
+      setResolvedEmail(res.data?.email || res.email || user?.email || '');
+      setIsForgotFlow(false);
+      setMode('otp-sent');
+      setTimer(30);
     } catch (e: any) {
       setError(e.response?.data?.message || 'Failed to change password. Please check your current password.');
     } finally {
@@ -64,29 +77,44 @@ export default function ChangePasswordScreen({ navigation }: Props) {
     }
   };
 
-  const handleForgot = async () => {
-    if (!user?.email) {
-      Alert.alert('Error', 'No email linked to this account.');
+  const handleForgotTrigger = () => {
+    setError('');
+    setIsForgotFlow(true);
+    setIdentifier(user?.email || '');
+    setMode('forgot-identifier');
+  };
+
+  const handleForgotSubmit = async () => {
+    if (!identifier.trim()) {
+      setError('Please enter your email, phone number or username');
       return;
     }
     setError('');
     try {
       setLoading(true);
-      const res = await authService.forgotPassword(user.email);
-      setHasPhone(!!res?.data?.hasPhone);
+      const res = await authService.forgotPassword(identifier.toLowerCase().trim());
+      const resolved = res.data?.email || res.email || '';
+      setResolvedEmail(resolved);
+      const phone = res.data?.phone || res.phone || '';
+      setResolvedPhone(phone);
+      setHasPhone(!!res?.data?.hasPhone || !!res?.hasPhone);
       setMode('otp-sent');
       setTimer(30);
     } catch (e: any) {
-      setError(e.response?.data?.message || 'Failed to send reset link.');
+      setError(e.response?.data?.message || 'Failed to send OTP.');
     } finally {
       setLoading(false);
     }
   };
 
   const handleResendOtp = async () => {
-    if (timer > 0 || !user?.email) return;
+    if (timer > 0) return;
     try {
-      await authService.forgotPassword(user.email);
+      if (isForgotFlow) {
+        await authService.forgotPassword(identifier.toLowerCase().trim() || user?.email || '');
+      } else {
+        await authService.changePassword({ currentPassword, email, countryCode, phone });
+      }
       setTimer(30);
       setEmailOtp(Array(OTP_LENGTH).fill(''));
       setPhoneOtp(Array(OTP_LENGTH).fill(''));
@@ -158,39 +186,55 @@ export default function ChangePasswordScreen({ navigation }: Props) {
       return;
     }
     setError('');
-    setMode('otp-verified');
+    try {
+      setLoading(true);
+      if (isForgotFlow) {
+        const res = await authService.verifyResetPasswordOtp({
+          email: resolvedEmail,
+          emailOtp: emailOtp.join(''),
+          phoneOtp: hasPhone ? phoneOtp.join('') : undefined,
+        });
+        setChangeToken(res.data?.token || res.token);
+      } else {
+        const res = await authService.verifyChangePasswordOtp({
+          emailOtp: emailOtp.join(''),
+          phoneOtp: hasPhone ? phoneOtp.join('') : undefined,
+        });
+        setChangeToken(res.data?.changeToken || res.changeToken);
+      }
+      setMode('otp-verified');
+    } catch (e: any) {
+      setError(e.response?.data?.message || 'Invalid OTP');
+    } finally {
+      setLoading(false);
+    }
   };
 
   const handleSaveReset = async () => {
-    if (!user?.email) return;
+    if (!resolvedEmail) return;
     setError('');
     if (newPassword.length < 8) return setError('New password must be at least 8 characters');
     if (newPassword !== confirmPassword) return setError('New passwords do not match');
 
     try {
       setLoading(true);
-      await authService.resetPassword({
-        email: user.email,
-        emailOtp: emailOtp.join(''),
-        phoneOtp: hasPhone ? phoneOtp.join('') : undefined,
-        password: newPassword,
-      });
+      if (isForgotFlow) {
+        await authService.resetPassword({
+          token: changeToken,
+          password: newPassword,
+        });
+      } else {
+        await authService.confirmChangePassword({
+          changeToken,
+          newPassword,
+        });
+      }
       Alert.alert('Success', 'Your password has been reset successfully.', [
         { text: 'OK', onPress: () => navigation.goBack() }
       ]);
     } catch (e: any) {
       const msg = e.response?.data?.message || 'Failed to reset password.';
       setError(msg);
-      if (msg.toLowerCase().includes('otp') || msg.toLowerCase().includes('expired')) {
-        setMode('otp-sent');
-        if (msg.toLowerCase().includes('email')) {
-           setEmailOtp(Array(OTP_LENGTH).fill(''));
-           emailRefs.current[0]?.focus();
-        } else {
-           setPhoneOtp(Array(OTP_LENGTH).fill(''));
-           phoneRefs.current[0]?.focus();
-        }
-      }
     } finally {
       setLoading(false);
     }
@@ -203,7 +247,7 @@ export default function ChangePasswordScreen({ navigation }: Props) {
   return (
     <SafeAreaView style={[styles.container, { backgroundColor: colors.bg.base }]}>
       <View style={[styles.header, { borderBottomColor: colors.border }]}>
-        <TouchableOpacity onPress={() => mode === 'normal' ? navigation.goBack() : setMode('normal')} style={styles.backBtn}>
+        <TouchableOpacity onPress={() => (mode === 'normal' || mode === 'forgot-identifier') ? (mode === 'forgot-identifier' ? setMode('normal') : navigation.goBack()) : setMode('normal')} style={styles.backBtn}>
           <Ionicons name="arrow-back" size={24} color={colors.text.primary} />
         </TouchableOpacity>
         <Text style={[styles.title, { color: colors.text.primary }]}>Change Password</Text>
@@ -223,31 +267,43 @@ export default function ChangePasswordScreen({ navigation }: Props) {
                 secureTextEntry
                 containerStyle={styles.inputContainer}
               />
-              <TouchableOpacity onPress={handleForgot} style={styles.forgotBtn} disabled={loading}>
+              <Input
+                label="Registered Email Address"
+                value={email}
+                onChangeText={(text) => { setEmail(text); setError(''); }}
+                icon="mail-outline"
+                autoCapitalize="none"
+                keyboardType="email-address"
+                containerStyle={styles.inputContainer}
+              />
+              <View style={{ flexDirection: 'row', gap: 12 }}>
+                <View style={{ flex: 0.3 }}>
+                  <Input
+                    label="Code"
+                    value={countryCode}
+                    onChangeText={setCountryCode}
+                    keyboardType="phone-pad"
+                    containerStyle={styles.inputContainer}
+                  />
+                </View>
+                <View style={{ flex: 0.7 }}>
+                  <Input
+                    label="Registered Phone (optional)"
+                    value={phone}
+                    onChangeText={(text) => { setPhone(text); setError(''); }}
+                    keyboardType="phone-pad"
+                    containerStyle={styles.inputContainer}
+                  />
+                </View>
+              </View>
+              <TouchableOpacity onPress={handleForgotTrigger} style={styles.forgotBtn} disabled={loading}>
                 <Text style={[styles.forgotText, { color: colors.primary }]}>I forgot my old password</Text>
               </TouchableOpacity>
-
-              <Input
-                label="New Password"
-                value={newPassword}
-                onChangeText={(text) => { setNewPassword(text); setError(''); }}
-                icon="key-outline"
-                secureTextEntry
-                containerStyle={styles.inputContainer}
-              />
-              <Input
-                label="Confirm New Password"
-                value={confirmPassword}
-                onChangeText={(text) => { setConfirmPassword(text); setError(''); }}
-                icon="checkmark-circle-outline"
-                secureTextEntry
-                containerStyle={styles.inputContainer}
-              />
 
               {error ? <Text style={[styles.error, { color: colors.danger }]}>{error}</Text> : null}
 
               <Button 
-                label="Save New Password" 
+                label="Verify Details" 
                 onPress={handleSaveNormal} 
                 variant="primary" 
                 fullWidth 
@@ -255,6 +311,32 @@ export default function ChangePasswordScreen({ navigation }: Props) {
                 style={styles.saveBtn} 
               />
             </>
+          )}
+
+          {mode === 'forgot-identifier' && (
+            <View style={{ width: '100%' }}>
+              <Text style={[styles.otpTitle, { color: colors.text.primary }]}>Find your account</Text>
+              <Text style={[styles.otpSubtitle, { color: colors.text.muted }]}>
+                Enter your email, phone number, or username linked to your account to receive OTP codes.
+              </Text>
+              <Input
+                label="Email, Phone or Username"
+                value={identifier}
+                onChangeText={(text) => { setIdentifier(text); setError(''); }}
+                icon="person-outline"
+                autoCapitalize="none"
+                containerStyle={styles.inputContainer}
+              />
+              {error ? <Text style={[styles.error, { color: colors.danger }]}>{error}</Text> : null}
+              <Button 
+                label="Send Verification OTPs →" 
+                onPress={handleForgotSubmit} 
+                variant="primary" 
+                fullWidth 
+                loading={loading}
+                style={styles.saveBtn} 
+              />
+            </View>
           )}
 
           {mode === 'otp-sent' && (
@@ -276,7 +358,7 @@ export default function ChangePasswordScreen({ navigation }: Props) {
 
               {/* Email OTP Inputs */}
               <View style={styles.otpSection}>
-                <Text style={[styles.otpSectionTitle, { color: colors.text.secondary }]}>Email Code sent to <Text style={{ color: colors.primaryLight, fontWeight: '700' }}>{user?.email}</Text></Text>
+                <Text style={[styles.otpSectionTitle, { color: colors.text.secondary }]}>Email Code sent to <Text style={{ color: colors.primaryLight, fontWeight: '700' }}>{maskEmail(resolvedEmail || user?.email || '')}</Text></Text>
                 <View style={styles.otpRow}>
                   {emailOtp.map((digit, i) => (
                     <TextInput
@@ -296,6 +378,7 @@ export default function ChangePasswordScreen({ navigation }: Props) {
                       autoComplete="sms-otp"
                       keyboardType="number-pad"
                       textAlign="center"
+                      selectionColor={colors.primaryLight}
                       autoFocus={i === 0}
                     />
                   ))}
@@ -305,7 +388,7 @@ export default function ChangePasswordScreen({ navigation }: Props) {
               {/* Phone OTP Inputs */}
               {hasPhone && (
                 <View style={styles.otpSection}>
-                  <Text style={[styles.otpSectionTitle, { color: colors.text.secondary }]}>Phone Code sent via SMS</Text>
+                  <Text style={[styles.otpSectionTitle, { color: colors.text.secondary }]}>Phone Code sent to <Text style={{ color: colors.primaryLight, fontWeight: '700' }}>{maskPhone(resolvedPhone)}</Text> via WhatsApp</Text>
                   <View style={styles.otpRow}>
                     {phoneOtp.map((digit, i) => (
                       <TextInput
@@ -325,6 +408,7 @@ export default function ChangePasswordScreen({ navigation }: Props) {
                         autoComplete="sms-otp"
                         keyboardType="number-pad"
                         textAlign="center"
+                        selectionColor={colors.primaryLight}
                       />
                     ))}
                   </View>

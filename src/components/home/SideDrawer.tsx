@@ -122,12 +122,18 @@ export default function SideDrawer({
         }
       },
     },
-    {
-      icon: "bookmark-outline",
-      label: "Bookmarks",
-      purple: true,
-      onPress: () => closeAndNavigateStack("Bookmarks"),
-    },
+	    {
+	      icon: "bookmark-outline",
+	      label: "Bookmarks",
+	      purple: true,
+	      onPress: () => closeAndNavigateStack("Bookmarks"),
+	    },
+	    {
+	      icon: "podium-outline",
+	      label: "Leaderboards",
+	      purple: true,
+	      onPress: () => closeAndNavigateStack("Leaderboards"),
+	    },
   ];
 
   const moreMenu: MenuRow[] = [

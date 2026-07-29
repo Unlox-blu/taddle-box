@@ -36,7 +36,7 @@ type Props = NativeStackScreenProps<AuthStackParamList, "Login">;
 
 export default function LoginScreen({ navigation }: Props) {
   const { signIn } = useAuth();
-  const [email, setEmail] = useState("");
+  const [identifier, setIdentifier] = useState("");
   const [password, setPassword] = useState("");
   const [loading, setLoading] = useState(false);
   const [errors, setErrors] = useState<Record<string, string>>({});
@@ -48,8 +48,7 @@ export default function LoginScreen({ navigation }: Props) {
 
   const validate = () => {
     const e: Record<string, string> = {};
-    if (!email.trim()) e.email = "Email is required";
-    else if (!/\S+@\S+\.\S+/.test(email)) e.email = "Enter a valid email";
+    if (!identifier.trim()) e.identifier = "Email, phone or username is required";
     if (!password.trim()) e.password = "Password is required";
     setErrors(e);
     return Object.keys(e).length === 0;
@@ -59,7 +58,7 @@ export default function LoginScreen({ navigation }: Props) {
     if (!validate()) return;
     setLoading(true);
     try {
-      const res = await authService.login(email, password);
+      const res = await authService.login(identifier.trim(), password);
       const accessToken =
         res.data?.sessionData?.accessToken ||
         res.sessionData?.accessToken ||
@@ -259,14 +258,16 @@ export default function LoginScreen({ navigation }: Props) {
           {/* Form */}
           <View style={styles.form}>
             <Input
-              label="Email Address"
-              icon="mail-outline"
-              value={email}
-              onChangeText={setEmail}
-              placeholder="arjun@iitd.ac.in"
-              keyboardType="email-address"
+              label="Email, Phone or Username"
+              icon="person-outline"
+              value={identifier}
+              onChangeText={(text) => { setIdentifier(text); setErrors({}); }}
+              placeholder="Email, phone or username"
+              keyboardType="default"
               autoCapitalize="none"
-              error={errors.email}
+              autoCorrect={false}
+              error={errors.identifier}
+              forceDark
             />
             <Input
               label="Password"
@@ -276,6 +277,7 @@ export default function LoginScreen({ navigation }: Props) {
               placeholder="••••••••"
               secureTextEntry
               error={errors.password}
+              forceDark
             />
 
             <TouchableOpacity

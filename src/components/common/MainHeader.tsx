@@ -84,10 +84,11 @@ export default function MainHeader() {
         visible={isDrawerOpen}
         onClose={() => setDrawerOpen(false)}
         onNavigateTab={(tab) => navigation.getParent()?.navigate(tab as never)}
-        onNavigateStack={(screen) => {
-          if (screen === "Bookmarks") navigation.navigate("Bookmarks" as never);
-          else if (screen === "Settings") navigation.navigate("Settings" as never);
-        }}
+	        onNavigateStack={(screen) => {
+	          if (screen === "Bookmarks") navigation.navigate("Bookmarks" as never);
+	          else if (screen === "Leaderboards") navigation.navigate("Leaderboards" as never);
+	          else if (screen === "Settings") navigation.navigate("Settings" as never);
+	        }}
         onProfile={() => navigation.getParent()?.navigate("Profile" as never)}
       />
     </View>

@@ -15,26 +15,38 @@ interface InputProps extends TextInputProps {
   onRightIconPress?: () => void;
   containerStyle?: ViewStyle;
   onPress?: () => void;
+  forceDark?: boolean;
 }
 
 export default function Input({
   label, icon, error, rightIcon, onRightIconPress,
-  containerStyle, secureTextEntry, onPress, ...rest
+  containerStyle, secureTextEntry, onPress, style, placeholderTextColor,
+  selectionColor, cursorColor, forceDark = false, ...rest
 }: InputProps) {
   const [focused, setFocused] = useState(false);
   const [secure, setSecure] = useState(secureTextEntry ?? false);
   const themeColors = useThemeColors();
+  const palette = forceDark ? colors : themeColors;
 
   const isPassword = secureTextEntry;
+  const inputBg = palette.bg.card;
+  const isDarkInput = /^#([0-9a-f]{6})$/i.test(inputBg)
+    ? parseInt(inputBg.slice(1, 3), 16) * 0.299 +
+        parseInt(inputBg.slice(3, 5), 16) * 0.587 +
+        parseInt(inputBg.slice(5, 7), 16) * 0.114 < 140
+    : palette.text.primary === colors.text.primary;
+  const inputTextColor = isDarkInput ? colors.text.primary : palette.text.primary;
+  const inputPlaceholderColor = isDarkInput ? colors.text.secondary : palette.text.muted;
+  const inputCursorColor = isDarkInput ? colors.primaryLight : palette.primaryLight;
 
   return (
     <View style={[styles.wrapper, containerStyle]}>
-      {label && <Text style={[styles.label, { color: themeColors.text.secondary }]}>{label}</Text>}
+      {label && <Text style={[styles.label, { color: palette.text.secondary }]}>{label}</Text>}
       <View style={[
         styles.container,
-        { backgroundColor: themeColors.bg.card, borderColor: themeColors.border },
-        focused && { borderColor: themeColors.primary, backgroundColor: 'rgba(124,58,237,0.08)' },
-        !!error && { borderColor: themeColors.danger },
+        { backgroundColor: inputBg, borderColor: palette.border },
+        focused && { borderColor: palette.primary },
+        !!error && { borderColor: palette.danger },
       ]}>
         {onPress ? (
           <TouchableOpacity style={{ flex: 1, flexDirection: 'row', alignItems: 'center' }} onPress={onPress} activeOpacity={0.7}>
@@ -42,14 +54,16 @@ export default function Input({
               <Ionicons
                 name={icon}
                 size={18}
-                color={focused ? themeColors.primaryLight : themeColors.text.muted}
+                color={focused ? palette.primaryLight : palette.text.muted}
                 style={styles.leftIcon}
               />
             )}
             <View pointerEvents="none" style={{ flex: 1 }}>
               <TextInput
-                style={[styles.input, { color: themeColors.text.primary }]}
-                placeholderTextColor={themeColors.text.muted}
+                style={[styles.input, style, { color: inputTextColor }]}
+                placeholderTextColor={placeholderTextColor ?? inputPlaceholderColor}
+                selectionColor={selectionColor ?? inputCursorColor}
+                cursorColor={cursorColor ?? inputCursorColor}
                 editable={false}
                 {...rest}
               />
@@ -61,13 +75,15 @@ export default function Input({
               <Ionicons
                 name={icon}
                 size={18}
-                color={focused ? themeColors.primaryLight : themeColors.text.muted}
+                color={focused ? palette.primaryLight : palette.text.muted}
                 style={styles.leftIcon}
               />
             )}
             <TextInput
-              style={[styles.input, { color: themeColors.text.primary }]}
-              placeholderTextColor={themeColors.text.muted}
+              style={[styles.input, style, { color: inputTextColor }]}
+              placeholderTextColor={placeholderTextColor ?? inputPlaceholderColor}
+              selectionColor={selectionColor ?? inputCursorColor}
+              cursorColor={cursorColor ?? inputCursorColor}
               onFocus={() => setFocused(true)}
               onBlur={() => setFocused(false)}
               secureTextEntry={secure}
@@ -80,21 +96,21 @@ export default function Input({
             <Ionicons
               name={secure ? 'eye-off-outline' : 'eye-outline'}
               size={18}
-              color={themeColors.text.muted}
+              color={palette.text.muted}
             />
           </TouchableOpacity>
         )}
         {rightIcon && !isPassword && (
           <TouchableOpacity onPress={onRightIconPress} style={styles.rightIconBtn} disabled={rightIcon === 'sync'}>
             {rightIcon === 'sync' ? (
-              <ActivityIndicator size="small" color={themeColors.primaryLight} />
+              <ActivityIndicator size="small" color={palette.primaryLight} />
             ) : (
-              <Ionicons name={rightIcon} size={18} color={themeColors.text.muted} />
+              <Ionicons name={rightIcon} size={18} color={palette.text.muted} />
             )}
           </TouchableOpacity>
         )}
       </View>
-      {error ? <Text style={[styles.error, { color: themeColors.danger }]}>{error}</Text> : null}
+      {error ? <Text style={[styles.error, { color: palette.danger }]}>{error}</Text> : null}
     </View>
   );
 }

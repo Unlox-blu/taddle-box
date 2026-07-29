@@ -110,7 +110,7 @@ function makeStyles(c: ColorPalette) {
       marginBottom: spacing.sm,
     },
     emptyTitle: {
-      fontSize: fontSizes.base,
+      fontSize: fontSizes.md,
       fontWeight: "700",
       color: c.text.primary,
       marginBottom: 4,
@@ -244,11 +244,6 @@ export default function SpotlightCarousel() {
             <Text style={styles.emptySub}>
               {"Stay tuned for exciting spotlights coming soon!"}
             </Text>
-            <View style={styles.emptyDots}>
-              {[0, 1, 2].map((i) => (
-                <View key={i} style={styles.emptyDot} />
-              ))}
-            </View>
           </LinearGradient>
         </View>
       </View>

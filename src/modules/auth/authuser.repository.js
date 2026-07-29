@@ -70,6 +70,7 @@ const findByIdUser = async ({userId}) => {
 
 const findByEmailUser = async ({email}) => {
   try {
+    console.log('findByEmailUser received email:', email);
     const { rows } = await pool.query(
       `SELECT ${AuthModel.USER_DETAIL},
       avatar_media.cloudfront_url AS avatar_media_url,
@@ -77,12 +78,16 @@ const findByEmailUser = async ({email}) => {
       FROM ${AuthModel.USER_TABLE} u 
       LEFT JOIN media AS avatar_media ON avatar_media.id = u.avatar_url
       LEFT JOIN media AS banner_media ON banner_media.id = u.banner_url
-      WHERE u.email = $1 AND u.deleted_at IS NULL`,
+      WHERE LOWER(u.email) = LOWER($1) AND u.deleted_at IS NULL`,
       [email]
     );
+    console.log('findByEmailUser DB rows:', rows);
     const safe = rows[0] ? AuthModel.sanitize(rows[0]) : null
-    return safe ? AuthModel.format(safe) : null;
+    const result = safe ? AuthModel.format(safe) : null;
+    console.log('findByEmailUser returning:', result);
+    return result;
   } catch (error) {
+    console.error('findByEmailUser error:', error);
     throw error;
   }
 };
@@ -190,11 +195,37 @@ const findByEmailLogin = async ({email}) => {
   }
 };
 
+const findByIdentifierLogin = async ({ identifier }) => {
+  try {
+    const cleanId = identifier.trim();
+    const normalizedPhone = cleanId.replace(/\D/g, '');
+    const { rows } = await pool.query(
+      `SELECT ${AuthModel.LOGIN},
+      avatar_media.cloudfront_url AS avatar_media_url,
+      banner_media.cloudfront_url AS banner_media_url
+      FROM ${AuthModel.USER_TABLE} u 
+      LEFT JOIN media AS avatar_media ON avatar_media.id = u.avatar_url
+      LEFT JOIN media AS banner_media ON banner_media.id = u.banner_url
+      WHERE (
+        LOWER(u.email) = LOWER($1) OR
+        LOWER(u.username) = LOWER($1) OR
+        u.phone_number = $2 OR
+        (u.country_code || u.phone_number) = $1 OR
+        (REGEXP_REPLACE(u.country_code, '\\D', '', 'g') || u.phone_number) = $2
+      ) AND u.deleted_at IS NULL`,
+      [cleanId, normalizedPhone]
+    );
+    return rows[0] ? AuthModel.format(rows[0]) : null;
+  } catch (error) {
+    throw error;
+  }
+};
+
 
 const findByIdSecure = async ({userId}) => {
   try {
     const { rows } = await pool.query(
-      `SELECT ${AuthModel.SECURE_FIELDS} 
+      `SELECT u.* 
       FROM ${AuthModel.USER_TABLE} u 
       WHERE u.id = $1 AND u.deleted_at IS NULL`,
       [userId]
@@ -202,8 +233,8 @@ const findByIdSecure = async ({userId}) => {
     return rows[0] ? AuthModel.format(rows[0]) : null;
   } catch (error) {
     throw error;
-}
-}
+  }
+};
 
 const findByIdPrivate = async ({userId}) => {
   try {
@@ -442,13 +473,51 @@ const findByEmailVerifyToken = async (ResetToken) => {
   }
 };
 
+const findByIdentifier = async (identifier) => {
+  try {
+    const cleanId = identifier.trim();
+    const query = `
+      SELECT ${AuthModel.USER_DETAIL},
+      avatar_media.cloudfront_url AS avatar_media_url,
+      banner_media.cloudfront_url AS banner_media_url
+      FROM ${AuthModel.USER_TABLE} u
+      LEFT JOIN media AS avatar_media ON avatar_media.id = u.avatar_url
+      LEFT JOIN media AS banner_media ON banner_media.id = u.banner_url
+      WHERE (
+        LOWER(u.email) = LOWER($1) OR
+        LOWER(u.username) = LOWER($1) OR
+        u.phone_number = $1 OR
+        (u.country_code || u.phone_number) = $1
+      ) AND u.deleted_at IS NULL
+    `;
+    const { rows } = await pool.query(query, [cleanId]);
+    const safe = rows[0] ? AuthModel.sanitize(rows[0]) : null;
+    return safe ? AuthModel.format(safe) : null;
+  } catch (error) {
+    throw error;
+  }
+};
 
+const findPhoneByUserId = async (userId) => {
+  try {
+    const { rows } = await pool.query(
+      `SELECT id, phone_number AS phone, country_code AS "countryCode"
+       FROM ${AuthModel.USER_TABLE}
+       WHERE id = $1 AND deleted_at IS NULL`,
+      [userId]
+    );
+    return rows[0] || null;
+  } catch (error) {
+    throw error;
+  }
+};
 
 module.exports = {
-  findByIdPrivate, findByEmail, getFlagByID, verifyEmail, verifyPhone, findByEmailLogin, create, setAppLock,
+  findByIdPrivate, findByEmail, getFlagByID, verifyEmail, verifyPhone, findByEmailLogin, findByIdentifierLogin, create, setAppLock,
   removeAppLock, updatePhone, updatePrivacy, updateRefreshToken,
   getRefreshTokenById, updateEmailVerifyToken, findByEmailVerifyToken,
   updatePasswordResetToken, findByPasswordResetToken, getPasswordByUserId,
   updatePassword, updateLastLogin, softDelete, isEmailExist, isPhoneExist, isUsernameExist,
   findByIdSecure, findByIdAppLock, findByEmailUser, findByIdUser, updateAvatar, updateEmail, findPhoneByEmail,
+  findByIdentifier, findPhoneByUserId,
 };

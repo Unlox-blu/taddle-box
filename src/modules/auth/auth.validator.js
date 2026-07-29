@@ -94,10 +94,21 @@ const signupSchema = z.object({
   }
 });
 
+const loginIdentifierSchema = z.preprocess(transformToLowerCase, z.string().min(1, 'Email, Phone or Username is required'));
+
 const loginSchema = z.object({
-  email: z.preprocess(transformToLowerCase, z.string().email('Invalid email address')),
+  identifier: loginIdentifierSchema.optional(),
+  email: loginIdentifierSchema.optional(),
   password: z.string('Password must be string').min(1, 'Password is required'),
-}).strict();
+}).strict().superRefine((data, ctx) => {
+  if (!data.identifier && !data.email) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ['identifier'],
+      message: 'Email, Phone or Username is required',
+    });
+  }
+});
 
 const loginPinSchema = z.object({
   pin: z.string().regex(/^[0-9]{4}$/, 'PIN must be exactly 4 digits').optional(),
@@ -126,45 +137,61 @@ const changePasswordSchema = z.object({
 }).strict();
 
 const forgotPasswordSchema = z.object({
-  email: z.preprocess(transformToLowerCase, z.string().email('Invalid email address')),
+  identifier: z.string().min(1, 'Email, Phone or Username is required'),
 }).strict();
 
-const resetPasswordSchema = z.object({
+const verifyResetPasswordOtpSchema = z.object({
   email: z.preprocess(transformToLowerCase, z.string().email('Invalid email address')),
   emailOtp: z.string().length(6, 'Email OTP must be 6 digits').regex(/^[0-9]+$/, 'Email OTP must be numeric'),
   phoneOtp: z.string().length(6, 'Phone OTP must be 6 digits').regex(/^[0-9]+$/, 'Phone OTP must be numeric').optional(),
+}).strict();
+
+const resetPasswordSchema = z.object({
+  token: z.string().min(1, 'Token is required'),
   password: passwordRules,
 }).strict();
 
 const verifyPasswordSchema = z.object({
   password: z.string().min(1, 'Password is required'),
+  email: z.preprocess(transformToLowerCase, z.string().email('Invalid email address')).optional(),
+  countryCode: z.string().optional(),
+  phone: z.string().optional(),
 }).strict();
 
-const sendPhoneOtpSchema = z.object({
-  countryCode: z.string().min(1).regex(/^\+[0-9]{1,4}$/),
-  phone: z.string().min(3).regex(/^[0-9]{3,15}$/),
-  purpose: z.enum(['change_email', 'change_phone']),
+const requestChangePasswordOtpSchema = z.object({
+  currentPassword: z.string().min(1, 'Current password is required'),
+  email: z.preprocess(transformToLowerCase, z.string().email('Invalid email address')),
+  countryCode: z.string().optional(),
+  phone: z.string().optional(),
 }).strict();
 
-const sendEmailOtpSchema = z.object({
-  email: z.preprocess(transformToLowerCase, z.string().email()),
-  purpose: z.enum(['change_email', 'change_phone']),
+const verifyChangePasswordOtpSchema = z.object({
+  emailOtp: z.string().length(6, 'Email OTP must be 6 digits').regex(/^[0-9]+$/, 'Email OTP must be numeric'),
+  phoneOtp: z.string().length(6, 'Phone OTP must be 6 digits').regex(/^[0-9]+$/, 'Phone OTP must be numeric').optional(),
 }).strict();
 
-const verifySingleOtpSchema = z.object({
-  otp: z.string().length(6).regex(/^[0-9]+$/),
-  purpose: z.enum(['change_email', 'change_phone']),
+const confirmChangePasswordSchema = z.object({
+  changeToken: z.string().min(1, 'Token is required'),
+  newPassword: passwordRules,
 }).strict();
 
-const updatePhoneSchema = z.object({
-  changeToken: z.string().min(1, 'Change token is required'),
-  countryCode: z.string().min(1).regex(/^\+[0-9]{1,4}$/),
-  phone: z.string().min(3).regex(/^[0-9]{3,15}$/),
+const requestChangePhoneOtpSchema = z.object({
+  newCountryCode: z.string().min(1).regex(/^\+[0-9]{1,4}$/),
+  newPhone: z.string().min(3).regex(/^[0-9]{3,15}$/),
 }).strict();
 
-const updateEmailSchema = z.object({
-  changeToken: z.string().min(1, 'Change token is required'),
-  email: z.preprocess(transformToLowerCase, z.string().email()),
+const verifyChangePhoneOtpSchema = z.object({
+  emailOtp: z.string().length(6, 'Email OTP must be 6 digits').regex(/^[0-9]+$/, 'Email OTP must be numeric'),
+  phoneOtp: z.string().length(6, 'Phone OTP must be 6 digits').regex(/^[0-9]+$/, 'Phone OTP must be numeric'),
+}).strict();
+
+const requestChangeEmailOtpSchema = z.object({
+  newEmail: z.preprocess(transformToLowerCase, z.string().email()),
+}).strict();
+
+const verifyChangeEmailOtpSchema = z.object({
+  emailOtp: z.string().length(6, 'Email OTP must be 6 digits').regex(/^[0-9]+$/, 'Email OTP must be numeric'),
+  phoneOtp: z.string().length(6, 'Phone OTP must be 6 digits').regex(/^[0-9]+$/, 'Phone OTP must be numeric').optional(), // Optional if they don't have a phone linked
 }).strict();
 
 
@@ -184,9 +211,12 @@ module.exports = {
   resetPasswordSchema,
   changePasswordSchema,
   verifyPasswordSchema,
-  sendPhoneOtpSchema,
-  sendEmailOtpSchema,
-  verifySingleOtpSchema,
-  updatePhoneSchema,
-  updateEmailSchema,
+  requestChangePhoneOtpSchema,
+  verifyChangePhoneOtpSchema,
+  requestChangeEmailOtpSchema,
+  verifyChangeEmailOtpSchema,
+  requestChangePasswordOtpSchema,
+  verifyChangePasswordOtpSchema,
+  verifyResetPasswordOtpSchema,
+  confirmChangePasswordSchema,
 };

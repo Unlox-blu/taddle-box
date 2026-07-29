@@ -3,7 +3,7 @@
 const router = require('express').Router();
 const { authController } = require('../modules/auth/auth.container');
 const { verifyToken } = require('../middlewares/auth.middleware');
-const { otpRateLimiter } = require('../middlewares/rate-limiter.middleware');
+const { otpRateLimiter, authRateLimiter } = require('../middlewares/rate-limiter.middleware');
 const { validateRequest } = require('../middlewares/validator.middleware');
 const {
   usernameSchema,
@@ -19,11 +19,14 @@ const {
   forgotPasswordSchema,
   resetPasswordSchema,
   verifyPasswordSchema,
-  sendPhoneOtpSchema,
-  sendEmailOtpSchema,
-  verifySingleOtpSchema,
-  updatePhoneSchema,
-  updateEmailSchema,
+  requestChangePhoneOtpSchema,
+  verifyChangePhoneOtpSchema,
+  requestChangeEmailOtpSchema,
+  verifyChangeEmailOtpSchema,
+  requestChangePasswordOtpSchema,
+  verifyChangePasswordOtpSchema,
+  verifyResetPasswordOtpSchema,
+  confirmChangePasswordSchema,
 } = require('../modules/auth/auth.validator');
 const { verifyOtpToken } = require('../middlewares/verification.middleware');
 
@@ -119,14 +122,35 @@ router.post(
 router.post(
   '/change-password',
   verifyToken,
-  validateRequest({ body: changePasswordSchema }),
+  validateRequest({ body: requestChangePasswordOtpSchema }),
   authController.changePassword
+);
+
+router.post(
+  '/verify-change-password-otp',
+  verifyToken,
+  validateRequest({ body: verifyChangePasswordOtpSchema }),
+  authController.verifyChangePasswordOtp
+);
+
+router.post(
+  '/confirm-change-password',
+  verifyToken,
+  validateRequest({ body: confirmChangePasswordSchema }),
+  authController.confirmChangePassword
 );
 
 router.post(
   '/forgot-password',
   validateRequest({ body: forgotPasswordSchema }),
   authController.forgotPassword
+);
+
+router.post(
+  '/verify-reset-password-otp',
+  authRateLimiter,
+  validateRequest({ body: verifyResetPasswordOtpSchema }),
+  authController.verifyResetPasswordOtp
 );
 
 router.post(
@@ -137,14 +161,11 @@ router.post(
 
 router.post('/verify-password', verifyToken, validateRequest({ body: verifyPasswordSchema }), authController.verifyPassword);
 
-router.post('/send-phone-otp', verifyToken, validateRequest({ body: sendPhoneOtpSchema }), authController.sendPhoneOtp);
-router.post('/send-email-otp', verifyToken, validateRequest({ body: sendEmailOtpSchema }), authController.sendEmailOtp);
+router.post('/change-phone/request-otp', verifyToken, validateRequest({ body: requestChangePhoneOtpSchema }), authController.requestChangePhoneOtp);
+router.patch('/change-phone/verify-update', verifyToken, validateRequest({ body: verifyChangePhoneOtpSchema }), authController.verifyChangePhoneOtp);
 
-router.post('/verify-phone-otp', verifyToken, validateRequest({ body: verifySingleOtpSchema }), authController.verifyPhoneOtp);
-router.post('/verify-email-otp', verifyToken, validateRequest({ body: verifySingleOtpSchema }), authController.verifyEmailOtp);
-
-router.patch('/update-phone', verifyToken, validateRequest({ body: updatePhoneSchema }), authController.updatePhone);
-router.patch('/update-email', verifyToken, validateRequest({ body: updateEmailSchema }), authController.updateEmail);
+router.post('/change-email/request-otp', verifyToken, validateRequest({ body: requestChangeEmailOtpSchema }), authController.requestChangeEmailOtp);
+router.patch('/change-email/verify-update', verifyToken, validateRequest({ body: verifyChangeEmailOtpSchema }), authController.verifyChangeEmailOtp);
 
 // ─── Social Login Routes ──────────────────────────────────────────────────────
 router.post('/google', authController.googleAuth);

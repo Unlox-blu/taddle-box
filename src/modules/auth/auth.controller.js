@@ -102,8 +102,8 @@ class AuthController {
 
   login = async (req, res, next) => {
     try {
-      const { email, password } = req.body;
-      const result = await this.authSvc.login({ email, password });
+      const { identifier, email, password } = req.body;
+      const result = await this.authSvc.login({ identifier: identifier || email, password });
 
       if(!result.success){
         res.json(result)
@@ -333,20 +333,51 @@ class AuthController {
 
   changePassword = async (req, res, next) => {
     try {
-      const userId = req.userId
-      const {currentPassword, newPassword} = req.body;
-      await this.authSvc.changePassword({userId, currentPassword, newPassword});
-      res.json(apiResponse(null, 'Password changed successfuly'));
+      const userId = req.userId;
+      const { currentPassword, email, countryCode, phone } = req.body;
+      const result = await this.authSvc.requestChangePasswordOtp({ userId, currentPassword, email, countryCode, phone });
+      res.json(apiResponse(result, 'OTP sent for verification'));
     } catch (error) {
-      next(error)
+      next(error);
+    }
+  };
+
+  verifyChangePasswordOtp = async (req, res, next) => {
+    try {
+      const userId = req.userId;
+      const { emailOtp, phoneOtp } = req.body;
+      const result = await this.authSvc.verifyChangePasswordOtp({ userId, emailOtp, phoneOtp });
+      res.json(apiResponse(result, 'OTPs verified successfully'));
+    } catch (error) {
+      next(error);
+    }
+  };
+
+  confirmChangePassword = async (req, res, next) => {
+    try {
+      const { changeToken, newPassword } = req.body;
+      await this.authSvc.confirmChangePassword({ changeToken, newPassword });
+      res.json(apiResponse(null, 'Password changed successfully'));
+    } catch (error) {
+      next(error);
     }
   }
 
   forgotPassword = async (req, res, next) => {
     try {
-      const { email } = req.body;
-      const result = await this.authSvc.forgotPassword({email});
-      res.json(apiResponse(result, 'If that email exists, an OTP has been sent.'));
+      const { identifier } = req.body;
+      const result = await this.authSvc.forgotPassword({ identifier });
+      res.json(apiResponse(result, 'OTPs have been sent to registered contact details.'));
+    } catch (error) {
+      next(error);
+    }
+  };
+
+  verifyResetPasswordOtp = async (req, res, next) => {
+    try {
+      const { email, emailOtp, phoneOtp } = req.body;
+      const result = await this.authSvc.verifyResetPasswordOtp({ email, emailOtp, phoneOtp });
+      res.json(apiResponse(result, 'OTPs verified successfully'));
     } catch (error) {
       next(error);
     }
@@ -375,74 +406,52 @@ class AuthController {
   verifyPassword = async (req, res, next) => {
     try {
       const userId = req.userId;
-      const { password } = req.body;
-      const result = await this.authSvc.verifyPassword({ userId, password });
+      const { password, email, countryCode, phone } = req.body;
+      const result = await this.authSvc.verifyPassword({ userId, password, email, countryCode, phone });
       res.json(apiResponse(result, 'Password verified successfully'));
     } catch (error) {
       next(error);
     }
   };
 
-  sendPhoneOtp = async (req, res, next) => {
+  requestChangePhoneOtp = async (req, res, next) => {
     try {
       const userId = req.userId;
-      const { countryCode, phone, purpose } = req.body;
-      const result = await this.authSvc.sendPhoneOtp({ userId, countryCode, phone, purpose });
-      res.json(apiResponse(result, 'OTP sent successfully'));
+      const { newCountryCode, newPhone } = req.body;
+      const result = await this.authSvc.requestChangePhoneOtp({ userId, newCountryCode, newPhone });
+      res.json(apiResponse(result, 'OTPs sent to email and phone successfully'));
     } catch (error) {
       next(error);
     }
   };
 
-  sendEmailOtp = async (req, res, next) => {
+  verifyChangePhoneOtp = async (req, res, next) => {
     try {
       const userId = req.userId;
-      const { email, purpose } = req.body;
-      const result = await this.authSvc.sendEmailOtp({ userId, email, purpose });
-      res.json(apiResponse(result, 'OTP sent successfully'));
-    } catch (error) {
-      next(error);
-    }
-  };
-
-  verifyPhoneOtp = async (req, res, next) => {
-    try {
-      const userId = req.userId;
-      const { otp, purpose } = req.body;
-      const result = await this.authSvc.verifySingleOtp({ userId, type: 'phone', otp, purpose });
-      res.json(apiResponse(result, 'OTP verified successfully'));
-    } catch (error) {
-      next(error);
-    }
-  };
-
-  verifyEmailOtp = async (req, res, next) => {
-    try {
-      const userId = req.userId;
-      const { otp, purpose } = req.body;
-      const result = await this.authSvc.verifySingleOtp({ userId, type: 'email', otp, purpose });
-      res.json(apiResponse(result, 'OTP verified successfully'));
-    } catch (error) {
-      next(error);
-    }
-  };
-
-  updatePhone = async (req, res, next) => {
-    try {
-      const userId = req.userId;
-      const { changeToken, countryCode, phone } = req.body;
-      const result = await this.authSvc.updatePhone({ userId, changeToken, countryCode, phone });
+      const { emailOtp, phoneOtp } = req.body;
+      const result = await this.authSvc.verifyChangePhoneOtp({ userId, emailOtp, phoneOtp });
       res.json(apiResponse(result, 'Phone updated successfully'));
     } catch (error) {
       next(error);
     }
   };
 
-  updateEmail = async (req, res, next) => {
+  requestChangeEmailOtp = async (req, res, next) => {
     try {
       const userId = req.userId;
-      const { changeToken, email } = req.body;
-      const result = await this.authSvc.updateEmail({ userId, changeToken, email });
+      const { newEmail } = req.body;
+      const result = await this.authSvc.requestChangeEmailOtp({ userId, newEmail });
+      res.json(apiResponse(result, 'OTPs sent to phone and email successfully'));
+    } catch (error) {
+      next(error);
+    }
+  };
+
+  verifyChangeEmailOtp = async (req, res, next) => {
+    try {
+      const userId = req.userId;
+      const { emailOtp, phoneOtp } = req.body;
+      const result = await this.authSvc.verifyChangeEmailOtp({ userId, emailOtp, phoneOtp });
       res.json(apiResponse(result, 'Email updated successfully'));
     } catch (error) {
       next(error);

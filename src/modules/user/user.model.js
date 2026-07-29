@@ -12,7 +12,7 @@ const PRIVATE_FIELDS = [
   'u.id', 'u.name', 'u.username', 'u.email', 'u.date_of_birth', 'u.avatar_url', 'u.banner_url', 'u.bio', 'u.website_url', 'u.role', 
  'u.is_active', 'u.follower_count', 'u.following_count', 'u.post_count',
   'u.email_verified_at', 'u.last_login_at', 'u.google_id', 'u.created_at', 'u.updated_at',
-  'u.privacy', 'u.theme', 'u.apple_refresh_token', 'u.occupation', 'u.organization', 'u.location', 'u.interests'
+  'u.privacy', 'u.theme', 'u.apple_refresh_token', 'u.occupation', 'u.organization', 'u.location', 'u.interests', 'u.phone_number', 'u.country_code'
 ].join(', ');
 
 const AUTH_FIELDS = [
@@ -87,6 +87,7 @@ const format = (row) => {
     theme: row.theme,
     countryCode: row.country_code,
     phoneNumber: row.phone_number,
+    phone: row.phone_number,
     dateOfBirth: row.date_of_birth,
     gender: row.gender,
     appLock: row.app_lock,

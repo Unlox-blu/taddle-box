@@ -22,6 +22,11 @@ const COOKIE_OPTS = {
 
 const OTP_PREFIX = 'otp:';
 const USERNAME_PREFIX = 'reserved_username:';
+const normalizePhone = (value = '') => String(value).replace(/\D/g, '');
+const normalizeCountryCode = (value = '') => {
+  const digits = normalizePhone(value);
+  return digits ? `+${digits}` : '';
+};
 
 const FLAGS = {
   EMAIL_VERIFIED: 1 << 0, // 1
@@ -121,7 +126,7 @@ class AuthService {
         phone: {
           countryCode,
           value: phone,
-          otp: '123456', // phoneOtp
+          otp: crypto.randomInt(100000, 1000000).toString(), // phoneOtp
           isVerified: false,
         },
         otpExpIn,
@@ -145,13 +150,27 @@ class AuthService {
     }
   }
 
-  async verifyPassword({ userId, password }) {
+  async verifyPassword({ userId, password, email, countryCode, phone }) {
     try {
-      const user = await this.authUserRepo.getPasswordByUserId({ userId });
+      const user = await this.authUserRepo.findByIdSecure({ userId });
       if (!user || !user.passwordHash) throw createError('Invalid user or password not set', 400);
 
       const valid = await comparePassword(password, user.passwordHash);
       if (!valid) throw createError('Incorrect password', 400);
+
+      if (email && user.email.toLowerCase() !== email.toLowerCase()) {
+        throw createError('Current email address does not match', 400);
+      }
+
+      if (phone && countryCode) {
+        const registeredPhone = user.phone || user.phoneNumber;
+        if (
+          normalizePhone(registeredPhone) !== normalizePhone(phone) ||
+          normalizeCountryCode(user.countryCode) !== normalizeCountryCode(countryCode)
+        ) {
+          throw createError('Current phone number does not match', 400);
+        }
+      }
 
       return { valid: true };
     } catch (error) {
@@ -159,134 +178,128 @@ class AuthService {
     }
   }
 
-  async sendPhoneOtp({ userId, countryCode, phone, purpose }) {
+  async requestChangePhoneOtp({ userId, newCountryCode, newPhone }) {
     try {
-      const existing = await this.authUserRepo.isPhoneExist({ countryCode, phone });
+      const user = await this.authUserRepo.findByIdPrivate({ userId });
+      if (!user) throw createError('User not found', 404);
+
+      const existing = await this.authUserRepo.isPhoneExist({ countryCode: newCountryCode, phone: newPhone });
       if (existing && existing.id !== userId) throw createError('Phone is already registered by another user', 409);
 
-      const otp = crypto.randomInt(100000, 1000000).toString();
-      const otpExpIn = new Date(Date.now() + parseInt(config.OTP_EXPIRES_IN, 10));
-      
-      const verificationKey = `${OTP_PREFIX}:phone:${userId}:${purpose}`;
-      const verificationObj = {
-        userId,
-        countryCode,
-        phone,
-        otp: '123456', // Simulated OTP
-        purpose,
-        otpExpIn,
-      };
+      const emailOtp = crypto.randomInt(100000, 1000000).toString();
+      const phoneOtp = crypto.randomInt(100000, 1000000).toString();
+      const otpExpIn = new Date(Date.now() + 5 * 60 * 1000); // 5 minutes
 
-      await redis.setex(verificationKey, 60 * 5, JSON.stringify(verificationObj));
+      const emailKey = `${OTP_PREFIX}:email:change_phone:${userId}`;
+      await redis.setex(emailKey, 60 * 5, JSON.stringify({ email: user.email, otp: emailOtp, otpExpIn }));
+      await addJob('email:otp-verification', { to: user.email, otp: emailOtp });
 
-      // SMS sending logic would go here
+      const phoneKey = `${OTP_PREFIX}:phone:change_phone:${userId}`;
+      await redis.setex(phoneKey, 60 * 5, JSON.stringify({ phone: newPhone, countryCode: newCountryCode, otp: phoneOtp, otpExpIn }));
+      await addJob('sms:otp-verification', { to: `${newCountryCode}${newPhone}`, otp: phoneOtp });
 
-      return { message: 'OTP sent to phone successfully' };
+      return { message: 'OTPs sent to registered email and new phone successfully' };
     } catch (error) {
       throw error;
     }
   }
 
-  async sendEmailOtp({ userId, email, purpose }) {
+  async verifyChangePhoneOtp({ userId, emailOtp, phoneOtp }) {
     try {
-      const existing = await this.authUserRepo.isEmailExist({ email });
-      if (existing && existing.id !== userId) throw createError('Email is already registered by another user', 409);
+      const emailKey = `${OTP_PREFIX}:email:change_phone:${userId}`;
+      const phoneKey = `${OTP_PREFIX}:phone:change_phone:${userId}`;
 
-      const otp = crypto.randomInt(100000, 1000000).toString();
-      const otpExpIn = new Date(Date.now() + parseInt(config.OTP_EXPIRES_IN, 10));
-      
-      const verificationKey = `${OTP_PREFIX}:email:${userId}:${purpose}`;
-      const verificationObj = {
-        userId,
-        email,
-        otp,
-        purpose,
-        otpExpIn,
-      };
+      const [cachedEmailData, cachedPhoneData] = await Promise.all([
+        redis.get(emailKey),
+        redis.get(phoneKey)
+      ]);
 
-      await redis.setex(verificationKey, 60 * 5, JSON.stringify(verificationObj));
+      if (!cachedEmailData || !cachedPhoneData) throw createError('OTP is expired or invalid', 400);
 
-      const emailJobdata = {
-        to: email,
-        otp,
-      };
-      await addJob('email:otp-verification', emailJobdata);
+      const emailData = JSON.parse(cachedEmailData);
+      const phoneData = JSON.parse(cachedPhoneData);
 
-      return { message: 'OTP sent to email successfully' };
-    } catch (error) {
-      throw error;
-    }
-  }
-
-  async verifySingleOtp({ userId, type, otp, purpose }) {
-    try {
-      const currentTime = new Date(Date.now());
-      const verificationKey = `${OTP_PREFIX}:${type}:${userId}:${purpose}`;
-
-      const cachedVerification = await redis.get(verificationKey);
-      const verificationObj = cachedVerification ? JSON.parse(cachedVerification) : null;
-
-      if (!verificationObj || new Date(verificationObj.otpExpIn) < currentTime) {
-        throw createError('OTP is expired', 400);
+      const currentTime = new Date();
+      if (new Date(emailData.otpExpIn) < currentTime || new Date(phoneData.otpExpIn) < currentTime) {
+        throw createError('OTP has expired', 400);
       }
 
-      if (verificationObj.otp !== otp) {
-        throw createError('Invalid OTP', 400);
-      }
+      if (emailData.otp !== emailOtp) throw createError('Invalid Email OTP', 400);
+      if (phoneData.otp !== phoneOtp) throw createError('Invalid Phone OTP', 400);
 
-      // Generate a short-lived changeToken (5 minutes)
-      const changeTokenPayload = { userId, purpose, type, verifiedData: type === 'email' ? verificationObj.email : verificationObj.phone };
-      const changeToken = generateToken(changeTokenPayload, '5m');
+      await this.authUserRepo.updatePhone(userId, phoneData.countryCode, phoneData.phone);
 
-      // Clear the OTP from redis
-      await redis.del(verificationKey);
+      await Promise.all([
+        redis.del(emailKey),
+        redis.del(phoneKey)
+      ]);
 
-      return { changeToken };
-    } catch (error) {
-      throw error;
-    }
-  }
-
-  async updatePhone({ userId, changeToken, countryCode, phone }) {
-    try {
-      let payload;
-      try {
-        payload = decodeToken(changeToken);
-      } catch (e) {
-        throw createError('Invalid or expired change token', 401);
-      }
-
-      if (payload.userId !== userId || payload.purpose !== 'change_phone') {
-        throw createError('Invalid change token', 401);
-      }
-
-      const existing = await this.authUserRepo.isPhoneExist({ countryCode, phone });
-      if (existing && existing.id !== userId) throw createError('Phone is already registered by another user', 409);
-
-      await this.authUserRepo.updatePhone(userId, countryCode, phone);
       return { message: 'Phone updated successfully' };
     } catch (error) {
       throw error;
     }
   }
 
-  async updateEmail({ userId, changeToken, email }) {
+  async requestChangeEmailOtp({ userId, newEmail }) {
     try {
-      let payload;
-      try {
-        payload = decodeToken(changeToken);
-      } catch (e) {
-        throw createError('Invalid or expired change token', 401);
-      }
+      const user = await this.authUserRepo.findByIdPrivate({ userId });
+      if (!user) throw createError('User not found', 404);
 
-      if (payload.userId !== userId || payload.purpose !== 'change_email') {
-        throw createError('Invalid change token', 401);
-      }
+      const phoneDetails = await this.authUserRepo.findPhoneByUserId(user.id);
+      const hasPhone = !!(phoneDetails && phoneDetails.phone && phoneDetails.countryCode);
+      if (!hasPhone) throw createError('A registered phone number is required to change email', 400);
 
-      const existing = await this.authUserRepo.isEmailExist({ email });
+      const existing = await this.authUserRepo.isEmailExist({ email: newEmail });
       if (existing && existing.id !== userId) throw createError('Email is already registered by another user', 409);
 
-      await this.authUserRepo.updateEmail(userId, email);
+      const emailOtp = crypto.randomInt(100000, 1000000).toString();
+      const phoneOtp = crypto.randomInt(100000, 1000000).toString();
+      const otpExpIn = new Date(Date.now() + 5 * 60 * 1000); // 5 minutes
+
+      const phoneKey = `${OTP_PREFIX}:phone:change_email:${userId}`;
+      await redis.setex(phoneKey, 60 * 5, JSON.stringify({ phone: phoneDetails.phone, countryCode: phoneDetails.countryCode, otp: phoneOtp, otpExpIn }));
+      await addJob('sms:otp-verification', { to: `${phoneDetails.countryCode}${phoneDetails.phone}`, otp: phoneOtp });
+
+      const emailKey = `${OTP_PREFIX}:email:change_email:${userId}`;
+      await redis.setex(emailKey, 60 * 5, JSON.stringify({ email: newEmail, otp: emailOtp, otpExpIn }));
+      await addJob('email:otp-verification', { to: newEmail, otp: emailOtp });
+
+      return { message: 'OTPs sent to registered phone and new email successfully' };
+    } catch (error) {
+      throw error;
+    }
+  }
+
+  async verifyChangeEmailOtp({ userId, emailOtp, phoneOtp }) {
+    try {
+      const emailKey = `${OTP_PREFIX}:email:change_email:${userId}`;
+      const phoneKey = `${OTP_PREFIX}:phone:change_email:${userId}`;
+
+      const [cachedEmailData, cachedPhoneData] = await Promise.all([
+        redis.get(emailKey),
+        redis.get(phoneKey)
+      ]);
+
+      if (!cachedEmailData || !cachedPhoneData) throw createError('OTP is expired or invalid', 400);
+
+      const emailData = JSON.parse(cachedEmailData);
+      const phoneData = JSON.parse(cachedPhoneData);
+
+      const currentTime = new Date();
+      if (new Date(emailData.otpExpIn) < currentTime || new Date(phoneData.otpExpIn) < currentTime) {
+        throw createError('OTP has expired', 400);
+      }
+
+      if (emailData.otp !== emailOtp) throw createError('Invalid Email OTP', 400);
+      if (phoneData.otp !== phoneOtp) throw createError('Invalid Phone OTP', 400);
+
+      await this.authUserRepo.updateEmail(userId, emailData.email);
+
+      await Promise.all([
+        redis.del(emailKey),
+        redis.del(phoneKey)
+      ]);
+
       return { message: 'Email updated successfully' };
     } catch (error) {
       throw error;
@@ -467,17 +480,18 @@ class AuthService {
     }
   }
 
-  async login({ email, password }) {
+  async login({ identifier, email, password }) {
     try {
-      const user = await this.authUserRepo.findByEmailLogin({ email });
+      const loginIdentifier = identifier || email;
+      const user = await this.authUserRepo.findByIdentifierLogin({ identifier: loginIdentifier });
 
-      if (!user) throw createError('Invalid email or password', 401);
+      if (!user) throw createError('Invalid login or password', 401);
       if (user.isBanned) throw createError('Your account has been suspended', 403);
       if (!user.isActive) throw createError('Your account is deactivated', 403);
       if (!user.passwordHash) throw createError('Please sign in with Google', 400);
 
       const valid = await comparePassword(password, user.passwordHash);
-      if (!valid) throw createError('Invalid email or password', 401);
+      if (!valid) throw createError('Invalid login or password', 401);
 
       const userId = user.id;
       const isVerified = await this.authUserRepo.getFlagByID({ userId });
@@ -495,7 +509,7 @@ class AuthService {
       const { userData, sessionData } = await this.#issueTokens(user);
 
       const jobdata = {
-        to: email,
+        to: user.email,
         name: user.name
       }
       await addJob('email:welcome', jobdata);
@@ -645,18 +659,131 @@ class AuthService {
     }
   }
 
-  // Sends password reset OTPs to both email and phone (if available).
-  async forgotPassword({ email }) {
+  async requestChangePasswordOtp({ userId, currentPassword, email, countryCode, phone }) {
     try {
-      const user = await this.authUserRepo.findByEmailUser({ email });
-      if (!user) return { hasPhone: false }; // Don't reveal if email exists
+      const user = await this.authUserRepo.getPasswordByUserId({ userId });
+      if (!user || !user.passwordHash) throw createError('Invalid user or password not set', 400);
 
-      // Get phone details
-      const phoneDetails = await this.authUserRepo.findPhoneByEmail({ email });
+      const valid = await comparePassword(currentPassword, user.passwordHash);
+      if (!valid) throw createError('Current password is incorrect', 400);
+
+      // Get user email and phone details
+      const userDetails = await this.authUserRepo.findByIdPrivate({ userId });
+      const phoneDetails = await this.authUserRepo.findPhoneByUserId(userId);
+      const hasPhone = !!(phoneDetails && phoneDetails.phone && phoneDetails.countryCode);
+      
+      // Verify provided email matches
+      if (!email || email.toLowerCase() !== userDetails.email.toLowerCase()) {
+        throw createError('Provided email does not match registered email', 400);
+      }
+      
+      // Verify provided phone matches (if user has a phone)
+      if (hasPhone) {
+        if (!phone || !countryCode) {
+          throw createError('Registered phone number and country code are required', 400);
+        }
+        if (phone !== phoneDetails.phone || countryCode !== phoneDetails.countryCode) {
+          throw createError('Provided phone number does not match registered phone', 400);
+        }
+      }
+
+      const emailOtp = crypto.randomInt(100000, 1000000).toString();
+      const phoneOtp = crypto.randomInt(100000, 1000000).toString(); // Generated OTP
+      const otpExpIn = new Date(Date.now() + 5 * 60 * 1000); // 5 minutes
+
+      // Store Email OTP
+      const emailKey = `${OTP_PREFIX}:email:change_password:${userId}`;
+      await redis.setex(emailKey, 60 * 5, JSON.stringify({ email, otp: emailOtp, otpExpIn }));
+      await addJob('email:otp-verification', { to: email, otp: emailOtp });
+
+      // Store Phone OTP
+      if (hasPhone) {
+        const phoneKey = `${OTP_PREFIX}:phone:change_password:${userId}`;
+        await redis.setex(phoneKey, 60 * 5, JSON.stringify({ phone: phoneDetails.phone, countryCode: phoneDetails.countryCode, otp: phoneOtp, otpExpIn }));
+        await addJob('sms:otp-verification', { to: `${phoneDetails.countryCode}${phoneDetails.phone}`, otp: phoneOtp });
+      }
+
+      return { hasPhone, phone: hasPhone ? `${phoneDetails.countryCode}${phoneDetails.phone}` : undefined };
+    } catch (error) {
+      throw error;
+    }
+  }
+
+  async verifyChangePasswordOtp({ userId, emailOtp, phoneOtp }) {
+    try {
+      const currentTime = new Date(Date.now());
+      const userDetails = await this.authUserRepo.findByIdPrivate({ userId });
+      if (!userDetails) throw createError('User not found', 404);
+
+      // Verify Email OTP
+      const emailKey = `${OTP_PREFIX}:email:change_password:${userId}`;
+      const emailCached = await redis.get(emailKey);
+      const emailData = emailCached ? JSON.parse(emailCached) : null;
+
+      if (!emailData || new Date(emailData.otpExpIn) < currentTime) {
+        throw createError('Email OTP has expired. Please request a new one.', 400);
+      }
+      if (emailData.otp !== emailOtp) {
+        throw createError('Invalid Email OTP', 400);
+      }
+
+      // Verify Phone OTP (if user has phone)
+      const phoneDetails = await this.authUserRepo.findPhoneByUserId(userId);
+      let phoneKey = null;
+      if (phoneDetails && phoneDetails.phone && phoneDetails.countryCode) {
+        if (!phoneOtp) throw createError('Phone OTP is required', 400);
+        phoneKey = `${OTP_PREFIX}:phone:change_password:${userId}`;
+        const phoneCached = await redis.get(phoneKey);
+        const phoneData = phoneCached ? JSON.parse(phoneCached) : null;
+        
+        if (!phoneData || new Date(phoneData.otpExpIn) < currentTime) {
+          throw createError('Phone OTP has expired. Please request a new one.', 400);
+        }
+        if (phoneData.otp !== phoneOtp) {
+          throw createError('Invalid Phone OTP', 400);
+        }
+      }
+
+      const changeTokenPayload = { userId, purpose: 'change_password' };
+      const changeToken = generateToken(changeTokenPayload, '5m');
+
+      await redis.del(emailKey);
+      if (phoneKey) await redis.del(phoneKey);
+
+      return { changeToken };
+    } catch (error) {
+      throw error;
+    }
+  }
+
+  async confirmChangePassword({ changeToken, newPassword }) {
+    try {
+      const decoded = decodeToken(changeToken);
+      if (decoded.purpose !== 'change_password') {
+        throw createError('Invalid token purpose', 400);
+      }
+      const userId = decoded.userId;
+
+      // Update password
+      const passwordHash = await hashPassword(newPassword);
+      await this.authUserRepo.updatePassword({ userId, passwordHash });
+    } catch (error) {
+      throw error;
+    }
+  }
+
+  // Sends password reset OTPs to both email and phone (if available).
+  async forgotPassword({ identifier }) {
+    try {
+      const user = await this.authUserRepo.findByIdentifier(identifier);
+      if (!user) throw createError('No account found with that email, phone or username', 404);
+
+      const email = user.email;
+      const phoneDetails = await this.authUserRepo.findPhoneByUserId(user.id);
       const hasPhone = !!(phoneDetails && phoneDetails.phone && phoneDetails.countryCode);
 
       const emailOtp = crypto.randomInt(100000, 1000000).toString();
-      const phoneOtp = crypto.randomInt(100000, 1000000).toString();
+      const phoneOtp = crypto.randomInt(100000, 1000000).toString(); // Generated OTP
       const otpExpIn = new Date(Date.now() + 5 * 60 * 1000); // 5 minutes
 
       // Store Email OTP
@@ -671,14 +798,13 @@ class AuthService {
         await addJob('sms:otp-verification', { to: `${phoneDetails.countryCode}${phoneDetails.phone}`, otp: phoneOtp });
       }
 
-      return { hasPhone };
+      return { hasPhone, phone: hasPhone ? `${phoneDetails.countryCode}${phoneDetails.phone}` : undefined, email };
     } catch (error) {
       throw error;
     }
   }
 
-  // Resets password by verifying OTPs then updating password.
-  async resetPassword({ email, emailOtp, phoneOtp, password }) {
+  async verifyResetPasswordOtp({ email, emailOtp, phoneOtp }) {
     try {
       const currentTime = new Date(Date.now());
       const user = await this.authUserRepo.findByEmailUser({ email });
@@ -713,13 +839,30 @@ class AuthService {
         }
       }
 
-      // Update password
-      const passwordHash = await hashPassword(password);
-      await this.authUserRepo.updatePassword({ userId: user.id, passwordHash });
-      
-      // Cleanup
+      const tokenPayload = { userId: user.id, email, purpose: 'reset_password' };
+      const token = generateToken(tokenPayload, '5m');
+
       await redis.del(emailKey);
       if (phoneKey) await redis.del(phoneKey);
+
+      return { token };
+    } catch (error) {
+      throw error;
+    }
+  }
+
+  // Resets password by verifying OTPs then updating password.
+  async resetPassword({ token, password }) {
+    try {
+      const decoded = decodeToken(token);
+      if (decoded.purpose !== 'reset_password') {
+        throw createError('Invalid token purpose', 400);
+      }
+      const userId = decoded.userId;
+
+      // Update password
+      const passwordHash = await hashPassword(password);
+      await this.authUserRepo.updatePassword({ userId, passwordHash });
     } catch (error) {
       throw error;
     }

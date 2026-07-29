@@ -262,6 +262,7 @@ const format = (row) => {
     theme: row.theme,
     countryCode: row.country_code,
     phoneNumber: row.phone_number,
+    phone: row.phone_number,
     dateOfBirth: row.date_of_birth,
     gender: row.gender,
     appLock: row.app_lock,

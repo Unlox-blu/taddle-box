@@ -156,6 +156,38 @@ function makeStyles(c: ColorPalette) {
       paddingHorizontal: 24, paddingVertical: 11, borderRadius: radii.full,
     },
     emptyBtnText: { fontSize: fontSizes.sm, fontWeight: '700', color: '#fff' },
+
+    manageRequestsBtn: {
+      backgroundColor: 'rgba(234, 179, 8, 0.15)',
+      paddingVertical: 12, paddingHorizontal: 16,
+      borderRadius: radii.md,
+      flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8,
+      marginBottom: spacing.md,
+      borderWidth: 1, borderColor: 'rgba(234, 179, 8, 0.5)',
+    },
+    manageRequestsText: { color: '#eab308', fontSize: fontSizes.sm, fontWeight: '700' },
+    
+    modalContainer: { flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'flex-end' },
+    modalContent: {
+      backgroundColor: c.bg.card,
+      borderTopLeftRadius: radii.xl, borderTopRightRadius: radii.xl,
+      padding: spacing.lg,
+      maxHeight: '80%',
+    },
+    modalHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: spacing.lg },
+    modalTitle: { fontSize: fontSizes.lg, fontWeight: '800', color: c.text.primary },
+    requestRow: {
+      flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
+      paddingVertical: 12, borderBottomWidth: 1, borderBottomColor: c.border
+    },
+    requestUser: { flexDirection: 'row', alignItems: 'center', gap: 12, flex: 1 },
+    requestAvatar: { width: 40, height: 40, borderRadius: 20, backgroundColor: c.bg.elevated, alignItems: 'center', justifyContent: 'center' },
+    requestName: { fontSize: fontSizes.md, fontWeight: '700', color: c.text.primary },
+    requestUsername: { fontSize: fontSizes.xs, color: c.text.secondary },
+    requestActions: { flexDirection: 'row', gap: 8 },
+    actionBtn: { width: 36, height: 36, borderRadius: 18, alignItems: 'center', justifyContent: 'center' },
+    approveBtn: { backgroundColor: 'rgba(16, 185, 129, 0.15)' },
+    rejectBtn: { backgroundColor: 'rgba(239, 68, 68, 0.15)' },
   });
 }
 
@@ -179,6 +211,8 @@ export default function CommunityDetailScreen() {
 
   const [filter, setFilter]         = useState<FeedFilter>('All');
   const [showCreate, setShowCreate]  = useState(false);
+  const [showRequests, setShowRequests] = useState(false);
+  const isAdmin = community?.memberRole === 'admin' || community?.memberRole === 'moderator';
 
   // Fetch full details and posts on mount
   useEffect(() => {
@@ -298,6 +332,13 @@ export default function CommunityDetailScreen() {
           </View>
         </View>
 
+        {isAdmin && community.privacy === 'private' && (
+          <TouchableOpacity style={styles.manageRequestsBtn} onPress={() => setShowRequests(true)}>
+            <Ionicons name="people" size={18} color="#eab308" />
+            <Text style={styles.manageRequestsText}>Manage Join Requests</Text>
+          </TouchableOpacity>
+        )}
+
         {community.isJoined && (
           <TouchableOpacity style={styles.writePostBtn} onPress={() => setShowCreate(true)}>
             <View style={styles.writePostAvatar}>
@@ -374,6 +415,108 @@ export default function CommunityDetailScreen() {
         onClose={() => setShowCreate(false)}
         preselectedCommunityId={community.id}
       />
+
+      <ManageRequestsModal
+        visible={showRequests}
+        onClose={() => setShowRequests(false)}
+        communityId={community.id}
+        styles={styles}
+        colors={colors}
+      />
+    </View>
+  );
+}
+
+function ManageRequestsModal({ visible, onClose, communityId, styles, colors }: any) {
+  const [requests, setRequests] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    if (visible) {
+      loadRequests();
+    }
+  }, [visible]);
+
+  const loadRequests = async () => {
+    setLoading(true);
+    try {
+      const res = await communityService.getRequests(communityId);
+      setRequests(res.data || []);
+    } catch (e) {
+      console.log('Failed to load requests', e);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleApprove = async (userId: string) => {
+    try {
+      await communityService.approveRequest(communityId, userId);
+      setRequests(prev => prev.filter(r => r.user_id !== userId));
+    } catch (e) {
+      console.log('Approve failed', e);
+    }
+  };
+
+  const handleReject = async (userId: string) => {
+    try {
+      await communityService.rejectRequest(communityId, userId);
+      setRequests(prev => prev.filter(r => r.user_id !== userId));
+    } catch (e) {
+      console.log('Reject failed', e);
+    }
+  };
+
+  if (!visible) return null;
+
+  return (
+    <View style={[StyleSheet.absoluteFill, { zIndex: 999 }]}>
+      <View style={styles.modalContainer}>
+        <View style={styles.modalContent}>
+          <View style={styles.modalHeader}>
+            <Text style={styles.modalTitle}>Join Requests</Text>
+            <TouchableOpacity onPress={onClose}>
+              <Ionicons name="close" size={24} color={colors.text.secondary} />
+            </TouchableOpacity>
+          </View>
+          
+          {loading ? (
+            <Text style={{ color: colors.text.muted, textAlign: 'center', padding: 20 }}>Loading...</Text>
+          ) : requests.length === 0 ? (
+            <Text style={{ color: colors.text.muted, textAlign: 'center', padding: 20 }}>No pending requests.</Text>
+          ) : (
+            <FlatList
+              data={requests}
+              keyExtractor={item => item.user_id}
+              renderItem={({ item }) => (
+                <View style={styles.requestRow}>
+                  <View style={styles.requestUser}>
+                    <View style={styles.requestAvatar}>
+                      {item.avatar_url ? (
+                        <Image source={{ uri: item.avatar_url }} style={{ width: '100%', height: '100%', borderRadius: 20 }} />
+                      ) : (
+                        <Text style={{ fontSize: 20 }}>👾</Text>
+                      )}
+                    </View>
+                    <View>
+                      <Text style={styles.requestName}>{item.name}</Text>
+                      <Text style={styles.requestUsername}>@{item.username}</Text>
+                    </View>
+                  </View>
+                  <View style={styles.requestActions}>
+                    <TouchableOpacity style={[styles.actionBtn, styles.approveBtn]} onPress={() => handleApprove(item.user_id)}>
+                      <Ionicons name="checkmark" size={20} color="#10B981" />
+                    </TouchableOpacity>
+                    <TouchableOpacity style={[styles.actionBtn, styles.rejectBtn]} onPress={() => handleReject(item.user_id)}>
+                      <Ionicons name="close" size={20} color="#EF4444" />
+                    </TouchableOpacity>
+                  </View>
+                </View>
+              )}
+            />
+          )}
+        </View>
+      </View>
     </View>
   );
 }

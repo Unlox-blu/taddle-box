@@ -4,12 +4,6 @@ import {
   Text,
   TouchableOpacity,
   TouchableWithoutFeedback,
-import React, { useMemo, useRef } from "react";
-import {
-  View,
-  Text,
-  TouchableOpacity,
-  TouchableWithoutFeedback,
   StyleSheet,
   Animated,
   Image,
@@ -401,6 +395,10 @@ export default function PostCard({
           claimedPosts.add(postId);
           AsyncStorage.setItem(`claimed_post_${postId}`, "true").catch(() => {});
           xpService.creditXP(rewardXp, "earned", `view_post_${postId}`).catch(() => {});
+        }
+      });
+    } else {
+      progressAnim.stopAnimation();
       progressAnim.setValue(0);
     }
   }, [isActive, requiredTimeMs, isClaimed, rewardXp]);
@@ -569,14 +567,18 @@ export default function PostCard({
               style={{
                 flexDirection: "row",
                 alignItems: "center",
-                justifyContent: "space-between",
+                justifyContent: "flex-start",
+                paddingRight: 90, // Leave room for the absolute pill
               }}
             >
-              <Text style={styles.author}>{author.name}</Text>
+              <Text style={styles.author} numberOfLines={1}>{author.name}</Text>
               {showPill && (
                 <Animated.View style={[
                   styles.xpPill, 
-                  { paddingHorizontal: 0, paddingVertical: 0, overflow: 'hidden', position: 'relative', opacity: pillOpacity },
+                  { 
+                    paddingHorizontal: 0, paddingVertical: 0, overflow: 'hidden', 
+                    position: 'absolute', right: 0, top: -2, opacity: pillOpacity 
+                  },
                   isClaimed && { borderColor: 'rgba(34,197,94,0.35)', backgroundColor: 'rgba(34,197,94,0.1)' }
                 ]}>
                   {!isClaimed && (
@@ -626,6 +628,22 @@ export default function PostCard({
                   ]}
                 >
                   @{author.username}
+                  {post.community ? (
+                    <Text
+                      style={{ color: colors.primaryLight, fontWeight: "700" }}
+                      onPress={(e) => {
+                        e.stopPropagation();
+                        if (typeof post.community === 'object' && (post.community as any).slug) {
+                          navigation.navigate('CommunityStack' as any, {
+                            screen: 'CommunityDetail',
+                            params: { communitySlug: (post.community as any).slug }
+                          } as any);
+                        }
+                      }}
+                    >
+                      {" "}• c/{typeof post.community === 'object' ? ((post.community as any).name || (post.community as any).slug) : post.community}
+                    </Text>
+                  ) : null}
                 </Text>,
                 <Text
                   key="time"

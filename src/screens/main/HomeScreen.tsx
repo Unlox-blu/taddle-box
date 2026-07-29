@@ -297,6 +297,7 @@ export default function HomeScreen() {
         onRefresh={onRefresh}
         onLike={toggleLike}
         onSave={toggleSave}
+        onEndReached={() => fetchFeed()}
         contentContainerStyle={{ flexGrow: 1 }}
         ListHeaderComponent={
           <View>

@@ -11,7 +11,7 @@ import {
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
-import { useNavigation } from '@react-navigation/native';
+import { useNavigation, useRoute, type RouteProp } from '@react-navigation/native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { StatusBar } from 'expo-status-bar';
 import { fontSizes, radii, spacing, type ColorPalette } from '../../theme';
@@ -22,6 +22,7 @@ import {
   type WeeklyLeaderboardEntry,
   type WeeklyLeaderboards,
 } from '../../services/leaderboard.service';
+import type { HomeStackParamList } from '../../types';
 
 const TABS: { key: LeaderboardType; label: string; icon: keyof typeof Ionicons.glyphMap }[] = [
   { key: 'feed', label: 'Feed', icon: 'newspaper-outline' },
@@ -39,12 +40,19 @@ const DEFAULT_DATA: WeeklyLeaderboards = {
   events: [],
 };
 
+type LeaderboardScreenRouteProp = RouteProp<HomeStackParamList, 'Leaderboards'>;
+
 export default function LeaderboardsScreen() {
   const navigation = useNavigation<any>();
+  const route = useRoute<LeaderboardScreenRouteProp>();
   const insets = useSafeAreaInsets();
   const colors = useThemeColors();
   const styles = useMemo(() => makeStyles(colors), [colors]);
-  const [activeTab, setActiveTab] = useState<LeaderboardType>('feed');
+  
+  // Use lowercased initialTab because TABS keys are lowercase
+  const defaultTab = (route.params?.initialTab?.toLowerCase() as LeaderboardType) || 'feed';
+  const [activeTab, setActiveTab] = useState<LeaderboardType>(defaultTab);
+  
   const [data, setData] = useState<WeeklyLeaderboards>(DEFAULT_DATA);
   const [loading, setLoading] = useState(true);
 
@@ -81,8 +89,6 @@ export default function LeaderboardsScreen() {
       </View>
 
       <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.content}>
-        <RewardStacks data={data} activeTab={activeTab} onSelect={setActiveTab} />
-
         <View style={styles.tabRail}>
           {TABS.map((tab) => (
             <TouchableOpacity

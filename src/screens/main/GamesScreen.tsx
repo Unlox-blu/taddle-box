@@ -14,6 +14,9 @@ import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { StatusBar } from 'expo-status-bar';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { useNavigation } from '@react-navigation/native';
+import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
+import type { HomeStackParamList } from '../../types';
 import { fontSizes, radii, spacing, type ColorPalette } from '../../theme';
 import { useThemeColors } from '../../context/ThemeContext';
 import { useGames, type GameMatch, type PlayMode } from '../../context/GamesContext';
@@ -65,6 +68,7 @@ const formatTimeLeft = (endsAt: string) => {
 
 export default function GamesScreen() {
   const insets = useSafeAreaInsets();
+  const navigation = useNavigation<NativeStackNavigationProp<HomeStackParamList>>();
   const colors = useThemeColors();
   const styles = useMemo(() => makeStyles(colors), [colors]);
   const { stats, matches, fetchGamesData } = useGames();
@@ -175,8 +179,8 @@ export default function GamesScreen() {
 	          <Text style={styles.title}>Game Zone</Text>
 	          <Text style={styles.subtitle}>Compete, climb rankings, and earn XP.</Text>
 	        </View>
-	        <TouchableOpacity style={styles.iconButton} onPress={() => setScreenModal('history')}>
-	          <Ionicons name="time-outline" size={20} color={colors.text.secondary} />
+	        <TouchableOpacity style={styles.iconButton} onPress={() => navigation.navigate('Leaderboards', { initialTab: 'Games' })}>
+	          <Ionicons name="trophy-outline" size={20} color={colors.text.secondary} />
 	        </TouchableOpacity>
       </View>
 

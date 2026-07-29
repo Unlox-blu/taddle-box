@@ -6,7 +6,7 @@ export type HomeStackParamList = {
   UserProfile:    { user: User };
   StoryViewer:    { stories: Story[]; initialIndex: number };
   Bookmarks:      undefined;
-  Leaderboards:   undefined;
+  Leaderboards:   { initialTab?: 'Global' | 'Friends' | 'Games' } | undefined;
   Settings:       undefined;
   EditProfile:    undefined;
   Terms:          undefined;

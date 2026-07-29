@@ -128,12 +128,6 @@ export default function SideDrawer({
 	      purple: true,
 	      onPress: () => closeAndNavigateStack("Bookmarks"),
 	    },
-	    {
-	      icon: "podium-outline",
-	      label: "Leaderboards",
-	      purple: true,
-	      onPress: () => closeAndNavigateStack("Leaderboards"),
-	    },
   ];
 
   const moreMenu: MenuRow[] = [
@@ -227,35 +221,23 @@ export default function SideDrawer({
             <XPProgressBar level={level} rank={rank} currentXP={localXP} targetXP={Math.floor(localXP / 1000 + 1) * 1000} />
           </View>
 
-          {/* Stats strip */}
-          <View
+          <TouchableOpacity
             style={[
               styles.statsStrip,
-              { backgroundColor: colors.bg.card, borderColor: colors.border },
+              { backgroundColor: 'rgba(251,191,36,0.1)', borderColor: 'rgba(251,191,36,0.3)', justifyContent: 'flex-start', paddingVertical: 12, paddingHorizontal: 16 }
             ]}
+            onPress={() => closeAndNavigateStack("Leaderboards")}
+            activeOpacity={0.8}
           >
-            <StatBox
-              value={(user?.followerCount || 0).toLocaleString()}
-              label="Followers"
-              colors={colors}
-            />
-            <View
-              style={[styles.statDiv, { backgroundColor: colors.border }]}
-            />
-            <StatBox
-              value={(user?.followingCount || 0).toLocaleString()}
-              label="Following"
-              colors={colors}
-            />
-            <View
-              style={[styles.statDiv, { backgroundColor: colors.border }]}
-            />
-            <StatBox
-              value={`${user?.postCount || 0}`}
-              label="Posts"
-              colors={colors}
-            />
-          </View>
+            <View style={{ width: 40, height: 40, borderRadius: 20, backgroundColor: 'rgba(251,191,36,0.2)', alignItems: 'center', justifyContent: 'center', marginRight: 12 }}>
+              <Ionicons name="trophy" size={20} color={colors.xpGold} />
+            </View>
+            <View style={{ flex: 1 }}>
+              <Text style={{ fontSize: 16, fontWeight: '700', color: colors.text.primary }}>Leaderboards</Text>
+              <Text style={{ fontSize: 13, color: colors.text.secondary, marginTop: 2 }}>See your weekly rankings</Text>
+            </View>
+            <Ionicons name="chevron-forward" size={20} color={colors.text.muted} />
+          </TouchableOpacity>
 
           <View style={[styles.divider, { backgroundColor: colors.border }]} />
 

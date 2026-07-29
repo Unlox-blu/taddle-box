@@ -30,5 +30,20 @@ export const communityService = {
   createCommunity: async (data: Partial<Community>) => {
     const response = await apiClient.post('/communities/create-community', data);
     return response.data;
+  },
+
+  getRequests: async (id: string, page = 1, limit = 20): Promise<{ data: any[]; meta?: any }> => {
+    const response = await apiClient.get(`/communities/${id}/requests?page=${page}&limit=${limit}`);
+    return response.data;
+  },
+
+  approveRequest: async (communityId: string, userId: string) => {
+    const response = await apiClient.post(`/communities/${communityId}/members/${userId}/approve`);
+    return response.data;
+  },
+
+  rejectRequest: async (communityId: string, userId: string) => {
+    const response = await apiClient.delete(`/communities/${communityId}/members/${userId}`);
+    return response.data;
   }
 };

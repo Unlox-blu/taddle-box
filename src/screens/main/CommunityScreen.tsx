@@ -464,7 +464,7 @@ export default function CommunityScreen() {
 
       <View style={styles.header}>
         <View>
-          <Text style={[styles.heroTitle, { fontSize: 10 }]}>Communities</Text>
+          <Text style={[styles.heroTitle, { fontSize: 20 }]}>Communities</Text>
           <Text style={styles.subtitle}>Find your tribe.</Text>
         </View>
         <TouchableOpacity

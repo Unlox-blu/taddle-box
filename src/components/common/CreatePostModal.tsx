@@ -70,17 +70,46 @@ const MENTION_AND_HASHTAG_CONFIG = {
 const IMAGE_EXTS = /\.(jpg|jpeg|png|webp|gif)(\?.*)?$/i;
 const VIDEO_EXTS = /\.(mp4|mov|webm|m4v)(\?.*)?$/i;
 const AUDIO_EXTS = /\.(mp3|m4a|aac|wav|ogg)(\?.*)?$/i;
-const GIF_EXT   = /\.gif(\?.*)?$/i;
-const URL_RE    = /(https?:\/\/[^\s]+)/gi;
+const GIF_EXT = /\.gif(\?.*)?$/i;
+const URL_RE = /(https?:\/\/[^\s]+)/gi;
 
-function detectMediaInText(text: string): { uri: string; type: 'image' | 'video' | 'audio'; mimeType: string; name: string } | null {
+function detectMediaInText(text: string): {
+  uri: string;
+  type: "image" | "video" | "audio";
+  mimeType: string;
+  name: string;
+} | null {
   const matches = text.match(URL_RE);
   if (!matches) return null;
   for (const url of matches) {
-    if (GIF_EXT.test(url))   return { uri: url, type: 'image',  mimeType: 'image/gif',   name: `pasted-${Date.now()}.gif` };
-    if (IMAGE_EXTS.test(url)) return { uri: url, type: 'image',  mimeType: 'image/jpeg',  name: `pasted-${Date.now()}.jpg` };
-    if (VIDEO_EXTS.test(url)) return { uri: url, type: 'video',  mimeType: 'video/mp4',   name: `pasted-${Date.now()}.mp4` };
-    if (AUDIO_EXTS.test(url)) return { uri: url, type: 'audio',  mimeType: 'audio/mpeg',  name: `pasted-${Date.now()}.mp3` };
+    if (GIF_EXT.test(url))
+      return {
+        uri: url,
+        type: "image",
+        mimeType: "image/gif",
+        name: `pasted-${Date.now()}.gif`,
+      };
+    if (IMAGE_EXTS.test(url))
+      return {
+        uri: url,
+        type: "image",
+        mimeType: "image/jpeg",
+        name: `pasted-${Date.now()}.jpg`,
+      };
+    if (VIDEO_EXTS.test(url))
+      return {
+        uri: url,
+        type: "video",
+        mimeType: "video/mp4",
+        name: `pasted-${Date.now()}.mp4`,
+      };
+    if (AUDIO_EXTS.test(url))
+      return {
+        uri: url,
+        type: "audio",
+        mimeType: "audio/mpeg",
+        name: `pasted-${Date.now()}.mp3`,
+      };
   }
   return null;
 }
@@ -94,7 +123,7 @@ export default function CreatePostModal({
   const insets = useSafeAreaInsets();
   const { addPost, posts } = usePosts();
   const { communities } = useCommunities();
-  const colors = useThemeColors();  // ← dynamic theme colors
+  const colors = useThemeColors(); // ← dynamic theme colors
   const styles = React.useMemo(() => makeStyles(colors), [colors]);
   const [title, setTitle] = useState("");
   const [content, setContent] = useState("");
@@ -385,7 +414,8 @@ export default function CreatePostModal({
           if (!result.canceled && result.assets.length > 0) {
             const newItems = result.assets.map((a) => ({
               uri: a.uri,
-              type: a.type === "video" ? ("video" as const) : ("image" as const),
+              type:
+                a.type === "video" ? ("video" as const) : ("image" as const),
               name:
                 a.fileName || (a.type === "video" ? "video.mp4" : "image.jpg"),
               mimeType:
@@ -418,7 +448,7 @@ export default function CreatePostModal({
         ? `search?q=${encodeURIComponent(query.trim())}&`
         : `trending?`;
       const res = await fetch(
-        `https://api.klipy.co/v2/gifs/${endpoint}api_key=cVApYlZX4zBljHaSpnIstsHmTWPNThPuYmuJ167v0ETv7askko61kZKD2r2ytJ2X`,
+        `https://api.giphy.com/v1/gifs/${endpoint}api_key=GlVGYHqc3SyCEGnwN0uzCiyCsVcU3jEG&limit=20`,
       );
       const json = await res.json();
       setGifs(json.data || []);
@@ -506,16 +536,16 @@ export default function CreatePostModal({
       const detected = detectMediaInText(val);
       if (detected) {
         const alreadyAdded =
-          mediaItems.some(m => m.uri === detected.uri) ||
-          (audioItem?.uri === detected.uri);
+          mediaItems.some((m) => m.uri === detected.uri) ||
+          audioItem?.uri === detected.uri;
         if (!alreadyAdded) {
-          if (detected.type === 'audio') {
+          if (detected.type === "audio") {
             setAudioItem(detected);
           } else {
-            setMediaItems(prev => [...prev, { ...detected, size: 500000 }]);
+            setMediaItems((prev) => [...prev, { ...detected, size: 500000 }]);
           }
           // Strip the URL from text after capturing it
-          setContent(val.replace(detected.uri, '').trim());
+          setContent(val.replace(detected.uri, "").trim());
         }
       }
     },
@@ -616,7 +646,9 @@ export default function CreatePostModal({
         title: title.trim(),
         content: content.trim(),
         communityId: postType === "community" ? selectedComId : undefined,
-        tags: Array.from(new Set([...autoHashtags, ...hashtags])).map(t => t.startsWith('#') ? t.substring(1) : t),
+        tags: Array.from(new Set([...autoHashtags, ...hashtags])).map((t) =>
+          t.startsWith("#") ? t.substring(1) : t,
+        ),
         mentions: autoMentions.map((m) => m.id),
         visibility: postType === "community" ? "community_only" : "public",
         status: "published",
@@ -658,6 +690,20 @@ export default function CreatePostModal({
     }
   }
 
+  const xpReward = React.useMemo(() => {
+    const hasText = content.trim().length > 0;
+    const visualMedia = mediaItems.filter((m) => m.mimeType !== "audio");
+    const audioMedia = mediaItems.filter((m) => m.mimeType === "audio");
+
+    const typesCount =
+      (hasText ? 1 : 0) +
+      (visualMedia.length > 0 ? 1 : 0) +
+      (audioMedia.length > 0 ? 1 : 0);
+    if (typesCount >= 3) return 10;
+    if (typesCount === 2) return 5;
+    return 2;
+  }, [content, mediaItems]);
+
   return (
     <Modal
       visible={visible}
@@ -676,27 +722,55 @@ export default function CreatePostModal({
             <Ionicons name="close" size={24} color={colors.text.secondary} />
           </TouchableOpacity>
           <Text style={styles.headerTitle}>Create Post</Text>
-          <TouchableOpacity onPress={handlePost} disabled={uploading}>
-            <LinearGradient
-              colors={
-                !uploading
-                  ? [colors.primary, colors.cyanDark]
-                  : [colors.bg.elevated, colors.bg.elevated]
-              }
-              start={{ x: 0, y: 0 }}
-              end={{ x: 1, y: 0 }}
-              style={styles.postBtn}
+          <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
+            <View
+              style={{
+                flexDirection: "row",
+                alignItems: "center",
+                backgroundColor: "rgba(251,191,36,0.15)",
+                paddingHorizontal: 6,
+                paddingVertical: 4,
+                borderRadius: 12,
+              }}
             >
+              <Ionicons
+                name="flash"
+                size={12}
+                color={colors.xpGold || "#FBBF24"}
+                style={{ marginRight: 4 }}
+              />
               <Text
-                style={[
-                  styles.postBtnText,
-                  uploading && styles.postBtnTextDisabled,
-                ]}
+                style={{
+                  color: colors.xpGold || "#FBBF24",
+                  fontSize: 12,
+                  fontWeight: "700",
+                }}
               >
-                {uploading ? "Posting..." : "Post"}
+                +{xpReward}
               </Text>
-            </LinearGradient>
-          </TouchableOpacity>
+            </View>
+            <TouchableOpacity onPress={handlePost} disabled={uploading}>
+              <LinearGradient
+                colors={
+                  !uploading
+                    ? [colors.primary, colors.cyanDark]
+                    : [colors.bg.elevated, colors.bg.elevated]
+                }
+                start={{ x: 0, y: 0 }}
+                end={{ x: 1, y: 0 }}
+                style={styles.postBtn}
+              >
+                <Text
+                  style={[
+                    styles.postBtnText,
+                    uploading && styles.postBtnTextDisabled,
+                  ]}
+                >
+                  {uploading ? "Posting..." : "Post"}
+                </Text>
+              </LinearGradient>
+            </TouchableOpacity>
+          </View>
         </View>
 
         <ScrollView
@@ -708,13 +782,17 @@ export default function CreatePostModal({
           {/* ── User + destination ── */}
           <View style={styles.userRow}>
             <View style={styles.avatarBubble}>
-              {CURRENT_USER?.avatarUrl ? (
+              {CURRENT_USER?.avatarUrl || CURRENT_USER?.avatar_url ? (
                 <Image
-                  source={{ uri: CURRENT_USER.avatarUrl }}
+                  source={{
+                    uri: CURRENT_USER.avatarUrl || CURRENT_USER.avatar_url,
+                  }}
                   style={styles.avatarImage}
                 />
               ) : (
-                <Text style={styles.avatarText}>👾</Text>
+                <Text style={styles.avatarText}>
+                  {CURRENT_USER?.avatar || "👾"}
+                </Text>
               )}
             </View>
             <View style={styles.userMeta}>
@@ -966,11 +1044,30 @@ export default function CreatePostModal({
                 style={styles.toolbarBtn}
                 disabled={pickLoading}
               >
-                <Ionicons
-                  name="film-outline"
-                  size={24}
-                  color={colors.primaryLight}
-                />
+                <View
+                  style={{
+                    width: 24,
+                    height: 24,
+                    justifyContent: "center",
+                    alignItems: "center",
+                  }}
+                >
+                  <Text
+                    style={{
+                      color: colors.primaryLight,
+                      fontSize: 10,
+                      fontWeight: "900",
+                      borderWidth: 1.5,
+                      borderColor: colors.primaryLight,
+                      borderRadius: 4,
+                      paddingHorizontal: 2,
+                      paddingVertical: 1,
+                      textAlign: "center",
+                    }}
+                  >
+                    GIF
+                  </Text>
+                </View>
                 <View style={styles.toolbarBadge}>
                   <Ionicons name="add" size={10} color="#fff" />
                 </View>
@@ -1363,8 +1460,8 @@ export default function CreatePostModal({
                               {comm.name}
                             </Text>
                             <Text style={styles.communityMeta}>
-                              {(comm.memberCount || 0).toLocaleString()} members ·{" "}
-                              {comm.category}
+                              {(comm.memberCount || 0).toLocaleString()} members
+                              · {comm.category}
                             </Text>
                           </View>
                           {active && (
@@ -1444,460 +1541,460 @@ function makeStyles(colors: ReturnType<typeof useThemeColors>) {
   return StyleSheet.create({
     container: { flex: 1, backgroundColor: colors.bg.base },
 
-  // Header
-  header: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    paddingHorizontal: spacing.lg,
-    paddingVertical: spacing.md,
-    borderBottomWidth: 1,
-    borderBottomColor: colors.border,
-  },
-  closeBtn: { padding: 4 },
-  headerTitle: {
-    fontSize: fontSizes.lg,
-    fontWeight: "700",
-    color: colors.text.primary,
-  },
-  postBtn: {
-    paddingHorizontal: spacing.lg,
-    paddingVertical: 8,
-    borderRadius: radii.full,
-  },
-  postBtnText: { fontSize: fontSizes.sm, fontWeight: "700", color: "#fff" },
-  postBtnTextDisabled: { color: colors.text.muted },
+    // Header
+    header: {
+      flexDirection: "row",
+      alignItems: "center",
+      justifyContent: "space-between",
+      paddingHorizontal: spacing.lg,
+      paddingVertical: spacing.md,
+      borderBottomWidth: 1,
+      borderBottomColor: colors.border,
+    },
+    closeBtn: { padding: 4 },
+    headerTitle: {
+      fontSize: fontSizes.lg,
+      fontWeight: "700",
+      color: colors.text.primary,
+    },
+    postBtn: {
+      paddingHorizontal: spacing.lg,
+      paddingVertical: 8,
+      borderRadius: radii.full,
+    },
+    postBtnText: { fontSize: fontSizes.sm, fontWeight: "700", color: "#fff" },
+    postBtnTextDisabled: { color: colors.text.muted },
 
-  scroll: { flex: 1 },
-  scrollContent: { paddingHorizontal: spacing.lg, paddingBottom: 200 },
+    scroll: { flex: 1 },
+    scrollContent: { paddingHorizontal: spacing.lg, paddingBottom: 200 },
 
-  // User row
-  userRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: spacing.md,
-    marginTop: spacing.lg,
-    marginBottom: spacing.md,
-  },
-  avatarBubble: {
-    width: 46,
-    height: 46,
-    borderRadius: 23,
-    backgroundColor: colors.bg.elevated,
-    alignItems: "center",
-    justifyContent: "center",
-    borderWidth: 2,
-    borderColor: colors.primaryDark,
-    overflow: "hidden",
-  },
-  avatarImage: { width: "100%", height: "100%", borderRadius: 23 },
-  avatarText: { fontSize: 22 },
-  userMeta: { flex: 1, gap: 6 },
-  userName: {
-    fontSize: fontSizes.md,
-    fontWeight: "700",
-    color: colors.text.primary,
-  },
-  postTypeRow: { flexDirection: "row", gap: 8 },
-  typePill: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 4,
-    paddingHorizontal: 10,
-    paddingVertical: 4,
-    borderRadius: radii.full,
-    borderWidth: 1,
-    borderColor: colors.border,
-    backgroundColor: colors.bg.surface,
-  },
-  typePillActive: {
-    borderColor: colors.primaryLight,
-    backgroundColor: "rgba(124,58,237,0.12)",
-  },
-  typePillText: {
-    fontSize: fontSizes.xs,
-    fontWeight: "600",
-    color: colors.text.muted,
-  },
-  typePillTextActive: { color: colors.primaryLight },
+    // User row
+    userRow: {
+      flexDirection: "row",
+      alignItems: "center",
+      gap: spacing.md,
+      marginTop: spacing.lg,
+      marginBottom: spacing.md,
+    },
+    avatarBubble: {
+      width: 46,
+      height: 46,
+      borderRadius: 23,
+      backgroundColor: colors.bg.elevated,
+      alignItems: "center",
+      justifyContent: "center",
+      borderWidth: 2,
+      borderColor: colors.primaryDark,
+      overflow: "hidden",
+    },
+    avatarImage: { width: "100%", height: "100%", borderRadius: 23 },
+    avatarText: { fontSize: 22 },
+    userMeta: { flex: 1, gap: 6 },
+    userName: {
+      fontSize: fontSizes.md,
+      fontWeight: "700",
+      color: colors.text.primary,
+    },
+    postTypeRow: { flexDirection: "row", gap: 8 },
+    typePill: {
+      flexDirection: "row",
+      alignItems: "center",
+      gap: 4,
+      paddingHorizontal: 10,
+      paddingVertical: 4,
+      borderRadius: radii.full,
+      borderWidth: 1,
+      borderColor: colors.border,
+      backgroundColor: colors.bg.surface,
+    },
+    typePillActive: {
+      borderColor: colors.primaryLight,
+      backgroundColor: "rgba(124,58,237,0.12)",
+    },
+    typePillText: {
+      fontSize: fontSizes.xs,
+      fontWeight: "600",
+      color: colors.text.muted,
+    },
+    typePillTextActive: { color: colors.primaryLight },
 
-  // Content
-  contentInput: {
-    fontSize: fontSizes.md,
-    color: colors.text.primary,
-    lineHeight: 22,
-    paddingTop: 0,
-    paddingBottom: 20,
-  },
-  charCount: {
-    fontSize: fontSizes.xs,
-    color: colors.text.muted,
-  },
-  charCountWarn: { color: colors.warning },
+    // Content
+    contentInput: {
+      fontSize: fontSizes.md,
+      color: colors.text.primary,
+      lineHeight: 22,
+      paddingTop: 0,
+      paddingBottom: 20,
+    },
+    charCount: {
+      fontSize: fontSizes.xs,
+      color: colors.text.muted,
+    },
+    charCountWarn: { color: colors.warning },
 
-  // Toolbar
-  toolbar: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: spacing.lg,
-    paddingVertical: spacing.sm,
-    borderTopWidth: StyleSheet.hairlineWidth,
-    borderTopColor: colors.border,
-    marginTop: spacing.md,
-  },
-  toolbarBtn: {
-    padding: 4,
-    position: "relative",
-  },
-  toolbarBadge: {
-    position: "absolute",
-    top: 0,
-    right: 0,
-    backgroundColor: colors.primary,
-    borderRadius: 8,
-    width: 14,
-    height: 14,
-    alignItems: "center",
-    justifyContent: "center",
-    borderWidth: 1.5,
-    borderColor: colors.bg.surface,
-  },
-  toolbarCountBadge: {
-    position: "absolute",
-    bottom: 0,
-    left: 0,
-    backgroundColor: colors.primary,
-    borderRadius: 8,
-    width: 14,
-    height: 14,
-    alignItems: "center",
-    justifyContent: "center",
-    borderWidth: 1.5,
-    borderColor: colors.bg.surface,
-  },
-  toolbarBadgeText: {
-    color: "#fff",
-    fontSize: 8,
-    fontWeight: "bold",
-  },
+    // Toolbar
+    toolbar: {
+      flexDirection: "row",
+      alignItems: "center",
+      gap: spacing.lg,
+      paddingVertical: spacing.sm,
+      borderTopWidth: StyleSheet.hairlineWidth,
+      borderTopColor: colors.border,
+      marginTop: spacing.md,
+    },
+    toolbarBtn: {
+      padding: 4,
+      position: "relative",
+    },
+    toolbarBadge: {
+      position: "absolute",
+      top: 0,
+      right: 0,
+      backgroundColor: colors.primary,
+      borderRadius: 8,
+      width: 14,
+      height: 14,
+      alignItems: "center",
+      justifyContent: "center",
+      borderWidth: 1.5,
+      borderColor: colors.bg.surface,
+    },
+    toolbarCountBadge: {
+      position: "absolute",
+      bottom: 0,
+      left: 0,
+      backgroundColor: colors.primary,
+      borderRadius: 8,
+      width: 14,
+      height: 14,
+      alignItems: "center",
+      justifyContent: "center",
+      borderWidth: 1.5,
+      borderColor: colors.bg.surface,
+    },
+    toolbarBadgeText: {
+      color: "#fff",
+      fontSize: 8,
+      fontWeight: "bold",
+    },
 
-  // Sections
-  section: {
-    borderTopWidth: 1,
-    borderTopColor: colors.border,
-    paddingTop: spacing.md,
-    marginTop: spacing.sm,
-    gap: spacing.sm,
-  },
-  sectionLabel: {
-    fontSize: fontSizes.sm,
-    fontWeight: "700",
-    color: colors.text.secondary,
-    textTransform: "uppercase",
-    letterSpacing: 0.5,
-  },
-  optionalLabel: {
-    color: colors.text.muted,
-    fontWeight: "400",
-    textTransform: "none",
-  },
+    // Sections
+    section: {
+      borderTopWidth: 1,
+      borderTopColor: colors.border,
+      paddingTop: spacing.md,
+      marginTop: spacing.sm,
+      gap: spacing.sm,
+    },
+    sectionLabel: {
+      fontSize: fontSizes.sm,
+      fontWeight: "700",
+      color: colors.text.secondary,
+      textTransform: "uppercase",
+      letterSpacing: 0.5,
+    },
+    optionalLabel: {
+      color: colors.text.muted,
+      fontWeight: "400",
+      textTransform: "none",
+    },
 
-  // Media type buttons (before pick)
-  mediaRow: { flexDirection: "row", gap: 10 },
-  mediaBtn: {
-    flex: 1,
-    alignItems: "center",
-    gap: 5,
-    paddingVertical: spacing.md,
-    borderRadius: radii.md,
-    borderWidth: 1,
-    borderColor: colors.border,
-    backgroundColor: colors.bg.surface,
-  },
-  mediaBtnLabel: {
-    fontSize: fontSizes.xs,
-    fontWeight: "600",
-    color: colors.text.muted,
-  },
+    // Media type buttons (before pick)
+    mediaRow: { flexDirection: "row", gap: 10 },
+    mediaBtn: {
+      flex: 1,
+      alignItems: "center",
+      gap: 5,
+      paddingVertical: spacing.md,
+      borderRadius: radii.md,
+      borderWidth: 1,
+      borderColor: colors.border,
+      backgroundColor: colors.bg.surface,
+    },
+    mediaBtnLabel: {
+      fontSize: fontSizes.xs,
+      fontWeight: "600",
+      color: colors.text.muted,
+    },
 
-  // Audio button
-  audioBtn: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 8,
-    paddingVertical: spacing.md,
-    paddingHorizontal: spacing.md,
-    borderRadius: radii.md,
-    borderWidth: 1,
-    borderColor: colors.border,
-    backgroundColor: colors.bg.surface,
-  },
-  audioBtnFilled: {
-    borderColor: colors.primaryDark,
-    backgroundColor: "rgba(124,58,237,0.1)",
-  },
-  audioBtnLabel: {
-    fontSize: fontSizes.sm,
-    fontWeight: "600",
-    color: colors.text.muted,
-  },
-  audioBtnFilledText: {
-    fontSize: fontSizes.sm,
-    fontWeight: "600",
-    color: colors.primaryLight,
-    flex: 1,
-  },
+    // Audio button
+    audioBtn: {
+      flexDirection: "row",
+      alignItems: "center",
+      gap: 8,
+      paddingVertical: spacing.md,
+      paddingHorizontal: spacing.md,
+      borderRadius: radii.md,
+      borderWidth: 1,
+      borderColor: colors.border,
+      backgroundColor: colors.bg.surface,
+    },
+    audioBtnFilled: {
+      borderColor: colors.primaryDark,
+      backgroundColor: "rgba(124,58,237,0.1)",
+    },
+    audioBtnLabel: {
+      fontSize: fontSizes.sm,
+      fontWeight: "600",
+      color: colors.text.muted,
+    },
+    audioBtnFilledText: {
+      fontSize: fontSizes.sm,
+      fontWeight: "600",
+      color: colors.primaryLight,
+      flex: 1,
+    },
 
-  // Media preview
-  previewWrapper: { gap: 10 },
-  ratioRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-  },
-  ratioLabel: {
-    fontSize: fontSizes.sm,
-    color: colors.text.secondary,
-    fontWeight: "600",
-  },
-  ratioToggle: { flexDirection: "row", gap: 6 },
-  ratioPill: {
-    paddingHorizontal: 12,
-    paddingVertical: 5,
-    borderRadius: radii.full,
-    borderWidth: 1,
-    borderColor: colors.border,
-    backgroundColor: colors.bg.surface,
-  },
-  ratioPillActive: {
-    borderColor: colors.primaryLight,
-    backgroundColor: "rgba(124,58,237,0.14)",
-  },
-  ratioPillText: {
-    fontSize: fontSizes.xs,
-    fontWeight: "600",
-    color: colors.text.muted,
-  },
-  ratioPillTextActive: { color: colors.primaryLight },
+    // Media preview
+    previewWrapper: { gap: 10 },
+    ratioRow: {
+      flexDirection: "row",
+      alignItems: "center",
+      justifyContent: "space-between",
+    },
+    ratioLabel: {
+      fontSize: fontSizes.sm,
+      color: colors.text.secondary,
+      fontWeight: "600",
+    },
+    ratioToggle: { flexDirection: "row", gap: 6 },
+    ratioPill: {
+      paddingHorizontal: 12,
+      paddingVertical: 5,
+      borderRadius: radii.full,
+      borderWidth: 1,
+      borderColor: colors.border,
+      backgroundColor: colors.bg.surface,
+    },
+    ratioPillActive: {
+      borderColor: colors.primaryLight,
+      backgroundColor: "rgba(124,58,237,0.14)",
+    },
+    ratioPillText: {
+      fontSize: fontSizes.xs,
+      fontWeight: "600",
+      color: colors.text.muted,
+    },
+    ratioPillTextActive: { color: colors.primaryLight },
 
-  previewBox: {
-    borderRadius: radii.md,
-    overflow: "hidden",
-    position: "relative",
-  },
-  audioPreview: {
-    backgroundColor: colors.bg.surface,
-    alignItems: "center",
-    justifyContent: "center",
-    borderWidth: 1,
-    borderColor: colors.border,
-  },
-  audioPreviewText: {
-    color: colors.text.primary,
-    fontWeight: "600",
-    marginTop: 10,
-    fontSize: fontSizes.sm,
-    paddingHorizontal: 20,
-    textAlign: "center",
-  },
-  addMorePreview: {
-    backgroundColor: colors.bg.surface,
-    alignItems: "center",
-    justifyContent: "center",
-    borderWidth: 1,
-    borderColor: colors.border,
-    borderStyle: "dashed",
-  },
-  addMorePreviewText: {
-    color: colors.text.muted,
-    fontWeight: "600",
-    marginTop: 10,
-    fontSize: fontSizes.sm,
-  },
-  removeMedia: {
-    position: "absolute",
-    top: 8,
-    right: 8,
-  },
-  removeMediaInner: {
-    width: 28,
-    height: 28,
-    borderRadius: 14,
-    backgroundColor: "rgba(0,0,0,0.6)",
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  replaceMedia: { position: "absolute", bottom: 8, right: 8 },
-  replaceMediaInner: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 4,
-    backgroundColor: "rgba(0,0,0,0.6)",
-    paddingHorizontal: 10,
-    paddingVertical: 5,
-    borderRadius: radii.full,
-  },
-  replaceText: { fontSize: fontSizes.xs, color: "#fff", fontWeight: "600" },
+    previewBox: {
+      borderRadius: radii.md,
+      overflow: "hidden",
+      position: "relative",
+    },
+    audioPreview: {
+      backgroundColor: colors.bg.surface,
+      alignItems: "center",
+      justifyContent: "center",
+      borderWidth: 1,
+      borderColor: colors.border,
+    },
+    audioPreviewText: {
+      color: colors.text.primary,
+      fontWeight: "600",
+      marginTop: 10,
+      fontSize: fontSizes.sm,
+      paddingHorizontal: 20,
+      textAlign: "center",
+    },
+    addMorePreview: {
+      backgroundColor: colors.bg.surface,
+      alignItems: "center",
+      justifyContent: "center",
+      borderWidth: 1,
+      borderColor: colors.border,
+      borderStyle: "dashed",
+    },
+    addMorePreviewText: {
+      color: colors.text.muted,
+      fontWeight: "600",
+      marginTop: 10,
+      fontSize: fontSizes.sm,
+    },
+    removeMedia: {
+      position: "absolute",
+      top: 8,
+      right: 8,
+    },
+    removeMediaInner: {
+      width: 28,
+      height: 28,
+      borderRadius: 14,
+      backgroundColor: "rgba(0,0,0,0.6)",
+      alignItems: "center",
+      justifyContent: "center",
+    },
+    replaceMedia: { position: "absolute", bottom: 8, right: 8 },
+    replaceMediaInner: {
+      flexDirection: "row",
+      alignItems: "center",
+      gap: 4,
+      backgroundColor: "rgba(0,0,0,0.6)",
+      paddingHorizontal: 10,
+      paddingVertical: 5,
+      borderRadius: radii.full,
+    },
+    replaceText: { fontSize: fontSizes.xs, color: "#fff", fontWeight: "600" },
 
-  // Hashtags
-  hashtagChips: { flexDirection: "row", flexWrap: "wrap", gap: 8 },
-  hashChip: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 4,
-    paddingHorizontal: 10,
-    paddingVertical: 5,
-    borderRadius: radii.full,
-    backgroundColor: "rgba(124,58,237,0.15)",
-    borderWidth: 1,
-    borderColor: colors.primaryDark,
-  },
-  hashChipText: {
-    fontSize: fontSizes.sm,
-    color: colors.primaryLight,
-    fontWeight: "600",
-  },
-  hashChipAuto: {
-    backgroundColor: colors.bg.elevated,
-    borderColor: colors.border,
-  },
-  hashChipTextAuto: {
-    color: colors.text.secondary,
-  },
-  hashInputPill: {
-    flexDirection: "row",
-    alignItems: "center",
-    backgroundColor: "transparent",
-    borderRadius: radii.full,
-    paddingHorizontal: 10,
-    paddingVertical: 4,
-    borderWidth: 1,
-    borderColor: colors.border,
-    minWidth: 80,
-  },
-  hashInputPillPrefix: {
-    fontSize: fontSizes.sm,
-    fontWeight: "700",
-    color: colors.primaryLight,
-  },
-  hashInputPillInput: {
-    fontSize: fontSizes.sm,
-    color: colors.text.primary,
-    marginLeft: 2,
-    paddingVertical: 0,
-    minWidth: 50,
-  },
+    // Hashtags
+    hashtagChips: { flexDirection: "row", flexWrap: "wrap", gap: 8 },
+    hashChip: {
+      flexDirection: "row",
+      alignItems: "center",
+      gap: 4,
+      paddingHorizontal: 10,
+      paddingVertical: 5,
+      borderRadius: radii.full,
+      backgroundColor: "rgba(124,58,237,0.15)",
+      borderWidth: 1,
+      borderColor: colors.primaryDark,
+    },
+    hashChipText: {
+      fontSize: fontSizes.sm,
+      color: colors.primaryLight,
+      fontWeight: "600",
+    },
+    hashChipAuto: {
+      backgroundColor: colors.bg.elevated,
+      borderColor: colors.border,
+    },
+    hashChipTextAuto: {
+      color: colors.text.secondary,
+    },
+    hashInputPill: {
+      flexDirection: "row",
+      alignItems: "center",
+      backgroundColor: "transparent",
+      borderRadius: radii.full,
+      paddingHorizontal: 10,
+      paddingVertical: 4,
+      borderWidth: 1,
+      borderColor: colors.border,
+      minWidth: 80,
+    },
+    hashInputPillPrefix: {
+      fontSize: fontSizes.sm,
+      fontWeight: "700",
+      color: colors.primaryLight,
+    },
+    hashInputPillInput: {
+      fontSize: fontSizes.sm,
+      color: colors.text.primary,
+      marginLeft: 2,
+      paddingVertical: 0,
+      minWidth: 50,
+    },
 
-  // Community picker
-  communitySheet: {
-    borderTopWidth: 1,
-    borderTopColor: colors.border,
-    paddingTop: spacing.md,
-    marginTop: spacing.sm,
-    gap: spacing.sm,
-  },
-  communitySheetHeader: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    marginBottom: 4,
-  },
-  communitySheetTitle: {
-    fontSize: fontSizes.md,
-    fontWeight: "700",
-    color: colors.text.primary,
-  },
-  communityOption: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: spacing.md,
-    padding: spacing.md,
-    borderRadius: radii.md,
-    borderWidth: 1,
-    borderColor: colors.border,
-    backgroundColor: colors.bg.surface,
-  },
-  communityOptionActive: {
-    borderColor: colors.primaryLight,
-    backgroundColor: "rgba(124,58,237,0.10)",
-  },
-  communityAvatar: { fontSize: 28 },
-  communityInfo: { flex: 1 },
-  communityName: {
-    fontSize: fontSizes.md,
-    fontWeight: "600",
-    color: colors.text.primary,
-  },
-  communityMeta: {
-    fontSize: fontSizes.sm,
-    color: colors.text.muted,
-    marginTop: 2,
-  },
-  emptyComm: { padding: spacing.lg, alignItems: "center" },
-  emptyCommText: {
-    fontSize: fontSizes.sm,
-    color: colors.text.muted,
-    textAlign: "center",
-  },
+    // Community picker
+    communitySheet: {
+      borderTopWidth: 1,
+      borderTopColor: colors.border,
+      paddingTop: spacing.md,
+      marginTop: spacing.sm,
+      gap: spacing.sm,
+    },
+    communitySheetHeader: {
+      flexDirection: "row",
+      alignItems: "center",
+      justifyContent: "space-between",
+      marginBottom: 4,
+    },
+    communitySheetTitle: {
+      fontSize: fontSizes.md,
+      fontWeight: "700",
+      color: colors.text.primary,
+    },
+    communityOption: {
+      flexDirection: "row",
+      alignItems: "center",
+      gap: spacing.md,
+      padding: spacing.md,
+      borderRadius: radii.md,
+      borderWidth: 1,
+      borderColor: colors.border,
+      backgroundColor: colors.bg.surface,
+    },
+    communityOptionActive: {
+      borderColor: colors.primaryLight,
+      backgroundColor: "rgba(124,58,237,0.10)",
+    },
+    communityAvatar: { fontSize: 28 },
+    communityInfo: { flex: 1 },
+    communityName: {
+      fontSize: fontSizes.md,
+      fontWeight: "600",
+      color: colors.text.primary,
+    },
+    communityMeta: {
+      fontSize: fontSizes.sm,
+      color: colors.text.muted,
+      marginTop: 2,
+    },
+    emptyComm: { padding: spacing.lg, alignItems: "center" },
+    emptyCommText: {
+      fontSize: fontSizes.sm,
+      color: colors.text.muted,
+      textAlign: "center",
+    },
 
-  // GIF Modal Styles
-  gifModalContainer: {
-    flex: 1,
-    justifyContent: "flex-end",
-    backgroundColor: "rgba(0,0,0,0.5)",
-  },
-  gifModalContent: {
-    backgroundColor: colors.bg.surface,
-    height: "75%",
-    borderTopLeftRadius: radii.lg,
-    borderTopRightRadius: radii.lg,
-    padding: spacing.md,
-  },
-  gifHeader: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "center",
-    marginBottom: spacing.md,
-  },
-  gifTitle: {
-    fontSize: fontSizes.lg,
-    fontWeight: "700",
-    color: colors.text.primary,
-  },
-  gifSearchRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    backgroundColor: colors.bg.elevated,
-    borderRadius: radii.md,
-    paddingHorizontal: spacing.md,
-    paddingVertical: 8,
-    marginBottom: spacing.md,
-  },
-  gifSearchInput: {
-    flex: 1,
-    marginLeft: 8,
-    fontSize: fontSizes.md,
-    color: colors.text.primary,
-    paddingVertical: 0,
-  },
-  gifGrid: {
-    flexDirection: "row",
-    flexWrap: "wrap",
-    gap: 10,
-    justifyContent: "space-between",
-    paddingBottom: 40,
-  },
-  gifItem: {
-    width: "31%", // roughly 3 columns
-    marginBottom: 5,
-  },
-  gifLoading: {
-    flex: 1,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  gifLoadingText: {
-    color: colors.text.muted,
-  },
-}); // close StyleSheet.create
+    // GIF Modal Styles
+    gifModalContainer: {
+      flex: 1,
+      justifyContent: "flex-end",
+      backgroundColor: "rgba(0,0,0,0.5)",
+    },
+    gifModalContent: {
+      backgroundColor: colors.bg.surface,
+      height: "75%",
+      borderTopLeftRadius: radii.lg,
+      borderTopRightRadius: radii.lg,
+      padding: spacing.md,
+    },
+    gifHeader: {
+      flexDirection: "row",
+      justifyContent: "space-between",
+      alignItems: "center",
+      marginBottom: spacing.md,
+    },
+    gifTitle: {
+      fontSize: fontSizes.lg,
+      fontWeight: "700",
+      color: colors.text.primary,
+    },
+    gifSearchRow: {
+      flexDirection: "row",
+      alignItems: "center",
+      backgroundColor: colors.bg.elevated,
+      borderRadius: radii.md,
+      paddingHorizontal: spacing.md,
+      paddingVertical: 8,
+      marginBottom: spacing.md,
+    },
+    gifSearchInput: {
+      flex: 1,
+      marginLeft: 8,
+      fontSize: fontSizes.md,
+      color: colors.text.primary,
+      paddingVertical: 0,
+    },
+    gifGrid: {
+      flexDirection: "row",
+      flexWrap: "wrap",
+      gap: 10,
+      justifyContent: "space-between",
+      paddingBottom: 40,
+    },
+    gifItem: {
+      width: "31%", // roughly 3 columns
+      marginBottom: 5,
+    },
+    gifLoading: {
+      flex: 1,
+      alignItems: "center",
+      justifyContent: "center",
+    },
+    gifLoadingText: {
+      color: colors.text.muted,
+    },
+  }); // close StyleSheet.create
 } // close makeStyles

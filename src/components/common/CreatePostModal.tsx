@@ -448,10 +448,10 @@ export default function CreatePostModal({
         ? `search?q=${encodeURIComponent(query.trim())}&`
         : `trending?`;
       const res = await fetch(
-        `https://api.giphy.com/v1/gifs/${endpoint}api_key=GlVGYHqc3SyCEGnwN0uzCiyCsVcU3jEG&limit=20`,
+        `https://api.klipy.co/api/v1/cVApYlZX4zBljHaSpnIstsHmTWPNThPuYmuJ167v0ETv7askko61kZKD2r2ytJ2X/gifs/${endpoint}limit=20`
       );
       const json = await res.json();
-      setGifs(json.data || []);
+      setGifs(json.data?.data || []);
     } catch (e) {
       console.warn("Failed to fetch GIFs", e);
     }
@@ -465,7 +465,10 @@ export default function CreatePostModal({
   }, [showGifPicker]);
 
   const selectGif = (gif: any) => {
-    const uri = gif.images.original.url;
+    const original = gif.file?.hd?.gif || gif.file?.md?.gif || gif.file?.xs?.gif;
+    const uri = original?.url;
+    if (!uri) return;
+
     setMediaItems((prev) => [
       ...prev,
       {
@@ -473,9 +476,9 @@ export default function CreatePostModal({
         type: "image" as const,
         name: `gif-${gif.id}.gif`,
         mimeType: "image/gif",
-        size: gif.images.original.size || 500000,
-        width: parseInt(gif.images.original.width, 10) || 500,
-        height: parseInt(gif.images.original.height, 10) || 500,
+        size: original.size || 500000,
+        width: parseInt(original.width, 10) || 500,
+        height: parseInt(original.height, 10) || 500,
       },
     ]);
     setShowGifPicker(false);
@@ -590,55 +593,40 @@ export default function CreatePostModal({
 
       // Upload all selected media files
       for (const item of allMedia) {
-        if (item.type === "video") {
-          const res = await mediaService.getVideoUploadUrl(
-            item.size || 10000000,
-            item.name || "video.mp4",
-            item.width,
-            item.height,
-          );
-          await mediaService.uploadFileDirect(
-            res.data.uploadLink!,
+        // For GIFs from the Klipy CDN, download locally first before uploading
+        let uploadUri = item.uri;
+        let tempPath: string | null = null;
+        if (item.mimeType === "image/gif" && item.uri.startsWith("http")) {
+          const fileName = item.name || `gif-${Date.now()}.gif`;
+          tempPath = `${FileSystem.cacheDirectory}${fileName}`;
+          const downloadResult = await FileSystem.downloadAsync(
             item.uri,
-            item.mimeType || "video/mp4",
+            tempPath,
           );
-          uploadedMedia.push({ id: res.data.mediaId, type: "video" });
-        } else {
-          // For GIFs from the Klipy CDN, download locally first before uploading
-          let uploadUri = item.uri;
-          let tempPath: string | null = null;
-          if (item.mimeType === "image/gif" && item.uri.startsWith("http")) {
-            const fileName = item.name || `gif-${Date.now()}.gif`;
-            tempPath = `${FileSystem.cacheDirectory}${fileName}`;
-            const downloadResult = await FileSystem.downloadAsync(
-              item.uri,
-              tempPath,
-            );
-            uploadUri = downloadResult.uri;
-          }
+          uploadUri = downloadResult.uri;
+        }
 
-          const folder = "posts";
-          const res = await mediaService.getSignedUrl(
-            folder,
-            item.size || 1000000,
-            item.mimeType || "image/jpeg",
-            item.width,
-            item.height,
-          );
-          await mediaService.uploadFileDirect(
-            res.data.signedUrl!,
-            uploadUri,
-            item.mimeType || "image/jpeg",
-          );
-          await mediaService.confirmUpload(res.data.mediaId, res.data.s3Key!);
-          uploadedMedia.push({ id: res.data.mediaId, type: item.type });
+        const folder = "posts";
+        const res = await mediaService.getSignedUrl(
+          folder,
+          item.size || 1000000,
+          item.mimeType || (item.type === "video" ? "video/mp4" : "image/jpeg"),
+          item.width,
+          item.height,
+        );
+        await mediaService.uploadFileDirect(
+          res.data.signedUrl!,
+          uploadUri,
+          item.mimeType || (item.type === "video" ? "video/mp4" : "image/jpeg"),
+        );
+        await mediaService.confirmUpload(res.data.mediaId, res.data.s3Key!);
+        uploadedMedia.push({ id: res.data.mediaId, type: item.type });
 
-          // Clean up temp GIF file
-          if (tempPath) {
-            FileSystem.deleteAsync(tempPath, { idempotent: true }).catch(
-              () => {},
-            );
-          }
+        // Clean up temp GIF file
+        if (tempPath) {
+          FileSystem.deleteAsync(tempPath, { idempotent: true }).catch(
+            () => {},
+          );
         }
       }
 
@@ -1518,7 +1506,7 @@ export default function CreatePostModal({
                     style={styles.gifItem}
                   >
                     <Image
-                      source={{ uri: g.images.fixed_height_small.url }}
+                      source={{ uri: g.file?.xs?.gif?.url || g.file?.md?.gif?.url }}
                       style={{
                         width: "100%",
                         height: 100,

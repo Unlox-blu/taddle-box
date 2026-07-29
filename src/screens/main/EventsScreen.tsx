@@ -99,11 +99,13 @@ function makeStyles(c: ColorPalette) {
       paddingHorizontal: spacing.xl, marginBottom: 10,
     },
     evCard: {
-      marginHorizontal: spacing.lg, marginBottom: 10,
+      marginHorizontal: spacing.lg, marginBottom: 12,
       backgroundColor: c.bg.card,
-      borderRadius: radii.lg, borderWidth: 1, borderColor: c.border,
-      padding: spacing.md, flexDirection: 'row', alignItems: 'center', gap: 12,
+      borderRadius: radii.xl, borderWidth: 1, borderColor: c.border,
+      padding: spacing.md, 
+      shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.05, shadowRadius: 8, elevation: 2,
     },
+    evCardInner: { flexDirection: 'row', alignItems: 'flex-start', gap: 12, marginBottom: 12 },
     evThumb: {
       width: 56, height: 56, borderRadius: radii.md,
       alignItems: 'center', justifyContent: 'center',
@@ -115,13 +117,13 @@ function makeStyles(c: ColorPalette) {
     evTags: { flexDirection: 'row', gap: 6, flexWrap: 'wrap' },
     evTag: { paddingVertical: 2, paddingHorizontal: 8, borderRadius: radii.full },
     evTagText: { fontSize: fontSizes.xs, fontWeight: '700' },
-    evRegBtn: {
-      width: 32, height: 32, borderRadius: 16,
-      backgroundColor: c.primary,
-      alignItems: 'center', justifyContent: 'center',
+    evCtaBtn: {
+      flexDirection: 'row', alignItems: 'center', justifyContent: 'center',
+      backgroundColor: c.primary, paddingVertical: 10, borderRadius: radii.md,
     },
-    evRegBtnDone: { backgroundColor: 'rgba(16,185,129,0.28)', borderWidth: 1, borderColor: c.success },
-    evRegBtnText: { fontSize: fontSizes.md, fontWeight: '800', color: '#fff' },
+    evCtaBtnDone: { backgroundColor: 'transparent', borderWidth: 1, borderColor: c.success },
+    evCtaBtnText: { fontSize: fontSizes.sm, fontWeight: '700', color: '#fff' },
+    evCtaBtnTextDone: { color: c.success },
     emptyState: {
       alignItems: 'center', paddingVertical: 28, gap: 6,
       marginHorizontal: spacing.lg,
@@ -379,15 +381,15 @@ export default function EventsScreen() {
                   <Ionicons name="people-outline" size={12} color={colors.text.muted} />
                   <Text style={styles.metaText}>{featured.registrations.toLocaleString()} registered</Text>
                 </View>
-                {featured.cashPrize && (
+                {featured.cashPrize ? (
                   <View style={styles.metaItem}>
                     <Ionicons name="trophy-outline" size={12} color={colors.text.muted} />
                     <Text style={styles.metaText}>₹{(featured.cashPrize / 1000).toFixed(0)}k prize</Text>
                   </View>
-                )}
+                ) : null}
               </View>
               <Button
-                label={featured.isRegistered ? '✓ Registered' : 'Register Now — Free Entry'}
+                label={featured.isRegistered ? '✓ Participated' : (featured.isFree || !featured.priceCents ? 'Join Free' : `Join • ₹${featured.priceCents / 100}`)}
                 onPress={() => toggleRegister(featured.id)}
                 variant={featured.isRegistered ? 'ghost' : 'primary'}
                 fullWidth
@@ -396,6 +398,23 @@ export default function EventsScreen() {
           </View>
         )}
 
+        {/* Participated Events First */}
+        <Text style={{ ...styles.sectionLabel, marginTop: 8 }}>
+          My Participated Events
+        </Text>
+        {events.filter(e => e.isRegistered && !e.isFeatured).length === 0 ? (
+          <View style={styles.emptyState}>
+            <Text style={styles.emptyEmoji}>🎫</Text>
+            <Text style={styles.emptyText}>No participated events yet</Text>
+            <Text style={styles.emptySubtext}>Join events below to see them here</Text>
+          </View>
+        ) : (
+          events.filter(e => e.isRegistered && !e.isFeatured).map(ev => (
+            <EventCard key={ev.id} event={ev} onRegister={toggleRegister} styles={styles} colors={colors} typeMeta={TYPE_META} />
+          ))
+        )}
+
+        {/* Upcoming Events Below */}
         {displayEvents.length === 0 && selectedDate ? (
           <View style={styles.emptyState}>
             <Text style={styles.emptyEmoji}>📅</Text>
@@ -404,26 +423,11 @@ export default function EventsScreen() {
           </View>
         ) : (
           <>
-            {displayEvents.length > 0 && <Text style={styles.sectionLabel}>Upcoming Events</Text>}
+            {displayEvents.length > 0 && <Text style={{ ...styles.sectionLabel, marginTop: 16 }}>Upcoming Events</Text>}
             {rest.map(ev => (
               <EventCard key={ev.id} event={ev} onRegister={toggleRegister} styles={styles} colors={colors} typeMeta={TYPE_META} />
             ))}
           </>
-        )}
-
-        <Text style={{ ...styles.sectionLabel, marginTop: 8 }}>
-          My Registered Events
-        </Text>
-        {events.filter(e => e.isRegistered && !e.isFeatured).length === 0 ? (
-          <View style={styles.emptyState}>
-            <Text style={styles.emptyEmoji}>📅</Text>
-            <Text style={styles.emptyText}>No registered events yet</Text>
-            <Text style={styles.emptySubtext}>Browse and register for events above</Text>
-          </View>
-        ) : (
-          events.filter(e => e.isRegistered && !e.isFeatured).map(ev => (
-            <EventCard key={ev.id} event={ev} onRegister={toggleRegister} styles={styles} colors={colors} typeMeta={TYPE_META} />
-          ))
         )}
 
         <View style={{ height: 100 }} />
@@ -492,35 +496,38 @@ function EventCard({
   const meta = typeMeta[e.type] || typeMeta['meetup'];
   return (
     <View style={styles.evCard}>
-      <LinearGradient colors={meta.gradient} style={styles.evThumb}>
-        <Text style={styles.evEmoji}>{meta.emoji}</Text>
-      </LinearGradient>
-      <View style={styles.evInfo}>
-        <Text style={styles.evTitle} numberOfLines={2}>{e.title}</Text>
-        <Text style={styles.evMeta}>
-          📅 {e.date}{e.time ? ` · 🕐 ${e.time}` : ''} · 📍 {e.location}
-        </Text>
-        <View style={styles.evTags}>
-          <View style={[styles.evTag, { backgroundColor: 'rgba(124,58,237,0.18)' }]}>
-            <Text style={[styles.evTagText, { color: meta.tagColor }]}>
-              {meta.label}
-            </Text>
-          </View>
-          <View style={[styles.evTag, { backgroundColor: 'rgba(251,191,36,0.14)' }]}>
-            <Text style={[styles.evTagText, { color: colors.xpGold }]}>⚡ {e.xpReward} XP</Text>
-          </View>
-          {e.cashPrize ? (
-            <View style={[styles.evTag, { backgroundColor: 'rgba(16,185,129,0.14)' }]}>
-              <Text style={[styles.evTagText, { color: '#34D399' }]}>₹{(e.cashPrize/1000).toFixed(0)}k</Text>
+      <View style={styles.evCardInner}>
+        <LinearGradient colors={meta.gradient} style={styles.evThumb}>
+          <Text style={styles.evEmoji}>{meta.emoji}</Text>
+        </LinearGradient>
+        <View style={styles.evInfo}>
+          <Text style={styles.evTitle} numberOfLines={2}>{e.title}</Text>
+          <Text style={styles.evMeta}>
+            📅 {e.date}{e.time ? ` · 🕐 ${e.time}` : ''} · 📍 {e.location}
+          </Text>
+          <View style={styles.evTags}>
+            <View style={[styles.evTag, { backgroundColor: 'rgba(124,58,237,0.18)' }]}>
+              <Text style={[styles.evTagText, { color: meta.tagColor }]}>{meta.label}</Text>
             </View>
-          ) : null}
+            <View style={[styles.evTag, { backgroundColor: 'rgba(251,191,36,0.14)' }]}>
+              <Text style={[styles.evTagText, { color: colors.xpGold }]}>⚡ {e.xpReward} XP</Text>
+            </View>
+            {e.cashPrize ? (
+              <View style={[styles.evTag, { backgroundColor: 'rgba(16,185,129,0.14)' }]}>
+                <Text style={[styles.evTagText, { color: '#34D399' }]}>₹{(e.cashPrize/1000).toFixed(0)}k</Text>
+              </View>
+            ) : null}
+          </View>
         </View>
       </View>
+      
       <TouchableOpacity
         onPress={() => onRegister(e.id)}
-        style={[styles.evRegBtn, e.isRegistered && styles.evRegBtnDone]}
+        style={[styles.evCtaBtn, e.isRegistered && styles.evCtaBtnDone]}
       >
-        <Text style={styles.evRegBtnText}>{e.isRegistered ? '✓' : '+'}</Text>
+        <Text style={[styles.evCtaBtnText, e.isRegistered && styles.evCtaBtnTextDone]}>
+          {e.isRegistered ? '✓ Participated' : (e.isFree || !e.priceCents ? 'Join Free' : `Join • ₹${e.priceCents / 100}`)}
+        </Text>
       </TouchableOpacity>
     </View>
   );

@@ -53,7 +53,7 @@ const findManyCommunity = async ({limit, offset, userId = null}) => {
       COUNT(*) OVER() AS total 
       FROM ${CommunityModel.TABLE} c
       LEFT JOIN media AS avatar_media ON avatar_media.id = avatar_url
-      WHERE privacy = 'public'
+      WHERE privacy = 'public' OR EXISTS (SELECT 1 FROM ${CommunityModel.MEMBERS_TABLE} cm WHERE cm.community_id = c.id AND cm.user_id = $3 AND cm.status = 'active')
       ORDER BY member_count DESC
       LIMIT $1 OFFSET $2`,
       [limit, offset, userId]

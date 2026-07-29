@@ -131,6 +131,18 @@ class CommunityController {
     }
   };
 
+  getRequests = async (req, res, next) => {
+    try {
+      const { communityId } = req.params;
+      const userId = req.userId;
+      const { limit, offset, page } = getPaginationParams(req.query);
+      const { rows, total } = await this.communitySvc.getJoinRequests({ communityId, userId, limit, offset });
+      res.json(apiResponse(rows, 'Join requests fetched', paginationMeta(total, page, limit)));
+    } catch (error) {
+      next(error);
+    }
+  };
+
   getCommunityPosts = async (req, res, next) => {
     try {
       const { communityId } = req.params;

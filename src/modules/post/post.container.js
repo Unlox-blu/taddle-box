@@ -14,6 +14,7 @@ const {bookmarkRepository} = require('../bookmark/bookmark.container')
 const {feedService} = require('../feed/feed.container')
 const {taskService} = require('../task/task.container')
 const {notificationService} = require('../notification/notification.container')
+const {xpService} = require('../xp/xp.container')
 
 
 // Instantiate Service
@@ -26,6 +27,7 @@ const postService = new PostService({
   followerRepository,
   bookmarkRepository,
   notificationService,
+  xpService,
 })
 // Instantiate Controller
 const postController = new PostController({ postService })

@@ -12,6 +12,7 @@ const { createCommunitySchema, updateCommunitySchema, updateAvatarSchema, update
 router.get('/discover',                                optionalAuth, validateRequest({query: paginationQuerySchema}),             communityController.discoverCommunity);
 router.get('/:slug',                                   optionalAuth, validateRequest({params: slugParamsSchema}),                 communityController.getBySlug);
 router.get('/:communityId/members',                    optionalAuth, validateRequest({params: communityIdParamsSchema}),          communityController.getMembers);
+router.get('/:communityId/requests',                   verifyToken,  validateRequest({params: communityIdParamsSchema}),          communityController.getRequests);
 router.get('/:communityId/posts',                      optionalAuth, validateRequest({params: communityIdParamsSchema}),          communityController.getCommunityPosts);
 
 router.post('/create-community',                       verifyToken,  validateRequest({body: createCommunitySchema}),              communityController.create);

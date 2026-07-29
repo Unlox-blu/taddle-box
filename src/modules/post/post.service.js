@@ -5,7 +5,7 @@ const PostModel = require('./post.model');
 const { notificationService } = require('../notification/notification.container');
 
 class PostService {
-  constructor({ postRepository, communityRepository, followerRepository, bookmarkRepository, notificationService, feedService, userRepository, taskService }) {
+  constructor({ postRepository, communityRepository, followerRepository, bookmarkRepository, notificationService, feedService, userRepository, taskService, xpService }) {
     this.postRepo = postRepository;
     this.communityRepo = communityRepository;
     this.followerRepo = followerRepository;
@@ -14,6 +14,7 @@ class PostService {
     this.notifSvc = notificationService;
     this.feedSvc = feedService;
     this.taskSvc = taskService;
+    this.xpSvc = xpService;
   }  
 
   async createPost({userId: authorId, body: data}) {
@@ -40,6 +41,24 @@ class PostService {
       if (communityId) {
         this.communityRepo.incrementPostCount(communityId).catch(err => console.error('Community post increment failed:', err));
       }
+
+      // Calculate and credit XP for creating post
+      const hasText = !!data.content && data.content.trim().length > 0;
+      const allMedia = data.media || [];
+      const visualMedia = allMedia.filter(m => m.media_type !== "audio" && m.type !== "audio");
+      const audioMedia = allMedia.filter(m => m.media_type === "audio" || m.type === "audio");
+      
+      const typesCount = (hasText ? 1 : 0) + (visualMedia.length > 0 ? 1 : 0) + (audioMedia.length > 0 ? 1 : 0);
+      let xpReward = 2;
+      if (typesCount >= 3) xpReward = 10;
+      else if (typesCount === 2) xpReward = 5;
+
+      this.xpSvc.creditXP({
+        userId: authorId,
+        xp: xpReward,
+        transactionType: 'earned',
+        sourceType: `create_post_${post.id}`
+      }).catch(err => console.error('XP credit failed:', err));
 
       // Handle mentions
       const content = data.content || '';

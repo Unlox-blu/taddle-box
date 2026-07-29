@@ -255,6 +255,21 @@ class CommunityService {
     }
   }
 
+  async getJoinRequests({communityId, userId, limit, offset}) {
+    try {
+      const community = await this.communityRepo.findById(communityId);
+      if (!community) throw createError('Community not found', 404);
+
+      const member = await this.communityRepo.getMember(communityId, userId);
+      const isAdmin = member?.role === 'admin' || member?.role === 'moderator';
+      if (!isAdmin) throw createError("Only community admins can view join requests", 403);
+
+      return this.communityRepo.getMembers(communityId, 'pending', limit, offset);
+    } catch (error) {
+      throw error;
+    }
+  }
+
   async removeMember({communityId, targetUserId, userId: approvalId, userRole: approvalRole}) {
     try {
       const community = await this.communityRepo.findById(communityId);
@@ -267,11 +282,14 @@ class CommunityService {
         ['admin', 'superadmin'].includes(approvalRole);
       if (!canApprove) throw createError("Only community admins can remove members", 403);
 
-      const notMember = await this.communityRepo.isMember(communityId, targetUserId);
-      if (!notMember) throw createError("He is not a member of this community", 404);
+      const targetMember = await this.communityRepo.getMember(communityId, targetUserId);
+      if (!targetMember) throw createError("He is not a member of this community", 404);
 
       await this.communityRepo.removeMember(communityId, targetUserId);
-      await this.communityRepo.decrementMemberCount(communityId);
+      
+      if (targetMember.status === 'active') {
+        await this.communityRepo.decrementMemberCount(communityId);
+      }
     } catch (error) {
       throw error;
     }

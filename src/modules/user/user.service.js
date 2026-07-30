@@ -40,6 +40,7 @@ class UserService {
         const xpWallet = xpRes.rows[0];
         const totalXp = xpWallet ? parseInt(xpWallet.total_xp_earned, 10) : 0;
         finalUser.xp = xpWallet ? parseInt(xpWallet.xp, 10) : 0;
+        finalUser.totalXpEarned = totalXp;
         finalUser.level = Math.floor(totalXp / 1000) + 1;
         finalUser.rank = finalUser.level > 10 ? 'Pro' : finalUser.level > 5 ? 'Intermediate' : 'Beginner';
         finalUser.xpToNext = finalUser.level * 1000;
@@ -47,6 +48,10 @@ class UserService {
         // Fetch communities count
         const commRes = await pool.query(`SELECT COUNT(*) FROM community_members WHERE user_id = $1`, [finalUser.id]);
         finalUser.communitiesJoinedCount = parseInt(commRes.rows[0].count, 10);
+        
+        // Fetch games played count
+        const gamesRes = await pool.query(`SELECT games_played FROM game_stats WHERE user_id = $1`, [finalUser.id]);
+        finalUser.gamesPlayedCount = gamesRes.rows[0] ? parseInt(gamesRes.rows[0].games_played, 10) : 0;
         
         // Badges placeholder (could query from a badges table if it exists)
         finalUser.badges = [];

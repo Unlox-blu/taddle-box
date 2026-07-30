@@ -876,8 +876,29 @@ class AuthService {
       try {
         const xpWallet = await this.xpSvc.getXP({ userId });
         user.xp = xpWallet ? xpWallet.Xp : 0;
+        const totalXp = xpWallet ? parseInt(xpWallet.totalXpEarned || 0, 10) : 0;
+        user.totalXpEarned = totalXp;
+        user.level = Math.floor(totalXp / 1000) + 1;
+        user.rank = user.level > 10 ? 'Pro' : user.level > 5 ? 'Intermediate' : 'Beginner';
+        user.xpToNext = user.level * 1000;
       } catch (err) {
         user.xp = 0;
+        user.totalXpEarned = 0;
+        user.level = 1;
+        user.rank = 'Beginner';
+        user.xpToNext = 1000;
+      }
+
+      try {
+        const pool = require('../../config/database');
+        const commRes = await pool.query(`SELECT COUNT(*) FROM community_members WHERE user_id = $1`, [userId]);
+        user.communitiesJoinedCount = parseInt(commRes.rows[0].count, 10);
+        
+        const gamesRes = await pool.query(`SELECT games_played FROM game_stats WHERE user_id = $1`, [userId]);
+        user.gamesPlayedCount = gamesRes.rows[0] ? parseInt(gamesRes.rows[0].games_played, 10) : 0;
+      } catch(err) {
+        user.communitiesJoinedCount = 0;
+        user.gamesPlayedCount = 0;
       }
 
       const totalKeys = Object.keys(user).length;

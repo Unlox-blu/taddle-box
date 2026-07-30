@@ -158,7 +158,7 @@ class NotificationService {
     } else {
       let notif;
       if (policy.save) {
-        notif = await this.notifRepo.create({
+        notif = await this.notifRepo.createNotification({
           recipientId,
           senderId,
           type,

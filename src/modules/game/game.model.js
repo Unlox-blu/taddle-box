@@ -6,6 +6,7 @@ const GAME_STATS_TABLE = 'game_stats';
 const GAME_TOURNAMENT_TABLE = 'game_tournament';
 const GAME_TOURNAMENT_ENTRY_TABLE = 'game_tournament_entry';
 const GAME_MATCHMAKING_TICKET_TABLE = 'game_matchmaking_ticket';
+const GAME_SESSION_TABLE = 'game_sessions';
 
 const GAME_FIELDS = [
     'id', 'name', 'slug', 'description', 'thumbnail', 'category', 
@@ -125,7 +126,7 @@ const formatMatchmakingTicket = (row) => {
 
 module.exports = {
   GAME_TABLE, GAME_MATCH_TABLE, GAME_STATS_TABLE,
-  GAME_TOURNAMENT_TABLE, GAME_TOURNAMENT_ENTRY_TABLE, GAME_MATCHMAKING_TICKET_TABLE,
+  GAME_TOURNAMENT_TABLE, GAME_TOURNAMENT_ENTRY_TABLE, GAME_MATCHMAKING_TICKET_TABLE, GAME_SESSION_TABLE,
   GAME_FIELDS, GAME_MATCH_FIELDS, GAME_STATS_FIELDS,
   formatGame, formatGameMatch, formatGameStats, formatTournament, formatMatchmakingTicket
 }

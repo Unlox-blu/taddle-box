@@ -5,7 +5,7 @@ const MEMBERS_TABLE = 'community_members';
 
 const LIST_FIELDS = [
   'c.id', 'c.name', 'c.slug', 'c.description', 'c.avatar_url',
-  'c.privacy', 'c.category', 'c.member_count', 'c.post_count', 'c.is_verified', 'c.created_at',
+  'c.privacy', 'c.category', 'c.owner_id', 'c.member_count', 'c.post_count', 'c.is_verified', 'c.created_at',
 ].join(', ');
 
 const DETAIL_FIELDS = [

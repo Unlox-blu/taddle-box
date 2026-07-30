@@ -24,8 +24,9 @@ class FeedController {
   getFeed = async (req, res, next) => {
     try {
       const { limit, offset, page } = getPaginationParams(req.query);
-     const userId = req.userId
-      const { posts, total, fromCache } = await this.feedSvc.getPersonalizedFeed( {userId, limit, offset, page} );
+      const { hashtag } = req.query;
+      const userId = req.userId
+      const { posts, total, fromCache } = await this.feedSvc.getPersonalizedFeed( {userId, limit, offset, page, hashtag} );
       res.json(
         apiResponse(
           posts,

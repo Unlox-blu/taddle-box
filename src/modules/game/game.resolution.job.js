@@ -96,6 +96,60 @@ async function resolveAbandonedMatches() {
   }
 }
 
+async function resolveTournaments() {
+  const client = await pool.connect();
+  try {
+    const { rows: endedTournaments } = await client.query(`
+      SELECT * FROM ${gameModel.GAME_TOURNAMENT_TABLE}
+      WHERE status = 'ACTIVE' AND ends_at <= NOW()
+    `);
+    
+    if (!endedTournaments.length) return;
+
+    for (const t of endedTournaments) {
+      await client.query('BEGIN');
+      try {
+        await client.query(`UPDATE ${gameModel.GAME_TOURNAMENT_TABLE} SET status = 'COMPLETED' WHERE id = $1`, [t.id]);
+        
+        const { rows: entries } = await client.query(`
+          SELECT user_id, best_score 
+          FROM ${gameModel.GAME_TOURNAMENT_ENTRY_TABLE}
+          WHERE tournament_id = $1 AND status <> 'CANCELLED'
+          ORDER BY best_score DESC NULLS LAST
+          LIMIT 3
+        `, [t.id]);
+        
+        if (entries.length > 0 && t.prize_xp > 0) {
+          const reward = t.prize_xp;
+          await xpService.creditXP({
+            userId: entries[0].user_id,
+            xp: reward,
+            transactionType: 'earned',
+            sourceType: `tournament_win_${t.id}`
+          });
+          
+          const { emitNotification } = require('../../sockets/notification.socket');
+          emitNotification(entries[0].user_id, {
+            type: 'TOURNAMENT_WIN',
+            title: 'Tournament Winner! 🏆',
+            message: `You won 1st place in ${t.title} and earned ${reward} XP!`,
+            payload: { tournamentId: t.id, reward }
+          });
+        }
+        await client.query('COMMIT');
+      } catch(e) {
+        await client.query('ROLLBACK');
+        console.error('Failed to resolve tournament', t.id, e);
+      }
+    }
+  } catch (error) {
+    console.error('Error resolving tournaments', error);
+  } finally {
+    client.release();
+  }
+}
+
 module.exports = {
-  resolveAbandonedMatches
+  resolveAbandonedMatches,
+  resolveTournaments
 };

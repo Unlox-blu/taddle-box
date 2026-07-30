@@ -218,6 +218,26 @@ const findManyGameMatshs = async ({userId, limit, offset}) => {
   }
 }
 
+const getTrendingGames = async ({ limit = 3 }) => {
+  try {
+    const { rows } = await pool.query(
+      `SELECT g.*, 
+       (SELECT COUNT(*) FROM ${gameModel.GAME_MATCH_TABLE} gm WHERE gm.game_id = g.id) AS play_count
+       FROM ${gameModel.GAME_TABLE} g
+       WHERE g.is_active = TRUE
+       ORDER BY play_count DESC
+       LIMIT $1`,
+      [limit]
+    );
+    return rows.map(row => ({
+      ...gameModel.formatGame(row),
+      playCount: parseInt(row.play_count || '0', 10),
+    }));
+  } catch (error) {
+    throw error;
+  }
+};
+
 const findLeaderboard = async ({limit, offset}) => {
   try {
     const {rows} = await pool.query(
@@ -722,13 +742,12 @@ const findOpponentSessionByMatchGroup = async ({matchGroupId, excludeUserId}) =>
     throw error
   }
 }
-
-module.exports = {
+module.exports = {
                   findManyGames, findManyGamesBydDfficulty, findGameById, searchGames,
                   createGameMatche, updateGameMatcheByMatchId, completeGameMatch, findManyGameMatshs,
                   findGameMatchById, findGameStatsByUserId, createGameStatsByUserId, findLeaderboard,
                   findTournaments, findTournamentById, joinTournament, hasTournamentEntry,
-                  joinMatchmaking, findMatchmakingTicketById, cancelMatchmakingTicket,
+                  joinMatchmaking, findMatchmakingTicketById, cancelMatchmakingTicket, getTrendingGames,
                   createGameSession, findGameSessionById, updateGameSessionStatus, createRewardLedgerEntry,
                   findOpponentSessionByMatchGroup
                  }

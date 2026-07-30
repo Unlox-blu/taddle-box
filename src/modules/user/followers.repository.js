@@ -3,20 +3,28 @@
 const pool = require('../../config/database');
 const FollowersModel = require('./followers.model');
 
+const UserModel = require('./user.model');
+
 const findByFollowingId = async (userId, limit, offset) => {
   try {
     const { rows } = await pool.query(
       `
-        SELECT ${FollowersModel.PUBLIC_FIELDS}, COUNT(*) OVER() AS total 
-        FROM ${FollowersModel.TABLE}
-        WHERE following_id = $1 AND status = 'active'
-        ORDER BY created_at DESC
+        SELECT ${UserModel.PUBLIC_FIELDS}, 
+               avatar_media.cloudfront_url AS avatar_media_url,
+               banner_media.cloudfront_url AS banner_media_url,
+               COUNT(*) OVER() AS total 
+        FROM ${FollowersModel.TABLE} f
+        JOIN ${UserModel.TABLE} u ON u.id = f.follower_id
+        LEFT JOIN media AS avatar_media ON avatar_media.id = u.avatar_url
+        LEFT JOIN media AS banner_media ON banner_media.id = u.banner_url
+        WHERE f.following_id = $1 AND f.status = 'active'
+        ORDER BY f.created_at DESC
         LIMIT $2 OFFSET $3
         `,
       [userId, limit, offset]
     );
     const total = rows[0]?.total || 0;
-    const followers = rows.length > 0 ? rows.map(FollowersModel.format) : [];
+    const followers = rows.length > 0 ? rows.map(UserModel.format) : [];
 
     return { followers, total };
   } catch (error) {
@@ -28,16 +36,22 @@ const findByFollowerId = async (userId, limit, offset) => {
   try {
     const { rows } = await pool.query(
       `
-        SELECT ${FollowersModel.PUBLIC_FIELDS}, COUNT(*) OVER() AS total 
-        FROM ${FollowersModel.TABLE}
-        WHERE follower_id = $1 AND status = 'active' 
-        ORDER BY created_at DESC
+        SELECT ${UserModel.PUBLIC_FIELDS}, 
+               avatar_media.cloudfront_url AS avatar_media_url,
+               banner_media.cloudfront_url AS banner_media_url,
+               COUNT(*) OVER() AS total 
+        FROM ${FollowersModel.TABLE} f
+        JOIN ${UserModel.TABLE} u ON u.id = f.following_id
+        LEFT JOIN media AS avatar_media ON avatar_media.id = u.avatar_url
+        LEFT JOIN media AS banner_media ON banner_media.id = u.banner_url
+        WHERE f.follower_id = $1 AND f.status = 'active' 
+        ORDER BY f.created_at DESC
         LIMIT $2 OFFSET $3
         `,
       [userId, limit, offset]
     );
     const total = rows[0]?.total || 0;
-    const followings = rows.length > 0 ? rows.map(FollowersModel.format) : [];
+    const followings = rows.length > 0 ? rows.map(UserModel.format) : [];
 
     return { followings, total };
   } catch (error) {

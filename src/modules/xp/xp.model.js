@@ -4,7 +4,7 @@ const TABLE = 'xp';
 const TRANSACTIONS_TABLE = 'xp_transactions';
 
 const XP_FIELDS = [
-  'id', 'user_id', 'xp', 'created_at', 'updated_at',
+  'id', 'user_id', 'xp', 'total_xp_earned', 'created_at', 'updated_at',
 ].join(', ');
 
 const TRANSACTION_FIELDS = [
@@ -21,6 +21,7 @@ const formatXP = (row) => {
     id: row.id,
     userId: row.user_id,
     Xp: row.xp,
+    totalXpEarned: row.total_xp_earned,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   };

@@ -54,7 +54,6 @@ const findByUserId = async ({userId, limit, offset}) => {
           p.community_id,
           p.title,
           p.content,
-          p.post_type,
           p.tags,
           p.category,
           p.likes_count,

@@ -94,7 +94,8 @@ const searchPost = async (query, limit, offset) => {
           LEFT JOIN media AS ca ON c.avatar_url = ca.id
           LEFT JOIN media m ON p.id = m.post_id
           WHERE 
-            p.deleted_at IS NULL AND p.status = 'published' AND p.visibility = 'public'
+            p.deleted_at IS NULL AND p.status = 'published' 
+            AND (p.visibility = 'public' OR (p.visibility = 'community' AND c.privacy != 'private'))
             AND ($1 = '' OR p.title ILIKE $1 OR p.content ILIKE $1)
           GROUP BY p.id, u.id, ua.id, c.id, ca.id
           ORDER BY p.created_at DESC

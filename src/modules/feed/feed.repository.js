@@ -3,7 +3,7 @@
 const pool = require('../../config/database');
 const PostModel = require('./feed.model');
 
-const getPersonalizedPosts = async (userId, followingIds, prefCategory, prefTags, seenIds, limit, offset) => {
+const getPersonalizedPosts = async (userId, followingIds, prefCategory, prefTags, seenIds, limit, offset, hashtag) => {
   try {
     const { rows } = await pool.query(
       `SELECT ${PostModel.LIST_FIELDS},
@@ -48,10 +48,11 @@ const getPersonalizedPosts = async (userId, followingIds, prefCategory, prefTags
        )
        AND p.id <> ALL($3::uuid[])
        AND (p.author_id = ANY($2::uuid[]) OR p.author_id != $1 OR p.category && $4 OR p.tags && $5)
+       AND ($8::text IS NULL OR $8::text = ANY(p.tags))
      GROUP BY p.id, u.id, ua.id, c.id, ca.id
      ORDER BY score DESC
      LIMIT $6 OFFSET $7`,
-      [userId, followingIds, seenIds, prefCategory, prefTags, limit, offset]
+      [userId, followingIds, seenIds, prefCategory, prefTags, limit, offset, hashtag]
     );
     const total = rows[0]?.total || 0;
     return { rows, total: parseInt(total, 10) };

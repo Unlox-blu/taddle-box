@@ -28,8 +28,7 @@ router.patch('/update-match',   verifyToken,  validateRequest({body: updateMatch
 router.post('/session/start',   verifyToken,  gameController.startGameSession);
 router.post('/session/complete', verifyToken, gameController.completeGameSession);
 
-router.post('/game-stats',      verifyToken,                                                gameController.createGameStats);
-router.get('/game-stats',       verifyToken,                                                gameController.getGameStats);
+
 router.get('/leaderboard',      verifyToken,  validateRequest({query: paginationSchema}),   gameController.getLeaderboard);
 router.get('/tournaments',      verifyToken,  validateRequest({query: paginationSchema}),   gameController.getTournaments);
 router.post('/tournaments/:tournamentId/join', verifyToken, validateRequest({params: tournamentIdParamSchema}), gameController.joinTournament);
@@ -37,6 +36,7 @@ router.post('/matchmaking/join', verifyToken, validateRequest({body: joinMatchma
 router.get('/matchmaking/:ticketId', verifyToken, validateRequest({params: ticketIdParamSchema}), gameController.getMatchmakingTicket);
 router.post('/matchmaking/:ticketId/cancel', verifyToken, validateRequest({params: ticketIdParamSchema}), gameController.cancelMatchmakingTicket);
 
+router.get('/trending',         verifyToken,                                                gameController.getTrendingGames);
 router.get('/',                 verifyToken,  validateRequest({query: paginationSchema}),   gameController.getGames);
 router.get('/search',           verifyToken,  validateRequest({query: searchSchema}),       gameController.searchGames);
 router.get('/:gameId',          verifyToken,  validateRequest({params: gameIdParamSchema}), gameController.getGameById);

@@ -11,7 +11,7 @@ class FeedService {
     this.xpSvc = xpService;
   }
 
-  async getPersonalizedFeed({userId, limit, offset, page}) {
+  async getPersonalizedFeed({userId, limit, offset, page, hashtag}) {
     try {
 
       const follow = await this.followerRepo.findByFollowerId(userId, 100, 0)
@@ -51,7 +51,8 @@ class FeedService {
         prefTags,
         seenPost,
         limit,
-        offset
+        offset,
+        hashtag || null
       );
       const posts = rows.map(PostModel.format);
       const seenIds = rows.map(ele => ele.id)

@@ -58,6 +58,15 @@ class GameService {
     }
   }
 
+  async getTrendingGames({ limit }) {
+    try {
+      const games = await this.gameRepo.getTrendingGames({ limit });
+      return games;
+    } catch (error) {
+      throw error;
+    }
+  }
+
   async searchGames({userId, query, limit, offset,}) {
     try {
       query = query ? query : ''
@@ -250,6 +259,17 @@ class GameService {
 	      if (game.metadata?.runtime !== 'html5_webview')
 	        throw createError("Unsupported game runtime", 400)
 
+        // Deduct XP
+        const entryFeeMap = {
+          'tap-rush': 5, 'memory-grid': 5, 'scribble': 10,
+          'ludo': 5, 'snake-ladder': 10, 'chess': 15, 'word-rush': 5
+        };
+        const entryFee = entryFeeMap[game.slug] || 5;
+        await this.xpSvc.debitXP({
+          userId, xp: entryFee,
+          transactionType: 'spent', sourceType: `matchmaking_${game.slug}`
+        });
+
 	      let tournamentId = matchData.tournamentId || null
 	      if (mode === 'TOURNAMENT') {
 	        if (!tournamentId)
@@ -297,23 +317,22 @@ class GameService {
 	    }
 	  }
 
-	  async createGameStats({userId}) {
-    try {
-      const isGameStatsExixt = await this.gameRepo.findGameStatsByUserId({userId})
-      if(isGameStatsExixt)
-        throw createError("Game Stats already exist", 409)
 
-      const gameStats = await this.gameRepo.createGameStatsByUserId({userId})
-
-      return gameStats
-    } catch (error) {
-      throw error;
-    }
-  }
   async startGameSession({ userId, gameId, mode }) {
     try {
       const game = await this.gameRepo.findGameById({ gameId });
       if (!game) throw createError("Game not found", 404);
+
+      // Deduct XP
+      const entryFeeMap = {
+        'tap-rush': 5, 'memory-grid': 5, 'scribble': 10,
+        'ludo': 5, 'snake-ladder': 10, 'chess': 15, 'word-rush': 5
+      };
+      const entryFee = entryFeeMap[game.slug] || 5;
+      await this.xpSvc.debitXP({
+        userId, xp: entryFee,
+        transactionType: 'spent', sourceType: `session_${game.slug}`
+      });
 
       const seed = crypto.randomBytes(32).toString('hex');
       const expiresAt = new Date(Date.now() + 5 * 60 * 1000); // 5 mins

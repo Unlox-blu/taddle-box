@@ -8,8 +8,8 @@ const XpModel = require('./xp.model');
 const create = async (userId, xp = 0) => {
   const { rows } = await pool.query(
     `
-    INSERT INTO ${XpModel.TABLE} (user_id, xp)
-    VALUES ($1, $2)
+    INSERT INTO ${XpModel.TABLE} (user_id, xp, total_xp_earned)
+    VALUES ($1, $2, $2)
     RETURNING ${XpModel.XP_FIELDS}
     `,
     [userId, xp]
@@ -35,6 +35,7 @@ const incrementXp = async (userId, amount, client) => {
     `
     UPDATE ${XpModel.TABLE}
     SET xp = xp + $2,
+        total_xp_earned = total_xp_earned + $2,
         updated_at = NOW()
     WHERE user_id = $1
     RETURNING ${XpModel.XP_FIELDS}

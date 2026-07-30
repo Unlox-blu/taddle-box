@@ -68,6 +68,7 @@ class XpService {
       }
 
       const balanceBefore = xpWallet.Xp;
+      const totalEarnedBefore = xpWallet.totalXpEarned || 0;
 
       const updatedXP = await this.xpRepo.incrementXp(userId, xp);
 
@@ -82,6 +83,34 @@ class XpService {
       });
 
       emitXPUpdate(userId, updatedXP.Xp);
+
+      // Level Up Logic
+      const levelBefore = Math.floor(totalEarnedBefore / 1000) + 1;
+      const levelAfter = Math.floor(updatedXP.totalXpEarned / 1000) + 1;
+
+      if (levelAfter > levelBefore && transactionType !== 'bonus') {
+        const bonusAmount = levelAfter * 100;
+        
+        // Emit Notification
+        const { notificationService } = require('../notification/notification.container');
+        if (notificationService) {
+          notificationService.createNotification({
+            userId,
+            title: `Level Up! 🎉`,
+            message: `Congratulations! You've reached Level ${levelAfter} and earned ${bonusAmount} bonus XP.`,
+            type: 'level_up',
+            metadata: { newLevel: levelAfter, bonus: bonusAmount }
+          }).catch(err => console.error("Failed to emit level up notification", err));
+        }
+
+        // Credit Bonus XP
+        this.creditXP({
+          userId,
+          xp: bonusAmount,
+          transactionType: 'bonus',
+          sourceType: `level_up_${levelAfter}`
+        }).catch(err => console.error("Failed to credit level up bonus", err));
+      }
 
       return xpTransaction;
     } catch (error) {

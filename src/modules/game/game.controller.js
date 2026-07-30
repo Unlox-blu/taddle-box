@@ -19,6 +19,16 @@ class GameController {
     }
   };
 
+  getTrendingGames = async (req, res, next) => {
+    try {
+      const limit = parseInt(req.query.limit || '3', 10);
+      const games = await this.gameSvc.getTrendingGames({ limit });
+      res.json(apiResponse(games, "trending games fetched successfully"));
+    } catch (error) {
+      next(error);
+    }
+  };
+
   searchGames = async (req, res, next) => {
     try {
       const userId = req.userId;
@@ -184,15 +194,7 @@ class GameController {
 	    }
 	  };
 
-  createGameStats = async (req, res, next) => {
-    try {
-      const userId = req.userId;
-      const gameStats = await this.gameSvc.createGameStats({userId});
-      res.status(201).json(apiResponse(gameStats, "game created successfuly"));
-    } catch (error) {
-      next(error);
-    }
-  };
+
 
 }
 

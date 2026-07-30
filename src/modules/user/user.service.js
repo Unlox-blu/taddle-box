@@ -36,10 +36,11 @@ class UserService {
         const pool = require('../../config/database');
         
         // Fetch XP
-        const xpRes = await pool.query(`SELECT xp FROM xp WHERE user_id = $1`, [finalUser.id]);
-        const xp = xpRes.rows[0] ? parseInt(xpRes.rows[0].xp, 10) : 0;
-        finalUser.xp = xp;
-        finalUser.level = Math.floor(xp / 1000) + 1;
+        const xpRes = await pool.query(`SELECT xp, total_xp_earned FROM xp WHERE user_id = $1`, [finalUser.id]);
+        const xpWallet = xpRes.rows[0];
+        const totalXp = xpWallet ? parseInt(xpWallet.total_xp_earned, 10) : 0;
+        finalUser.xp = xpWallet ? parseInt(xpWallet.xp, 10) : 0;
+        finalUser.level = Math.floor(totalXp / 1000) + 1;
         finalUser.rank = finalUser.level > 10 ? 'Pro' : finalUser.level > 5 ? 'Intermediate' : 'Beginner';
         finalUser.xpToNext = finalUser.level * 1000;
 

@@ -1,6 +1,6 @@
 import React, { useMemo, useState, useEffect } from 'react';
 import {
-  View, Text, ScrollView, TouchableOpacity, StyleSheet, ActivityIndicator,
+  View, Text, ScrollView, TouchableOpacity, StyleSheet, ActivityIndicator, RefreshControl,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
@@ -127,22 +127,26 @@ export default function NotificationsScreen({ navigation }: Props) {
 
   const [notifs, setNotifs] = useState<Notification[]>([]);
   const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
+
+  const fetchNotifs = async () => {
+    try {
+      const res = await notificationService.getNotifications();
+      setNotifs(res.data);
+    } catch (e) {
+      console.error('Failed to fetch notifications:', e);
+    }
+  };
 
   useEffect(() => {
-    let active = true;
-    const fetchNotifs = async () => {
-      try {
-        const res = await notificationService.getNotifications();
-        if (active) setNotifs(res.data);
-      } catch (e) {
-        console.error('Failed to fetch notifications:', e);
-      } finally {
-        if (active) setLoading(false);
-      }
-    };
-    fetchNotifs();
-    return () => { active = false; };
+    fetchNotifs().finally(() => setLoading(false));
   }, []);
+
+  const onRefresh = async () => {
+    setRefreshing(true);
+    await fetchNotifs();
+    setRefreshing(false);
+  };
 
   const markAllRead = async () => {
     setNotifs(n => n.map(x => ({ ...x, isRead: true })));
@@ -199,7 +203,13 @@ export default function NotificationsScreen({ navigation }: Props) {
           <Text style={styles.emptySub}>No new notifications right now. Check back later for updates on events, followers, and more.</Text>
         </View>
       ) : (
-        <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingTop: 8 }}>
+        <ScrollView 
+          showsVerticalScrollIndicator={false} 
+          contentContainerStyle={{ paddingTop: 8 }}
+          refreshControl={
+            <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={colors.primary} />
+          }
+        >
           {GROUPS.map(group => {
             const items = notifs.filter(n => n.group === group.key);
             if (!items.length) return null;

@@ -530,8 +530,8 @@ export default function SharedProfile({
       <XPProgressBar
         level={user?.level || 1}
         rank={user?.rank || "Beginner"}
-        currentXP={user?.xp || 0}
-        targetXP={user?.xpToNext || 500}
+        currentXP={user?.totalXpEarned || user?.xp || 0}
+        targetXP={user?.xpToNext || 1000}
       />
 
       <View style={styles.infoCard}>

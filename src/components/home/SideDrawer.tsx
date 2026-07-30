@@ -53,6 +53,7 @@ export default function SideDrawer({
   const colors = useThemeColors();
 
   const [localXP, setLocalXP] = useState(0);
+  const [totalXP, setTotalXP] = useState(0);
 
   const slideX = useRef(new Animated.Value(-DRAWER_W)).current;
   const backdrop = useRef(new Animated.Value(0)).current;
@@ -82,6 +83,7 @@ export default function SideDrawer({
         .then((res) => {
           if (res?.data?.Xp !== undefined) {
             setLocalXP(res.data.Xp);
+            setTotalXP(res.data.totalXpEarned || res.data.Xp);
           }
         })
         .catch((err) => console.error("Failed to fetch XP for drawer", err));
@@ -148,7 +150,7 @@ export default function SideDrawer({
     },
   ];
 
-  const level = Math.floor(localXP / 1000) + 1;
+  const level = Math.floor(totalXP / 1000) + 1;
   const rank = level < 5 ? "Beginner" : level < 15 ? "Intermediate" : "Pro";
 
   return (
@@ -214,7 +216,7 @@ export default function SideDrawer({
           </TouchableOpacity>
 
           <View style={{ paddingBottom: spacing.sm }}>
-            <XPProgressBar level={level} rank={rank} currentXP={localXP} targetXP={Math.floor(localXP / 1000 + 1) * 1000} />
+            <XPProgressBar level={level} rank={rank} currentXP={totalXP} targetXP={Math.floor(totalXP / 1000 + 1) * 1000} />
           </View>
 
           <TouchableOpacity

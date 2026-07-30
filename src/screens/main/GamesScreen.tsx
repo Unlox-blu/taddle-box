@@ -102,6 +102,7 @@ export default function GamesScreen() {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [startingId, setStartingId] = useState<string | null>(null);
+  const [incomingInvite, setIncomingInvite] = useState<any>(null);
   const [queueRequest, setQueueRequest] = useState<QueueRequest | null>(null);
   const [activeSession, setActiveSession] = useState<ActiveSession | null>(
     null,
@@ -153,7 +154,17 @@ export default function GamesScreen() {
       }
     });
 
-    return () => sub.remove();
+    const handleNewNotif = (notif: any) => {
+      if (notif.type === 'GAME_INVITE' || notif.type === 'game_invite') {
+        setIncomingInvite(notif);
+      }
+    };
+    socketClient.events.on('notification:new', handleNewNotif);
+
+    return () => {
+      sub.remove();
+      socketClient.events.off('notification:new', handleNewNotif);
+    };
   }, [loadGamesData]);
 
   const startBotSession = async (game: HtmlGameDefinition) => {
@@ -342,6 +353,34 @@ export default function GamesScreen() {
           </TouchableOpacity>
         ))}
       </View>
+
+      {incomingInvite && (
+        <View style={styles.inviteBanner}>
+          <Text style={styles.inviteBannerText}>{incomingInvite.message || "You have a new game invite!"}</Text>
+          <View style={styles.inviteBannerActions}>
+            <TouchableOpacity 
+              style={styles.inviteJoinBtn}
+              onPress={() => {
+                const parts = incomingInvite.resourceId?.split(':') || [];
+                const game = findLocalGame(parts[0]);
+                if (game) {
+                  setActiveTab("games");
+                  startQueue({ game, mode: "invite", matchGroupId: parts[1] });
+                }
+                setIncomingInvite(null);
+              }}
+            >
+              <Text style={styles.inviteJoinBtnText}>Join</Text>
+            </TouchableOpacity>
+            <TouchableOpacity 
+              style={styles.inviteDenyBtn}
+              onPress={() => setIncomingInvite(null)}
+            >
+              <Text style={styles.inviteDenyBtnText}>Deny</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      )}
 
       <ScrollView
         showsVerticalScrollIndicator={false}
@@ -1563,6 +1602,51 @@ function makeStyles(c: ColorPalette) {
       color: c.text.muted,
       fontSize: fontSizes.sm,
       textAlign: "center",
+    },
+    inviteBanner: {
+      marginHorizontal: spacing.lg,
+      marginBottom: spacing.md,
+      padding: spacing.md,
+      backgroundColor: c.primary,
+      borderRadius: radii.xl,
+      shadowColor: c.primary,
+      shadowOffset: { width: 0, height: 4 },
+      shadowOpacity: 0.3,
+      shadowRadius: 8,
+    },
+    inviteBannerText: {
+      color: '#fff',
+      fontSize: fontSizes.md,
+      fontWeight: '700',
+      marginBottom: 12,
+    },
+    inviteBannerActions: {
+      flexDirection: 'row',
+      gap: 12,
+    },
+    inviteJoinBtn: {
+      flex: 1,
+      backgroundColor: '#fff',
+      paddingVertical: 8,
+      borderRadius: radii.md,
+      alignItems: 'center',
+    },
+    inviteJoinBtnText: {
+      color: c.primary,
+      fontSize: fontSizes.sm,
+      fontWeight: '800',
+    },
+    inviteDenyBtn: {
+      flex: 1,
+      backgroundColor: 'rgba(255,255,255,0.2)',
+      paddingVertical: 8,
+      borderRadius: radii.md,
+      alignItems: 'center',
+    },
+    inviteDenyBtnText: {
+      color: '#fff',
+      fontSize: fontSizes.sm,
+      fontWeight: '700',
     },
   });
 }

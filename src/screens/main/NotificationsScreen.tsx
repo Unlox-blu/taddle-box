@@ -15,7 +15,7 @@ type Props = NativeStackScreenProps<HomeStackParamList, 'Notifications'>;
 
 const NOTIF_ICON: Record<Notification['type'], string> = {
   like: 'heart', comment: 'chatbubble', follow: 'person-add',
-  mention: 'at', event: 'calendar', achievement: 'trophy',
+  mention: 'at', event: 'calendar', achievement: 'trophy', game_invite: 'game-controller'
 };
 
 const GROUPS: { key: Notification['group']; label: string }[] = [
@@ -27,7 +27,7 @@ const GROUPS: { key: Notification['group']; label: string }[] = [
 function getNotifColor(c: ColorPalette): Record<Notification['type'], string> {
   return {
     like: c.pink, comment: c.primaryLight, follow: c.cyan,
-    mention: c.cyanLight, event: c.xpGold, achievement: c.xpGold,
+    mention: c.cyanLight, event: c.xpGold, achievement: c.xpGold, game_invite: c.primaryLight
   };
 }
 
@@ -110,6 +110,11 @@ function makeStyles(c: ColorPalette) {
     emptyEmoji: { fontSize: 64, marginBottom: 16 },
     emptyTitle: { fontSize: fontSizes.xl, fontWeight: '800', color: c.text.primary, marginBottom: 8, textAlign: 'center' },
     emptySub: { fontSize: fontSizes.md, color: c.text.muted, textAlign: 'center', lineHeight: 22 },
+    inviteActions: { flexDirection: 'row', gap: 8, marginTop: 12 },
+    btnJoin: { flex: 1, backgroundColor: c.primary, paddingVertical: 8, borderRadius: radii.md, alignItems: 'center' },
+    btnJoinText: { color: '#fff', fontSize: fontSizes.sm, fontWeight: '700' },
+    btnDeny: { flex: 1, backgroundColor: c.bg.elevated, paddingVertical: 8, borderRadius: radii.md, alignItems: 'center' },
+    btnDenyText: { color: c.text.secondary, fontSize: fontSizes.sm, fontWeight: '700' },
   });
 }
 
@@ -223,6 +228,31 @@ export default function NotificationsScreen({ navigation }: Props) {
                         <Text style={styles.notifBody}>{notif.text}</Text>
                       </Text>
                       <Text style={styles.time}>{notif.time}</Text>
+
+                      {notif.type === 'game_invite' && !notif.isRead && (
+                        <View style={styles.inviteActions}>
+                          <TouchableOpacity 
+                            style={styles.btnJoin}
+                            onPress={(e) => {
+                              e.stopPropagation();
+                              markRead(notif.id);
+                              require('react-native').DeviceEventEmitter.emit('GAME_INVITE_ACCEPTED', notif.payload);
+                              (navigation as any).navigate('Main', { screen: 'Games' });
+                            }}
+                          >
+                            <Text style={styles.btnJoinText}>Join Game</Text>
+                          </TouchableOpacity>
+                          <TouchableOpacity 
+                            style={styles.btnDeny}
+                            onPress={(e) => {
+                              e.stopPropagation();
+                              markRead(notif.id);
+                            }}
+                          >
+                            <Text style={styles.btnDenyText}>Deny</Text>
+                          </TouchableOpacity>
+                        </View>
+                      )}
                     </View>
 
                     {!notif.isRead && <View style={styles.unreadDot} />}

@@ -34,6 +34,8 @@ export type AuthStackParamList = {
   OTP:            { phone: string; accessToken?: string; refreshToken?: string };
   ForgotPassword: undefined;
   CompleteProfile: undefined;
+  Terms:          undefined;
+  Privacy:        undefined;
 };
 
 export type MainTabParamList = {
@@ -174,13 +176,14 @@ export interface Transaction {
 
 export interface Notification {
   id: string;
-  type: 'like' | 'comment' | 'follow' | 'mention' | 'event' | 'achievement';
+  type: 'like' | 'comment' | 'follow' | 'mention' | 'event' | 'achievement' | 'game_invite';
   avatar: string;
   actor: string;
   text: string;
   time: string;
   isRead: boolean;
   group: 'today' | 'yesterday' | 'earlier';
+  payload?: Record<string, any>;
 }
 
 export interface Comment {

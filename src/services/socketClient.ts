@@ -62,6 +62,7 @@ class SocketService {
 
       this.socket.on('xp:updated', (data) => this.events.emit('xp:updated', data));
       this.socket.on('wallet:updated', (data) => this.events.emit('wallet:updated', data));
+      this.socket.on('matchmaking:matched', (data) => this.events.emit('matchmaking:matched', data));
 
       this.socket.on('connect_error', (error) => {
         this.isConnecting = false;

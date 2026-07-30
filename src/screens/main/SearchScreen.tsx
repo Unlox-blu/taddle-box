@@ -120,12 +120,12 @@ export default function SearchScreen({ navigation, route }: Props) {
         );
         if (res.data?.data && Array.isArray(res.data.data)) {
           setResults(
-            res.data.data.map((h: any) => ({ ...h, itemType: "hashtags" })),
+            res.data.data.map((h: any) => ({ text: h, itemType: "hashtags" })),
           );
         } else if (res.data?.data && Array.isArray(res.data.data.data)) {
           setResults(
             res.data.data.data.map((h: any) => ({
-              ...h,
+              text: h,
               itemType: "hashtags",
             })),
           );
@@ -291,11 +291,17 @@ export default function SearchScreen({ navigation, route }: Props) {
 
     if (type === "hashtags") {
       return (
-        <TouchableOpacity style={styles.hashtagRow}>
+        <TouchableOpacity 
+          style={styles.hashtagRow}
+          onPress={() => {
+            setQuery(item.text);
+            setActiveTab("posts");
+          }}
+        >
           <View style={styles.hashIconBubble}>
             <Text style={styles.hashIcon}>#</Text>
           </View>
-          <Text style={styles.hashtagText}>{item}</Text>
+          <Text style={styles.hashtagText}>{item.text}</Text>
         </TouchableOpacity>
       );
     }

@@ -2,7 +2,6 @@ import React, { useState, useEffect, useCallback } from "react";
 import {
   View,
   StyleSheet,
-  SafeAreaView,
   ActivityIndicator,
   Alert,
   TextInput,
@@ -22,9 +21,11 @@ import { spacing, fontSizes } from "../../theme";
 import PinPad from "../../components/common/PinPad";
 import { authService } from "../../services/auth.service";
 import { useAuth } from "../../context/AuthContext";
+import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 
 export default function LockScreen() {
   const colors = useThemeColors();
+  const insets = useSafeAreaInsets();
   const navigation = useNavigation<any>();
   const route = useRoute<any>();
   const { user } = useAuth();
@@ -201,7 +202,7 @@ export default function LockScreen() {
     >
       {navigation.canGoBack() && (
         <TouchableOpacity
-          style={styles.backBtnWrapper}
+          style={[styles.backBtnWrapper, { top: insets.top + spacing.sm }]}
           onPress={() => navigation.goBack()}
         >
           <View style={[styles.backBtnInner, { backgroundColor: colors.bg.surface }]}>
@@ -241,7 +242,6 @@ const styles = StyleSheet.create({
   },
   backBtnWrapper: {
     position: "absolute",
-    top: spacing.md,
     left: spacing.md,
     zIndex: 10,
   },

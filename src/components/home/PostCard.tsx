@@ -35,6 +35,7 @@ interface PostCardProps {
   isActive?: boolean;
   index?: number;
   onDelete?: (post: Post) => void;
+  onReport?: (post: Post) => void;
   showDelete?: boolean;
 }
 
@@ -47,7 +48,6 @@ function makeStyles(c: ColorPalette) {
       borderRadius: radii.lg,
       borderWidth: 1,
       borderColor: c.border,
-      overflow: "hidden",
     },
     header: {
       flexDirection: "row",
@@ -228,6 +228,7 @@ export default function PostCard({
   onAuthorPress,
   index,
   onDelete,
+  onReport,
   showDelete,
 }: PostCardProps) {
   const colors = useThemeColors();
@@ -459,6 +460,7 @@ export default function PostCard({
                       user: {
                         id,
                         name,
+                        username: name,
                         handle: name,
                         avatar: "",
                         level: 1,
@@ -497,6 +499,7 @@ export default function PostCard({
                       user: {
                         id: part.slice(1),
                         name: part.slice(1),
+                        username: part.slice(1),
                         handle: part.slice(1),
                         avatar: "",
                         level: 1,
@@ -539,7 +542,12 @@ export default function PostCard({
   const contentCharLimit = hasMedia ? 80 : 350;
 
   return (
-    <View style={styles.card}>
+    <View
+      style={[
+        styles.card,
+        { zIndex: showMenu ? 99 : 1, elevation: showMenu ? 99 : 1 }
+      ]}
+    >
       {/* Header */}
       <View style={styles.header}>
         <TouchableOpacity
@@ -611,15 +619,64 @@ export default function PostCard({
               )}
 
               {/* Three dot menu — same row, small */}
-              {showDelete && (
+              {/* Three dot menu — same row, small */}
+              <View style={{ position: "relative" }}>
                 <TouchableOpacity
-                  onPress={() => setShowMenu(true)}
+                  onPress={() => setShowMenu(!showMenu)}
                   style={{ padding: 2 }}
                   hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
                 >
                   <Ionicons name="ellipsis-vertical" size={15} color={colors.text.muted} />
                 </TouchableOpacity>
-              )}
+                {showMenu && (
+                  <TouchableOpacity
+                    onPress={() => {
+                      setShowMenu(false);
+                      if (showDelete) {
+                        onDelete?.(post);
+                      } else {
+                        onReport?.(post);
+                      }
+                    }}
+                    style={{
+                      position: 'absolute',
+                      top: 20,
+                      right: 0,
+                      width: 100,
+                      backgroundColor: colors.bg.surface,
+                      paddingVertical: 8,
+                      paddingHorizontal: 12,
+                      borderRadius: 8,
+                      borderWidth: 1,
+                      borderColor: colors.border,
+                      zIndex: 100,
+                      flexDirection: 'row',
+                      alignItems: 'center',
+                      gap: 6,
+                      shadowColor: '#000',
+                      shadowOffset: { width: 0, height: 2 },
+                      shadowOpacity: 0.1,
+                      shadowRadius: 4,
+                      elevation: 5,
+                    }}
+                  >
+                    <Ionicons 
+                      name={showDelete ? "trash-outline" : "flag-outline"} 
+                      size={14} 
+                      color={showDelete ? "#ef4444" : colors.text.primary} 
+                    />
+                    <Text 
+                      style={{ 
+                        fontSize: 13, 
+                        color: showDelete ? '#ef4444' : colors.text.primary, 
+                        fontWeight: '600' 
+                      }}
+                    >
+                      {showDelete ? 'Delete' : 'Report'}
+                    </Text>
+                  </TouchableOpacity>
+                )}
+              </View>
             </View>
             {(() => {
               const hasAudio = ((post as any).media || []).some(
@@ -980,18 +1037,6 @@ export default function PostCard({
           shadowRadius: 5,
         }} />
       </Animated.View>
-      <PostMenuSheet
-        visible={showMenu}
-        onClose={() => setShowMenu(false)}
-        options={[
-          {
-            icon: 'trash-outline',
-            label: 'Delete Post',
-            color: '#ef4444',
-            onPress: () => onDelete?.(post),
-          },
-        ]}
-      />
     </View>
   );
 }

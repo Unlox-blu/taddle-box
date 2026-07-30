@@ -45,6 +45,7 @@ import MatchModeModal, {
   MatchMode,
 } from "../../components/games/MatchModeModal";
 import { apiClient } from "../../services/apiClient";
+import { socketClient } from "../../services/socketClient";
 import type { User } from "../../types";
 import { useAuth } from "../../context/AuthContext";
 
@@ -52,8 +53,9 @@ type ActiveTab = "games" | "tournaments" | "history";
 type ScreenModal = "none" | "history";
 type QueueRequest = {
   game: HtmlGameDefinition;
-  mode: "quick" | "tournament";
+  mode: "quick" | "tournament" | "invite";
   tournamentId?: string;
+  matchGroupId?: string;
 };
 type ActiveSession = {
   game: HtmlGameDefinition;
@@ -70,8 +72,8 @@ const MATCH_MODE_LABEL: Record<PlayMode, string> = {
   tournament: "Tournament Match",
 };
 
-const modeToApi = (mode: "quick" | "tournament") =>
-  mode === "quick" ? "QUICK" : "TOURNAMENT";
+const modeToApi = (mode: "quick" | "tournament" | "invite") =>
+  mode === "tournament" ? "TOURNAMENT" : "QUICK";
 
 const findLocalGame = (gameId: string) =>
   HTML5_GAMES.find((game) => game.id === gameId || game.slug === gameId);
@@ -109,6 +111,8 @@ export default function GamesScreen() {
     null,
   );
 
+  const [trendingGameSlugs, setTrendingGameSlugs] = useState<string[]>([]);
+
   const onlinePlayers = useMemo(() => {
     return 342 + new Date().getHours() * 12 + (new Date().getMinutes() % 10);
   }, []);
@@ -126,6 +130,13 @@ export default function GamesScreen() {
     } catch (error) {
       console.warn("Failed to load tournaments", error);
       setTournaments([]);
+    }
+    try {
+      const trendingRes = await gamesService.getTrendingGames(5);
+      const slugs = (trendingRes?.data || []).map((g: any) => g.slug || g.id);
+      setTrendingGameSlugs(slugs);
+    } catch (e) {
+      console.warn("Failed to load trending games", e);
     } finally {
       setLoading(false);
     }
@@ -133,9 +144,23 @@ export default function GamesScreen() {
 
   useEffect(() => {
     loadGamesData();
+    
+    const sub = require('react-native').DeviceEventEmitter.addListener('GAME_INVITE_ACCEPTED', (payload: any) => {
+      const game = findLocalGame(payload.gameId);
+      if (game) {
+        setActiveTab("games");
+        startQueue({ game, mode: "invite", matchGroupId: payload.matchGroupId });
+      }
+    });
+
+    return () => sub.remove();
   }, [loadGamesData]);
 
   const startBotSession = async (game: HtmlGameDefinition) => {
+    if (!user || user.xp < game.entryFee) {
+      Alert.alert("Insufficient XP", `You need ${game.entryFee} XP to play ${game.name}.`);
+      return;
+    }
     setStartingId(`${game.id}:bot`);
     try {
       const res = await gamesService.startGameSession(game.id, "bot");
@@ -182,8 +207,12 @@ export default function GamesScreen() {
     await run();
   };
 
-  const startQueue = (request: QueueRequest) => {
-    setQueueRequest(request);
+  const startQueue = (req: QueueRequest) => {
+    if (!user || user.xp < req.game.entryFee) {
+      Alert.alert("Insufficient XP", `You need ${req.game.entryFee} XP to play ${req.game.name}.`);
+      return;
+    }
+    setQueueRequest(req);
   };
 
   const handleMatched = useCallback(
@@ -239,32 +268,25 @@ export default function GamesScreen() {
       startQueue({ game: selectedGame, mode: "quick" });
     } else if (mode === "manual" && opponents && opponents.length > 0) {
       try {
-        // 1. Start the queue/bot session or a private match.
-        // For now we will do quick match or bot match as fallback since private match is not fully defined on backend.
-        // But we will definitely send push notifications to invitees.
+        if (!user || user.xp < selectedGame.entryFee) {
+          Alert.alert("Insufficient XP", `You need ${selectedGame.entryFee} XP to play ${selectedGame.name}.`);
+          return;
+        }
 
-        // Let's create a match group ID for the invites
         const matchGroupId = `group-${Date.now()}`;
 
-        // 2. Send push notifications to opponents
+        // Send push notifications to opponents
         for (const opp of opponents) {
           await apiClient
-            .post("/push/send", {
-              userId: opp.id,
-              title: "Game Invite! 🎮",
-              message: `${user?.name || "A friend"} invited you to play ${selectedGame.name}!`,
-              data: { gameId: selectedGame.id, matchGroupId },
+            .post("/game/matchmaking/invite", {
+              opponentId: opp.id,
+              gameId: selectedGame.id,
+              matchGroupId,
             })
             .catch(console.error);
         }
 
-        Alert.alert(
-          "Invites Sent!",
-          "Your friends have been notified. Waiting for them to join...",
-        );
-        // Here we could join matchmaking with a specific matchGroupId
-        // For now, we'll start queue in tournament/quick mode so they can theoretically match.
-        startQueue({ game: selectedGame, mode: "quick" });
+        startQueue({ game: selectedGame, mode: "invite", matchGroupId });
       } catch (e) {
         console.error(e);
         Alert.alert("Error", "Failed to send invites.");
@@ -343,9 +365,13 @@ export default function GamesScreen() {
               {HTML5_GAMES.map((game) => (
                 <GameCard
                   key={game.id}
-                  game={game}
+                  game={{ ...game, isHot: trendingGameSlugs.includes(game.id) || trendingGameSlugs.includes(game.slug || '') }}
                   startingId={startingId}
                   onPlayClick={() => {
+                    if (!user || user.xp < game.entryFee) {
+                      Alert.alert("Insufficient XP", `You need ${game.entryFee} XP to play ${game.name}.`);
+                      return;
+                    }
                     setSelectedGame(game);
                     setMatchModalVisible(true);
                   }}
@@ -486,7 +512,7 @@ function GameCard({
           style={styles.gameArt}
           resizeMode="cover"
         >
-          {game.isHot && <Text style={styles.gameBadge}>HOT</Text>}
+          {game.isHot && <Text style={styles.gameBadge}>TRENDING</Text>}
         </ImageBackground>
       ) : (
         <LinearGradient
@@ -494,7 +520,7 @@ function GameCard({
           style={styles.gameArt}
         >
           <Text style={styles.gameGlyph}>{game.emoji}</Text>
-          {game.isHot && <Text style={styles.gameBadge}>HOT</Text>}
+          {game.isHot && <Text style={styles.gameBadge}>TRENDING</Text>}
         </LinearGradient>
       )}
       <View style={styles.gameBody}>
@@ -651,8 +677,8 @@ function QueueModal({
     let fallbackTimer: ReturnType<typeof setInterval> | null = null;
     matchedRef.current = false;
     setTicketId(null);
-    setStatusText("Joining queue...");
-    setCountdown(request.mode === "quick" ? 10 : null);
+    setStatusText(request.mode === "invite" ? "Waiting for friends to join..." : "Joining queue...");
+    setCountdown(request.mode === "quick" ? 10 : request.mode === "invite" ? 10 : null);
 
     const handleResponse = (response: MatchmakingResponse) => {
       if (cancelled) return;
@@ -661,7 +687,7 @@ function QueueModal({
         response.ticket?.status === "MATCHED"
       ) {
         matchedRef.current = true;
-        if (poll) clearInterval(poll);
+        if (poll) (poll as any).cancel();
         onMatched(request, response);
         return;
       }
@@ -686,16 +712,17 @@ function QueueModal({
         handleResponse(res.data);
         const id = res.data.ticket?.id;
         if (!id || res.data.status === "MATCHED") return;
-        poll = setInterval(() => {
-          gamesService
-            .getMatchmakingTicket(id)
-            .then((ticketRes) => handleResponse(ticketRes.data))
-            .catch(() =>
-              setStatusText("Still waiting. Pulling latest queue status..."),
-            );
-        }, 2500);
 
-        if (request.mode === "quick" && onTimeoutFallback) {
+        const onSocketMatched = (data: any) => {
+          if (data.ticket?.id === id || data.opponent?.userId) {
+            handleResponse(data);
+          }
+        };
+
+        socketClient.events.on('matchmaking:matched', onSocketMatched);
+        poll = { cancel: () => socketClient.events.off('matchmaking:matched', onSocketMatched) } as any;
+
+        if ((request.mode === "quick" || request.mode === "invite") && onTimeoutFallback) {
           let timeRemaining = 10;
           fallbackTimer = setInterval(() => {
             if (cancelled || matchedRef.current) return;
@@ -703,7 +730,7 @@ function QueueModal({
             setCountdown(timeRemaining);
             if (timeRemaining <= 0) {
               if (fallbackTimer) clearInterval(fallbackTimer);
-              if (poll) clearInterval(poll);
+              if (poll) (poll as any).cancel();
               cancelled = true;
               gamesService.cancelMatchmakingTicket(id).catch(() => {});
               onTimeoutFallback(request);
@@ -719,10 +746,10 @@ function QueueModal({
 
     return () => {
       cancelled = true;
-      if (poll) clearInterval(poll);
+      if (poll) (poll as any).cancel();
       if (fallbackTimer) clearInterval(fallbackTimer);
     };
-  }, [request, onMatched, onTimeoutFallback]);
+  }, [request]);
 
   const closeQueue = async () => {
     setClosing(true);
@@ -770,7 +797,9 @@ function QueueModal({
           <Text style={styles.queueTitle}>
             {request?.mode === "tournament"
               ? "Tournament Queue"
-              : "Real Matchmaking"}
+              : request?.mode === "invite"
+                ? "Private Match"
+                : "Real Matchmaking"}
           </Text>
           <Text style={styles.queueSubtitle}>{request?.game.name}</Text>
           <TouchableOpacity
@@ -814,7 +843,9 @@ function GamePlayModal({
     setScore(0);
     setXpEarned(0);
     resultAnim.setValue(0);
+  }, [session.matchId]);
 
+  useEffect(() => {
     const subscription = require("react-native").DeviceEventEmitter.addListener(
       "MATCH_RESOLVED",
       (data: any) => {
@@ -840,7 +871,7 @@ function GamePlayModal({
     );
 
     return () => subscription.remove();
-  }, [session.matchId, phase, result]);
+  }, [phase, result, resultAnim]);
 
   useEffect(() => {
     if (phase !== "countdown") return;
@@ -1369,6 +1400,9 @@ function makeStyles(c: ColorPalette) {
       backgroundColor: c.bg.card,
       borderWidth: 1,
       borderColor: c.border,
+    },
+    queueHeader: {
+      alignItems: "center",
     },
     queueTitle: {
       marginTop: spacing.md,

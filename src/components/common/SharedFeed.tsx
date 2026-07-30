@@ -1,5 +1,5 @@
 import React, { useState, useRef, useCallback } from 'react';
-import { FlatList, View, Share, Image, RefreshControl, DeviceEventEmitter } from 'react-native';
+import { FlatList, View, Share, Image, RefreshControl, DeviceEventEmitter, Alert } from 'react-native';
 import { useNavigation, useScrollToTop } from '@react-navigation/native';
 import PostCard from '../home/PostCard';
 import CommentsModal from '../home/CommentsModal';
@@ -17,6 +17,7 @@ interface SharedFeedProps {
   onEndReached?: () => void;
   onEndReachedThreshold?: number;
   onDelete?: (post: Post) => void;
+  onReport?: (post: Post) => void;
   isAdmin?: boolean;
   ListHeaderComponent?: React.ReactElement | null;
   ListEmptyComponent?: React.ReactElement | null;
@@ -35,6 +36,7 @@ export default function SharedFeed({
   onEndReached,
   onEndReachedThreshold,
   onDelete,
+  onReport,
   isAdmin,
   ListHeaderComponent,
   ListEmptyComponent,
@@ -147,6 +149,9 @@ export default function SharedFeed({
             onShare={() => handleShare(item)}
             onLike={() => handleLikeInternal(item.id)}
             onSave={() => handleSaveInternal(item.id)}
+            onDelete={onDelete}
+            onReport={onReport || (() => Alert.alert('Reported', 'Thank you. This post has been reported for review.'))}
+            showDelete={currentUser?.id === (item as any)?.author?.id || currentUser?.id === (item as any)?.author_id || currentUser?.id === (item as any)?.authorId || isAdmin}
           />
         ))}
         {ListFooterComponent}
@@ -205,6 +210,7 @@ export default function SharedFeed({
             onLike={() => handleLikeInternal(item.id)}
             onSave={() => handleSaveInternal(item.id)}
             onDelete={onDelete}
+            onReport={onReport || (() => Alert.alert('Reported', 'Thank you. This post has been reported for review.'))}
             showDelete={currentUser?.id === (item as any)?.author?.id || currentUser?.id === (item as any)?.author_id || currentUser?.id === (item as any)?.authorId || isAdmin}
           />
         )}

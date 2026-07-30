@@ -37,6 +37,15 @@ export const notificationService = {
       else if (n.type?.includes('comment')) mappedType = 'comment';
       else if (n.type?.includes('event')) mappedType = 'event';
       else if (n.type === 'wallet_credit') mappedType = 'achievement';
+      else if (n.type === 'GAME_INVITE' || n.type === 'game_invite') mappedType = 'game_invite';
+
+      let payload: any = undefined;
+      if (mappedType === 'game_invite' && n.resourceId) {
+        const parts = n.resourceId.split(':');
+        if (parts.length >= 2) {
+          payload = { gameId: parts[0], matchGroupId: parts[1] };
+        }
+      }
 
       return {
         id: n.id,
@@ -47,6 +56,7 @@ export const notificationService = {
         time: timeStr,
         isRead: n.isRead,
         group,
+        payload,
       };
     });
 

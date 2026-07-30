@@ -58,15 +58,15 @@ export default function MatchModeModal({
   }, [visible]);
 
   useEffect(() => {
-    if (mode === "manual" && mutualFollowers.length === 0 && user?.handle) {
+    if (mode === "manual" && mutualFollowers.length === 0 && (user?.username || user?.handle)) {
       fetchMutualFollowers();
     }
-  }, [mode, user?.handle]);
+  }, [mode, user?.username, user?.handle]);
 
   const fetchMutualFollowers = async () => {
     setLoadingMutuals(true);
     try {
-      const username = user?.handle;
+      const username = user?.username || user?.handle;
       if (!username) return;
       const [followersRes, followingRes] = await Promise.all([
         userService.getFollowers(username).catch(() => ({ data: [] })),
@@ -93,7 +93,7 @@ export default function MatchModeModal({
   const filteredMutuals = mutualFollowers.filter(
     (m) =>
       m.name?.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      m.handle?.toLowerCase().includes(searchQuery.toLowerCase()),
+      (m.username || m.handle)?.toLowerCase().includes(searchQuery.toLowerCase()),
   );
 
   const toggleFriend = (friend: User) => {
@@ -278,13 +278,17 @@ export default function MatchModeModal({
                         activeOpacity={0.7}
                       >
                         <Image
-                          source={{ uri: friend.avatarUrl || friend.avatar }}
+                          source={
+                            friend.avatarUrl || friend.avatar
+                              ? { uri: friend.avatarUrl || friend.avatar }
+                              : require("../../../assets/icon.png")
+                          }
                           style={styles.friendAvatar}
                         />
                         <View style={styles.friendInfo}>
                           <Text style={styles.friendName}>{friend.name}</Text>
                           <Text style={styles.friendHandle}>
-                            @{friend.handle}
+                            @{friend.username || friend.handle}
                           </Text>
                         </View>
                         {isSelected && (

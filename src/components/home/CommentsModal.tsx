@@ -32,6 +32,7 @@ function makeStyles(c: ColorPalette) {
     },
     sheet: {
       flex: 1,
+      maxHeight: SCREEN_H * 0.70,
       backgroundColor: c.bg.base,
       borderTopLeftRadius: radii.xl,
       borderTopRightRadius: radii.xl,
@@ -46,13 +47,22 @@ function makeStyles(c: ColorPalette) {
       marginTop: 8,
       marginBottom: 8,
     },
+    dragHandle: {
+      alignSelf: 'center',
+      width: 40,
+      height: 4,
+      borderRadius: 2,
+      backgroundColor: c.borderHover,
+      marginTop: 8,
+      marginBottom: 8,
+    },
     header: {
       flexDirection: 'row', alignItems: 'center',
-      paddingHorizontal: spacing.md, paddingVertical: 12,
+      paddingHorizontal: spacing.lg, paddingBottom: 12,
       borderBottomWidth: 1, borderBottomColor: c.border,
     },
-    backBtn: { padding: 8, marginRight: 8 },
-    title: { flex: 1, fontSize: fontSizes.md, fontWeight: '800', color: c.text.primary },
+    closeBtn: { padding: 8, marginLeft: 8 },
+    title: { flex: 1, textAlign: 'center', fontSize: fontSizes.md, fontWeight: '800', color: c.text.primary },
     listContent: { paddingHorizontal: spacing.lg, paddingVertical: spacing.md, flexGrow: 1 },
     empty: { flex: 1, alignItems: 'center', justifyContent: 'center', paddingTop: 60 },
     emptyTitle: { fontSize: fontSizes.lg, fontWeight: '700', color: c.text.primary, marginBottom: 6 },
@@ -282,13 +292,13 @@ export default function CommentsModal({ visible, onClose, post }: Props) {
     });
   };
 
-  const renderComment = (comment: Comment, isReply = false) => (
+  const renderComment = (comment: Comment, isReply = false, rootComment?: Comment) => (
     <View key={comment.id} style={styles.commentWrapper}>
       <View style={styles.commentRow}>
         <TouchableOpacity onPress={() => { handleClose(); navigation.navigate('UserProfile', { user: comment.author as any }); }}>
           <View style={[styles.commentAvatar, isReply && { width: 28, height: 28, borderRadius: 14 }]}>
-            {comment.author.avatarUrl ? (
-              <Image source={{ uri: comment.author.avatarUrl }} style={{ width: '100%', height: '100%' }} />
+            {comment.author?.avatarUrl || (comment.author as any)?.avatar_url ? (
+              <Image source={{ uri: comment.author.avatarUrl || (comment.author as any).avatar_url }} style={{ width: '100%', height: '100%' }} />
             ) : (
               <Text style={[styles.commentAvatarEmoji, isReply && { fontSize: 14 }]}>👾</Text>
             )}
@@ -304,7 +314,7 @@ export default function CommentsModal({ visible, onClose, post }: Props) {
           
           <View style={styles.commentFooter}>
             <TouchableOpacity onPress={() => {
-              setReplyingTo(comment);
+              setReplyingTo(rootComment || comment);
               setText(`@${comment.author.username} `);
             }}>
               <Text style={styles.actionBtn}>Reply</Text>
@@ -329,7 +339,7 @@ export default function CommentsModal({ visible, onClose, post }: Props) {
       {/* Render Subcomments */}
       {!isReply && (comment as any).subComments && (comment as any).subComments.length > 0 && (
         <View style={styles.repliesContainer}>
-          {(comment as any).subComments.map((sub: Comment) => renderComment(sub, true))}
+          {(comment as any).subComments.map((sub: Comment) => renderComment(sub, true, comment))}
         </View>
       )}
     </View>
@@ -338,19 +348,20 @@ export default function CommentsModal({ visible, onClose, post }: Props) {
   return (
     <Modal visible={visible} transparent animationType="fade" onRequestClose={handleClose}>
       <KeyboardAvoidingView 
-        style={styles.overlay}
-        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+        style={[styles.overlay, { paddingTop: insets.top + 10 }]}
+        behavior={Platform.OS === 'ios' ? 'height' : undefined}
       >
         <TouchableWithoutFeedback onPress={handleClose}>
           <View style={StyleSheet.absoluteFill} />
         </TouchableWithoutFeedback>
 
-        <Animated.View style={[styles.sheet, { transform: [{ translateY }], marginTop: insets.top }]}>
+        <Animated.View style={[styles.sheet, { transform: [{ translateY }] }]}>
+          <View style={styles.dragHandle} />
           <View style={styles.header}>
-            <TouchableOpacity onPress={handleClose} style={styles.backBtn}>
-              <Ionicons name="arrow-back" size={24} color={colors.text.primary} />
-            </TouchableOpacity>
             <Text style={styles.title}>Comments</Text>
+            <TouchableOpacity onPress={handleClose} style={styles.closeBtn}>
+              <Ionicons name="close" size={24} color={colors.text.primary} />
+            </TouchableOpacity>
           </View>
 
           {loading ? (

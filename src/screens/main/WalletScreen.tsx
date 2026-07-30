@@ -433,9 +433,10 @@ export default function WalletScreen() {
 function TxnRow({ txn: t, isLast }: { txn: Transaction; isLast: boolean }) {
   const meta = TXN_META[t.type] ?? TXN_META.earn;
   const isXP  = t.currency === 'XP';
-  const isNeg = t.amount < 0;
+  const isNeg = t.amount < 0 || t.type === 'spend' || t.type === 'withdraw';
   const colors = useThemeColors();
   const styles = useMemo(() => makeStyles(colors), [colors]);
+  const displayAmount = Math.abs(t.amount);
 
   return (
     <View style={[styles.txnRow, isLast && { borderBottomWidth: 0 }]}>
@@ -455,9 +456,9 @@ function TxnRow({ txn: t, isLast }: { txn: Transaction; isLast: boolean }) {
           isNeg ? { color: colors.danger   } :
                   { color: colors.success  },
         ]}>
-          {isXP  ? `+${t.amount.toLocaleString()} XP`
-          : isNeg ? `-₹${Math.abs(t.amount).toLocaleString()}`
-          :         `+₹${t.amount.toLocaleString()}`}
+          {isXP  ? `${isNeg ? '-' : '+'}${displayAmount.toLocaleString()} XP`
+          : isNeg ? `-₹${displayAmount.toLocaleString()}`
+          :         `+₹${displayAmount.toLocaleString()}`}
         </Text>
         <Text style={styles.txnTypeBadge}>
           {t.status === 'pending' ? 'Pending' : t.status === 'failed' ? 'Failed' : meta.label}
@@ -1255,17 +1256,15 @@ function makeStyles(c: ColorPalette) {
   // Hero card
   heroCard: {
     marginHorizontal: spacing.lg, marginBottom: spacing.md,
-    borderRadius: radii.xxl || 24, borderWidth: 1, borderColor: 'rgba(255,255,255,0.15)',
+    borderRadius: radii.xl || 24, borderWidth: 1, borderColor: 'rgba(255,255,255,0.15)',
     padding: spacing.xxl, overflow: 'hidden',
     shadowColor: c.primary, shadowOffset: { width: 0, height: 12 }, shadowOpacity: 0.35, shadowRadius: 24,
     elevation: 8,
   },
   heroGlow: {
     position: 'absolute', top: -50, right: -50,
-    width: 60,
-    height: 60,
-    borderRadius: radii.xl,
-    backgroundColor: "rgba(124,58,237,0.18)",
+    width: 250, height: 250, borderRadius: 125,
+    backgroundColor: 'rgba(124,58,237,0.25)',
   },
   heroGlow2: {
     position: 'absolute', bottom: -80, left: -50,

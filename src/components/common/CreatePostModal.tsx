@@ -379,6 +379,12 @@ export default function CreatePostModal({
     setPickLoading(true);
     try {
       if (kind === "audio") {
+        if (mediaItems.length >= 5 && !audioItem) {
+          Alert.alert("Limit Reached", "You can only add up to 5 media files total.");
+          setPickLoading(false);
+          return;
+        }
+
         const result = await DocumentPicker.getDocumentAsync({
           type: "audio/*",
           multiple: false,
@@ -407,10 +413,20 @@ export default function CreatePostModal({
             return;
           }
 
+          const currentTotal = mediaItems.length + (audioItem ? 1 : 0);
+          const remaining = 5 - currentTotal;
+          if (remaining <= 0) {
+            Alert.alert("Limit Reached", "You can only add up to 5 media files total.");
+            setPickLoading(false);
+            appLockBypass.endNativeFlow();
+            return;
+          }
+
           const result = await ImagePicker.launchImageLibraryAsync({
             mediaTypes: ["images", "videos"],
             allowsEditing: false,
             allowsMultipleSelection: true,
+            selectionLimit: remaining,
             quality: 0.85,
           });
 
@@ -427,7 +443,15 @@ export default function CreatePostModal({
               width: a.width,
               height: a.height,
             }));
-            setMediaItems((prev) => [...prev, ...newItems]);
+            setMediaItems((prev) => {
+              const currentTotal = prev.length + (audioItem ? 1 : 0);
+              const combined = [...prev, ...newItems];
+              if (currentTotal + newItems.length > 5) {
+                Alert.alert("Limit Reached", "You can only add up to 5 media files total.");
+                return combined.slice(0, 5 - (audioItem ? 1 : 0));
+              }
+              return combined;
+            });
           }
         } finally {
           appLockBypass.endNativeFlow();
@@ -471,6 +495,11 @@ export default function CreatePostModal({
     const original = gif.file?.hd?.gif || gif.file?.md?.gif || gif.file?.xs?.gif;
     const uri = original?.url;
     if (!uri) return;
+
+    if (mediaItems.length + (audioItem ? 1 : 0) >= 5) {
+      Alert.alert("Limit Reached", "You can only add up to 5 media files total.");
+      return;
+    }
 
     setMediaItems((prev) => [
       ...prev,
@@ -545,10 +574,15 @@ export default function CreatePostModal({
           mediaItems.some((m) => m.uri === detected.uri) ||
           audioItem?.uri === detected.uri;
         if (!alreadyAdded) {
-          if (detected.type === "audio") {
-            setAudioItem(detected);
+          const currentTotal = mediaItems.length + (audioItem ? 1 : 0);
+          if (currentTotal >= 5 && !(detected.type === "audio" && audioItem)) {
+            Alert.alert("Limit Reached", "You can only add up to 5 media files total.");
           } else {
-            setMediaItems((prev) => [...prev, { ...detected, size: 500000 }]);
+            if (detected.type === "audio") {
+              setAudioItem(detected);
+            } else {
+              setMediaItems((prev) => [...prev, { ...detected, size: 500000 }]);
+            }
           }
           // Strip the URL from text after capturing it
           setContent(val.replace(detected.uri, "").trim());

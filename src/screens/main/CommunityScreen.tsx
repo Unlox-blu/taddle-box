@@ -207,7 +207,8 @@ function makeStyles(c: ColorPalette) {
 
     /* Featured Horizontal Card */
     featCard: {
-      width: CARD_WIDTH,
+      width: CARD_WIDTH * 1,
+      height: CARD_WIDTH * 1,
       marginLeft: spacing.xl,
       backgroundColor: c.bg.card,
       borderRadius: radii.xxl || 24,
@@ -220,7 +221,7 @@ function makeStyles(c: ColorPalette) {
       shadowRadius: 20,
       elevation: 8,
     },
-    featBanner: { height: 140, justifyContent: "center", alignItems: "center" },
+    featBanner: { height: 100, justifyContent: "center", alignItems: "center" },
     featOverlay: {
       ...StyleSheet.absoluteFillObject,
       backgroundColor: "rgba(0,0,0,0.4)",

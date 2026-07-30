@@ -298,8 +298,8 @@ export default function WelcomeScreen({ navigation }: Props) {
 
         <Text style={styles.terms}>
           By continuing you agree to our{" "}
-          <Text style={{ color: colors.primaryLight }}>Terms</Text> and{" "}
-          <Text style={{ color: colors.primaryLight }}>Privacy Policy</Text>
+          <Text onPress={() => navigation.navigate('Terms')} style={{ color: colors.primaryLight }}>Terms</Text> and{" "}
+          <Text onPress={() => navigation.navigate('Privacy')} style={{ color: colors.primaryLight }}>Privacy Policy</Text>
         </Text>
       </View>
     </LinearGradient>

@@ -44,9 +44,15 @@ export default function CustomTabBar({ state, navigation }: BottomTabBarProps) {
         key={routeName}
         style={styles.tab}
         onPress={() => {
-          if (!active) {
+          const event = navigation.emit({
+            type: 'tabPress',
+            target: route.key,
+            canPreventDefault: true,
+          });
+
+          if (!active && !event.defaultPrevented) {
             navigation.navigate(routeName);
-          } else {
+          } else if (active) {
             const now = Date.now();
             const lastPress = lastPressRef.current[routeName] || 0;
             if (now - lastPress < 300) {

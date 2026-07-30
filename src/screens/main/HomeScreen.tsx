@@ -42,7 +42,10 @@ type HomeNavProp = NativeStackNavigationProp<HomeStackParamList, "HomeMain">;
 
 const WEEK_LABELS = ["M", "T", "W", "T", "F", "S", "S"];
 const TODAY_INDEX = new Date().getDay() === 0 ? 6 : new Date().getDay() - 1; // 0 is Monday, 6 is Sunday
-const getTodayKey = () => new Date().toISOString().split('T')[0];
+const getTodayKey = () => {
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+};
 
 const isSameLocalDay = (dateString?: string | null) => {
   if (!dateString) return false;
@@ -55,12 +58,15 @@ const isSameLocalDay = (dateString?: string | null) => {
   );
 };
 
-const calculateCompletedDays = (streakCount: number, endDateString?: string | null): number[] => {
+const calculateCompletedDays = (
+  streakCount: number,
+  endDateString?: string | null,
+): number[] => {
   if (!endDateString || streakCount <= 0) return [];
   const end = new Date(endDateString);
   const completed = [];
   const endIndex = end.getDay() === 0 ? 6 : end.getDay() - 1;
-  
+
   for (let i = 0; i < streakCount; i++) {
     const dayIndex = endIndex - i;
     if (dayIndex < 0) break; // reached previous week
@@ -73,7 +79,7 @@ const calculateCompletedDays = (streakCount: number, endDateString?: string | nu
 
 export default function HomeScreen() {
   const scrollRef = useRef<FlatList>(null);
-  
+
   const { user: CURRENT_USER } = useAuth();
   const { wallet } = useWallet();
   const insets = useSafeAreaInsets();
@@ -81,15 +87,22 @@ export default function HomeScreen() {
   const isFocused = useIsFocused();
   const { isDark } = useTheme();
   const colors = useThemeColors();
-  
+
   const [activeTrend, setActiveTrend] = useState("All");
 
-  const { data: feedData, fetchNextPage, hasNextPage, refetch: refetchFeed, isRefetching, isLoading } = useFeed(activeTrend);
+  const {
+    data: feedData,
+    fetchNextPage,
+    hasNextPage,
+    refetch: refetchFeed,
+    isRefetching,
+    isLoading,
+  } = useFeed(activeTrend);
   const { mutate: toggleLike } = useToggleLike();
   const { mutate: toggleSave } = useToggleSave();
 
   const posts = feedData?.pages.flat() || [];
-  
+
   const [trendChips, setTrendChips] = useState<string[]>(["All"]);
   const [refreshing, setRefreshing] = useState(false);
   const [streakOpen, setStreakOpen] = useState(false);
@@ -104,7 +117,9 @@ export default function HomeScreen() {
   // Sync XP if CURRENT_USER changes
   useEffect(() => {
     if (CURRENT_USER?.xp !== undefined) {
-      setLocalXP((prev: number) => prev === CURRENT_USER.xp ? prev : CURRENT_USER.xp);
+      setLocalXP((prev: number) =>
+        prev === CURRENT_USER.xp ? prev : CURRENT_USER.xp,
+      );
     }
   }, [CURRENT_USER?.xp]);
 
@@ -116,16 +131,16 @@ export default function HomeScreen() {
 
   const handleDeletePost = async (post: Post) => {
     try {
-      const { postsService } = require('../../services/posts.service');
+      const { postsService } = require("../../services/posts.service");
       await postsService.deletePost(post.id);
       refetchFeed();
     } catch (e) {
-      console.error('Failed to delete post:', e);
+      console.error("Failed to delete post:", e);
     }
   };
 
   useEffect(() => {
-    const sub = DeviceEventEmitter.addListener('homeDoubleTap', () => {
+    const sub = DeviceEventEmitter.addListener("homeDoubleTap", () => {
       // Delay the refresh so it doesn't interrupt the SharedFeed smooth scroll animation
       setTimeout(() => {
         onRefresh();
@@ -184,33 +199,38 @@ export default function HomeScreen() {
 
       setRealStreak(currentStreak);
       setCompletedDays(calculateCompletedDays(currentStreak, streakEndDate));
-      
+
       if (weeklyBonus) {
         setShowWeeklyBonusModal(true);
         setLocalXP((prev: number) => prev + 150);
       }
 
-      const notifRes = await notificationService.getNotifications(1, 1, true);
-
-      if (notifRes?.meta?.unreadCount !== undefined) {
-        setUnreadCount(notifRes.meta.unreadCount);
+      try {
+        const notifRes = await notificationService.getNotifications(1, 1, true);
+        if (notifRes?.meta?.unreadCount !== undefined) {
+          setUnreadCount(notifRes.meta.unreadCount);
+        }
+      } catch (e) {
+        console.warn('Failed to fetch notifications on init:', e);
       }
 
       const todayKey = getTodayKey();
       let localClaimedToday = false;
       try {
-        localClaimedToday = (await AsyncStorage.getItem('lastDailyClaim')) === todayKey;
+        localClaimedToday =
+          (await AsyncStorage.getItem("lastDailyClaim")) === todayKey;
       } catch (e) {}
 
       let serverClaimedToday = false;
       try {
         const txRes = await xpService.getTransactions(1, 20);
         const transactions = Array.isArray(txRes?.data) ? txRes.data : [];
-        serverClaimedToday = transactions.some((tx: any) =>
-          tx?.sourceType === 'Daily Login' && isSameLocalDay(tx?.createdAt)
+        serverClaimedToday = transactions.some(
+          (tx: any) =>
+            tx?.sourceType?.startsWith("Daily Login") && isSameLocalDay(tx?.createdAt),
         );
         if (serverClaimedToday) {
-          AsyncStorage.setItem('lastDailyClaim', todayKey).catch(() => {});
+          AsyncStorage.setItem("lastDailyClaim", todayKey).catch(() => {});
         }
       } catch (e) {}
 
@@ -244,8 +264,9 @@ export default function HomeScreen() {
   const handleRewardClaim = useCallback(
     async (fromX: number, fromY: number) => {
       try {
-        const res = await xpService.creditXP(50, "bonus", "Daily Login");
-        AsyncStorage.setItem('lastDailyClaim', getTodayKey()).catch(() => {});
+        const todayKey = getTodayKey();
+        const res = await xpService.creditXP(50, "bonus", `Daily Login - ${todayKey}`);
+        AsyncStorage.setItem("lastDailyClaim", todayKey).catch(() => {});
 
         if (res?.data?.alreadyClaimed || res?.alreadyClaimed) {
           setHasDailyReward(false);
@@ -305,7 +326,9 @@ export default function HomeScreen() {
     activeTrend === "All"
       ? posts
       : posts.filter((p: any) => {
-          const normalizedTags = (p.hashtags || p.tags || []).map((t: string) => `#${t}`);
+          const normalizedTags = (p.hashtags || p.tags || []).map(
+            (t: string) => `#${t}`,
+          );
           return normalizedTags.includes(activeTrend);
         });
 
@@ -318,16 +341,28 @@ export default function HomeScreen() {
   return (
     <View style={[styles.container, { paddingTop: insets.top }]}>
       <StatusBar style={isDark ? "light" : "dark"} />
-      
+
       {/* ── Header ────────────────────────────────── */}
       <MainHeader />
-      
+
       <SharedFeed
         posts={filteredPosts}
         refreshing={isRefetching}
         onRefresh={onRefresh}
-        onLike={(id) => toggleLike({ id, isCurrentlyLiked: posts.find((p: any) => p.id === id)?.isLiked || false })}
-        onSave={(id) => toggleSave({ id, isCurrentlySaved: posts.find((p: any) => p.id === id)?.isSaved || false })}
+        onLike={(id) =>
+          toggleLike({
+            id,
+            isCurrentlyLiked:
+              posts.find((p: any) => p.id === id)?.isLiked || false,
+          })
+        }
+        onSave={(id) =>
+          toggleSave({
+            id,
+            isCurrentlySaved:
+              posts.find((p: any) => p.id === id)?.isSaved || false,
+          })
+        }
         onDelete={handleDeletePost}
         onEndReached={() => {
           if (hasNextPage) fetchNextPage();
@@ -337,13 +372,13 @@ export default function HomeScreen() {
         ListFooterComponent={
           <>
             {!hasNextPage && posts.length > 0 ? (
-              <View style={{ padding: 24, alignItems: 'center' }}>
+              <View style={{ padding: 24, alignItems: "center" }}>
                 <Text style={{ color: colors.text.muted, fontSize: 14 }}>
                   That's it for now! Come back later for more.
                 </Text>
               </View>
             ) : isLoading || isRefetching ? (
-              <View style={{ padding: 24, alignItems: 'center' }}>
+              <View style={{ padding: 24, alignItems: "center" }}>
                 <ActivityIndicator color={colors.primary} />
               </View>
             ) : null}
@@ -398,11 +433,14 @@ export default function HomeScreen() {
                     {
                       backgroundColor: "rgba(124,58,237,0.08)",
                       borderColor: "rgba(124,58,237,0.22)",
-                    }
+                    },
                   ]}
                   onPress={() => {
                     if (CURRENT_USER?.appLockEnabled) {
-                      navigation.navigate("LockScreen", { mode: 'app', returnScreen: 'Wallet' } as never);
+                      navigation.navigate("LockScreen", {
+                        mode: "app",
+                        returnScreen: "Wallet",
+                      } as never);
                     } else {
                       navigation.getParent()?.navigate("Wallet" as never);
                     }
@@ -431,15 +469,42 @@ export default function HomeScreen() {
             <SpotlightCarousel />
 
             {/* Daily reward */}
-            {hasDailyReward && <DailyRewardCard onClaimPos={handleRewardClaim} />}
+            {hasDailyReward && (
+              <DailyRewardCard onClaimPos={handleRewardClaim} />
+            )}
 
-            {/* Feed */}
-            <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingRight: spacing.lg }}>
-              <Text style={[styles.sectionLabel, { color: colors.text.muted }]}>
+            <View
+              style={{
+                flexDirection: "row",
+                alignItems: "center",
+                justifyContent: "space-between",
+                paddingHorizontal: spacing.xl,
+                marginBottom: spacing.sm,
+              }}
+            >
+              <Text
+                style={[
+                  styles.sectionLabel,
+                  {
+                    color: colors.text.muted,
+                    paddingHorizontal: 0,
+                    paddingBottom: 0,
+                    paddingTop: 10,
+                  },
+                ]}
+              >
                 Feed
               </Text>
-              <TouchableOpacity onPress={() => navigation.navigate('Leaderboards', { initialTab: 'Feed' })}>
-                <Ionicons name="trophy-outline" size={18} color={colors.text.secondary} />
+              <TouchableOpacity
+                onPress={() =>
+                  navigation.navigate("Leaderboards", { initialTab: "Feed" })
+                }
+              >
+                <Ionicons
+                  name="trophy-outline"
+                  size={20}
+                  color={colors.text.secondary}
+                />
               </TouchableOpacity>
             </View>
 
@@ -495,11 +560,10 @@ export default function HomeScreen() {
                 { color: colors.text.muted, marginTop: 0 },
               ]}
             >
-              No posts found
+              Hang tight!
             </Text>
           </View>
         }
-
       />
 
       {/* ── Streak Modal ───────────────────────────── */}
@@ -510,7 +574,7 @@ export default function HomeScreen() {
         completedDays={completedDays}
       />
 
-      <WeeklyBonusModal 
+      <WeeklyBonusModal
         visible={showWeeklyBonusModal}
         onClose={() => setShowWeeklyBonusModal(false)}
       />
@@ -776,11 +840,34 @@ function StreakModal({
             })}
           </View>
 
-          <View style={{ flexDirection: 'row', alignItems: 'center', backgroundColor: "rgba(251,191,36,0.15)", padding: 12, borderRadius: 12, marginTop: 8, marginBottom: 32, gap: 10 }}>
+          <View
+            style={{
+              flexDirection: "row",
+              alignItems: "center",
+              backgroundColor: "rgba(251,191,36,0.15)",
+              padding: 12,
+              borderRadius: 12,
+              marginTop: 8,
+              marginBottom: 32,
+              gap: 10,
+            }}
+          >
             <Text style={{ fontSize: 24 }}>🎁</Text>
             <View style={{ flex: 1 }}>
-              <Text style={{ fontSize: 13, fontWeight: "700", color: colors.xpGold }}>7-Day Streak Reward</Text>
-              <Text style={{ fontSize: 11, color: colors.text.muted, marginTop: 2 }}>Complete a full week to earn an instant 150 XP bonus!</Text>
+              <Text
+                style={{
+                  fontSize: 13,
+                  fontWeight: "700",
+                  color: colors.xpGold,
+                }}
+              >
+                7-Day Streak Reward
+              </Text>
+              <Text
+                style={{ fontSize: 11, color: colors.text.muted, marginTop: 2 }}
+              >
+                Complete a full week to earn an instant 150 XP bonus!
+              </Text>
             </View>
           </View>
         </View>
@@ -791,36 +878,123 @@ function StreakModal({
 
 // ─── Weekly Bonus Modal ───────────────────────────────────────────────────────
 
-function WeeklyBonusModal({ visible, onClose }: { visible: boolean; onClose: () => void }) {
+function WeeklyBonusModal({
+  visible,
+  onClose,
+}: {
+  visible: boolean;
+  onClose: () => void;
+}) {
   const colors = useThemeColors();
   const scale = useRef(new Animated.Value(0)).current;
 
   useEffect(() => {
     if (visible) {
-      Animated.spring(scale, { toValue: 1, speed: 12, bounciness: 12, useNativeDriver: true }).start();
+      Animated.spring(scale, {
+        toValue: 1,
+        speed: 12,
+        bounciness: 12,
+        useNativeDriver: true,
+      }).start();
     } else {
       scale.setValue(0);
     }
   }, [visible]);
 
   return (
-    <Modal visible={visible} transparent animationType="fade" onRequestClose={onClose}>
-      <View style={[sm.wrap, { justifyContent: "center", alignItems: "center" }]}>
+    <Modal
+      visible={visible}
+      transparent
+      animationType="fade"
+      onRequestClose={onClose}
+    >
+      <View
+        style={[sm.wrap, { justifyContent: "center", alignItems: "center" }]}
+      >
         <TouchableWithoutFeedback onPress={onClose}>
           <View style={sm.backdrop} />
         </TouchableWithoutFeedback>
-        
-        <Animated.View style={[{ transform: [{ scale }] }, { width: "85%", backgroundColor: colors.bg.surface, borderRadius: radii.xl, padding: spacing.xl, alignItems: "center", borderColor: colors.xpGold, borderWidth: 2, shadowColor: colors.xpGold, shadowOpacity: 0.4, shadowRadius: 20 }]}>
+
+        <Animated.View
+          style={[
+            { transform: [{ scale }] },
+            {
+              width: "85%",
+              backgroundColor: colors.bg.surface,
+              borderRadius: radii.xl,
+              padding: spacing.xl,
+              alignItems: "center",
+              borderColor: colors.xpGold,
+              borderWidth: 2,
+              shadowColor: colors.xpGold,
+              shadowOpacity: 0.4,
+              shadowRadius: 20,
+            },
+          ]}
+        >
           <Text style={{ fontSize: 50, marginBottom: spacing.sm }}>🎉</Text>
-          <Text style={{ fontSize: fontSizes.xl, fontWeight: "900", color: colors.text.primary, textAlign: "center", marginBottom: spacing.xs }}>7-Day Streak!</Text>
-          <Text style={{ fontSize: fontSizes.sm, color: colors.text.muted, textAlign: "center", marginBottom: spacing.lg }}>You've maintained a full week streak. Keep it up!</Text>
-          
-          <View style={{ backgroundColor: "rgba(251,191,36,0.15)", paddingHorizontal: spacing.lg, paddingVertical: spacing.md, borderRadius: radii.md, marginBottom: spacing.xl }}>
-            <Text style={{ fontSize: fontSizes.lg, fontWeight: "800", color: colors.xpGold }}>+ 150 XP</Text>
+          <Text
+            style={{
+              fontSize: fontSizes.xl,
+              fontWeight: "900",
+              color: colors.text.primary,
+              textAlign: "center",
+              marginBottom: spacing.xs,
+            }}
+          >
+            7-Day Streak!
+          </Text>
+          <Text
+            style={{
+              fontSize: fontSizes.sm,
+              color: colors.text.muted,
+              textAlign: "center",
+              marginBottom: spacing.lg,
+            }}
+          >
+            You've maintained a full week streak. Keep it up!
+          </Text>
+
+          <View
+            style={{
+              backgroundColor: "rgba(251,191,36,0.15)",
+              paddingHorizontal: spacing.lg,
+              paddingVertical: spacing.md,
+              borderRadius: radii.md,
+              marginBottom: spacing.xl,
+            }}
+          >
+            <Text
+              style={{
+                fontSize: fontSizes.lg,
+                fontWeight: "800",
+                color: colors.xpGold,
+              }}
+            >
+              + 150 XP
+            </Text>
           </View>
-          
-          <TouchableOpacity onPress={onClose} style={{ backgroundColor: colors.xpGold, paddingHorizontal: spacing.xl, paddingVertical: 12, borderRadius: radii.full, width: "100%", alignItems: "center" }}>
-            <Text style={{ fontSize: fontSizes.md, fontWeight: "800", color: "#1A0A00" }}>Awesome!</Text>
+
+          <TouchableOpacity
+            onPress={onClose}
+            style={{
+              backgroundColor: colors.xpGold,
+              paddingHorizontal: spacing.xl,
+              paddingVertical: 12,
+              borderRadius: radii.full,
+              width: "100%",
+              alignItems: "center",
+            }}
+          >
+            <Text
+              style={{
+                fontSize: fontSizes.md,
+                fontWeight: "800",
+                color: "#1A0A00",
+              }}
+            >
+              Awesome!
+            </Text>
           </TouchableOpacity>
         </Animated.View>
       </View>

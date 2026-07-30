@@ -226,11 +226,19 @@ function InfoStat({ label, value }: { label: string; value: string }) {
 
 function LeaderboardRow({ entry }: { entry: WeeklyLeaderboardEntry }) {
   const colors = useThemeColors();
+  const navigation = useNavigation<any>();
   const styles = useMemo(() => makeStyles(colors), [colors]);
   const medal = entry.rank === 1 ? '#FBBF24' : entry.rank === 2 ? '#94A3B8' : entry.rank === 3 ? '#CD7C2F' : colors.text.muted;
 
+  const handlePress = () => {
+    if (entry.subtitle?.startsWith('@')) {
+      const username = entry.subtitle.substring(1);
+      navigation.navigate('UserProfile', { user: { username, name: entry.title, avatarUrl: entry.avatarUrl, handle: username } });
+    }
+  };
+
   return (
-    <View style={styles.row}>
+    <TouchableOpacity style={styles.row} onPress={handlePress} activeOpacity={0.7}>
       <Text style={[styles.rank, { color: medal }]}>{entry.rank}</Text>
       <View style={styles.avatar}>
         {entry.avatarUrl ? (
@@ -248,7 +256,7 @@ function LeaderboardRow({ entry }: { entry: WeeklyLeaderboardEntry }) {
         <Text style={styles.metricLabel}>{entry.metricLabel}</Text>
         {entry.rewardXP > 0 && <Text style={styles.reward}>+{entry.rewardXP} XP</Text>}
       </View>
-    </View>
+    </TouchableOpacity>
   );
 }
 

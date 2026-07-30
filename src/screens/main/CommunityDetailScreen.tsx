@@ -72,7 +72,7 @@ function makeStyles(c: ColorPalette) {
     bannerImage: { ...StyleSheet.absoluteFillObject },
     bannerEmoji: { fontSize: 52 },
     privateBadge: {
-      position: 'absolute', top: 12, right: 14,
+      position: 'absolute', bottom: 28, right: 14,
       flexDirection: 'row', alignItems: 'center', gap: 4,
       backgroundColor: 'rgba(0,0,0,0.45)',
       paddingHorizontal: 8, paddingVertical: 3, borderRadius: radii.full,
@@ -480,6 +480,7 @@ export default function CommunityDetailScreen() {
 }
 
 function ManageRequestsModal({ visible, onClose, communityId, styles, colors }: any) {
+  const navigation = useNavigation<any>();
   const [requests, setRequests] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
 
@@ -542,7 +543,14 @@ function ManageRequestsModal({ visible, onClose, communityId, styles, colors }: 
               keyExtractor={item => item.user_id}
               renderItem={({ item }) => (
                 <View style={styles.requestRow}>
-                  <View style={styles.requestUser}>
+                  <TouchableOpacity 
+                    style={styles.requestUser}
+                    onPress={() => {
+                      onClose();
+                      navigation.navigate('UserProfile' as any, { user: { id: item.user_id, name: item.name, username: item.username, avatarUrl: item.avatar_url } } as any);
+                    }}
+                    activeOpacity={0.7}
+                  >
                     <View style={styles.requestAvatar}>
                       {item.avatar_url ? (
                         <Image source={{ uri: item.avatar_url }} style={{ width: '100%', height: '100%', borderRadius: 20 }} />
@@ -554,7 +562,7 @@ function ManageRequestsModal({ visible, onClose, communityId, styles, colors }: 
                       <Text style={styles.requestName}>{item.name}</Text>
                       <Text style={styles.requestUsername}>@{item.username}</Text>
                     </View>
-                  </View>
+                  </TouchableOpacity>
                   <View style={styles.requestActions}>
                     <TouchableOpacity style={[styles.actionBtn, styles.approveBtn]} onPress={() => handleApprove(item.user_id)}>
                       <Ionicons name="checkmark" size={20} color="#10B981" />
@@ -574,6 +582,7 @@ function ManageRequestsModal({ visible, onClose, communityId, styles, colors }: 
 }
 
 function ManageMembersModal({ visible, onClose, communityId, isAdmin, styles, colors }: any) {
+  const navigation = useNavigation<any>();
   const [members, setMembers] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
 
@@ -632,7 +641,14 @@ function ManageMembersModal({ visible, onClose, communityId, isAdmin, styles, co
               keyExtractor={item => item.user_id}
               renderItem={({ item }) => (
                 <View style={styles.requestRow}>
-                  <View style={styles.requestUser}>
+                  <TouchableOpacity 
+                    style={styles.requestUser}
+                    onPress={() => {
+                      onClose();
+                      navigation.navigate('UserProfile' as any, { user: { id: item.user_id, name: item.name, username: item.username, avatarUrl: item.avatar_url } } as any);
+                    }}
+                    activeOpacity={0.7}
+                  >
                     <View style={styles.requestAvatar}>
                       {item.avatar_url ? (
                         <Image source={{ uri: item.avatar_url }} style={{ width: '100%', height: '100%', borderRadius: 20 }} />
@@ -644,7 +660,7 @@ function ManageMembersModal({ visible, onClose, communityId, isAdmin, styles, co
                       <Text style={styles.requestName}>{item.name}</Text>
                       <Text style={styles.requestUsername}>@{item.username}</Text>
                     </View>
-                  </View>
+                  </TouchableOpacity>
                   {isAdmin && item.role !== 'owner' && (
                     <TouchableOpacity style={[styles.actionBtn, styles.rejectBtn]} onPress={() => handleKick(item.user_id, item.name)}>
                       <Ionicons name="trash-outline" size={18} color="#EF4444" />

@@ -11,6 +11,8 @@ import { PostsProvider }    from './src/context/PostsContext';
 import { CommunityProvider }from './src/context/CommunityContext';
 import { WalletProvider }   from './src/context/WalletContext';
 import { GamesProvider }    from './src/context/GamesContext';
+import { QueryClientProvider } from '@tanstack/react-query';
+import { queryClient } from './src/lib/react-query';
 import AppLockOverlay       from './src/components/common/AppLockOverlay';
 
 SplashScreen.preventAutoHideAsync();
@@ -39,18 +41,20 @@ function AppShell() {
 
 export default function App() {
   return (
-    <ThemeProvider>
-      <AuthProvider>
-        <WalletProvider>
-          <GamesProvider>
-            <CommunityProvider>
-              <PostsProvider>
-                <AppShell />
-              </PostsProvider>
-            </CommunityProvider>
-          </GamesProvider>
-        </WalletProvider>
-      </AuthProvider>
-    </ThemeProvider>
+    <QueryClientProvider client={queryClient}>
+      <ThemeProvider>
+        <AuthProvider>
+          <WalletProvider>
+            <GamesProvider>
+              <CommunityProvider>
+                <PostsProvider>
+                  <AppShell />
+                </PostsProvider>
+              </CommunityProvider>
+            </GamesProvider>
+          </WalletProvider>
+        </AuthProvider>
+      </ThemeProvider>
+    </QueryClientProvider>
   );
 }

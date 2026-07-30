@@ -1,0 +1,15 @@
+export const queryKeys = {
+  feed: ['feed'],
+  events: ['events'],
+  communities: ['communities'],
+  wallet: ['wallet'],
+  notifications: ['notifications'],
+  leaderboards: ['leaderboards'],
+  games: ['games'],
+  story: (id: string) => ['story', id],
+  profile: (id: string) => ['profile', id],
+  profilePosts: (id: string) => ['profile', id, 'posts'],
+  community: (id: string) => ['community', id],
+  communityPosts: (id: string) => ['community', id, 'posts'],
+  search: (type: string, text: string) => ['search', type, text],
+};

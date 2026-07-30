@@ -50,11 +50,11 @@ const maskPhone = (phone?: string, countryCode?: string) => {
   return `${start}${stars}${end}`;
 };
 
-export default function SettingsScreen() {
+  export default function SettingsScreen() {
   const { user: CURRENT_USER, signOut } = useAuth();
   const insets = useSafeAreaInsets();
   const navigation = useNavigation<NavProp>();
-  const { wallet, toggleSetting } = useWallet();
+  const { wallet, toggleSetting, fetchWalletData } = useWallet();
   const { isDark, colors, themePreference, setThemePreference } = useTheme();
   const { storeUrl } = useAuth();
 
@@ -68,6 +68,7 @@ export default function SettingsScreen() {
 
   useFocusEffect(
     useCallback(() => {
+      fetchWalletData();
       SecureStore.getItemAsync("app_biometricEnabled").then((val) => {
         setAppBiometric(val === "true");
       });

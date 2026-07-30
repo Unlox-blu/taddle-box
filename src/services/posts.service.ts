@@ -7,6 +7,11 @@ export const postsService = {
     return response.data;
   },
 
+  getBookmarks: async (page = 1, limit = 20): Promise<{ data: Post[] }> => {
+    const response = await apiClient.get(`/bookmark?page=${page}&limit=${limit}`);
+    return response.data;
+  },
+
   createPost: async (postData: any): Promise<{ data: Post }> => {
     const response = await apiClient.post('/posts/create-post', postData);
     return response.data;

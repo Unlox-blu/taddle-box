@@ -1,4 +1,5 @@
-import React, { useMemo } from 'react';
+import React, { useMemo, useEffect, useRef } from 'react';
+import { createGameSocket } from '../../services/socketClient';
 import { StyleSheet, View } from 'react-native';
 import { WebView, WebViewMessageEvent } from 'react-native-webview';
 import type { HtmlGameDefinition, HtmlGameMessage, HtmlGameResult } from '../../games/types';
@@ -6,6 +7,7 @@ import type { HtmlGameDefinition, HtmlGameMessage, HtmlGameResult } from '../../
 type Props = {
   game: HtmlGameDefinition;
   sessionId: string;
+  wsToken?: string;
   mode: string;
   onScore: (score: number) => void;
   onComplete: (result: HtmlGameResult) => void;
@@ -14,14 +16,37 @@ type Props = {
 export default function HtmlGameWebView({
   game,
   sessionId,
+  wsToken,
   mode,
   onScore,
   onComplete,
 }: Props) {
+  const webViewRef = useRef<WebView>(null);
+  
   const html = useMemo(
     () => game.buildHtml({ gameId: game.id, sessionId, mode, maxXp: game.maxXp }),
     [game, mode, sessionId],
   );
+
+  useEffect(() => {
+    if (!wsToken) return;
+    
+    const socket = createGameSocket(sessionId, wsToken);
+    
+    socket.on('chunk', (data) => {
+      const msg = { type: 'SERVER_CHUNK', payload: data.payload, signature: data.signature };
+      webViewRef.current?.injectJavaScript(`window.postMessage(${JSON.stringify(JSON.stringify(msg))}, '*'); true;`);
+    });
+
+    socket.on('game_end', (data) => {
+      const msg = { type: 'SERVER_END', reason: data.reason };
+      webViewRef.current?.injectJavaScript(`window.postMessage(${JSON.stringify(JSON.stringify(msg))}, '*'); true;`);
+    });
+
+    return () => {
+      socket.disconnect();
+    };
+  }, [sessionId, wsToken]);
 
   const handleMessage = (event: WebViewMessageEvent) => {
     try {
@@ -45,6 +70,7 @@ export default function HtmlGameWebView({
   return (
     <View style={styles.container}>
       <WebView
+        ref={webViewRef}
         originWhitelist={['*']}
         source={{ html, baseUrl: 'https://local.taddlebox.game/' }}
         onMessage={handleMessage}

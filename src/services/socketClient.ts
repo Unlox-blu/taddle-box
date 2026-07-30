@@ -12,8 +12,28 @@ const SOCKET_URL = process.env.EXPO_PUBLIC_BACKEND_URL
   ? process.env.EXPO_PUBLIC_BACKEND_URL 
   : `http://${currentIp}:8080`;
 
+class SimpleEventEmitter {
+  private listeners: { [event: string]: Function[] } = {};
+
+  on(event: string, listener: Function) {
+    if (!this.listeners[event]) this.listeners[event] = [];
+    this.listeners[event].push(listener);
+  }
+
+  off(event: string, listener: Function) {
+    if (!this.listeners[event]) return;
+    this.listeners[event] = this.listeners[event].filter(l => l !== listener);
+  }
+
+  emit(event: string, ...args: any[]) {
+    if (!this.listeners[event]) return;
+    this.listeners[event].forEach(listener => listener(...args));
+  }
+}
+
 class SocketService {
   public socket: Socket | null = null;
+  public events = new SimpleEventEmitter();
   private isConnecting = false;
 
   async connect() {
@@ -40,6 +60,9 @@ class SocketService {
         console.log('WebSocket Disconnected');
       });
 
+      this.socket.on('xp:updated', (data) => this.events.emit('xp:updated', data));
+      this.socket.on('wallet:updated', (data) => this.events.emit('wallet:updated', data));
+
       this.socket.on('connect_error', (error) => {
         this.isConnecting = false;
         console.error('WebSocket Connection Error:', error);
@@ -59,3 +82,11 @@ class SocketService {
 }
 
 export const socketClient = new SocketService();
+
+export const createGameSocket = (sessionId: string, wsToken: string) => {
+  return io(`${SOCKET_URL}/game-sync`, {
+    auth: { sessionId, wsToken },
+    extraHeaders: { "ngrok-skip-browser-warning": "true" },
+    transports: ['websocket', 'polling']
+  });
+};

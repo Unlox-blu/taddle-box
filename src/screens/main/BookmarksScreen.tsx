@@ -9,8 +9,9 @@ import { useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { fontSizes, spacing, radii, type ColorPalette } from '../../theme';
 import { useThemeColors } from '../../context/ThemeContext';
-import PostCard from '../../components/home/PostCard';
-import { usePosts } from '../../context/PostsContext';
+import SharedFeed from '../../components/common/SharedFeed';
+import { useBookmarks } from '../../queries/feed';
+import { useToggleLike, useToggleSave } from '../../mutations/posts';
 import type { HomeStackParamList, Post } from '../../types';
 
 type NavProp = NativeStackNavigationProp<HomeStackParamList, 'Bookmarks'>;
@@ -71,19 +72,11 @@ export default function BookmarksScreen() {
   const navigation = useNavigation<NavProp>();
   const colors     = useThemeColors();
   const styles     = useMemo(() => makeStyles(colors), [colors]);
-  const { posts, toggleLike, toggleSave } = usePosts();
+  const { data, fetchNextPage, hasNextPage, isRefetching, refetch } = useBookmarks();
+  const { mutate: toggleLike } = useToggleLike();
+  const { mutate: toggleSave } = useToggleSave();
 
-  const saved = posts.filter(p => p.isSaved);
-
-  const handleAuthorPress = (post: Post) =>
-    navigation.navigate('UserProfile', { user: post.author });
-
-  const handleComment = (post: Post) =>
-    navigation.navigate('Comments', { post });
-
-  const handleShare = async (post: Post) => {
-    try { await Share.share({ message: `${post.content}\n\nShared from TADDLEBOX` }); } catch {}
-  };
+  const saved = data?.pages.flat() || [];
 
   return (
     <View style={[styles.container, { paddingTop: insets.top }]}>
@@ -110,20 +103,15 @@ export default function BookmarksScreen() {
           </Text>
         </View>
       ) : (
-        <FlatList
-          data={saved}
-          keyExtractor={p => p.id}
-          showsVerticalScrollIndicator={false}
-          renderItem={({ item }) => (
-            <PostCard
-              post={item}
-              onAuthorPress={handleAuthorPress}
-              onComment={handleComment}
-              onShare={handleShare}
-              onLike={toggleLike}
-              onSave={toggleSave}
-            />
-          )}
+        <SharedFeed
+          posts={saved}
+          refreshing={isRefetching}
+          onRefresh={refetch}
+          onLike={(id) => toggleLike({ id, isCurrentlyLiked: saved.find((p: any) => p.id === id)?.isLiked || false })}
+          onSave={(id) => toggleSave({ id, isCurrentlySaved: saved.find((p: any) => p.id === id)?.isSaved || false })}
+          onEndReached={() => {
+            if (hasNextPage) fetchNextPage();
+          }}
           ListHeaderComponent={
             <Text style={styles.subtext}>
               {saved.length} saved {saved.length === 1 ? 'post' : 'posts'}

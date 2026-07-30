@@ -6,7 +6,7 @@ export type HomeStackParamList = {
   UserProfile:    { user: User };
   StoryViewer:    { stories: Story[]; initialIndex: number };
   Bookmarks:      undefined;
-  Leaderboards:   { initialTab?: 'Global' | 'Friends' | 'Games' } | undefined;
+  Leaderboards:   { initialTab?: 'Global' | 'Friends' | 'Games' | 'Feed' | 'Community' | 'Events' } | undefined;
   Settings:       undefined;
   EditProfile:    undefined;
   Terms:          undefined;
@@ -91,7 +91,8 @@ export interface Post {
   xpEarned: number;
   createdAt: string;
   isLiked: boolean;
-  isSaved: boolean;
+  isSaved?: boolean;
+  isXpClaimed?: boolean;
   type: 'text' | 'image' | 'video' | 'poll';
 }
 
@@ -123,7 +124,8 @@ export interface Community {
   isActive: boolean;
   createdAt: string;
   updatedAt: string;
-  isJoined: boolean;
+  isJoined?: boolean;
+  isMember?: boolean;
   memberRole?: 'member' | 'moderator' | 'admin' | null;
 }
 
@@ -151,6 +153,7 @@ export interface Game {
   name: string;
   emoji: string;
   gradient: [string, string];
+  imageUrl?: string;
   maxXp: number;
   isHot: boolean;
 }

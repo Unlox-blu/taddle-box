@@ -24,7 +24,8 @@ import * as FileSystem from "expo-file-system/legacy";
 import { colors as staticColors, fontSizes, spacing, radii } from "../../theme";
 import { useThemeColors } from "../../context/ThemeContext";
 import { useAuth } from "../../context/AuthContext";
-import { usePosts } from "../../context/PostsContext";
+import { useWallet } from "../../context/WalletContext";
+import { useCreatePost } from "../../mutations/posts";
 import { mediaService } from "../../services/media.service";
 import { hashtagService } from "../../services/hashtag.service";
 import { userService } from "../../services/user.service";
@@ -120,8 +121,10 @@ export default function CreatePostModal({
   preselectedCommunityId,
 }: Props) {
   const { user: CURRENT_USER } = useAuth();
+  const [isPublishing, setIsPublishing] = useState(false);
+  const { mutateAsync: createPostAsync } = useCreatePost();
+  const { wallet } = useWallet();
   const insets = useSafeAreaInsets();
-  const { addPost, posts } = usePosts();
   const { communities } = useCommunities();
   const colors = useThemeColors(); // ← dynamic theme colors
   const styles = React.useMemo(() => makeStyles(colors), [colors]);
@@ -643,7 +646,8 @@ export default function CreatePostModal({
         media: uploadedMedia,
       };
 
-      await addPost(postPayload);
+      // Publish post via mutation
+      await createPostAsync(postPayload);
       resetAndClose();
     } catch (err) {
       Alert.alert("Error", "Failed to upload media or create post. Try again.");

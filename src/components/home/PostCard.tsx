@@ -12,7 +12,6 @@ import {
 } from "react-native";
 import { Video, ResizeMode } from "expo-av";
 import { Ionicons } from "@expo/vector-icons";
-import AsyncStorage from "@react-native-async-storage/async-storage";
 import { useNavigation } from "@react-navigation/native";
 import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
 import { radii, fontSizes, spacing, type ColorPalette } from "../../theme";
@@ -244,18 +243,10 @@ export default function PostCard({
     };
   }, [post]);
 
-  const [isClaimed, setIsClaimed] = React.useState(claimedPosts.has(postId));
-  
-  React.useEffect(() => {
-    if (!isClaimed) {
-      AsyncStorage.getItem(`claimed_post_${postId}`).then(val => {
-        if (val === "true") {
-          setIsClaimed(true);
-          claimedPosts.add(postId);
-        }
-      }).catch(() => {});
-    }
-  }, [postId]);
+  if (post.isXpClaimed) {
+    claimedPosts.add(postId);
+  }
+  const [isClaimed, setIsClaimed] = React.useState(post.isXpClaimed || claimedPosts.has(postId));
   const [showPill, setShowPill] = React.useState(true);
   const [extraVideoTime, setExtraVideoTime] = React.useState(0);
   const [isMuted, setIsMuted] = React.useState(globalIsMuted);
@@ -393,7 +384,6 @@ export default function PostCard({
         if (finished) {
           setIsClaimed(true);
           claimedPosts.add(postId);
-          AsyncStorage.setItem(`claimed_post_${postId}`, "true").catch(() => {});
           xpService.creditXP(rewardXp, "earned", `view_post_${postId}`).catch(() => {});
         }
       });

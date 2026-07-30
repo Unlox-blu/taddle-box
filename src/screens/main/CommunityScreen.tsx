@@ -8,10 +8,11 @@ import {
   StyleSheet,
   Modal,
   KeyboardAvoidingView,
-  Platform,
   Alert,
   Image,
   Dimensions,
+  RefreshControl,
+  Platform,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useNavigation } from "@react-navigation/native";
@@ -21,11 +22,16 @@ import { LinearGradient } from "expo-linear-gradient";
 import { StatusBar } from "expo-status-bar";
 import { fontSizes, spacing, radii, type ColorPalette } from "../../theme";
 import { useTheme, useThemeColors } from "../../context/ThemeContext";
-import { useCommunities } from "../../context/CommunityContext";
+import { useCommunities } from "../../queries/communities";
+import { useJoinCommunity, useCreateCommunity } from "../../mutations/communities";
 import type { Community, CommunityStackParamList } from "../../types";
 import MainHeader from "../../components/common/MainHeader";
 
 type Nav = NativeStackNavigationProp<CommunityStackParamList, "CommunityList">;
+
+const isCloseToBottom = ({ layoutMeasurement, contentOffset, contentSize }: any) => {
+  return layoutMeasurement.height + contentOffset.y >= contentSize.height - 20;
+};
 
 const { width } = Dimensions.get("window");
 const CARD_WIDTH = width * 0.75;
@@ -420,24 +426,23 @@ function makeStyles(c: ColorPalette) {
 
 export default function CommunityScreen() {
   const insets = useSafeAreaInsets();
-  const navigation = useNavigation<Nav>();
+  const navigation = useNavigation<NativeStackNavigationProp<any>>();
   const { isDark } = useTheme();
   const colors = useThemeColors();
   const styles = useMemo(() => makeStyles(colors), [colors]);
-  const { communities, toggleJoin, addCommunity, fetchCommunities } =
-    useCommunities();
+  
+  const { data: communitiesData, refetch, isRefetching, fetchNextPage, hasNextPage } = useCommunities();
+  const communities = communitiesData?.pages.flat() || [];
+  
+  const { mutate: toggleJoin } = useJoinCommunity();
+  const { mutateAsync: createCommunityAsync } = useCreateCommunity();
 
   const [activeCategory, setActiveCategory] = useState("All");
   const [showCreate, setShowCreate] = useState(false);
 
-  React.useEffect(() => {
-    fetchCommunities(true);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
   // Derived Data
   const joinedCommunities = useMemo(
-    () => communities.filter((c) => c.isJoined),
+    () => communities.filter((c: any) => c.isMember || c.isJoined),
     [communities],
   );
 
@@ -467,20 +472,25 @@ export default function CommunityScreen() {
           <Text style={[styles.heroTitle, { fontSize: 20 }]}>Communities</Text>
           <Text style={styles.subtitle}>Find your tribe.</Text>
         </View>
-        <TouchableOpacity
-          style={styles.createBtnWrap}
-          onPress={() => setShowCreate(true)}
-        >
-          <LinearGradient
-            colors={[colors.primary, colors.cyanDark]}
-            start={{ x: 0, y: 0 }}
-            end={{ x: 1, y: 1 }}
-            style={styles.createBtn}
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
+          <TouchableOpacity onPress={() => navigation.navigate('Leaderboards', { initialTab: 'Community' })}>
+            <Ionicons name="trophy-outline" size={22} color={colors.text.secondary} />
+          </TouchableOpacity>
+          <TouchableOpacity
+            style={styles.createBtnWrap}
+            onPress={() => setShowCreate(true)}
           >
-            <Ionicons name="add-circle" size={18} color="#fff" />
-            <Text style={styles.createBtnText}>Create</Text>
-          </LinearGradient>
-        </TouchableOpacity>
+            <LinearGradient
+              colors={[colors.primary, colors.cyanDark]}
+              start={{ x: 0, y: 0 }}
+              end={{ x: 1, y: 1 }}
+              style={styles.createBtn}
+            >
+              <Ionicons name="add-circle" size={18} color="#fff" />
+              <Text style={styles.createBtnText}>Create</Text>
+            </LinearGradient>
+          </TouchableOpacity>
+        </View>
       </View>
 
       <View style={styles.chipsWrap}>
@@ -511,10 +521,19 @@ export default function CommunityScreen() {
         </ScrollView>
       </View>
 
-      <ScrollView
-        showsVerticalScrollIndicator={false}
-        contentContainerStyle={{ paddingBottom: 100 }}
-      >
+        <ScrollView 
+          showsVerticalScrollIndicator={false}
+          refreshControl={
+            <RefreshControl refreshing={isRefetching} onRefresh={refetch} tintColor={colors.primary} />
+          }
+          onScroll={({ nativeEvent }) => {
+            if (isCloseToBottom(nativeEvent) && hasNextPage) {
+              fetchNextPage();
+            }
+          }}
+          scrollEventThrottle={400}
+          contentContainerStyle={{ paddingBottom: 100 }}
+        >
         {/* Render ALL View */}
         {activeCategory === "All" ? (
           <>
@@ -546,7 +565,7 @@ export default function CommunityScreen() {
                             communitySlug: c.slug,
                           })
                         }
-                        onToggleJoin={toggleJoin}
+                        onToggleJoin={(id, isCurrentlyMember) => toggleJoin({ communityId: id, isCurrentlyMember })}
                       />
                     </View>
                   ))}
@@ -573,7 +592,7 @@ export default function CommunityScreen() {
                         communitySlug: c.slug,
                       })
                     }
-                    onToggleJoin={toggleJoin}
+                    onToggleJoin={(id, isCurrentlyMember) => toggleJoin({ communityId: id, isCurrentlyMember })}
                   />
                 ))}
               </View>
@@ -593,7 +612,7 @@ export default function CommunityScreen() {
                     communitySlug: c.slug,
                   })
                 }
-                onToggleJoin={toggleJoin}
+                onToggleJoin={(id, isCurrentlyMember) => toggleJoin({ communityId: id, isCurrentlyMember })}
               />
             ))}
           </>
@@ -650,7 +669,7 @@ export default function CommunityScreen() {
                       communitySlug: c.slug,
                     })
                   }
-                  onToggleJoin={toggleJoin}
+                  onToggleJoin={(id, isCurrentlyMember) => toggleJoin({ communityId: id, isCurrentlyMember })}
                 />
               ))
             )}
@@ -661,7 +680,7 @@ export default function CommunityScreen() {
       <CreateCommunityModal
         visible={showCreate}
         onClose={() => setShowCreate(false)}
-        onCreate={addCommunity}
+        onCreate={(formData) => createCommunityAsync(formData)}
         styles={styles}
         colors={colors}
       />
@@ -678,11 +697,12 @@ function FeaturedCommunityCard({
 }: {
   community: Community;
   onPress: () => void;
-  onToggleJoin: (id: string) => void;
+  onToggleJoin: (communityId: string, isCurrentlyMember: boolean) => void;
   styles: ReturnType<typeof makeStyles>;
 }) {
   const gradient = BANNER_COLORS[c.category?.[0]] ?? BANNER_COLORS.All;
   const avGrad = AVATAR_COLORS[c.category?.[0]] ?? AVATAR_COLORS.All;
+  const isJoined = c.isMember || c.isJoined;
 
   return (
     <TouchableOpacity
@@ -743,19 +763,16 @@ function FeaturedCommunityCard({
           </View>
 
           <TouchableOpacity
-            style={[styles.joinBtn, c.isJoined && styles.joinBtnJoined]}
-            onPress={(e) => {
-              e.stopPropagation();
-              onToggleJoin(c.id);
-            }}
+            style={[styles.joinBtn, isJoined && styles.joinBtnJoined]}
+            onPress={() => onToggleJoin(c.id, isJoined || false)}
           >
             <Text
               style={[
                 styles.joinBtnText,
-                c.isJoined && styles.joinBtnTextJoined,
+                isJoined && styles.joinBtnTextJoined,
               ]}
             >
-              {c.isJoined ? "Joined" : "Join"}
+              {isJoined ? "Joined" : "Join"}
             </Text>
           </TouchableOpacity>
         </View>
@@ -774,10 +791,11 @@ function CompactCommunityCard({
 }: {
   community: Community;
   onPress: () => void;
-  onToggleJoin: (id: string) => void;
+  onToggleJoin: (communityId: string, isCurrentlyMember: boolean) => void;
   styles: ReturnType<typeof makeStyles>;
   colors: ColorPalette;
 }) {
+  const isJoined = c.isMember || c.isJoined;
   const avGrad = AVATAR_COLORS[c.category?.[0]] ?? AVATAR_COLORS.All;
 
   return (
@@ -810,16 +828,16 @@ function CompactCommunityCard({
       </View>
 
       <TouchableOpacity
-        style={[styles.joinBtn, c.isJoined && styles.joinBtnJoined]}
+        style={[styles.joinBtn, isJoined && styles.joinBtnJoined]}
         onPress={(e) => {
           e.stopPropagation();
-          onToggleJoin(c.id);
+          onToggleJoin(c.id, isJoined || false);
         }}
       >
         <Text
-          style={[styles.joinBtnText, c.isJoined && styles.joinBtnTextJoined]}
+          style={[styles.joinBtnText, isJoined && styles.joinBtnTextJoined]}
         >
-          {c.isJoined ? "Joined" : "Join"}
+          {isJoined ? "Joined" : "Join"}
         </Text>
       </TouchableOpacity>
     </TouchableOpacity>

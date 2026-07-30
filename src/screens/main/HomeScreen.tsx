@@ -11,6 +11,7 @@ import {
   Modal,
   TouchableWithoutFeedback,
   Animated,
+  DeviceEventEmitter,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
@@ -26,8 +27,9 @@ import MainHeader from "../../components/common/MainHeader";
 import CommentsModal from "../../components/home/CommentsModal";
 import { useAuth } from "../../context/AuthContext";
 import { useWallet } from "../../context/WalletContext";
-import { usePosts } from "../../context/PostsContext";
 import SharedFeed from "../../components/common/SharedFeed";
+import { useFeed } from "../../queries/feed";
+import { useToggleLike, useToggleSave } from "../../mutations/posts";
 import type { Post, HomeStackParamList } from "../../types";
 
 import { streakService } from "../../services/streak.service";
@@ -69,6 +71,8 @@ const calculateCompletedDays = (streakCount: number, endDateString?: string | nu
 // ─── Main screen ──────────────────────────────────────────────────────────────
 
 export default function HomeScreen() {
+  const scrollRef = useRef<FlatList>(null);
+  
   const { user: CURRENT_USER } = useAuth();
   const { wallet } = useWallet();
   const insets = useSafeAreaInsets();
@@ -76,7 +80,12 @@ export default function HomeScreen() {
   const isFocused = useIsFocused();
   const { isDark } = useTheme();
   const colors = useThemeColors();
-  const { posts, toggleLike, toggleSave, fetchFeed } = usePosts();
+  
+  const { data: feedData, fetchNextPage, hasNextPage, refetch: refetchFeed, isRefetching, isLoading } = useFeed();
+  const { mutate: toggleLike } = useToggleLike();
+  const { mutate: toggleSave } = useToggleSave();
+
+  const posts = feedData?.pages.flat() || [];
 
   const [activeTrend, setActiveTrend] = useState("All");
   const [trendChips, setTrendChips] = useState<string[]>(["All"]);
@@ -102,6 +111,16 @@ export default function HomeScreen() {
       initHomeData();
     }
   }, [isFocused]);
+
+  useEffect(() => {
+    const sub = DeviceEventEmitter.addListener('homeDoubleTap', () => {
+      // Delay the refresh so it doesn't interrupt the SharedFeed smooth scroll animation
+      setTimeout(() => {
+        onRefresh();
+      }, 500);
+    });
+    return () => sub.remove();
+  }, [refetchFeed]);
 
   const initHomeData = async () => {
     try {
@@ -185,7 +204,7 @@ export default function HomeScreen() {
 
       setHasDailyReward(!localClaimedToday && !serverClaimedToday);
 
-      fetchFeed(true);
+      refetchFeed();
 
       hashtagService
         .getHashtags()
@@ -293,11 +312,13 @@ export default function HomeScreen() {
       
       <SharedFeed
         posts={filteredPosts}
-        refreshing={refreshing}
+        refreshing={isRefetching}
         onRefresh={onRefresh}
-        onLike={toggleLike}
-        onSave={toggleSave}
-        onEndReached={() => fetchFeed()}
+        onLike={(id) => toggleLike({ id, isCurrentlyLiked: posts.find((p: any) => p.id === id)?.isLiked || false })}
+        onSave={(id) => toggleSave({ id, isCurrentlySaved: posts.find((p: any) => p.id === id)?.isSaved || false })}
+        onEndReached={() => {
+          if (hasNextPage) fetchNextPage();
+        }}
         contentContainerStyle={{ flexGrow: 1 }}
         ListHeaderComponent={
           <View>
@@ -383,9 +404,14 @@ export default function HomeScreen() {
             {hasDailyReward && <DailyRewardCard onClaimPos={handleRewardClaim} />}
 
             {/* Feed */}
-            <Text style={[styles.sectionLabel, { color: colors.text.muted }]}>
-              Feed
-            </Text>
+            <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingRight: spacing.lg }}>
+              <Text style={[styles.sectionLabel, { color: colors.text.muted }]}>
+                Feed
+              </Text>
+              <TouchableOpacity onPress={() => navigation.navigate('Leaderboards', { initialTab: 'Feed' })}>
+                <Ionicons name="trophy-outline" size={18} color={colors.text.secondary} />
+              </TouchableOpacity>
+            </View>
 
             {/* Trending chips */}
             <ScrollView

@@ -41,7 +41,7 @@ const QUICK_XP      = [500, 1000, 5000];
 export default function WalletScreen() {
   const insets     = useSafeAreaInsets();
   const navigation = useNavigation();
-  const { wallet, withdraw, convertXP, linkUPI, toggleSetting } = useWallet();
+  const { wallet, withdraw, convertXP, linkUPI, toggleSetting, fetchWalletData } = useWallet();
   const { user } = useAuth();
   const colors = useThemeColors();
   const styles = useMemo(() => makeStyles(colors), [colors]);
@@ -51,28 +51,25 @@ export default function WalletScreen() {
   const [handoffUrl,      setHandoffUrl]       = useState<string | null>(null);
   const [unlockError,     setUnlockError]      = useState('');
   const [isUnlocking,     setIsUnlocking]      = useState(false);
-  const [walletUnlocked,  setWalletUnlocked]   = useState(false); // Local lock state
-  const [localPinEnabled, setLocalPinEnabled]  = useState(false); // Direct SecureStore read
+  const [walletUnlocked,  setWalletUnlocked]   = useState(false);
+  const [localPinEnabled, setLocalPinEnabled]  = useState(false);
   const scrollRef = useRef<ScrollView>(null);
 
-  // Read pinEnabled directly from SecureStore on mount (belt-and-suspenders)
   useEffect(() => {
     SecureStore.getItemAsync('wallet_pinEnabled').then(val => {
       setLocalPinEnabled(val === 'true');
     });
   }, []);
 
-  // Re-lock wallet every time this screen is focused
   useFocusEffect(
     React.useCallback(() => {
-      // Lock on focus — user must re-enter PIN each time they come to wallet
-      // (unless global app lock already handles auth)
+      fetchWalletData();
       const pinOn = wallet.pinEnabled || localPinEnabled;
       if (pinOn && !user?.appLockEnabled) {
         setWalletUnlocked(false);
         setUnlockError('');
       }
-    }, [wallet.pinEnabled, localPinEnabled, user?.appLockEnabled])
+    }, [wallet.pinEnabled, localPinEnabled, user?.appLockEnabled, fetchWalletData])
   );
 
   // ── Computed stats ──

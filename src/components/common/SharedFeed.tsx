@@ -1,5 +1,5 @@
 import React, { useState, useRef, useCallback } from 'react';
-import { FlatList, View, Share, Image, RefreshControl } from 'react-native';
+import { FlatList, View, Share, Image, RefreshControl, DeviceEventEmitter } from 'react-native';
 import { useNavigation, useScrollToTop } from '@react-navigation/native';
 import PostCard from '../home/PostCard';
 import CommentsModal from '../home/CommentsModal';
@@ -44,6 +44,13 @@ export default function SharedFeed({
 
   const flatListRef = useRef<any>(null);
   useScrollToTop(flatListRef);
+
+  React.useEffect(() => {
+    const sub = DeviceEventEmitter.addListener('homeDoubleTap', () => {
+      flatListRef.current?.scrollToOffset({ offset: 0, animated: true });
+    });
+    return () => sub.remove();
+  }, []);
 
   const viewabilityConfig = useRef({ itemVisiblePercentThreshold: 60 }).current;
   const onViewableItemsChanged = useRef(({ viewableItems }: any) => {

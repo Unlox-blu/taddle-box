@@ -2,9 +2,12 @@ import React, { useMemo, useState, useEffect } from 'react';
 import {
   View, Text, ScrollView, TouchableOpacity, FlatList, Modal, Alert, ActivityIndicator,
   StyleSheet,
+  RefreshControl,
 } from 'react-native';
 import { WebView } from 'react-native-webview';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { useNavigation } from '@react-navigation/native';
+import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { StatusBar } from 'expo-status-bar';
@@ -15,6 +18,8 @@ import MainHeader from '../../components/common/MainHeader';
 // removed mockData import
 import { eventService } from '../../services/event.service';
 import type { Event } from '../../types';
+import { useEvents } from '../../queries/events';
+import { useToggleEventRegister } from '../../mutations/events';
 
 const FILTERS = ['All', '🔴 Live', '💻 Online', '📍 Offline', '🏆 Contest'];
 
@@ -225,41 +230,24 @@ const CalendarView = ({ selectedDate, onSelectDate, events, styles }: any) => {
 
 export default function EventsScreen() {
   const insets  = useSafeAreaInsets();
+  const navigation = useNavigation<NativeStackNavigationProp<any>>();
   const { isDark } = useTheme();
   const colors = useThemeColors();
   const styles = useMemo(() => makeStyles(colors), [colors]);
   const TYPE_META = useMemo(() => getTypeMeta(colors), [colors]);
 
   const [filter, setFilter] = useState('All');
-  const [events, setEvents] = useState<Event[]>([]);
-  const [loading, setLoading] = useState(true);
   const [showCalendar, setShowCalendar] = useState(false);
   const [selectedDate, setSelectedDate] = useState<string | null>(null);
   
-  // Payment Flow State
   const [payuHtml, setPayuHtml] = useState<string | null>(null);
   const [paymentEventId, setPaymentEventId] = useState<string | null>(null);
   const [processingPayment, setProcessingPayment] = useState(false);
 
-  useEffect(() => {
-    let active = true;
-    const fetchEvents = async () => {
-      try {
-        const res = await eventService.discoverEvents();
-        if (active && res.data) {
-          setEvents(res.data);
-        }
-      } catch (e) {
-        console.error('Failed to fetch events:', e);
-      } finally {
-        if (active) setLoading(false);
-      }
-    };
-    fetchEvents();
-    return () => { active = false; };
-  }, []);
+  const { data: events = [], isLoading: loading, refetch, isRefetching } = useEvents();
+  const { mutate: toggleEventRegister } = useToggleEventRegister();
 
-  const displayEvents = events.filter(e => {
+  const displayEvents = events.filter((e: any) => {
     if (selectedDate) {
       if (!e.rawDate || !e.rawDate.startsWith(selectedDate)) return false;
     }
@@ -271,13 +259,13 @@ export default function EventsScreen() {
     return true;
   });
 
-  const featured = displayEvents.find(e => e.isFeatured);
-  const rest     = displayEvents.filter(e => !e.isFeatured && e.id !== featured?.id);
+  const participated = displayEvents.filter((e: any) => e.isRegistered);
+  const featured = displayEvents.find((e: any) => e.isFeatured && !e.isRegistered);
+  const rest     = displayEvents.filter((e: any) => !e.isRegistered && !e.isFeatured && e.id !== featured?.id);
 
   const toggleRegister = async (id: string) => {
-    const evIndex = events.findIndex(e => e.id === id);
-    if (evIndex === -1) return;
-    const ev = events[evIndex];
+    const ev = events.find((e: any) => e.id === id);
+    if (!ev) return;
     const isReg = ev.isRegistered;
     
     if (!isReg && !ev.isFree && ev.priceCents) {
@@ -295,18 +283,21 @@ export default function EventsScreen() {
       return; // Stop here, wait for webview success
     }
 
-    // Optimistic
-    setEvents(prev => prev.map(e => e.id === id ? { ...e, isRegistered: !isReg } : e));
-    try {
-      if (isReg) {
-        await eventService.cancelRegistration(id);
-      } else {
-        await eventService.register(id);
-      }
-    } catch (e) {
-      // Revert
-      setEvents(prev => prev.map(e => e.id === id ? { ...e, isRegistered: isReg } : e));
-      console.error('Failed to toggle register:', e);
+    if (isReg) {
+      Alert.alert(
+        'Cancel Registration',
+        'Are you sure you want to cancel your registration?',
+        [
+          { text: 'No', style: 'cancel' },
+          {
+            text: 'Yes',
+            style: 'destructive',
+            onPress: () => toggleEventRegister({ eventId: id, isCurrentlyRegistered: true }),
+          },
+        ]
+      );
+    } else {
+      toggleEventRegister({ eventId: id, isCurrentlyRegistered: false });
     }
   };
 
@@ -318,12 +309,22 @@ export default function EventsScreen() {
 
       <View style={styles.header}>
         <Text style={styles.title}>Events 🎯</Text>
-        <TouchableOpacity style={styles.calendarBtn} onPress={() => setShowCalendar(s => !s)}>
-          <Ionicons name={showCalendar ? "close-outline" : "calendar-outline"} size={20} color={colors.text.secondary} />
-        </TouchableOpacity>
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 16 }}>
+          <TouchableOpacity onPress={() => navigation.navigate('Leaderboards', { initialTab: 'Events' })}>
+            <Ionicons name="trophy-outline" size={22} color={colors.text.secondary} />
+          </TouchableOpacity>
+          <TouchableOpacity style={styles.calendarBtn} onPress={() => setShowCalendar(s => !s)}>
+            <Ionicons name={showCalendar ? "close-outline" : "calendar-outline"} size={22} color={colors.text.secondary} />
+          </TouchableOpacity>
+        </View>
       </View>
 
-      <ScrollView showsVerticalScrollIndicator={false}>
+      <ScrollView 
+        showsVerticalScrollIndicator={false}
+        refreshControl={
+          <RefreshControl refreshing={isRefetching} onRefresh={refetch} tintColor={colors.primary} />
+        }
+      >
         <ScrollView
           horizontal showsHorizontalScrollIndicator={false}
           contentContainerStyle={styles.filterScroll}
@@ -402,14 +403,14 @@ export default function EventsScreen() {
         <Text style={{ ...styles.sectionLabel, marginTop: 8 }}>
           My Participated Events
         </Text>
-        {events.filter(e => e.isRegistered && !e.isFeatured).length === 0 ? (
+        {participated.length === 0 ? (
           <View style={styles.emptyState}>
             <Text style={styles.emptyEmoji}>🎫</Text>
             <Text style={styles.emptyText}>No participated events yet</Text>
             <Text style={styles.emptySubtext}>Join events below to see them here</Text>
           </View>
         ) : (
-          events.filter(e => e.isRegistered && !e.isFeatured).map(ev => (
+          participated.map((ev: any) => (
             <EventCard key={ev.id} event={ev} onRegister={toggleRegister} styles={styles} colors={colors} typeMeta={TYPE_META} />
           ))
         )}
@@ -424,9 +425,9 @@ export default function EventsScreen() {
         ) : (
           <>
             {displayEvents.length > 0 && <Text style={{ ...styles.sectionLabel, marginTop: 16 }}>Upcoming Events</Text>}
-            {rest.map(ev => (
-              <EventCard key={ev.id} event={ev} onRegister={toggleRegister} styles={styles} colors={colors} typeMeta={TYPE_META} />
-            ))}
+            {rest.map((ev: any) => (
+            <EventCard key={ev.id} event={ev} onRegister={toggleRegister} styles={styles} colors={colors} typeMeta={TYPE_META} />
+          ))}
           </>
         )}
 
@@ -459,7 +460,10 @@ export default function EventsScreen() {
                   if (paymentEventId) {
                     try {
                       // Call backend to actually register now
-                      setEvents(prev => prev.map(e => e.id === paymentEventId ? { ...e, isRegistered: true } : e));
+                      const ev = events.find((e: any) => e.id === paymentEventId);
+                      if (ev) {
+                        refetch();
+                      }
                       await eventService.register(paymentEventId);
                       setPaymentEventId(null);
                     } catch (e) {

@@ -18,8 +18,9 @@ import { fontSizes, spacing, radii, type ColorPalette } from '../../theme';
 import { useTheme, useThemeColors } from '../../context/ThemeContext';
 import { apiClient } from '../../services/apiClient';
 import type { HomeStackParamList, Post, User, Community } from '../../types';
+import { useAuth } from '../../context/AuthContext';
+import { useToggleLike, useToggleSave } from '../../mutations/posts';
 import PostCard from '../../components/home/PostCard';
-import { usePosts } from '../../context/PostsContext';
 
 type Props = NativeStackScreenProps<HomeStackParamList, 'Search'>;
 
@@ -69,7 +70,8 @@ export default function SearchScreen({ navigation, route }: Props) {
   const [results, setResults] = useState<any[]>([]);
   const [loading, setLoading] = useState(false);
 
-  const { toggleLike, toggleSave } = usePosts();
+  const { mutate: toggleLike } = useToggleLike();
+  const { mutate: toggleSave } = useToggleSave();
 
   const fetchResults = useCallback(async (q: string, tab: SearchTab) => {
     if (!q.trim()) {
@@ -154,8 +156,8 @@ export default function SearchScreen({ navigation, route }: Props) {
       return (
         <PostCard
           post={post}
-          onLike={() => toggleLike(post.id)}
-          onSave={() => toggleSave(post.id)}
+          onLike={() => toggleLike({ id: post.id, isCurrentlyLiked: post.isLiked || false })}
+          onSave={() => toggleSave({ id: post.id, isCurrentlySaved: post.isSaved || false })}
           onComment={() => navigation.navigate('Comments', { post })}
           onShare={() => {}}
         />

@@ -45,10 +45,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       setUser((prev: any) => prev ? { ...prev, xp: data.xp } : prev);
     };
 
-    socketClient.socket?.on('xp:updated', handleXPUpdate);
+    socketClient.events.on('xp:updated', handleXPUpdate);
 
     return () => {
-      socketClient.socket?.off('xp:updated', handleXPUpdate);
+      socketClient.events.off('xp:updated', handleXPUpdate);
     };
   }, []);
 

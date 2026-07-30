@@ -136,12 +136,17 @@ export function WalletProvider({ children }: { children: React.ReactNode }) {
   }, [user?.xp]);
 
   useEffect(() => {
-    const handleWalletUpdated = (balanceCents: number) => {
-      dispatch({ type: 'SET_DATA', payload: { cashBalance: balanceCents } });
+    const handleWalletUpdated = (data: any) => {
+      dispatch({ type: 'SET_DATA', payload: { cashBalance: data.balanceCents } });
     };
-    socketClient.socket?.on('wallet:updated', handleWalletUpdated);
+    const handleXPUpdated = (data: any) => {
+      dispatch({ type: 'SET_DATA', payload: { xpBalance: data.xp } });
+    };
+    socketClient.events.on('wallet:updated', handleWalletUpdated);
+    socketClient.events.on('xp:updated', handleXPUpdated);
     return () => {
-      socketClient.socket?.off('wallet:updated', handleWalletUpdated);
+      socketClient.events.off('wallet:updated', handleWalletUpdated);
+      socketClient.events.off('xp:updated', handleXPUpdated);
     };
   }, []);
 

@@ -95,6 +95,20 @@ export const gamesService = {
     return response.data;
   },
 
+  startGameSession: async (gameId: string, mode?: string, matchGroupId?: string) => {
+    const response = await apiClient.post('/game/session/start', { gameId, mode, matchGroupId });
+    return response.data;
+  },
+
+  completeGameSession: async (data: {
+    sessionId: string;
+    tapLog?: any[];
+    clientNonce?: string;
+  }) => {
+    const response = await apiClient.post('/game/session/complete', data);
+    return response.data;
+  },
+
   getLeaderboard: async (page = 1, limit = 20): Promise<{ data: GameLeaderboardEntry[] }> => {
     const response = await apiClient.get(`/game/leaderboard?page=${page}&limit=${limit}`);
     return response.data;

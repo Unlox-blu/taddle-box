@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import {
-  View, TouchableOpacity, Text, StyleSheet,
+  View, TouchableOpacity, Text, StyleSheet, DeviceEventEmitter
 } from 'react-native';
 import { BottomTabBarProps } from '@react-navigation/bottom-tabs';
 import { Ionicons } from '@expo/vector-icons';
@@ -28,6 +28,7 @@ export default function CustomTabBar({ state, navigation }: BottomTabBarProps) {
   const insets = useSafeAreaInsets();
   const { colors, isDark } = useTheme();
   const [createVisible, setCreateVisible] = useState(false);
+  const lastPressRef = React.useRef<Record<string, number>>({});
 
   const tabBarBg = isDark ? 'rgba(7,7,20,0.97)' : 'rgba(250,250,255,0.97)';
 
@@ -42,7 +43,19 @@ export default function CustomTabBar({ state, navigation }: BottomTabBarProps) {
       <TouchableOpacity
         key={routeName}
         style={styles.tab}
-        onPress={() => navigation.navigate(routeName)}
+        onPress={() => {
+          if (!active) {
+            navigation.navigate(routeName);
+          } else {
+            const now = Date.now();
+            const lastPress = lastPressRef.current[routeName] || 0;
+            if (now - lastPress < 300) {
+              if (routeName === 'Home') DeviceEventEmitter.emit('homeDoubleTap');
+              if (routeName === 'Community') DeviceEventEmitter.emit('communityDoubleTap');
+            }
+            lastPressRef.current[routeName] = now;
+          }
+        }}
         activeOpacity={0.7}
       >
         <Ionicons

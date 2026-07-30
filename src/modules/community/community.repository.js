@@ -234,9 +234,10 @@ const updateMemberRole = async (communityId, userId, role) => {
 const getMembers = async (communityId, status, limit, offset) => {
   try {
     const { rows } = await pool.query(
-      `SELECT cm.*, u.name, u.username, u.avatar_url, COUNT(*) OVER() AS total
+      `SELECT cm.*, u.name, u.username, ua.cloudfront_url AS avatar_url, COUNT(*) OVER() AS total
      FROM ${CommunityModel.MEMBERS_TABLE} cm
      JOIN users u ON u.id = cm.user_id
+     LEFT JOIN media ua ON u.avatar_url = ua.id
      WHERE cm.community_id = $1 AND cm.status = $2
      ORDER BY cm.joined_at DESC
      LIMIT $3 OFFSET $4`,

@@ -52,7 +52,7 @@ class XpService {
       }
 
       // Prevent duplicate daily login
-      if (sourceType === 'Daily Login') {
+      if (sourceType?.startsWith('Daily Login')) {
         const recent = await this.xpRepo.checkDailyTransactionBySource(xpWallet.id, sourceType);
         if (recent) {
           return { alreadyClaimed: true, message: 'Daily Login already claimed today' };

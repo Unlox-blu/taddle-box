@@ -159,7 +159,6 @@ const checkDailyTransactionBySource = async (xpId, sourceType) => {
     FROM ${XpModel.TRANSACTIONS_TABLE}
     WHERE xp_id = $1
     AND source_type = $2
-    AND DATE(created_at AT TIME ZONE 'UTC') = CURRENT_DATE
     LIMIT 1
     `,
     [xpId, sourceType]

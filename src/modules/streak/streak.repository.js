@@ -45,8 +45,8 @@ const create = async (userId) => {
     try {
         const { rows } = await pool.query(
         `INSERT INTO ${StreakModel.TABLE} 
-        (user_id)
-        VALUES ($1)
+        (user_id, start_date, end_date)
+        VALUES ($1, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
         RETURNING *
         `,
         [userId]
@@ -61,7 +61,7 @@ const updateById = async (id) => {
     try {
         const {rows} = await pool.query(
             `UPDATE ${StreakModel.TABLE} 
-            SET streak_count = streak_count + 1, end_date = CURRENT_DATE, updated_at = NOW() 
+            SET streak_count = streak_count + 1, end_date = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP 
             WHERE id = $1 
             RETURNING *`,
             [id]

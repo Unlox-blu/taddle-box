@@ -172,6 +172,17 @@ class GameController {
 	    }
 	  };
 
+	  inviteMatchmaking = async (req, res, next) => {
+	    try {
+	      const userId = req.userId;
+	      const inviteData = req.body;
+	      const result = await this.gameSvc.inviteMatchmaking({userId, inviteData});
+	      res.json(apiResponse(result, "matchmaking invite sent successfuly"));
+	    } catch (error) {
+	      next(error);
+	    }
+	  };
+
 	  getMatchmakingTicket = async (req, res, next) => {
 	    try {
 	      const userId = req.userId;

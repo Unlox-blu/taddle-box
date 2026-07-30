@@ -15,7 +15,9 @@ const paginationQuerySchema = z.object({
     .positive({ message: 'Limit must be greater than zero' })
     .max(100, 'Maximum limit allowed is 100')
     .default(10).optional(),
-}).strict();
+    
+  hashtag: z.string().optional(),
+});
 
 
 module.exports = {

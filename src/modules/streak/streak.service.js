@@ -30,7 +30,7 @@ class StreakService {
         }else if(this.#isYesterday(currentDate, previousDate)){
             newStreak = await this.streakRepo.updateById(previousStreak.id)
             const count = parseInt(newStreak.streakCount, 10)
-            if (count > 0 && count % 7 === 0) {
+            if (count >= 7 && currentDate.getDay() === 0) {
                 // Grant weekly bonus
                 await this.xpSvc.creditXP({
                     userId,

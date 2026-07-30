@@ -96,6 +96,12 @@ const joinMatchmakingSchema = z.object({
   tournamentId: z.string().uuid({ message: 'Invalid tournament ID format' }).optional(),
 })
 
+const inviteMatchmakingSchema = z.object({
+  opponentId: z.string().uuid({ message: 'Invalid opponent ID format' }),
+  gameId: z.string().uuid({ message: 'Invalid game ID format' }),
+  matchGroupId: z.string(),
+})
+
 module.exports = {
   gameIdParamSchema,
   matchIdParamSchema,
@@ -106,4 +112,5 @@ module.exports = {
   createMatchSchema,
   updateMatchSchema,
   joinMatchmakingSchema,
+  inviteMatchmakingSchema,
 };

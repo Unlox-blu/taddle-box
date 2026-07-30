@@ -52,7 +52,7 @@ class FeedService {
         seenPost,
         limit,
         offset,
-        hashtag || null
+        hashtag ? hashtag.replace(/^#/, '') : null
       );
       const posts = rows.map(PostModel.format);
       const seenIds = rows.map(ele => ele.id)

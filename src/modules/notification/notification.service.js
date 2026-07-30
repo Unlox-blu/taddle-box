@@ -155,6 +155,31 @@ class NotificationService {
       else {
         await this.notifRepo.addToBatchNotification({recipientId, senderId, resourceId})
       }
+    } else {
+      let notif;
+      if (policy.save) {
+        notif = await this.notifRepo.create({
+          recipientId,
+          senderId,
+          type,
+          title,
+          message: event.message,
+          resourceType,
+          resourceId,
+        });
+      }
+      if (policy.socket) {
+        const formatted = notif ? NotificationModel.format(notif) : {
+          id: Date.now().toString(),
+          type,
+          title,
+          message: event.message,
+          resourceType,
+          resourceId,
+          isRead: false,
+        };
+        emitNotification(recipientId, formatted);
+      }
     }
 
     const activeCacheKey = `user:status:${recipientId}`;
@@ -162,8 +187,8 @@ class NotificationService {
     const isActive = await redis.get(activeCacheKey);
 
     if(isActive && isActive !== 'online') {
-      const pushNotification = { recipientId, senderId, type, title, resourceType, resourceId }
-      await addJob('notification:push')
+      const pushNotification = { recipientId, senderId, type, title, message: event.message, resourceType, resourceId };
+      await addJob('notification:push', pushNotification);
     }
   }
 }

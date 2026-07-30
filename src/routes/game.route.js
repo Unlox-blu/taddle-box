@@ -16,6 +16,7 @@ const {
   createMatchSchema,
   updateMatchSchema,
   joinMatchmakingSchema,
+  inviteMatchmakingSchema,
 } = require('../modules/game/game.validator');
 
 
@@ -33,6 +34,7 @@ router.get('/leaderboard',      verifyToken,  validateRequest({query: pagination
 router.get('/tournaments',      verifyToken,  validateRequest({query: paginationSchema}),   gameController.getTournaments);
 router.post('/tournaments/:tournamentId/join', verifyToken, validateRequest({params: tournamentIdParamSchema}), gameController.joinTournament);
 router.post('/matchmaking/join', verifyToken, validateRequest({body: joinMatchmakingSchema}), gameController.joinMatchmaking);
+router.post('/matchmaking/invite', verifyToken, validateRequest({body: inviteMatchmakingSchema}), gameController.inviteMatchmaking);
 router.get('/matchmaking/:ticketId', verifyToken, validateRequest({params: ticketIdParamSchema}), gameController.getMatchmakingTicket);
 router.post('/matchmaking/:ticketId/cancel', verifyToken, validateRequest({params: ticketIdParamSchema}), gameController.cancelMatchmakingTicket);
 

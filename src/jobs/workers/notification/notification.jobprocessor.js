@@ -173,7 +173,7 @@ const notificationJobProcessor = async (job) => {
           userId: payload.recipientId,
           title: payload.title,
           message: payload.message || "Push notification" ,
-          data: { senderId: payload.senderId, type: payload.type },
+          data: { senderId: payload.senderId, type: payload.type, resourceId: payload.resourceId },
         });
           break;
         }

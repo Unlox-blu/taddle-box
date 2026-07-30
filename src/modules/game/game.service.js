@@ -4,9 +4,11 @@ const crypto = require('crypto');
 const { createError } = require('../../utils/error.util');
 
 class GameService {
-  constructor({ gameRepository, xpService }) {
+  constructor({ gameRepository, xpService, notificationService, userRepository }) {
     this.gameRepo = gameRepository;
     this.xpSvc = xpService;
+    this.notificationSvc = notificationService;
+    this.userRepo = userRepository;
   }
 
   calculateResult({ game, score, duration }) {
@@ -259,17 +261,6 @@ class GameService {
 	      if (game.metadata?.runtime !== 'html5_webview')
 	        throw createError("Unsupported game runtime", 400)
 
-        // Deduct XP
-        const entryFeeMap = {
-          'tap-rush': 5, 'memory-grid': 5, 'scribble': 10,
-          'ludo': 5, 'snake-ladder': 10, 'chess': 15, 'word-rush': 5
-        };
-        const entryFee = entryFeeMap[game.slug] || 5;
-        await this.xpSvc.debitXP({
-          userId, xp: entryFee,
-          transactionType: 'spent', sourceType: `matchmaking_${game.slug}`
-        });
-
 	      let tournamentId = matchData.tournamentId || null
 	      if (mode === 'TOURNAMENT') {
 	        if (!tournamentId)
@@ -284,9 +275,46 @@ class GameService {
 	        tournamentId = null
 	      }
 
-	      return await this.gameRepo.joinMatchmaking({userId, game, mode, tournamentId})
+	      const result = await this.gameRepo.joinMatchmaking({userId, game, mode, tournamentId});
+        if (result.status === 'MATCHED' && result.opponent?.userId) {
+          try {
+            const { getIO } = require('../../sockets/index');
+            const io = getIO();
+            io.to(`user:${result.opponent.userId}`).emit('matchmaking:matched', result);
+          } catch (e) {
+            console.error('Failed to emit matchmaking:matched', e);
+          }
+        }
+        return result;
 	    } catch (error) {
 	      throw error
+	    }
+	  }
+
+	  async inviteMatchmaking({userId, inviteData}) {
+	    try {
+	      const { opponentId, gameId, matchGroupId } = inviteData;
+	      const game = await this.gameRepo.findGameById({gameId});
+	      if(!game)
+	        throw createError("Game not found", 404);
+
+	      const sender = await this.userRepo.findById(userId);
+	      if(!sender)
+	        throw createError("User not found", 404);
+
+	      await this.notificationSvc.create({
+	        recipientId: opponentId,
+	        senderId: userId,
+	        type: 'GAME_INVITE',
+	        title: 'Game Invite! 🎮',
+	        message: `${sender.name || "A friend"} invited you to play ${game.name}!`,
+	        resourceType: 'game',
+	        resourceId: `${gameId}:${matchGroupId}`,
+	      });
+
+	      return { success: true };
+	    } catch (error) {
+	      throw error;
 	    }
 	  }
 
@@ -318,21 +346,23 @@ class GameService {
 	  }
 
 
-  async startGameSession({ userId, gameId, mode }) {
+  async startGameSession({ userId, gameId, mode, matchGroupId }) {
     try {
       const game = await this.gameRepo.findGameById({ gameId });
       if (!game) throw createError("Game not found", 404);
 
-      // Deduct XP
-      const entryFeeMap = {
-        'tap-rush': 5, 'memory-grid': 5, 'scribble': 10,
-        'ludo': 5, 'snake-ladder': 10, 'chess': 15, 'word-rush': 5
-      };
-      const entryFee = entryFeeMap[game.slug] || 5;
-      await this.xpSvc.debitXP({
-        userId, xp: entryFee,
-        transactionType: 'spent', sourceType: `session_${game.slug}`
-      });
+      // Deduct XP (tournaments are paid upfront)
+      if (mode !== 'TOURNAMENT' && mode !== 'tournament') {
+        const entryFeeMap = {
+          'tap-rush': 5, 'memory-grid': 5, 'scribble': 10,
+          'ludo': 5, 'snake-ladder': 10, 'chess': 15, 'word-rush': 5
+        };
+        const entryFee = entryFeeMap[game.slug] || 5;
+        await this.xpSvc.debitXP({
+          userId, xp: entryFee,
+          transactionType: 'spent', sourceType: `session_${game.slug}`
+        });
+      }
 
       const seed = crypto.randomBytes(32).toString('hex');
       const expiresAt = new Date(Date.now() + 5 * 60 * 1000); // 5 mins
@@ -343,7 +373,7 @@ class GameService {
           gameId, 
           seed, 
           expiresAt,
-          metadata: { mode: mode || 'QUICK' }
+          metadata: { mode: mode || 'QUICK', matchGroupId }
         }
       });
 

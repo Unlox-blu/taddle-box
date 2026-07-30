@@ -9,6 +9,7 @@ const findById = async (commentId) => {
       `SELECT ${CommentModel.LIST_FIELDS}
      FROM ${CommentModel.TABLE} c 
      JOIN users u ON u.id = c.author_id
+     LEFT JOIN media ua ON u.avatar_url = ua.id
      WHERE c.id = $1 AND c.deleted_at IS NULL`,
       [commentId]
     );
@@ -22,8 +23,11 @@ const findByPost = async (postId, limit, offset, parentId = null, userId = null)
   try {
     const { rows } = await pool.query(
       `SELECT ${CommentModel.LIST_FIELDS}, COUNT(*) OVER() AS total,
-       EXISTS(SELECT 1 FROM ${CommentModel.LIKES_TABLE} cl WHERE cl.comment_id = c.id AND cl.user_id = $5) as is_liked
-     FROM ${CommentModel.TABLE} c JOIN users u ON u.id = c.author_id
+       EXISTS(SELECT 1 FROM ${CommentModel.LIKES_TABLE} cl WHERE cl.comment_id = c.id AND cl.user_id = $5) as is_liked,
+       (SELECT COUNT(*) FROM ${CommentModel.TABLE} sub WHERE sub.parent_id = c.id AND sub.deleted_at IS NULL) as replies_count
+     FROM ${CommentModel.TABLE} c 
+     JOIN users u ON u.id = c.author_id
+     LEFT JOIN media ua ON u.avatar_url = ua.id
      WHERE c.post_id = $1 AND c.deleted_at IS NULL
        AND ($2::uuid IS NULL AND c.parent_id IS NULL OR c.parent_id = $2::uuid)
      ORDER BY c.created_at ASC

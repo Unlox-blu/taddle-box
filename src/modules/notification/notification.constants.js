@@ -14,6 +14,16 @@ const PRIORITY = {
 };
 
 const DEFAULT_NOTIFICATION_DEFINITIONS = {
+  GAME_INVITE: {
+    save: true,
+    socket: true,
+    push: true,
+    batch: false,
+    delay: 0,
+    priority: PRIORITY.HIGH,
+    cooldown: 0,
+    category: 'system',
+  },
   POST_LIKE: {
     save: true,
     socket: false,

@@ -87,7 +87,7 @@ class PostService {
 
   async getPost({postId, userId}) {
     try {
-      const post = await this.postRepo.findById(postId);
+      const post = await this.postRepo.findById(postId, userId);
       if (!post) throw createError('Post not found', 404);
       const { community_id: communityId, author_id: authorId } = post;
 
@@ -122,7 +122,7 @@ class PostService {
   async getUserPosts({authorId, userId, limit, offset}) {
     try {
       if (userId === authorId) {
-        const { rows, total } = await this.postRepo.findManyByUser(userId, limit, offset);
+        const { rows, total } = await this.postRepo.findManyByUser(userId, limit, offset, userId);
         return { posts: rows.map(PostModel.format), total };
       }
       const author = await this.userRepo.findById(authorId)
@@ -135,7 +135,7 @@ class PostService {
           throw createError("You don't have permission to view posts from this private account", 403);
       }
 
-      const { rows, total } = await this.postRepo.findManyByUser(authorId, limit, offset);
+      const { rows, total } = await this.postRepo.findManyByUser(authorId, limit, offset, userId);
 
       const posts = rows.filter(
         (ele) => ele.community_privacy !== 'private' && ele.visibility === 'public'
@@ -304,9 +304,9 @@ class PostService {
     }
   }
 
-  async findPostByCommunity({communityId, limit, offset}) {
+  async findPostByCommunity({communityId, limit, offset, userId}) {
     try {
-      const { rows, total } = await this.postRepo.findManyByCommunity(communityId, limit, offset);
+      const { rows, total } = await this.postRepo.findManyByCommunity(communityId, limit, offset, userId);
 
       return { rows, total }
     } catch (error) {

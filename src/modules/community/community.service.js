@@ -5,11 +5,12 @@ const PostModel = require('../post/post.model');
 const { notificationService } = require('../notification/notification.container');
 
 class CommunityService {
-  constructor({ communityRepository, postService, userRepository, mediaService}) {
+  constructor({ communityRepository, postService, userRepository, mediaService, xpService}) {
     this.communityRepo = communityRepository;
     this.postSvc = postService;
     this.userRepo = userRepository;
     this.mediaSvc = mediaService;
+    this.xpSvc = xpService || null;
   }
 
   async create({userId: ownerId, body: data}) {
@@ -154,6 +155,16 @@ class CommunityService {
           title: 'New community member',
           message: `${user.name} joined the community`,
         })
+        
+        // Award XP for joining a community
+        if (this.xpSvc) {
+          this.xpSvc.creditXP({
+            userId,
+            xp: 20,
+            transactionType: 'earned',
+            sourceType: `community_join_${communityId}`,
+          }).catch(e => console.error('Failed to award community join XP:', e));
+        }
       }
 
       return { status };
@@ -205,7 +216,7 @@ class CommunityService {
           throw createError("Only community members can access this private community", 403);
       }
       
-      const { rows, total } = await this.postSvc.findPostByCommunity({ communityId, limit, offset });
+      const { rows, total } = await this.postSvc.findPostByCommunity({ communityId, limit, offset, userId });
       return { posts: rows.map(PostModel.format), total };
     } catch (error) {
       throw error;

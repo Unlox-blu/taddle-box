@@ -24,6 +24,7 @@ class XpService {
     try {
       const xp = await this.xpRepo.findByUserId(userId);
       if (!xp) throw createError('xp wallet not found', 404);
+
       return xp;
     } catch (error) {
       throw error;
@@ -32,18 +33,12 @@ class XpService {
 
   async getTransactions({ userId, limit, offset }) {
     try {
-      const xpWallet = await this.xpRepo.findByUserId(userId);
-
+      let xpWallet = await this.xpRepo.findByUserId(userId);
       if (!xpWallet) {
-        throw createError('XP wallet not found', 404);
+        xpWallet = await this.xpRepo.create(userId);
       }
-
       const { rows, total } = await this.xpRepo.getUserTransactions(xpWallet.id, limit, offset);
-
-      return {
-        transactions: rows,
-        total,
-      };
+      return { transactions: rows, total };
     } catch (error) {
       throw error;
     }
@@ -51,15 +46,14 @@ class XpService {
 
   async creditXP({ userId, xp, transactionType, sourceType }) {
     try {
-      const xpWallet = await this.xpRepo.findByUserId(userId);
-
+      let xpWallet = await this.xpRepo.findByUserId(userId);
       if (!xpWallet) {
-        throw createError('XP wallet not found', 404);
+        xpWallet = await this.xpRepo.create(userId);
       }
 
       // Prevent duplicate daily login
       if (sourceType === 'Daily Login') {
-        const recent = await this.xpRepo.checkRecentTransactionBySource(xpWallet.id, sourceType, 24);
+        const recent = await this.xpRepo.checkDailyTransactionBySource(xpWallet.id, sourceType);
         if (recent) {
           return { alreadyClaimed: true, message: 'Daily Login already claimed today' };
         }

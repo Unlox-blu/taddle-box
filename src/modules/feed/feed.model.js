@@ -54,6 +54,7 @@ const format = (row) => {
     isPinned: row.is_pinned,
     isLiked: row.is_liked || false,
     isSaved: row.is_bookmarked || false,
+    isXpClaimed: row.is_xp_claimed || false,
     pollData: row.poll_data || null,
     linkData: row.link_data || null,
     author: {

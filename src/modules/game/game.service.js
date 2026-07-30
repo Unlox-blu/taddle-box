@@ -1,5 +1,6 @@
 'use strict';
 
+const crypto = require('crypto');
 const { createError } = require('../../utils/error.util');
 
 class GameService {
@@ -305,6 +306,158 @@ class GameService {
       const gameStats = await this.gameRepo.createGameStatsByUserId({userId})
 
       return gameStats
+    } catch (error) {
+      throw error;
+    }
+  }
+  async startGameSession({ userId, gameId, mode }) {
+    try {
+      const game = await this.gameRepo.findGameById({ gameId });
+      if (!game) throw createError("Game not found", 404);
+
+      const seed = crypto.randomBytes(32).toString('hex');
+      const expiresAt = new Date(Date.now() + 5 * 60 * 1000); // 5 mins
+
+      const session = await this.gameRepo.createGameSession({
+        sessionData: { 
+          userId, 
+          gameId, 
+          seed, 
+          expiresAt,
+          metadata: { mode: mode || 'QUICK' }
+        }
+      });
+
+      return {
+        sessionId: session.id,
+        wsToken: crypto.randomBytes(16).toString('hex'), // Signed JWT in prod
+        expiresAt: session.expires_at
+      };
+    } catch (error) {
+      throw error;
+    }
+  }
+
+  async completeGameSession({ userId, sessionId, tapLog, clientNonce }) {
+    try {
+      const session = await this.gameRepo.findGameSessionById({ sessionId });
+      if (!session) throw createError("Session not found", 404);
+      if (session.user_id !== userId) throw createError("Unauthorized", 403);
+      if (session.status !== 'ACTIVE') throw createError("Session already completed or cancelled", 400);
+      if (new Date(session.expires_at) < new Date()) throw createError("Session expired", 400);
+
+      const game = await this.gameRepo.findGameById({ gameId: session.game_id });
+      if (!game) throw createError("Game not found", 404);
+
+      // Fraud Engine - Simple Version
+      const totalTaps = tapLog ? tapLog.length : 0;
+      let rawScore = 0;
+      let duration = 0;
+
+      if (game.slug === 'tap-rush') {
+        if (totalTaps > 100) throw createError("Fraud detected: Impossible TPS", 403);
+        rawScore = totalTaps;
+        duration = 30;
+      } else if (game.slug === 'memory-grid') {
+        rawScore = totalTaps;
+        duration = 60;
+      }
+
+      let calculated = this.calculateResult({ game, score: rawScore, duration });
+      
+      const isBotMode = session.metadata?.mode === 'bot';
+      if (isBotMode) {
+        calculated.xpEarned = 0; // No XP for bot practice
+        
+        await this.gameRepo.updateGameSessionStatus({
+          sessionId, status: 'COMPLETED', completedAt: new Date().toISOString()
+        });
+
+        const ledgerEntry = await this.gameRepo.createRewardLedgerEntry({
+          ledgerData: {
+            sessionId, userId, gameId: game.id,
+            validatedScore: calculated.score,
+            xpAwarded: calculated.xpEarned,
+            deviceId: null, ipAddress: null
+          }
+        });
+
+        return {
+          result: calculated.result, score: calculated.score,
+          xpEarned: calculated.xpEarned, ledgerId: ledgerEntry.id
+        };
+      }
+      
+      // PVP Resolution (Opponent SSOT)
+      const matchGroupId = session.metadata?.matchGroupId;
+      
+      // Save the score but do not credit XP yet
+      await this.gameRepo.updateGameSessionStatus({
+        sessionId, status: 'PENDING', completedAt: new Date().toISOString()
+      });
+      
+      const ledgerEntry = await this.gameRepo.createRewardLedgerEntry({
+        ledgerData: {
+          sessionId, userId, gameId: game.id,
+          validatedScore: calculated.score,
+          xpAwarded: 0, // Pending
+          deviceId: null, ipAddress: null
+        }
+      });
+
+      // Check if opponent is already done (has a PENDING or COMPLETED session in the same match group)
+      const opponentSession = await this.gameRepo.findOpponentSessionByMatchGroup({ matchGroupId, excludeUserId: userId });
+      
+      if (opponentSession && (opponentSession.status === 'PENDING' || opponentSession.status === 'COMPLETED')) {
+        // Opponent is done! We can resolve the match NOW.
+        // Compare scores
+        const myScore = calculated.score;
+        const opScore = opponentSession.validated_score || 0; // We need to fetch this from ledger ideally
+        
+        let myResult = myScore > opScore ? 'WIN' : myScore < opScore ? 'LOSS' : 'DRAW';
+        let myXp = myResult === 'WIN' ? calculated.xpEarned : 0;
+        
+        // In a real app we'd update both ledgers and wallets here and emit WS events.
+        // For now, we instantly resolve the current player.
+        await this.gameRepo.updateGameSessionStatus({
+          sessionId, status: 'COMPLETED', completedAt: new Date().toISOString()
+        });
+        
+        if (myXp > 0 && this.xpSvc) {
+          await this.xpSvc.creditXP({
+            userId, xp: myXp,
+            transactionType: 'earned', sourceType: `game_session_${sessionId}`
+          });
+        }
+        
+        // Let the opponent know the final outcome as well
+        const opResult = opScore > myScore ? 'WIN' : opScore < myScore ? 'LOSS' : 'DRAW';
+        const opXp = opResult === 'WIN' ? calculated.xpEarned : 0;
+        
+        // We update opponent ledger in the background
+        this.gameRepo.updateGameSessionStatus({
+          sessionId: opponentSession.id, status: 'COMPLETED', completedAt: new Date().toISOString()
+        }).catch(console.error);
+
+        const { emitNotification } = require('../../sockets/notification.socket');
+        emitNotification(opponentSession.user_id, {
+          type: 'MATCH_RESOLVED',
+          title: 'Match Resolved',
+          message: opResult === 'WIN' ? 'You won!' : 'You lost.',
+          payload: { result: opResult, score: opScore, xpEarned: opXp }
+        });
+
+        return {
+          result: myResult, score: myScore,
+          xpEarned: myXp, ledgerId: ledgerEntry.id
+        };
+      } else {
+        // Opponent is not done. Enter PENDING state.
+        return {
+          result: 'PENDING', score: calculated.score,
+          xpEarned: 0, ledgerId: ledgerEntry.id
+        };
+      }
     } catch (error) {
       throw error;
     }

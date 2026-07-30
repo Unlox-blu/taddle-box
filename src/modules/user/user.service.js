@@ -25,6 +25,10 @@ class UserService {
       let finalUser = user;
       if (userId && userId === user.id) {
         finalUser = await this.userRepo.findByIdPrivate(user.id);
+      } else if (userId) {
+        const isFollow = await this.followersRepo.findByFollowerIdAndFollowingId(userId, user.id);
+        finalUser.isFollowing = isFollow?.status === 'active';
+        finalUser.followStatus = isFollow?.status || null;
       }
 
       // Aggregate XP, Level, Rank

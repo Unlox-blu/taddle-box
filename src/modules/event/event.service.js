@@ -6,11 +6,12 @@ const { generateEventInvite } = require('../../integrations/calendar/calendar.se
 const { addJob } = require('../../jobs/queues/job.queue');
 
 class EventService {
-  constructor({ eventRepository, walletRepository, userRepository, saveRepository, }) {
+  constructor({ eventRepository, walletRepository, userRepository, saveRepository, xpService }) {
     this.eventRepo = eventRepository;
     this.walletRepo = walletRepository;
     this.userRepo = userRepository;
     this.saveRepo = saveRepository;
+    this.xpSvc = xpService || null;
   }
 
   async discover({ query, filter, limit, offset, userId }) {
@@ -88,6 +89,16 @@ class EventService {
                 contentType: "text/calendar; method=REQUEST",
                 }]
         await addJob('email:send_invitation_event', {...jobdata, attachments})
+      }
+
+      // Award XP for joining a free event
+      if (event.isFree && this.xpSvc) {
+        this.xpSvc.creditXP({
+          userId,
+          xp: 50,
+          transactionType: 'earned',
+          sourceType: `event_register_${eventId}`,
+        }).catch(e => console.error('Failed to award event registration XP:', e));
       }
 
       return { status: status, message: 'Registered successfully' };

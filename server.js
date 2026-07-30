@@ -51,6 +51,12 @@ const bootstrap = async () => {
     // startJobWorker()
     // logger.info('BullMQ workers started');
 
+    // Run game resolution sweeper every minute
+    const { resolveAbandonedMatches } = require('./src/modules/game/game.resolution.job');
+    setInterval(() => {
+      resolveAbandonedMatches().catch(err => logger.error('Error sweeping abandoned matches', err));
+    }, 60000);
+
     // Start server
     server.listen(config.PORT, async () => {
       logger.info(`Server running on port ${config.PORT} [${config.NODE_ENV}]`);

@@ -656,10 +656,79 @@ const createGameStatsByUserId = async ({userId}) => {
 
 
 
+const createGameSession = async ({ sessionData }) => {
+  try {
+    const { rows } = await pool.query(
+      `INSERT INTO game_sessions (user_id, game_id, seed, expires_at)
+       VALUES ($1, $2, $3, $4) RETURNING *`,
+      [sessionData.userId, sessionData.gameId, sessionData.seed, sessionData.expiresAt]
+    );
+    return rows[0];
+  } catch (error) {
+    throw error;
+  }
+};
+
+const findGameSessionById = async ({ sessionId }) => {
+  try {
+    const { rows } = await pool.query(
+      `SELECT * FROM game_sessions WHERE id = $1`,
+      [sessionId]
+    );
+    return rows[0];
+  } catch (error) {
+    throw error;
+  }
+};
+
+const updateGameSessionStatus = async ({ sessionId, status, completedAt }) => {
+  try {
+    const { rows } = await pool.query(
+      `UPDATE game_sessions SET status = $1, completed_at = $2 WHERE id = $3 RETURNING *`,
+      [status, completedAt, sessionId]
+    );
+    return rows[0];
+  } catch (error) {
+    throw error;
+  }
+};
+
+const createRewardLedgerEntry = async ({ ledgerData }, clientToUse = pool) => {
+  try {
+    const { rows } = await clientToUse.query(
+      `INSERT INTO reward_ledger (session_id, user_id, game_id, validated_score, xp_awarded, device_id, ip_address)
+       VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING *`,
+      [ledgerData.sessionId, ledgerData.userId, ledgerData.gameId, ledgerData.validatedScore, ledgerData.xpAwarded, ledgerData.deviceId, ledgerData.ipAddress]
+    );
+    return rows[0];
+  } catch (error) {
+    throw error;
+  }
+};
+
+const findOpponentSessionByMatchGroup = async ({matchGroupId, excludeUserId}) => {
+  try {
+    const {rows} = await pool.query(
+      `SELECT gs.*, rl.validated_score
+      FROM ${gameModel.GAME_SESSION_TABLE} gs
+      LEFT JOIN reward_ledger rl ON rl.session_id = gs.id
+      WHERE gs.metadata->>'matchGroupId' = $1
+      AND gs.user_id <> $2
+      LIMIT 1`,
+      [matchGroupId, excludeUserId]
+    )
+    return rows[0] || null
+  } catch (error) {
+    throw error
+  }
+}
+
 module.exports = {
                   findManyGames, findManyGamesBydDfficulty, findGameById, searchGames,
                   createGameMatche, updateGameMatcheByMatchId, completeGameMatch, findManyGameMatshs,
                   findGameMatchById, findGameStatsByUserId, createGameStatsByUserId, findLeaderboard,
                   findTournaments, findTournamentById, joinTournament, hasTournamentEntry,
-                  joinMatchmaking, findMatchmakingTicketById, cancelMatchmakingTicket
+                  joinMatchmaking, findMatchmakingTicketById, cancelMatchmakingTicket,
+                  createGameSession, findGameSessionById, updateGameSessionStatus, createRewardLedgerEntry,
+                  findOpponentSessionByMatchGroup
                  }

@@ -87,6 +87,28 @@ class GameController {
     }
   };
 
+  startGameSession = async (req, res, next) => {
+    try {
+      const userId = req.userId;
+      const { gameId, mode } = req.body;
+      const session = await this.gameSvc.startGameSession({ userId, gameId, mode });
+      res.status(201).json(apiResponse(session, "Session started successfully"));
+    } catch (error) {
+      next(error);
+    }
+  };
+
+  completeGameSession = async (req, res, next) => {
+    try {
+      const userId = req.userId;
+      const { sessionId, tapLog, clientNonce } = req.body;
+      const result = await this.gameSvc.completeGameSession({ userId, sessionId, tapLog, clientNonce });
+      res.json(apiResponse(result, "Session completed successfully"));
+    } catch (error) {
+      next(error);
+    }
+  };
+
 	  getGameStats = async (req, res, next) => {
     try {
       const userId = req.userId;

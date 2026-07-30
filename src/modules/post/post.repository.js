@@ -4,11 +4,18 @@ const pool = require('../../config/database');
 const PostModel = require('./post.model');
 
 
-const findById = async (postId) => {
+const findById = async (postId, currentUserId = null) => {
   try {
     const { rows } = await pool.query(
       `SELECT 
         ${PostModel.LIST_FIELDS},
+        EXISTS(SELECT 1 FROM post_likes pl WHERE pl.post_id = p.id AND pl.user_id = $2) AS is_liked,
+        EXISTS(SELECT 1 FROM bookmark bm WHERE bm.post_id = p.id AND bm.user_id = $2) AS is_bookmarked,
+        EXISTS(
+          SELECT 1 FROM xp_transactions xt
+          WHERE xt.xp_id = (SELECT id FROM xp WHERE user_id = $2 LIMIT 1)
+          AND xt.source_type = 'view_post_' || p.id
+        ) AS is_xp_claimed,
         COALESCE(
             json_agg(
                 json_build_object(
@@ -33,7 +40,7 @@ const findById = async (postId) => {
             p.id = $1
             AND p.deleted_at IS NULL
         GROUP BY p.id, u.id, ua.id, c.id, ca.id`,
-      [postId]
+      [postId, currentUserId]
     );
     return rows[0] || null;
   } catch (error) {
@@ -42,11 +49,18 @@ const findById = async (postId) => {
 };
 
 
-const findManyByUser = async (userId, limit, offset) => {
+const findManyByUser = async (authorId, limit, offset, currentUserId = null) => {
   try {
     const { rows } = await pool.query(
       `SELECT 
         ${PostModel.LIST_FIELDS},
+        EXISTS(SELECT 1 FROM post_likes pl WHERE pl.post_id = p.id AND pl.user_id = $4) AS is_liked,
+        EXISTS(SELECT 1 FROM bookmark bm WHERE bm.post_id = p.id AND bm.user_id = $4) AS is_bookmarked,
+        EXISTS(
+          SELECT 1 FROM xp_transactions xt
+          WHERE xt.xp_id = (SELECT id FROM xp WHERE user_id = $4 LIMIT 1)
+          AND xt.source_type = 'view_post_' || p.id
+        ) AS is_xp_claimed,
         COALESCE(
             json_agg(
                 json_build_object(
@@ -72,7 +86,7 @@ const findManyByUser = async (userId, limit, offset) => {
     GROUP BY p.id, u.id, ua.id, c.id, ca.id
     ORDER BY p.created_at DESC
      LIMIT $2 OFFSET $3`,
-      [userId, limit, offset]
+      [authorId, limit, offset, currentUserId]
     );
     const total = rows[0]?.total || 0;
     return { rows, total: parseInt(total, 10) };
@@ -81,10 +95,17 @@ const findManyByUser = async (userId, limit, offset) => {
   }
 };
 
-const findManyByCommunity = async (communityId, limit, offset) => {
+const findManyByCommunity = async (communityId, limit, offset, currentUserId = null) => {
   try {
     const { rows } = await pool.query(
       `SELECT ${PostModel.LIST_FIELDS}, 
+        EXISTS(SELECT 1 FROM post_likes pl WHERE pl.post_id = p.id AND pl.user_id = $4) AS is_liked,
+        EXISTS(SELECT 1 FROM bookmark bm WHERE bm.post_id = p.id AND bm.user_id = $4) AS is_bookmarked,
+        EXISTS(
+          SELECT 1 FROM xp_transactions xt
+          WHERE xt.xp_id = (SELECT id FROM xp WHERE user_id = $4 LIMIT 1)
+          AND xt.source_type = 'view_post_' || p.id
+        ) AS is_xp_claimed,
       COALESCE(
             json_agg(
                 json_build_object(
@@ -110,7 +131,7 @@ const findManyByCommunity = async (communityId, limit, offset) => {
     GROUP BY p.id, u.id, ua.id, c.id, ca.id
     ORDER BY p.created_at DESC
      LIMIT $2 OFFSET $3`,
-      [communityId, limit, offset]
+      [communityId, limit, offset, currentUserId]
     );
     const total = rows[0]?.total || 0;
     return { rows, total: parseInt(total, 10) };
@@ -312,18 +333,25 @@ const incrementViewCount = async (id) => {
   }
 };
 
-const search = async (query, limit, offset) => {
+const search = async (query, limit, offset, currentUserId = null) => {
   try {
     const q = query || '';
     const { rows } = await pool.query(
-      `SELECT ${PostModel.LIST_FIELDS}, COUNT(*) OVER() AS total
+      `SELECT ${PostModel.LIST_FIELDS}, COUNT(*) OVER() AS total,
+        EXISTS(SELECT 1 FROM post_likes pl WHERE pl.post_id = p.id AND pl.user_id = $4) AS is_liked,
+        EXISTS(SELECT 1 FROM bookmark bm WHERE bm.post_id = p.id AND bm.user_id = $4) AS is_bookmarked,
+        EXISTS(
+          SELECT 1 FROM xp_transactions xt
+          WHERE xt.xp_id = (SELECT id FROM xp WHERE user_id = $4 LIMIT 1)
+          AND xt.source_type = 'view_post_' || p.id
+        ) AS is_xp_claimed
      FROM ${PostModel.TABLE} p
      JOIN users u ON u.id = p.author_id
      WHERE p.deleted_at IS NULL AND p.status = 'published' AND p.visibility = 'public'
        AND ($1 = '' OR p.title ILIKE $1 OR p.content ILIKE $1)
      ORDER BY p.created_at DESC
      LIMIT $2 OFFSET $3`,
-      [`%${q}%`, limit, offset]
+      [`%${q}%`, limit, offset, currentUserId]
     );
     const total = rows[0]?.total || 0;
     return { rows, total: parseInt(total, 10) };

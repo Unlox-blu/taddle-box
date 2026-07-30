@@ -113,7 +113,11 @@ const getUserTransactions = async (xpId, limit, offset) => {
     `,
     [xpId, limit, offset]
   );
-  const total = rows.length ? rows[0] : null
+  const totalRes = await pool.query(
+    `SELECT COUNT(*) FROM ${XpModel.TRANSACTIONS_TABLE} WHERE xp_id = $1`,
+    [xpId]
+  );
+  const total = parseInt(totalRes.rows[0].count, 10);
   return {rows: rows.map(XpModel.formatTransaction), total};
 };
 
@@ -143,6 +147,21 @@ const checkRecentTransactionBySource = async (xpId, sourceType, hours) => {
     LIMIT 1
     `,
     [xpId, sourceType, hours]
+  );
+  return rows.length > 0;
+};
+
+const checkDailyTransactionBySource = async (xpId, sourceType) => {
+  const { rows } = await pool.query(
+    `
+    SELECT id
+    FROM ${XpModel.TRANSACTIONS_TABLE}
+    WHERE xp_id = $1
+    AND source_type = $2
+    AND DATE(created_at AT TIME ZONE 'UTC') = CURRENT_DATE
+    LIMIT 1
+    `,
+    [xpId, sourceType]
   );
   return rows.length > 0;
 };
@@ -184,5 +203,6 @@ module.exports = {
   getTransactionsBySource,
   updateTransactionStatus,
   checkRecentTransactionBySource,
+  checkDailyTransactionBySource,
   getTransactionCount,
 };

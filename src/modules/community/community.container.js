@@ -11,6 +11,7 @@ const CommunityController = require('./community.controller')
 const {postService} = require('../post/post.container')
 const {userRepository} = require('../user/user.container')
 const {mediaService} = require('../media/media.container')
+const {xpService} = require('../xp/xp.container')
 
 
 
@@ -19,7 +20,8 @@ const communityService = new CommunityService({
   communityRepository, 
   postService,
   userRepository,
-  mediaService
+  mediaService,
+  xpService
 })
 
 // Instantiate Controller

@@ -45,30 +45,39 @@ const getFeedLeaderboard = async ({limit}) => {
 const getCommunityLeaderboard = async ({limit}) => {
   const {rows} = await pool.query(
     `SELECT
-      c.id,
-      c.name AS title,
-      COALESCE(array_to_string(c.category, ', '), 'Community') AS subtitle,
+      u.id,
+      u.name AS title,
+      '@' || u.username AS subtitle,
       avatar_media.cloudfront_url AS avatar_url,
       (
-        COALESCE(COUNT(DISTINCT cm.user_id), 0) * 4 +
-        COALESCE(COUNT(DISTINCT p.id), 0) * 8 +
-        c.member_count
+        COALESCE(COUNT(DISTINCT p.id) FILTER (WHERE p.community_id IS NOT NULL), 0) * 8 +
+        COALESCE(COUNT(DISTINCT l.post_id), 0) * 2 +
+        COALESCE(COUNT(DISTINCT cm.community_id), 0) * 5
       )::INT AS score,
-      'Community growth' AS metric_label
-    FROM communities c
+      'Community activity' AS metric_label
+    FROM users u
     LEFT JOIN community_members cm
-      ON cm.community_id = c.id
+      ON cm.user_id = u.id
       AND cm.status = 'active'
       AND cm.joined_at >= date_trunc('week', NOW())
     LEFT JOIN posts p
-      ON p.community_id = c.id
+      ON p.author_id = u.id
+      AND p.community_id IS NOT NULL
       AND p.status = 'published'
       AND p.deleted_at IS NULL
       AND p.created_at >= date_trunc('week', NOW())
-    LEFT JOIN media AS avatar_media ON avatar_media.id = c.avatar_url
-    WHERE c.is_active = TRUE AND c.deleted_at IS NULL
-    GROUP BY c.id, c.name, c.category, c.member_count, avatar_media.cloudfront_url
-    ORDER BY score DESC, c.member_count DESC, c.name ASC
+    LEFT JOIN post_likes l
+      ON l.user_id = u.id
+      AND l.created_at >= date_trunc('week', NOW())
+    LEFT JOIN media AS avatar_media ON avatar_media.id = u.avatar_url
+    WHERE u.deleted_at IS NULL
+    GROUP BY u.id, u.name, u.username, avatar_media.cloudfront_url
+    HAVING (
+      COALESCE(COUNT(DISTINCT p.id) FILTER (WHERE p.community_id IS NOT NULL), 0) +
+      COALESCE(COUNT(DISTINCT l.post_id), 0) +
+      COALESCE(COUNT(DISTINCT cm.community_id), 0)
+    ) > 0
+    ORDER BY score DESC, u.name ASC
     LIMIT $1`,
     [limit]
   );
@@ -103,32 +112,31 @@ const getGamesLeaderboard = async ({limit}) => {
 const getEventsLeaderboard = async ({limit}) => {
   const {rows} = await pool.query(
     `SELECT
-      e.id,
-      e.title,
-      COALESCE(u.name, 'Organizer') AS subtitle,
-      NULL AS avatar_url,
+      u.id,
+      u.name AS title,
+      '@' || u.username AS subtitle,
+      avatar_media.cloudfront_url AS avatar_url,
       (
-        COALESCE(COUNT(ea.user_id), 0) * 5 +
-        e.attendee_count
+        COALESCE(COUNT(DISTINCT ea.event_id) FILTER (WHERE ea.status IN ('registered', 'attended')), 0) * 10 +
+        COALESCE(COUNT(DISTINCT ea.event_id) FILTER (WHERE ea.status = 'attended'), 0) * 15
       )::INT AS score,
-      'Event traction' AS metric_label
-    FROM events e
-    JOIN users u ON u.id = e.organizer_id
-    LEFT JOIN event_attendees ea
-      ON ea.event_id = e.id
+      'Events joined' AS metric_label
+    FROM users u
+    JOIN event_attendees ea
+      ON ea.user_id = u.id
       AND ea.status IN ('registered', 'attended')
       AND ea.registered_at >= date_trunc('week', NOW())
-    WHERE e.deleted_at IS NULL
-      AND e.status IN ('upcoming', 'ongoing', 'completed')
-      AND e.created_at >= date_trunc('week', NOW())
-    GROUP BY e.id, e.title, u.name, e.attendee_count
-    ORDER BY score DESC, e.attendee_count DESC, e.start_time ASC
+    LEFT JOIN media AS avatar_media ON avatar_media.id = u.avatar_url
+    WHERE u.deleted_at IS NULL
+    GROUP BY u.id, u.name, u.username, avatar_media.cloudfront_url
+    ORDER BY score DESC, u.name ASC
     LIMIT $1`,
     [limit]
   );
 
   return withRewards(rows, 'events');
 };
+
 
 const getWeeklyLeaderboards = async ({limit}) => {
   const [feed, community, games, events] = await Promise.all([

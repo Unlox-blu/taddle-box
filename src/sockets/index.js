@@ -5,6 +5,7 @@ const config = require('../config/app.config');
 const { socketAuthMiddleware } = require('./middleware/socket.auth');
 const { setupNotificationSocket } = require('./notification.socket');
 const { setupActiveStatus } = require('./status.socket');
+const { setupGameSocket } = require('./game.socket');
 
 let _io = null;
 
@@ -39,6 +40,7 @@ const initializeSockets = (httpServer) => {
   // Register domain-specific socket handlers
   setupActiveStatus(io);
   setupNotificationSocket(io);
+  setupGameSocket(io);
   _io = io;
   return io;
 };

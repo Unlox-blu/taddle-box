@@ -9,6 +9,11 @@ const getPersonalizedPosts = async (userId, followingIds, prefCategory, prefTags
       `SELECT ${PostModel.LIST_FIELDS},
        EXISTS(SELECT 1 FROM post_likes pl WHERE pl.post_id = p.id AND pl.user_id = $1) AS is_liked,
        EXISTS(SELECT 1 FROM bookmark bm WHERE bm.post_id = p.id AND bm.user_id = $1) AS is_bookmarked,
+       EXISTS(
+         SELECT 1 FROM xp_transactions xt
+         WHERE xt.xp_id = (SELECT id FROM xp WHERE user_id = $1 LIMIT 1)
+         AND xt.source_type = 'view_post_' || p.id
+       ) AS is_xp_claimed,
        (CASE WHEN p.author_id = ANY($2::uuid[]) THEN 10 ELSE 0 END
         + EXTRACT(EPOCH FROM (NOW() - p.published_at)) / -3600.0 * 0.5
         + p.likes_count * 0.3 + p.comments_count * 0.5) AS score,

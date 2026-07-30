@@ -4,10 +4,11 @@ const redis = require('../../config/redis');
 const PostModel = require('./feed.model');
 
 class FeedService {
-  constructor({ feedRepository, postRepository, followerRepository }) {
+  constructor({ feedRepository, postRepository, followerRepository, xpService }) {
     this.feedRepo = feedRepository;
     this.postRepo = postRepository;
-    this.followerRepo = followerRepository
+    this.followerRepo = followerRepository;
+    this.xpSvc = xpService;
   }
 
   async getPersonalizedFeed({userId, limit, offset, page}) {
@@ -77,6 +78,21 @@ class FeedService {
       }
     } catch (error) {
       throw error;
+    }
+  }
+
+  async recordPostViewXP(userId, postId) {
+    try {
+      if (!this.xpSvc) return;
+      // xpService.creditXP already deduplicates by sourceType
+      await this.xpSvc.creditXP({
+        userId,
+        xp: 2,
+        transactionType: 'earned',
+        sourceType: `view_post_${postId}`,
+      });
+    } catch (error) {
+      // swallow — non-critical
     }
   }
 

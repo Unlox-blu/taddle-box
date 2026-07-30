@@ -8,5 +8,6 @@ const { validateRequest } = require('../middlewares/validator.middleware');
 const { paginationQuerySchema } = require('../modules/feed/feed.validator');
 
 router.get('/',     verifyToken,    validateRequest({query: paginationQuerySchema}),    feedController.getFeed);
+router.post('/view-post', verifyToken, feedController.recordPostView);
 
 module.exports = router;

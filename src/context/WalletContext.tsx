@@ -6,7 +6,6 @@ import { settingsService } from '../services/settings.service';
 import { useAuth } from './AuthContext';
 import { socketClient } from '../services/socketClient';
 import * as SecureStore from 'expo-secure-store';
-import * as LocalAuthentication from 'expo-local-authentication';
 import { Alert } from 'react-native';
 
 // ─── State & Actions ──────────────────────────────────────────────────────────
@@ -197,7 +196,7 @@ export function WalletProvider({ children }: { children: React.ReactNode }) {
       );
 
       dispatch({ type: 'SET_DATA', payload: {
-        cashBalance: walletRes.data?.balanceCents || 0,
+        cashBalance: (walletRes.data?.balanceCents || 0) / 100,
         linkedUPI: walletRes.data?.linkedUpi || null,
         notifXP: settingsRes.data?.notifXP ?? true,
         notifWithdraw: settingsRes.data?.notifWithdraw ?? true,
@@ -213,9 +212,9 @@ export function WalletProvider({ children }: { children: React.ReactNode }) {
   const value: WalletContextType = {
     wallet,
     fetchWalletData,
-    withdraw: async (amountCents) => {
+    withdraw: async (amountRupees) => {
       try {
-        const res = await walletService.initiateWithdrawal(amountCents);
+        const res = await walletService.initiateWithdrawal(amountRupees * 100);
         await fetchWalletData(); // optional, balance won't deduct till webhook 
         return res.data?.handoffUrl;
       } catch (e) {

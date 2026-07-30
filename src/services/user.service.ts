@@ -26,4 +26,14 @@ export const userService = {
     const res = await apiClient.delete(`/users/${username}/unfollow`);
     return res.data;
   },
+
+  getFollowers: async (username: string) => {
+    const res = await apiClient.get(`/users/${username}/followers`);
+    return res.data;
+  },
+
+  getFollowing: async (username: string) => {
+    const res = await apiClient.get(`/users/${username}/following`);
+    return res.data;
+  },
 };

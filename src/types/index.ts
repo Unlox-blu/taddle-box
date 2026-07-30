@@ -21,6 +21,8 @@ export type HomeStackParamList = {
 export type CommunityStackParamList = {
   CommunityList:   undefined;
   CommunityDetail: { communitySlug: string };
+  CommunitySettings: { communitySlug: string };
+  ManageRequests: { communityId: string };
 };
 
 export type AuthStackParamList = {
@@ -156,6 +158,8 @@ export interface Game {
   imageUrl?: string;
   maxXp: number;
   isHot: boolean;
+  maxPlayers?: number;
+  entryFee?: number;
 }
 
 export interface Transaction {

@@ -134,16 +134,12 @@ export default function SideDrawer({
     {
       icon: "shield-checkmark-outline",
       label: "Privacy Policy",
-      onPress: () => {
-        onClose();
-      },
+      onPress: () => closeAndNavigateStack("Privacy"),
     },
     {
       icon: "document-text-outline",
       label: "User Agreement",
-      onPress: () => {
-        onClose();
-      },
+      onPress: () => closeAndNavigateStack("Terms"),
     },
     {
       icon: "settings-outline",

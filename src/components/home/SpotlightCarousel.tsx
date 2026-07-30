@@ -8,6 +8,7 @@ import {
   Dimensions,
   ListRenderItem,
   ActivityIndicator,
+  ImageBackground,
 } from "react-native";
 import { LinearGradient } from "expo-linear-gradient";
 import { Ionicons } from "@expo/vector-icons";
@@ -15,6 +16,9 @@ import { useNavigation } from "@react-navigation/native";
 import { fontSizes, spacing, radii, type ColorPalette } from "../../theme";
 import { useThemeColors } from "../../context/ThemeContext";
 import { highlightService, Highlight } from "../../services/highlight.service";
+import { HTML5_GAMES } from "../../games/htmlGames";
+import { eventService } from "../../services/event.service";
+import { gamesService } from "../../services/games.service";
 
 const { width: SW } = Dimensions.get("window");
 const CARD_W = SW - spacing.lg * 2;
@@ -41,6 +45,10 @@ function makeStyles(c: ColorPalette) {
       overflow: "hidden",
       borderWidth: 1,
       borderColor: c.border,
+    },
+    overlay: {
+      ...StyleSheet.absoluteFillObject,
+      backgroundColor: "rgba(0,0,0,0.4)",
     },
     tag: {
       position: "absolute",
@@ -155,8 +163,48 @@ export default function SpotlightCarousel() {
   const fetchHighlights = async () => {
     try {
       setLoading(true);
-      const res = await highlightService.getHighlights();
-      setSpotlights(res.data || []);
+      const [hlRes, eventsRes, trendingRes] = await Promise.all([
+        highlightService.getHighlights(),
+        eventService.discoverEvents({ limit: 1 }).catch(() => ({ data: [] })),
+        gamesService.getTrendingGames(3).catch(() => ({ data: [] })),
+      ]);
+      
+      const backendHighlights = hlRes.data || [];
+      
+      const nextEvent = eventsRes.data?.[0];
+      const eventHighlight: Highlight[] = nextEvent ? [{
+        id: `event-${nextEvent.id}`,
+        title: nextEvent.title,
+        subtitle: nextEvent.description || 'Upcoming Event',
+        type: 'event',
+        sourceId: nextEvent.id,
+        tag: 'Featured Event',
+        tagColor: '#F59E0B',
+        emoji: '🎉',
+        gradient: ['#1A1200', '#78350F'],
+        meta: new Date(nextEvent.rawDate).toLocaleString(undefined, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }),
+        imageUrl: nextEvent.banner,
+      }] : [];
+
+      const trendingBackend = trendingRes.data || [];
+      const trendingGames: Highlight[] = trendingBackend.map(bg => {
+        const localGame = HTML5_GAMES.find(g => g.id === bg.id);
+        return {
+          id: `game-${bg.id}`,
+          title: bg.name,
+          subtitle: 'Trending Game · Play Now',
+          type: 'game',
+          sourceId: bg.id,
+          tag: 'Trending Game',
+          tagColor: '#EF4444',
+          emoji: localGame?.emoji || '🎮',
+          gradient: (localGame?.gradient || ['#374151', '#111827']) as [string, string],
+          meta: localGame?.averageDurationLabel || 'Play',
+          imageUrl: localGame?.imageUrl,
+        };
+      });
+
+      setSpotlights([...backendHighlights, ...eventHighlight, ...trendingGames]);
     } catch (e) {
       console.error("Failed to fetch highlights", e);
     } finally {
@@ -304,42 +352,85 @@ export default function SpotlightCarousel() {
         style={{ width: CARD_W }}
         onPress={() => handlePress(item)}
       >
-        <LinearGradient
-          colors={(item.gradient || style.gradient) as [string, string]}
-          style={styles.card}
-          start={{ x: 0, y: 0 }}
-          end={{ x: 1, y: 1 }}
-        >
-          <View
-            style={[
-              styles.tag,
-              {
-                borderColor: `${item.tagColor || style.tagColor}55`,
-                backgroundColor: `${item.tagColor || style.tagColor}1A`,
-              },
-            ]}
+        {item.imageUrl ? (
+          <ImageBackground
+            source={{ uri: item.imageUrl }}
+            style={[styles.card, { padding: 0, borderWidth: 0 }]}
+            imageStyle={{ borderRadius: radii.lg }}
           >
-            <Text
+            <View style={styles.overlay} />
+            <LinearGradient
+              colors={["transparent", "rgba(0,0,0,0.85)"]}
+              style={{ flex: 1, padding: spacing.lg, justifyContent: "flex-end", borderRadius: radii.lg }}
+            >
+              <View
+                style={[
+                  styles.tag,
+                  {
+                    borderColor: `${item.tagColor || style.tagColor}55`,
+                    backgroundColor: `${item.tagColor || style.tagColor}1A`,
+                  },
+                ]}
+              >
+                <Text
+                  style={[
+                    styles.tagText,
+                    { color: item.tagColor || style.tagColor },
+                  ]}
+                >
+                  {item.tag || style.tag}
+                </Text>
+              </View>
+              <Text style={styles.cardTitle}>{item.title}</Text>
+              <Text style={styles.cardSubtitle}>
+                {(item as any).subtitle || (item as any).description}
+              </Text>
+              <Text style={styles.cardMeta}>
+                {item.meta ||
+                  new Date(
+                    (item as any).createdAt || Date.now(),
+                  ).toLocaleDateString()}
+              </Text>
+            </LinearGradient>
+          </ImageBackground>
+        ) : (
+          <LinearGradient
+            colors={(item.gradient || style.gradient) as [string, string]}
+            style={styles.card}
+            start={{ x: 0, y: 0 }}
+            end={{ x: 1, y: 1 }}
+          >
+            <View
               style={[
-                styles.tagText,
-                { color: item.tagColor || style.tagColor },
+                styles.tag,
+                {
+                  borderColor: `${item.tagColor || style.tagColor}55`,
+                  backgroundColor: `${item.tagColor || style.tagColor}1A`,
+                },
               ]}
             >
-              {item.tag || style.tag}
+              <Text
+                style={[
+                  styles.tagText,
+                  { color: item.tagColor || style.tagColor },
+                ]}
+              >
+                {item.tag || style.tag}
+              </Text>
+            </View>
+            <Text style={styles.emoji}>{item.emoji || style.emoji}</Text>
+            <Text style={styles.cardTitle}>{item.title}</Text>
+            <Text style={styles.cardSubtitle}>
+              {(item as any).subtitle || (item as any).description}
             </Text>
-          </View>
-          <Text style={styles.emoji}>{item.emoji || style.emoji}</Text>
-          <Text style={styles.cardTitle}>{item.title}</Text>
-          <Text style={styles.cardSubtitle}>
-            {(item as any).subtitle || (item as any).description}
-          </Text>
-          <Text style={styles.cardMeta}>
-            {item.meta ||
-              new Date(
-                (item as any).createdAt || Date.now(),
-              ).toLocaleDateString()}
-          </Text>
-        </LinearGradient>
+            <Text style={styles.cardMeta}>
+              {item.meta ||
+                new Date(
+                  (item as any).createdAt || Date.now(),
+                ).toLocaleDateString()}
+            </Text>
+          </LinearGradient>
+        )}
       </TouchableOpacity>
     );
   };

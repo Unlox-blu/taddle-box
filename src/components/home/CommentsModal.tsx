@@ -16,7 +16,6 @@ import type { HomeStackParamList, Post } from '../../types';
 import { commentService, Comment } from '../../services/comment.service';
 
 const { height: SCREEN_H } = Dimensions.get('window');
-const SHEET_HEIGHT = SCREEN_H * 0.7;
 
 interface Props {
   visible: boolean;
@@ -32,8 +31,7 @@ function makeStyles(c: ColorPalette) {
       justifyContent: 'flex-end',
     },
     sheet: {
-      height: '100%',
-      maxHeight: SHEET_HEIGHT,
+      flex: 1,
       backgroundColor: c.bg.base,
       borderTopLeftRadius: radii.xl,
       borderTopRightRadius: radii.xl,
@@ -50,10 +48,11 @@ function makeStyles(c: ColorPalette) {
     },
     header: {
       flexDirection: 'row', alignItems: 'center',
-      paddingHorizontal: spacing.lg, paddingBottom: 12,
+      paddingHorizontal: spacing.md, paddingVertical: 12,
       borderBottomWidth: 1, borderBottomColor: c.border,
     },
-    title: { flex: 1, textAlign: 'center', fontSize: fontSizes.md, fontWeight: '800', color: c.text.primary },
+    backBtn: { padding: 8, marginRight: 8 },
+    title: { flex: 1, fontSize: fontSizes.md, fontWeight: '800', color: c.text.primary },
     listContent: { paddingHorizontal: spacing.lg, paddingVertical: spacing.md, flexGrow: 1 },
     empty: { flex: 1, alignItems: 'center', justifyContent: 'center', paddingTop: 60 },
     emptyTitle: { fontSize: fontSizes.lg, fontWeight: '700', color: c.text.primary, marginBottom: 6 },
@@ -346,9 +345,11 @@ export default function CommentsModal({ visible, onClose, post }: Props) {
           <View style={StyleSheet.absoluteFill} />
         </TouchableWithoutFeedback>
 
-        <Animated.View style={[styles.sheet, { transform: [{ translateY }] }]}>
-          <View style={styles.dragHandle} />
+        <Animated.View style={[styles.sheet, { transform: [{ translateY }], marginTop: insets.top }]}>
           <View style={styles.header}>
+            <TouchableOpacity onPress={handleClose} style={styles.backBtn}>
+              <Ionicons name="arrow-back" size={24} color={colors.text.primary} />
+            </TouchableOpacity>
             <Text style={styles.title}>Comments</Text>
           </View>
 

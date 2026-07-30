@@ -27,6 +27,16 @@ export const communityService = {
     return response.data;
   },
 
+  getMembers: async (id: string, page = 1, limit = 20): Promise<{ data: any[]; meta?: any }> => {
+    const response = await apiClient.get(`/communities/${id}/members?page=${page}&limit=${limit}`);
+    return response.data;
+  },
+
+  removeMember: async (communityId: string, userId: string) => {
+    const response = await apiClient.delete(`/communities/${communityId}/members/${userId}`);
+    return response.data;
+  },
+
   createCommunity: async (data: Partial<Community>) => {
     const response = await apiClient.post('/communities/create-community', data);
     return response.data;
@@ -44,6 +54,26 @@ export const communityService = {
 
   rejectRequest: async (communityId: string, userId: string) => {
     const response = await apiClient.delete(`/communities/${communityId}/members/${userId}`);
+    return response.data;
+  },
+
+  updateCommunity: async (communityId: string, data: any) => {
+    const response = await apiClient.patch(`/communities/${communityId}/update-community`, data);
+    return response.data;
+  },
+
+  updateAvatar: async (communityId: string, avatarMediaId: string) => {
+    const response = await apiClient.patch(`/communities/${communityId}/update-community-avatar`, { avatarMediaId });
+    return response.data;
+  },
+
+  updateBanner: async (communityId: string, bannerMediaId: string) => {
+    const response = await apiClient.patch(`/communities/${communityId}/update-community-banner`, { bannerMediaId });
+    return response.data;
+  },
+
+  deleteCommunity: async (communityId: string) => {
+    const response = await apiClient.delete(`/communities/${communityId}`);
     return response.data;
   }
 };

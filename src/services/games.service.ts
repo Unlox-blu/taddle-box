@@ -60,15 +60,17 @@ export const gamesService = {
     return response.data;
   },
 
+  getTrendingGames: async (limit = 3): Promise<{ data: Game[] }> => {
+    const response = await apiClient.get(`/game/trending?limit=${limit}`);
+    return response.data;
+  },
+
   getGameDetail: async (id: string): Promise<{ data: Game }> => {
     const response = await apiClient.get(`/game/${id}`);
     return response.data;
   },
 
-  getStats: async () => {
-    const response = await apiClient.get('/game/game-stats');
-    return response.data;
-  },
+
 
   getMatchHistory: async (page = 1, limit = 20) => {
     const response = await apiClient.get(`/game/match/history?page=${page}&limit=${limit}`);

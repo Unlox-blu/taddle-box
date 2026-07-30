@@ -15,6 +15,9 @@ interface SharedFeedProps {
   refreshing?: boolean;
   onRefresh?: () => void;
   onEndReached?: () => void;
+  onEndReachedThreshold?: number;
+  onDelete?: (post: Post) => void;
+  isAdmin?: boolean;
   ListHeaderComponent?: React.ReactElement | null;
   ListEmptyComponent?: React.ReactElement | null;
   ListFooterComponent?: React.ReactElement | null;
@@ -30,6 +33,9 @@ export default function SharedFeed({
   refreshing,
   onRefresh,
   onEndReached,
+  onEndReachedThreshold,
+  onDelete,
+  isAdmin,
   ListHeaderComponent,
   ListEmptyComponent,
   ListFooterComponent,
@@ -182,7 +188,7 @@ export default function SharedFeed({
           />
         }
         onEndReached={onEndReached}
-        onEndReachedThreshold={0.5}
+        onEndReachedThreshold={onEndReachedThreshold || 0.5}
         ListHeaderComponent={enhancedHeader}
         ListEmptyComponent={ListEmptyComponent}
         ListFooterComponent={ListFooterComponent}
@@ -198,6 +204,8 @@ export default function SharedFeed({
             onShare={() => handleShare(item)}
             onLike={() => handleLikeInternal(item.id)}
             onSave={() => handleSaveInternal(item.id)}
+            onDelete={onDelete}
+            showDelete={currentUser?.id === (item as any)?.author?.id || currentUser?.id === (item as any)?.author_id || currentUser?.id === (item as any)?.authorId || isAdmin}
           />
         )}
       />

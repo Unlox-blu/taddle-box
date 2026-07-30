@@ -19,36 +19,22 @@ export type GameMatch = {
   playedAt:   string;
 };
 
-export type PlayerStats = {
-  totalXP:       number;
-  gamesPlayed:   number;
-  wins:          number;
-  currentStreak: number;
-  bestStreak:    number;
-};
-
 // ─── State & Actions ──────────────────────────────────────────────────────────
 
 type State = {
   matches: GameMatch[];
-  stats:   PlayerStats;
+
   isLoading: boolean;
 };
 
 type Action =
-  | { type: 'SET_DATA'; matches: GameMatch[]; stats: PlayerStats }
+  | { type: 'SET_DATA'; matches: GameMatch[] }
   | { type: 'SET_LOADING'; isLoading: boolean }
-  | { type: 'ADD_MATCH'; match: GameMatch; newStats: PlayerStats };
+  | { type: 'ADD_MATCH'; match: GameMatch };
 
 const INITIAL: State = {
   matches: [],
-  stats: {
-    totalXP:       0,
-    gamesPlayed:   0,
-    wins:          0,
-    currentStreak: 0,
-    bestStreak:    0,
-  },
+
   isLoading: false,
 };
 
@@ -81,14 +67,13 @@ const formatMatch = (match: any): GameMatch => ({
 function reducer(state: State, action: Action): State {
   switch (action.type) {
     case 'SET_DATA':
-      return { ...state, matches: action.matches, stats: action.stats, isLoading: false };
+      return { ...state, matches: action.matches, isLoading: false };
     case 'SET_LOADING':
       return { ...state, isLoading: action.isLoading };
     case 'ADD_MATCH': {
       return {
+        ...state,
         matches: [action.match, ...state.matches],
-        stats: action.newStats,
-        isLoading: state.isLoading
       };
     }
     default:
@@ -100,7 +85,7 @@ function reducer(state: State, action: Action): State {
 
 type GamesContextType = {
   matches:  GameMatch[];
-  stats:    PlayerStats;
+
   isLoading: boolean;
   fetchGamesData: () => Promise<void>;
   addMatch: (matchData: any) => Promise<void>;
@@ -108,7 +93,7 @@ type GamesContextType = {
 
 const GamesContext = createContext<GamesContextType>({
   matches:  [],
-  stats:    INITIAL.stats,
+
   isLoading: false,
   fetchGamesData: async () => {},
   addMatch: async () => {},
@@ -120,22 +105,11 @@ export function GamesProvider({ children }: { children: React.ReactNode }) {
   const fetchGamesData = useCallback(async () => {
     dispatch({ type: 'SET_LOADING', isLoading: true });
     try {
-      const [statsRes, historyRes] = await Promise.all([
-        gamesService.getStats(),
-        gamesService.getMatchHistory(1, 20),
-      ]);
-      const stats = statsRes?.data || INITIAL.stats;
+      const historyRes = await gamesService.getMatchHistory(1, 20);
       const history = Array.isArray(historyRes?.data) ? historyRes.data.map(formatMatch) : [];
       dispatch({
         type: 'SET_DATA',
         matches: history,
-        stats: {
-          totalXP: stats.totalXP || 0,
-          gamesPlayed: stats.gamesPlayed || 0,
-          wins: stats.wins || 0,
-          currentStreak: stats.currentStreak || 0,
-          bestStreak: stats.bestStreak || 0,
-        },
       });
     } catch (e) {
       console.error('Failed to fetch games data', e);
@@ -146,23 +120,12 @@ export function GamesProvider({ children }: { children: React.ReactNode }) {
   return (
     <GamesContext.Provider value={{
       matches:  state.matches,
-      stats:    state.stats,
       isLoading: state.isLoading,
       fetchGamesData,
       addMatch: async (matchData) => {
         const normalized = matchData?.result === 'WIN' || matchData?.result === 'LOSS'
           ? formatMatch(matchData)
           : matchData;
-        const isWin = normalized.result === 'win';
-        const newStats: PlayerStats = {
-          totalXP: state.stats.totalXP + (normalized.xpEarned || 0),
-          gamesPlayed: state.stats.gamesPlayed + 1,
-          wins: state.stats.wins + (isWin ? 1 : 0),
-          currentStreak: isWin ? state.stats.currentStreak + 1 : 0,
-          bestStreak: isWin
-            ? Math.max(state.stats.bestStreak, state.stats.currentStreak + 1)
-            : state.stats.bestStreak,
-        };
 
         const match: GameMatch = {
           id: normalized.id || `local-${Date.now()}`,
@@ -171,7 +134,7 @@ export function GamesProvider({ children }: { children: React.ReactNode }) {
           ...normalized,
         };
 
-        dispatch({ type: 'ADD_MATCH', match, newStats });
+        dispatch({ type: 'ADD_MATCH', match });
       },
     }}>
       {children}

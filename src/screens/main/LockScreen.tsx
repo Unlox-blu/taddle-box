@@ -204,19 +204,13 @@ export default function LockScreen() {
           style={styles.backBtnWrapper}
           onPress={() => navigation.goBack()}
         >
-          <Ionicons
-            name="arrow-back"
-            size={24}
-            color={colors.text.primary}
-            style={{
-              paddingTop: 30,
-              paddingRight: 15,
-              paddingBottom: 50,
-              paddingLeft: 10,
-              backgroundColor: "#f0f0f0",
-              borderRadius: 50,
-            }}
-          />
+          <View style={[styles.backBtnInner, { backgroundColor: colors.bg.surface }]}>
+            <Ionicons
+              name="arrow-back"
+              size={24}
+              color={colors.text.primary}
+            />
+          </View>
         </TouchableOpacity>
       )}
       <PinPad
@@ -250,7 +244,10 @@ const styles = StyleSheet.create({
     top: spacing.md,
     left: spacing.md,
     zIndex: 10,
+  },
+  backBtnInner: {
     padding: spacing.sm,
+    borderRadius: 50,
   },
   logoutBtn: {
     padding: spacing.md,

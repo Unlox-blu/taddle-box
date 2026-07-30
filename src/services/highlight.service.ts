@@ -11,6 +11,7 @@ export interface Highlight {
   gradient: [string, string];
   type?: string;
   sourceId?: string;
+  imageUrl?: string;
 }
 
 export const highlightService = {

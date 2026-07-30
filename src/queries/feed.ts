@@ -2,11 +2,11 @@ import { useInfiniteQuery } from '@tanstack/react-query';
 import { queryKeys } from '../lib/queryKeys';
 import { postsService } from '../services/posts.service';
 
-export function useFeed() {
+export function useFeed(hashtag?: string) {
   return useInfiniteQuery({
-    queryKey: queryKeys.feed,
+    queryKey: [...queryKeys.feed, hashtag],
     queryFn: async ({ pageParam = 1 }) => {
-      const res = await postsService.getFeed(pageParam, 20);
+      const res = await postsService.getFeed(pageParam, 20, hashtag);
       return Array.isArray(res) ? res : (res.data || []);
     },
     getNextPageParam: (lastPage, allPages) => {

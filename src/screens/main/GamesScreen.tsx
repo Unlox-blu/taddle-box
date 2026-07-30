@@ -41,6 +41,12 @@ import MainHeader from "../../components/common/MainHeader";
 import HtmlGameWebView from "../../components/games/HtmlGameWebView";
 import { HTML5_GAMES } from "../../games/htmlGames";
 import type { HtmlGameDefinition, HtmlGameResult } from "../../games/types";
+import MatchModeModal, {
+  MatchMode,
+} from "../../components/games/MatchModeModal";
+import { apiClient } from "../../services/apiClient";
+import type { User } from "../../types";
+import { useAuth } from "../../context/AuthContext";
 
 type ActiveTab = "games" | "tournaments" | "history";
 type ScreenModal = "none" | "history";
@@ -84,8 +90,9 @@ export default function GamesScreen() {
   const navigation =
     useNavigation<NativeStackNavigationProp<HomeStackParamList>>();
   const colors = useThemeColors();
+  const { user } = useAuth();
   const styles = useMemo(() => makeStyles(colors), [colors]);
-  const { stats, matches, fetchGamesData } = useGames();
+  const { matches, fetchGamesData } = useGames();
 
   const [activeTab, setActiveTab] = useState<ActiveTab>("games");
   const [screenModal, setScreenModal] = useState<ScreenModal>("none");
@@ -97,22 +104,28 @@ export default function GamesScreen() {
   const [activeSession, setActiveSession] = useState<ActiveSession | null>(
     null,
   );
+  const [matchModalVisible, setMatchModalVisible] = useState(false);
+  const [selectedGame, setSelectedGame] = useState<HtmlGameDefinition | null>(
+    null,
+  );
 
-  const winRate =
-    stats.gamesPlayed > 0
-      ? Math.round((stats.wins / stats.gamesPlayed) * 100)
-      : 0;
+  const onlinePlayers = useMemo(() => {
+    return 342 + new Date().getHours() * 12 + (new Date().getMinutes() % 10);
+  }, []);
 
   const loadGamesData = useCallback(async () => {
     setLoading(true);
     try {
-      const [tournamentsRes] = await Promise.all([
-        gamesService.getTournaments(1, 20),
-        fetchGamesData(),
-      ]);
-      setTournaments(tournamentsRes.data || []);
+      await fetchGamesData();
+    } catch (e) {
+      console.warn("Failed to fetch games history", e);
+    }
+    try {
+      const tournamentsRes = await gamesService.getTournaments(1, 20);
+      setTournaments(tournamentsRes?.data || []);
     } catch (error) {
-      console.warn("Failed to load games data", error);
+      console.warn("Failed to load tournaments", error);
+      setTournaments([]);
     } finally {
       setLoading(false);
     }
@@ -173,36 +186,90 @@ export default function GamesScreen() {
     setQueueRequest(request);
   };
 
-  const handleMatched = useCallback((request: QueueRequest, response: MatchmakingResponse) => {
-    if (!response.match?.id) {
-      Alert.alert('Matchmaking Error', 'Matched session did not include a playable match.');
-      return;
-    }
+  const handleMatched = useCallback(
+    (request: QueueRequest, response: MatchmakingResponse) => {
+      if (!response.match?.id) {
+        Alert.alert(
+          "Matchmaking Error",
+          "Matched session did not include a playable match.",
+        );
+        return;
+      }
 
-    setQueueRequest(null);
-    
-    // Convert game_match into secure game_session
-    const matchGroupId = response.match.metadata?.matchGroupId;
-    
-    gamesService.startGameSession(request.game.id, request.mode, matchGroupId)
-      .then((res) => {
-        setActiveSession({
-          game: request.game,
-          mode: request.mode,
-          matchId: res.data.sessionId,
-          wsToken: res.data.wsToken,
-          opponentName: response.opponent?.name || response.opponent?.username || response.ticket?.opponentName || 'Matched Player',
-          tournamentId: request.tournamentId,
+      setQueueRequest(null);
+
+      // Convert game_match into secure game_session
+      const matchGroupId = response.match.metadata?.matchGroupId;
+
+      gamesService
+        .startGameSession(request.game.id, request.mode, matchGroupId)
+        .then((res) => {
+          setActiveSession({
+            game: request.game,
+            mode: request.mode,
+            matchId: res.data.sessionId,
+            wsToken: res.data.wsToken,
+            opponentName:
+              response.opponent?.name ||
+              response.opponent?.username ||
+              response.ticket?.opponentName ||
+              "Matched Player",
+            tournamentId: request.tournamentId,
+          });
+        })
+        .catch((e) => {
+          Alert.alert("Error", "Failed to initialize secure game session.");
         });
-      })
-      .catch((e) => {
-        Alert.alert('Error', 'Failed to initialize secure game session.');
-      });
-  }, []);
+    },
+    [],
+  );
 
   const handleSessionClose = () => {
     setActiveSession(null);
     loadGamesData();
+  };
+
+  const handleModeSelect = async (mode: MatchMode, opponents?: User[]) => {
+    setMatchModalVisible(false);
+    if (!selectedGame) return;
+
+    if (mode === "bot") {
+      startBotSession(selectedGame);
+    } else if (mode === "auto") {
+      startQueue({ game: selectedGame, mode: "quick" });
+    } else if (mode === "manual" && opponents && opponents.length > 0) {
+      try {
+        // 1. Start the queue/bot session or a private match.
+        // For now we will do quick match or bot match as fallback since private match is not fully defined on backend.
+        // But we will definitely send push notifications to invitees.
+
+        // Let's create a match group ID for the invites
+        const matchGroupId = `group-${Date.now()}`;
+
+        // 2. Send push notifications to opponents
+        for (const opp of opponents) {
+          await apiClient
+            .post("/push/send", {
+              userId: opp.id,
+              title: "Game Invite! 🎮",
+              message: `${user?.name || "A friend"} invited you to play ${selectedGame.name}!`,
+              data: { gameId: selectedGame.id, matchGroupId },
+            })
+            .catch(console.error);
+        }
+
+        Alert.alert(
+          "Invites Sent!",
+          "Your friends have been notified. Waiting for them to join...",
+        );
+        // Here we could join matchmaking with a specific matchGroupId
+        // For now, we'll start queue in tournament/quick mode so they can theoretically match.
+        startQueue({ game: selectedGame, mode: "quick" });
+      } catch (e) {
+        console.error(e);
+        Alert.alert("Error", "Failed to send invites.");
+      }
+    }
   };
 
   return (
@@ -229,29 +296,6 @@ export default function GamesScreen() {
             color={colors.text.secondary}
           />
         </TouchableOpacity>
-      </View>
-
-      <View style={styles.statsRow}>
-        <StatTile
-          label="Game XP"
-          value={stats.totalXP.toLocaleString()}
-          color={colors.xpGold}
-        />
-        <StatTile
-          label="Played"
-          value={String(stats.gamesPlayed)}
-          color={colors.primaryLight}
-        />
-        <StatTile
-          label="Win Rate"
-          value={`${winRate}%`}
-          color={colors.cyanLight}
-        />
-        <StatTile
-          label="Streak"
-          value={String(stats.currentStreak)}
-          color={colors.success}
-        />
       </View>
 
       <View style={styles.tabRow}>
@@ -301,8 +345,10 @@ export default function GamesScreen() {
                   key={game.id}
                   game={game}
                   startingId={startingId}
-                  onPractice={() => startBotSession(game)}
-                  onMatch={() => startQueue({ game, mode: "quick" })}
+                  onPlayClick={() => {
+                    setSelectedGame(game);
+                    setMatchModalVisible(true);
+                  }}
                 />
               ))}
             </View>
@@ -366,6 +412,21 @@ export default function GamesScreen() {
         request={queueRequest}
         onClose={() => setQueueRequest(null)}
         onMatched={handleMatched}
+        onTimeoutFallback={(req) => {
+          setQueueRequest(null);
+          Alert.alert(
+            "No Opponent Found",
+            "No players are currently available. You have been placed in a match against an AI bot.",
+          );
+          startBotSession(req.game);
+        }}
+      />
+
+      <MatchModeModal
+        visible={matchModalVisible}
+        game={selectedGame}
+        onClose={() => setMatchModalVisible(false)}
+        onSelectMode={handleModeSelect}
       />
 
       {activeSession && (
@@ -377,27 +438,6 @@ export default function GamesScreen() {
         matches={matches}
         onClose={() => setScreenModal("none")}
       />
-    </View>
-  );
-}
-
-function StatTile({
-  label,
-  value,
-  color,
-}: {
-  label: string;
-  value: string;
-  color: string;
-}) {
-  const colors = useThemeColors();
-  const styles = useMemo(() => makeStyles(colors), [colors]);
-  return (
-    <View style={styles.statTile}>
-      <Text style={[styles.statValue, { color }]} numberOfLines={1}>
-        {value}
-      </Text>
-      <Text style={styles.statLabel}>{label}</Text>
     </View>
   );
 }
@@ -428,13 +468,11 @@ function SectionHeader({
 function GameCard({
   game,
   startingId,
-  onPractice,
-  onMatch,
+  onPlayClick,
 }: {
   game: HtmlGameDefinition;
   startingId: string | null;
-  onPractice: () => void;
-  onMatch: () => void;
+  onPlayClick: () => void;
 }) {
   const colors = useThemeColors();
   const styles = useMemo(() => makeStyles(colors), [colors]);
@@ -463,17 +501,11 @@ function GameCard({
         <Text style={styles.gameTitle} numberOfLines={1}>
           {game.name}
         </Text>
-        <Text style={styles.gameMeta}>Up to {game.maxXp} XP</Text>
+        <Text style={styles.gameMeta}>Earn Up to {game.maxXp} XP</Text>
 
         <TouchableOpacity
           style={{ marginTop: 12 }}
-          onPress={() => {
-            Alert.alert("Select Mode", "Choose match type for " + game.name, [
-              { text: "Bot Match", onPress: onPractice },
-              { text: "Online Match", onPress: onMatch },
-              { text: "Cancel", style: "cancel" },
-            ]);
-          }}
+          onPress={onPlayClick}
           disabled={isStarting}
         >
           <LinearGradient
@@ -485,7 +517,9 @@ function GameCard({
             ) : (
               <Ionicons name="play" size={16} color="#fff" />
             )}
-            <Text style={styles.primaryButtonText}>PLAY</Text>
+            <Text style={styles.primaryButtonText}>
+              PLAY | {game.entryFee || 0} XP
+            </Text>
           </LinearGradient>
         </TouchableOpacity>
       </View>
@@ -595,15 +629,18 @@ function QueueModal({
   request,
   onClose,
   onMatched,
+  onTimeoutFallback,
 }: {
   request: QueueRequest | null;
   onClose: () => void;
   onMatched: (request: QueueRequest, response: MatchmakingResponse) => void;
+  onTimeoutFallback?: (request: QueueRequest) => void;
 }) {
   const colors = useThemeColors();
   const styles = useMemo(() => makeStyles(colors), [colors]);
   const [ticketId, setTicketId] = useState<string | null>(null);
   const [statusText, setStatusText] = useState("Joining queue...");
+  const [countdown, setCountdown] = useState<number | null>(null);
   const [closing, setClosing] = useState(false);
   const matchedRef = useRef(false);
 
@@ -611,9 +648,11 @@ function QueueModal({
     if (!request) return;
     let cancelled = false;
     let poll: ReturnType<typeof setInterval> | null = null;
+    let fallbackTimer: ReturnType<typeof setInterval> | null = null;
     matchedRef.current = false;
     setTicketId(null);
     setStatusText("Joining queue...");
+    setCountdown(request.mode === "quick" ? 10 : null);
 
     const handleResponse = (response: MatchmakingResponse) => {
       if (cancelled) return;
@@ -655,6 +694,22 @@ function QueueModal({
               setStatusText("Still waiting. Pulling latest queue status..."),
             );
         }, 2500);
+
+        if (request.mode === "quick" && onTimeoutFallback) {
+          let timeRemaining = 10;
+          fallbackTimer = setInterval(() => {
+            if (cancelled || matchedRef.current) return;
+            timeRemaining--;
+            setCountdown(timeRemaining);
+            if (timeRemaining <= 0) {
+              if (fallbackTimer) clearInterval(fallbackTimer);
+              if (poll) clearInterval(poll);
+              cancelled = true;
+              gamesService.cancelMatchmakingTicket(id).catch(() => {});
+              onTimeoutFallback(request);
+            }
+          }, 1000);
+        }
       })
       .catch((error: any) => {
         setStatusText(
@@ -665,8 +720,9 @@ function QueueModal({
     return () => {
       cancelled = true;
       if (poll) clearInterval(poll);
+      if (fallbackTimer) clearInterval(fallbackTimer);
     };
-  }, [request, onMatched]);
+  }, [request, onMatched, onTimeoutFallback]);
 
   const closeQueue = async () => {
     setClosing(true);
@@ -691,14 +747,32 @@ function QueueModal({
     >
       <View style={styles.queueBackdrop}>
         <View style={styles.queuePanel}>
-          <ActivityIndicator size="large" color={colors.primaryLight} />
+          <View style={styles.queueHeader}>
+            <ActivityIndicator
+              size="large"
+              color={colors.primaryLight}
+              style={{ marginBottom: 16 }}
+            />
+            {countdown !== null && !matchedRef.current && (
+              <Text
+                style={{
+                  fontSize: 24,
+                  fontWeight: "800",
+                  color: colors.primaryLight,
+                  marginVertical: 8,
+                }}
+              >
+                {countdown}s
+              </Text>
+            )}
+            <Text style={styles.queueStatus}>{statusText}</Text>
+          </View>
           <Text style={styles.queueTitle}>
             {request?.mode === "tournament"
               ? "Tournament Queue"
               : "Real Matchmaking"}
           </Text>
           <Text style={styles.queueSubtitle}>{request?.game.name}</Text>
-          <Text style={styles.queueStatus}>{statusText}</Text>
           <TouchableOpacity
             style={styles.cancelButton}
             onPress={closeQueue}
@@ -741,18 +815,29 @@ function GamePlayModal({
     setXpEarned(0);
     resultAnim.setValue(0);
 
-    const subscription = require('react-native').DeviceEventEmitter.addListener('MATCH_RESOLVED', (data: any) => {
-      if (phase === 'result' && result === 'pending') {
-        setResult(data.payload.result === 'WIN' ? 'win' : 'loss');
-        setXpEarned(data.payload.xpEarned || 0);
-        
-        // Jiggle animation to draw attention
-        Animated.sequence([
-          Animated.timing(resultAnim, { toValue: 1.05, duration: 150, useNativeDriver: true }),
-          Animated.spring(resultAnim, { toValue: 1, friction: 3, useNativeDriver: true })
-        ]).start();
-      }
-    });
+    const subscription = require("react-native").DeviceEventEmitter.addListener(
+      "MATCH_RESOLVED",
+      (data: any) => {
+        if (phase === "result" && result === "pending") {
+          setResult(data.payload.result === "WIN" ? "win" : "loss");
+          setXpEarned(data.payload.xpEarned || 0);
+
+          // Jiggle animation to draw attention
+          Animated.sequence([
+            Animated.timing(resultAnim, {
+              toValue: 1.05,
+              duration: 150,
+              useNativeDriver: true,
+            }),
+            Animated.spring(resultAnim, {
+              toValue: 1,
+              friction: 3,
+              useNativeDriver: true,
+            }),
+          ]).start();
+        }
+      },
+    );
 
     return () => subscription.remove();
   }, [session.matchId, phase, result]);
@@ -788,7 +873,13 @@ function GamePlayModal({
       }
 
       setScore(match.score || gameResult.score);
-      setResult(match.result === "WIN" ? "win" : match.result === "PENDING" ? "pending" : "loss");
+      setResult(
+        match.result === "WIN"
+          ? "win"
+          : match.result === "PENDING"
+            ? "pending"
+            : "loss",
+      );
       setXpEarned(match.xpEarned || 0);
       setPhase("result");
       if (!session.wsToken) await addMatch(match);
@@ -873,13 +964,26 @@ function GamePlayModal({
               <Text
                 style={[
                   styles.resultTitle,
-                  { color: result === "win" ? colors.success : result === "pending" ? colors.primaryLight : colors.danger },
+                  {
+                    color:
+                      result === "win"
+                        ? colors.success
+                        : result === "pending"
+                          ? colors.primaryLight
+                          : colors.danger,
+                  },
                 ]}
               >
-                {result === "win" ? "Win Recorded" : result === "pending" ? "Waiting for Opponent..." : "Match Recorded"}
+                {result === "win"
+                  ? "Win Recorded"
+                  : result === "pending"
+                    ? "Waiting for Opponent..."
+                    : "Match Recorded"}
               </Text>
               <Text style={styles.resultSubtitle}>
-                {result === "pending" ? "Your score is saved. XP will be awarded when your opponent finishes." : "Your score is saved and your ranking is updated."}
+                {result === "pending"
+                  ? "Your score is saved. XP will be awarded when your opponent finishes."
+                  : "Your score is saved and your ranking is updated."}
               </Text>
               <View style={styles.resultStats}>
                 <InfoPill label="Score" value={String(score)} />
@@ -1044,27 +1148,30 @@ function makeStyles(c: ColorPalette) {
     },
     statsRow: {
       flexDirection: "row",
-      gap: 8,
       paddingHorizontal: spacing.lg,
       marginBottom: spacing.md,
     },
-    statTile: {
-      flex: 1,
-      minHeight: 62,
+    onlinePill: {
+      flexDirection: "row",
       alignItems: "center",
-      justifyContent: "center",
-      borderRadius: radii.md,
+      backgroundColor: "rgba(16, 185, 129, 0.15)",
+      paddingHorizontal: 12,
+      paddingVertical: 6,
+      borderRadius: radii.full,
       borderWidth: 1,
-      borderColor: c.border,
-      backgroundColor: c.bg.card,
-      paddingHorizontal: 6,
+      borderColor: "rgba(16, 185, 129, 0.3)",
     },
-    statValue: { fontSize: fontSizes.md, fontWeight: "800" },
-    statLabel: {
-      marginTop: 3,
-      fontSize: 9,
-      color: c.text.muted,
-      fontWeight: "600",
+    onlineDot: {
+      width: 6,
+      height: 6,
+      borderRadius: 3,
+      backgroundColor: c.success,
+      marginRight: 6,
+    },
+    onlineText: {
+      fontSize: fontSizes.xs,
+      fontWeight: "700",
+      color: c.success,
     },
     tabRow: {
       flexDirection: "row",

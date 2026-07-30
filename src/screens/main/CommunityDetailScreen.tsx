@@ -1,7 +1,7 @@
 import React, { useMemo, useState, useEffect, useRef } from 'react';
 import {
   View, Text, ScrollView, TouchableOpacity,
-  StyleSheet, Share, FlatList, Image
+  StyleSheet, Share, FlatList, Image, Alert
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useNavigation, useRoute, type RouteProp } from '@react-navigation/native';
@@ -18,6 +18,7 @@ import { postsService }     from '../../services/posts.service';
 import PostCard             from '../../components/home/PostCard';
 import CreatePostModal      from '../../components/common/CreatePostModal';
 import SharedFeed           from '../../components/common/SharedFeed';
+import { useAuth }          from '../../context/AuthContext';
 import type { CommunityStackParamList, Post, Community } from '../../types';
 
 
@@ -68,6 +69,7 @@ function makeStyles(c: ColorPalette) {
       height: 160,
       alignItems: 'center', justifyContent: 'center',
     },
+    bannerImage: { ...StyleSheet.absoluteFillObject },
     bannerEmoji: { fontSize: 52 },
     privateBadge: {
       position: 'absolute', top: 12, right: 14,
@@ -93,6 +95,7 @@ function makeStyles(c: ColorPalette) {
       alignItems: 'center', justifyContent: 'center',
       borderWidth: 3, borderColor: c.bg.card,
     },
+    avatarImage: { width: '100%', height: '100%', borderRadius: radii.md - 3 },
     avatarEmoji: { fontSize: 32 },
     joinBtn: {
       borderRadius: radii.full, overflow: 'hidden',
@@ -212,7 +215,11 @@ export default function CommunityDetailScreen() {
   const [filter, setFilter]         = useState<FeedFilter>('All');
   const [showCreate, setShowCreate]  = useState(false);
   const [showRequests, setShowRequests] = useState(false);
+  const [showMembers, setShowMembers] = useState(false);
+  
+  const { user: authUser } = useAuth();
   const isAdmin = community?.memberRole === 'admin' || community?.memberRole === 'moderator';
+  const isOwner = community?.ownerId === authUser?.id;
 
   // Fetch full details and posts on mount
   useEffect(() => {
@@ -240,6 +247,15 @@ export default function CommunityDetailScreen() {
     return () => { active = false; };
   }, [communitySlug]);
 
+  const handleDeletePost = async (post: Post) => {
+    try {
+      await postsService.deletePost(post.id);
+      setCommunityPosts(prev => prev.filter(p => p.id !== post.id));
+    } catch (e) {
+      console.error('Failed to delete post:', e);
+    }
+  };
+
   // Sync isJoined status from global context to reflect toggleJoin instantly
   useEffect(() => {
     if (community) {
@@ -265,9 +281,11 @@ export default function CommunityDetailScreen() {
     <>
       <LinearGradient colors={bannerGradient} style={styles.banner}>
         {community.bannerUrl ? (
-          <Image source={{ uri: community.bannerUrl }} style={StyleSheet.absoluteFillObject} />
+          <Image source={{ uri: community.bannerUrl }} style={styles.bannerImage} />
         ) : (
-          <Text style={styles.bannerEmoji}>{community.bannerMediaId || '🔥'}</Text>
+          <View style={[styles.bannerImage, { backgroundColor: colors.bg.elevated, alignItems: 'center', justifyContent: 'center' }]}>
+            <Ionicons name="image-outline" size={48} color={colors.text.muted} />
+          </View>
         )}
         {community.privacy === 'private' && (
           <View style={styles.privateBadge}>
@@ -281,35 +299,44 @@ export default function CommunityDetailScreen() {
         <View style={styles.avatarRow}>
           <LinearGradient colors={avatarGradient} style={styles.avatar}>
             {community.avatarUrl ? (
-              <Image source={{ uri: community.avatarUrl }} style={{ width: '100%', height: '100%', borderRadius: radii.md - 3 }} />
+              <Image source={{ uri: community.avatarUrl }} style={styles.avatarImage} />
             ) : (
-              <Text style={styles.avatarEmoji}>{community.avatarMediaId || '👾'}</Text>
+              <Ionicons name="people-outline" size={36} color={colors.text.muted} />
             )}
           </LinearGradient>
-          <TouchableOpacity
-            style={[styles.joinBtn, community.isJoined && styles.joinBtnJoined]}
-            onPress={() => toggleJoin(community.id)}
-            activeOpacity={0.8}
-          >
-            {community.isJoined ? (
-              <LinearGradient
-                colors={['rgba(124,58,237,0.2)', 'rgba(124,58,237,0.2)']}
-                style={styles.joinBtnInner}
-              >
-                <Ionicons name="checkmark" size={14} color={colors.primaryLight} />
-                <Text style={styles.joinBtnTextJoined}>Joined</Text>
-              </LinearGradient>
-            ) : (
-              <LinearGradient
-                colors={[colors.primary, colors.cyanDark]}
-                start={{ x: 0, y: 0 }} end={{ x: 1, y: 0 }}
-                style={styles.joinBtnInner}
-              >
-                <Ionicons name="add" size={14} color="#fff" />
-                <Text style={styles.joinBtnText}>Join</Text>
-              </LinearGradient>
-            )}
-          </TouchableOpacity>
+          {isOwner ? (
+            <View style={[styles.joinBtn, { backgroundColor: 'rgba(255,255,255,0.1)', borderColor: 'rgba(255,255,255,0.2)' }]}>
+              <View style={styles.joinBtnInner}>
+                <Ionicons name="shield-checkmark" size={14} color={colors.primaryLight} />
+                <Text style={styles.joinBtnTextJoined}>Owner</Text>
+              </View>
+            </View>
+          ) : (
+            <TouchableOpacity
+              style={[styles.joinBtn, community.isJoined && styles.joinBtnJoined]}
+              onPress={() => toggleJoin(community.id)}
+              activeOpacity={0.8}
+            >
+              {community.isJoined ? (
+                <LinearGradient
+                  colors={['rgba(124,58,237,0.1)', 'rgba(124,58,237,0.1)']}
+                  style={styles.joinBtnInner}
+                >
+                  <Ionicons name="exit-outline" size={14} color={colors.primaryLight} />
+                  <Text style={styles.joinBtnTextJoined}>Leave</Text>
+                </LinearGradient>
+              ) : (
+                <LinearGradient
+                  colors={[colors.primary, colors.cyanDark]}
+                  start={{ x: 0, y: 0 }} end={{ x: 1, y: 0 }}
+                  style={styles.joinBtnInner}
+                >
+                  <Ionicons name="add" size={14} color="#fff" />
+                  <Text style={styles.joinBtnText}>{community.privacy === 'private' ? 'Request to Join' : 'Join'}</Text>
+                </LinearGradient>
+              )}
+            </TouchableOpacity>
+          )}
         </View>
 
         <Text style={styles.commName}>{community.name}</Text>
@@ -338,6 +365,11 @@ export default function CommunityDetailScreen() {
             <Text style={styles.manageRequestsText}>Manage Join Requests</Text>
           </TouchableOpacity>
         )}
+
+        <TouchableOpacity style={[styles.manageRequestsBtn, { borderColor: 'rgba(124,58,237,0.5)', backgroundColor: 'rgba(124,58,237,0.1)' }]} onPress={() => setShowMembers(true)}>
+          <Ionicons name="list" size={18} color={colors.primary} />
+          <Text style={[styles.manageRequestsText, { color: colors.primary }]}>View Members</Text>
+        </TouchableOpacity>
 
         {community.isJoined && (
           <TouchableOpacity style={styles.writePostBtn} onPress={() => setShowCreate(true)}>
@@ -372,23 +404,34 @@ export default function CommunityDetailScreen() {
 
       <View style={[styles.topBar, { top: Math.max(10, insets.top) }]}>
         <TouchableOpacity style={styles.backBtn} onPress={() => navigation.goBack()}>
-          <Ionicons name="arrow-back" size={22} color={colors.text.primary} />
+          <Ionicons name="arrow-back" size={22} color="#fff" />
         </TouchableOpacity>
-        <TouchableOpacity style={styles.shareBtn} onPress={() =>
-          Share.share({ message: `Check out ${community.name} on TADDLEBOX!` })
-        }>
-          <Ionicons name="share-outline" size={22} color={colors.text.secondary} />
-        </TouchableOpacity>
+        <View style={{ flexDirection: 'row', gap: 10 }}>
+          {(isAdmin || isOwner) && (
+            <TouchableOpacity style={styles.shareBtn} onPress={() => {
+              (navigation as any).navigate('CommunitySettings', { communitySlug: community.slug });
+            }}>
+              <Ionicons name="settings-outline" size={20} color="#fff" />
+            </TouchableOpacity>
+          )}
+          <TouchableOpacity style={styles.shareBtn} onPress={() =>
+            Share.share({ message: `Check out ${community.name} on TADDLEBOX!` })
+          }>
+            <Ionicons name="share-outline" size={20} color="#fff" />
+          </TouchableOpacity>
+        </View>
       </View>
 
       <SharedFeed
         posts={displayPosts}
         setPosts={setCommunityPosts}
+        onDelete={handleDeletePost}
+        isAdmin={isAdmin}
         ListHeaderComponent={renderHeader()}
         ListEmptyComponent={
           !loadingPosts ? (
             <View style={styles.emptyState}>
-              <Text style={styles.emptyEmoji}>💬</Text>
+              <Ionicons name="chatbubbles-outline" size={48} color={colors.text.muted} style={{ marginBottom: 8 }} />
               <Text style={styles.emptyTitle}>No posts yet</Text>
               <Text style={styles.emptyDesc}>
                 {community.isJoined
@@ -420,6 +463,15 @@ export default function CommunityDetailScreen() {
         visible={showRequests}
         onClose={() => setShowRequests(false)}
         communityId={community.id}
+        styles={styles}
+        colors={colors}
+      />
+
+      <ManageMembersModal
+        visible={showMembers}
+        onClose={() => setShowMembers(false)}
+        communityId={community.id}
+        isAdmin={isAdmin}
         styles={styles}
         colors={colors}
       />
@@ -511,6 +563,93 @@ function ManageRequestsModal({ visible, onClose, communityId, styles, colors }: 
                       <Ionicons name="close" size={20} color="#EF4444" />
                     </TouchableOpacity>
                   </View>
+                </View>
+              )}
+            />
+          )}
+        </View>
+      </View>
+    </View>
+  );
+}
+
+function ManageMembersModal({ visible, onClose, communityId, isAdmin, styles, colors }: any) {
+  const [members, setMembers] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    if (visible) {
+      loadMembers();
+    }
+  }, [visible]);
+
+  const loadMembers = async () => {
+    setLoading(true);
+    try {
+      const res = await communityService.getMembers(communityId);
+      setMembers(res.data || []);
+    } catch (e) {
+      console.log('Failed to load members', e);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleKick = (userId: string, name: string) => {
+    Alert.alert('Kick Member', `Are you sure you want to remove ${name} from the community?`, [
+      { text: 'Cancel', style: 'cancel' },
+      { text: 'Kick', style: 'destructive', onPress: async () => {
+        try {
+          await communityService.removeMember(communityId, userId);
+          setMembers(prev => prev.filter(m => m.user_id !== userId));
+        } catch (e) {
+          Alert.alert('Error', 'Failed to remove member');
+        }
+      }}
+    ]);
+  };
+
+  if (!visible) return null;
+
+  return (
+    <View style={[StyleSheet.absoluteFill, { zIndex: 999 }]}>
+      <View style={styles.modalContainer}>
+        <View style={styles.modalContent}>
+          <View style={styles.modalHeader}>
+            <Text style={styles.modalTitle}>Members</Text>
+            <TouchableOpacity onPress={onClose}>
+              <Ionicons name="close" size={24} color={colors.text.secondary} />
+            </TouchableOpacity>
+          </View>
+          
+          {loading ? (
+            <Text style={{ color: colors.text.muted, textAlign: 'center', padding: 20 }}>Loading...</Text>
+          ) : members.length === 0 ? (
+            <Text style={{ color: colors.text.muted, textAlign: 'center', padding: 20 }}>No members found.</Text>
+          ) : (
+            <FlatList
+              data={members}
+              keyExtractor={item => item.user_id}
+              renderItem={({ item }) => (
+                <View style={styles.requestRow}>
+                  <View style={styles.requestUser}>
+                    <View style={styles.requestAvatar}>
+                      {item.avatar_url ? (
+                        <Image source={{ uri: item.avatar_url }} style={{ width: '100%', height: '100%', borderRadius: 20 }} />
+                      ) : (
+                        <Text style={{ fontSize: 20 }}>👾</Text>
+                      )}
+                    </View>
+                    <View>
+                      <Text style={styles.requestName}>{item.name}</Text>
+                      <Text style={styles.requestUsername}>@{item.username}</Text>
+                    </View>
+                  </View>
+                  {isAdmin && item.role !== 'owner' && (
+                    <TouchableOpacity style={[styles.actionBtn, styles.rejectBtn]} onPress={() => handleKick(item.user_id, item.name)}>
+                      <Ionicons name="trash-outline" size={18} color="#EF4444" />
+                    </TouchableOpacity>
+                  )}
                 </View>
               )}
             />

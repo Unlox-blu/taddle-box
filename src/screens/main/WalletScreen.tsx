@@ -17,7 +17,7 @@ import { useAuth } from '../../context/AuthContext';
 import MainHeader from '../../components/common/MainHeader';
 import PinPad from '../../components/common/PinPad';
 import { authService } from '../../services/auth.service';
-import * as LocalAuthentication from 'expo-local-authentication';
+import * as LocalAuthentication from '../../utils/localAuth';
 import * as SecureStore from 'expo-secure-store';
 import type { Transaction } from '../../types';
 
@@ -26,11 +26,11 @@ import type { Transaction } from '../../types';
 type TxnFilter = 'All' | 'Earned' | 'Spent' | 'XP' | 'Cash';
 type ActiveModal = 'none' | 'withdraw' | 'linkUPI' | 'convert' | 'history' | 'settings';
 
-const TXN_META: Record<string, { icon: string; bg: string; label: string }> = {
-  earn:     { icon: '⬆️', bg: 'rgba(16,185,129,0.13)',  label: 'Earned'    },
-  spend:    { icon: '🎯', bg: 'rgba(239,68,68,0.11)',    label: 'Spent'     },
-  convert:  { icon: '⚡', bg: 'rgba(251,191,36,0.11)',   label: 'Converted' },
-  withdraw: { icon: '🏦', bg: 'rgba(6,182,212,0.11)',    label: 'Withdrawn' },
+const TXN_META: Record<string, { icon: string; bg: string; label: string; iconColor: string }> = {
+  earn:     { icon: 'arrow-up', bg: 'rgba(16,185,129,0.13)',  label: 'Earned',    iconColor: '#10B981' },
+  spend:    { icon: 'pricetag', bg: 'rgba(239,68,68,0.11)',   label: 'Spent',     iconColor: '#EF4444' },
+  convert:  { icon: 'flash',    bg: 'rgba(251,191,36,0.11)',  label: 'Converted', iconColor: '#F59E0B' },
+  withdraw: { icon: 'cash',     bg: 'rgba(6,182,212,0.11)',   label: 'Withdrawn', iconColor: '#06B6D4' },
 };
 
 const QUICK_AMOUNTS = [100, 250, 500, 1000];
@@ -87,10 +87,10 @@ export default function WalletScreen() {
 
   // ── Earn-more actions (navigate to relevant tab) ──
   const earnActions = [
-    { emoji: '🎮', label: 'Win Games',     xp: '+50–150 XP', tab: 'Games'  },
-    { emoji: '📝', label: 'Post Content',  xp: '+10–75 XP',  tab: 'Home'   },
-    { emoji: '🎯', label: 'Attend Events', xp: '+100–500 XP',tab: 'Events' },
-    { emoji: '🔥', label: 'Daily Streak',  xp: '+25–100 XP', tab: 'Home'   },
+    { icon: 'game-controller', label: 'Win Games',     xp: '+50–150 XP', tab: 'Games'  },
+    { icon: 'document-text',   label: 'Post Content',  xp: '+10–75 XP',  tab: 'Home'   },
+    { icon: 'calendar',        label: 'Attend Events', xp: '+100–500 XP',tab: 'Events' },
+    { icon: 'flame',           label: 'Daily Streak',  xp: '+25–100 XP', tab: 'Home'   },
   ];
 
   const handleShareWallet = async () => {
@@ -189,7 +189,7 @@ export default function WalletScreen() {
       {/* ── Header ── */}
       <View style={styles.header}>
         <View>
-          <Text style={styles.title}>My Wallet 💎</Text>
+          <Text style={styles.title}>My Wallet</Text>
           <Text style={styles.subtitle}>Manage your earnings & XP</Text>
         </View>
         <TouchableOpacity style={styles.settingsBtn} onPress={() => openModal('settings')}>
@@ -243,7 +243,7 @@ export default function WalletScreen() {
         {/* ── XP Balance Card ── */}
         <View style={styles.xpCard}>
           <LinearGradient colors={[colors.xpGold, colors.xpOrange]} style={styles.xpIcon}>
-            <Text style={{ fontSize: 24 }}>⚡</Text>
+            <Ionicons name="flash" size={24} color="#fff" />
           </LinearGradient>
           <View style={styles.xpInfo}>
             <Text style={styles.xpAmount}>{wallet.xpBalance.toLocaleString()} XP</Text>
@@ -277,7 +277,7 @@ export default function WalletScreen() {
 
         {/* ── Earn More Card ── */}
         <View style={styles.sectionCard}>
-          <Text style={styles.cardTitle}>Earn more XP ⚡</Text>
+          <Text style={styles.cardTitle}>Earn more XP <Ionicons name="flash" size={16} color={colors.xpGold} /></Text>
           <View style={styles.earnGrid}>
             {earnActions.map(e => (
               <TouchableOpacity
@@ -286,7 +286,7 @@ export default function WalletScreen() {
                 onPress={() => (navigation as any).getParent()?.navigate(e.tab)}
                 activeOpacity={0.75}
               >
-                <Text style={styles.earnEmoji}>{e.emoji}</Text>
+                <Ionicons name={e.icon as any} size={24} color={colors.primaryLight} style={{ marginBottom: 8 }} />
                 <Text style={styles.earnLabel}>{e.label}</Text>
                 <Text style={styles.earnXp}>{e.xp}</Text>
               </TouchableOpacity>
@@ -440,7 +440,7 @@ function TxnRow({ txn: t, isLast }: { txn: Transaction; isLast: boolean }) {
   return (
     <View style={[styles.txnRow, isLast && { borderBottomWidth: 0 }]}>
       <View style={[styles.txnIcon, { backgroundColor: meta.bg }]}>
-        <Text style={{ fontSize: 17 }}>{meta.icon}</Text>
+        <Ionicons name={meta.icon as any} size={18} color={meta.iconColor} />
       </View>
       <View style={styles.txnInfo}>
         <Text style={styles.txnRowTitle} numberOfLines={1}>
@@ -838,7 +838,7 @@ function ConvertModal({
         <ScrollView contentContainerStyle={styles.modalBody} keyboardShouldPersistTaps="handled">
           {/* XP balance chip */}
           <View style={[styles.balanceChip, { borderColor: 'rgba(251,191,36,0.3)', backgroundColor: 'rgba(251,191,36,0.08)' }]}>
-            <Text style={{ fontSize: 13 }}>⚡</Text>
+            <Ionicons name="flash" size={13} color={colors.xpGold} />
             <Text style={[styles.balanceChipText, { color: colors.xpGold }]}>You have {xpBalance.toLocaleString()} XP</Text>
           </View>
 
@@ -851,7 +851,7 @@ function ConvertModal({
           {/* XP amount input */}
           <Text style={styles.fieldLabel}>XP to Convert</Text>
           <View style={[styles.amountInput, error ? styles.amountInputError : null]}>
-            <Text style={[styles.rupeePre, { color: colors.xpGold }]}>⚡</Text>
+            <Ionicons name="flash" size={24} color={colors.xpGold} style={styles.rupeePre} />
             <TextInput
               style={styles.amountField}
               placeholder="500"
@@ -894,7 +894,10 @@ function ConvertModal({
               <View style={styles.convertPreviewRow}>
                 <View style={styles.convertPreviewSide}>
                   <Text style={styles.convertPreviewLabel}>You give</Text>
-                  <Text style={styles.convertPreviewXP}>⚡ {xpAmount.toLocaleString()} XP</Text>
+                  <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                    <Ionicons name="flash" size={16} color={colors.xpGold} style={{ marginRight: 4 }} />
+                    <Text style={styles.convertPreviewXP}>{xpAmount.toLocaleString()} XP</Text>
+                  </View>
                 </View>
                 <Ionicons name="arrow-forward" size={20} color={colors.text.muted} />
                 <View style={styles.convertPreviewSide}>
@@ -948,9 +951,9 @@ function HistoryModal({
   });
 
   return (
-    <Modal visible={visible} animationType="slide" presentationStyle="pageSheet" onRequestClose={onClose}>
+    <Modal visible={visible} animationType="slide" presentationStyle="fullScreen" onRequestClose={onClose}>
       <View style={[styles.modalShell, { paddingTop: insets.top || 16 }]}>
-        <View style={styles.modalHeader}>
+        <View style={[styles.modalHeader, { borderBottomWidth: 0, paddingBottom: 8 }]}>
           <TouchableOpacity onPress={onClose}>
             <Ionicons name="close" size={24} color={colors.text.secondary} />
           </TouchableOpacity>
@@ -1252,18 +1255,22 @@ function makeStyles(c: ColorPalette) {
   // Hero card
   heroCard: {
     marginHorizontal: spacing.lg, marginBottom: spacing.md,
-    borderRadius: radii.xl, borderWidth: 1, borderColor: 'rgba(124,58,237,0.38)',
+    borderRadius: radii.xxl || 24, borderWidth: 1, borderColor: 'rgba(255,255,255,0.15)',
     padding: spacing.xxl, overflow: 'hidden',
+    shadowColor: c.primary, shadowOffset: { width: 0, height: 12 }, shadowOpacity: 0.35, shadowRadius: 24,
+    elevation: 8,
   },
   heroGlow: {
-    position: 'absolute', top: -40, right: -40,
-    width: 200, height: 200, borderRadius: 100,
-    backgroundColor: 'rgba(124,58,237,0.18)',
+    position: 'absolute', top: -50, right: -50,
+    width: 60,
+    height: 60,
+    borderRadius: radii.xl,
+    backgroundColor: "rgba(124,58,237,0.18)",
   },
   heroGlow2: {
-    position: 'absolute', bottom: -60, left: -30,
-    width: 160, height: 160, borderRadius: 80,
-    backgroundColor: 'rgba(6,182,212,0.1)',
+    position: 'absolute', bottom: -80, left: -50,
+    width: 200, height: 200, borderRadius: 100,
+    backgroundColor: 'rgba(6,182,212,0.15)',
   },
   heroLabel:  { fontSize: fontSizes.sm, color: 'rgba(255,255,255,0.5)', marginBottom: 4 },
   heroAmount: { fontSize: 40, fontWeight: '800', color: '#fff', marginBottom: 2 },
@@ -1288,12 +1295,12 @@ function makeStyles(c: ColorPalette) {
   // XP card
   xpCard: {
     marginHorizontal: spacing.lg, marginBottom: spacing.md,
-    backgroundColor: 'rgba(251,191,36,0.07)',
-    borderWidth: 1, borderColor: 'rgba(251,191,36,0.25)',
-    borderRadius: radii.lg, padding: spacing.md,
+    backgroundColor: 'rgba(30,41,59,0.5)',
+    borderWidth: 1, borderColor: 'rgba(251,191,36,0.3)',
+    borderRadius: radii.xl || 20, padding: spacing.lg,
     flexDirection: 'row', alignItems: 'center', gap: 12,
   },
-  xpIcon:   { width: 48, height: 48, borderRadius: radii.md, alignItems: 'center', justifyContent: 'center' },
+  xpIcon:   { width: 48, height: 48, borderRadius: radii.full, alignItems: 'center', justifyContent: 'center' },
   xpInfo:   { flex: 1 },
   xpAmount: { fontSize: fontSizes.xl, fontWeight: '800', color: c.xpGold },
   xpSub:    { fontSize: fontSizes.xs, color: c.text.muted, marginTop: 2 },
@@ -1357,10 +1364,11 @@ function makeStyles(c: ColorPalette) {
   },
   txnTitle:  { fontSize: fontSizes.md, fontWeight: '700', color: c.text.primary },
   txnSeeAll: { fontSize: fontSizes.xs, color: c.primaryLight },
-  txnFilters: { paddingHorizontal: spacing.lg, gap: 8, marginBottom: spacing.md },
+  txnFilters: { paddingHorizontal: spacing.lg, gap: 8, marginBottom: spacing.lg },
   txnChip: {
-    paddingVertical: 5, paddingHorizontal: 14,
+    paddingVertical: 8, paddingHorizontal: 16,
     borderRadius: radii.full, borderWidth: 1, borderColor: c.border,
+    backgroundColor: c.bg.elevated,
   },
   txnChipActive:    { backgroundColor: 'rgba(124,58,237,0.18)', borderColor: c.primary },
   txnChipText:      { fontSize: fontSizes.xs, color: c.text.muted, fontWeight: '600' },
@@ -1368,12 +1376,12 @@ function makeStyles(c: ColorPalette) {
   txnList: {
     marginHorizontal: spacing.lg,
     backgroundColor: c.bg.card,
-    borderRadius: radii.lg, borderWidth: 1, borderColor: c.border,
+    borderRadius: radii.xl || 20, borderWidth: 1, borderColor: 'rgba(255,255,255,0.08)',
     paddingHorizontal: spacing.md, overflow: 'hidden',
   },
   txnRow: {
-    flexDirection: 'row', alignItems: 'center', gap: 12,
-    paddingVertical: 12,
+    flexDirection: 'row', alignItems: 'center', gap: 14,
+    paddingVertical: 14,
     borderBottomWidth: 1, borderBottomColor: c.border,
   },
   txnIcon:     { width: 40, height: 40, borderRadius: radii.md, alignItems: 'center', justifyContent: 'center' },

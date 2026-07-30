@@ -3,6 +3,8 @@ import {
   View, Text, ScrollView, TouchableOpacity, FlatList, Modal, Alert, ActivityIndicator,
   StyleSheet,
   RefreshControl,
+  Image,
+  ImageBackground,
 } from 'react-native';
 import { WebView } from 'react-native-webview';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -21,17 +23,17 @@ import type { Event } from '../../types';
 import { useEvents } from '../../queries/events';
 import { useToggleEventRegister } from '../../mutations/events';
 
-const FILTERS = ['All', '🔴 Live', '💻 Online', '📍 Offline', '🏆 Contest'];
+const FILTERS = ['All', 'Live', 'Online', 'Offline', 'Contest'];
 
-type TypeMeta = { emoji: string; label: string; gradient: [string,string]; tagColor: string };
+type TypeMeta = { iconName: string; label: string; gradient: [string,string]; tagColor: string };
 
 function getTypeMeta(c: ColorPalette): Record<string, TypeMeta> {
   return {
-    hackathon:   { emoji: '🚀', label: 'Hackathon',  gradient: ['rgba(124,58,237,0.3)','rgba(99,38,183,0.2)'],  tagColor: c.primaryLight },
-    workshop:    { emoji: '🎯', label: 'Workshop',   gradient: ['rgba(124,58,237,0.2)','rgba(99,38,183,0.12)'], tagColor: c.primaryLight },
-    meetup:      { emoji: '🌐', label: 'Meetup',     gradient: ['rgba(16,185,129,0.28)','rgba(5,150,105,0.18)'],tagColor: '#34D399' },
-    webinar:     { emoji: '🎤', label: 'Webinar',    gradient: ['rgba(6,182,212,0.28)','rgba(14,116,144,0.18)'],tagColor: c.cyanLight },
-    competition: { emoji: '♟️', label: 'Competition',gradient: ['rgba(251,191,36,0.22)','rgba(249,115,22,0.12)'],tagColor: c.xpGold },
+    hackathon:   { iconName: 'rocket',        label: 'Hackathon',   gradient: ['rgba(124,58,237,0.3)','rgba(99,38,183,0.2)'],  tagColor: c.primaryLight },
+    workshop:    { iconName: 'build',          label: 'Workshop',    gradient: ['rgba(124,58,237,0.2)','rgba(99,38,183,0.12)'], tagColor: c.primaryLight },
+    meetup:      { iconName: 'people',         label: 'Meetup',      gradient: ['rgba(16,185,129,0.28)','rgba(5,150,105,0.18)'],tagColor: '#34D399' },
+    webinar:     { iconName: 'mic',            label: 'Webinar',     gradient: ['rgba(6,182,212,0.28)','rgba(14,116,144,0.18)'],tagColor: c.cyanLight },
+    competition: { iconName: 'trophy',         label: 'Competition', gradient: ['rgba(251,191,36,0.22)','rgba(249,115,22,0.12)'],tagColor: c.xpGold },
   };
 }
 
@@ -351,22 +353,44 @@ export default function EventsScreen() {
 
         {featured && (
           <View style={styles.featCard}>
-            <LinearGradient
-              colors={['rgba(124,58,237,0.38)', 'rgba(6,182,212,0.28)']}
-              start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }}
-              style={styles.featBanner}
-            >
-              <Text style={styles.featBannerEmoji}>🚀</Text>
-              {featured.isLive && (
-                <View style={styles.livePill}>
-                  <View style={styles.liveDot} />
-                  <Text style={styles.livePillText}>LIVE</Text>
+            {featured.banner ? (
+              <ImageBackground
+                source={{ uri: featured.banner }}
+                style={styles.featBanner}
+                imageStyle={{ borderTopLeftRadius: 16, borderTopRightRadius: 16 }}
+              >
+                <LinearGradient
+                  colors={['transparent', 'rgba(0,0,0,0.6)']}
+                  style={StyleSheet.absoluteFillObject}
+                />
+                {featured.isLive && (
+                  <View style={styles.livePill}>
+                    <View style={styles.liveDot} />
+                    <Text style={styles.livePillText}>LIVE</Text>
+                  </View>
+                )}
+                <View style={styles.xpPill}>
+                  <Text style={styles.xpPillText}>⚡ {featured.xpReward} XP</Text>
                 </View>
-              )}
-              <View style={styles.xpPill}>
-                <Text style={styles.xpPillText}>⚡ {featured.xpReward} XP</Text>
-              </View>
-            </LinearGradient>
+              </ImageBackground>
+            ) : (
+              <LinearGradient
+                colors={['rgba(124,58,237,0.38)', 'rgba(6,182,212,0.28)']}
+                start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }}
+                style={styles.featBanner}
+              >
+                <Text style={styles.featBannerEmoji}>🚀</Text>
+                {featured.isLive && (
+                  <View style={styles.livePill}>
+                    <View style={styles.liveDot} />
+                    <Text style={styles.livePillText}>LIVE</Text>
+                  </View>
+                )}
+                <View style={styles.xpPill}>
+                  <Text style={styles.xpPillText}>⚡ {featured.xpReward} XP</Text>
+                </View>
+              </LinearGradient>
+            )}
 
             <View style={styles.featBody}>
               <Text style={styles.featType}>
@@ -405,7 +429,7 @@ export default function EventsScreen() {
         </Text>
         {participated.length === 0 ? (
           <View style={styles.emptyState}>
-            <Text style={styles.emptyEmoji}>🎫</Text>
+            <Ionicons name="ticket-outline" size={40} color={colors.text.muted} />
             <Text style={styles.emptyText}>No participated events yet</Text>
             <Text style={styles.emptySubtext}>Join events below to see them here</Text>
           </View>
@@ -418,7 +442,7 @@ export default function EventsScreen() {
         {/* Upcoming Events Below */}
         {displayEvents.length === 0 && selectedDate ? (
           <View style={styles.emptyState}>
-            <Text style={styles.emptyEmoji}>📅</Text>
+            <Ionicons name="calendar-outline" size={40} color={colors.text.muted} />
             <Text style={styles.emptyText}>No events on this date</Text>
             <Text style={styles.emptySubtext}>Try selecting a different day</Text>
           </View>
@@ -501,14 +525,22 @@ function EventCard({
   return (
     <View style={styles.evCard}>
       <View style={styles.evCardInner}>
-        <LinearGradient colors={meta.gradient} style={styles.evThumb}>
-          <Text style={styles.evEmoji}>{meta.emoji}</Text>
-        </LinearGradient>
+        {e.banner ? (
+          <Image source={{ uri: e.banner }} style={styles.evThumb} />
+        ) : (
+          <LinearGradient colors={meta.gradient} style={styles.evThumb}>
+            <Ionicons name={meta.iconName as any} size={26} color="rgba(255,255,255,0.85)" />
+          </LinearGradient>
+        )}
         <View style={styles.evInfo}>
           <Text style={styles.evTitle} numberOfLines={2}>{e.title}</Text>
-          <Text style={styles.evMeta}>
-            📅 {e.date}{e.time ? ` · 🕐 ${e.time}` : ''} · 📍 {e.location}
-          </Text>
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4, flexWrap: 'wrap' }}>
+            <Ionicons name="calendar-outline" size={12} color={colors.text.muted} />
+            <Text style={styles.evMeta}>{e.date}{e.time ? ` · ${e.time}` : ''}</Text>
+            <Text style={styles.evMeta}>·</Text>
+            <Ionicons name="location-outline" size={12} color={colors.text.muted} />
+            <Text style={styles.evMeta}>{e.location}</Text>
+          </View>
           <View style={styles.evTags}>
             <View style={[styles.evTag, { backgroundColor: 'rgba(124,58,237,0.18)' }]}>
               <Text style={[styles.evTagText, { color: meta.tagColor }]}>{meta.label}</Text>

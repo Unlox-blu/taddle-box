@@ -2,8 +2,10 @@ import { apiClient } from './apiClient';
 import type { Post } from '../types';
 
 export const postsService = {
-  getFeed: async (page = 1, limit = 20): Promise<{ data: Post[] }> => {
-    const response = await apiClient.get(`/feed?page=${page}&limit=${limit}`);
+  getFeed: async (page = 1, limit = 20, hashtag?: string): Promise<{ data: Post[] }> => {
+    let url = `/feed?page=${page}&limit=${limit}`;
+    if (hashtag && hashtag !== 'All') url += `&hashtag=${encodeURIComponent(hashtag)}`;
+    const response = await apiClient.get(url);
     return response.data;
   },
 
@@ -32,6 +34,11 @@ export const postsService = {
     }
   },
 
+  deletePost: async (postId: string) => {
+    const response = await apiClient.delete(`/posts/${postId}`);
+    return response.data;
+  },
+
   toggleSave: async (postId: string, isCurrentlySaved: boolean) => {
     if (isCurrentlySaved) {
       const response = await apiClient.delete(`/posts/${postId}/bookmark`);
@@ -41,9 +48,4 @@ export const postsService = {
       return response.data;
     }
   },
-
-  deletePost: async (postId: string) => {
-    const response = await apiClient.delete(`/posts/${postId}`);
-    return response.data;
-  }
 };

@@ -9,8 +9,10 @@ import {
   Image,
   Dimensions,
   ScrollView,
+  Alert,
 } from "react-native";
 import { Video, ResizeMode } from "expo-av";
+import PostMenuSheet from './PostMenuSheet';
 import { Ionicons } from "@expo/vector-icons";
 import { useNavigation } from "@react-navigation/native";
 import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
@@ -32,6 +34,8 @@ interface PostCardProps {
   onAuthorPress?: (post: Post) => void;
   isActive?: boolean;
   index?: number;
+  onDelete?: (post: Post) => void;
+  showDelete?: boolean;
 }
 
 function makeStyles(c: ColorPalette) {
@@ -223,6 +227,8 @@ export default function PostCard({
   onShare,
   onAuthorPress,
   index,
+  onDelete,
+  showDelete,
 }: PostCardProps) {
   const colors = useThemeColors();
   const styles = useMemo(() => makeStyles(colors), [colors]);
@@ -248,6 +254,7 @@ export default function PostCard({
   }
   const [isClaimed, setIsClaimed] = React.useState(post.isXpClaimed || claimedPosts.has(postId));
   const [showPill, setShowPill] = React.useState(true);
+  const [showMenu, setShowMenu] = React.useState(false);
   const [extraVideoTime, setExtraVideoTime] = React.useState(0);
   const [isMuted, setIsMuted] = React.useState(globalIsMuted);
   const [isExpanded, setIsExpanded] = React.useState(false);
@@ -553,31 +560,33 @@ export default function PostCard({
             )}
           </View>
           <View style={styles.meta}>
+            {/* Top row: author name + XP pill + three-dot menu */}
             <View
               style={{
                 flexDirection: "row",
                 alignItems: "center",
-                justifyContent: "flex-start",
-                paddingRight: 90, // Leave room for the absolute pill
+                gap: 6,
               }}
             >
-              <Text style={styles.author} numberOfLines={1}>{author.name}</Text>
+              <Text style={[styles.author, { flex: 1 }]} numberOfLines={1}>
+                {author.name}
+              </Text>
+
+              {/* XP Pill */}
               {showPill && (
                 <Animated.View style={[
-                  styles.xpPill, 
-                  { 
-                    paddingHorizontal: 0, paddingVertical: 0, overflow: 'hidden', 
-                    position: 'absolute', right: 0, top: -2, opacity: pillOpacity 
+                  styles.xpPill,
+                  {
+                    paddingHorizontal: 0, paddingVertical: 0, overflow: 'hidden',
+                    opacity: pillOpacity,
                   },
                   isClaimed && { borderColor: 'rgba(34,197,94,0.35)', backgroundColor: 'rgba(34,197,94,0.1)' }
                 ]}>
                   {!isClaimed && (
-                    <Animated.View 
+                    <Animated.View
                       style={{
                         position: 'absolute',
-                        left: 0,
-                        top: 0,
-                        bottom: 0,
+                        left: 0, top: 0, bottom: 0,
                         backgroundColor: 'rgba(251,191,36,0.3)',
                         width: progressAnim.interpolate({
                           inputRange: [0, 1],
@@ -586,19 +595,30 @@ export default function PostCard({
                       }}
                     />
                   )}
-                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4, paddingVertical: 3, paddingHorizontal: 8 }}>
+                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 3, paddingVertical: 2, paddingHorizontal: 6 }}>
                     {isClaimed ? (
-                      <Ionicons name="checkmark-circle" size={14} color="#22c55e" />
+                      <Ionicons name="checkmark-circle" size={12} color="#22c55e" />
                     ) : (
-                      <Text style={{ fontSize: 12 }}>⚡</Text>
+                      <Text style={{ fontSize: 10 }}>⚡</Text>
                     )}
                     <Text style={[styles.xpText, isClaimed && { color: '#22c55e' }]}>
-                      {index === 0 && !isActive 
-                        ? (isClaimed ? `Earned ${rewardXp} XP` : `View to Earn`) 
+                      {index === 0 && !isActive
+                        ? (isClaimed ? `Earned ${rewardXp} XP` : `View to Earn`)
                         : `${rewardXp} XP`}
                     </Text>
                   </View>
                 </Animated.View>
+              )}
+
+              {/* Three dot menu — same row, small */}
+              {showDelete && (
+                <TouchableOpacity
+                  onPress={() => setShowMenu(true)}
+                  style={{ padding: 2 }}
+                  hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                >
+                  <Ionicons name="ellipsis-vertical" size={15} color={colors.text.muted} />
+                </TouchableOpacity>
               )}
             </View>
             {(() => {
@@ -624,7 +644,7 @@ export default function PostCard({
                       onPress={(e) => {
                         e.stopPropagation();
                         if (typeof post.community === 'object' && (post.community as any).slug) {
-                          navigation.navigate('CommunityStack' as any, {
+                          navigation.navigate('Community' as any, {
                             screen: 'CommunityDetail',
                             params: { communitySlug: (post.community as any).slug }
                           } as any);
@@ -960,6 +980,18 @@ export default function PostCard({
           shadowRadius: 5,
         }} />
       </Animated.View>
+      <PostMenuSheet
+        visible={showMenu}
+        onClose={() => setShowMenu(false)}
+        options={[
+          {
+            icon: 'trash-outline',
+            label: 'Delete Post',
+            color: '#ef4444',
+            onPress: () => onDelete?.(post),
+          },
+        ]}
+      />
     </View>
   );
 }

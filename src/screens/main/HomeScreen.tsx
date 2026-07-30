@@ -12,6 +12,7 @@ import {
   TouchableWithoutFeedback,
   Animated,
   DeviceEventEmitter,
+  ActivityIndicator,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
@@ -81,13 +82,14 @@ export default function HomeScreen() {
   const { isDark } = useTheme();
   const colors = useThemeColors();
   
-  const { data: feedData, fetchNextPage, hasNextPage, refetch: refetchFeed, isRefetching, isLoading } = useFeed();
+  const [activeTrend, setActiveTrend] = useState("All");
+
+  const { data: feedData, fetchNextPage, hasNextPage, refetch: refetchFeed, isRefetching, isLoading } = useFeed(activeTrend);
   const { mutate: toggleLike } = useToggleLike();
   const { mutate: toggleSave } = useToggleSave();
 
   const posts = feedData?.pages.flat() || [];
-
-  const [activeTrend, setActiveTrend] = useState("All");
+  
   const [trendChips, setTrendChips] = useState<string[]>(["All"]);
   const [refreshing, setRefreshing] = useState(false);
   const [streakOpen, setStreakOpen] = useState(false);
@@ -111,6 +113,16 @@ export default function HomeScreen() {
       initHomeData();
     }
   }, [isFocused]);
+
+  const handleDeletePost = async (post: Post) => {
+    try {
+      const { postsService } = require('../../services/posts.service');
+      await postsService.deletePost(post.id);
+      refetchFeed();
+    } catch (e) {
+      console.error('Failed to delete post:', e);
+    }
+  };
 
   useEffect(() => {
     const sub = DeviceEventEmitter.addListener('homeDoubleTap', () => {
@@ -316,10 +328,28 @@ export default function HomeScreen() {
         onRefresh={onRefresh}
         onLike={(id) => toggleLike({ id, isCurrentlyLiked: posts.find((p: any) => p.id === id)?.isLiked || false })}
         onSave={(id) => toggleSave({ id, isCurrentlySaved: posts.find((p: any) => p.id === id)?.isSaved || false })}
+        onDelete={handleDeletePost}
         onEndReached={() => {
           if (hasNextPage) fetchNextPage();
         }}
+        onEndReachedThreshold={0.5}
         contentContainerStyle={{ flexGrow: 1 }}
+        ListFooterComponent={
+          <>
+            {!hasNextPage && posts.length > 0 ? (
+              <View style={{ padding: 24, alignItems: 'center' }}>
+                <Text style={{ color: colors.text.muted, fontSize: 14 }}>
+                  That's it for now! Come back later for more.
+                </Text>
+              </View>
+            ) : isLoading || isRefetching ? (
+              <View style={{ padding: 24, alignItems: 'center' }}>
+                <ActivityIndicator color={colors.primary} />
+              </View>
+            ) : null}
+            <View style={{ height: 110 }} />
+          </>
+        }
         ListHeaderComponent={
           <View>
             {/* ── Streak & XP mini cards ─────────────────── */}
@@ -469,7 +499,7 @@ export default function HomeScreen() {
             </Text>
           </View>
         }
-        ListFooterComponent={<View style={{ height: 110 }} />}
+
       />
 
       {/* ── Streak Modal ───────────────────────────── */}

@@ -13,6 +13,7 @@ import {
   Dimensions,
   RefreshControl,
   Platform,
+  ActivityIndicator,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useNavigation } from "@react-navigation/native";
@@ -22,14 +23,26 @@ import { LinearGradient } from "expo-linear-gradient";
 import { StatusBar } from "expo-status-bar";
 import { fontSizes, spacing, radii, type ColorPalette } from "../../theme";
 import { useTheme, useThemeColors } from "../../context/ThemeContext";
+import { useAuth } from "../../context/AuthContext";
 import { useCommunities } from "../../queries/communities";
-import { useJoinCommunity, useCreateCommunity } from "../../mutations/communities";
+import {
+  useJoinCommunity,
+  useCreateCommunity,
+} from "../../mutations/communities";
 import type { Community, CommunityStackParamList } from "../../types";
 import MainHeader from "../../components/common/MainHeader";
+import * as ImagePicker from "expo-image-picker";
+import * as FileSystem from "expo-file-system";
+import { mediaService } from "../../services/media.service";
+import { appLockBypass } from "../../utils/appLockBypass";
 
 type Nav = NativeStackNavigationProp<CommunityStackParamList, "CommunityList">;
 
-const isCloseToBottom = ({ layoutMeasurement, contentOffset, contentSize }: any) => {
+const isCloseToBottom = ({
+  layoutMeasurement,
+  contentOffset,
+  contentSize,
+}: any) => {
   return layoutMeasurement.height + contentOffset.y >= contentSize.height - 20;
 };
 
@@ -57,14 +70,15 @@ const AVATAR_COLORS: Record<string, [string, string]> = {
 };
 
 const CATEGORY_TABS = [
-  { label: "🔥 All", key: "All" },
-  { label: "✅ Joined", key: "Joined" },
-  { label: "💻 Tech", key: "Tech" },
-  { label: "🎮 Gaming", key: "Gaming" },
-  { label: "🎓 Lifestyle", key: "Lifestyle" },
-  { label: "🚀 Startups", key: "Startup" },
-  { label: "🎨 Creative", key: "Creative" },
-  { label: "📚 Study", key: "Study" },
+  { label: "All", key: "All", icon: "grid-outline" },
+  { label: "Created", key: "Created", icon: "star-outline" },
+  { label: "Joined", key: "Joined", icon: "checkmark-circle-outline" },
+  { label: "Tech", key: "Tech", icon: "laptop-outline" },
+  { label: "Gaming", key: "Gaming", icon: "game-controller-outline" },
+  { label: "Lifestyle", key: "Lifestyle", icon: "cafe-outline" },
+  { label: "Startups", key: "Startup", icon: "rocket-outline" },
+  { label: "Creative", key: "Creative", icon: "color-palette-outline" },
+  { label: "Study", key: "Study", icon: "book-outline" },
 ];
 
 function makeStyles(c: ColorPalette) {
@@ -111,26 +125,33 @@ function makeStyles(c: ColorPalette) {
     },
     createBtnText: { color: "#fff", fontWeight: "700", fontSize: fontSizes.sm },
 
-    chipsWrap: { backgroundColor: c.bg.base, paddingVertical: 12 },
-    chips: { paddingHorizontal: spacing.xl, gap: 10 },
+    chipsWrap: { backgroundColor: c.bg.base, paddingVertical: 16 },
+    chips: { paddingHorizontal: spacing.xl, gap: 12 },
     chip: {
-      paddingVertical: 8,
-      paddingHorizontal: 16,
+      paddingVertical: 10,
+      paddingHorizontal: 20,
       borderRadius: radii.full,
-      borderWidth: 1,
-      borderColor: c.border,
-      backgroundColor: c.bg.elevated,
+
+      backgroundColor: "rgba(70, 55, 55, 0.1)",
+      flexDirection: "row",
+      alignItems: "center",
     },
     chipActive: {
       borderColor: c.primary,
-      backgroundColor: "rgba(124,58,237,0.1)",
+      backgroundColor: "rgba(124,58,237,0.15)",
+      shadowColor: c.primary,
+      shadowOffset: { width: 0, height: 4 },
+      shadowOpacity: 0.3,
+      shadowRadius: 8,
+      elevation: 4,
     },
     chipText: {
       fontSize: fontSizes.sm,
       color: c.text.muted,
       fontWeight: "600",
+      letterSpacing: 0.2,
     },
-    chipTextActive: { color: c.primaryLight, fontWeight: "700" },
+    chipTextActive: { color: c.primaryLight, fontWeight: "800" },
 
     sectionHeaderRow: {
       flexDirection: "row",
@@ -189,65 +210,72 @@ function makeStyles(c: ColorPalette) {
       width: CARD_WIDTH,
       marginLeft: spacing.xl,
       backgroundColor: c.bg.card,
-      borderRadius: radii.xl,
+      borderRadius: radii.xxl || 24,
       overflow: "hidden",
       borderWidth: 1,
-      borderColor: c.borderHover,
-      shadowColor: "#000",
-      shadowOffset: { width: 0, height: 8 },
-      shadowOpacity: 0.15,
-      shadowRadius: 12,
-      elevation: 6,
+      borderColor: "rgba(255,255,255,0.08)",
+      shadowColor: c.primary,
+      shadowOffset: { width: 0, height: 12 },
+      shadowOpacity: 0.25,
+      shadowRadius: 20,
+      elevation: 8,
     },
-    featBanner: { height: 100, justifyContent: "center", alignItems: "center" },
+    featBanner: { height: 140, justifyContent: "center", alignItems: "center" },
     featOverlay: {
       ...StyleSheet.absoluteFillObject,
-      backgroundColor: "rgba(0,0,0,0.3)",
+      backgroundColor: "rgba(0,0,0,0.4)",
       justifyContent: "flex-start",
       alignItems: "flex-end",
-      padding: 12,
+      padding: 16,
     },
-    featBody: { padding: 16, paddingTop: 0 },
+    featBody: { padding: 20, paddingTop: 0 },
     featAvatarWrap: {
-      width: 64,
-      height: 64,
-      borderRadius: radii.md,
+      width: 72,
+      height: 72,
+      borderRadius: radii.xl || 20,
       borderWidth: 4,
       borderColor: c.bg.card,
-      marginTop: -32,
+      marginTop: -36,
       marginBottom: 12,
       overflow: "hidden",
       backgroundColor: c.bg.elevated,
       alignItems: "center",
       justifyContent: "center",
+      shadowColor: "#000",
+      shadowOffset: { width: 0, height: 4 },
+      shadowOpacity: 0.3,
+      shadowRadius: 6,
     },
     featName: {
-      fontSize: fontSizes.lg,
-      fontWeight: "800",
+      fontSize: fontSizes.xl,
+      fontWeight: "900",
       color: c.text.primary,
-      marginBottom: 4,
+      marginBottom: 6,
+      letterSpacing: -0.5,
     },
     featDesc: {
-      fontSize: fontSizes.xs,
+      fontSize: fontSizes.sm,
       color: c.text.secondary,
-      lineHeight: 18,
-      height: 36,
-      marginBottom: 16,
+      lineHeight: 20,
+      height: 40,
+      marginBottom: 20,
     },
     featFoot: {
       flexDirection: "row",
       alignItems: "center",
       justifyContent: "space-between",
       borderTopWidth: 1,
-      borderTopColor: c.border,
-      paddingTop: 12,
+      borderTopColor: "rgba(255,255,255,0.05)",
+      paddingTop: 16,
     },
-    featStats: { flexDirection: "row", alignItems: "center", gap: 12 },
-    featStat: { flexDirection: "row", alignItems: "center", gap: 4 },
+    featStats: { flexDirection: "row", alignItems: "center", gap: 16 },
+    featStat: { flexDirection: "row", alignItems: "center", gap: 6 },
     featStatText: {
       fontSize: fontSizes.xs,
       color: c.text.muted,
-      fontWeight: "600",
+      fontWeight: "700",
+      textTransform: "uppercase",
+      letterSpacing: 0.5,
     },
 
     /* Compact Vertical Card */
@@ -256,33 +284,41 @@ function makeStyles(c: ColorPalette) {
       alignItems: "center",
       marginHorizontal: spacing.xl,
       marginBottom: 16,
-      backgroundColor: c.bg.card,
-      borderRadius: radii.lg,
-      padding: 12,
+      backgroundColor: "rgba(255,255,255,0.03)",
+      borderRadius: radii.xl || 20,
+      padding: 16,
       borderWidth: 1,
-      borderColor: c.border,
+      borderColor: "rgba(255,255,255,0.06)",
+      shadowColor: "#000",
+      shadowOffset: { width: 0, height: 4 },
+      shadowOpacity: 0.1,
+      shadowRadius: 10,
+      elevation: 3,
     },
     compAvatarWrap: {
-      width: 56,
-      height: 56,
-      borderRadius: radii.md,
+      width: 64,
+      height: 64,
+      borderRadius: radii.lg || 16,
       overflow: "hidden",
       backgroundColor: c.bg.elevated,
       alignItems: "center",
       justifyContent: "center",
       marginRight: 16,
+      borderWidth: 1,
+      borderColor: "rgba(255,255,255,0.1)",
     },
     compInfo: { flex: 1, justifyContent: "center" },
     compName: {
-      fontSize: fontSizes.md,
-      fontWeight: "800",
+      fontSize: fontSizes.lg,
+      fontWeight: "900",
       color: c.text.primary,
       marginBottom: 4,
+      letterSpacing: -0.3,
     },
     compStats: {
-      fontSize: fontSizes.xs,
-      color: c.text.muted,
-      fontWeight: "500",
+      fontSize: fontSizes.sm,
+      color: c.text.secondary,
+      fontWeight: "600",
     },
 
     joinBtn: {
@@ -344,20 +380,31 @@ function makeStyles(c: ColorPalette) {
       color: c.text.primary,
     },
     fieldInputMulti: { height: 100, paddingTop: 14 },
-    emojiRow: { gap: 12, paddingBottom: 4 },
-    emojiOption: {
-      width: 56,
-      height: 56,
-      borderRadius: radii.lg,
-      backgroundColor: c.bg.elevated,
-      borderWidth: 2,
-      borderColor: "transparent",
+    bannerUpload: {
+      width: "100%",
+      height: 120,
+      borderRadius: radii.xl,
+      borderWidth: 1,
       alignItems: "center",
       justifyContent: "center",
+      overflow: "hidden",
     },
-    emojiOptionActive: {
-      borderColor: c.primaryLight,
-      backgroundColor: "rgba(124,58,237,0.1)",
+    avatarUpload: {
+      width: 72,
+      height: 72,
+      borderRadius: radii.xl,
+      borderWidth: 4,
+      alignItems: "center",
+      justifyContent: "center",
+      overflow: "hidden",
+      marginTop: -36,
+      marginLeft: 16,
+    },
+    camOverlay: {
+      position: "absolute",
+      backgroundColor: "rgba(0,0,0,0.55)",
+      padding: 5,
+      borderRadius: 20,
     },
     categoryGrid: { flexDirection: "row", flexWrap: "wrap", gap: 10 },
     catChip: {
@@ -430,10 +477,18 @@ export default function CommunityScreen() {
   const { isDark } = useTheme();
   const colors = useThemeColors();
   const styles = useMemo(() => makeStyles(colors), [colors]);
-  
-  const { data: communitiesData, refetch, isRefetching, fetchNextPage, hasNextPage } = useCommunities();
+
+  const { user: authUser } = useAuth();
+
+  const {
+    data: communitiesData,
+    refetch,
+    isRefetching,
+    fetchNextPage,
+    hasNextPage,
+  } = useCommunities();
   const communities = communitiesData?.pages.flat() || [];
-  
+
   const { mutate: toggleJoin } = useJoinCommunity();
   const { mutateAsync: createCommunityAsync } = useCreateCommunity();
 
@@ -442,24 +497,42 @@ export default function CommunityScreen() {
 
   // Derived Data
   const joinedCommunities = useMemo(
-    () => communities.filter((c: any) => c.isMember || c.isJoined),
-    [communities],
+    () =>
+      communities.filter(
+        (c: any) => (c.isMember || c.isJoined) && c.ownerId !== authUser?.id,
+      ),
+    [communities, authUser?.id],
+  );
+
+  const createdCommunities = useMemo(
+    () => communities.filter((c: any) => c.ownerId === authUser?.id),
+    [communities, authUser?.id],
+  );
+
+  const discoverCommunities = useMemo(
+    () =>
+      communities.filter(
+        (c: any) => c.ownerId !== authUser?.id && !c.isJoined && !c.isMember,
+      ),
+    [communities, authUser?.id],
   );
 
   const trendingCommunities = useMemo(() => {
-    return [...communities]
+    return communities
+      .filter((c: any) => c.ownerId !== authUser?.id)
       .sort(
-        (a, b) =>
+        (a: any, b: any) =>
           b.memberCount * 10 + b.postCount - (a.memberCount * 10 + a.postCount),
       )
       .slice(0, 5);
-  }, [communities]);
+  }, [communities, authUser?.id]);
 
   const filteredCommunities = useMemo(() => {
     if (activeCategory === "All") return communities;
-    if (activeCategory === "Joined") return joinedCommunities;
+    if (activeCategory === "Joined") return joinedCommunities; // Actually we probably want both created and joined if they select "Joined" or keep it separated? Let's just return both for "Joined" tab.
+    if (activeCategory === "Created") return createdCommunities;
     return communities.filter((c) => c.category?.includes(activeCategory));
-  }, [communities, activeCategory, joinedCommunities]);
+  }, [communities, activeCategory, joinedCommunities, createdCommunities]);
 
   return (
     <View style={[styles.container, { paddingTop: insets.top }]}>
@@ -472,9 +545,17 @@ export default function CommunityScreen() {
           <Text style={[styles.heroTitle, { fontSize: 20 }]}>Communities</Text>
           <Text style={styles.subtitle}>Find your tribe.</Text>
         </View>
-        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
-          <TouchableOpacity onPress={() => navigation.navigate('Leaderboards', { initialTab: 'Community' })}>
-            <Ionicons name="trophy-outline" size={22} color={colors.text.secondary} />
+        <View style={{ flexDirection: "row", alignItems: "center", gap: 12 }}>
+          <TouchableOpacity
+            onPress={() =>
+              navigation.navigate("Leaderboards", { initialTab: "Community" })
+            }
+          >
+            <Ionicons
+              name="trophy-outline"
+              size={22}
+              color={colors.text.secondary}
+            />
           </TouchableOpacity>
           <TouchableOpacity
             style={styles.createBtnWrap}
@@ -508,6 +589,16 @@ export default function CommunityScreen() {
               ]}
               onPress={() => setActiveCategory(cat.key)}
             >
+              <Ionicons
+                name={cat.icon as any}
+                size={14}
+                color={
+                  activeCategory === cat.key
+                    ? colors.primaryLight
+                    : colors.text.muted
+                }
+                style={{ marginRight: 4 }}
+              />
               <Text
                 style={[
                   styles.chipText,
@@ -521,26 +612,30 @@ export default function CommunityScreen() {
         </ScrollView>
       </View>
 
-        <ScrollView 
-          showsVerticalScrollIndicator={false}
-          refreshControl={
-            <RefreshControl refreshing={isRefetching} onRefresh={refetch} tintColor={colors.primary} />
+      <ScrollView
+        showsVerticalScrollIndicator={false}
+        refreshControl={
+          <RefreshControl
+            refreshing={isRefetching}
+            onRefresh={refetch}
+            tintColor={colors.primary}
+          />
+        }
+        onScroll={({ nativeEvent }) => {
+          if (isCloseToBottom(nativeEvent) && hasNextPage) {
+            fetchNextPage();
           }
-          onScroll={({ nativeEvent }) => {
-            if (isCloseToBottom(nativeEvent) && hasNextPage) {
-              fetchNextPage();
-            }
-          }}
-          scrollEventThrottle={400}
-          contentContainerStyle={{ paddingBottom: 100 }}
-        >
+        }}
+        scrollEventThrottle={400}
+        contentContainerStyle={{ paddingBottom: 100 }}
+      >
         {/* Render ALL View */}
         {activeCategory === "All" ? (
           <>
             {trendingCommunities.length > 0 && (
               <View>
                 <View style={styles.sectionHeaderRow}>
-                  <Text style={styles.sectionLabel}>🔥 Trending</Text>
+                  <Text style={styles.sectionLabel}>Trending</Text>
                 </View>
                 <ScrollView
                   horizontal
@@ -565,7 +660,9 @@ export default function CommunityScreen() {
                             communitySlug: c.slug,
                           })
                         }
-                        onToggleJoin={(id, isCurrentlyMember) => toggleJoin({ communityId: id, isCurrentlyMember })}
+                        onToggleJoin={(id, isCurrentlyMember) =>
+                          toggleJoin({ communityId: id, isCurrentlyMember })
+                        }
                       />
                     </View>
                   ))}
@@ -573,12 +670,56 @@ export default function CommunityScreen() {
               </View>
             )}
 
+            {createdCommunities.length > 0 && (
+              <View>
+                <View style={[styles.sectionHeaderRow, { marginTop: 32 }]}>
+                  <Text style={styles.sectionLabel}>Created by You</Text>
+                  <TouchableOpacity
+                    onPress={() => setActiveCategory("Created")}
+                    style={{ flexDirection: "row", alignItems: "center" }}
+                  >
+                    <Text style={styles.sectionAction}>See all </Text>
+                    <Ionicons
+                      name="arrow-forward"
+                      size={12}
+                      color={colors.primaryLight}
+                    />
+                  </TouchableOpacity>
+                </View>
+                {createdCommunities.slice(0, 3).map((c) => (
+                  <CompactCommunityCard
+                    key={c.id}
+                    community={c}
+                    styles={styles}
+                    colors={colors}
+                    onPress={() =>
+                      navigation.navigate("CommunityDetail", {
+                        communitySlug: c.slug,
+                      })
+                    }
+                    onToggleJoin={(id, isCurrentlyMember) =>
+                      toggleJoin({ communityId: id, isCurrentlyMember })
+                    }
+                    isOwner={true}
+                  />
+                ))}
+              </View>
+            )}
+
             {joinedCommunities.length > 0 && (
               <View>
                 <View style={[styles.sectionHeaderRow, { marginTop: 32 }]}>
                   <Text style={styles.sectionLabel}>✅ Your Communities</Text>
-                  <TouchableOpacity onPress={() => setActiveCategory("Joined")}>
-                    <Text style={styles.sectionAction}>See All</Text>
+                  <TouchableOpacity
+                    onPress={() => setActiveCategory("Joined")}
+                    style={{ flexDirection: "row", alignItems: "center" }}
+                  >
+                    <Text style={styles.sectionAction}>See all </Text>
+                    <Ionicons
+                      name="arrow-forward"
+                      size={12}
+                      color={colors.primaryLight}
+                    />
                   </TouchableOpacity>
                 </View>
                 {joinedCommunities.slice(0, 3).map((c) => (
@@ -592,29 +733,38 @@ export default function CommunityScreen() {
                         communitySlug: c.slug,
                       })
                     }
-                    onToggleJoin={(id, isCurrentlyMember) => toggleJoin({ communityId: id, isCurrentlyMember })}
+                    onToggleJoin={(id, isCurrentlyMember) =>
+                      toggleJoin({ communityId: id, isCurrentlyMember })
+                    }
+                    isOwner={false}
                   />
                 ))}
               </View>
             )}
 
-            <View style={[styles.sectionHeaderRow, { marginTop: 32 }]}>
-              <Text style={styles.sectionLabel}>🌐 Discover</Text>
-            </View>
-            {communities.slice(0, 10).map((c) => (
-              <CompactCommunityCard
-                key={c.id}
-                community={c}
-                styles={styles}
-                colors={colors}
-                onPress={() =>
-                  navigation.navigate("CommunityDetail", {
-                    communitySlug: c.slug,
-                  })
-                }
-                onToggleJoin={(id, isCurrentlyMember) => toggleJoin({ communityId: id, isCurrentlyMember })}
-              />
-            ))}
+            {discoverCommunities.length > 0 && (
+              <>
+                <View style={[styles.sectionHeaderRow, { marginTop: 32 }]}>
+                  <Text style={styles.sectionLabel}>Discover</Text>
+                </View>
+                {discoverCommunities.slice(0, 10).map((c: any) => (
+                  <CompactCommunityCard
+                    key={c.id}
+                    community={c}
+                    styles={styles}
+                    colors={colors}
+                    onPress={() =>
+                      navigation.navigate("CommunityDetail", {
+                        communitySlug: c.slug,
+                      })
+                    }
+                    onToggleJoin={(id, isCurrentlyMember) =>
+                      toggleJoin({ communityId: id, isCurrentlyMember })
+                    }
+                  />
+                ))}
+              </>
+            )}
           </>
         ) : (
           /* Render Filtered View */
@@ -623,7 +773,9 @@ export default function CommunityScreen() {
               <Text style={styles.sectionLabel}>
                 {activeCategory === "Joined"
                   ? "Your Communities"
-                  : `${activeCategory} Communities`}
+                  : activeCategory === "Created"
+                    ? "Created by You"
+                    : `${activeCategory} Communities`}
               </Text>
               <Text style={styles.sectionAction}>
                 {filteredCommunities.length} results
@@ -632,9 +784,16 @@ export default function CommunityScreen() {
 
             {filteredCommunities.length === 0 ? (
               <View style={styles.emptyState}>
-                <Text style={styles.emptyEmoji}>
-                  {activeCategory === "Joined" ? "👥" : "🔍"}
-                </Text>
+                <Ionicons
+                  name={
+                    activeCategory === "Joined"
+                      ? "people-outline"
+                      : "search-outline"
+                  }
+                  size={56}
+                  color={colors.text.muted}
+                  style={{ marginBottom: 16 }}
+                />
                 <Text style={styles.emptyTitle}>Nothing here yet</Text>
                 <Text style={styles.emptyDesc}>
                   {activeCategory === "Joined"
@@ -669,7 +828,9 @@ export default function CommunityScreen() {
                       communitySlug: c.slug,
                     })
                   }
-                  onToggleJoin={(id, isCurrentlyMember) => toggleJoin({ communityId: id, isCurrentlyMember })}
+                  onToggleJoin={(id, isCurrentlyMember) =>
+                    toggleJoin({ communityId: id, isCurrentlyMember })
+                  }
                 />
               ))
             )}
@@ -739,7 +900,11 @@ function FeaturedCommunityCard({
               style={{ width: "100%", height: "100%" }}
             />
           ) : (
-            <Text style={{ fontSize: 28 }}>{c.avatarMediaId || "👾"}</Text>
+            <Ionicons
+              name="people-outline"
+              size={28}
+              color="rgba(255,255,255,0.5)"
+            />
           )}
         </LinearGradient>
 
@@ -767,12 +932,13 @@ function FeaturedCommunityCard({
             onPress={() => onToggleJoin(c.id, isJoined || false)}
           >
             <Text
-              style={[
-                styles.joinBtnText,
-                isJoined && styles.joinBtnTextJoined,
-              ]}
+              style={[styles.joinBtnText, isJoined && styles.joinBtnTextJoined]}
             >
-              {isJoined ? "Joined" : "Join"}
+              {isJoined
+                ? "Leave"
+                : c.privacy === "private"
+                  ? "Request to Join"
+                  : "Join"}
             </Text>
           </TouchableOpacity>
         </View>
@@ -788,15 +954,22 @@ function CompactCommunityCard({
   onToggleJoin,
   styles,
   colors,
+  isOwner,
 }: {
   community: Community;
   onPress: () => void;
   onToggleJoin: (communityId: string, isCurrentlyMember: boolean) => void;
   styles: ReturnType<typeof makeStyles>;
   colors: ColorPalette;
+  isOwner?: boolean;
 }) {
   const isJoined = c.isMember || c.isJoined;
   const avGrad = AVATAR_COLORS[c.category?.[0]] ?? AVATAR_COLORS.All;
+
+  // We should pass "isOwner" to determine if it says "Delete" or "Leave/Join".
+  // But wait, the card just has a "Join" button. For owners, we shouldn't show Join/Leave on this screen maybe?
+  // Wait, let's keep it simple: if owner, hide the Join button here or change it to "Settings".
+  // Actually, we can just say "Manage" instead of "Joined".
 
   return (
     <TouchableOpacity
@@ -811,7 +984,11 @@ function CompactCommunityCard({
             style={{ width: "100%", height: "100%" }}
           />
         ) : (
-          <Text style={{ fontSize: 24 }}>{c.avatarMediaId || "👾"}</Text>
+          <Ionicons
+            name="people-outline"
+            size={24}
+            color="rgba(255,255,255,0.5)"
+          />
         )}
       </LinearGradient>
 
@@ -827,19 +1004,37 @@ function CompactCommunityCard({
         </Text>
       </View>
 
-      <TouchableOpacity
-        style={[styles.joinBtn, isJoined && styles.joinBtnJoined]}
-        onPress={(e) => {
-          e.stopPropagation();
-          onToggleJoin(c.id, isJoined || false);
-        }}
-      >
-        <Text
-          style={[styles.joinBtnText, isJoined && styles.joinBtnTextJoined]}
+      {isOwner ? (
+        <TouchableOpacity
+          style={[styles.joinBtn, styles.joinBtnJoined]}
+          onPress={(e) => {
+            e.stopPropagation();
+            onPress(); // Or navigate to settings
+          }}
         >
-          {isJoined ? "Joined" : "Join"}
-        </Text>
-      </TouchableOpacity>
+          <Text style={[styles.joinBtnText, styles.joinBtnTextJoined]}>
+            Manage
+          </Text>
+        </TouchableOpacity>
+      ) : (
+        <TouchableOpacity
+          style={[styles.joinBtn, isJoined && styles.joinBtnJoined]}
+          onPress={(e) => {
+            e.stopPropagation();
+            onToggleJoin(c.id, isJoined || false);
+          }}
+        >
+          <Text
+            style={[styles.joinBtnText, isJoined && styles.joinBtnTextJoined]}
+          >
+            {isJoined
+              ? "Leave"
+              : c.privacy === "private"
+                ? "Request to Join"
+                : "Join"}
+          </Text>
+        </TouchableOpacity>
+      )}
     </TouchableOpacity>
   );
 }
@@ -889,18 +1084,73 @@ function CreateCommunityModal({
   const [name, setName] = useState("");
   const [desc, setDesc] = useState("");
   const [category, setCategory] = useState("Tech");
-  const [avatar, setAvatar] = useState("🚀");
   const [isPrivate, setIsPrivate] = useState(false);
+  const [avatarAsset, setAvatarAsset] =
+    useState<ImagePicker.ImagePickerAsset | null>(null);
+  const [bannerAsset, setBannerAsset] =
+    useState<ImagePicker.ImagePickerAsset | null>(null);
+  const [creating, setCreating] = useState(false);
 
   const reset = () => {
     setName("");
     setDesc("");
     setCategory("Tech");
-    setAvatar("🚀");
     setIsPrivate(false);
+    setAvatarAsset(null);
+    setBannerAsset(null);
   };
 
-  const handleCreate = () => {
+  const pickImage = async (type: "avatar" | "banner") => {
+    appLockBypass.beginNativeFlow();
+    try {
+      const { status } =
+        await ImagePicker.requestMediaLibraryPermissionsAsync();
+      if (status !== "granted") {
+        Alert.alert("Permission needed", "Allow access to your media library.");
+        return;
+      }
+      const result = await ImagePicker.launchImageLibraryAsync({
+        mediaTypes: ["images"],
+        allowsEditing: true,
+        aspect: type === "avatar" ? [1, 1] : [3, 1],
+        quality: 0.85,
+      });
+      if (!result.canceled && result.assets.length > 0) {
+        if (type === "avatar") setAvatarAsset(result.assets[0]);
+        else setBannerAsset(result.assets[0]);
+      }
+    } finally {
+      appLockBypass.endNativeFlow();
+    }
+  };
+
+  const uploadMedia = async (
+    asset: ImagePicker.ImagePickerAsset,
+    type: "avatar" | "banner",
+  ) => {
+    const mimeType = asset.mimeType || "image/jpeg";
+    let fileSize = asset.fileSize;
+    if (!fileSize) {
+      const info = await FileSystem.getInfoAsync(asset.uri);
+      fileSize = info.exists && "size" in info ? info.size : 1000000;
+    }
+    const res = await mediaService.getSignedUrl(
+      type === "avatar" ? "avatars" : "banners",
+      fileSize,
+      mimeType,
+      asset.width,
+      asset.height,
+    );
+    await mediaService.uploadFileDirect(
+      res.data.signedUrl!,
+      asset.uri,
+      mimeType,
+    );
+    await mediaService.confirmUpload(res.data.mediaId, res.data.s3Key!);
+    return res.data.mediaId;
+  };
+
+  const handleCreate = async () => {
     if (!name.trim()) {
       Alert.alert("Name required", "Please enter a community name.");
       return;
@@ -909,15 +1159,29 @@ function CreateCommunityModal({
       Alert.alert("Description required", "Please add a short description.");
       return;
     }
-    const newComm = {
-      name: name.trim(),
-      description: desc.trim(),
-      privacy: isPrivate ? "private" : "public",
-      category: [category],
-    };
-    onCreate(newComm);
-    reset();
-    onClose();
+    setCreating(true);
+    try {
+      const payload: any = {
+        name: name.trim(),
+        description: desc.trim(),
+        privacy: isPrivate ? "private" : "public",
+        category: [category],
+      };
+      if (avatarAsset)
+        payload.avatarMediaId = await uploadMedia(avatarAsset, "avatar");
+      if (bannerAsset)
+        payload.bannerMediaId = await uploadMedia(bannerAsset, "banner");
+      onCreate(payload);
+      reset();
+      onClose();
+    } catch (e: any) {
+      Alert.alert(
+        "Error",
+        e.response?.data?.message || "Failed to create community.",
+      );
+    } finally {
+      setCreating(false);
+    }
   };
 
   return (
@@ -941,20 +1205,25 @@ function CreateCommunityModal({
               reset();
               onClose();
             }}
+            disabled={creating}
           >
             <Ionicons name="close" size={24} color={colors.text.secondary} />
           </TouchableOpacity>
           <Text style={styles.modalTitle}>Create Community</Text>
-          <TouchableOpacity onPress={handleCreate}>
-            <Text
-              style={{
-                fontSize: fontSizes.md,
-                fontWeight: "700",
-                color: colors.primary,
-              }}
-            >
-              Create
-            </Text>
+          <TouchableOpacity onPress={handleCreate} disabled={creating}>
+            {creating ? (
+              <ActivityIndicator size="small" color={colors.primary} />
+            ) : (
+              <Text
+                style={{
+                  fontSize: fontSizes.md,
+                  fontWeight: "700",
+                  color: colors.primary,
+                }}
+              >
+                Create
+              </Text>
+            )}
           </TouchableOpacity>
         </View>
 
@@ -962,25 +1231,69 @@ function CreateCommunityModal({
           contentContainerStyle={styles.modalContent}
           keyboardShouldPersistTaps="handled"
         >
-          <Text style={styles.fieldLabel}>Icon</Text>
-          <ScrollView
-            horizontal
-            showsHorizontalScrollIndicator={false}
-            contentContainerStyle={styles.emojiRow}
-          >
-            {EMOJI_OPTIONS.map((em) => (
-              <TouchableOpacity
-                key={em}
-                style={[
-                  styles.emojiOption,
-                  avatar === em && styles.emojiOptionActive,
-                ]}
-                onPress={() => setAvatar(em)}
-              >
-                <Text style={{ fontSize: 24 }}>{em}</Text>
-              </TouchableOpacity>
-            ))}
-          </ScrollView>
+          {/* Banner + Avatar Uploaders */}
+          <View>
+            <TouchableOpacity
+              style={[
+                styles.bannerUpload,
+                {
+                  backgroundColor: colors.bg.elevated,
+                  borderColor: colors.border,
+                },
+              ]}
+              onPress={() => pickImage("banner")}
+            >
+              {bannerAsset ? (
+                <Image
+                  source={{ uri: bannerAsset.uri }}
+                  style={StyleSheet.absoluteFillObject}
+                />
+              ) : (
+                <View style={{ alignItems: "center", gap: 6 }}>
+                  <Ionicons
+                    name="image-outline"
+                    size={28}
+                    color={colors.text.muted}
+                  />
+                  <Text
+                    style={{ fontSize: fontSizes.xs, color: colors.text.muted }}
+                  >
+                    Tap to add banner
+                  </Text>
+                </View>
+              )}
+              <View style={styles.camOverlay}>
+                <Ionicons name="camera" size={14} color="#fff" />
+              </View>
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={[
+                styles.avatarUpload,
+                {
+                  backgroundColor: colors.bg.card,
+                  borderColor: colors.bg.base,
+                },
+              ]}
+              onPress={() => pickImage("avatar")}
+            >
+              {avatarAsset ? (
+                <Image
+                  source={{ uri: avatarAsset.uri }}
+                  style={{ width: "100%", height: "100%" }}
+                />
+              ) : (
+                <Ionicons
+                  name="people-outline"
+                  size={28}
+                  color={colors.text.muted}
+                />
+              )}
+              <View style={[styles.camOverlay, { borderRadius: 12 }]}>
+                <Ionicons name="camera" size={12} color="#fff" />
+              </View>
+            </TouchableOpacity>
+          </View>
 
           <Text style={styles.fieldLabel}>
             Name <Text style={styles.required}>*</Text>
@@ -1048,8 +1361,8 @@ function CreateCommunityModal({
                 </Text>
                 <Text style={styles.privacyDesc}>
                   {isPrivate
-                    ? "Only approved members can join and post. Posts are hidden from non-members."
-                    : "Anyone can find and join this community. Posts are visible to everyone."}
+                    ? "Only approved members can join and post."
+                    : "Anyone can find and join this community."}
                 </Text>
               </View>
             </View>

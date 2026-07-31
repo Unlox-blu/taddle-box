@@ -6,6 +6,8 @@ const { socketAuthMiddleware } = require('./middleware/socket.auth');
 const { setupNotificationSocket } = require('./notification.socket');
 const { setupActiveStatus } = require('./status.socket');
 const { setupGameSocket } = require('./game.socket');
+const { createAdapter } = require('@socket.io/redis-adapter');
+const redisClient = require('../config/redis');
 
 let _io = null;
 
@@ -19,6 +21,10 @@ const initializeSockets = (httpServer) => {
     pingTimeout: 60000,
     pingInterval: 25000,
   });
+
+  const pubClient = redisClient.duplicate();
+  const subClient = redisClient.duplicate();
+  io.adapter(createAdapter(pubClient, subClient));
 
   // Auth middleware — runs before every connection
   io.use(socketAuthMiddleware);

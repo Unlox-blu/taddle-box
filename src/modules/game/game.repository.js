@@ -218,6 +218,19 @@ const findManyGameMatshs = async ({userId, limit, offset}) => {
   }
 }
 
+const recordMatchHistory = async ({ userId, gameId, mode, result, score, duration, xpEarned }) => {
+  try {
+    await pool.query(
+      `INSERT INTO ${gameModel.GAME_MATCH_TABLE} 
+       (user_id, game_id, mode, result, score, duration, xp_earned, created_at, updated_at)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, NOW(), NOW())`,
+      [userId, gameId, mode || 'QUICK', result, score, duration, xpEarned]
+    );
+  } catch (error) {
+    console.error("Failed to record match history:", error.message);
+  }
+}
+
 const getTrendingGames = async ({ limit = 3 }) => {
   try {
     const { rows } = await pool.query(
@@ -802,6 +815,7 @@ const findActiveBotSession = async ({ userId, gameId }) => {
          AND gs.status = 'ACTIVE' 
          AND gs.metadata->>'mode' = 'bot' 
          AND gm.status = 'ACTIVE'
+         AND gs.expires_at >= NOW()
        ORDER BY gs.expires_at DESC LIMIT 1`,
       [userId, gameId]
     );
@@ -853,11 +867,11 @@ const findActiveSession = async ({ userId }) => {
 
 module.exports = {
                   findManyGames, findManyGamesBydDfficulty, findGameById, searchGames,
-                  createGameMatche, updateGameMatcheByMatchId, completeGameMatch, findManyGameMatshs,
-                  findGameMatchById, findGameStatsByUserId, createGameStatsByUserId, findLeaderboard,
-                  findTournaments, findTournamentById, joinTournament, hasTournamentEntry,
-                  findMatchmakingTicketById, cancelMatchmakingTicket, getTrendingGames,
+                  createGameMatche, updateGameMatcheByMatchId, completeGameMatch, findManyGameMatshs, recordMatchHistory,
+                  getTrendingGames, findLeaderboard,
+                  findManyGameTournaments, findGameTournamentById,
+                  createGameTournamentEntry, findManyGameTournamentEntries,
                   joinMatchmaking, setupMatchSession, createGameSession,
                   findGameSessionById, updateGameSessionStatus, createRewardLedgerEntry,
-                  findOpponentSessionByMatchGroup, findActiveBotSession, findActiveSession
-                }
+                  findOpponentSessionByMatchGroup, updateTournamentPlayerCount, completeTournament
+                };

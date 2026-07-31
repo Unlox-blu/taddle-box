@@ -6,6 +6,7 @@ const GameRegistry = require('../modules/game/engine');
 const { MatchManager, MATCH_STATES } = require('../modules/game/engine/MatchManager');
 const EventStore = require('../modules/game/engine/EventStore');
 const TimerEngine = require('../modules/game/engine/TimerEngine');
+const BotMatchHandler = require('./handlers/BotMatchHandler');
 
 // ─── Standardized Protocol Events ────────────────────────────────────────────
 const EVENTS = {
@@ -35,6 +36,138 @@ const TURN_TIMEOUT_MS = 60 * 1000;
 
 const setupGameSocket = (io) => {
   const gameNs = io.of('/game-engine');
+
+  const botHandler = new BotMatchHandler(
+    gameNs,
+    EVENTS,
+    (mId, s) => _archiveMatch(mId, s),
+    (ns, mId, gs, s) => _startTurnTimer(ns, mId, gs, s)
+  );
+
+  // ── BullMQ Worker for Distributed Timers ──────────────────────────────────
+  if (!io._timerWorkerInitialized) {
+    io._timerWorkerInitialized = true;
+    const { Worker } = require('bullmq');
+    const redisClient = require('../config/redis');
+    
+    new Worker('GameTimers', async (job) => {
+      const { matchId, type, userId, gameSlug } = job.data;
+      const latestState = await EventStore.loadMatchSnapshot(matchId);
+      if (!latestState) return;
+  
+      if (type === 'reconnect') {
+        if (latestState.status !== MATCH_STATES.PAUSED) return;
+        latestState.status = MATCH_STATES.FINISHED;
+        latestState.winner = 'opponent'; 
+        await EventStore.saveMatchSnapshot(matchId, latestState);
+        await EventStore.appendEvent(matchId, { type: 'FORFEIT', userId });
+        gameNs.to(`match:${matchId}`).emit(EVENTS.GAME_OVER, {
+          state: latestState,
+          reason: 'forfeit',
+          forfeitedBy: userId,
+        });
+        botHandler.handleMatchEnd(matchId, gameSlug, latestState);
+        await _archiveMatch(matchId, latestState);
+        
+        // Notify players in their global user rooms (for updating UI like GamesScreen)
+        const players = latestState.metadata?.players || [];
+        players.forEach(p => {
+          io.to(`user:${p.userId}`).emit('SESSION_EXPIRED', { matchId });
+        });
+      } else if (type === 'turn') {
+        if (latestState.status !== MATCH_STATES.ACTIVE) return;
+        const currentPlayerId = latestState.pluginState?.turnOrder?.[latestState.pluginState?.currentTurnIndex];
+        if (!currentPlayerId) return;
+        await EventStore.appendEvent(matchId, { type: 'TURN_TIMEOUT', userId: currentPlayerId });
+  
+        if (gameSlug === 'chess') {
+          latestState.status = MATCH_STATES.FINISHED;
+          latestState.winner = latestState.pluginState?.turnOrder?.find((id) => id !== currentPlayerId);
+          if (latestState.pluginState) {
+            latestState.pluginState.status = 'finished';
+            latestState.pluginState.winner = latestState.winner;
+            latestState.pluginState.drawReason = 'timeout';
+            if (latestState.pluginState.timers) {
+              const turnColor = latestState.pluginState.turn;
+              latestState.pluginState.timers[turnColor] = 0;
+            }
+          }
+          await EventStore.saveMatchSnapshot(matchId, latestState);
+          gameNs.to(`match:${matchId}`).emit(EVENTS.SYNC, {
+            state: latestState.pluginState,
+            reason: 'turn_timeout',
+            timedOutPlayer: currentPlayerId,
+          });
+          gameNs.to(`match:${matchId}`).emit(EVENTS.GAME_OVER, {
+            state: latestState,
+            winner: latestState.winner,
+            reason: 'timeout'
+          });
+          botHandler.handleMatchEnd(matchId, gameSlug, latestState);
+          await _archiveMatch(matchId, latestState);
+          
+          const players = latestState.metadata?.players || [];
+          players.forEach(p => {
+            io.to(`user:${p.userId}`).emit('SESSION_EXPIRED', { matchId });
+          });
+        } else {
+          latestState.pluginState = {
+            ...latestState.pluginState,
+            currentTurnIndex:
+              ((latestState.pluginState.currentTurnIndex || 0) + 1) %
+              (latestState.pluginState.turnOrder?.length || 1),
+          };
+          await EventStore.saveMatchSnapshot(matchId, latestState);
+          gameNs.to(`match:${matchId}`).emit(EVENTS.SYNC, {
+            state: latestState.pluginState,
+            reason: 'turn_timeout',
+            timedOutPlayer: currentPlayerId,
+          });
+          _startTurnTimer(gameNs, matchId, gameSlug, latestState);
+        }
+      } else if (type === 'round') {
+        if (latestState.status !== MATCH_STATES.ACTIVE) return;
+        const GameRegistry = require('../modules/game/engine/GameRegistry');
+        const plugin = GameRegistry.createInstance(gameSlug, latestState.metadata);
+        latestState.pluginState = plugin.advanceRound(latestState.pluginState);
+        
+        if (plugin.isFinished(latestState.pluginState)) {
+          latestState.status = MATCH_STATES.FINISHED;
+          TimerEngine.clearAllTimers(matchId);
+          await EventStore.saveMatchSnapshot(matchId, latestState);
+          gameNs.to(`match:${matchId}`).emit(EVENTS.GAME_OVER, {
+            state: latestState,
+            winner: latestState.pluginState?.winner || null,
+          });
+          botHandler.handleMatchEnd(matchId, gameSlug, latestState);
+          await _archiveMatch(matchId, latestState);
+          
+          const players = latestState.metadata?.players || [];
+          players.forEach(p => {
+            io.to(`user:${p.userId}`).emit('SESSION_EXPIRED', { matchId });
+          });
+        } else {
+          await EventStore.saveMatchSnapshot(matchId, latestState);
+          const sockets = await gameNs.in(`match:${matchId}`).fetchSockets();
+          for (const s of sockets) {
+            const socketUserId = s.data?.userId || s.userId || (s.handshake?.auth?.userId);
+            if(!socketUserId) continue;
+            const ps = _getPlayerState(gameSlug, latestState, socketUserId);
+            if(ps) {
+               s.emit(EVENTS.SYNC, {
+                 state: ps.pluginState,
+                 reason: 'round_timeout',
+               });
+            }
+          }
+          botHandler.handleTurn(matchId, gameSlug, latestState);
+          _startTurnTimer(gameNs, matchId, gameSlug, latestState);
+        }
+      }
+    }, { connection: redisClient }).on('failed', (job, err) => {
+      console.error(`[TimerWorker] Job ${job.id} failed:`, err);
+    });
+  }
 
   // ─── Auth Middleware ─────────────────────────────────────────────────────
   gameNs.use(async (socket, next) => {
@@ -82,11 +215,8 @@ const setupGameSocket = (io) => {
     // Load or initialize match state via the generic engine
     let state;
     try {
-      const isBotMode = socket.matchMode === 'BOT' || socket.matchMetadata?.mode === 'BOT' || socket.matchMetadata?.mode === 'bot';
       const players = [...(socket.matchPlayers || [])];
-      if (isBotMode && !players.find(p => p.userId.startsWith('bot_'))) {
-        players.push({ userId: `bot_${matchId}`, color: 'black' });
-      }
+      const isBotMode = botHandler.setupBotPlayer(socket, players, matchId);
 
       const result = await MatchManager.loadOrInitializeMatch(matchId, gameSlug, {
         players,
@@ -99,16 +229,35 @@ const setupGameSocket = (io) => {
       return socket.disconnect();
     }
 
-    if (state.status === MATCH_STATES.PAUSED) {
-      const pausedAt = state.pausedAt || Date.now() - RECONNECT_TIMEOUT_MS; // assume expired if missing
-      if (Date.now() - pausedAt >= RECONNECT_TIMEOUT_MS) {
+    try {
+      const activeReconnectTimeout = RECONNECT_TIMEOUT_MS;
+
+      if (state.status === MATCH_STATES.PAUSED) {
+      const pausedAt = state.pausedAt || Date.now() - activeReconnectTimeout; // assume expired if missing
+      if (Date.now() - pausedAt >= activeReconnectTimeout) {
         state.status = MATCH_STATES.FINISHED;
         state.winner = 'opponent';
         await EventStore.saveMatchSnapshot(matchId, state);
         await _archiveMatch(matchId, state);
         socket.emit(EVENTS.GAME_OVER, { state, reason: 'forfeit', forfeitedBy: 'opponent' });
+        botHandler.handleMatchEnd(matchId, gameSlug, state);
         return socket.disconnect();
+      } else {
+        // Player returned within the reconnect window
+        state.status = MATCH_STATES.ACTIVE;
+        state.pausedAt = null;
+        await EventStore.saveMatchSnapshot(matchId, state);
+        
+        gameNs.to(matchRoom).emit(EVENTS.RESUME, { userId });
+        botHandler.handleResume(matchId, gameSlug, state);
       }
+    }
+
+    let reconnectWindowMs = 0;
+    if (state.status === MATCH_STATES.PAUSED) {
+      const pausedAt = state.pausedAt || Date.now();
+      const elapsed = Date.now() - pausedAt;
+      reconnectWindowMs = Math.max(0, activeReconnectTimeout - elapsed);
     }
 
     // ── Send CONNECT_ACK with current state snapshot ───────────────────
@@ -117,10 +266,13 @@ const setupGameSocket = (io) => {
       gameSlug,
       state,
       status: state.status || MATCH_STATES.WAITING,
+      reconnectWindowMs,
     });
 
     // ── Cancel any active reconnect timer for this player ──────────────
-    TimerEngine.clearTimer(matchId, `reconnect:${userId}`);
+    if (state.status === MATCH_STATES.ACTIVE) {
+      await TimerEngine.clearTimer(matchId, `reconnect:${userId}`);
+    }
 
     // ── PING / PONG ─────────────────────────────────────────────────────
     socket.on(EVENTS.PING, () => {
@@ -157,10 +309,9 @@ const setupGameSocket = (io) => {
             s.emit(EVENTS.START, { state: playerState, startedAt: snap.startedAt });
           }
 
-          // For bot match: schedule bot actions
-          if (isBotMatch) {
-            _scheduleBotAction(gameNs, matchId, gameSlug, snap);
-          }
+          // For bot match: initialize bot and start
+          botHandler.handleMatchStart(matchId, gameSlug, snap);
+          
           _startTurnTimer(gameNs, matchId, gameSlug, snap);
         } else {
           await EventStore.saveMatchSnapshot(matchId, snap);
@@ -198,6 +349,7 @@ const setupGameSocket = (io) => {
             state: updatedState,
             winner: updatedState.pluginState?.winner || null,
           });
+          botHandler.handleMatchEnd(matchId, gameSlug, updatedState);
           await _archiveMatch(matchId, updatedState);
         } else {
           // Send player-specific states (e.g. scribble drawer sees word)
@@ -228,6 +380,11 @@ const setupGameSocket = (io) => {
       console.info(`[GameEngine] ${userId} disconnected from ${matchId}: ${reason}`);
       await _handleDisconnect(gameNs, socket, matchRoom);
     });
+    
+    } catch (err) {
+      console.error('[GameEngine] Unhandled error during connection setup:', err);
+      socket.disconnect();
+    }
   });
 
   // ─── Helpers ─────────────────────────────────────────────────────────────
@@ -237,6 +394,9 @@ const setupGameSocket = (io) => {
 
     // Pause the game briefly and give the player a reconnect window
     const state = await EventStore.loadMatchSnapshot(matchId);
+    const isBotMatch = state && (state.isBotMatch || state.metadata?.mode === 'BOT' || state.metadata?.mode === 'bot');
+    const activeReconnectTimeout = RECONNECT_TIMEOUT_MS;
+
     if (state && state.status === MATCH_STATES.ACTIVE) {
       state.status = MATCH_STATES.PAUSED;
       state.pausedAt = Date.now();
@@ -247,41 +407,32 @@ const setupGameSocket = (io) => {
       ns.to(matchRoom).emit(EVENTS.PAUSE, {
         reason: 'player_disconnected',
         userId,
-        reconnectWindowMs: RECONNECT_TIMEOUT_MS,
+        reconnectWindowMs: activeReconnectTimeout,
       });
+      
+      botHandler.handlePause(matchId, gameSlug, state);
     }
 
     // Set reconnect timeout — forfeit if player doesn't return
-    TimerEngine.startTimer(matchId, `reconnect:${userId}`, RECONNECT_TIMEOUT_MS, async () => {
-      const latestState = await EventStore.loadMatchSnapshot(matchId);
-      if (!latestState || latestState.status !== MATCH_STATES.PAUSED) return;
-
-      latestState.status = MATCH_STATES.FINISHED;
-      latestState.winner = 'opponent'; // forfeit
-      await EventStore.saveMatchSnapshot(matchId, latestState);
-      await EventStore.appendEvent(matchId, { type: 'FORFEIT', userId });
-
-      ns.to(matchRoom).emit(EVENTS.GAME_OVER, {
-        state: latestState,
-        reason: 'forfeit',
-        forfeitedBy: userId,
-      });
-
-      await _archiveMatch(matchId, latestState);
+    await TimerEngine.startTimer(matchId, `reconnect:${userId}`, activeReconnectTimeout, {
+      type: 'reconnect',
+      userId,
+      gameSlug,
     });
   }
 
-  function _startTurnTimer(ns, matchId, gameSlug, state) {
-    const turnBasedSlugs = ['chess', 'ludo', 'snake-ladder'];
-    if (turnBasedSlugs.includes(gameSlug)) {
-      const currentPlayerId =
-        state.pluginState?.turnOrder?.[state.pluginState?.currentTurnIndex];
-      if (!currentPlayerId) return;
+  async function _startTurnTimer(ns, matchId, gameSlug, state) {
+    try {
+      const turnBasedSlugs = ['chess', 'ludo', 'snake-ladder'];
+      if (turnBasedSlugs.includes(gameSlug)) {
+        const currentPlayerId =
+          state.pluginState?.turnOrder?.[state.pluginState?.currentTurnIndex];
+        if (!currentPlayerId) return;
 
-      TimerEngine.clearAllTimers(matchId);
+      await TimerEngine.clearAllTimers(matchId);
 
       if (currentPlayerId.startsWith('bot_')) {
-        _scheduleBotAction(ns, matchId, gameSlug, state);
+        botHandler.handleTurn(matchId, gameSlug, state, currentPlayerId);
         return;
       }
 
@@ -297,83 +448,21 @@ const setupGameSocket = (io) => {
         }
       }
 
-      TimerEngine.startTimer(matchId, 'turn', timerDuration, async () => {
-        const latestState = await EventStore.loadMatchSnapshot(matchId);
-        if (!latestState || latestState.status !== MATCH_STATES.ACTIVE) return;
-
-        await EventStore.appendEvent(matchId, { type: 'TURN_TIMEOUT', userId: currentPlayerId });
-
-        if (gameSlug === 'chess') {
-          // In chess, timeout means instant loss
-          latestState.status = MATCH_STATES.FINISHED;
-          latestState.winner = latestState.pluginState?.turnOrder?.find((id) => id !== currentPlayerId);
-          if (latestState.pluginState) {
-            latestState.pluginState.status = 'finished';
-            latestState.pluginState.winner = latestState.winner;
-            latestState.pluginState.drawReason = 'timeout';
-            if (latestState.pluginState.timers) {
-              const turnColor = latestState.pluginState.turn;
-              latestState.pluginState.timers[turnColor] = 0;
-            }
-          }
-        } else {
-          // Normal skip logic for ludo/snake-ladder
-          latestState.pluginState = {
-            ...latestState.pluginState,
-            currentTurnIndex:
-              ((latestState.pluginState.currentTurnIndex || 0) + 1) %
-              (latestState.pluginState.turnOrder?.length || 1),
-          };
-        }
-
-        await EventStore.saveMatchSnapshot(matchId, latestState);
-
-        ns.to(`match:${matchId}`).emit(EVENTS.SYNC, {
-          state: latestState.pluginState,
-          reason: 'turn_timeout',
-          timedOutPlayer: currentPlayerId,
-        });
-
-        _startTurnTimer(ns, matchId, gameSlug, latestState);
+      await TimerEngine.startTimer(matchId, 'turn', timerDuration, {
+        type: 'turn',
+        gameSlug,
       });
     } else if (gameSlug === 'scribble') {
       const ROUND_TIMEOUT_MS = 80000;
-      TimerEngine.startTimer(matchId, 'round', ROUND_TIMEOUT_MS, async () => {
-        const latestState = await EventStore.loadMatchSnapshot(matchId);
-        if (!latestState || latestState.status !== MATCH_STATES.ACTIVE) return;
+      botHandler.handleTurn(matchId, gameSlug, state);
 
-        const GameRegistry = require('../modules/game/engine/GameRegistry');
-        const plugin = GameRegistry.createInstance(gameSlug, latestState.metadata);
-        
-        latestState.pluginState = plugin.advanceRound(latestState.pluginState);
-        
-        if (plugin.isFinished(latestState.pluginState)) {
-          latestState.status = MATCH_STATES.FINISHED;
-          TimerEngine.clearAllTimers(matchId);
-          await EventStore.saveMatchSnapshot(matchId, latestState);
-          ns.to(`match:${matchId}`).emit(EVENTS.GAME_OVER, {
-            state: latestState,
-            winner: latestState.pluginState?.winner || null,
-          });
-          await _archiveMatch(matchId, latestState);
-        } else {
-          await EventStore.saveMatchSnapshot(matchId, latestState);
-          
-          const sockets = await ns.in(`match:${matchId}`).fetchSockets();
-          for (const s of sockets) {
-            const ps = _getPlayerState(gameSlug, latestState, s.userId);
-            s.emit(EVENTS.SYNC, {
-              state: ps.pluginState,
-              reason: 'round_timeout',
-            });
-          }
-
-          if (latestState.isBotMatch) {
-            _scheduleBotAction(ns, matchId, gameSlug, latestState);
-          }
-          _startTurnTimer(ns, matchId, gameSlug, latestState);
-        }
+      await TimerEngine.startTimer(matchId, 'round', ROUND_TIMEOUT_MS, {
+        type: 'round',
+        gameSlug,
       });
+    }
+    } catch (err) {
+      console.error('[GameEngine] Error in _startTurnTimer:', err);
     }
   }
 
@@ -397,192 +486,6 @@ const setupGameSocket = (io) => {
       }
     }
     return fullState;
-  }
-
-  // ── Bot AI ───────────────────────────────────────────────────────────────
-  async function _scheduleBotAction(ns, matchId, gameSlug, state) {
-    const BOT_DELAY_MS = 2500 + Math.random() * 1500; // 2.5-4s human-like delay
-
-    setTimeout(async () => {
-      try {
-        const latestState = await EventStore.loadMatchSnapshot(matchId);
-        if (!latestState || latestState.status !== MATCH_STATES.ACTIVE) return;
-
-        const ps = latestState.pluginState;
-        let isBotTurn = false;
-        let currentUserId = null;
-
-        if (gameSlug === 'scribble') {
-          const drawer = ps.turnOrder?.[ps.currentDrawerIndex];
-          const sockets = await ns.in(`match:${matchId}`).fetchSockets();
-          const connectedUserIds = new Set(sockets.map(s => s.userId));
-          // Bot is the one not connected
-          const botId = ps.turnOrder.find(id => !connectedUserIds.has(id));
-          if (!botId) return;
-          currentUserId = botId;
-          isBotTurn = true; // Bot can always act in scribble (guess or draw)
-        } else if (gameSlug === 'tap-rush' || gameSlug === 'memory-grid') {
-          isBotTurn = true; // These games are concurrent, no turn order needed
-        } else {
-          const turnOrder = ps.turnOrder || [];
-          currentUserId = turnOrder[ps.currentTurnIndex];
-          const sockets = await ns.in(`match:${matchId}`).fetchSockets();
-          const connectedUserIds = new Set(sockets.map(s => s.userId));
-          isBotTurn = currentUserId && !connectedUserIds.has(currentUserId);
-        }
-
-        if (!isBotTurn) return; // Human's turn, don't interfere
-
-        let botMove = null;
-
-        if (gameSlug === 'snake-ladder' || gameSlug === 'ludo') {
-          // Roll dice for bot
-          const diceValue = Math.floor(Math.random() * 6) + 1;
-          if (gameSlug === 'snake-ladder') {
-            botMove = { type: 'ROLL', diceValue };
-          } else {
-            // Ludo: find first movable token or roll
-            const botTokens = ps.tokens?.[currentUserId] || [];
-            const movable = botTokens.filter(t => t.pos !== 57);
-            if (movable.length > 0) {
-              botMove = { diceValue, tokenId: movable[0].id };
-            }
-          }
-        } else if (gameSlug === 'chess') {
-          require('fs').appendFileSync('d:/Workspace/Unlox/code/taddle/debug.log', `[Bot] Checking chess bot turn...\n`);
-          const { Chess } = require('chess.js');
-          const chess = new Chess(ps.fen);
-          require('fs').appendFileSync('d:/Workspace/Unlox/code/taddle/debug.log', `[Bot] FEN: ${ps.fen}\n`);
-          const moves = chess.moves({ verbose: true });
-          require('fs').appendFileSync('d:/Workspace/Unlox/code/taddle/debug.log', `[Bot] Valid moves: ${moves.length}\n`);
-          if (moves.length > 0) {
-            const randomMove = moves[Math.floor(Math.random() * moves.length)];
-            botMove = { from: randomMove.from, to: randomMove.to };
-            if (randomMove.promotion) {
-              botMove.promotion = randomMove.promotion;
-            }
-            require('fs').appendFileSync('d:/Workspace/Unlox/code/taddle/debug.log', `[Bot] Chose move: ${JSON.stringify(botMove)}\n`);
-          } else {
-            return;
-          }
-        } else if (gameSlug === 'scribble') {
-          const drawer = ps.turnOrder?.[ps.currentDrawerIndex];
-          if (drawer === currentUserId) {
-            // Bot is drawing: emit STROKE_CHUNK periodically
-            let cx = 100, cy = 100;
-            const drawInterval = setInterval(() => {
-              if (!TimerEngine.timers[`${matchId}_round`]) {
-                clearInterval(drawInterval);
-                return;
-              }
-              cx += (Math.random() - 0.5) * 50;
-              cy += (Math.random() - 0.5) * 50;
-              ns.to(`match:${matchId}`).emit(EVENTS.SYNC, {
-                type: 'STROKE_CHUNK',
-                userId: currentUserId,
-                points: [[cx, cy]],
-                color: '#EF4444',
-                width: 6,
-              });
-            }, 1000);
-            return;
-          } else {
-            // Bot is guessing
-            setTimeout(async () => {
-              if (!TimerEngine.timers[`${matchId}_round`]) return;
-              botMove = { type: 'GUESS', word: ps.secretWord };
-              
-              const GameRegistry = require('../modules/game/engine/GameRegistry');
-              const updatedState = await MatchManager.handlePlayerMove(
-                matchId, gameSlug, currentUserId, botMove
-              );
-              
-              const sockets = await ns.in(`match:${matchId}`).fetchSockets();
-              for (const s of sockets) {
-                const pss = _getPlayerState(gameSlug, updatedState, s.userId);
-                s.emit(EVENTS.SYNC, { state: pss.pluginState, valid: true });
-              }
-            }, 15000); // Guesses after 15 seconds
-            return;
-          }
-        } else if (gameSlug === 'tap-rush') {
-          const botId = Object.keys(ps.scores || {}).find(id => id.startsWith('bot_'));
-          if (!botId) return;
-          let tapCount = 0;
-          const botInterval = setInterval(async () => {
-            try {
-              const st = await EventStore.loadMatchSnapshot(matchId);
-              if (!st || st.status !== MATCH_STATES.ACTIVE) {
-                clearInterval(botInterval);
-                return;
-              }
-              if (tapCount >= 10) return;
-              
-              const updatedState = await MatchManager.handlePlayerMove(
-                matchId, gameSlug, botId, { type: 'TAP', seq: tapCount, clientTs: Date.now() }
-              );
-              tapCount++;
-              ns.to(`match:${matchId}`).emit(EVENTS.SYNC, { state: updatedState.pluginState, botMove: true });
-            } catch (e) {
-              // Ignore bot move errors
-            }
-          }, 1800);
-          return;
-        } else if (gameSlug === 'memory-grid') {
-          const botId = Object.keys(ps.scores || {}).find(id => id.startsWith('bot_'));
-          if (!botId) return;
-          let roundCount = 0;
-          const botInterval = setInterval(async () => {
-            try {
-              const st = await EventStore.loadMatchSnapshot(matchId);
-              if (!st || st.status !== MATCH_STATES.ACTIVE) {
-                clearInterval(botInterval);
-                return;
-              }
-              if (roundCount >= 5) return;
-              
-              await MatchManager.handlePlayerMove(
-                matchId, gameSlug, botId, { type: 'READY_INPUT' }
-              );
-              const latest = await EventStore.loadMatchSnapshot(matchId);
-              const updatedState = await MatchManager.handlePlayerMove(
-                matchId, gameSlug, botId, { type: 'INPUT', tiles: latest.pluginState.currentPattern || [] }
-              );
-              roundCount++;
-              ns.to(`match:${matchId}`).emit(EVENTS.SYNC, { state: updatedState.pluginState, botMove: true });
-            } catch (e) {
-               // Ignore bot move errors
-            }
-          }, 4500);
-          return;
-        } else if (gameSlug === 'word-rush') {
-          return; // Word Rush is single player vs clock, no bot turn
-        }
-
-        if (!botMove) return;
-
-        // Apply bot move through MatchManager
-        const GameRegistry = require('../modules/game/engine/GameRegistry');
-        const updatedState = await MatchManager.handlePlayerMove(
-          matchId, gameSlug, currentUserId, botMove
-        );
-
-        if (updatedState.status === MATCH_STATES.FINISHED) {
-          TimerEngine.clearAllTimers(matchId);
-          ns.to(`match:${matchId}`).emit(EVENTS.GAME_OVER, {
-            state: updatedState,
-            winner: updatedState.pluginState?.winner || null,
-          });
-          await _archiveMatch(matchId, updatedState);
-        } else {
-          ns.to(`match:${matchId}`).emit(EVENTS.SYNC, { state: updatedState.pluginState, botMove: true });
-          _startTurnTimer(ns, matchId, gameSlug, updatedState);
-        }
-      } catch (e) {
-        require('fs').appendFileSync('d:/Workspace/Unlox/code/taddle/debug.log', `[Bot] Error executing bot move: ${e.message}\n${e.stack}\n`);
-        console.error('[Bot] Error executing bot move:', e.message);
-      }
-    }, BOT_DELAY_MS);
   }
 
   async function _archiveMatch(matchId, finalState) {

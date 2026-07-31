@@ -69,6 +69,16 @@ class GameService {
       const active = await this.gameRepo.findActiveSession({ userId });
       if (!active) return null;
       
+      const EventStore = require('./engine/EventStore');
+      const snap = await EventStore.loadMatchSnapshot(active.match_id);
+      let reconnectWindowMs = null;
+      if (snap && snap.status === 'PAUSED') {
+        const pausedAt = snap.pausedAt || Date.now();
+        const elapsed = Date.now() - pausedAt;
+        const totalPauseWindow = 60000;
+        reconnectWindowMs = Math.max(0, totalPauseWindow - elapsed);
+      }
+
       return {
         sessionId: active.session_id,
         matchId: active.match_id,
@@ -77,6 +87,7 @@ class GameService {
         mode: active.mode || 'QUICK',
         opponentName: active.opponent_name,
         ticket: { userMatchId: active.match_id, token: active.ws_token },
+        reconnectWindowMs,
         game: {
           id: active.game_id,
           name: active.game_name,
@@ -448,32 +459,23 @@ class GameService {
       const game = await this.gameRepo.findGameById({ gameId: session.game_id });
       if (!game) throw createError("Game not found", 404);
 
-      // Fraud Engine - Simple Version
-      const totalTaps = tapLog ? tapLog.length : 0;
       let rawScore = 0;
       let duration = 0;
       let engineResult = null;
 
-      if (game.metadata?.runtime === 'native') {
-        const { MatchManager, MATCH_STATES } = require('./engine/MatchManager');
-        const { state: matchState } = await MatchManager.loadOrInitializeMatch(session.id, game.slug, session.metadata || {});
-        if (matchState && matchState.status === MATCH_STATES.FINISHED) {
-           const finalEvent = require('./engine/EventStore').getMatchEvents(session.id).then(events => events.find(e => e.type === 'GAME_OVER'));
-           // For simplicity, we can just use the score tracked in pluginState
-           rawScore = matchState.pluginState?.scores?.[userId] || 0;
-           duration = 60; // Approximate
-           engineResult = matchState.pluginState;
-        }
-      } else {
-        const totalTaps = tapLog ? tapLog.length : 0;
-        if (game.slug === 'tap-rush') {
-          if (totalTaps > 100) throw createError("Fraud detected: Impossible TPS", 403);
-          rawScore = totalTaps;
-          duration = 30;
-        } else if (game.slug === 'memory-grid') {
-          rawScore = totalTaps;
-          duration = 60;
-        }
+      // Native Runtime Resolution
+      const { MatchManager, MATCH_STATES } = require('./engine/MatchManager');
+      const matchGroupId = session.metadata?.matchGroupId || session.id;
+      const { state: matchState } = await MatchManager.loadOrInitializeMatch(matchGroupId, game.slug, session.metadata || {});
+      
+      if (matchState && matchState.status === MATCH_STATES.FINISHED) {
+         if (game.slug === 'chess' || game.slug === 'ludo' || game.slug === 'snake-ladder') {
+            rawScore = matchState.pluginState?.winner === userId ? (game.metadata?.winScore || 1) : 0;
+         } else {
+            rawScore = matchState.pluginState?.scores?.[userId] || 0;
+         }
+         duration = 60; // Approximate
+         engineResult = matchState.pluginState;
       }
 
       let calculated = this.calculateResult({ game, score: rawScore, duration });

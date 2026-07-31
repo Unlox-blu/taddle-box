@@ -3,6 +3,16 @@
 const EventStore = require('./EventStore');
 const TimerEngine = require('./TimerEngine');
 const GameRegistry = require('./GameRegistry');
+const redisClient = require('../../../config/redis');
+const Redlock = require('redlock').default || require('redlock');
+
+const redlock = new Redlock([redisClient], {
+  driftFactor: 0.01,
+  retryCount: 10,
+  retryDelay: 200, 
+  retryJitter: 200, 
+  automaticExtensionThreshold: 500, 
+});
 
 /**
  * Match Lifecycle States
@@ -61,31 +71,41 @@ class MatchManager {
   }
 
   static async handlePlayerMove(matchId, gameSlug, userId, moveData) {
-    const { state, plugin } = await this.loadOrInitializeMatch(matchId, gameSlug, {});
+    const lockKey = `lock:match:${matchId}`;
+    let lock;
+    try {
+      lock = await redlock.acquire([lockKey], 5000);
+      
+      const { state, plugin } = await this.loadOrInitializeMatch(matchId, gameSlug, {});
 
-    if (state.status !== MATCH_STATES.ACTIVE) {
-      throw new Error(`Match is not active. Current state: ${state.status}`);
+      if (state.status !== MATCH_STATES.ACTIVE) {
+        throw new Error(`Match is not active. Current state: ${state.status}`);
+      }
+
+      // Delegate validation and application to the plugin
+      const validation = plugin.validateMove(userId, moveData, state.pluginState);
+      if (!validation.valid) {
+        throw new Error(validation.reason || 'Invalid move');
+      }
+
+      state.pluginState = plugin.applyMove(userId, moveData, state.pluginState);
+
+      // Check if game is finished
+      if (plugin.isFinished(state.pluginState)) {
+        state.status = MATCH_STATES.FINISHED;
+        TimerEngine.clearAllTimers(matchId);
+        await EventStore.appendEvent(matchId, { type: 'GAME_OVER', result: state.pluginState });
+      } else {
+        await EventStore.appendEvent(matchId, { type: 'MOVE', userId, moveData });
+      }
+
+      await EventStore.saveMatchSnapshot(matchId, state);
+      return state;
+    } finally {
+      if (lock) {
+        await lock.release().catch(err => console.error('Failed to release lock:', err));
+      }
     }
-
-    // Delegate validation and application to the plugin
-    const validation = plugin.validateMove(userId, moveData, state.pluginState);
-    if (!validation.valid) {
-      throw new Error(validation.reason || 'Invalid move');
-    }
-
-    state.pluginState = plugin.applyMove(userId, moveData, state.pluginState);
-
-    // Check if game is finished
-    if (plugin.isFinished(state.pluginState)) {
-      state.status = MATCH_STATES.FINISHED;
-      TimerEngine.clearAllTimers(matchId);
-      await EventStore.appendEvent(matchId, { type: 'GAME_OVER', result: state.pluginState });
-    } else {
-      await EventStore.appendEvent(matchId, { type: 'MOVE', userId, moveData });
-    }
-
-    await EventStore.saveMatchSnapshot(matchId, state);
-    return state;
   }
 }
 

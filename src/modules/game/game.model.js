@@ -18,6 +18,7 @@ const GAME_MATCH_FIELDS = [
     'category', 'difficulty', 'metadata', 'created_at', 'updated_at'
 ].join(', ');
 
+
 const GAME_STATS_FIELDS = [
     'id', 'user_id', 'games_played', 'wins', 'losses', 'draws', 'current_streak', 'best_streak', 
     'total_xp', 'created_at', 'updated_at'
@@ -35,6 +36,7 @@ const formatGame = (row) => {
     difficulty: row.difficulty,
     isActive: row.is_active,
     metadata: row.metadata,
+    maxXp: Number(row.metadata?.maxXp || 25),
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   };

@@ -1,30 +1,37 @@
 'use strict';
 
+const { Queue } = require('bullmq');
+const redis = require('../../../config/redis');
+
 /**
  * Timer Engine for managing generic timeouts (turn, round, reconnect, game).
+ * Powered by BullMQ for distributed crash-resilient delays.
  */
 class TimerEngine {
   constructor() {
-    this.timers = new Map();
+    this.queue = new Queue('GameTimers', { connection: redis });
   }
 
   /**
    * Start or overwrite a timer for a specific match.
    * @param {string} matchId 
-   * @param {string} type e.g., 'turn', 'round', 'reconnect', 'game'
+   * @param {string} type e.g., 'turn', 'round', 'reconnect'
    * @param {number} ms 
-   * @param {Function} callback 
+   * @param {Object} jobData 
    */
-  startTimer(matchId, type, ms, callback) {
-    this.clearTimer(matchId, type);
-
-    const key = `${matchId}:${type}`;
-    const timeoutId = setTimeout(() => {
-      this.timers.delete(key);
-      callback();
-    }, ms);
-
-    this.timers.set(key, timeoutId);
+  async startTimer(matchId, type, ms, jobData) {
+    // BullMQ >= 5 does not allow colons in custom job IDs
+    const jobId = `${matchId}_${type.replace(/:/g, '_')}`;
+    await this.clearTimer(matchId, type);
+    
+    await this.queue.add(type, { matchId, type, ...jobData }, { 
+      delay: ms, 
+      jobId, 
+      removeOnComplete: true,
+      removeOnFail: true 
+    });
+    
+    await redis.sadd(`match:${matchId}:timers`, jobId);
   }
 
   /**
@@ -32,25 +39,29 @@ class TimerEngine {
    * @param {string} matchId 
    * @param {string} type 
    */
-  clearTimer(matchId, type) {
-    const key = `${matchId}:${type}`;
-    if (this.timers.has(key)) {
-      clearTimeout(this.timers.get(key));
-      this.timers.delete(key);
+  async clearTimer(matchId, type) {
+    const jobId = `${matchId}_${type.replace(/:/g, '_')}`;
+    const job = await this.queue.getJob(jobId);
+    if (job) {
+      await job.remove().catch(() => {});
     }
+    await redis.srem(`match:${matchId}:timers`, jobId);
   }
 
   /**
    * Clear all timers associated with a match (useful for GAME_OVER or archiving).
    * @param {string} matchId 
    */
-  clearAllTimers(matchId) {
-    for (const key of this.timers.keys()) {
-      if (key.startsWith(`${matchId}:`)) {
-        clearTimeout(this.timers.get(key));
-        this.timers.delete(key);
+  async clearAllTimers(matchId) {
+    const key = `match:${matchId}:timers`;
+    const jobIds = await redis.smembers(key);
+    for (const jobId of jobIds) {
+      const job = await this.queue.getJob(jobId);
+      if (job) {
+        await job.remove().catch(() => {});
       }
     }
+    await redis.del(key);
   }
 }
 

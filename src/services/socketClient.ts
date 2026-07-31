@@ -64,6 +64,7 @@ class SocketService {
       this.socket.on('wallet:updated', (data) => this.events.emit('wallet:updated', data));
       this.socket.on('matchmaking:matched', (data) => this.events.emit('matchmaking:matched', data));
       this.socket.on('notification:new', (data) => this.events.emit('notification:new', data));
+      this.socket.on('SESSION_EXPIRED', (data) => this.events.emit('SESSION_EXPIRED', data));
 
       this.socket.on('connect_error', (error) => {
         this.isConnecting = false;
@@ -85,14 +86,6 @@ class SocketService {
 
 export const socketClient = new SocketService();
 
-export const createGameSocket = (sessionId: string, wsToken: string) => {
-  return io(`${SOCKET_URL}/game-sync`, {
-    auth: { sessionId, wsToken },
-    extraHeaders: { "ngrok-skip-browser-warning": "true" },
-    transports: ['websocket', 'polling']
-  });
-};
-
 export const createGameEngineSocket = (matchId: string, userId: string, token: string) => {
   const s = io(`${SOCKET_URL}/game-engine`, {
     auth: { matchId, userId, token },
@@ -101,16 +94,11 @@ export const createGameEngineSocket = (matchId: string, userId: string, token: s
   });
 
   s.on('CONNECT_ACK', (data: any) => {
-    if (data?.state?.status === 'PAUSED') {
-      const pausedAt = data.state.pausedAt || Date.now();
-      const elapsed = Date.now() - pausedAt;
-      const totalPauseWindow = 60000; // RECONNECT_TIMEOUT_MS
-      if (elapsed < totalPauseWindow) {
-        DeviceEventEmitter.emit('GAME_ENGINE_PAUSE', { 
-          matchId, 
-          data: { reconnectWindowMs: totalPauseWindow - elapsed } 
-        });
-      }
+    if (data?.state?.status === 'PAUSED' && data.reconnectWindowMs > 0) {
+      DeviceEventEmitter.emit('GAME_ENGINE_PAUSE', { 
+        matchId, 
+        data: { reconnectWindowMs: data.reconnectWindowMs } 
+      });
     }
   });
 

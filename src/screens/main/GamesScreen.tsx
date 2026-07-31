@@ -179,17 +179,6 @@ export default function GamesScreen() {
   useFocusEffect(
     useCallback(() => {
       loadGamesData();
-      
-      const interval = setInterval(async () => {
-        try {
-          const activeRes = await gamesService.getActiveSession();
-          setReconnectSession(activeRes?.data || null);
-        } catch (error) {
-          setReconnectSession(null);
-        }
-      }, 5000); // Poll every 5 seconds to automatically hide the Rejoin button after 60s forfeit
-      
-      return () => clearInterval(interval);
     }, [loadGamesData])
   );
 
@@ -217,11 +206,18 @@ export default function GamesScreen() {
         setIncomingInvite(notif);
       }
     };
+    
+    const handleSessionExpired = (data: any) => {
+      setReconnectSession(null);
+    };
+
     socketClient.events.on("notification:new", handleNewNotif);
+    socketClient.events.on("SESSION_EXPIRED", handleSessionExpired);
 
     return () => {
       sub.remove();
       socketClient.events.off("notification:new", handleNewNotif);
+      socketClient.events.off("SESSION_EXPIRED", handleSessionExpired);
     };
   }, []);
 
@@ -480,6 +476,7 @@ export default function GamesScreen() {
             <View style={styles.gameGrid}>
               {realGames.map((game) => {
                 const isRejoin = !!reconnectSession && reconnectSession.gameId === game.id;
+                const rejoinWindowMs = isRejoin ? reconnectSession.reconnectWindowMs : null;
                 return (
                 <GameCard
                   key={game.id}
@@ -492,6 +489,7 @@ export default function GamesScreen() {
                   }}
                   startingId={startingId}
                   isRejoin={isRejoin}
+                  rejoinWindowMs={rejoinWindowMs}
                   onPlayClick={() => {
                     if (isRejoin) {
                       setActiveSession(reconnectSession);
@@ -628,13 +626,49 @@ function GameCard({
   game,
   startingId,
   isRejoin,
+  rejoinWindowMs,
   onPlayClick,
 }: {
   game: Game;
   startingId: string | null;
   isRejoin?: boolean;
+  rejoinWindowMs?: number | null;
   onPlayClick: () => void;
 }) {
+  const [timeLeft, setTimeLeft] = useState<number | null>(
+    rejoinWindowMs != null ? Math.floor(rejoinWindowMs / 1000) : null
+  );
+
+  const formatTime = (seconds: number) => {
+    if (seconds >= 3600) {
+      const h = Math.floor(seconds / 3600);
+      const m = Math.floor((seconds % 3600) / 60);
+      return `${h}h ${m}m`;
+    }
+    if (seconds >= 60) {
+      const m = Math.floor(seconds / 60);
+      const s = seconds % 60;
+      return `${m}m ${s}s`;
+    }
+    return `${seconds}s`;
+  };
+
+  useEffect(() => {
+    if (rejoinWindowMs != null) {
+      setTimeLeft(Math.floor(rejoinWindowMs / 1000));
+    } else {
+      setTimeLeft(null);
+    }
+  }, [rejoinWindowMs]);
+
+  useEffect(() => {
+    if (timeLeft === null || timeLeft <= 0) return;
+    const timer = setInterval(() => {
+      setTimeLeft((prev) => (prev && prev > 0 ? prev - 1 : 0));
+    }, 1000);
+    return () => clearInterval(timer);
+  }, [timeLeft]);
+
   const colors = useThemeColors();
   const styles = useMemo(() => makeStyles(colors), [colors]);
   const isStarting = startingId === `${game.id}:bot`;
@@ -681,7 +715,9 @@ function GameCard({
               <Ionicons name="play" size={16} color="#fff" />
             )}
             <Text style={styles.primaryButtonText}>
-              {isRejoin ? "REJOIN MATCH" : `PLAY | ${game.entryFee || 0} XP`}
+              {isRejoin
+                ? `REJOIN MATCH ${timeLeft && timeLeft > 0 ? `(${formatTime(timeLeft)})` : ""}`
+                : `PLAY | ${game.entryFee || 0} XP`}
             </Text>
           </LinearGradient>
         </TouchableOpacity>

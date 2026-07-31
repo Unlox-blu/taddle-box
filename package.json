@@ -23,6 +23,7 @@
     "@vimeo/vimeo": "^2.1.1",
     "bcryptjs": "^3.0.2",
     "bullmq": "^5.12.0",
+    "chess.js": "^1.4.0",
     "cloudinary": "^2.10.0",
     "cookie-parser": "^1.4.6",
     "cors": "^2.8.5",

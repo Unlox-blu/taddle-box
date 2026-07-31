@@ -23,10 +23,10 @@ export default function HtmlGameWebView({
 }: Props) {
   const webViewRef = useRef<WebView>(null);
   
-  const html = useMemo(
-    () => game.buildHtml({ gameId: game.id, sessionId, mode, maxXp: game.maxXp }),
-    [game, mode, sessionId],
-  );
+  const html = useMemo(() => {
+    if (!game.buildHtml) return '<html><body style="background:#05050f;color:#fff;display:flex;align-items:center;justify-content:center;"><h1>Native Game</h1></body></html>';
+    return game.buildHtml({ gameId: game.id, sessionId, mode, maxXp: game.maxXp });
+  }, [game, mode, sessionId]);
 
   useEffect(() => {
     if (!wsToken) return;

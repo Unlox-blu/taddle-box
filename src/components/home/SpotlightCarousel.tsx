@@ -16,7 +16,7 @@ import { useNavigation } from "@react-navigation/native";
 import { fontSizes, spacing, radii, type ColorPalette } from "../../theme";
 import { useThemeColors } from "../../context/ThemeContext";
 import { highlightService, Highlight } from "../../services/highlight.service";
-import { HTML5_GAMES } from "../../games/htmlGames";
+import { HTML5_GAMES, GAME_ASSETS } from "../../games/htmlGames";
 import { eventService } from "../../services/event.service";
 import { gamesService } from "../../services/games.service";
 
@@ -188,7 +188,7 @@ export default function SpotlightCarousel() {
 
       const trendingBackend = trendingRes.data || [];
       const trendingGames: Highlight[] = trendingBackend.map(bg => {
-        const localGame = HTML5_GAMES.find(g => g.id === bg.id);
+        const localGame = GAME_ASSETS[bg.slug] || GAME_ASSETS['tap-rush'];
         return {
           id: `game-${bg.id}`,
           title: bg.name,
@@ -197,10 +197,10 @@ export default function SpotlightCarousel() {
           sourceId: bg.id,
           tag: 'Trending Game',
           tagColor: '#EF4444',
-          emoji: localGame?.emoji || '🎮',
-          gradient: (localGame?.gradient || ['#374151', '#111827']) as [string, string],
-          meta: localGame?.averageDurationLabel || 'Play',
-          imageUrl: localGame?.imageUrl,
+          emoji: localGame.emoji,
+          gradient: localGame.gradient as [string, string],
+          meta: localGame.averageDurationLabel,
+          imageUrl: localGame.imageUrl,
         };
       });
 

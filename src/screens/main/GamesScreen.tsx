@@ -44,7 +44,7 @@ import LudoGame from "../../components/games/LudoGame";
 import SnakeLadderGame from "../../components/games/SnakeLadderGame";
 import ScribbleGame from "../../components/games/ScribbleGame";
 import WordRushGame from "../../components/games/WordRushGame";
-import { HTML5_GAMES } from "../../games/htmlGames";
+import { HTML5_GAMES, GAME_ASSETS } from "../../games/htmlGames";
 import type { HtmlGameDefinition, HtmlGameResult } from "../../games/types";
 import MatchModeModal, {
   MatchMode,
@@ -102,16 +102,17 @@ export default function GamesScreen() {
   const realGames: HtmlGameDefinition[] = useMemo(() => {
     if (!backendGames || backendGames.length === 0) return HTML5_GAMES;
     return backendGames.map(bg => {
-      const local = HTML5_GAMES.find(lg => lg.slug === bg.slug) || HTML5_GAMES[0];
+      const assets = GAME_ASSETS[bg.slug] || GAME_ASSETS['tap-rush'];
+      const localHtml = HTML5_GAMES.find(lg => lg.slug === bg.slug);
       return {
         ...bg,
-        emoji: bg.emoji || local.emoji,
-        gradient: bg.metadata?.gradient || local.gradient,
-        imageUrl: bg.thumbnail || local.imageUrl,
-        entryFee: bg.metadata?.entryFee || local.entryFee,
-        prize: bg.metadata?.prize || local.prize,
-        averageDurationLabel: bg.metadata?.averageDurationLabel || local.averageDurationLabel,
-        buildHtml: local.buildHtml,
+        emoji: bg.emoji || assets.emoji,
+        gradient: bg.metadata?.gradient || assets.gradient,
+        imageUrl: bg.thumbnail || assets.imageUrl,
+        entryFee: bg.metadata?.entryFee || bg.entryFee,
+        prize: bg.metadata?.prize || bg.prize,
+        averageDurationLabel: bg.metadata?.averageDurationLabel || assets.averageDurationLabel,
+        buildHtml: localHtml?.buildHtml,
       };
     });
   }, [backendGames]);
@@ -191,7 +192,7 @@ export default function GamesScreen() {
       setActiveSession({
         game,
         mode: "bot",
-        matchId: res.data.sessionId,
+        matchId: res.data.ticket?.userMatchId || res.data.sessionId,
         wsToken: res.data.wsToken,
         opponentName: "AI Bot",
       });
@@ -262,8 +263,8 @@ export default function GamesScreen() {
           setActiveSession({
             game: request.game,
             mode: request.mode as PlayMode, // Cast to PlayMode
-            matchId: res.data.ticket.userMatchId || `match-${Date.now()}`,
-            wsToken: res.data.wsToken,
+            matchId: res.data.ticket?.userMatchId || res.data.sessionId,
+            wsToken: res.data.wsToken || res.data.ticket?.token,
             opponentName:
               response.opponent?.name ||
               response.opponent?.username ||
@@ -885,6 +886,7 @@ function GamePlayModal({
   const colors = useThemeColors();
   const styles = useMemo(() => makeStyles(colors), [colors]);
   const { addMatch } = useGames();
+  const { user } = useAuth();
   const [phase, setPhase] = useState<"countdown" | "playing" | "result">(
     "countdown",
   );
@@ -1026,29 +1028,34 @@ function GamePlayModal({
           const token = session.wsToken || '';
           const mid = session.matchId;
 
-          if (slug === 'chess' && token)
-            return <ChessGame key={mid} matchId={mid} userId={uid} wsToken={token} onComplete={handleComplete} />;
-          if (slug === 'ludo' && token)
-            return <LudoGame key={mid} matchId={mid} userId={uid} wsToken={token} onComplete={handleComplete} />;
-          if (slug === 'snake-ladder' && token)
-            return <SnakeLadderGame key={mid} matchId={mid} userId={uid} wsToken={token} onComplete={handleComplete} />;
-          if (slug === 'scribble' && token)
-            return <ScribbleGame key={mid} matchId={mid} userId={uid} wsToken={token} onComplete={handleComplete} />;
-          if (slug === 'word-rush' && token)
-            return <WordRushGame key={mid} matchId={mid} userId={uid} wsToken={token} onComplete={handleComplete} />;
+          const GAME_COMPONENTS: Record<string, any> = {
+            'chess': ChessGame,
+            'ludo': LudoGame,
+            'snake-ladder': SnakeLadderGame,
+            'scribble': ScribbleGame,
+            'word-rush': WordRushGame,
+          };
 
-          // Fallback: HTML5/WebView games (tap-rush, memory-grid)
-          return (
-            <HtmlGameWebView
-              key={mid}
-              game={session.game}
-              sessionId={mid}
-              wsToken={session.wsToken}
-              mode={session.mode}
-              onScore={setScore}
-              onComplete={handleComplete}
-            />
-          );
+          if (session.game.metadata?.runtime === 'native') {
+            const NativeGame = GAME_COMPONENTS[slug];
+            if (NativeGame && token) {
+              return <NativeGame key={mid} matchId={mid} userId={uid} wsToken={token} onComplete={handleComplete} />;
+            }
+          } else if (session.game.metadata?.runtime === 'html5_webview') {
+            return (
+              <HtmlGameWebView
+                key={mid}
+                game={session.game}
+                sessionId={mid}
+                wsToken={session.wsToken}
+                mode={session.mode}
+                onScore={setScore}
+                onComplete={handleComplete}
+              />
+            );
+          }
+
+          return null;
         })()}
 
         {phase === "result" && (

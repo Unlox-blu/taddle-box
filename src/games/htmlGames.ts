@@ -190,107 +190,72 @@ const buildMemoryGrid = (
     config,
   );
 
+export const GAME_ASSETS: Record<string, any> = {
+  'tap-rush': {
+    emoji: "TR",
+    imageUrl: "https://images.unsplash.com/photo-1550745165-9bc0b252726f?q=80&w=600&auto=format&fit=crop",
+    gradient: ["#7C3AED", "#0891B2"],
+    averageDurationLabel: "20 sec",
+  },
+  'memory-grid': {
+    emoji: "MG",
+    imageUrl: "https://images.unsplash.com/photo-1518770660439-4636190af475?q=80&w=600&auto=format&fit=crop",
+    gradient: ["#0F766E", "#4F46E5"],
+    averageDurationLabel: "1 min",
+  },
+  'scribble': {
+    emoji: "✏️",
+    imageUrl: "https://images.unsplash.com/photo-1513364776144-60967b0f800f?q=80&w=600&auto=format&fit=crop",
+    gradient: ["#F59E0B", "#EF4444"],
+    averageDurationLabel: "3 min",
+  },
+  'ludo': {
+    emoji: "🎲",
+    imageUrl: "https://images.unsplash.com/photo-1550745165-9bc0b252726f?q=80&w=600&auto=format&fit=crop",
+    gradient: ["#10B981", "#3B82F6"],
+    averageDurationLabel: "10 min",
+  },
+  'snake-ladder': {
+    emoji: "🐍",
+    imageUrl: "https://images.unsplash.com/photo-1570303363992-7f95ee20ebdb?q=80&w=600&auto=format&fit=crop",
+    gradient: ["#8B5CF6", "#EC4899"],
+    averageDurationLabel: "8 min",
+  },
+  'chess': {
+    emoji: "♟️",
+    imageUrl: "https://images.unsplash.com/photo-1586165368502-1bad197a6461?q=80&w=600&auto=format&fit=crop",
+    gradient: ["#374151", "#111827"],
+    averageDurationLabel: "15 min",
+  },
+  'word-rush': {
+    emoji: "📝",
+    imageUrl: "https://images.unsplash.com/photo-1555448248-2571daf6344b?q=80&w=600&auto=format&fit=crop",
+    gradient: ["#F43F5E", "#8B5CF6"],
+    averageDurationLabel: "2 min",
+  },
+};
+
 export const HTML5_GAMES: HtmlGameDefinition[] = [
   {
     id: "11111111-1111-4111-8111-111111111111",
     slug: "tap-rush",
     name: "Tap Rush",
-    emoji: "TR",
-    imageUrl:
-      "https://images.unsplash.com/photo-1550745165-9bc0b252726f?q=80&w=600&auto=format&fit=crop",
-    gradient: ["#7C3AED", "#0891B2"],
+    ...GAME_ASSETS['tap-rush'],
     maxXp: 35,
     entryFee: 5,
     isHot: false,
-    averageDurationLabel: "20 sec",
     buildHtml: buildTapRush,
   },
   {
     id: "22222222-2222-4222-8222-222222222222",
     slug: "memory-grid",
     name: "Memory Grid",
-    emoji: "MG",
-    imageUrl:
-      "https://images.unsplash.com/photo-1518770660439-4636190af475?q=80&w=600&auto=format&fit=crop",
-    gradient: ["#0F766E", "#4F46E5"],
+    ...GAME_ASSETS['memory-grid'],
     maxXp: 45,
     entryFee: 5,
     isHot: false,
-    averageDurationLabel: "1 min",
     buildHtml: buildMemoryGrid,
-  },
-  {
-    id: "33333333-3333-4333-8333-333333333333",
-    slug: "scribble",
-    name: "Scribble",
-    emoji: "✏️",
-    imageUrl:
-      "https://images.unsplash.com/photo-1513364776144-60967b0f800f?q=80&w=600&auto=format&fit=crop",
-    gradient: ["#F59E0B", "#EF4444"],
-    maxXp: 50,
-    entryFee: 10,
-    isHot: false,
-    averageDurationLabel: "3 min",
-    buildHtml: buildTapRush,
-  },
-  {
-    id: "44444444-4444-4444-8444-444444444444",
-    slug: "ludo",
-    name: "Ludo Classic",
-    emoji: "🎲",
-    imageUrl:
-      "https://images.unsplash.com/photo-1550745165-9bc0b252726f?q=80&w=600&auto=format&fit=crop",
-    gradient: ["#10B981", "#3B82F6"],
-    maxXp: 45,
-    entryFee: 5,
-    isHot: false,
-    maxPlayers: 4,
-    averageDurationLabel: "10 min",
-    buildHtml: buildTapRush,
-  },
-  {
-    id: "55555555-5555-4555-8555-555555555555",
-    slug: "snake-ladder",
-    name: "Snake & Ladder",
-    emoji: "🐍",
-    imageUrl:
-      "https://images.unsplash.com/photo-1570303363992-7f95ee20ebdb?q=80&w=600&auto=format&fit=crop",
-    gradient: ["#8B5CF6", "#EC4899"],
-    maxXp: 60,
-    entryFee: 10,
-    isHot: false,
-    averageDurationLabel: "8 min",
-    buildHtml: buildTapRush,
-  },
-  {
-    id: "66666666-6666-4666-8666-666666666666",
-    slug: "chess",
-    name: "Chess",
-    emoji: "♟️",
-    imageUrl:
-      "https://images.unsplash.com/photo-1586165368502-1bad197a6461?q=80&w=600&auto=format&fit=crop",
-    gradient: ["#374151", "#111827"],
-    maxXp: 100,
-    entryFee: 15,
-    isHot: false,
-    maxPlayers: 2,
-    averageDurationLabel: "15 min",
-    buildHtml: buildTapRush,
-  },
-  {
-    id: "77777777-7777-4777-8777-777777777777",
-    slug: "word-rush",
-    name: "Word Rush",
-    emoji: "📝",
-    imageUrl:
-      "https://images.unsplash.com/photo-1555448248-2571daf6344b?q=80&w=600&auto=format&fit=crop",
-    gradient: ["#F43F5E", "#8B5CF6"],
-    maxXp: 45,
-    entryFee: 5,
-    isHot: false,
-    averageDurationLabel: "2 min",
-    buildHtml: buildMemoryGrid,
-  },
+  }
 ];
 
 export const getHtmlGame = (gameId: string) =>

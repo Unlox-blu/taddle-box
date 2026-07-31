@@ -162,6 +162,7 @@ export interface Game {
   isHot: boolean;
   maxPlayers?: number;
   entryFee?: number;
+  prize?: number;
 }
 
 export interface Transaction {

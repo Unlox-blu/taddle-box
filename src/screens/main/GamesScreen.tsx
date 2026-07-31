@@ -39,6 +39,11 @@ import {
 } from "../../services/games.service";
 import MainHeader from "../../components/common/MainHeader";
 import HtmlGameWebView from "../../components/games/HtmlGameWebView";
+import ChessGame from "../../components/games/ChessGame";
+import LudoGame from "../../components/games/LudoGame";
+import SnakeLadderGame from "../../components/games/SnakeLadderGame";
+import ScribbleGame from "../../components/games/ScribbleGame";
+import WordRushGame from "../../components/games/WordRushGame";
 import { HTML5_GAMES } from "../../games/htmlGames";
 import type { HtmlGameDefinition, HtmlGameResult } from "../../games/types";
 import MatchModeModal, {
@@ -75,9 +80,6 @@ const MATCH_MODE_LABEL: Record<PlayMode, string> = {
 const modeToApi = (mode: "quick" | "tournament" | "invite") =>
   mode === "tournament" ? "TOURNAMENT" : "QUICK";
 
-const findLocalGame = (gameId: string) =>
-  HTML5_GAMES.find((game) => game.id === gameId || game.slug === gameId);
-
 const formatTimeLeft = (endsAt: string) => {
   const diff = new Date(endsAt).getTime() - Date.now();
   if (diff <= 0) return "Ended";
@@ -94,7 +96,29 @@ export default function GamesScreen() {
   const colors = useThemeColors();
   const { user } = useAuth();
   const styles = useMemo(() => makeStyles(colors), [colors]);
-  const { matches, fetchGamesData } = useGames();
+  const { matches, games: backendGames, trendingSlugs: backendTrending, fetchGamesData } = useGames();
+
+  // Merge backend games with local buildHtml logic
+  const realGames: HtmlGameDefinition[] = useMemo(() => {
+    if (!backendGames || backendGames.length === 0) return HTML5_GAMES;
+    return backendGames.map(bg => {
+      const local = HTML5_GAMES.find(lg => lg.slug === bg.slug) || HTML5_GAMES[0];
+      return {
+        ...bg,
+        emoji: bg.emoji || local.emoji,
+        gradient: bg.metadata?.gradient || local.gradient,
+        imageUrl: bg.thumbnail || local.imageUrl,
+        entryFee: bg.metadata?.entryFee || local.entryFee,
+        prize: bg.metadata?.prize || local.prize,
+        averageDurationLabel: bg.metadata?.averageDurationLabel || local.averageDurationLabel,
+        buildHtml: local.buildHtml,
+      };
+    });
+  }, [backendGames]);
+
+  const findLocalGame = useCallback((gameId: string) => 
+    realGames.find((game) => game.id === gameId || game.slug === gameId),
+  [realGames]);
 
   const [activeTab, setActiveTab] = useState<ActiveTab>("games");
   const [screenModal, setScreenModal] = useState<ScreenModal>("none");
@@ -112,12 +136,6 @@ export default function GamesScreen() {
     null,
   );
 
-  const [trendingGameSlugs, setTrendingGameSlugs] = useState<string[]>([]);
-
-  const onlinePlayers = useMemo(() => {
-    return 342 + new Date().getHours() * 12 + (new Date().getMinutes() % 10);
-  }, []);
-
   const loadGamesData = useCallback(async () => {
     setLoading(true);
     try {
@@ -131,13 +149,6 @@ export default function GamesScreen() {
     } catch (error) {
       console.warn("Failed to load tournaments", error);
       setTournaments([]);
-    }
-    try {
-      const trendingRes = await gamesService.getTrendingGames(5);
-      const slugs = (trendingRes?.data || []).map((g: any) => g.slug || g.id);
-      setTrendingGameSlugs(slugs);
-    } catch (e) {
-      console.warn("Failed to load trending games", e);
     } finally {
       setLoading(false);
     }
@@ -168,9 +179,11 @@ export default function GamesScreen() {
   }, [loadGamesData]);
 
   const startBotSession = async (game: HtmlGameDefinition) => {
-    if (!user || user.xp < game.entryFee) {
-      Alert.alert("Insufficient XP", `You need ${game.entryFee} XP to play ${game.name}.`);
-      return;
+    if (!user || user.xp < (game.entryFee || 0)) {
+      Alert.alert(
+        "Insufficient XP",
+        `You need ${game.entryFee || 0} XP to play ${game.name}.`,
+      );return;
     }
     setStartingId(`${game.id}:bot`);
     try {
@@ -219,9 +232,11 @@ export default function GamesScreen() {
   };
 
   const startQueue = (req: QueueRequest) => {
-    if (!user || user.xp < req.game.entryFee) {
-      Alert.alert("Insufficient XP", `You need ${req.game.entryFee} XP to play ${req.game.name}.`);
-      return;
+        if (req.mode !== "tournament" && (!user || user.xp < (req.game.entryFee || 0))) {
+          Alert.alert(
+            "Insufficient XP",
+            `You need ${req.game.entryFee || 0} XP to play ${req.game.name}.`,
+          );return;
     }
     setQueueRequest(req);
   };
@@ -246,8 +261,8 @@ export default function GamesScreen() {
         .then((res) => {
           setActiveSession({
             game: request.game,
-            mode: request.mode,
-            matchId: res.data.sessionId,
+            mode: request.mode as PlayMode, // Cast to PlayMode
+            matchId: res.data.ticket.userMatchId || `match-${Date.now()}`,
             wsToken: res.data.wsToken,
             opponentName:
               response.opponent?.name ||
@@ -279,8 +294,11 @@ export default function GamesScreen() {
       startQueue({ game: selectedGame, mode: "quick" });
     } else if (mode === "manual" && opponents && opponents.length > 0) {
       try {
-        if (!user || user.xp < selectedGame.entryFee) {
-          Alert.alert("Insufficient XP", `You need ${selectedGame.entryFee} XP to play ${selectedGame.name}.`);
+        if (!selectedGame || !user || user.xp < (selectedGame.entryFee || 0)) {
+        Alert.alert(
+          "Insufficient XP",
+          `You need ${selectedGame?.entryFee || 0} XP to play ${selectedGame.name}.`,
+        );
           return;
         }
 
@@ -399,16 +417,16 @@ export default function GamesScreen() {
       >
         {activeTab === "games" && (
           <>
-            <SectionHeader title="Bundled Games" />
+            <SectionHeader title="Available Games" />
             <View style={styles.gameGrid}>
-              {HTML5_GAMES.map((game) => (
+              {realGames.map((game) => (
                 <GameCard
                   key={game.id}
-                  game={{ ...game, isHot: trendingGameSlugs.includes(game.id) || trendingGameSlugs.includes(game.slug || '') }}
+                  game={{ ...game, isHot: backendTrending?.includes(game.id) || backendTrending?.includes(game.slug || '') || false }}
                   startingId={startingId}
                   onPlayClick={() => {
-                    if (!user || user.xp < game.entryFee) {
-                      Alert.alert("Insufficient XP", `You need ${game.entryFee} XP to play ${game.name}.`);
+                    if (!user || user.xp < (game.entryFee || 0)) {
+                      Alert.alert("Insufficient XP", `You need ${game.entryFee || 0} XP to play ${game.name}.`);
                       return;
                     }
                     setSelectedGame(game);
@@ -1002,17 +1020,36 @@ function GamePlayModal({
           </View>
         )}
 
-        {phase === "playing" && (
-          <HtmlGameWebView
-            key={session.matchId}
-            game={session.game}
-            sessionId={session.matchId}
-            wsToken={session.wsToken}
-            mode={session.mode}
-            onScore={setScore}
-            onComplete={handleComplete}
-          />
-        )}
+        {phase === "playing" && (() => {
+          const { slug } = session.game;
+          const uid = user?.id || '';
+          const token = session.wsToken || '';
+          const mid = session.matchId;
+
+          if (slug === 'chess' && token)
+            return <ChessGame key={mid} matchId={mid} userId={uid} wsToken={token} onComplete={handleComplete} />;
+          if (slug === 'ludo' && token)
+            return <LudoGame key={mid} matchId={mid} userId={uid} wsToken={token} onComplete={handleComplete} />;
+          if (slug === 'snake-ladder' && token)
+            return <SnakeLadderGame key={mid} matchId={mid} userId={uid} wsToken={token} onComplete={handleComplete} />;
+          if (slug === 'scribble' && token)
+            return <ScribbleGame key={mid} matchId={mid} userId={uid} wsToken={token} onComplete={handleComplete} />;
+          if (slug === 'word-rush' && token)
+            return <WordRushGame key={mid} matchId={mid} userId={uid} wsToken={token} onComplete={handleComplete} />;
+
+          // Fallback: HTML5/WebView games (tap-rush, memory-grid)
+          return (
+            <HtmlGameWebView
+              key={mid}
+              game={session.game}
+              sessionId={mid}
+              wsToken={session.wsToken}
+              mode={session.mode}
+              onScore={setScore}
+              onComplete={handleComplete}
+            />
+          );
+        })()}
 
         {phase === "result" && (
           <View style={styles.resultScreen}>

@@ -23,18 +23,20 @@ export type GameMatch = {
 
 type State = {
   matches: GameMatch[];
-
+  games: any[];
+  trendingSlugs: string[];
   isLoading: boolean;
 };
 
 type Action =
-  | { type: 'SET_DATA'; matches: GameMatch[] }
+  | { type: 'SET_DATA'; matches: GameMatch[]; games: any[]; trendingSlugs: string[] }
   | { type: 'SET_LOADING'; isLoading: boolean }
   | { type: 'ADD_MATCH'; match: GameMatch };
 
 const INITIAL: State = {
   matches: [],
-
+  games: [],
+  trendingSlugs: [],
   isLoading: false,
 };
 
@@ -67,7 +69,7 @@ const formatMatch = (match: any): GameMatch => ({
 function reducer(state: State, action: Action): State {
   switch (action.type) {
     case 'SET_DATA':
-      return { ...state, matches: action.matches, isLoading: false };
+      return { ...state, matches: action.matches, games: action.games, trendingSlugs: action.trendingSlugs, isLoading: false };
     case 'SET_LOADING':
       return { ...state, isLoading: action.isLoading };
     case 'ADD_MATCH': {
@@ -85,7 +87,8 @@ function reducer(state: State, action: Action): State {
 
 type GamesContextType = {
   matches:  GameMatch[];
-
+  games: any[];
+  trendingSlugs: string[];
   isLoading: boolean;
   fetchGamesData: () => Promise<void>;
   addMatch: (matchData: any) => Promise<void>;
@@ -93,7 +96,8 @@ type GamesContextType = {
 
 const GamesContext = createContext<GamesContextType>({
   matches:  [],
-
+  games: [],
+  trendingSlugs: [],
   isLoading: false,
   fetchGamesData: async () => {},
   addMatch: async () => {},
@@ -105,11 +109,21 @@ export function GamesProvider({ children }: { children: React.ReactNode }) {
   const fetchGamesData = useCallback(async () => {
     dispatch({ type: 'SET_LOADING', isLoading: true });
     try {
-      const historyRes = await gamesService.getMatchHistory(1, 20);
+      const [historyRes, gamesRes, trendingRes] = await Promise.all([
+        gamesService.getMatchHistory(1, 20).catch(() => ({ data: [] })),
+        gamesService.getGames(1, 50).catch(() => ({ data: [] })),
+        gamesService.getTrendingGames(5).catch(() => ({ data: [] })),
+      ]);
+      
       const history = Array.isArray(historyRes?.data) ? historyRes.data.map(formatMatch) : [];
+      const games = Array.isArray(gamesRes?.data) ? gamesRes.data : [];
+      const trendingSlugs = Array.isArray(trendingRes?.data) ? trendingRes.data.map((g: any) => g.slug) : [];
+      
       dispatch({
         type: 'SET_DATA',
         matches: history,
+        games,
+        trendingSlugs,
       });
     } catch (e) {
       console.error('Failed to fetch games data', e);
@@ -120,6 +134,8 @@ export function GamesProvider({ children }: { children: React.ReactNode }) {
   return (
     <GamesContext.Provider value={{
       matches:  state.matches,
+      games: state.games,
+      trendingSlugs: state.trendingSlugs,
       isLoading: state.isLoading,
       fetchGamesData,
       addMatch: async (matchData) => {

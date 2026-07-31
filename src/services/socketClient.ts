@@ -92,3 +92,11 @@ export const createGameSocket = (sessionId: string, wsToken: string) => {
     transports: ['websocket', 'polling']
   });
 };
+
+export const createGameEngineSocket = (matchId: string, userId: string, token: string) => {
+  return io(`${SOCKET_URL}/game-engine`, {
+    auth: { matchId, userId, token },
+    extraHeaders: { "ngrok-skip-browser-warning": "true" },
+    transports: ['websocket', 'polling']
+  });
+};

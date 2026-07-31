@@ -126,7 +126,7 @@ class AuthService {
         phone: {
           countryCode,
           value: phone,
-          otp: crypto.randomInt(100000, 1000000).toString(), // phoneOtp
+          otp: phoneOtp,
           isVerified: false,
         },
         otpExpIn,
@@ -141,6 +141,12 @@ class AuthService {
         };
         await addJob('email:otp-verification', emailJobdata);
       }
+
+      const smsJobdata = {
+        to: `${countryCode}${phone}`,
+        otp: phoneOtp,
+      };
+      await addJob('sms:otp-verification', smsJobdata);
 
       const { sessionData } = await this.#issueVerificationTokens({ email: verifiedEmail, countryCode, phone });
 

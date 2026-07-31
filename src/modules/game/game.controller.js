@@ -19,6 +19,16 @@ class GameController {
     }
   };
 
+  getActiveSession = async (req, res, next) => {
+    try {
+      const userId = req.userId;
+      const active = await this.gameSvc.getActiveSession({ userId });
+      res.json(apiResponse(active, "Active session fetched"));
+    } catch (error) {
+      next(error);
+    }
+  };
+
   getTrendingGames = async (req, res, next) => {
     try {
       const limit = parseInt(req.query.limit || '3', 10);

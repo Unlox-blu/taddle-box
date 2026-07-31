@@ -169,7 +169,7 @@ class NotificationService {
         });
       }
       if (policy.socket) {
-        const formatted = notif ? NotificationModel.format(notif) : {
+        const formatted = notif ? notif : {
           id: Date.now().toString(),
           type,
           title,

@@ -2,14 +2,7 @@
 
 const GamePlugin = require('../GamePlugin');
 
-/**
- * Ludo Plugin — supports 2 or 4 players
- * Each player has 4 tokens.
- * Tokens start at HOME (-1), enter the board at their player's start position,
- * and must travel 56 squares to reach HOME COLUMN, then HOME (pos 57).
- */
-const START_POSITIONS = { 0: 1, 1: 15, 2: 29, 3: 43 }; // Absolute board squares per player index
-const HOME_COLUMN_START = { 0: 51, 1: 11, 2: 24, 3: 38 }; // Entry to home column
+const START_POSITIONS = { 0: 0, 1: 13, 2: 26, 3: 39 }; // Step on the path
 
 class LudoPlugin extends GamePlugin {
   constructor(matchData) {
@@ -19,20 +12,24 @@ class LudoPlugin extends GamePlugin {
 
   createState() {
     const tokens = {};
+    const turnOrder = [];
     this.players.forEach((p, idx) => {
       tokens[p.userId] = [
-        { id: 0, pos: -1, playerIndex: idx }, // -1 = HOME (yard)
+        { id: 0, pos: -1, playerIndex: idx },
         { id: 1, pos: -1, playerIndex: idx },
         { id: 2, pos: -1, playerIndex: idx },
         { id: 3, pos: -1, playerIndex: idx },
       ];
+      turnOrder.push(p.userId);
     });
 
     return {
       tokens,
-      turnOrder: this.players.map(p => p.userId),
+      turnOrder,
       currentTurnIndex: 0,
+      dice: null,          // null = not rolled yet, number = rolled, awaiting move
       lastDice: null,
+      movableTokens: [],
       status: 'active',
       winner: null,
       roundCount: 0,
@@ -43,68 +40,92 @@ class LudoPlugin extends GamePlugin {
   onPlayerLeave(userId) {}
   onReconnect(userId) {}
 
+  _getMovableTokens(userId, diceValue, state) {
+    const playerTokens = state.tokens[userId] || [];
+    return playerTokens
+      .filter(t => {
+        if (t.pos === 57) return false; // already home
+        if (t.pos === -1) return diceValue === 6; // need 6 to enter
+        return t.pos + diceValue <= 57;
+      })
+      .map(t => t.id);
+  }
+
   validateMove(userId, moveData, currentState) {
     const currentPlayerId = currentState.turnOrder[currentState.currentTurnIndex];
     if (userId !== currentPlayerId) {
       return { valid: false, reason: 'Not your turn' };
     }
 
-    const { diceValue, tokenId } = moveData;
-
-    if (!diceValue || diceValue < 1 || diceValue > 6) {
-      return { valid: false, reason: 'Invalid dice value' };
+    if (moveData.type === 'ROLL') {
+      if (currentState.dice !== null) {
+        return { valid: false, reason: 'Already rolled this turn' };
+      }
+      return { valid: true };
     }
 
-    const playerTokens = currentState.tokens[userId];
-    const token = playerTokens?.find(t => t.id === tokenId);
-
-    if (!token) {
-      return { valid: false, reason: 'Invalid token' };
+    if (moveData.type === 'MOVE_TOKEN') {
+      if (currentState.dice === null) {
+        return { valid: false, reason: 'Roll the dice first' };
+      }
+      const { tokenId } = moveData;
+      if (!currentState.movableTokens.includes(tokenId)) {
+        return { valid: false, reason: 'That token cannot move' };
+      }
+      return { valid: true };
     }
 
-    // Can only enter board on a 6
-    if (token.pos === -1 && diceValue !== 6) {
-      return { valid: false, reason: 'Need a 6 to enter the board' };
-    }
-
-    return { valid: true };
+    return { valid: false, reason: 'Unknown move type' };
   }
 
   applyMove(userId, moveData, currentState) {
-    const { diceValue, tokenId } = moveData;
-    const playerIndex = currentState.turnOrder.indexOf(userId);
+    if (moveData.type === 'ROLL') {
+      const diceValue = Math.floor(Math.random() * 6) + 1;
+      const movable = this._getMovableTokens(userId, diceValue, currentState);
 
-    const newTokens = JSON.parse(JSON.stringify(currentState.tokens));
-    const token = newTokens[userId].find(t => t.id === tokenId);
-
-    if (token.pos === -1 && diceValue === 6) {
-      // Enter the board
-      token.pos = START_POSITIONS[playerIndex];
-    } else if (token.pos >= 0) {
-      token.pos += diceValue;
-      // Simplified: if token reaches or passes 57, it's home
-      if (token.pos >= 57) {
-        token.pos = 57; // HOME
+      // If no movable tokens, advance turn
+      if (movable.length === 0) {
+        const nextIdx = (currentState.currentTurnIndex + 1) % currentState.turnOrder.length;
+        return { ...currentState, dice: null, lastDice: diceValue, movableTokens: [], currentTurnIndex: nextIdx };
       }
+
+      return { ...currentState, dice: diceValue, lastDice: diceValue, movableTokens: movable };
     }
 
-    // Check if this player has all tokens home
-    const allHome = newTokens[userId].every(t => t.pos === 57);
+    if (moveData.type === 'MOVE_TOKEN') {
+      const { tokenId } = moveData;
+      const diceValue = currentState.dice;
+      const playerIndex = currentState.turnOrder.indexOf(userId);
 
-    // Advance turn (unless dice was 6 — player gets another turn)
-    const nextTurnIndex = diceValue === 6
-      ? currentState.currentTurnIndex
-      : (currentState.currentTurnIndex + 1) % currentState.turnOrder.length;
+      const newTokens = JSON.parse(JSON.stringify(currentState.tokens));
+      const token = newTokens[userId].find(t => t.id === tokenId);
 
-    return {
-      ...currentState,
-      tokens: newTokens,
-      lastDice: diceValue,
-      currentTurnIndex: nextTurnIndex,
-      roundCount: currentState.roundCount + 1,
-      status: allHome ? 'finished' : 'active',
-      winner: allHome ? userId : null,
-    };
+      if (token.pos === -1 && diceValue === 6) {
+        token.pos = START_POSITIONS[playerIndex];
+      } else if (token.pos >= 0) {
+        token.pos = Math.min(57, token.pos + diceValue);
+      }
+
+      const allHome = newTokens[userId].every(t => t.pos === 57);
+      // Get another turn on 6, or advance
+      const nextIdx = diceValue === 6 && !allHome
+        ? currentState.currentTurnIndex
+        : (currentState.currentTurnIndex + 1) % currentState.turnOrder.length;
+
+      return {
+        ...currentState,
+        tokens: newTokens,
+        dice: null,
+        lastDice: diceValue,
+        movableTokens: [],
+        currentTurnIndex: nextIdx,
+        roundCount: currentState.roundCount + 1,
+        status: allHome ? 'finished' : 'active',
+        winner: allHome ? userId : null,
+      };
+    }
+
+    return currentState;
   }
 
   isFinished(currentState) {

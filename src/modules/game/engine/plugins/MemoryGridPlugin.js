@@ -72,6 +72,13 @@ class MemoryGridPlugin extends GamePlugin {
    * The player submits their full pattern guess for the current round.
    */
   validateMove(userId, moveData, currentState) {
+    if (moveData.type === 'READY_INPUT') {
+      if (currentState.roundPhase !== 'SHOW') {
+        return { valid: false, reason: 'Not in show phase' };
+      }
+      return { valid: true };
+    }
+
     if (moveData.type !== 'INPUT') {
       return { valid: false, reason: 'Unknown move type' };
     }
@@ -93,6 +100,10 @@ class MemoryGridPlugin extends GamePlugin {
   }
 
   applyMove(userId, moveData, currentState) {
+    if (moveData.type === 'READY_INPUT') {
+      return { ...currentState, roundPhase: 'INPUT' };
+    }
+
     const { tiles } = moveData;
     const correct = tiles.every((t, i) => t === currentState.currentPattern[i]);
 

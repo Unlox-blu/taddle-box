@@ -673,7 +673,7 @@ const createGameStatsByUserId = async ({userId}) => {
 
 
 
-const setupMatchSession = async ({ matchId, gameId, userId, wsToken, mode }) => {
+const setupMatchSession = async ({ matchId, gameId, userId, wsToken, mode, gameSlug }) => {
   const client = await pool.connect();
   try {
     await client.query('BEGIN');
@@ -686,12 +686,27 @@ const setupMatchSession = async ({ matchId, gameId, userId, wsToken, mode }) => 
       [matchId, gameId, mode || 'QUICK']
     );
 
+    // Fetch existing colors to determine this player's color
+    const existing = await client.query(`SELECT player_color FROM match_members WHERE match_id = $1`, [matchId]);
+    const existingColors = existing.rows.map(r => r.player_color);
+    
+    let playerColor = 'blue';
+    if (gameSlug === 'chess') {
+       playerColor = existingColors.includes('b') ? 'w' : 'b';
+    } else if (gameSlug === 'ludo') {
+       const colors = ['red', 'green', 'yellow', 'blue'];
+       playerColor = colors.find(c => !existingColors.includes(c)) || 'red';
+    } else if (gameSlug === 'snake-ladder') {
+       const colors = ['red', 'blue', 'green', 'yellow'];
+       playerColor = colors.find(c => !existingColors.includes(c)) || 'red';
+    }
+
     // Insert the member token
     await client.query(
       `INSERT INTO match_members (match_id, user_id, ws_token, player_color)
        VALUES ($1, $2, $3, $4)
-       ON CONFLICT (match_id, user_id) DO UPDATE SET ws_token = EXCLUDED.ws_token`,
-      [matchId, userId, wsToken, 'blue']
+       ON CONFLICT (match_id, user_id) DO UPDATE SET ws_token = EXCLUDED.ws_token, player_color = EXCLUDED.player_color`,
+      [matchId, userId, wsToken, playerColor]
     );
 
     await client.query('COMMIT');
@@ -706,9 +721,15 @@ const setupMatchSession = async ({ matchId, gameId, userId, wsToken, mode }) => 
 const createGameSession = async ({ sessionData }) => {
   try {
     const { rows } = await pool.query(
-      `INSERT INTO game_sessions (user_id, game_id, seed, expires_at)
-       VALUES ($1, $2, $3, $4) RETURNING *`,
-      [sessionData.userId, sessionData.gameId, sessionData.seed, sessionData.expiresAt]
+      `INSERT INTO game_sessions (user_id, game_id, seed, expires_at, metadata)
+       VALUES ($1, $2, $3, $4, $5::jsonb) RETURNING *`,
+      [
+        sessionData.userId, 
+        sessionData.gameId, 
+        sessionData.seed, 
+        sessionData.expiresAt,
+        JSON.stringify(sessionData.metadata || {})
+      ]
     );
     return rows[0];
   } catch (error) {
@@ -769,14 +790,74 @@ const findOpponentSessionByMatchGroup = async ({matchGroupId, excludeUserId}) =>
     throw error
   }
 }
+
+const findActiveBotSession = async ({ userId, gameId }) => {
+  try {
+    const { rows } = await pool.query(
+      `SELECT gs.id, gs.metadata->>'matchGroupId' AS match_id, mm.ws_token
+       FROM game_sessions gs
+       JOIN match_members mm ON mm.match_id::text = gs.metadata->>'matchGroupId' AND mm.user_id = gs.user_id
+       JOIN game_matches gm ON gm.id::text = gs.metadata->>'matchGroupId'
+       WHERE gs.user_id = $1 AND gs.game_id = $2 
+         AND gs.status = 'ACTIVE' 
+         AND gs.metadata->>'mode' = 'bot' 
+         AND gm.status = 'ACTIVE'
+       ORDER BY gs.expires_at DESC LIMIT 1`,
+      [userId, gameId]
+    );
+    return rows[0] || null;
+  } catch (error) {
+    throw error;
+  }
+};
+
+const findActiveSession = async ({ userId }) => {
+  try {
+    const { rows } = await pool.query(
+      `SELECT gs.id AS session_id, gs.game_id, gs.metadata->>'matchGroupId' AS match_id, 
+              mm.ws_token, gs.metadata->>'mode' AS mode, g.slug AS game_slug, g.name AS game_name,
+              gm.metadata as match_metadata
+       FROM game_sessions gs
+       JOIN match_members mm ON mm.match_id::text = gs.metadata->>'matchGroupId' AND mm.user_id = gs.user_id
+       JOIN game_matches gm ON gm.id::text = gs.metadata->>'matchGroupId'
+       JOIN game g ON g.id = gs.game_id
+       WHERE gs.user_id = $1 
+         AND gs.status = 'ACTIVE' 
+         AND gm.status = 'ACTIVE'
+         AND gs.expires_at >= $2
+       ORDER BY gs.expires_at DESC LIMIT 1`,
+      [userId, new Date(Date.now() - 2 * 60 * 60 * 1000)]
+    );
+
+    if (rows.length === 0) return null;
+
+    // Get opponent name if PvP
+    let opponentName = null;
+    if (rows[0].mode !== 'bot' && rows[0].mode !== 'BOT') {
+      const opps = await pool.query(
+         `SELECT u.name, u.username FROM match_members mm
+          JOIN users u ON u.id = mm.user_id
+          WHERE mm.match_id = $1 AND mm.user_id != $2 LIMIT 1`,
+         [rows[0].match_id, userId]
+      );
+      if (opps.rows.length > 0) {
+        opponentName = opps.rows[0].name || opps.rows[0].username;
+      }
+    }
+
+    return { ...rows[0], opponent_name: opponentName };
+  } catch (error) {
+    throw error;
+  }
+};
+
 module.exports = {
                   findManyGames, findManyGamesBydDfficulty, findGameById, searchGames,
                   createGameMatche, updateGameMatcheByMatchId, completeGameMatch, findManyGameMatshs,
                   findGameMatchById, findGameStatsByUserId, createGameStatsByUserId, findLeaderboard,
                   findTournaments, findTournamentById, joinTournament, hasTournamentEntry,
-                  joinMatchmaking, findMatchmakingTicketById, cancelMatchmakingTicket, getTrendingGames,
-                  createGameSession,
-  setupMatchSession,
-  findGameSessionById, updateGameSessionStatus, createRewardLedgerEntry,
-                  findOpponentSessionByMatchGroup
-                 }
+                  findMatchmakingTicketById, cancelMatchmakingTicket, getTrendingGames,
+                  joinMatchmaking, setupMatchSession, createGameSession,
+                  findGameSessionById, updateGameSessionStatus, createRewardLedgerEntry,
+                  findOpponentSessionByMatchGroup, findActiveBotSession, findActiveSession
+                }

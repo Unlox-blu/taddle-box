@@ -50,7 +50,7 @@ class WordRushPlugin extends GamePlugin {
     return {
       grid: this._generateGrid(),
       scores,
-      usedWords: [],
+      foundWords: [],
       currentRound: 1,
       totalRounds: ROUNDS_PER_GAME,
       roundStartedAt: Date.now(),
@@ -71,7 +71,8 @@ class WordRushPlugin extends GamePlugin {
       return { valid: false, reason: 'Word too short (min 3 letters)' };
     }
 
-    if (currentState.usedWords.includes(word.toUpperCase())) {
+    const foundWords = currentState.foundWords || [];
+    if (foundWords.some(fw => fw.word === word.toUpperCase())) {
       return { valid: false, reason: 'Word already used this round' };
     }
 
@@ -106,10 +107,12 @@ class WordRushPlugin extends GamePlugin {
       [userId]: (currentState.scores[userId] || 0) + wordScore,
     };
 
+    const foundWords = currentState.foundWords || [];
+
     return {
       ...currentState,
       scores: newScores,
-      usedWords: [...currentState.usedWords, word.toUpperCase()],
+      foundWords: [...foundWords, { word: word.toUpperCase(), score: wordScore, userId }],
     };
   }
 
@@ -128,7 +131,7 @@ class WordRushPlugin extends GamePlugin {
     return {
       ...currentState,
       grid: this._generateGrid(),
-      usedWords: [],
+      foundWords: [],
       currentRound: currentState.currentRound + 1,
       roundStartedAt: Date.now(),
     };
@@ -144,8 +147,8 @@ class WordRushPlugin extends GamePlugin {
   }
 
   getSpectatorState(currentState) {
-    // Spectators see the grid and scores, NOT the usedWords
-    return { ...currentState, usedWords: [] };
+    // Spectators see the grid and scores, NOT the foundWords
+    return { ...currentState, foundWords: [] };
   }
 }
 

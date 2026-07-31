@@ -24,7 +24,8 @@ class MatchManager {
   static async loadOrInitializeMatch(matchId, gameSlug, matchMetadata) {
     let state = await EventStore.loadMatchSnapshot(matchId);
     
-    const plugin = GameRegistry.createInstance(gameSlug, matchMetadata);
+    const effectiveMetadata = state ? state.metadata : matchMetadata;
+    const plugin = GameRegistry.createInstance(gameSlug, effectiveMetadata);
 
     if (!state) {
       // Initialize new match — store the correct player count from metadata
@@ -67,8 +68,9 @@ class MatchManager {
     }
 
     // Delegate validation and application to the plugin
-    if (!plugin.validateMove(userId, moveData, state.pluginState)) {
-      throw new Error('Invalid move');
+    const validation = plugin.validateMove(userId, moveData, state.pluginState);
+    if (!validation.valid) {
+      throw new Error(validation.reason || 'Invalid move');
     }
 
     state.pluginState = plugin.applyMove(userId, moveData, state.pluginState);

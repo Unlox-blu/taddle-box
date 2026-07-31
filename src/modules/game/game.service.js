@@ -47,14 +47,43 @@ class GameService {
         xpEarned: Math.min(maxXp, safeScore > 0 ? 8 + Math.floor((safeScore * maxXp) / 6) : 0),
       };
     }
-
-    throw createError('Unsupported game runtime', 400);
+    return {
+      score: safeScore,
+      duration: safeDuration,
+      result: safeScore >= winScore ? 'WIN' : 'LOSS',
+      xpEarned: Math.min(maxXp, safeScore > 0 ? 10 + Math.floor((safeScore * maxXp) / 100) : 0),
+    };
   }
 
   async getGames({userId, limit, offset}) {
     try {
       const {games, total} = await this.gameRepo.findManyGames({limit, offset})
       return {games, total}
+    } catch (error) {
+      throw error;
+    }
+  }
+
+  async getActiveSession({ userId }) {
+    try {
+      const active = await this.gameRepo.findActiveSession({ userId });
+      if (!active) return null;
+      
+      return {
+        sessionId: active.session_id,
+        matchId: active.match_id,
+        gameId: active.game_id,
+        wsToken: active.ws_token,
+        mode: active.mode || 'QUICK',
+        opponentName: active.opponent_name,
+        ticket: { userMatchId: active.match_id, token: active.ws_token },
+        game: {
+          id: active.game_id,
+          name: active.game_name,
+          slug: active.game_slug,
+          metadata: { runtime: active.match_metadata?.runtime || 'native' }
+        }
+      };
     } catch (error) {
       throw error;
     }
@@ -121,7 +150,7 @@ class GameService {
 	      const isGameExist = await this.gameRepo.findGameById({gameId})
 	      if(!isGameExist)
 	        throw createError("Game not found", 404)
-	      if (isGameExist.metadata?.runtime !== 'html5_webview') {
+	      if (!['html5_webview', 'native'].includes(isGameExist.metadata?.runtime)) {
 	        throw createError("Unsupported game runtime", 400)
 	      }
 	      matchData.mode = matchData.mode.toUpperCase()
@@ -258,7 +287,7 @@ class GameService {
 	      const game = await this.gameRepo.findGameById({gameId: matchData.gameId})
 	      if(!game)
 	        throw createError("Game not found", 404)
-	      if (game.metadata?.runtime !== 'html5_webview')
+	      if (!['html5_webview', 'native'].includes(game.metadata?.runtime))
 	        throw createError("Unsupported game runtime", 400)
 
 	      let tournamentId = matchData.tournamentId || null
@@ -307,9 +336,9 @@ class GameService {
 	        senderId: userId,
 	        type: 'GAME_INVITE',
 	        title: 'Game Invite! 🎮',
-	        message: `${sender.name || "A friend"} invited you to play ${game.name}!`,
+	        message: `${sender.name || "A friend"} invited you to play ${game.name}!|${matchGroupId}`,
 	        resourceType: 'game',
-	        resourceId: `${gameId}:${matchGroupId}`,
+	        resourceId: gameId,
 	      });
 
 	      return { success: true };
@@ -351,6 +380,18 @@ class GameService {
       const game = await this.gameRepo.findGameById({ gameId });
       if (!game) throw createError("Game not found", 404);
 
+      if (mode === 'bot' || mode === 'BOT') {
+        const activeSession = await this.gameRepo.findActiveBotSession({ userId, gameId });
+        if (activeSession) {
+          return {
+             sessionId: activeSession.id,
+             wsToken: activeSession.ws_token,
+             expiresAt: new Date(Date.now() + 60*60*1000).toISOString(),
+             ticket: { userMatchId: activeSession.match_id, token: activeSession.ws_token }
+          };
+        }
+      }
+
       // Deduct XP (tournaments are paid upfront)
       if (mode !== 'TOURNAMENT' && mode !== 'tournament') {
         const entryFeeMap = {
@@ -373,7 +414,7 @@ class GameService {
          effectiveMatchId = require('crypto').randomUUID(); 
       }
 
-      await this.gameRepo.setupMatchSession({ matchId: effectiveMatchId, gameId, userId, wsToken, mode });
+      await this.gameRepo.setupMatchSession({ matchId: effectiveMatchId, gameId, userId, wsToken, mode, gameSlug: game.slug });
 
       const session = await this.gameRepo.createGameSession({
         sessionData: { 
@@ -411,14 +452,28 @@ class GameService {
       const totalTaps = tapLog ? tapLog.length : 0;
       let rawScore = 0;
       let duration = 0;
+      let engineResult = null;
 
-      if (game.slug === 'tap-rush') {
-        if (totalTaps > 100) throw createError("Fraud detected: Impossible TPS", 403);
-        rawScore = totalTaps;
-        duration = 30;
-      } else if (game.slug === 'memory-grid') {
-        rawScore = totalTaps;
-        duration = 60;
+      if (game.metadata?.runtime === 'native') {
+        const { MatchManager, MATCH_STATES } = require('./engine/MatchManager');
+        const { state: matchState } = await MatchManager.loadOrInitializeMatch(session.id, game.slug, session.metadata || {});
+        if (matchState && matchState.status === MATCH_STATES.FINISHED) {
+           const finalEvent = require('./engine/EventStore').getMatchEvents(session.id).then(events => events.find(e => e.type === 'GAME_OVER'));
+           // For simplicity, we can just use the score tracked in pluginState
+           rawScore = matchState.pluginState?.scores?.[userId] || 0;
+           duration = 60; // Approximate
+           engineResult = matchState.pluginState;
+        }
+      } else {
+        const totalTaps = tapLog ? tapLog.length : 0;
+        if (game.slug === 'tap-rush') {
+          if (totalTaps > 100) throw createError("Fraud detected: Impossible TPS", 403);
+          rawScore = totalTaps;
+          duration = 30;
+        } else if (game.slug === 'memory-grid') {
+          rawScore = totalTaps;
+          duration = 60;
+        }
       }
 
       let calculated = this.calculateResult({ game, score: rawScore, duration });

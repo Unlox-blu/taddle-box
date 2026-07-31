@@ -25,18 +25,27 @@ class ChessPlugin extends GamePlugin {
 
   /** Returns the color assigned to a userId */
   _getColorByUser(userId) {
+    if (userId === 'bot_w') return 'w';
+    if (userId === 'bot_b') return 'b';
     return this.players.find(p => p.userId === userId)?.color;
   }
 
   createState() {
     const chess = new Chess();
+    const wPlayer = this._getPlayerByColor('w') || 'bot_w';
+    const bPlayer = this._getPlayerByColor('b') || 'bot_b';
+    
     return {
       fen: chess.fen(),
       turn: 'w',
+      turnOrder: [wPlayer, bPlayer],
+      currentTurnIndex: 0,
       moveHistory: [],
       status: 'active',
       winner: null,
       drawReason: null,
+      timers: { w: 600000, b: 600000 },
+      lastMoveTime: Date.now(),
     };
   }
 
@@ -75,13 +84,31 @@ class ChessPlugin extends GamePlugin {
   applyMove(userId, moveData, currentState) {
     const chess = new Chess(currentState.fen);
     const move = chess.move(moveData);
+    const playerColor = chess.turn() === 'w' ? 'b' : 'w'; // chess.turn() is next player
+
+    const now = Date.now();
+    const elapsed = currentState.lastMoveTime ? now - currentState.lastMoveTime : 0;
+    
+    const newTimers = { ...currentState.timers };
+    newTimers[playerColor] = Math.max(0, newTimers[playerColor] - elapsed);
 
     const newState = {
       ...currentState,
       fen: chess.fen(),
       turn: chess.turn(),
+      currentTurnIndex: (currentState.currentTurnIndex + 1) % 2,
       moveHistory: [...currentState.moveHistory, move],
+      timers: newTimers,
+      lastMoveTime: now,
     };
+
+    // Check time forfeit
+    if (newTimers[playerColor] === 0) {
+      newState.status = 'finished';
+      newState.winner = this._getPlayerByColor(chess.turn()); // The other player wins
+      newState.drawReason = 'timeout';
+      return newState;
+    }
 
     // Check terminal conditions
     if (chess.isCheckmate()) {

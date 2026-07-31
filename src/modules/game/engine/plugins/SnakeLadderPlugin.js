@@ -2,17 +2,8 @@
 
 const GamePlugin = require('../GamePlugin');
 
-/**
- * Board layout for Snake & Ladder (1-100)
- * snakes: { head: tail }
- * ladders: { bottom: top }
- */
-const SNAKES = {
-  99: 54, 70: 55, 52: 42, 43: 22, 36: 6, 32: 10, 49: 11
-};
-const LADDERS = {
-  4: 25, 13: 46, 33: 49, 42: 63, 50: 69, 62: 81, 74: 92
-};
+const SNAKES = { 99: 54, 70: 55, 52: 42, 43: 22, 36: 6, 32: 10, 49: 11 };
+const LADDERS = { 4: 25, 13: 46, 33: 49, 42: 63, 50: 69, 62: 81, 74: 92 };
 
 class SnakeLadderPlugin extends GamePlugin {
   constructor(matchData) {
@@ -22,13 +13,15 @@ class SnakeLadderPlugin extends GamePlugin {
 
   createState() {
     const positions = {};
-    this.players.forEach(p => { positions[p.userId] = 0; }); // 0 = not started, 1-100 = board pos
     const turnOrder = this.players.map(p => p.userId);
+    this.players.forEach(p => { positions[p.userId] = 0; });
     return {
       positions,
       turnOrder,
       currentTurnIndex: 0,
+      pendingDice: null,   // dice rolled, waiting for move (auto-moved)
       lastDice: null,
+      lastEvent: null,     // 'snake' | 'ladder' | null
       status: 'active',
       winner: null,
       roundCount: 0,
@@ -44,36 +37,44 @@ class SnakeLadderPlugin extends GamePlugin {
     if (userId !== currentPlayerId) {
       return { valid: false, reason: 'Not your turn' };
     }
-    // moveData: { diceValue } — must come from the server-generated dice
-    if (!moveData.diceValue || moveData.diceValue < 1 || moveData.diceValue > 6) {
-      return { valid: false, reason: 'Invalid dice value' };
+
+    // Frontend sends { type: 'ROLL' } — we roll server-side
+    if (moveData.type === 'ROLL') {
+      return { valid: true };
     }
-    return { valid: true };
+
+    return { valid: false, reason: 'Unknown move type' };
   }
 
   applyMove(userId, moveData, currentState) {
-    const { diceValue } = moveData;
+    // Server-side dice roll
+    const diceValue = Math.floor(Math.random() * 6) + 1;
     const pos = currentState.positions[userId];
     let newPos = pos + diceValue;
+    let lastEvent = null;
 
     if (newPos > 100) {
-      // Can't overshoot 100
-      newPos = pos;
+      newPos = pos; // Can't overshoot
     } else {
-      // Check for snake
-      if (SNAKES[newPos]) newPos = SNAKES[newPos];
-      // Check for ladder
-      if (LADDERS[newPos]) newPos = LADDERS[newPos];
+      if (SNAKES[newPos] !== undefined) {
+        newPos = SNAKES[newPos];
+        lastEvent = 'snake';
+      } else if (LADDERS[newPos] !== undefined) {
+        newPos = LADDERS[newPos];
+        lastEvent = 'ladder';
+      }
     }
 
     const newPositions = { ...currentState.positions, [userId]: newPos };
     const nextTurnIndex = (currentState.currentTurnIndex + 1) % currentState.turnOrder.length;
-
     const winner = newPos === 100 ? userId : null;
+
     return {
       ...currentState,
       positions: newPositions,
       lastDice: diceValue,
+      pendingDice: null,
+      lastEvent,
       currentTurnIndex: nextTurnIndex,
       roundCount: currentState.roundCount + 1,
       status: winner ? 'finished' : 'active',

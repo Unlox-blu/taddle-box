@@ -40,10 +40,14 @@ export const notificationService = {
       else if (n.type === 'GAME_INVITE' || n.type === 'game_invite') mappedType = 'game_invite';
 
       let payload: any = undefined;
-      if (mappedType === 'game_invite' && n.resourceId) {
-        const parts = n.resourceId.split(':');
-        if (parts.length >= 2) {
-          payload = { gameId: parts[0], matchGroupId: parts[1] };
+      let text = n.message || '';
+      if (mappedType === 'game_invite') {
+        const parts = text.split('|');
+        if (parts.length > 1) {
+          payload = { gameId: n.resourceId, matchGroupId: parts[1] };
+          text = parts[0];
+        } else {
+          payload = { gameId: n.resourceId };
         }
       }
 
@@ -52,7 +56,7 @@ export const notificationService = {
         type: mappedType,
         avatar: firstWord.charAt(0).toUpperCase(),
         actor: n.title || 'Notification',
-        text: n.message || '',
+        text: text,
         time: timeStr,
         isRead: n.isRead,
         group,

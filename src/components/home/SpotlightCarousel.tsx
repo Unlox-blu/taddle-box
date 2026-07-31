@@ -16,7 +16,7 @@ import { useNavigation } from "@react-navigation/native";
 import { fontSizes, spacing, radii, type ColorPalette } from "../../theme";
 import { useThemeColors } from "../../context/ThemeContext";
 import { highlightService, Highlight } from "../../services/highlight.service";
-import { HTML5_GAMES, GAME_ASSETS } from "../../games/htmlGames";
+import { GAME_ASSETS } from "../../games/assets";
 import { eventService } from "../../services/event.service";
 import { gamesService } from "../../services/games.service";
 

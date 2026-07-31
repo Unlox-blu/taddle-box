@@ -59,6 +59,10 @@ export const gamesService = {
     const response = await apiClient.get(`/game?page=${page}&limit=${limit}`);
     return response.data;
   },
+  getActiveSession: async (): Promise<{ data: any }> => {
+    const response = await apiClient.get('/game/session/active');
+    return response.data;
+  },
 
   getTrendingGames: async (limit = 3): Promise<{ data: Game[] }> => {
     const response = await apiClient.get(`/game/trending?limit=${limit}`);

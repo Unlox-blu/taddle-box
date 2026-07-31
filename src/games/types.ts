@@ -7,18 +7,4 @@ export type HtmlGameResult = {
   durationSeconds: number;
 };
 
-export type HtmlGameDefinition = Game & {
-  slug: string;
-  averageDurationLabel: string;
-  buildHtml?: (config: {
-    gameId: string;
-    sessionId: string;
-    mode: string;
-    maxXp: number;
-  }) => string;
-};
 
-export type HtmlGameMessage =
-  | { type: 'GAME_READY' }
-  | { type: 'GAME_SCORE'; score: number }
-  | ({ type: 'GAME_COMPLETE' } & HtmlGameResult);

@@ -1,6 +1,6 @@
 import { io, Socket } from 'socket.io-client';
 import * as SecureStore from 'expo-secure-store';
-import { Platform } from 'react-native';
+import { Platform, DeviceEventEmitter } from 'react-native';
 import Constants from 'expo-constants';
 
 const debuggerHost = Constants.expoConfig?.hostUri;
@@ -94,9 +94,37 @@ export const createGameSocket = (sessionId: string, wsToken: string) => {
 };
 
 export const createGameEngineSocket = (matchId: string, userId: string, token: string) => {
-  return io(`${SOCKET_URL}/game-engine`, {
+  const s = io(`${SOCKET_URL}/game-engine`, {
     auth: { matchId, userId, token },
     extraHeaders: { "ngrok-skip-browser-warning": "true" },
     transports: ['websocket', 'polling']
   });
+
+  s.on('CONNECT_ACK', (data: any) => {
+    if (data?.state?.status === 'PAUSED') {
+      const pausedAt = data.state.pausedAt || Date.now();
+      const elapsed = Date.now() - pausedAt;
+      const totalPauseWindow = 60000; // RECONNECT_TIMEOUT_MS
+      if (elapsed < totalPauseWindow) {
+        DeviceEventEmitter.emit('GAME_ENGINE_PAUSE', { 
+          matchId, 
+          data: { reconnectWindowMs: totalPauseWindow - elapsed } 
+        });
+      }
+    }
+  });
+
+  s.on('PAUSE', (data: any) => {
+    DeviceEventEmitter.emit('GAME_ENGINE_PAUSE', { matchId, data });
+  });
+
+  s.on('START', (data: any) => {
+    DeviceEventEmitter.emit('GAME_ENGINE_RESUME', { matchId, data });
+  });
+
+  s.on('GAME_OVER', (data: any) => {
+    DeviceEventEmitter.emit('GAME_ENGINE_OVER', { matchId, data });
+  });
+
+  return s;
 };

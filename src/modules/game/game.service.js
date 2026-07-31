@@ -366,6 +366,14 @@ class GameService {
 
       const seed = crypto.randomBytes(32).toString('hex');
       const expiresAt = new Date(Date.now() + 5 * 60 * 1000); // 5 mins
+      
+      const wsToken = crypto.randomBytes(16).toString('hex');
+      let effectiveMatchId = matchGroupId;
+      if (!effectiveMatchId) {
+         effectiveMatchId = require('crypto').randomUUID(); 
+      }
+
+      await this.gameRepo.setupMatchSession({ matchId: effectiveMatchId, gameId, userId, wsToken, mode });
 
       const session = await this.gameRepo.createGameSession({
         sessionData: { 
@@ -373,14 +381,15 @@ class GameService {
           gameId, 
           seed, 
           expiresAt,
-          metadata: { mode: mode || 'QUICK', matchGroupId }
+          metadata: { mode: mode || 'QUICK', matchGroupId: effectiveMatchId }
         }
       });
 
       return {
         sessionId: session.id,
-        wsToken: crypto.randomBytes(16).toString('hex'), // Signed JWT in prod
-        expiresAt: session.expires_at
+        wsToken,
+        expiresAt: session.expires_at,
+        ticket: { userMatchId: effectiveMatchId, token: wsToken }
       };
     } catch (error) {
       throw error;

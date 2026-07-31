@@ -673,8 +673,35 @@ const createGameStatsByUserId = async ({userId}) => {
 
 
 
+const setupMatchSession = async ({ matchId, gameId, userId, wsToken, mode }) => {
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    
+    // Ensure the game_matches row exists
+    await client.query(
+      `INSERT INTO game_matches (id, game_id, mode, status)
+       VALUES ($1, $2, $3, 'ACTIVE')
+       ON CONFLICT (id) DO NOTHING`,
+      [matchId, gameId, mode || 'QUICK']
+    );
 
+    // Insert the member token
+    await client.query(
+      `INSERT INTO match_members (match_id, user_id, ws_token, player_color)
+       VALUES ($1, $2, $3, $4)
+       ON CONFLICT (match_id, user_id) DO UPDATE SET ws_token = EXCLUDED.ws_token`,
+      [matchId, userId, wsToken, 'blue']
+    );
 
+    await client.query('COMMIT');
+  } catch (error) {
+    await client.query('ROLLBACK');
+    throw error;
+  } finally {
+    client.release();
+  }
+};
 
 const createGameSession = async ({ sessionData }) => {
   try {
@@ -742,12 +769,14 @@ const findOpponentSessionByMatchGroup = async ({matchGroupId, excludeUserId}) =>
     throw error
   }
 }
-module.exports = {
+module.exports = {
                   findManyGames, findManyGamesBydDfficulty, findGameById, searchGames,
                   createGameMatche, updateGameMatcheByMatchId, completeGameMatch, findManyGameMatshs,
                   findGameMatchById, findGameStatsByUserId, createGameStatsByUserId, findLeaderboard,
                   findTournaments, findTournamentById, joinTournament, hasTournamentEntry,
                   joinMatchmaking, findMatchmakingTicketById, cancelMatchmakingTicket, getTrendingGames,
-                  createGameSession, findGameSessionById, updateGameSessionStatus, createRewardLedgerEntry,
+                  createGameSession,
+  setupMatchSession,
+  findGameSessionById, updateGameSessionStatus, createRewardLedgerEntry,
                   findOpponentSessionByMatchGroup
                  }

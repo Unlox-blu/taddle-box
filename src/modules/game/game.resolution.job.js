@@ -16,6 +16,7 @@ const gameService = new GameService({ gameRepository, xpService });
  */
 async function resolveAbandonedMatches() {
   const client = await pool.connect();
+  client.on('error', err => console.error('Abandoned matches client error:', err));
   try {
     // Find all PENDING game sessions older than 3 minutes
     const { rows: pendingSessions } = await client.query(`
@@ -98,6 +99,7 @@ async function resolveAbandonedMatches() {
 
 async function resolveTournaments() {
   const client = await pool.connect();
+  client.on('error', err => console.error('Tournaments client error:', err));
   try {
     const { rows: endedTournaments } = await client.query(`
       SELECT * FROM ${gameModel.GAME_TOURNAMENT_TABLE}

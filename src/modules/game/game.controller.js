@@ -100,8 +100,8 @@ class GameController {
   startGameSession = async (req, res, next) => {
     try {
       const userId = req.userId;
-      const { gameId, mode } = req.body;
-      const session = await this.gameSvc.startGameSession({ userId, gameId, mode });
+      const { gameId, mode, matchGroupId } = req.body;
+      const session = await this.gameSvc.startGameSession({ userId, gameId, mode, matchGroupId });
       res.status(201).json(apiResponse(session, "Session started successfully"));
     } catch (error) {
       next(error);

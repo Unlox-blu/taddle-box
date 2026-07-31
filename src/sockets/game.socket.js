@@ -44,22 +44,25 @@ const setupGameSocket = (io) => {
     }
 
     try {
-      // Validate the user's match token from the DB
+      // Validate the user's match token AND fetch all players in this match
       const { rows } = await pool.query(
-        `SELECT mm.*, g.slug as game_slug
+        `SELECT mm.user_id, mm.ws_token, mm.player_color, g.slug as game_slug, gm.metadata as match_metadata
          FROM match_members mm
          JOIN game_matches gm ON mm.match_id = gm.id
          JOIN game g ON gm.game_id = g.id
-         WHERE mm.match_id = $1 AND mm.user_id = $2 AND mm.ws_token = $3`,
-        [matchId, userId, token]
+         WHERE mm.match_id = $1`,
+        [matchId]
       );
 
-      if (!rows[0]) return next(new Error('Invalid match credentials'));
+      // Confirm this user's token is valid
+      const myRow = rows.find(r => r.user_id === userId && r.ws_token === token);
+      if (!myRow) return next(new Error('Invalid match credentials'));
 
       socket.matchId = matchId;
       socket.userId = userId;
-      socket.gameSlug = rows[0].game_slug;
-      socket.playerData = rows[0];
+      socket.gameSlug = myRow.game_slug;
+      socket.matchPlayers = rows.map(r => ({ userId: r.user_id, color: r.player_color }));
+      socket.matchMetadata = myRow.match_metadata || {};
 
       next();
     } catch (e) {
@@ -79,7 +82,9 @@ const setupGameSocket = (io) => {
     let state;
     try {
       const result = await MatchManager.loadOrInitializeMatch(matchId, gameSlug, {
-        players: socket.playerData?.players || [],
+        players: socket.matchPlayers || [],
+        maxPlayers: (socket.matchPlayers || []).length || 2,
+        matchMetadata: socket.matchMetadata,
       });
       state = result.state;
     } catch (e) {
@@ -106,25 +111,33 @@ const setupGameSocket = (io) => {
     // ── READY ───────────────────────────────────────────────────────────
     socket.on(EVENTS.READY, async () => {
       try {
-        const updatedState = await MatchManager.handlePlayerJoin(matchId, gameSlug, userId);
+        // Load snapshot and track this player as ready
+        let snap = await EventStore.loadMatchSnapshot(matchId);
+        if (!snap) snap = state;
 
-        if (updatedState.status === MATCH_STATES.READY) {
-          // All players are ready — start the game
-          updatedState.status = MATCH_STATES.ACTIVE;
-          updatedState.startedAt = Date.now();
-          await EventStore.saveMatchSnapshot(matchId, updatedState);
+        if (!snap.readyPlayers) snap.readyPlayers = [];
+        if (!snap.readyPlayers.includes(userId)) snap.readyPlayers.push(userId);
+
+        const totalPlayers = (socket.matchPlayers || []).length || 2;
+        const allReady = snap.readyPlayers.length >= totalPlayers;
+
+        if (allReady && snap.status !== MATCH_STATES.ACTIVE) {
+          snap.status = MATCH_STATES.ACTIVE;
+          snap.startedAt = Date.now();
+          await EventStore.saveMatchSnapshot(matchId, snap);
           await EventStore.appendEvent(matchId, { type: 'GAME_START' });
 
           gameNs.to(matchRoom).emit(EVENTS.START, {
-            state: updatedState,
-            startedAt: updatedState.startedAt,
+            state: snap,
+            startedAt: snap.startedAt,
           });
 
           // Start turn timer for turn-based games
-          _startTurnTimer(gameNs, matchId, gameSlug, updatedState);
+          _startTurnTimer(gameNs, matchId, gameSlug, snap);
         } else {
-          // Broadcast updated state (waiting for more players)
-          gameNs.to(matchRoom).emit(EVENTS.STATE, { state: updatedState });
+          await EventStore.saveMatchSnapshot(matchId, snap);
+          // Broadcast updated waiting state
+          gameNs.to(matchRoom).emit(EVENTS.STATE, { state: snap });
         }
       } catch (e) {
         socket.emit(EVENTS.ERROR, { message: e.message });

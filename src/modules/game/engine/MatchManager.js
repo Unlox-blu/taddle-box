@@ -27,13 +27,15 @@ class MatchManager {
     const plugin = GameRegistry.createInstance(gameSlug, matchMetadata);
 
     if (!state) {
-      // Initialize new match
+      // Initialize new match — store the correct player count from metadata
       state = {
         status: MATCH_STATES.WAITING,
         players: matchMetadata.players || [],
+        maxPlayers: matchMetadata.maxPlayers || matchMetadata.players?.length || 2,
         pluginState: plugin.createState(),
         metadata: matchMetadata,
         startedAt: null,
+        readyPlayers: [],
       };
       await EventStore.saveMatchSnapshot(matchId, state);
       await EventStore.appendEvent(matchId, { type: 'INIT_MATCH', state });

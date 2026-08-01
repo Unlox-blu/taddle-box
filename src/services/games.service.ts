@@ -134,6 +134,7 @@ export const gamesService = {
     gameId: string;
     mode: 'QUICK' | 'TOURNAMENT';
     tournamentId?: string;
+    targetPlayers?: number;
   }): Promise<{ data: MatchmakingResponse }> => {
     const response = await apiClient.post('/game/matchmaking/join', data);
     return response.data;

@@ -321,7 +321,7 @@ class GameService {
 	        tournamentId = null
 	      }
 
-	      const result = await this.gameRepo.joinMatchmaking({userId, game, mode, tournamentId});
+	      const result = await this.gameRepo.joinMatchmaking({userId, game, mode, tournamentId, targetPlayers: matchData.targetPlayers});
         try {
           const { getIO } = require('../../sockets/index');
           const io = getIO();
@@ -348,87 +348,16 @@ class GameService {
 	    }
 	  }
 
-	  async inviteMatchmaking({userId, inviteData}) {
+	  async cancelMatchmaking(userId) {
 	    try {
-	      const { opponentId, gameId, matchGroupId } = inviteData;
-	      const game = await this.gameRepo.findGameById({gameId});
-	      if(!game)
-	        throw createError("Game not found", 404);
-
-	      const sender = await this.userRepo.findById(userId);
-	      if(!sender)
-	        throw createError("User not found", 404);
-
-	      await this.notificationSvc.create({
-	        recipientId: opponentId,
-	        senderId: userId,
-	        type: 'GAME_INVITE',
-	        title: 'Game Invite! 🎮',
-	        message: `${sender.name || "A friend"} invited you to play ${game.name}!|${matchGroupId}`,
-	        resourceType: 'game',
-	        resourceId: gameId,
-	      });
-
-	      return { success: true };
-	    } catch (error) {
-	      throw error;
-	    }
-	  }
-
-	  async getMatchmakingTicket({userId, ticketId}) {
-	    try {
-	      const ticket = await this.gameRepo.findMatchmakingTicketById({userId, ticketId})
-	      if(!ticket)
-	        throw createError("Matchmaking ticket not found", 404)
-
-	      return {
-	        status: ticket.ticket.status,
-	        ...ticket,
-	      }
-	    } catch (error) {
-	      throw error
-	    }
-	  }
-
-	  async cancelMatchmakingTicket({userId, ticketId}) {
-	    try {
-	      const ticket = await this.gameRepo.cancelMatchmakingTicket({userId, ticketId})
-	      if(!ticket)
-	        throw createError("Waiting matchmaking ticket not found", 404)
-
-        if (ticket.lobbyState) {
+	      const result = await this.gameRepo.cancelMatchmaking(userId)
+        if (result && result.lobbyState) {
           try {
             const { getIO } = require('../../sockets/index');
             const io = getIO();
-            for (const p of ticket.lobbyState.players) {
+            for (const p of result.lobbyState.players) {
               if (p.id !== userId && !p.isBot) {
-                io.to(`user:${p.id}`).emit('matchmaking:lobbyUpdated', ticket.lobbyState);
-              }
-            }
-          } catch (e) {
-            console.error('Failed to emit matchmaking events', e);
-          }
-        }
-
-	      return ticket
-	    } catch (error) {
-	      throw error
-	    }
-	  }
-
-	  async fillMatchmakingLobby({userId, ticketId}) {
-	    try {
-	      const result = await this.gameRepo.fillMatchmakingLobby({userId, ticketId})
-	      if(!result)
-	        throw createError("Failed to fill lobby", 500)
-
-        if (result.status === 'MATCHED') {
-          try {
-            const { getIO } = require('../../sockets/index');
-            const io = getIO();
-            for (const p of result.players) {
-              if (p.id !== userId && !p.isBot) {
-                io.to(`user:${p.id}`).emit('matchmaking:matched', result);
+                io.to(`user:${p.id}`).emit('matchmaking:lobbyUpdated', result.lobbyState);
               }
             }
           } catch (e) {
@@ -439,6 +368,54 @@ class GameService {
 	    } catch (error) {
 	      throw error
 	    }
+	  }
+
+	  async getLobby({ userId, lobbyId }) {
+	    return await this.gameRepo.getLobby({ userId, lobbyId });
+	  }
+
+	  async updateLobby({ userId, lobbyId, updates }) {
+	    return await this.gameRepo.updateLobby({ userId, lobbyId, updates });
+	  }
+
+	  async deleteLobby({ userId, lobbyId }) {
+	    return await this.gameRepo.deleteLobby({ userId, lobbyId });
+	  }
+
+	  async joinLobbyByCode({ userId, inviteCode }) {
+	    return await this.gameRepo.joinLobbyByCode({ userId, inviteCode });
+	  }
+
+	  async getLobbyPlayers({ userId, lobbyId }) {
+	    return await this.gameRepo.getLobbyPlayers({ userId, lobbyId });
+	  }
+
+	  async updateLobbyPlayer({ userId, lobbyId, targetUserId, updates }) {
+	    return await this.gameRepo.updateLobbyPlayer({ userId, lobbyId, targetUserId, updates });
+	  }
+
+	  async removeLobbyPlayer({ userId, lobbyId, targetUserId }) {
+	    return await this.gameRepo.removeLobbyPlayer({ userId, lobbyId, targetUserId });
+	  }
+
+	  async inviteLobbyPlayer({ userId, lobbyId, opponentId }) {
+	    return await this.gameRepo.inviteLobbyPlayer({ userId, lobbyId, opponentId });
+	  }
+
+	  async shrinkLobby({ userId, lobbyId }) {
+	    return await this.gameRepo.shrinkLobby({ userId, lobbyId });
+	  }
+
+	  async fillLobbyBots({ userId, lobbyId }) {
+	    return await this.gameRepo.fillLobbyBots({ userId, lobbyId });
+	  }
+
+	  async continueLobby({ userId, lobbyId }) {
+	    return await this.gameRepo.continueLobby({ userId, lobbyId });
+	  }
+
+	  async startLobby({ userId, lobbyId }) {
+	    return await this.gameRepo.startLobby({ userId, lobbyId });
 	  }
 
 

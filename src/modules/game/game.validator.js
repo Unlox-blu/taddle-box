@@ -94,6 +94,8 @@ const joinMatchmakingSchema = z.object({
             error_map: () => ({ message: "Mode must be QUICK or TOURNAMENT" })
           }),
   tournamentId: z.string().uuid({ message: 'Invalid tournament ID format' }).optional(),
+  targetPlayers: z.union([z.number().positive(), z.literal("AUTO")]).optional(),
+  visibility: z.enum(['PUBLIC', 'PRIVATE']).optional(),
 })
 
 const inviteMatchmakingSchema = z.object({
@@ -102,15 +104,37 @@ const inviteMatchmakingSchema = z.object({
   matchGroupId: z.string(),
 })
 
+const lobbyIdParamSchema = z.object({
+  lobbyId: z.string().uuid({ message: 'Invalid lobby ID format' })
+}).strict();
+
+const updateLobbySchema = z.object({
+  visibility: z.enum(['PUBLIC', 'PRIVATE']).optional(),
+  teamsLocked: z.boolean().optional(),
+  autoBalance: z.boolean().optional(),
+  targetPlayers: z.number().positive().optional()
+}).strict();
+
+const updateLobbyPlayerSchema = z.object({
+  team: z.number().positive().optional(),
+  seat: z.number().nonnegative().optional(),
+  isReady: z.boolean().optional(),
+  lobbyRole: z.enum(['HOST', 'PLAYER']).optional()
+}).strict();
+
 module.exports = {
+  typeCheck,
+  paginationSchema,
+  searchSchema,
   gameIdParamSchema,
   matchIdParamSchema,
   tournamentIdParamSchema,
   ticketIdParamSchema,
-  searchSchema,
-  paginationSchema,
   createMatchSchema,
   updateMatchSchema,
   joinMatchmakingSchema,
   inviteMatchmakingSchema,
+  lobbyIdParamSchema,
+  updateLobbySchema,
+  updateLobbyPlayerSchema
 };

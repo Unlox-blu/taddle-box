@@ -195,45 +195,132 @@ class GameController {
 	    }
 	  };
 
-	  inviteMatchmaking = async (req, res, next) => {
+	  cancelMatchmaking = async (req, res, next) => {
 	    try {
 	      const userId = req.userId;
-	      const inviteData = req.body;
-	      const result = await this.gameSvc.inviteMatchmaking({userId, inviteData});
-	      res.json(apiResponse(result, "matchmaking invite sent successfuly"));
-	    } catch (error) {
-	      next(error);
-	    }
-	  };
-
-	  getMatchmakingTicket = async (req, res, next) => {
-	    try {
-	      const userId = req.userId;
-	      const { ticketId } = req.params;
-	      const ticket = await this.gameSvc.getMatchmakingTicket({userId, ticketId});
-	      res.json(apiResponse(ticket, "matchmaking ticket fetched successfuly"));
-	    } catch (error) {
-	      next(error);
-	    }
-	  };
-
-	  cancelMatchmakingTicket = async (req, res, next) => {
-	    try {
-	      const userId = req.userId;
-	      const { ticketId } = req.params;
-	      const result = await this.gameSvc.cancelMatchmakingTicket({userId, ticketId});
+	      const result = await this.gameSvc.cancelMatchmaking(userId);
 	      res.json(apiResponse(result, "matchmaking cancelled successfuly"));
 	    } catch (error) {
 	      next(error);
 	    }
 	  };
 
-	  fillMatchmakingLobby = async (req, res, next) => {
+	  // --- Resource-Oriented Lobby Endpoints ---
+
+	  getLobby = async (req, res, next) => {
 	    try {
-	      const userId = req.userId;
-	      const { ticketId } = req.params;
-	      const result = await this.gameSvc.fillMatchmakingLobby({userId, ticketId});
+	      const { lobbyId } = req.params;
+	      const result = await this.gameSvc.getLobby({ userId: req.userId, lobbyId });
+	      res.json(apiResponse(result, "Lobby fetched successfully"));
+	    } catch (error) {
+	      next(error);
+	    }
+	  };
+
+	  updateLobby = async (req, res, next) => {
+	    try {
+	      const { lobbyId } = req.params;
+	      const result = await this.gameSvc.updateLobby({ userId: req.userId, lobbyId, updates: req.body });
+	      res.json(apiResponse(result, "Lobby updated successfully"));
+	    } catch (error) {
+	      next(error);
+	    }
+	  };
+
+	  deleteLobby = async (req, res, next) => {
+	    try {
+	      const { lobbyId } = req.params;
+	      const result = await this.gameSvc.deleteLobby({ userId: req.userId, lobbyId });
+	      res.json(apiResponse(result, "Lobby deleted successfully"));
+	    } catch (error) {
+	      next(error);
+	    }
+	  };
+
+	  joinLobbyByCode = async (req, res, next) => {
+	    try {
+	      const result = await this.gameSvc.joinLobbyByCode({ userId: req.userId, inviteCode: req.body.inviteCode });
+	      res.json(apiResponse(result, "Joined lobby successfully"));
+	    } catch (error) {
+	      next(error);
+	    }
+	  };
+
+	  getLobbyPlayers = async (req, res, next) => {
+	    try {
+	      const { lobbyId } = req.params;
+	      const result = await this.gameSvc.getLobbyPlayers({ userId: req.userId, lobbyId });
+	      res.json(apiResponse(result, "Lobby players fetched successfully"));
+	    } catch (error) {
+	      next(error);
+	    }
+	  };
+
+	  updateLobbyPlayer = async (req, res, next) => {
+	    try {
+	      const { lobbyId, playerId } = req.params;
+	      const result = await this.gameSvc.updateLobbyPlayer({ userId: req.userId, lobbyId, targetUserId: playerId, updates: req.body });
+	      res.json(apiResponse(result, "Lobby player updated successfully"));
+	    } catch (error) {
+	      next(error);
+	    }
+	  };
+
+	  removeLobbyPlayer = async (req, res, next) => {
+	    try {
+	      const { lobbyId, playerId } = req.params;
+	      const result = await this.gameSvc.removeLobbyPlayer({ userId: req.userId, lobbyId, targetUserId: playerId });
+	      res.json(apiResponse(result, "Player removed from lobby successfully"));
+	    } catch (error) {
+	      next(error);
+	    }
+	  };
+
+	  inviteLobbyPlayer = async (req, res, next) => {
+	    try {
+	      const { lobbyId } = req.params;
+	      const result = await this.gameSvc.inviteLobbyPlayer({ userId: req.userId, lobbyId, opponentId: req.body.opponentId });
+	      res.json(apiResponse(result, "Invite sent successfully"));
+	    } catch (error) {
+	      next(error);
+	    }
+	  };
+
+	  shrinkLobby = async (req, res, next) => {
+	    try {
+	      const { lobbyId } = req.params;
+	      const result = await this.gameSvc.shrinkLobby({ userId: req.userId, lobbyId });
+	      res.json(apiResponse(result, "Match started early successfully"));
+	    } catch (error) {
+	      next(error);
+	    }
+	  };
+
+	  fillLobbyBots = async (req, res, next) => {
+	    try {
+	      const { lobbyId } = req.params;
+	      const result = await this.gameSvc.fillLobbyBots({ userId: req.userId, lobbyId });
 	      res.json(apiResponse(result, "Lobby filled with bots"));
+	    } catch (error) {
+	      next(error);
+	    }
+	  };
+
+	  continueLobby = async (req, res, next) => {
+	    try {
+	      const { lobbyId } = req.params;
+	      const result = await this.gameSvc.continueLobby({ userId: req.userId, lobbyId });
+	      res.json(apiResponse(result, "Timeout extended successfully"));
+	    } catch (error) {
+	      next(error);
+	    }
+	  };
+
+	  startLobby = async (req, res, next) => {
+	    try {
+	      const { lobbyId } = req.params;
+	      const result = await this.gameSvc.startLobby({ userId: req.userId, lobbyId });
+	      res.json(apiResponse(result, "Lobby started successfully"));
 	    } catch (error) {
 	      next(error);
 	    }

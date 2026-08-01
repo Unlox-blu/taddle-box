@@ -479,7 +479,7 @@ const cancelWaitingMatchmakingTickets = async ({ userId, gameId, mode, tournamen
   }
 };
 
-const joinMatchmaking = async ({ userId, game, mode, tournamentId }) => {
+const joinMatchmaking = async ({ userId, game, mode, tournamentId, targetPlayers }) => {
   const client = await pool.connect();
   try {
     await client.query('BEGIN');
@@ -495,24 +495,25 @@ const joinMatchmaking = async ({ userId, game, mode, tournamentId }) => {
       [userId, game.id, mode, tournamentId || null]
     );
 
-    const maxPlayers = game.metadata?.maxPlayers || 2;
+    const maxPlayers = targetPlayers || game.metadata?.maxPlayers || 2;
 
     const lobbyResult = await client.query(
       `SELECT * FROM game_lobby 
        WHERE game_id = $1 
          AND status = 'WAITING' 
          AND current_players < max_players
+         AND max_players = $2
        ORDER BY created_at ASC 
        FOR UPDATE SKIP LOCKED 
        LIMIT 1`,
-      [game.id]
+      [game.id, maxPlayers]
     );
 
     let lobby = lobbyResult.rows[0];
     if (!lobby) {
       const newLobbyRes = await client.query(
-        `INSERT INTO game_lobby (game_id, status, max_players, current_players, host_user_id)
-         VALUES ($1, 'WAITING', $2, 0, $3)
+        `INSERT INTO game_lobby (game_id, status, max_players, current_players, host_user_id, expires_at)
+         VALUES ($1, 'WAITING', $2, 0, $3, NOW() + INTERVAL '10 seconds')
          RETURNING *`,
         [game.id, maxPlayers, userId]
       );
@@ -556,7 +557,8 @@ const joinMatchmaking = async ({ userId, game, mode, tournamentId }) => {
       avatar: r.avatar,
       isBot: false,
       team: index % 2,
-      seat: index
+      seat: index,
+      status: 'JOINED'
     }));
 
     if (lobby.current_players === lobby.max_players) {
@@ -606,14 +608,15 @@ const joinMatchmaking = async ({ userId, game, mode, tournamentId }) => {
     }
 
     await client.query('COMMIT');
-    return {
-      status: 'WAITING',
-      ticket: gameModel.formatMatchmakingTicket(ticketRes.rows[0]),
-      lobbyId: lobby.id,
-      players: playerSnapshots,
-      maxPlayers: lobby.max_players,
-      currentPlayers: lobby.current_players
-    };
+      return {
+        status: 'WAITING',
+        ticket: gameModel.formatMatchmakingTicket(ticketRes.rows[0]),
+        lobbyId: lobby.id,
+        players: playerSnapshots,
+        maxPlayers: lobby.max_players,
+        currentPlayers: lobby.current_players,
+        expiresAt: lobby.expires_at
+      };
   } catch (error) {
     await client.query('ROLLBACK');
     throw error;
@@ -627,24 +630,42 @@ const fillMatchmakingLobby = async ({ userId, ticketId }) => {
   try {
     await client.query('BEGIN');
     
-    const ticketRes = await client.query(
-      `SELECT t.*, l.max_players, l.current_players, l.game_id 
-       FROM game_matchmaking_ticket t
-       JOIN game_lobby l ON l.id = t.lobby_id
-       WHERE t.id = $1 AND t.user_id = $2 AND t.status = 'WAITING'`,
+    const initialTicketRes = await client.query(
+      `SELECT lobby_id, game_id, mode, tournament_id FROM game_matchmaking_ticket WHERE id = $1 AND user_id = $2`,
       [ticketId, userId]
     );
-    
-    const ticket = ticketRes.rows[0];
-    if (!ticket) throw new Error("Ticket not found or not waiting");
-    
-    const remaining = ticket.max_players - ticket.current_players;
-    if (remaining <= 0) throw new Error("Lobby already full");
+    const initialTicket = initialTicketRes.rows[0];
+    if (!initialTicket) throw new Error("Ticket not found");
+
+    const lobbyRes = await client.query(
+      `SELECT * FROM game_lobby WHERE id = $1 FOR UPDATE`,
+      [initialTicket.lobby_id]
+    );
+    const lobby = lobbyRes.rows[0];
+
+    if (lobby.status !== 'WAITING') {
+      await client.query('ROLLBACK');
+      return { status: 'MATCHED', message: 'Lobby already processed' };
+    }
+
+    if (lobby.current_players >= lobby.max_players) {
+      await client.query('ROLLBACK');
+      return { status: 'MATCHED', message: 'Lobby is already full' };
+    }
+
+    await client.query(`UPDATE game_lobby SET status = 'LOCKED' WHERE id = $1`, [lobby.id]);
+
+    const remaining = lobby.max_players - lobby.current_players;
 
     const BOT_PROFILES = [
-      { id: 'bot-11111111-1111-1111-1111-111111111111', username: 'bot_alpha', name: 'Bot Alpha', avatar: 'https://api.dicebear.com/7.x/bottts/svg?seed=Alpha' },
-      { id: 'bot-22222222-2222-2222-2222-222222222222', username: 'bot_bravo', name: 'Bot Bravo', avatar: 'https://api.dicebear.com/7.x/bottts/svg?seed=Bravo' },
-      { id: 'bot-33333333-3333-3333-3333-333333333333', username: 'bot_charlie', name: 'Bot Charlie', avatar: 'https://api.dicebear.com/7.x/bottts/svg?seed=Charlie' }
+      { id: 'bot-11111111-1111-1111-1111-111111111111', username: 'bot_alpha', name: 'Bot Alpha', avatar: 'https://api.dicebear.com/7.x/bottts/svg?seed=Alpha', rating: 1250, level: 10, badge: 'silver' },
+      { id: 'bot-22222222-2222-2222-2222-222222222222', username: 'bot_bravo', name: 'Bot Bravo', avatar: 'https://api.dicebear.com/7.x/bottts/svg?seed=Bravo', rating: 1420, level: 15, badge: 'gold' },
+      { id: 'bot-33333333-3333-3333-3333-333333333333', username: 'bot_charlie', name: 'Bot Charlie', avatar: 'https://api.dicebear.com/7.x/bottts/svg?seed=Charlie', rating: 1600, level: 20, badge: 'platinum' },
+      { id: 'bot-44444444-4444-4444-4444-444444444444', username: 'bot_delta', name: 'Bot Delta', avatar: 'https://api.dicebear.com/7.x/bottts/svg?seed=Delta', rating: 1100, level: 8, badge: 'bronze' },
+      { id: 'bot-55555555-5555-5555-5555-555555555555', username: 'bot_echo', name: 'Bot Echo', avatar: 'https://api.dicebear.com/7.x/bottts/svg?seed=Echo', rating: 1350, level: 12, badge: 'silver' },
+      { id: 'bot-66666666-6666-6666-6666-666666666666', username: 'bot_nova', name: 'Bot Nova', avatar: 'https://api.dicebear.com/7.x/bottts/svg?seed=Nova', rating: 1550, level: 18, badge: 'gold' },
+      { id: 'bot-77777777-7777-7777-7777-777777777777', username: 'bot_blaze', name: 'Bot Blaze', avatar: 'https://api.dicebear.com/7.x/bottts/svg?seed=Blaze', rating: 1800, level: 25, badge: 'diamond' },
+      { id: 'bot-88888888-8888-8888-8888-888888888888', username: 'bot_titan', name: 'Bot Titan', avatar: 'https://api.dicebear.com/7.x/bottts/svg?seed=Titan', rating: 1950, level: 30, badge: 'master' }
     ];
 
     const playersRes = await client.query(
@@ -652,9 +673,9 @@ const fillMatchmakingLobby = async ({ userId, ticketId }) => {
        FROM game_matchmaking_ticket t
        JOIN users u ON u.id = t.user_id
        LEFT JOIN media m ON m.id = u.avatar_url
-       WHERE t.lobby_id = $1 AND t.status = 'WAITING'
+       WHERE t.lobby_id = $1 AND (t.status = 'WAITING' OR t.status = 'MATCHED')
        ORDER BY t.created_at ASC`,
-      [ticket.lobby_id]
+      [lobby.id]
     );
 
     const playerSnapshots = playersRes.rows.map((r, index) => ({
@@ -664,7 +685,8 @@ const fillMatchmakingLobby = async ({ userId, ticketId }) => {
       avatar: r.avatar,
       isBot: false,
       team: index % 2,
-      seat: index
+      seat: index,
+      status: 'JOINED'
     }));
 
     let seatIndex = playerSnapshots.length;
@@ -677,26 +699,30 @@ const fillMatchmakingLobby = async ({ userId, ticketId }) => {
         avatar: bot.avatar,
         isBot: true,
         team: seatIndex % 2,
-        seat: seatIndex
+        seat: seatIndex,
+        status: 'JOINED',
+        rating: bot.rating,
+        level: bot.level,
+        badge: bot.badge
       });
       seatIndex++;
     }
 
     const startedAt = new Date().toISOString();
     
-    const gameRes = await client.query(`SELECT * FROM game WHERE id = $1`, [ticket.game_id]);
+    const gameRes = await client.query(`SELECT * FROM game WHERE id = $1`, [initialTicket.game_id]);
     const game = gameRes.rows[0];
 
     const matchMetadata = {
-      lobbyId: ticket.lobby_id,
+      lobbyId: lobby.id,
       gameId: game.id,
-      gameMode: ticket.mode,
+      gameMode: initialTicket.mode,
       playerIds: playerSnapshots.map(p => p.id),
       playerSnapshots,
-      maxPlayers: ticket.max_players,
+      maxPlayers: lobby.max_players,
       startedAt,
       runtime: game.metadata?.runtime,
-      tournamentId: ticket.tournament_id
+      tournamentId: initialTicket.tournament_id
     };
 
     for (const p of playerSnapshots) {
@@ -706,7 +732,7 @@ const fillMatchmakingLobby = async ({ userId, ticketId }) => {
             (user_id, game_id, mode, category, difficulty, metadata)
           VALUES ($1, $2, $3, $4, $5, $6::jsonb)
           RETURNING *`,
-          [p.id, game.id, ticket.mode, game.category || null, game.difficulty || null, JSON.stringify(matchMetadata)]
+          [p.id, game.id, initialTicket.mode, game.category || null, game.difficulty || null, JSON.stringify(matchMetadata)]
         );
 
         await client.query(
@@ -720,15 +746,15 @@ const fillMatchmakingLobby = async ({ userId, ticketId }) => {
 
     await client.query(
       `UPDATE game_lobby SET status = 'READY', current_players = max_players, started_at = NOW(), updated_at = NOW() WHERE id = $1`,
-      [ticket.lobby_id]
+      [lobby.id]
     );
 
     await client.query('COMMIT');
     
     return {
       status: 'MATCHED',
-      ticket: { ...ticket, status: 'MATCHED' },
-      lobbyId: ticket.lobby_id,
+      ticket: { id: ticketId, status: 'MATCHED', lobby_id: lobby.id },
+      lobbyId: lobby.id,
       players: playerSnapshots,
       matchMetadata
     };
@@ -1041,7 +1067,311 @@ const findActiveSession = async ({ userId }) => {
   }
 };
 
+
+
+// ==========================================
+// NEW LOBBY RESOURCE METHODS
+// ==========================================
+
+const { formatLobbyDTO } = require('./game.dto');
+
+const getLobby = async ({ userId, lobbyId }) => {
+  const { rows } = await pool.query('SELECT * FROM game_lobby WHERE id = $1', [lobbyId]);
+  if (!rows[0]) throw require('../../utils/error.util').createError('Lobby not found', 404);
+  
+  const playersRes = await pool.query(
+    `SELECT t.user_id as "userId", u.name as "displayName", m.cloudfront_url AS avatar, t.id as ticket_id, t.metadata
+     FROM game_matchmaking_ticket t
+     JOIN users u ON u.id = t.user_id
+     LEFT JOIN media m ON m.id = u.avatar_url
+     WHERE t.lobby_id = $1 AND t.status != 'CANCELLED'
+     ORDER BY t.created_at ASC`,
+    [lobbyId]
+  );
+  
+  const players = playersRes.rows.map(p => ({
+    ...p,
+    seat: p.metadata?.seat,
+    team: p.metadata?.team,
+    lobbyRole: p.metadata?.lobbyRole || (rows[0].host_user_id === p.userId ? 'HOST' : 'PLAYER'),
+    isReady: p.metadata?.isReady,
+    status: p.metadata?.status || 'CONNECTED'
+  }));
+
+  return formatLobbyDTO(rows[0], players);
+};
+
+const updateLobby = async ({ userId, lobbyId, updates }) => {
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    const { rows } = await client.query('SELECT * FROM game_lobby WHERE id = $1 FOR UPDATE', [lobbyId]);
+    const lobby = rows[0];
+    if (!lobby) throw require('../../utils/error.util').createError('Lobby not found', 404);
+    if (lobby.host_user_id !== userId) throw require('../../utils/error.util').createError('Only the host can update the lobby', 403);
+    
+    if (updates.visibility) lobby.visibility = updates.visibility;
+    if (updates.teamsLocked !== undefined) {
+      lobby.settings = lobby.settings || {};
+      lobby.settings.teamsLocked = updates.teamsLocked;
+    }
+    if (updates.autoBalance !== undefined) {
+       lobby.settings = lobby.settings || {};
+       lobby.settings.autoBalance = updates.autoBalance;
+    }
+    
+    const updated = await client.query(
+      'UPDATE game_lobby SET visibility = $1, settings = $2::jsonb, updated_at = NOW() WHERE id = $3 RETURNING *',
+      [lobby.visibility, JSON.stringify(lobby.settings || {}), lobbyId]
+    );
+    await client.query('COMMIT');
+    return await getLobby({ userId, lobbyId });
+  } catch (error) {
+    await client.query('ROLLBACK');
+    throw error;
+  } finally {
+    client.release();
+  }
+};
+
+const deleteLobby = async ({ userId, lobbyId }) => {
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    const { rows } = await client.query('SELECT * FROM game_lobby WHERE id = $1 FOR UPDATE', [lobbyId]);
+    const lobby = rows[0];
+    if (!lobby) throw require('../../utils/error.util').createError('Lobby not found', 404);
+    if (lobby.host_user_id !== userId) throw require('../../utils/error.util').createError('Only the host can delete the lobby', 403);
+    
+    await client.query('UPDATE game_lobby SET status = \'CANCELLED\', updated_at = NOW() WHERE id = $1', [lobbyId]);
+    await client.query('UPDATE game_matchmaking_ticket SET status = \'CANCELLED\' WHERE lobby_id = $1', [lobbyId]);
+    await client.query('COMMIT');
+    return { success: true };
+  } catch (error) {
+    await client.query('ROLLBACK');
+    throw error;
+  } finally {
+    client.release();
+  }
+};
+
+const joinLobbyByCode = async ({ userId, inviteCode }) => {
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    const { rows: lobbyRows } = await client.query('SELECT * FROM game_lobby WHERE invite_code = $1 AND status IN (\'WAITING\', \'TIMED_OUT\') FOR UPDATE', [inviteCode]);
+    const lobby = lobbyRows[0];
+    if (!lobby) throw require('../../utils/error.util').createError('Invalid or expired invite code', 404);
+    if (lobby.current_players >= lobby.max_players) throw require('../../utils/error.util').createError('Lobby is full', 400);
+
+    const { rows: existing } = await client.query('SELECT * FROM game_matchmaking_ticket WHERE lobby_id = $1 AND user_id = $2 AND status != \'CANCELLED\'', [lobby.id, userId]);
+    if (existing.length > 0) throw require('../../utils/error.util').createError('Already in this lobby', 400);
+
+    // Get a free seat (smallest unused index)
+    const { rows: players } = await client.query('SELECT metadata->>\'seat\' as seat FROM game_matchmaking_ticket WHERE lobby_id = $1 AND status != \'CANCELLED\'', [lobby.id]);
+    const usedSeats = players.map(p => parseInt(p.seat)).filter(s => !isNaN(s));
+    let seat = 0;
+    while(usedSeats.includes(seat)) seat++;
+
+    const metadata = { seat, team: seat, isReady: false, lobbyRole: 'PLAYER', status: 'CONNECTED' };
+
+    await client.query(
+      'INSERT INTO game_matchmaking_ticket (user_id, game_id, mode, status, lobby_id, metadata) VALUES ($1, $2, $3, \'WAITING\', $4, $5::jsonb)',
+      [userId, lobby.game_id, 'QUICK', lobby.id, JSON.stringify(metadata)]
+    );
+
+    await client.query('UPDATE game_lobby SET current_players = current_players + 1 WHERE id = $1', [lobby.id]);
+    await client.query('COMMIT');
+    return await getLobby({ userId, lobbyId: lobby.id });
+  } catch(e) {
+    await client.query('ROLLBACK');
+    throw e;
+  } finally {
+    client.release();
+  }
+};
+
+const getLobbyPlayers = async ({ userId, lobbyId }) => {
+  const l = await getLobby({ userId, lobbyId });
+  return l.players;
+};
+
+const updateLobbyPlayer = async ({ userId, lobbyId, targetUserId, updates }) => {
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    const { rows } = await client.query('SELECT * FROM game_lobby WHERE id = $1 FOR UPDATE', [lobbyId]);
+    if (!rows[0]) throw require('../../utils/error.util').createError('Lobby not found', 404);
+    
+    // Only host or the player themselves can update player
+    if (rows[0].host_user_id !== userId && userId !== targetUserId) {
+        throw require('../../utils/error.util').createError('Unauthorized', 403);
+    }
+    
+    const { rows: tRows } = await client.query('SELECT * FROM game_matchmaking_ticket WHERE lobby_id = $1 AND user_id = $2 AND status != \'CANCELLED\' FOR UPDATE', [lobbyId, targetUserId]);
+    if (!tRows[0]) throw require('../../utils/error.util').createError('Player not found in lobby', 404);
+    
+    let meta = tRows[0].metadata || {};
+    if (updates.team !== undefined) meta.team = updates.team;
+    if (updates.seat !== undefined) meta.seat = updates.seat;
+    if (updates.isReady !== undefined) meta.isReady = updates.isReady;
+    if (updates.lobbyRole !== undefined) {
+        if (rows[0].host_user_id !== userId) throw require('../../utils/error.util').createError('Only host can assign roles', 403);
+        meta.lobbyRole = updates.lobbyRole;
+        if (updates.lobbyRole === 'HOST') {
+            await client.query('UPDATE game_lobby SET host_user_id = $1 WHERE id = $2', [targetUserId, lobbyId]);
+        }
+    }
+    
+    await client.query('UPDATE game_matchmaking_ticket SET metadata = $1::jsonb WHERE id = $2', [JSON.stringify(meta), tRows[0].id]);
+    await client.query('COMMIT');
+    return await getLobby({ userId, lobbyId });
+  } catch (error) {
+    await client.query('ROLLBACK');
+    throw error;
+  } finally {
+    client.release();
+  }
+};
+
+const removeLobbyPlayer = async ({ userId, lobbyId, targetUserId }) => {
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    const { rows } = await client.query('SELECT * FROM game_lobby WHERE id = $1 FOR UPDATE', [lobbyId]);
+    if (!rows[0]) throw require('../../utils/error.util').createError('Lobby not found', 404);
+    
+    // Only host or the player themselves can remove
+    if (rows[0].host_user_id !== userId && userId !== targetUserId) {
+        throw require('../../utils/error.util').createError('Unauthorized', 403);
+    }
+    
+    await client.query('UPDATE game_matchmaking_ticket SET status = \'CANCELLED\' WHERE lobby_id = $1 AND user_id = $2', [lobbyId, targetUserId]);
+    await client.query('UPDATE game_lobby SET current_players = current_players - 1 WHERE id = $1', [lobbyId]);
+    
+    // Host migration
+    if (rows[0].host_user_id === targetUserId) {
+        const { rows: remain } = await client.query('SELECT user_id FROM game_matchmaking_ticket WHERE lobby_id = $1 AND status != \'CANCELLED\' ORDER BY created_at ASC LIMIT 1', [lobbyId]);
+        if (remain[0]) {
+            await client.query('UPDATE game_lobby SET host_user_id = $1 WHERE id = $2', [remain[0].user_id, lobbyId]);
+        } else {
+            await client.query('UPDATE game_lobby SET status = \'CANCELLED\' WHERE id = $1', [lobbyId]);
+        }
+    }
+    
+    await client.query('COMMIT');
+    return { success: true };
+  } catch (error) {
+    await client.query('ROLLBACK');
+    throw error;
+  } finally {
+    client.release();
+  }
+};
+
+const inviteLobbyPlayer = async ({ userId, lobbyId, opponentId }) => {
+  // To be integrated with notifications
+  return { success: true };
+};
+
+const shrinkLobby = async ({ userId, lobbyId }) => {
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    const { rows } = await client.query('SELECT * FROM game_lobby WHERE id = $1 FOR UPDATE', [lobbyId]);
+    const lobby = rows[0];
+    if (!lobby) throw require('../../utils/error.util').createError('Lobby not found', 404);
+    if (lobby.host_user_id !== userId) throw require('../../utils/error.util').createError('Only the host can shrink', 403);
+
+    // update max_players to current_players, status = READY
+    await client.query('UPDATE game_lobby SET max_players = current_players, status = \'READY\' WHERE id = $1', [lobbyId]);
+    
+    // Need to trigger MATCHED for all players
+    // For simplicity, we delegate this to fillMatchmakingLobby but avoid bots.
+    await client.query('COMMIT');
+
+    const result = await fillMatchmakingLobby({ userId, ticketId: null, overrideLobbyId: lobbyId, fillBots: false });
+    return result;
+  } catch(e) {
+    await client.query('ROLLBACK');
+    throw e;
+  } finally {
+    client.release();
+  }
+};
+
+const fillLobbyBots = async ({ userId, lobbyId }) => {
+  return await fillMatchmakingLobby({ userId, ticketId: null, overrideLobbyId: lobbyId, fillBots: true });
+};
+
+const continueLobby = async ({ userId, lobbyId }) => {
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    const { rows } = await client.query('SELECT * FROM game_lobby WHERE id = $1 FOR UPDATE', [lobbyId]);
+    if (!rows[0]) throw require('../../utils/error.util').createError('Lobby not found', 404);
+    
+    await client.query(
+      'UPDATE game_lobby SET expires_at = NOW() + INTERVAL \'60 seconds\', status = \'WAITING\', timeout_extensions = timeout_extensions + 1 WHERE id = $1 RETURNING *',
+      [lobbyId]
+    );
+    await client.query('COMMIT');
+    return await getLobby({ userId, lobbyId });
+  } catch (error) {
+    await client.query('ROLLBACK');
+    throw error;
+  } finally {
+    client.release();
+  }
+};
+
+const startLobby = async ({ userId, lobbyId }) => {
+  return await fillMatchmakingLobby({ userId, ticketId: null, overrideLobbyId: lobbyId, fillBots: false });
+};
+
+const cancelMatchmaking = async (userId) => {
+  // Find any waiting ticket
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    const { rows } = await client.query(
+      `UPDATE game_matchmaking_ticket SET status = 'CANCELLED' WHERE user_id = $1 AND status = 'WAITING' RETURNING lobby_id`,
+      [userId]
+    );
+    if (rows[0] && rows[0].lobby_id) {
+       await client.query('UPDATE game_lobby SET current_players = current_players - 1 WHERE id = $1', [rows[0].lobby_id]);
+       // Check if 0 players, cancel lobby
+       const lobbyRows = await client.query('SELECT current_players FROM game_lobby WHERE id = $1', [rows[0].lobby_id]);
+       if (lobbyRows[0] && lobbyRows[0].current_players <= 0) {
+           await client.query('UPDATE game_lobby SET status = \'CANCELLED\' WHERE id = $1', [rows[0].lobby_id]);
+       }
+       await client.query('COMMIT');
+       return { lobbyState: await getLobby({ userId, lobbyId: rows[0].lobby_id }) };
+    }
+    await client.query('COMMIT');
+    return { success: true };
+  } catch(e) {
+    await client.query('ROLLBACK');
+    throw e;
+  } finally {
+    client.release();
+  }
+};
+
 module.exports = {
+  getLobby,
+  updateLobby,
+  deleteLobby,
+  joinLobbyByCode,
+  getLobbyPlayers,
+  updateLobbyPlayer,
+  removeLobbyPlayer,
+  inviteLobbyPlayer,
+  shrinkLobby,
+  fillLobbyBots,
+  continueLobby,
+  startLobby,
+  cancelMatchmaking,
   findManyGames,
   findManyGamesBydDfficulty,
   findGameById,

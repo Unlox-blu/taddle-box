@@ -52,11 +52,16 @@ const bootstrap = async () => {
     // logger.info('BullMQ workers started');
 
     // Run game resolution sweeper every minute
-    const { resolveAbandonedMatches, resolveTournaments } = require('./src/modules/game/game.resolution.job');
+    const { resolveAbandonedMatches, resolveTournaments, resolveExpiredLobbies } = require('./src/modules/game/game.resolution.job');
     setInterval(() => {
       resolveAbandonedMatches().catch(err => logger.error('Error sweeping abandoned matches', err));
       resolveTournaments().catch(err => logger.error('Error sweeping tournaments', err));
     }, 60000);
+    
+    // Check for expired matchmaking lobbies every 2.5 seconds
+    setInterval(() => {
+      resolveExpiredLobbies().catch(err => logger.error('Error sweeping expired lobbies', err));
+    }, 2500);
 
     // Start server
     server.listen(config.PORT, async () => {

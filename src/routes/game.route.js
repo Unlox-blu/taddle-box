@@ -17,6 +17,9 @@ const {
   updateMatchSchema,
   joinMatchmakingSchema,
   inviteMatchmakingSchema,
+  lobbyIdParamSchema,
+  updateLobbySchema,
+  updateLobbyPlayerSchema
 } = require('../modules/game/game.validator');
 
 
@@ -36,10 +39,25 @@ router.get('/tournaments',      verifyToken,  validateRequest({query: pagination
 router.get('/tournaments/:tournamentId/leaderboard', verifyToken, validateRequest({params: tournamentIdParamSchema, query: paginationSchema}), gameController.getTournamentLeaderboard);
 router.post('/tournaments/:tournamentId/join', verifyToken, validateRequest({params: tournamentIdParamSchema}), gameController.joinTournament);
 router.post('/matchmaking/join', verifyToken, validateRequest({body: joinMatchmakingSchema}), gameController.joinMatchmaking);
-router.post('/matchmaking/invite', verifyToken, validateRequest({body: inviteMatchmakingSchema}), gameController.inviteMatchmaking);
-router.get('/matchmaking/:ticketId', verifyToken, validateRequest({params: ticketIdParamSchema}), gameController.getMatchmakingTicket);
-router.post('/matchmaking/:ticketId/cancel', verifyToken, validateRequest({params: ticketIdParamSchema}), gameController.cancelMatchmakingTicket);
-router.post('/matchmaking/:ticketId/fill-bots', verifyToken, validateRequest({params: ticketIdParamSchema}), gameController.fillMatchmakingLobby);
+router.post('/matchmaking/cancel', verifyToken, gameController.cancelMatchmaking); // Global cancel
+
+// Resource-Oriented Lobby Endpoints
+router.get('/lobbies/:lobbyId', verifyToken, validateRequest({params: lobbyIdParamSchema}), gameController.getLobby);
+router.patch('/lobbies/:lobbyId', verifyToken, validateRequest({params: lobbyIdParamSchema, body: updateLobbySchema}), gameController.updateLobby);
+router.delete('/lobbies/:lobbyId', verifyToken, validateRequest({params: lobbyIdParamSchema}), gameController.deleteLobby);
+
+router.post('/lobbies/join', verifyToken, gameController.joinLobbyByCode);
+
+router.get('/lobbies/:lobbyId/players', verifyToken, validateRequest({params: lobbyIdParamSchema}), gameController.getLobbyPlayers);
+router.patch('/lobbies/:lobbyId/players/:playerId', verifyToken, validateRequest({params: lobbyIdParamSchema, body: updateLobbyPlayerSchema}), gameController.updateLobbyPlayer);
+router.delete('/lobbies/:lobbyId/players/:playerId', verifyToken, validateRequest({params: lobbyIdParamSchema}), gameController.removeLobbyPlayer);
+
+router.post('/lobbies/:lobbyId/invitations', verifyToken, validateRequest({params: lobbyIdParamSchema}), gameController.inviteLobbyPlayer);
+
+router.post('/lobbies/:lobbyId/shrink', verifyToken, validateRequest({params: lobbyIdParamSchema}), gameController.shrinkLobby);
+router.post('/lobbies/:lobbyId/fill-bots', verifyToken, validateRequest({params: lobbyIdParamSchema}), gameController.fillLobbyBots);
+router.post('/lobbies/:lobbyId/continue', verifyToken, validateRequest({params: lobbyIdParamSchema}), gameController.continueLobby);
+router.post('/lobbies/:lobbyId/start', verifyToken, validateRequest({params: lobbyIdParamSchema}), gameController.startLobby);
 
 router.get('/trending',         verifyToken,                                                gameController.getTrendingGames);
 router.get('/',                 verifyToken,  validateRequest({query: paginationSchema}),   gameController.getGames);

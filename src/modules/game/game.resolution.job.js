@@ -97,6 +97,42 @@ async function resolveAbandonedMatches() {
   }
 }
 
+async function resolveExpiredLobbies() {
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    const { rows: expiredLobbies } = await client.query(`
+      UPDATE game_lobby SET status = 'TIMED_OUT', updated_at = NOW()
+      WHERE status = 'WAITING' AND expires_at <= NOW()
+      RETURNING id, host_user_id
+    `);
+
+    if (expiredLobbies.length > 0) {
+      const { getIO } = require('../../sockets/index');
+      const io = getIO();
+      
+      for (const lobby of expiredLobbies) {
+        try {
+          const lobbyData = await gameRepository.getLobby({ userId: lobby.host_user_id, lobbyId: lobby.id });
+          for (const p of lobbyData.players) {
+            if (!p.isBot) {
+              io.to(`user:${p.id}`).emit('matchmaking:timedOut', lobbyData);
+            }
+          }
+        } catch (err) {
+          console.error(`Failed to emit timeout event for lobby ${lobby.id}:`, err);
+        }
+      }
+    }
+    await client.query('COMMIT');
+  } catch (err) {
+    await client.query('ROLLBACK');
+    console.error('Error sweeping expired lobbies', err);
+  } finally {
+    client.release();
+  }
+}
+
 async function resolveTournaments() {
   const client = await pool.connect();
   client.on('error', err => console.error('Tournaments client error:', err));
@@ -168,5 +204,6 @@ async function resolveTournaments() {
 
 module.exports = {
   resolveAbandonedMatches,
-  resolveTournaments
+  resolveTournaments,
+  resolveExpiredLobbies
 };

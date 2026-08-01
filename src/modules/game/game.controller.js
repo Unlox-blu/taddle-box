@@ -221,15 +221,23 @@ class GameController {
 	    try {
 	      const userId = req.userId;
 	      const { ticketId } = req.params;
-	      const ticket = await this.gameSvc.cancelMatchmakingTicket({userId, ticketId});
-	      res.json(apiResponse(ticket, "matchmaking ticket cancelled successfuly"));
+	      const result = await this.gameSvc.cancelMatchmakingTicket({userId, ticketId});
+	      res.json(apiResponse(result, "matchmaking cancelled successfuly"));
 	    } catch (error) {
 	      next(error);
 	    }
 	  };
 
-
-
+	  fillMatchmakingLobby = async (req, res, next) => {
+	    try {
+	      const userId = req.userId;
+	      const { ticketId } = req.params;
+	      const result = await this.gameSvc.fillMatchmakingLobby({userId, ticketId});
+	      res.json(apiResponse(result, "Lobby filled with bots"));
+	    } catch (error) {
+	      next(error);
+	    }
+	  };
 }
 
 

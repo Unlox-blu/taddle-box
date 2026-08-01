@@ -495,158 +495,242 @@ const joinMatchmaking = async ({ userId, game, mode, tournamentId }) => {
       [userId, game.id, mode, tournamentId || null]
     );
 
-    const opponentResult = await client.query(
-      `SELECT q.*, u.name AS opponent_name, u.username AS opponent_username
-      FROM ${gameModel.GAME_MATCHMAKING_TICKET_TABLE} q
-      JOIN users u ON u.id = q.user_id
-      WHERE q.game_id = $1
-        AND q.mode = $2
-        AND q.status = 'WAITING'
-        AND q.user_id <> $3
-        AND (($4::uuid IS NULL AND q.tournament_id IS NULL) OR q.tournament_id = $4::uuid)
-      ORDER BY q.created_at ASC
-      FOR UPDATE SKIP LOCKED
-      LIMIT 1`,
-      [game.id, mode, userId, tournamentId || null]
+    const maxPlayers = game.metadata?.maxPlayers || 2;
+
+    const lobbyResult = await client.query(
+      `SELECT * FROM game_lobby 
+       WHERE game_id = $1 
+         AND status = 'WAITING' 
+         AND current_players < max_players
+       ORDER BY created_at ASC 
+       FOR UPDATE SKIP LOCKED 
+       LIMIT 1`,
+      [game.id]
     );
 
-    const matchGroupResult = await client.query('SELECT uuid_generate_v4() AS id');
-    const matchGroupId = matchGroupResult.rows[0].id;
+    let lobby = lobbyResult.rows[0];
+    if (!lobby) {
+      const newLobbyRes = await client.query(
+        `INSERT INTO game_lobby (game_id, status, max_players, current_players, host_user_id)
+         VALUES ($1, 'WAITING', $2, 0, $3)
+         RETURNING *`,
+        [game.id, maxPlayers, userId]
+      );
+      lobby = newLobbyRes.rows[0];
+    }
 
-    if (!opponentResult.rows[0]) {
-      const waitingResult = await client.query(
-        `INSERT INTO ${gameModel.GAME_MATCHMAKING_TICKET_TABLE}
-          (user_id, game_id, tournament_id, mode, status, match_group_id, metadata)
-        VALUES ($1, $2, $3, $4, 'WAITING', $5, $6::jsonb)
-        RETURNING *`,
-        [
-          userId,
-          game.id,
-          tournamentId || null,
-          mode,
-          matchGroupId,
-          JSON.stringify({ runtime: game.metadata?.runtime, queuedAt: new Date().toISOString() }),
-        ]
+    const ticketRes = await client.query(
+      `INSERT INTO ${gameModel.GAME_MATCHMAKING_TICKET_TABLE}
+        (user_id, game_id, tournament_id, mode, status, lobby_id, metadata)
+      VALUES ($1, $2, $3, $4, 'WAITING', $5, $6::jsonb)
+      RETURNING *`,
+      [
+        userId, game.id, tournamentId || null, mode, lobby.id,
+        JSON.stringify({ runtime: game.metadata?.runtime, queuedAt: new Date().toISOString() })
+      ]
+    );
+
+    const updatedLobbyRes = await client.query(
+      `UPDATE game_lobby 
+       SET current_players = current_players + 1, updated_at = NOW()
+       WHERE id = $1
+       RETURNING *`,
+      [lobby.id]
+    );
+    lobby = updatedLobbyRes.rows[0];
+
+    const playersRes = await client.query(
+      `SELECT t.user_id, u.name, u.username, m.cloudfront_url AS avatar, t.id as ticket_id
+       FROM ${gameModel.GAME_MATCHMAKING_TICKET_TABLE} t
+       JOIN users u ON u.id = t.user_id
+       LEFT JOIN media m ON m.id = u.avatar_url
+       WHERE t.lobby_id = $1 AND t.status = 'WAITING'
+       ORDER BY t.created_at ASC`,
+      [lobby.id]
+    );
+
+    const playerSnapshots = playersRes.rows.map((r, index) => ({
+      id: r.user_id,
+      username: r.username,
+      displayName: r.name,
+      avatar: r.avatar,
+      isBot: false,
+      team: index % 2,
+      seat: index
+    }));
+
+    if (lobby.current_players === lobby.max_players) {
+      const startedAt = new Date().toISOString();
+      const matchMetadata = {
+        lobbyId: lobby.id,
+        gameId: game.id,
+        gameMode: mode,
+        playerIds: playerSnapshots.map(p => p.id),
+        playerSnapshots,
+        maxPlayers: lobby.max_players,
+        startedAt,
+        runtime: game.metadata?.runtime,
+        tournamentId
+      };
+
+      for (const p of playerSnapshots) {
+        const matchRes = await client.query(
+          `INSERT INTO ${gameModel.GAME_MATCH_TABLE}
+            (user_id, game_id, mode, category, difficulty, metadata)
+          VALUES ($1, $2, $3, $4, $5, $6::jsonb)
+          RETURNING *`,
+          [p.id, game.id, mode, game.category || null, game.difficulty || null, JSON.stringify(matchMetadata)]
+        );
+
+        await client.query(
+          `UPDATE ${gameModel.GAME_MATCHMAKING_TICKET_TABLE}
+           SET status = 'MATCHED', user_match_id = $1, matched_at = NOW(), updated_at = NOW()
+           WHERE id = $2`,
+          [matchRes.rows[0].id, playersRes.rows.find(r => r.user_id === p.id).ticket_id]
+        );
+      }
+
+      await client.query(
+        `UPDATE game_lobby SET status = 'READY', started_at = NOW(), updated_at = NOW() WHERE id = $1`,
+        [lobby.id]
       );
 
       await client.query('COMMIT');
       return {
-        status: 'WAITING',
-        ticket: gameModel.formatMatchmakingTicket(waitingResult.rows[0]),
-        match: null,
-        opponent: null,
+        status: 'MATCHED',
+        ticket: gameModel.formatMatchmakingTicket(ticketRes.rows[0]),
+        lobbyId: lobby.id,
+        players: playerSnapshots,
+        matchMetadata
       };
     }
 
-    const opponentTicket = opponentResult.rows[0];
+    await client.query('COMMIT');
+    return {
+      status: 'WAITING',
+      ticket: gameModel.formatMatchmakingTicket(ticketRes.rows[0]),
+      lobbyId: lobby.id,
+      players: playerSnapshots,
+      maxPlayers: lobby.max_players,
+      currentPlayers: lobby.current_players
+    };
+  } catch (error) {
+    await client.query('ROLLBACK');
+    throw error;
+  } finally {
+    client.release();
+  }
+};
+
+const fillMatchmakingLobby = async ({ userId, ticketId }) => {
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    
+    const ticketRes = await client.query(
+      `SELECT t.*, l.max_players, l.current_players, l.game_id 
+       FROM game_matchmaking_ticket t
+       JOIN game_lobby l ON l.id = t.lobby_id
+       WHERE t.id = $1 AND t.user_id = $2 AND t.status = 'WAITING'`,
+      [ticketId, userId]
+    );
+    
+    const ticket = ticketRes.rows[0];
+    if (!ticket) throw new Error("Ticket not found or not waiting");
+    
+    const remaining = ticket.max_players - ticket.current_players;
+    if (remaining <= 0) throw new Error("Lobby already full");
+
+    const BOT_PROFILES = [
+      { id: 'bot-11111111-1111-1111-1111-111111111111', username: 'bot_alpha', name: 'Bot Alpha', avatar: 'https://api.dicebear.com/7.x/bottts/svg?seed=Alpha' },
+      { id: 'bot-22222222-2222-2222-2222-222222222222', username: 'bot_bravo', name: 'Bot Bravo', avatar: 'https://api.dicebear.com/7.x/bottts/svg?seed=Bravo' },
+      { id: 'bot-33333333-3333-3333-3333-333333333333', username: 'bot_charlie', name: 'Bot Charlie', avatar: 'https://api.dicebear.com/7.x/bottts/svg?seed=Charlie' }
+    ];
+
+    const playersRes = await client.query(
+      `SELECT t.user_id, u.name, u.username, m.cloudfront_url AS avatar, t.id as ticket_id
+       FROM game_matchmaking_ticket t
+       JOIN users u ON u.id = t.user_id
+       LEFT JOIN media m ON m.id = u.avatar_url
+       WHERE t.lobby_id = $1 AND t.status = 'WAITING'
+       ORDER BY t.created_at ASC`,
+      [ticket.lobby_id]
+    );
+
+    const playerSnapshots = playersRes.rows.map((r, index) => ({
+      id: r.user_id,
+      username: r.username,
+      displayName: r.name,
+      avatar: r.avatar,
+      isBot: false,
+      team: index % 2,
+      seat: index
+    }));
+
+    let seatIndex = playerSnapshots.length;
+    for (let i = 0; i < remaining; i++) {
+      const bot = BOT_PROFILES[i % BOT_PROFILES.length];
+      playerSnapshots.push({
+        id: bot.id,
+        username: bot.username,
+        displayName: bot.name,
+        avatar: bot.avatar,
+        isBot: true,
+        team: seatIndex % 2,
+        seat: seatIndex
+      });
+      seatIndex++;
+    }
+
     const startedAt = new Date().toISOString();
-    const currentUserResult = await client.query(`SELECT name, username FROM users WHERE id = $1`, [
-      userId,
-    ]);
-    const currentUser = currentUserResult.rows[0] || {};
+    
+    const gameRes = await client.query(`SELECT * FROM game WHERE id = $1`, [ticket.game_id]);
+    const game = gameRes.rows[0];
 
-    const userMatchResult = await client.query(
-      `INSERT INTO ${gameModel.GAME_MATCH_TABLE}
-        (user_id, game_id, mode, category, difficulty, metadata)
-      VALUES ($1, $2, $3, $4, $5, $6::jsonb)
-      RETURNING *`,
-      [
-        userId,
-        game.id,
-        mode,
-        game.category || null,
-        game.difficulty || null,
-        JSON.stringify({
-          runtime: game.metadata?.runtime,
-          tournamentId,
-          matchGroupId,
-          opponentUserId: opponentTicket.user_id,
-          opponentName: opponentTicket.opponent_name,
-          startedAt,
-        }),
-      ]
-    );
+    const matchMetadata = {
+      lobbyId: ticket.lobby_id,
+      gameId: game.id,
+      gameMode: ticket.mode,
+      playerIds: playerSnapshots.map(p => p.id),
+      playerSnapshots,
+      maxPlayers: ticket.max_players,
+      startedAt,
+      runtime: game.metadata?.runtime,
+      tournamentId: ticket.tournament_id
+    };
 
-    const opponentMatchResult = await client.query(
-      `INSERT INTO ${gameModel.GAME_MATCH_TABLE}
-        (user_id, game_id, mode, category, difficulty, metadata)
-      VALUES ($1, $2, $3, $4, $5, $6::jsonb)
-      RETURNING *`,
-      [
-        opponentTicket.user_id,
-        game.id,
-        mode,
-        game.category || null,
-        game.difficulty || null,
-        JSON.stringify({
-          runtime: game.metadata?.runtime,
-          tournamentId,
-          matchGroupId,
-          opponentUserId: userId,
-          opponentName: currentUser.name,
-          opponentUsername: currentUser.username,
-          startedAt,
-        }),
-      ]
-    );
+    for (const p of playerSnapshots) {
+      if (!p.isBot) {
+        const matchRes = await client.query(
+          `INSERT INTO game_match
+            (user_id, game_id, mode, category, difficulty, metadata)
+          VALUES ($1, $2, $3, $4, $5, $6::jsonb)
+          RETURNING *`,
+          [p.id, game.id, ticket.mode, game.category || null, game.difficulty || null, JSON.stringify(matchMetadata)]
+        );
 
-    const userTicketResult = await client.query(
-      `INSERT INTO ${gameModel.GAME_MATCHMAKING_TICKET_TABLE}
-        (user_id, game_id, tournament_id, mode, status, opponent_user_id, user_match_id, opponent_match_id, match_group_id, metadata, matched_at)
-      VALUES ($1, $2, $3, $4, 'MATCHED', $5, $6, $7, $8, $9::jsonb, NOW())
-      RETURNING *`,
-      [
-        userId,
-        game.id,
-        tournamentId || null,
-        mode,
-        opponentTicket.user_id,
-        userMatchResult.rows[0].id,
-        opponentMatchResult.rows[0].id,
-        matchGroupId,
-        JSON.stringify({ runtime: game.metadata?.runtime, matchedAt: startedAt }),
-      ]
-    );
+        await client.query(
+          `UPDATE game_matchmaking_ticket
+           SET status = 'MATCHED', user_match_id = $1, matched_at = NOW(), updated_at = NOW()
+           WHERE id = $2`,
+          [matchRes.rows[0].id, playersRes.rows.find(r => r.user_id === p.id).ticket_id]
+        );
+      }
+    }
 
     await client.query(
-      `UPDATE ${gameModel.GAME_MATCHMAKING_TICKET_TABLE}
-      SET status = 'MATCHED',
-        opponent_user_id = $1,
-        user_match_id = $2,
-        opponent_match_id = $3,
-        match_group_id = $4,
-        metadata = COALESCE(metadata, '{}'::jsonb) || $5::jsonb,
-        matched_at = NOW(),
-        updated_at = NOW()
-      WHERE id = $6`,
-      [
-        userId,
-        opponentMatchResult.rows[0].id,
-        userMatchResult.rows[0].id,
-        matchGroupId,
-        JSON.stringify({ matchedAt: startedAt }),
-        opponentTicket.id,
-      ]
+      `UPDATE game_lobby SET status = 'READY', current_players = max_players, started_at = NOW(), updated_at = NOW() WHERE id = $1`,
+      [ticket.lobby_id]
     );
 
     await client.query('COMMIT');
+    
     return {
       status: 'MATCHED',
-      ticket: gameModel.formatMatchmakingTicket({
-        ...userTicketResult.rows[0],
-        opponent_name: opponentTicket.opponent_name,
-        opponent_username: opponentTicket.opponent_username,
-      }),
-      match: gameModel.formatGameMatch({
-        ...userMatchResult.rows[0],
-        game_name: game.name,
-        game_slug: game.slug,
-      }),
-      opponent: {
-        userId: opponentTicket.user_id,
-        name: opponentTicket.opponent_name,
-        username: opponentTicket.opponent_username,
-      },
+      ticket: { ...ticket, status: 'MATCHED' },
+      lobbyId: ticket.lobby_id,
+      players: playerSnapshots,
+      matchMetadata
     };
   } catch (error) {
     await client.query('ROLLBACK');
@@ -675,8 +759,10 @@ const findGameMatchById = async ({ matchId }) => {
 };
 
 const cancelMatchmakingTicket = async ({ userId, ticketId }) => {
+  const client = await pool.connect();
   try {
-    const { rows } = await pool.query(
+    await client.query('BEGIN');
+    const { rows } = await client.query(
       `UPDATE ${gameModel.GAME_MATCHMAKING_TICKET_TABLE}
       SET status = 'CANCELLED', updated_at = NOW()
       WHERE id = $1 AND user_id = $2 AND status = 'WAITING'
@@ -684,9 +770,56 @@ const cancelMatchmakingTicket = async ({ userId, ticketId }) => {
       [ticketId, userId]
     );
 
-    return gameModel.formatMatchmakingTicket(rows[0]);
+    const ticket = rows[0];
+    if (ticket && ticket.lobby_id) {
+      const lobbyRes = await client.query(
+        `UPDATE game_lobby SET current_players = current_players - 1, updated_at = NOW() WHERE id = $1 RETURNING *`,
+        [ticket.lobby_id]
+      );
+      const lobby = lobbyRes.rows[0];
+      
+      if (lobby.current_players <= 0) {
+        await client.query(`UPDATE game_lobby SET status = 'CANCELLED', updated_at = NOW() WHERE id = $1`, [lobby.id]);
+      } else {
+        const playersRes = await client.query(
+          `SELECT t.user_id, u.name, u.username, m.cloudfront_url AS avatar, t.id as ticket_id
+           FROM ${gameModel.GAME_MATCHMAKING_TICKET_TABLE} t
+           JOIN users u ON u.id = t.user_id
+           LEFT JOIN media m ON m.id = u.avatar_url
+           WHERE t.lobby_id = $1 AND t.status = 'WAITING'
+           ORDER BY t.created_at ASC`,
+          [lobby.id]
+        );
+        const playerSnapshots = playersRes.rows.map((r, index) => ({
+          id: r.user_id,
+          username: r.username,
+          displayName: r.name,
+          avatar: r.avatar,
+          isBot: false,
+          team: index % 2,
+          seat: index
+        }));
+        ticket.lobbyState = {
+          lobbyId: lobby.id,
+          players: playerSnapshots,
+          maxPlayers: lobby.max_players,
+          currentPlayers: lobby.current_players,
+          status: 'WAITING'
+        };
+      }
+    }
+    
+    await client.query('COMMIT');
+    const formatted = gameModel.formatMatchmakingTicket(ticket);
+    if (ticket && ticket.lobbyState) {
+      formatted.lobbyState = ticket.lobbyState;
+    }
+    return formatted;
   } catch (error) {
+    await client.query('ROLLBACK');
     throw error;
+  } finally {
+    client.release();
   }
 };
 
@@ -928,7 +1061,7 @@ module.exports = {
   joinTournament,
   hasTournamentEntry,
   findMatchmakingTicketById,
-  cancelMatchmakingTicket,
+  cancelMatchmakingTicket, fillMatchmakingLobby,
   getTrendingGames,
   joinMatchmaking,
   setupMatchSession,

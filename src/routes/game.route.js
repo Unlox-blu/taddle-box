@@ -39,6 +39,7 @@ router.post('/matchmaking/join', verifyToken, validateRequest({body: joinMatchma
 router.post('/matchmaking/invite', verifyToken, validateRequest({body: inviteMatchmakingSchema}), gameController.inviteMatchmaking);
 router.get('/matchmaking/:ticketId', verifyToken, validateRequest({params: ticketIdParamSchema}), gameController.getMatchmakingTicket);
 router.post('/matchmaking/:ticketId/cancel', verifyToken, validateRequest({params: ticketIdParamSchema}), gameController.cancelMatchmakingTicket);
+router.post('/matchmaking/:ticketId/fill-bots', verifyToken, validateRequest({params: ticketIdParamSchema}), gameController.fillMatchmakingLobby);
 
 router.get('/trending',         verifyToken,                                                gameController.getTrendingGames);
 router.get('/',                 verifyToken,  validateRequest({query: paginationSchema}),   gameController.getGames);

@@ -322,14 +322,25 @@ class GameService {
 	      }
 
 	      const result = await this.gameRepo.joinMatchmaking({userId, game, mode, tournamentId});
-        if (result.status === 'MATCHED' && result.opponent?.userId) {
-          try {
-            const { getIO } = require('../../sockets/index');
-            const io = getIO();
-            io.to(`user:${result.opponent.userId}`).emit('matchmaking:matched', result);
-          } catch (e) {
-            console.error('Failed to emit matchmaking:matched', e);
+        try {
+          const { getIO } = require('../../sockets/index');
+          const io = getIO();
+          
+          if (result.status === 'MATCHED') {
+            for (const p of result.players) {
+              if (p.id !== userId && !p.isBot) {
+                io.to(`user:${p.id}`).emit('matchmaking:matched', result);
+              }
+            }
+          } else if (result.status === 'WAITING') {
+            for (const p of result.players) {
+              if (p.id !== userId && !p.isBot) {
+                io.to(`user:${p.id}`).emit('matchmaking:lobbyUpdated', result);
+              }
+            }
           }
+        } catch (e) {
+          console.error('Failed to emit matchmaking events', e);
         }
         return result;
 	    } catch (error) {
@@ -385,11 +396,51 @@ class GameService {
 	      if(!ticket)
 	        throw createError("Waiting matchmaking ticket not found", 404)
 
+        if (ticket.lobbyState) {
+          try {
+            const { getIO } = require('../../sockets/index');
+            const io = getIO();
+            for (const p of ticket.lobbyState.players) {
+              if (p.id !== userId && !p.isBot) {
+                io.to(`user:${p.id}`).emit('matchmaking:lobbyUpdated', ticket.lobbyState);
+              }
+            }
+          } catch (e) {
+            console.error('Failed to emit matchmaking events', e);
+          }
+        }
+
 	      return ticket
 	    } catch (error) {
 	      throw error
 	    }
 	  }
+
+	  async fillMatchmakingLobby({userId, ticketId}) {
+	    try {
+	      const result = await this.gameRepo.fillMatchmakingLobby({userId, ticketId})
+	      if(!result)
+	        throw createError("Failed to fill lobby", 500)
+
+        if (result.status === 'MATCHED') {
+          try {
+            const { getIO } = require('../../sockets/index');
+            const io = getIO();
+            for (const p of result.players) {
+              if (p.id !== userId && !p.isBot) {
+                io.to(`user:${p.id}`).emit('matchmaking:matched', result);
+              }
+            }
+          } catch (e) {
+            console.error('Failed to emit matchmaking events', e);
+          }
+        }
+	      return result
+	    } catch (error) {
+	      throw error
+	    }
+	  }
+
 
 
   async startGameSession({ userId, gameId, mode, matchGroupId }) {

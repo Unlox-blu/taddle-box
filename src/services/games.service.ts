@@ -145,8 +145,8 @@ export const gamesService = {
     return response.data;
   },
 
-  cancelMatchmakingTicket: async (ticketId: string) => {
-    const response = await apiClient.post(`/game/matchmaking/${ticketId}/cancel`);
+  cancelMatchmakingTicket: async () => {
+    const response = await apiClient.post(`/game/matchmaking/cancel`);
     return response.data;
   },
 };

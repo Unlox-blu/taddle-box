@@ -1,6 +1,7 @@
 import React, { useEffect, useState, useCallback, useRef, useMemo } from 'react';
 import {
-  View, Text, TouchableOpacity, StyleSheet, Animated, Dimensions,
+  View, Text, TouchableOpacity, StyleSheet, Animated,
+  Image, Dimensions,
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import Svg, {
@@ -52,15 +53,24 @@ const E = {
   GAME_OVER: 'GAME_OVER', ERROR: 'ERROR',
 };
 
+export type PlayerContext = {
+  id: string;
+  name: string;
+  username?: string;
+  avatar?: string;
+  team?: number;
+  seat?: number;
+};
+
 type Props = {
   matchId: string;
   userId: string;
   wsToken: string;
-  opponentName?: string;
+  players?: PlayerContext[];
   onComplete: (result: HtmlGameResult) => void;
 };
 
-export default function SnakeLadderGame({ matchId, userId, wsToken, opponentName, onComplete }: Props) {
+export default function SnakeLadderGame({ matchId, userId, wsToken, players, onComplete }: Props) {
   const [socket, setSocket] = useState<any>(null);
   const [status, setStatus] = useState<'connecting' | 'waiting' | 'active' | 'finished'>('connecting');
   const [state, setState] = useState<any>(null);
@@ -358,7 +368,7 @@ export default function SnakeLadderGame({ matchId, userId, wsToken, opponentName
       const isMe = uid === userId;
       const color = PLAYER_COLORS[i % 4];
       const tokenSize = CELL * 0.6;
-      const info = playerInfo[uid] || { name: 'Player' };
+      const info = players?.find(p => p.id === uid) || playerInfo[uid] || { name: 'Player' };
       const hasAvatar = !!info.avatar;
 
       return (
@@ -470,16 +480,28 @@ export default function SnakeLadderGame({ matchId, userId, wsToken, opponentName
         {/* Score pills */}
         {state?.positions && (
           <View style={styles.scorePills}>
-            {Object.entries(state.positions).map(([uid, pos]: any, i) => (
+            {Object.entries(state.positions).map(([uid, pos]: any, i) => {
+              const pData = players?.find(p => p.id === uid) || playerInfo[uid];
+              const pName = uid === userId ? 'You' : (pData?.name || `P${i + 1}`);
+              return (
               <View key={uid} style={[styles.scorePill, { backgroundColor: PLAYER_COLORS[i % 4] + '25', borderColor: PLAYER_COLORS[i % 4] + '50' }]}>
-                <Text style={[styles.scorePillLabel, { color: PLAYER_COLORS[i % 4] }]}>
-                  {uid === userId ? 'You' : (opponentName || `P${i + 1}`)}
-                </Text>
-                <Text style={[styles.scorePillVal, { color: '#FFF' }]}>
-                  sq {pos > 0 ? pos : '–'}
-                </Text>
+                {pData?.avatar ? (
+                  <Image source={{ uri: pData.avatar }} style={[styles.pillAvatar, { borderColor: PLAYER_COLORS[i % 4] }]} />
+                ) : (
+                  <View style={[styles.pillAvatar, { backgroundColor: PLAYER_COLORS[i % 4], borderColor: PLAYER_COLORS[i % 4] }]}>
+                    <Text style={{color: '#FFF', fontSize: 10, fontWeight: '900'}}>{pName.charAt(0)}</Text>
+                  </View>
+                )}
+                <View>
+                  <Text style={[styles.scorePillLabel, { color: PLAYER_COLORS[i % 4] }]} numberOfLines={1}>
+                    {pName}
+                  </Text>
+                  <Text style={[styles.scorePillVal, { color: '#FFF' }]}>
+                    sq {pos > 0 ? pos : '–'}
+                  </Text>
+                </View>
               </View>
-            ))}
+            )})}
           </View>
         )}
       </View>
@@ -620,7 +642,25 @@ const styles = StyleSheet.create({
   turnText: { fontSize: 14, fontWeight: '800' },
 
   scorePills: { flexDirection: 'row', gap: 8, justifyContent: 'center', flexWrap: 'wrap' },
-  scorePill: { flexDirection: 'row', gap: 6, paddingHorizontal: 12, paddingVertical: 5, borderRadius: 16, borderWidth: 1, alignItems: 'center' },
+  scorePill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 8,
+    paddingVertical: 6,
+    borderRadius: 16,
+    borderWidth: 1,
+    minWidth: '22%',
+    margin: 4,
+  },
+  pillAvatar: {
+    width: 24,
+    height: 24,
+    borderRadius: 12,
+    borderWidth: 1,
+    marginRight: 6,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
   scorePillLabel: { fontSize: 11, fontWeight: '800', textTransform: 'uppercase' },
   scorePillVal: { fontSize: 11, fontWeight: '600', opacity: 0.85 },
 

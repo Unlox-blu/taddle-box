@@ -1,7 +1,7 @@
 import React, { useEffect, useState, useRef, useCallback } from 'react';
 import {
   View, Text, StyleSheet, TextInput, TouchableOpacity, Alert,
-  Dimensions, PanResponder, FlatList, KeyboardAvoidingView, Platform, Animated,
+  Dimensions, PanResponder, FlatList, KeyboardAvoidingView, Platform, Animated, Image,
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import type { HtmlGameResult } from '../../games/types';
@@ -20,17 +20,27 @@ const E = {
 type Stroke = { points: { x: number; y: number }[]; color: string; width: number };
 type ChatMsg = { userId: string; text: string; correct?: boolean; ts: number };
 
+export type PlayerContext = {
+  id: string;
+  name: string;
+  username?: string;
+  avatar?: string;
+  team?: number;
+  seat?: number;
+};
+
 type Props = {
   matchId: string;
   userId: string;
   wsToken: string;
+  players?: PlayerContext[];
   onComplete: (result: HtmlGameResult) => void;
 };
 
 const COLORS_PALETTE = ['#FFFFFF', '#EF4444', '#22C55E', '#3B82F6', '#EAB308', '#A855F7', '#EC4899', '#000000'];
 const WIDTHS = [3, 6, 10, 16];
 
-export default function ScribbleGame({ matchId, userId, wsToken, onComplete }: Props) {
+export default function ScribbleGame({ matchId, userId, wsToken, players, onComplete }: Props) {
   const [socket, setSocket] = useState<any>(null);
   const [status, setStatus] = useState<'connecting' | 'waiting' | 'drawing' | 'guessing' | 'finished'>('connecting');
   const [isDrawer, setIsDrawer] = useState(false);

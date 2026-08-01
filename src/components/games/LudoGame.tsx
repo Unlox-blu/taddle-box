@@ -72,13 +72,20 @@ const EVENTS = {
   START: 'START', SYNC: 'SYNC', GAME_OVER: 'GAME_OVER', ERROR: 'ERROR',
 };
 
+export type PlayerContext = {
+  id: string;
+  name: string;
+  username?: string;
+  avatar?: string;
+  team?: number;
+  seat?: number;
+};
+
 type Props = {
   matchId: string;
   userId: string;
   wsToken: string;
-  myName?: string;
-  myAvatar?: string | null;
-  opponentName?: string;
+  players?: PlayerContext[];
   onComplete: (result: HtmlGameResult) => void;
 };
 
@@ -93,9 +100,13 @@ const DOT_POS: Record<number, [number, number][]> = {
 };
 
 export default function LudoGame({
-  matchId, userId, wsToken, myName, myAvatar, opponentName, onComplete
+  matchId, userId, wsToken, players, onComplete
 }: Props) {
   const [socket, setSocket] = useState<any>(null);
+  
+  const me = players?.find(p => p.id === userId);
+  const myName = me?.name || 'You';
+  const myAvatar = me?.avatar || null;
   const [status, setStatus] = useState<'connecting' | 'waiting' | 'active' | 'finished'>('connecting');
   const [gameState, setGameState] = useState<any>(null);
   const [myPlayerIdx, setMyPlayerIdx] = useState(0);
@@ -353,7 +364,8 @@ export default function LudoGame({
       const isMe    = uid === userId;
       const canMovePl = isMyTurn && isMe && gameState.dice !== null;
       const info    = playerInfo[uid];
-      const avatarUri = isMe ? (myAvatar || null) : (info?.avatar || null);
+      const pData = players?.find(p => p.id === uid) || info;
+          const avatarUri = isMe ? (myAvatar || null) : (pData?.avatar || null);
 
       (tks || []).forEach((token: any, tidx: number) => {
         const tKey = `${uid}-${token.id}`;
@@ -440,7 +452,7 @@ export default function LudoGame({
           const color   = PLAYER_COLORS[i % 4];
           const info    = playerInfo[uid];
           const avatarUri = isMe ? (myAvatar || null) : (info?.avatar || null);
-          const label   = isMe ? (myName || 'You') : (info?.name || opponentName || `P${i+1}`);
+          const label = isMe ? (myName || 'You') : (pData?.name || `P${i+1}`);
           const isActive = (gameState.currentTurnIndex ?? 0) === i;
 
           return (

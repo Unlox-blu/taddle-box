@@ -6,6 +6,7 @@ import {
   Dimensions,
   TouchableOpacity,
   Animated,
+  Image,
 } from "react-native";
 import { Chessboard, ChessboardRef } from "@crewbeat/expo-chessboard";
 import { GestureHandlerRootView } from "react-native-gesture-handler";
@@ -17,10 +18,20 @@ import type { HtmlGameResult } from "../../games/types";
 const { width } = Dimensions.get("window");
 const BOARD_SIZE = width - 24;
 
+export type PlayerContext = {
+  id: string;
+  name: string;
+  username?: string;
+  avatar?: string;
+  team?: number;
+  seat?: number;
+};
+
 type Props = {
   matchId: string;
   userId: string;
   wsToken: string;
+  players?: PlayerContext[];
   onComplete: (result: HtmlGameResult) => void;
 };
 
@@ -386,97 +397,14 @@ export default function ChessGame({
     <GestureHandlerRootView style={styles.container}>
       {/* Opponent row */}
       <View style={styles.playerRow}>
-        <View
-          style={[
-            styles.colorChip,
-            { backgroundColor: playerColor === "w" ? "#1E293B" : "#F8FAFC" },
-          ]}
-        >
-          <Text
-            style={[
-              styles.colorChipText,
-              { color: playerColor === "w" ? "#94A3B8" : "#0F172A" },
-            ]}
-          >
-            {oppColorName[0]}
-          </Text>
-        </View>
-
-        <View style={styles.playerInfo}>
-          <View style={styles.nameRow}>
-            <Text style={styles.playerName}>{opponentName}</Text>
-            {moves[oppColor] && (
-              <View style={styles.moveBadge}>
-                <Text style={styles.moveBadgeText}>{moves[oppColor]}</Text>
-              </View>
-            )}
-          </View>
-          {renderCaptures(oppCaps, oppAdvantage)}
-        </View>
-
-        <View
-          style={[
-            styles.timerBadge,
-            !isMyTurn && status === "active" && styles.timerActive,
-          ]}
-        >
-          <Text
-            style={[
-              styles.timerText,
-              !isMyTurn && status === "active" && styles.timerTextActive,
-            ]}
-          >
-            {formatTime(timers[oppColor])}
-          </Text>
-        </View>
-      </View>
-
-      {/* Check warning */}
-      {inCheck && (
-        <Animated.View
-          style={[
-            styles.checkBanner,
-            {
-              backgroundColor: checkAnim.interpolate({
-                inputRange: [0, 1],
-                outputRange: ["rgba(239,68,68,0)", "rgba(239,68,68,0.2)"],
-              }),
-            },
-          ]}
-        >
-          <Text style={styles.checkText}>⚠️ CHECK!</Text>
-        </Animated.View>
-      )}
-
-      {/* Board */}
-      <View style={[styles.boardWrap, inCheck && styles.boardWrapCheck]}>
-        <Chessboard
-          ref={chessboardRef}
-          fen={chess.fen()}
-          onMove={onMove}
-          boardSize={BOARD_SIZE}
-          boardOrientation={playerColor === "w" ? "white" : "black"}
-          playerSide={playerColor === "w" ? "white" : "black"}
-          colors={{ dark: "#7C3AED", light: "#EDE9FE" }}
-        />
-      </View>
-
-      {/* My row */}
-      <View style={styles.playerRow}>
-        <View
-          style={[
-            styles.colorChip,
-            { backgroundColor: playerColor === "w" ? "#F8FAFC" : "#1E293B" },
-          ]}
-        >
-          <Text
-            style={[
-              styles.colorChipText,
-              { color: playerColor === "w" ? "#0F172A" : "#94A3B8" },
-            ]}
-          >
-            {myColorName[0]}
-          </Text>
+        <View style={styles.avatarContainer}>
+            <Image 
+                source={require("../../../assets/icon.png")}
+                style={styles.avatar} 
+            />
+            <View style={[styles.colorChipMini, { backgroundColor: playerColor === "w" ? "#F8FAFC" : "#1E293B" }]}>
+              <Text style={[styles.colorChipTextMini, { color: playerColor === "w" ? "#0F172A" : "#94A3B8" }]}>{myColorName[0]}</Text>
+            </View>
         </View>
 
         <View style={styles.playerInfo}>
@@ -624,8 +552,41 @@ const styles = StyleSheet.create({
   playerRow: {
     flexDirection: "row",
     alignItems: "center",
-    paddingVertical: 10,
-    gap: 10,
+    backgroundColor: "rgba(31, 41, 55, 0.5)",
+    padding: 12,
+    marginHorizontal: 12,
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.05)",
+  },
+  avatarContainer: {
+    position: "relative",
+    width: 44,
+    height: 44,
+    marginRight: 12,
+  },
+  avatar: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    borderWidth: 2,
+    borderColor: "rgba(255,255,255,0.1)",
+  },
+  colorChipMini: {
+    position: "absolute",
+    bottom: -4,
+    right: -4,
+    width: 18,
+    height: 18,
+    borderRadius: 9,
+    alignItems: "center",
+    justifyContent: "center",
+    borderWidth: 2,
+    borderColor: "#0F172A",
+  },
+  colorChipTextMini: {
+    fontSize: 10,
+    fontWeight: "900",
   },
   colorChip: {
     width: 36,

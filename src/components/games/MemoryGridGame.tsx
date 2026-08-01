@@ -1,5 +1,5 @@
 import React, { useEffect, useState, useRef } from "react";
-import { View, StyleSheet, Text, TouchableOpacity, Dimensions } from "react-native";
+import { View, StyleSheet, Text, TouchableOpacity, Dimensions, Image } from "react-native";
 import { LinearGradient } from "expo-linear-gradient";
 import { createGameEngineSocket } from "../../services/socketClient";
 import type { HtmlGameResult } from "../../games/types";
@@ -8,11 +8,20 @@ const { width } = Dimensions.get("window");
 const GRID_SIZE = width - 48;
 const CELL_SIZE = (GRID_SIZE - 24) / 3;
 
+export type PlayerContext = {
+  id: string;
+  name: string;
+  username?: string;
+  avatar?: string;
+  team?: number;
+  seat?: number;
+};
+
 type Props = {
   matchId: string;
   userId: string;
   wsToken: string;
-  opponentName?: string;
+  players?: PlayerContext[];
   onComplete: (result: HtmlGameResult) => void;
 };
 
@@ -25,7 +34,7 @@ const EVENTS = {
   READY: "READY",
 };
 
-export default function MemoryGridGame({ matchId, userId, wsToken, opponentName, onComplete }: Props) {
+export default function MemoryGridGame({ matchId, userId, wsToken, players, onComplete }: Props) {
   const [socket, setSocket] = useState<any>(null);
   const [status, setStatus] = useState<"connecting" | "waiting" | "active" | "finished">("connecting");
   const [roundPhase, setRoundPhase] = useState<"SHOW" | "INPUT">("SHOW");
@@ -162,6 +171,10 @@ export default function MemoryGridGame({ matchId, userId, wsToken, opponentName,
       <View style={styles.header}>
         <View style={styles.vsContainer}>
           <View style={styles.playerSide}>
+            <Image
+              source={require("../../../assets/icon.png")}
+              style={styles.avatar}
+            />
             <Text style={styles.playerName} numberOfLines={1}>You</Text>
             <Text style={styles.playerScore}>{score}</Text>
           </View>
@@ -169,10 +182,19 @@ export default function MemoryGridGame({ matchId, userId, wsToken, opponentName,
             <Text style={styles.vsText}>VS</Text>
           </View>
           <View style={styles.playerSide}>
-            <Text style={styles.playerName} numberOfLines={1}>{opponentName || "Opponent"}</Text>
+            <Image
+              source={
+                players?.[0]?.avatar
+                  ? { uri: players[0].avatar }
+                  : require("../../../assets/icon.png")
+              }
+              style={styles.avatar}
+            />
+            <Text style={styles.playerName} numberOfLines={1}>{players?.[0]?.name || "Opponent"}</Text>
             <Text style={styles.playerScore}>{opponentScore}</Text>
           </View>
         </View>
+
       </View>
 
       <Text style={styles.messageText}>
@@ -231,9 +253,17 @@ const styles = StyleSheet.create({
     borderColor: "rgba(255,255,255,0.05)",
   },
   playerSide: {
-    flex: 1,
-    alignItems: "center",
-  },
+          flex: 1,
+          alignItems: "center",
+        },
+        avatar: {
+          width: 36,
+          height: 36,
+          borderRadius: 18,
+          marginBottom: 6,
+          borderWidth: 2,
+          borderColor: "rgba(255,255,255,0.2)",
+        },
   playerName: {
     color: "rgba(255,255,255,0.6)",
     fontSize: 12,

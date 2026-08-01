@@ -1,6 +1,6 @@
 import React, { useEffect, useState, useRef, useCallback } from 'react';
 import {
-  View, Text, StyleSheet, TouchableOpacity, Animated, Alert, Dimensions, ScrollView,
+  View, Text, StyleSheet, TouchableOpacity, Animated, Image, Alert, Dimensions, ScrollView,
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import type { HtmlGameResult } from '../../games/types';
@@ -18,10 +18,20 @@ const E = {
   GAME_OVER: 'GAME_OVER', ERROR: 'ERROR',
 };
 
+export type PlayerContext = {
+  id: string;
+  name: string;
+  username?: string;
+  avatar?: string;
+  team?: number;
+  seat?: number;
+};
+
 type Props = {
   matchId: string;
   userId: string;
   wsToken: string;
+  players?: PlayerContext[];
   onComplete: (result: HtmlGameResult) => void;
 };
 

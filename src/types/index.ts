@@ -8,6 +8,7 @@ export type HomeStackParamList = {
   Bookmarks:      undefined;
   Leaderboards:   { initialTab?: 'Global' | 'Friends' | 'Games' | 'Feed' | 'Community' | 'Events' } | undefined;
   Settings:       undefined;
+  Lobby:          { lobbyId: string; gameId: string };
   EditProfile:    undefined;
   Terms:          undefined;
   Privacy:        undefined;

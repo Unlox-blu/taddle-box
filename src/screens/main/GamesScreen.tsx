@@ -246,8 +246,86 @@ export default function GamesScreen() {
     setStartingId(`${game.id}:bot`);
     try {
       const res = await gamesService.startGameSession(game.id, "bot");
-      
-          // Map opponents properly from response
+      setActiveSession({
+        game,
+        mode: "bot",
+        matchId: res.data.ticket?.userMatchId || res.data.sessionId,
+        sessionId: res.data.sessionId,
+        wsToken: res.data.wsToken,
+        players: [{
+          id: 'bot_1',
+          name: 'AI Bot',
+          avatar: 'https://api.dicebear.com/7.x/bottts/svg?seed=Bot'
+        }],
+      });
+    } catch (error: any) {
+      Alert.alert(
+        "Game Error",
+        error.response?.data?.message || "Could not start practice.",
+      );
+    } finally {
+      setStartingId(null);
+    }
+  };
+
+  const joinTournament = async (tournament: GameTournament) => {
+    const run = async () => {
+      try {
+        const res = await gamesService.joinTournament(tournament.id);
+        setTournaments((prev) =>
+          prev.map((item) => (item.id === tournament.id ? res.data : item)),
+        );
+      } catch (error: any) {
+        Alert.alert(
+          "Tournament Error",
+          error.response?.data?.message || "Could not join tournament.",
+        );
+      }
+    };
+
+    if (tournament.entryFeeXP > 0 && !tournament.isJoined) {
+      Alert.alert("Join Tournament", `Entry fee: ${tournament.entryFeeXP} XP`, [
+        { text: "Cancel", style: "cancel" },
+        { text: "Join", onPress: run },
+      ]);
+      return;
+    }
+
+    await run();
+  };
+
+  const startQueue = (req: QueueRequest) => {
+    if (
+      req.mode !== "tournament" &&
+      (!user || user.xp < (req.game.entryFee || 0))
+    ) {
+      Alert.alert(
+        "Insufficient XP",
+        `You need ${req.game.entryFee || 0} XP to play ${req.game.name}.`,
+      );
+      return;
+    }
+    setQueueRequest(req);
+  };
+
+  const handleMatched = useCallback(
+    (request: QueueRequest, response: MatchmakingResponse) => {
+      if (!response.match?.id) {
+        Alert.alert(
+          "Matchmaking Error",
+          "Matched session did not include a playable match.",
+        );
+        return;
+      }
+
+      setQueueRequest(null);
+
+      // Convert game_match into secure game_session
+      const matchGroupId = response.match.metadata?.matchGroupId;
+
+      gamesService
+        .startGameSession(request.game.id, request.mode, matchGroupId)
+        .then((res) => {
           const players: PlayerContext[] = [];
           if (response.opponent) {
              players.push({
@@ -293,23 +371,24 @@ export default function GamesScreen() {
     if (visibility === "PUBLIC") {
        startQueue({ game: selectedGame, mode: "quick", targetPlayers: targetPlayers === "auto" ? undefined : targetPlayers });
     } else {
-       // Create Private Lobby via POST /game/lobbies
        try {
            const res = await apiClient.post('/game/matchmaking/join', {
                gameId: selectedGame.id,
-               mode: "QUICK", // Wait, private isn't quick match? For now let's just use quick match matchmaking but we need a POST /game/lobbies to create private lobbies.
-               // We will mock it by starting a queue request with a dummy mode for now to open a lobby UI.
+               mode: "QUICK", 
                targetPlayers: targetPlayers === "auto" ? 2 : targetPlayers,
-               visibility: "PRIVATE" // The backend should support this.
+               visibility: "PRIVATE"
            });
            
-           if (res.data) {
-              // Open Lobby UI
-              // This requires a LobbyScreen, which we haven't built yet, but we will navigate to it.
-              // For now we just alert.
-              Alert.alert("Lobby Created", "Private lobby created. UI coming soon!");
+           const data = res.data?.data || res.data;
+           const lobbyId = data?.ticket?.lobbyId || data?.id;
+           
+           if (lobbyId) {
+               navigation.navigate('Lobby', { lobbyId, gameId: selectedGame.id });
+           } else {
+               Alert.alert("Lobby Created", "Private lobby created, but no ID was returned.");
            }
        } catch (e) {
+           console.error(e);
            Alert.alert("Error", "Failed to create private match.");
        }
     }
@@ -797,6 +876,7 @@ function QueueModal({
   const colors = useThemeColors();
   const styles = useMemo(() => makeStyles(colors), [colors]);
   const [ticketId, setTicketId] = useState<string | null>(null);
+  const [lobbyId, setLobbyId] = useState<string | null>(null);
   const [statusText, setStatusText] = useState("Joining queue...");
   const [countdown, setCountdown] = useState<number | null>(null);
   const [closing, setClosing] = useState(false);
@@ -832,6 +912,7 @@ function QueueModal({
       }
       
       setTicketId(response.ticket?.id || null);
+      setLobbyId(response.ticket?.lobbyId || response.lobbyId || null);
       if (response.players && response.maxPlayers) {
         setLobbyState({
           players: response.players,
@@ -852,7 +933,7 @@ function QueueModal({
         if (cancelled) {
           const id = res.data.ticket?.id;
           if (id && res.data.ticket?.status === "WAITING") {
-            gamesService.cancelMatchmakingTicket(id).catch(() => {});
+            gamesService.cancelMatchmakingTicket().catch(() => {});
           }
           return;
         }
@@ -897,8 +978,8 @@ function QueueModal({
               if (fallbackTimer) clearInterval(fallbackTimer);
               // Backend job will fill bots automatically
               // But if we want, we can trigger fill-bots manually:
-              if (res.data.ticket?.id) {
-                apiClient.post(`/game/matchmaking/${res.data.ticket.id}/fill-bots`).catch(() => {});
+              if (res.data.ticket?.lobbyId || res.data.lobbyId) {
+                apiClient.post(`/game/lobbies/${res.data.ticket?.lobbyId || res.data.lobbyId}/fill-bots`).catch(() => {});
               }
             }
           }, 1000);
@@ -921,7 +1002,7 @@ function QueueModal({
     setClosing(true);
     try {
       if (ticketId && !matchedRef.current) {
-        await gamesService.cancelMatchmakingTicket(ticketId);
+        await gamesService.cancelMatchmakingTicket();
       }
     } catch (error) {
       console.warn("Failed to cancel matchmaking ticket", error);
@@ -932,10 +1013,10 @@ function QueueModal({
   };
 
   const fillLobby = async () => {
-    if (!ticketId) return;
+    if (!lobbyId) return;
     setClosing(true);
     try {
-      await apiClient.post(`/game/matchmaking/${ticketId}/fill-bots`);
+      await apiClient.post(`/game/lobbies/${lobbyId}/fill-bots`);
     } catch (e) {
       console.warn("Failed to fill bots", e);
       setClosing(false);
@@ -1212,8 +1293,7 @@ function GamePlayModal({
             <Text style={styles.playSubtitle}>
               {session.mode?.toLowerCase() === "bot"
                 ? `${user?.username || user?.name || "You"} vs AI Bot`
-                : `${user?.username || user?.name || "You"} vs ${session.players?.[0]?.name || "Opponent"}`} vs AI Bot`
-                : `${user?.username || user?.name || "You"} vs ${session.opponentName || "Opponent"}`}
+                : `${user?.username || user?.name || "You"} vs ${session.players?.[0]?.name || "Opponent"}`}
             </Text>
           </View>
           {session.game.metadata?.runtime === "html5_webview" ? (

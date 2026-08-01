@@ -47,7 +47,16 @@ export default function MatchModeModal({
 
   if (!game) return null;
 
-  const maxOpponents = game.maxPlayers || 2;
+  const getFallbackMaxPlayers = (slug?: string) => {
+    switch (slug) {
+      case 'ludo':
+      case 'snake-ladder':
+        return 4;
+      default:
+        return 2;
+    }
+  };
+  const maxOpponents = game.maxPlayers || getFallbackMaxPlayers(game.slug);
   const playerOptions = ["auto"];
   for (let i = 2; i <= maxOpponents; i++) {
     playerOptions.push(i);

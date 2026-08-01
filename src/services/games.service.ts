@@ -35,23 +35,55 @@ export type GameTournament = {
 
 export type MatchmakingResponse = {
   status: 'WAITING' | 'MATCHED';
-  ticket: {
-    id: string;
-    gameId: string;
+  ticket?: {
+    id?: string;
+    gameId?: string;
     tournamentId?: string | null;
-    mode: 'QUICK' | 'TOURNAMENT';
-    status: 'WAITING' | 'MATCHED' | 'CANCELLED' | 'EXPIRED';
+    mode?: 'AUTO' | 'CUSTOM' | 'TOURNAMENT';
+    status?: 'WAITING' | 'MATCHED' | 'CANCELLED' | 'EXPIRED';
     opponentUserId?: string | null;
     opponentName?: string | null;
     opponentUsername?: string | null;
     userMatchId?: string | null;
+    lobbyId?: string | null;
+    matchGroupId?: string | null;
   };
   match?: any;
+  matchMetadata?: {
+    lobbyId?: string;
+    gameId?: string;
+    gameMode?: string;
+    playerIds?: string[];
+    playerSnapshots?: Array<{
+      id: string;
+      username?: string;
+      displayName?: string;
+      avatar?: string;
+      isBot?: boolean;
+      team?: number;
+      seat?: number;
+    }>;
+    maxPlayers?: number;
+    startedAt?: string;
+    runtime?: string;
+    tournamentId?: string | null;
+    matchGroupId?: string;
+  } | null;
   opponent?: {
-    userId: string;
+    userId?: string;
+    id?: string;
     name?: string;
     username?: string;
+    avatarUrl?: string;
+    avatar?: string;
   } | null;
+  lobbyId?: string | null;
+  lobbyState?: any;
+  expiresAt?: string;
+  players?: any[];
+  maxPlayers?: number;
+  currentPlayers?: number;
+  message?: string;
 };
 
 export const gamesService = {
@@ -85,7 +117,7 @@ export const gamesService = {
     const response = await apiClient.post('/game/create-match', {
       gameId,
       mode: mode.toUpperCase(),
-      metadata: { client: 'html5_webview' },
+      metadata: { client: 'native' },
     });
     return response.data;
   },
@@ -132,7 +164,7 @@ export const gamesService = {
 
   joinMatchmaking: async (data: {
     gameId: string;
-    mode: 'QUICK' | 'TOURNAMENT';
+    mode: 'AUTO' | 'CUSTOM' | 'TOURNAMENT';
     tournamentId?: string;
     targetPlayers?: number;
   }): Promise<{ data: MatchmakingResponse }> => {

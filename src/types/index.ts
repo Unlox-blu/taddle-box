@@ -159,6 +159,8 @@ export interface Game {
   emoji: string;
   gradient: [string, string];
   imageUrl?: string;
+  slug?: string;
+  metadata?: Record<string, any>;
   maxXp: number;
   isHot: boolean;
   maxPlayers?: number;

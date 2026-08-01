@@ -486,7 +486,7 @@ function WaitDot({ delay }: { delay: number }) {
 
 function ThinkingDots() {
   return (
-    <View style={styles.thinkingRow}>
+    <View style={styles.dotRow}>
       {[0, 1, 2].map((i) => (
         <WaitDot key={i} delay={i * 200} />
       ))}

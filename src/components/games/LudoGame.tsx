@@ -152,6 +152,9 @@ export default function LudoGame({
   useEffect(() => {
     const s = createGameEngineSocket(matchId, userId, wsToken);
     setSocket(s);
+    return () => {
+      s.disconnect();
+    };
 
     s.on(EVENTS.CONNECT_ACK, (data: any) => {
       const ps = data.state?.pluginState;
@@ -452,7 +455,7 @@ export default function LudoGame({
           const color   = PLAYER_COLORS[i % 4];
           const info    = playerInfo[uid];
           const avatarUri = isMe ? (myAvatar || null) : (info?.avatar || null);
-          const label = isMe ? (myName || 'You') : (pData?.name || `P${i+1}`);
+          const label = isMe ? (myName || 'You') : ((playerInfo[uid] as any)?.name || `P${i+1}`);
           const isActive = (gameState.currentTurnIndex ?? 0) === i;
 
           return (

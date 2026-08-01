@@ -61,10 +61,11 @@ type ActiveTab = "games" | "tournaments" | "history";
 type ScreenModal = "none" | "history";
 type QueueRequest = {
   game: Game;
-  mode: "quick" | "tournament" | "invite";
+  mode: "auto" | "tournament" | "invite";
   tournamentId?: string;
   matchGroupId?: string;
   targetPlayers?: number;
+  lobbyId?: string;
 };
 export type PlayerContext = {
   id: string;
@@ -87,12 +88,12 @@ type ActiveSession = {
 
 const MATCH_MODE_LABEL: Record<PlayMode, string> = {
   bot: "Bot Match",
-  quick: "Real Match",
+  auto: "Real Match",
   tournament: "Tournament Match",
 };
 
-const modeToApi = (mode: "quick" | "tournament" | "invite") =>
-  mode === "tournament" ? "TOURNAMENT" : "QUICK";
+const modeToApi = (mode: "auto" | "tournament" | "invite") =>
+  mode === "tournament" ? "TOURNAMENT" : mode === "invite" ? "CUSTOM" : "AUTO";
 
 const formatTimeLeft = (endsAt: string) => {
   const diff = new Date(endsAt).getTime() - Date.now();
@@ -162,9 +163,8 @@ export default function GamesScreen() {
   const [selectedTournament, setSelectedTournament] = useState<GameTournament | null>(null);
   const [reconnectSession, setReconnectSession] = useState<any>(null);
   const [matchModalVisible, setMatchModalVisible] = useState(false);
-  const [selectedGame, setSelectedGame] = useState<Game | null>(
-    null,
-  );
+  const [selectedGame, setSelectedGame] = useState<Game | null>(null);
+  const [incomingInviteCode, setIncomingInviteCode] = useState<string | null>(null);
 
   const loadGamesData = useCallback(async () => {
     setLoading(true);
@@ -308,55 +308,95 @@ export default function GamesScreen() {
     setQueueRequest(req);
   };
 
+  const handleLobbyReady = useCallback(
+    (_request: QueueRequest, _response: MatchmakingResponse) => {
+      setQueueRequest(null);
+      setMatchModalVisible(false);
+      setSelectedGame(null);
+    },
+    [],
+  );
+
   const handleMatched = useCallback(
     (request: QueueRequest, response: MatchmakingResponse) => {
-      if (!response.match?.id) {
-        Alert.alert(
-          "Matchmaking Error",
-          "Matched session did not include a playable match.",
-        );
-        return;
-      }
-
+      // Modal already closed itself — just start the session
       setQueueRequest(null);
+      setMatchModalVisible(false);
+      setSelectedGame(null);
 
-      // Convert game_match into secure game_session
-      const matchGroupId = response.match.metadata?.matchGroupId;
+      const sessionMode =
+        request.mode === "tournament" ? "tournament"
+        : request.mode === "invite" ? "custom"
+        : "auto";
+
+      // Pull matchGroupId from every possible location the server returns it
+      // In the new lobby flow: lobbyId IS the match group identifier
+      const matchGroupId =
+        response.matchMetadata?.matchGroupId
+        || response.matchMetadata?.lobbyId
+        || response.match?.metadata?.matchGroupId
+        || response.ticket?.matchGroupId
+        || (response as any).lobbyId
+        || null;
 
       gamesService
-        .startGameSession(request.game.id, request.mode, matchGroupId)
+        .startGameSession(request.game.id, sessionMode, matchGroupId)
         .then((res) => {
+          // Build opponent list from whatever the server returned
           const players: PlayerContext[] = [];
-          if (response.opponent) {
-             players.push({
-               id: response.opponent.id,
-               name: response.opponent.name || response.opponent.username || 'Matched Player',
-               username: response.opponent.username,
-               avatar: response.opponent.avatarUrl || response.opponent.avatar
-             });
+
+          // From matchMetadata.playerSnapshots (new lobby flow)
+          const snapshots: any[] = (response as any).matchMetadata?.playerSnapshots || [];
+          snapshots.forEach((p: any) => {
+            if (p.id !== user?.id && !p.isBot) {
+              players.push({
+                id: p.id,
+                name: p.displayName || p.username || "Opponent",
+                username: p.username,
+                avatar: p.avatar,
+              });
+            }
+          });
+
+          // Fallback: legacy opponent field
+          if (players.length === 0 && response.opponent) {
+            players.push({
+              id: response.opponent.id || response.opponent.userId || "opponent",
+              name: response.opponent.name || response.opponent.username || "Opponent",
+              username: response.opponent.username,
+              avatar: response.opponent.avatarUrl || response.opponent.avatar,
+            });
           }
-          if (response.ticket?.opponentName) {
-             players.push({
-               id: 'opponent_from_ticket',
-               name: response.ticket.opponentName,
-             });
+
+          if (players.length === 0 && response.ticket?.opponentName) {
+            players.push({
+              id: "opponent",
+              name: response.ticket.opponentName,
+            });
           }
 
           setActiveSession({
             game: request.game,
-            mode: request.mode as PlayMode, // Cast to PlayMode
-            matchId: res.data.ticket?.userMatchId || res.data.sessionId,
-            sessionId: res.data.sessionId,
-            wsToken: res.data.wsToken || res.data.ticket?.token,
+            mode: request.mode === "tournament" ? "tournament" : "auto",
+            matchId:
+              res.data?.ticket?.userMatchId
+              || res.data?.sessionId
+              || (response as any).matchMetadata?.playerSnapshots?.[0]?.id
+              || response.match?.id,
+            sessionId: res.data?.sessionId || response.match?.id,
+            wsToken: res.data?.wsToken || res.data?.ticket?.token,
             players: players.length > 0 ? players : undefined,
             tournamentId: request.tournamentId,
           });
         })
-        .catch((e) => {
-          Alert.alert("Error", "Failed to initialize secure game session.");
+        .catch((err: any) => {
+          Alert.alert(
+            "Error",
+            err?.response?.data?.message || "Failed to initialize the game session.",
+          );
         });
     },
-    [],
+    [user?.id],
   );
 
   const handleSessionClose = () => {
@@ -364,35 +404,10 @@ export default function GamesScreen() {
     loadGamesData();
   };
 
-  const handleModeSelect = async (visibility: "PUBLIC" | "PRIVATE", targetPlayers: number | "auto") => {
+  // handleModeSelect is kept for tournament flow (called from TournamentCard)
+  const handleModeSelect = useCallback(async (_mode: MatchMode, _targetPlayers: number | "auto") => {
     setMatchModalVisible(false);
-    if (!selectedGame) return;
-
-    if (visibility === "PUBLIC") {
-       startQueue({ game: selectedGame, mode: "quick", targetPlayers: targetPlayers === "auto" ? undefined : targetPlayers });
-    } else {
-       try {
-           const res = await apiClient.post('/game/matchmaking/join', {
-               gameId: selectedGame.id,
-               mode: "QUICK", 
-               targetPlayers: targetPlayers === "auto" ? 2 : targetPlayers,
-               visibility: "PRIVATE"
-           });
-           
-           const data = res.data?.data || res.data;
-           const lobbyId = data?.ticket?.lobbyId || data?.id;
-           
-           if (lobbyId) {
-               navigation.navigate('Lobby', { lobbyId, gameId: selectedGame.id });
-           } else {
-               Alert.alert("Lobby Created", "Private lobby created, but no ID was returned.");
-           }
-       } catch (e) {
-           console.error(e);
-           Alert.alert("Error", "Failed to create private match.");
-       }
-    }
-  };
+  }, []);
 
   return (
     <View style={[styles.container, { paddingTop: insets.top }]}>
@@ -446,31 +461,36 @@ export default function GamesScreen() {
       {incomingInvite && (
         <View style={styles.inviteBanner}>
           <Text style={styles.inviteBannerText}>
-            {(incomingInvite.message || "You have a new game invite!").split('|')[0]}
+            {(incomingInvite.message || "You have a new game invite!").split('|')[0].trim()}
           </Text>
           <View style={styles.inviteBannerActions}>
             <TouchableOpacity
               style={styles.inviteJoinBtn}
               onPress={() => {
-                const parts = (incomingInvite.message || "").split("|");
-                const matchGroupId = parts.length > 1 ? parts[1] : null;
+                // Message format: "<text> | <lobbyId> | <inviteCode>"
+                const parts = (incomingInvite.message || "").split("|").map((s: string) => s.trim());
+                const inviteCode = parts[2] || parts[1];
                 const gameId = incomingInvite.resourceId;
                 const game = realGamesRef.current.find((g) => g.id === gameId || g.slug === gameId);
-                
-                if (game && matchGroupId) {
+
+                if (inviteCode && game) {
                   setActiveTab("games");
-                  startQueue({ game, mode: "invite", matchGroupId });
+                  setSelectedGame(game);
+                  // Pre-fill the join code and open modal at select step
+                  // The user will see the modal with join code pre-filled
+                  setIncomingInviteCode(inviteCode);
+                  setMatchModalVisible(true);
                   setIncomingInvite(null);
                 }
               }}
             >
-              <Text style={styles.inviteJoinBtnText}>Join</Text>
+              <Text style={styles.inviteJoinBtnText}>Accept</Text>
             </TouchableOpacity>
             <TouchableOpacity
               style={styles.inviteDenyBtn}
               onPress={() => setIncomingInvite(null)}
             >
-              <Text style={styles.inviteDenyBtnText}>Deny</Text>
+              <Text style={styles.inviteDenyBtnText}>Decline</Text>
             </TouchableOpacity>
           </View>
         </View>
@@ -594,25 +614,26 @@ export default function GamesScreen() {
         )}
       </ScrollView>
 
-      <QueueModal
-        request={queueRequest}
-        onClose={() => setQueueRequest(null)}
+      <MatchModeModal
+        visible={matchModalVisible}
+        game={selectedGame}
+        initialInviteCode={incomingInviteCode}
+        onClose={() => {
+          setMatchModalVisible(false);
+          setIncomingInviteCode(null);
+        }}
+        onStartMatch={handleModeSelect}
         onMatched={handleMatched}
+        onLobbyReady={handleLobbyReady}
         onTimeoutFallback={(req) => {
           setQueueRequest(null);
+          setMatchModalVisible(false);
           Alert.alert(
             "No Opponent Found",
             "No players are currently available. You have been placed in a match against an AI bot.",
           );
           startBotSession(req.game);
         }}
-      />
-
-      <MatchModeModal
-        visible={matchModalVisible}
-        game={selectedGame}
-        onClose={() => setMatchModalVisible(false)}
-        onStartMatch={handleModeSelect}
       />
 
       {activeSession && (
@@ -866,60 +887,86 @@ function QueueModal({
   request,
   onClose,
   onMatched,
+  onLobbyReady,
   onTimeoutFallback,
 }: {
   request: QueueRequest | null;
   onClose: () => void;
   onMatched: (request: QueueRequest, response: MatchmakingResponse) => void;
+  onLobbyReady?: (request: QueueRequest, response: MatchmakingResponse) => void;
   onTimeoutFallback?: (request: QueueRequest) => void;
 }) {
   const colors = useThemeColors();
   const styles = useMemo(() => makeStyles(colors), [colors]);
+  const { user } = useAuth();
   const [ticketId, setTicketId] = useState<string | null>(null);
   const [lobbyId, setLobbyId] = useState<string | null>(null);
   const [statusText, setStatusText] = useState("Joining queue...");
   const [countdown, setCountdown] = useState<number | null>(null);
   const [closing, setClosing] = useState(false);
-  const [lobbyState, setLobbyState] = useState<{players: any[], maxPlayers: number} | null>(null);
+  const [lobbyState, setLobbyState] = useState<{ players: any[]; maxPlayers: number } | null>(null);
+  const [phase, setPhase] = useState<"searching" | "lobby" | "ready">("searching");
+  const [botFillHint, setBotFillHint] = useState(false);
   const matchedRef = useRef(false);
+  const lobbyIdRef = useRef<string | null>(null);
 
   useEffect(() => {
     if (!request) return;
     let cancelled = false;
     let pollMatched: ReturnType<typeof setInterval> | null = null;
     let fallbackTimer: ReturnType<typeof setInterval> | null = null;
+    let redirectTimer: ReturnType<typeof setTimeout> | null = null;
+    let navigatedRef = false;
     matchedRef.current = false;
+    lobbyIdRef.current = null;
     setTicketId(null);
+    setLobbyId(null);
     setLobbyState(null);
+    setPhase("searching");
+    setBotFillHint(false);
     setStatusText(
       request.mode === "invite"
-        ? "Waiting for friends to join..."
-        : "Joining queue...",
+        ? "Preparing your private lobby..."
+        : "Searching for your next match...",
     );
-    setCountdown(
-      request.mode === "quick" ? 10 : request.mode === "invite" ? 10 : null,
-    );
+    setCountdown(request.mode === "auto" || request.mode === "invite" ? 15 : null);
 
     const handleResponse = (response: MatchmakingResponse | any) => {
       if (cancelled) return;
-      if (
-        response.status === "MATCHED" ||
-        response.ticket?.status === "MATCHED"
-      ) {
+      if (response.status === "MATCHED" || response.ticket?.status === "MATCHED") {
         matchedRef.current = true;
         onMatched(request, response);
         return;
       }
-      
+
+      const nextLobbyId = response.ticket?.lobbyId || response.lobbyId || null;
+      const nextPlayers = response.lobbyState?.players || response.players || [];
+      const nextMaxPlayers = response.lobbyState?.maxPlayers || response.maxPlayers || request.targetPlayers || 2;
+
       setTicketId(response.ticket?.id || null);
-      setLobbyId(response.ticket?.lobbyId || response.lobbyId || null);
-      if (response.players && response.maxPlayers) {
-        setLobbyState({
-          players: response.players,
-          maxPlayers: response.maxPlayers
-        });
+      setLobbyId(nextLobbyId);
+      lobbyIdRef.current = nextLobbyId;
+      setLobbyState({ players: nextPlayers, maxPlayers: nextMaxPlayers });
+      setPhase(nextLobbyId || nextPlayers.length > 0 ? "lobby" : "searching");
+      setStatusText(
+        request.mode === "invite"
+          ? nextLobbyId
+            ? "Your private lobby is ready — the next step is just a moment away."
+            : "Preparing your private lobby..."
+          : nextPlayers.length > 0
+            ? "A few players are lined up — waiting for the next move."
+            : "Searching for a worthy opponent...",
+      );
+
+      if (!navigatedRef && request.mode === "invite" && nextLobbyId && onLobbyReady) {
+        navigatedRef = true;
+        setStatusText("Opening your private lobby...");
+        redirectTimer = setTimeout(() => {
+          if (!cancelled && !matchedRef.current) {
+            onLobbyReady(request, response);
+          }
+        }, 900);
       }
-      setStatusText(`Waiting for players...`);
     };
 
     gamesService
@@ -948,9 +995,13 @@ function QueueModal({
         };
 
         const onSocketLobbyUpdated = (data: any) => {
-           if (data.lobbyId && res.data.lobbyId === data.lobbyId) {
-             handleResponse(data);
-           }
+          if (!data) return;
+          const incomingLobbyId = data.ticket?.lobbyId || data.lobbyId || data.lobby?.id;
+          if (incomingLobbyId && incomingLobbyId === lobbyIdRef.current) {
+            handleResponse(data);
+          } else if (!lobbyIdRef.current && (data.players || data.lobbyState)) {
+            handleResponse(data);
+          }
         };
 
         socketClient.events.on("matchmaking:matched", onSocketMatched);
@@ -960,43 +1011,48 @@ function QueueModal({
           cancel: () => {
             socketClient.events.off("matchmaking:matched", onSocketMatched);
             socketClient.events.off("matchmaking:lobbyUpdated", onSocketLobbyUpdated);
-          }
+          },
         } as any;
 
-        if (request.mode === "quick" || request.mode === "invite") {
-          const expiresAt = res.data.expiresAt 
-            ? new Date(res.data.expiresAt).getTime() 
-            : Date.now() + 10000;
-          
+        if (request.mode === "auto" || request.mode === "invite") {
+          const expiresAt = res.data.expiresAt
+            ? new Date(res.data.expiresAt).getTime()
+            : Date.now() + 15000;
+
           fallbackTimer = setInterval(() => {
             if (cancelled || matchedRef.current) return;
             const now = Date.now();
-            let timeRemaining = Math.max(0, Math.ceil((expiresAt - now) / 1000));
+            const timeRemaining = Math.max(0, Math.ceil((expiresAt - now) / 1000));
             setCountdown(timeRemaining);
-            
+
             if (timeRemaining <= 0) {
               if (fallbackTimer) clearInterval(fallbackTimer);
-              // Backend job will fill bots automatically
-              // But if we want, we can trigger fill-bots manually:
-              if (res.data.ticket?.lobbyId || res.data.lobbyId) {
-                apiClient.post(`/game/lobbies/${res.data.ticket?.lobbyId || res.data.lobbyId}/fill-bots`).catch(() => {});
+              if (request.mode === "auto") {
+                setBotFillHint(true);
+                setStatusText("Bots are joining this match...");
+                if (lobbyIdRef.current) {
+                  apiClient.post(`/game/lobbies/${lobbyIdRef.current}/fill-bots`).catch(() => {});
+                } else if (onTimeoutFallback) {
+                  onTimeoutFallback(request);
+                }
+              } else if (lobbyIdRef.current) {
+                apiClient.post(`/game/lobbies/${lobbyIdRef.current}/fill-bots`).catch(() => {});
               }
             }
           }, 1000);
         }
       })
       .catch((error: any) => {
-        setStatusText(
-          error.response?.data?.message || "Could not join matchmaking.",
-        );
+        setStatusText(error.response?.data?.message || "Could not join matchmaking.");
       });
 
     return () => {
       cancelled = true;
+      if (redirectTimer) clearTimeout(redirectTimer);
       if (pollMatched) (pollMatched as any).cancel();
       if (fallbackTimer) clearInterval(fallbackTimer);
     };
-  }, [request]);
+  }, [request, onMatched, onLobbyReady, onTimeoutFallback]);
 
   const closeQueue = async () => {
     setClosing(true);
@@ -1016,60 +1072,48 @@ function QueueModal({
     if (!lobbyId) return;
     setClosing(true);
     try {
-      await apiClient.post(`/game/lobbies/${lobbyId}/fill-bots`);
+      await apiClient.post(`/game/lobbies/${lobbyId}/fill-bots`, { count: 1 });
+      setStatusText("A bot is joining the lobby...");
     } catch (e) {
       console.warn("Failed to fill bots", e);
+      setClosing(false);
+    } finally {
       setClosing(false);
     }
   };
 
-  const renderRadar = () => {
-    if (!lobbyState) {
-      return (
-        <View style={{ marginVertical: 32 }}>
-          <ActivityIndicator size="large" color={colors.primaryLight} />
-        </View>
-      );
-    }
-    const { players, maxPlayers } = lobbyState;
-    const radius = 100;
-    
-    return (
-      <View style={{ width: 250, height: 250, alignItems: 'center', justifyContent: 'center', marginVertical: 20 }}>
-        <View style={{ position: 'absolute', width: 200, height: 200, borderRadius: 100, borderWidth: 1, borderColor: colors.primary, opacity: 0.3 }} />
-        <View style={{ position: 'absolute', width: 100, height: 100, borderRadius: 50, borderWidth: 1, borderColor: colors.primary, opacity: 0.5 }} />
-        
-        <View style={{ width: 40, height: 40, borderRadius: 20, backgroundColor: colors.primary, alignItems: 'center', justifyContent: 'center', zIndex: 10 }}>
-           <Ionicons name="search" size={20} color="white" />
-        </View>
+  const renderPlayers = () => {
+    const maxPlayers = lobbyState?.maxPlayers || 2;
+    const players = (lobbyState?.players || []).length > 0
+      ? lobbyState?.players || []
+      : [{ id: user?.id || "me", name: user?.username || user?.name || "You", avatar: user?.avatarUrl || user?.avatar }];
+    const previewPlayers = players.slice(0, maxPlayers);
+    const emptySlots = Math.max(0, maxPlayers - previewPlayers.length);
 
-        {players.map((p, i) => {
-          const angle = (i * 2 * Math.PI) / maxPlayers - Math.PI / 2;
-          const x = Math.cos(angle) * radius;
-          const y = Math.sin(angle) * radius;
-          
-          return (
-            <View key={p.id} style={{ position: 'absolute', transform: [{ translateX: x }, { translateY: y }], alignItems: 'center', justifyContent: 'center' }}>
-               <ImageBackground 
-                  source={{ uri: p.avatar || "https://api.dicebear.com/7.x/avataaars/png" }} 
-                  style={{ width: 50, height: 50, borderRadius: 25, overflow: 'hidden', borderWidth: 2, borderColor: colors.primaryLight }}
-               />
-               <Text style={{ color: colors.text, fontSize: 10, textAlign: 'center', marginTop: 4, width: 70, marginLeft: -10 }} numberOfLines={1}>
-                 {p.displayName || p.username}
-               </Text>
+    return (
+      <View style={styles.queuePlayersWrap}>
+        {previewPlayers.map((player: any) => (
+          <View key={player.id || `${player.name}-${Math.random()}`} style={styles.queuePlayerCard}>
+            {player.avatar ? (
+              <ImageBackground source={{ uri: player.avatar }} style={styles.queueAvatar} resizeMode="cover" />
+            ) : (
+              <View style={styles.queueAvatarPlaceholder}>
+                <Text style={styles.queueAvatarInitial}>{(player.name || player.username || "?")[0].toUpperCase()}</Text>
+              </View>
+            )}
+            <Text style={styles.queuePlayerName} numberOfLines={1}>
+              {player.name || player.username || "Player"}
+            </Text>
+          </View>
+        ))}
+        {Array.from({ length: emptySlots }).map((_, index) => (
+          <View key={`empty-${index}`} style={[styles.queuePlayerCard, styles.queueEmptyCard]}>
+            <View style={styles.queueAvatarPlaceholder}>
+              <Ionicons name="person-outline" size={16} color={colors.text.muted} />
             </View>
-          );
-        })}
-        {Array.from({ length: maxPlayers - players.length }).map((_, j) => {
-          const i = players.length + j;
-          const angle = (i * 2 * Math.PI) / maxPlayers - Math.PI / 2;
-          const x = Math.cos(angle) * radius;
-          const y = Math.sin(angle) * radius;
-          
-          return (
-            <View key={`empty-${j}`} style={{ position: 'absolute', width: 50, height: 50, borderRadius: 25, borderWidth: 2, borderColor: colors.border, borderStyle: 'dashed', backgroundColor: colors.card, transform: [{ translateX: x }, { translateY: y }] }} />
-          );
-        })}
+            <Text style={styles.queueEmptyText}>Waiting</Text>
+          </View>
+        ))}
       </View>
     );
   };
@@ -1083,53 +1127,70 @@ function QueueModal({
     >
       <View style={styles.queueBackdrop}>
         <View style={styles.queuePanel}>
+          <LinearGradient
+            colors={[colors.primary, colors.cyanDark]}
+            style={styles.queueGlow}
+          />
           <View style={styles.queueHeader}>
+            <View style={styles.queueBadge}>
+              <Text style={styles.queueBadgeText}>
+                {request?.mode === "invite" ? "PRIVATE LOBBY" : request?.mode === "tournament" ? "TOURNAMENT" : "PUBLIC MATCH"}
+              </Text>
+            </View>
             <Text style={styles.queueTitle}>
-              {request?.mode === "tournament"
-                ? "Tournament Queue"
-                : request?.mode === "invite"
-                  ? "Private Match"
-                  : "Matchmaking"}
+              {request?.mode === "invite"
+                ? "Your lobby is ready"
+                : request?.mode === "tournament"
+                  ? "Tournament queue"
+                  : "Finding your next match"}
             </Text>
             <Text style={styles.queueSubtitle}>{request?.game.name}</Text>
-            
-            {renderRadar()}
-
             <Text style={styles.queueStatus}>{statusText}</Text>
-            
             {countdown !== null && !matchedRef.current && (
-              <Animated.Text
-                style={{
-                  fontSize: 16,
-                  fontWeight: "800",
-                  color: countdown <= 5 ? colors.danger : colors.textSecondary,
-                  marginVertical: 4,
-                  transform: [{ scale: countdown <= 5 ? 1.1 : 1 }]
-                }}
-              >
-                Timeout in {countdown}s
-              </Animated.Text>
+              <View style={styles.queueTimerPill}>
+                <Ionicons name="time-outline" size={14} color={colors.primaryLight} />
+                <Text style={styles.queueTimerText}>Starts in {countdown}s</Text>
+              </View>
             )}
           </View>
-          
-          {lobbyState && lobbyState.players.length < lobbyState.maxPlayers && ticketId && !closing && (
+
+          <View style={styles.queueStatusBox}>
+            <Text style={styles.queueStatusLabel}>{phase === "lobby" ? "Lobby state" : "Searching"}</Text>
+            <Text style={styles.queueStatusValue}>
+              {phase === "lobby"
+                ? request?.mode === "invite"
+                  ? "Friends can join right away"
+                  : "Players are lining up"
+                : "We are matching you with a live opponent"}
+            </Text>
+          </View>
+
+          {renderPlayers()}
+
+          {request?.mode === "invite" && lobbyState && lobbyState.players.length < lobbyState.maxPlayers && ticketId && !closing && (
             <TouchableOpacity
-              style={[styles.cancelButton, { backgroundColor: colors.primary, borderColor: colors.primary, marginBottom: 8 }]}
+              style={[styles.queueActionButton, styles.queuePrimaryButton]}
               onPress={fillLobby}
             >
-              <Text style={[styles.cancelButtonText, { color: 'white' }]}>
-                Fill with Bots
-              </Text>
+              <Ionicons name="add-circle-outline" size={16} color="#fff" />
+              <Text style={styles.queueActionText}>Fill with bots</Text>
             </TouchableOpacity>
           )}
 
+          {request?.mode === "auto" && botFillHint && (
+            <View style={[styles.queueActionButton, styles.queueSecondaryButton]}>
+              <Ionicons name="sparkles-outline" size={16} color={colors.primaryLight} />
+              <Text style={styles.queueActionTextSecondary}>Bots are joining now</Text>
+            </View>
+          )}
+
           <TouchableOpacity
-            style={styles.cancelButton}
+            style={[styles.queueActionButton, styles.queueSecondaryButton]}
             onPress={closeQueue}
             disabled={closing}
           >
-            <Text style={styles.cancelButtonText}>
-              {closing ? "Cancelling..." : "Cancel Queue"}
+            <Text style={styles.queueActionTextSecondary}>
+              {closing ? "Cancelling..." : "Cancel"}
             </Text>
           </TouchableOpacity>
         </View>
@@ -1318,7 +1379,7 @@ function GamePlayModal({
 
         {phase === "playing" &&
           (() => {
-            const { slug } = session.game;
+            const { slug } = session.game as any;
             const uid = user?.id || "";
             const token = session.wsToken || "";
             const mid = session.matchId;
@@ -1333,7 +1394,7 @@ function GamePlayModal({
               "memory-grid": MemoryGridGame,
             };
 
-            if (session.game.metadata?.runtime === "native") {
+            if ((session.game as any).metadata?.runtime === "native") {
               const NativeGame = GAME_COMPONENTS[slug];
               if (NativeGame && token) {
                 return (
@@ -1344,7 +1405,7 @@ function GamePlayModal({
                     wsToken={token}
                     myName={user?.username || user?.name || 'You'}
                     myAvatar={user?.avatarUrl || user?.avatar || null}
-                    opponentName={session.opponentName || (session.mode === 'bot' ? 'Bot' : 'Opponent')}
+                    opponentName={session.players?.[0]?.name || (session.mode === 'bot' ? 'Bot' : 'Opponent')}
                     onComplete={handleComplete}
                   />
                 );
@@ -1790,46 +1851,181 @@ function makeStyles(c: ColorPalette) {
       alignItems: "center",
       justifyContent: "center",
       padding: spacing.lg,
-      backgroundColor: "rgba(0,0,0,0.68)",
+      backgroundColor: "rgba(2,6,23,0.8)",
     },
     queuePanel: {
+      position: "relative",
       width: "100%",
       padding: spacing.xl,
-      borderRadius: radii.lg,
+      borderRadius: radii.xl,
       alignItems: "center",
       backgroundColor: c.bg.card,
       borderWidth: 1,
       borderColor: c.border,
+      overflow: "hidden",
+    },
+    queueGlow: {
+      position: "absolute",
+      top: -40,
+      width: 220,
+      height: 220,
+      borderRadius: 110,
+      opacity: 0.18,
     },
     queueHeader: {
       alignItems: "center",
     },
+    queueBadge: {
+      paddingHorizontal: 10,
+      paddingVertical: 4,
+      borderRadius: radii.full,
+      backgroundColor: "rgba(255,255,255,0.1)",
+      marginBottom: spacing.sm,
+    },
+    queueBadgeText: {
+      color: c.primaryLight,
+      fontSize: 10,
+      fontWeight: "800",
+      letterSpacing: 1,
+    },
     queueTitle: {
-      marginTop: spacing.md,
       color: c.text.primary,
       fontSize: fontSizes.lg,
       fontWeight: "900",
+      textAlign: "center",
     },
     queueSubtitle: {
       marginTop: 2,
       color: c.primaryLight,
       fontSize: fontSizes.sm,
       fontWeight: "800",
+      textAlign: "center",
     },
     queueStatus: {
-      marginTop: spacing.md,
+      marginTop: spacing.sm,
       textAlign: "center",
       color: c.text.muted,
       fontSize: fontSizes.sm,
+      lineHeight: 20,
     },
-    cancelButton: {
-      marginTop: spacing.lg,
-      paddingHorizontal: 18,
-      paddingVertical: 10,
+    queueTimerPill: {
+      marginTop: spacing.sm,
+      flexDirection: "row",
+      alignItems: "center",
+      gap: 6,
+      backgroundColor: "rgba(56,189,248,0.12)",
+      paddingHorizontal: 10,
+      paddingVertical: 6,
       borderRadius: radii.full,
-      backgroundColor: c.bg.elevated,
     },
-    cancelButtonText: { color: c.text.secondary, fontWeight: "800" },
+    queueTimerText: {
+      color: c.primaryLight,
+      fontSize: 12,
+      fontWeight: "700",
+    },
+    queueStatusBox: {
+      width: "100%",
+      marginTop: spacing.md,
+      padding: spacing.md,
+      borderRadius: radii.md,
+      backgroundColor: c.bg.elevated,
+      borderWidth: 1,
+      borderColor: c.border,
+    },
+    queueStatusLabel: {
+      color: c.text.secondary,
+      fontSize: 10,
+      fontWeight: "800",
+      letterSpacing: 1.2,
+      textTransform: "uppercase",
+    },
+    queueStatusValue: {
+      marginTop: 4,
+      color: c.text.primary,
+      fontSize: fontSizes.sm,
+      fontWeight: "700",
+    },
+    queuePlayersWrap: {
+      width: "100%",
+      flexDirection: "row",
+      flexWrap: "wrap",
+      justifyContent: "space-between",
+      marginTop: spacing.md,
+      gap: spacing.sm,
+    },
+    queuePlayerCard: {
+      width: "48%",
+      padding: spacing.sm,
+      alignItems: "center",
+      borderRadius: radii.md,
+      backgroundColor: c.bg.elevated,
+      borderWidth: 1,
+      borderColor: c.border,
+    },
+    queueEmptyCard: {
+      opacity: 0.7,
+    },
+    queueAvatar: {
+      width: 44,
+      height: 44,
+      borderRadius: 22,
+      marginBottom: 6,
+    },
+    queueAvatarPlaceholder: {
+      width: 44,
+      height: 44,
+      borderRadius: 22,
+      alignItems: "center",
+      justifyContent: "center",
+      backgroundColor: c.bg.card,
+      marginBottom: 6,
+      borderWidth: 1,
+      borderColor: c.border,
+    },
+    queueAvatarInitial: {
+      color: c.text.primary,
+      fontSize: fontSizes.md,
+      fontWeight: "800",
+    },
+    queuePlayerName: {
+      color: c.text.primary,
+      fontSize: fontSizes.xs,
+      fontWeight: "700",
+      textAlign: "center",
+    },
+    queueEmptyText: {
+      color: c.text.muted,
+      fontSize: 11,
+      fontWeight: "700",
+    },
+    queueActionButton: {
+      width: "100%",
+      marginTop: spacing.md,
+      flexDirection: "row",
+      alignItems: "center",
+      justifyContent: "center",
+      gap: 8,
+      paddingVertical: 12,
+      borderRadius: radii.md,
+    },
+    queuePrimaryButton: {
+      backgroundColor: c.primary,
+    },
+    queueSecondaryButton: {
+      backgroundColor: c.bg.elevated,
+      borderWidth: 1,
+      borderColor: c.border,
+    },
+    queueActionText: {
+      color: "#fff",
+      fontWeight: "800",
+      fontSize: fontSizes.sm,
+    },
+    queueActionTextSecondary: {
+      color: c.text.primary,
+      fontWeight: "800",
+      fontSize: fontSizes.sm,
+    },
     playModal: { flex: 1, backgroundColor: "#05050F" },
     playHeader: {
       minHeight: 68,

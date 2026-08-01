@@ -3,7 +3,7 @@ import { gamesService } from '../services/games.service';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
-export type PlayMode = 'bot' | 'quick' | 'tournament';
+export type PlayMode = 'bot' | 'auto' | 'tournament';
 
 export type GameMatch = {
   id:         string;
@@ -50,21 +50,25 @@ const formatDuration = (seconds = 0) => {
   return `${Math.floor(safe / 60)}m ${safe % 60}s`;
 };
 
-const formatMatch = (match: any): GameMatch => ({
-  id: match.id,
-  gameId: match.gameId,
-  gameName: match.gameName || 'Game',
-  gameEmoji: GAME_EMOJIS[match.gameSlug] || 'GM',
-  mode: String(match.mode || 'BOT').toLowerCase() as PlayMode,
-  result: String(match.result || 'LOSS').toLowerCase() === 'win' ? 'win' : 'loss',
-  xpEarned: match.xpEarned || 0,
-  score: `${(match.score || 0).toLocaleString()} pts`,
-  duration: formatDuration(match.duration),
-  opponent: String(match.mode || 'BOT') === 'BOT'
-    ? 'AI Bot'
-    : (match.metadata?.opponentName || match.metadata?.opponentUsername || 'Matched Player'),
-  playedAt: match.createdAt ? new Date(match.createdAt).toLocaleDateString() : 'Just now',
-});
+const formatMatch = (match: any): GameMatch => {
+  const rawMode = String(match.mode || 'BOT').toLowerCase();
+  const normalizedMode = rawMode === 'quick' ? 'auto' : rawMode;
+  return {
+    id: match.id,
+    gameId: match.gameId,
+    gameName: match.gameName || 'Game',
+    gameEmoji: GAME_EMOJIS[match.gameSlug] || 'GM',
+    mode: normalizedMode as PlayMode,
+    result: String(match.result || 'LOSS').toLowerCase() === 'win' ? 'win' : 'loss',
+    xpEarned: match.xpEarned || 0,
+    score: `${(match.score || 0).toLocaleString()} pts`,
+    duration: formatDuration(match.duration),
+    opponent: String(match.mode || 'BOT').toUpperCase() === 'BOT'
+      ? 'AI Bot'
+      : (match.metadata?.opponentName || match.metadata?.opponentUsername || 'Matched Player'),
+    playedAt: match.createdAt ? new Date(match.createdAt).toLocaleDateString() : 'Just now',
+  };
+};
 
 function reducer(state: State, action: Action): State {
   switch (action.type) {

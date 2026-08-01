@@ -13,6 +13,7 @@ import SettingsScreen       from '../screens/main/SettingsScreen';
 import LockScreen           from '../screens/main/LockScreen';
 import SearchScreen         from '../screens/main/SearchScreen';
 import EditProfileScreen    from '../screens/main/EditProfileScreen';
+import LobbyScreen          from '../screens/main/LobbyScreen';
 import TermsScreen          from '../screens/main/TermsScreen';
 import PrivacyScreen        from '../screens/main/PrivacyScreen';
 import ChangePasswordScreen from '../screens/main/ChangePasswordScreen';
@@ -36,6 +37,7 @@ export default function HomeStackNavigator() {
 	      <Stack.Screen name="Bookmarks"    component={BookmarksScreen} />
 	      <Stack.Screen name="Leaderboards" component={LeaderboardsScreen} options={{ animation: 'slide_from_right' }} />
 	      <Stack.Screen name="Settings"     component={SettingsScreen}  />
+      <Stack.Screen name="Lobby"        component={LobbyScreen}       />
       <Stack.Screen name="EditProfile"  component={EditProfileScreen} options={{ animation: 'slide_from_right' }} />
       <Stack.Screen name="Terms"        component={TermsScreen}       options={{ animation: 'slide_from_right' }} />
       <Stack.Screen name="Privacy"      component={PrivacyScreen}     options={{ animation: 'slide_from_right' }} />

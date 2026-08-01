@@ -188,7 +188,8 @@ export default function SpotlightCarousel() {
 
       const trendingBackend = trendingRes.data || [];
       const trendingGames: Highlight[] = trendingBackend.map(bg => {
-        const localGame = GAME_ASSETS[bg.slug] || GAME_ASSETS['tap-rush'];
+        const slug = (bg as any).slug || 'tap-rush';
+        const localGame = GAME_ASSETS[slug as keyof typeof GAME_ASSETS] || GAME_ASSETS['tap-rush'];
         return {
           id: `game-${bg.id}`,
           title: bg.name,

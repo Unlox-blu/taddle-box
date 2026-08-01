@@ -211,7 +211,7 @@ function makeStyles(c: ColorPalette) {
       height: CARD_WIDTH * 1,
       marginLeft: spacing.xl,
       backgroundColor: c.bg.card,
-      borderRadius: radii.xxl || 24,
+      borderRadius: radii.xl || 24,
       overflow: "hidden",
       borderWidth: 1,
       borderColor: "rgba(255,255,255,0.08)",

@@ -8,7 +8,7 @@ import { useAuth } from '../../context/AuthContext';
 import { useGames } from '../../context/GamesContext';
 import { useThemeColors } from '../../context/ThemeContext';
 import { fontSizes, radii, spacing } from '../../theme';
-import apiClient from '../../services/apiClient';
+import { apiClient } from '../../services/apiClient';
 import { socketClient } from '../../services/socketClient';
 
 export default function LobbyScreen() {
@@ -52,18 +52,21 @@ export default function LobbyScreen() {
     };
 
     const handleMatchStarted = (data: any) => {
-      // The match started!
-      // This will actually be handled globally by GamesScreen context, 
-      // but we might want to pop this screen.
-      navigation.goBack(); 
+      const payload = data?.payload || data;
+      const matchGroupId = payload?.matchGroupId || payload?.matchId || payload?.id;
+      const hasSession = Boolean(payload?.sessionId || payload?.wsToken || payload?.ticket?.userMatchId);
+
+      if (matchGroupId || hasSession) {
+        setLobby((prev: any) => prev ? { ...prev, pendingMatch: true } : prev);
+      }
     };
 
-    socketClient.on('matchmaking:lobbyUpdated', handleLobbyUpdate);
-    socketClient.on('matchmaking:matched', handleMatchStarted);
+    socketClient.events.on('matchmaking:lobbyUpdated', handleLobbyUpdate);
+    socketClient.events.on('matchmaking:matched', handleMatchStarted);
 
     return () => {
-      socketClient.off('matchmaking:lobbyUpdated', handleLobbyUpdate);
-      socketClient.off('matchmaking:matched', handleMatchStarted);
+      socketClient.events.off('matchmaking:lobbyUpdated', handleLobbyUpdate);
+      socketClient.events.off('matchmaking:matched', handleMatchStarted);
     };
   }, [lobbyId]);
 
@@ -104,7 +107,7 @@ export default function LobbyScreen() {
       <ScrollView contentContainerStyle={styles.content}>
         <View style={styles.statusCard}>
           <Text style={styles.statusTitle}>
-            {lobby.settings?.visibility === 'PRIVATE' ? 'Private Lobby' : 'Public Matchmaking'}
+            {lobby.settings?.mode === 'CUSTOM' ? 'Private Lobby' : 'Public Matchmaking'}
           </Text>
           {lobby.settings?.visibility === 'PRIVATE' && (
             <Text style={styles.lobbyCode}>Code: {lobby.id.split('-')[0].toUpperCase()}</Text>

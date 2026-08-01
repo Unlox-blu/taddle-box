@@ -122,6 +122,9 @@ export default function SnakeLadderGame({ matchId, userId, wsToken, players, onC
   useEffect(() => {
     const s = createGameEngineSocket(matchId, userId, wsToken);
     setSocket(s);
+    return () => {
+      s.disconnect();
+    };
 
     s.on(E.CONNECT_ACK, (data: any) => {
       const players = data.state?.metadata?.playerSnapshots || data.state?.metadata?.players || data.state?.players || [];

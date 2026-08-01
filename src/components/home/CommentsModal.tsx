@@ -47,15 +47,6 @@ function makeStyles(c: ColorPalette) {
       marginTop: 8,
       marginBottom: 8,
     },
-    dragHandle: {
-      alignSelf: 'center',
-      width: 40,
-      height: 4,
-      borderRadius: 2,
-      backgroundColor: c.borderHover,
-      marginTop: 8,
-      marginBottom: 8,
-    },
     header: {
       flexDirection: 'row', alignItems: 'center',
       paddingHorizontal: spacing.lg, paddingBottom: 12,

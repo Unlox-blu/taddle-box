@@ -1,32 +1,49 @@
-import React, { useEffect, useState, useCallback, useRef } from 'react';
+import React, { useEffect, useState, useCallback, useRef, useMemo } from 'react';
 import {
-  View, Text, TouchableOpacity, StyleSheet, Animated, Dimensions, Alert,
+  View, Text, TouchableOpacity, StyleSheet, Animated, Dimensions,
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
-import Svg, { Line, Circle, Path, Defs, LinearGradient as SvgLinearGradient, Stop } from 'react-native-svg';
+import Svg, {
+  Line, Circle, Path, Defs, LinearGradient as SvgGrad, Stop, G,
+} from 'react-native-svg';
 import type { HtmlGameResult } from '../../games/types';
 import { createGameEngineSocket } from '../../services/socketClient';
 
-const { width } = Dimensions.get('window');
-const BOARD_SIZE = Math.min(Math.floor(width - 16), 400);
+const { width: SCREEN_W } = Dimensions.get('window');
+const BOARD_SIZE = Math.min(Math.floor(SCREEN_W - 24), 400);
 const GRID = 10;
 const CELL = BOARD_SIZE / GRID;
 
-// ── Board data ──────────────────────────────────────────────────────────────
+// ── Board data ─────────────────────────────────────────────────────────────
 const SNAKES: Record<number, number> = { 99: 54, 70: 55, 52: 42, 43: 22, 36: 6, 32: 10, 49: 11 };
 const LADDERS: Record<number, number> = { 4: 25, 13: 46, 33: 49, 42: 63, 50: 69, 62: 81, 74: 92 };
 
+// Alternating board colors — vibrant jewel tones
+const CELL_COLORS = [
+  ['#1B4D3E', '#0D6E4F'],  // emerald dark / light
+  ['#1E3A5F', '#1A4A7A'],  // sapphire dark / light
+];
 
-const PLAYER_COLORS = ['#7C3AED', '#EF4444', '#22C55E', '#EAB308'];
+const PLAYER_COLORS = ['#A855F7', '#F97316', '#22C55E', '#EAB308'];
+const PLAYER_LABELS = ['★', '♦', '●', '▲'];
 
-// Convert square (1-100) to {row, col} from top-left (screen coords)
-function squareToGrid(sq: number): { row: number; col: number } {
+// Convert square (1-100) to pixel center {x, y}
+function squareToCenter(sq: number): { x: number; y: number } {
   const idx = sq - 1;
   const rawRow = Math.floor(idx / GRID);
   const rawCol = idx % GRID;
-  const row = GRID - 1 - rawRow;                           // flip vertically
-  const col = rawRow % 2 === 0 ? rawCol : GRID - 1 - rawCol; // snake pattern
-  return { row, col };
+  const row = GRID - 1 - rawRow;
+  const col = rawRow % 2 === 0 ? rawCol : GRID - 1 - rawCol;
+  return {
+    x: col * CELL + CELL / 2,
+    y: row * CELL + CELL / 2,
+  };
+}
+
+// Deterministic control point offset based on snake index
+function snakeCtrlOffset(startSq: number): number {
+  const offsets = [45, -45, 38, -38, 50, -50, 42];
+  return offsets[startSq % offsets.length];
 }
 
 const E = {
@@ -39,41 +56,54 @@ type Props = {
   matchId: string;
   userId: string;
   wsToken: string;
+  opponentName?: string;
   onComplete: (result: HtmlGameResult) => void;
 };
 
-export default function SnakeLadderGame({ matchId, userId, wsToken, onComplete }: Props) {
+export default function SnakeLadderGame({ matchId, userId, wsToken, opponentName, onComplete }: Props) {
   const [socket, setSocket] = useState<any>(null);
   const [status, setStatus] = useState<'connecting' | 'waiting' | 'active' | 'finished'>('connecting');
   const [state, setState] = useState<any>(null);
-  const [prevPositions, setPrevPositions] = useState<Record<string, number>>({});
   const [myPlayerIndex, setMyPlayerIndex] = useState(0);
   const [isMyTurn, setIsMyTurn] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
-  const [diceResult, setDiceResult] = useState<number | null>(null);
   const [rolling, setRolling] = useState(false);
+  const [lastDice, setLastDice] = useState<number | null>(null);
 
   const diceAnim = useRef(new Animated.Value(1)).current;
+  const diceRotate = useRef(new Animated.Value(0)).current;
   const toastAnim = useRef(new Animated.Value(0)).current;
-  // Per-player token animations
+
+  // Per-player animated positions
   const tokenAnims = useRef<Record<string, { x: Animated.Value; y: Animated.Value }>>({}).current;
 
-  const getTokenAnim = (key: string, initial: { x: number; y: number }) => {
-    if (!tokenAnims[key]) {
-      tokenAnims[key] = {
-        x: new Animated.Value(initial.x),
-        y: new Animated.Value(initial.y),
+  const getOrCreateTokenAnim = useCallback((uid: string, sq: number) => {
+    if (!tokenAnims[uid]) {
+      const { x, y } = squareToCenter(Math.max(1, sq));
+      tokenAnims[uid] = {
+        x: new Animated.Value(x),
+        y: new Animated.Value(y),
       };
     }
-    return tokenAnims[key];
-  };
+    return tokenAnims[uid];
+  }, []);
+
+  const animateToken = useCallback((uid: string, toSq: number) => {
+    const anim = tokenAnims[uid];
+    if (!anim) return;
+    const { x, y } = squareToCenter(Math.max(1, toSq));
+    Animated.parallel([
+      Animated.spring(anim.x, { toValue: x, useNativeDriver: false, speed: 12, bounciness: 6 }),
+      Animated.spring(anim.y, { toValue: y, useNativeDriver: false, speed: 12, bounciness: 6 }),
+    ]).start();
+  }, []);
 
   const showToast = (msg: string) => {
     setToast(msg);
     toastAnim.setValue(0);
     Animated.sequence([
       Animated.timing(toastAnim, { toValue: 1, duration: 250, useNativeDriver: true }),
-      Animated.delay(2200),
+      Animated.delay(2500),
       Animated.timing(toastAnim, { toValue: 0, duration: 300, useNativeDriver: true }),
     ]).start(() => setToast(null));
   };
@@ -98,22 +128,28 @@ export default function SnakeLadderGame({ matchId, userId, wsToken, onComplete }
     });
 
     s.on(E.SYNC, (data: any) => {
-      if (!data.state) {
-        // Scribble stroke events
-        return;
-      }
+      if (!data.state) return;
       const newState = data.state;
 
-      // Show snake/ladder toast from server lastEvent
       if (newState.lastEvent === 'snake') {
         showToast(`🐍 Snake! Slid down to ${Object.values(newState.positions || {})[0]}`);
       } else if (newState.lastEvent === 'ladder') {
         showToast(`🪜 Ladder! Climbed to ${Object.values(newState.positions || {})[0]}`);
       }
 
+      // Animate tokens to new positions
+      if (newState.positions) {
+        Object.entries(newState.positions).forEach(([uid, pos]: [string, any]) => {
+          const sq = pos > 0 ? pos : 1;
+          if (tokenAnims[uid]) {
+            animateToken(uid, sq);
+          }
+        });
+      }
+
       setState(newState);
       setRolling(false);
-      setDiceResult(newState.lastDice ?? null);
+      setLastDice(newState.lastDice ?? null);
       setIsMyTurn(newState.currentTurnIndex === myPlayerIndex);
     });
 
@@ -123,7 +159,7 @@ export default function SnakeLadderGame({ matchId, userId, wsToken, onComplete }
       showToast(won ? '🏆 You Won!' : '😢 You Lost');
       setTimeout(() => {
         onComplete({ score: won ? 1 : 0, won, xpEarned: won ? 60 : 10, durationSeconds: 0 });
-      }, 2200);
+      }, 2500);
     });
 
     s.on(E.ERROR, (e: any) => showToast('⚠️ ' + (e.message || 'Error')));
@@ -139,314 +175,479 @@ export default function SnakeLadderGame({ matchId, userId, wsToken, onComplete }
     setRolling(true);
     socket?.emit(E.MOVE, { type: 'ROLL' });
 
+    // Animate dice: bounce + slight rotation
+    diceRotate.setValue(0);
     Animated.sequence([
-      Animated.spring(diceAnim, { toValue: 1.4, useNativeDriver: true, speed: 50 }),
-      Animated.spring(diceAnim, { toValue: 0.9, useNativeDriver: true, speed: 40 }),
+      Animated.parallel([
+        Animated.spring(diceAnim, { toValue: 1.35, useNativeDriver: true, speed: 80 }),
+        Animated.timing(diceRotate, { toValue: 1, duration: 120, useNativeDriver: true }),
+      ]),
+      Animated.parallel([
+        Animated.spring(diceAnim, { toValue: 0.88, useNativeDriver: true, speed: 50 }),
+        Animated.timing(diceRotate, { toValue: -0.5, duration: 100, useNativeDriver: true }),
+      ]),
       Animated.spring(diceAnim, { toValue: 1, useNativeDriver: true, speed: 30 }),
     ]).start();
-  }, [isMyTurn, socket, rolling, diceAnim]);
+  }, [isMyTurn, socket, rolling]);
 
   // ── Board renderer ────────────────────────────────────────────────────────
-  const renderBoard = () => {
+  const boardCells = useMemo(() => {
     const cells = [];
     for (let sq = 1; sq <= 100; sq++) {
-      const { row, col } = squareToGrid(sq);
+      const idx = sq - 1;
+      const rawRow = Math.floor(idx / GRID);
+      const rawCol = idx % GRID;
+      const row = GRID - 1 - rawRow;
+      const col = rawRow % 2 === 0 ? rawCol : GRID - 1 - rawCol;
+
       const hasSnake = SNAKES[sq] !== undefined;
       const hasLadder = LADDERS[sq] !== undefined;
-      const isEven = ((Math.floor((sq - 1) / GRID)) + col) % 2 === 0;
+      // Checkerboard: alternate based on sum of row/col
+      const colorSet = (row + col) % 2 === 0 ? CELL_COLORS[0] : CELL_COLORS[1];
+      const bgColor = hasSnake ? '#4B1C1C' : hasLadder ? '#1C3B1C' : colorSet[(row + col) % 2 === 0 ? 0 : 1];
 
       cells.push(
         <View
           key={sq}
-          style={[
-            styles.cell,
-            {
-              position: 'absolute',
-              left: col * CELL,
-              top: row * CELL,
-              width: CELL,
-              height: CELL,
-              backgroundColor: hasSnake
-                ? 'rgba(239,68,68,0.22)'
-                : hasLadder
-                ? 'rgba(34,197,94,0.22)'
-                : isEven
-                ? 'rgba(255,255,255,0.04)'
-                : 'rgba(255,255,255,0.02)',
-            },
-          ]}
+          style={{
+            position: 'absolute',
+            left: col * CELL,
+            top: row * CELL,
+            width: CELL,
+            height: CELL,
+            backgroundColor: bgColor,
+            borderWidth: 0.5,
+            borderColor: 'rgba(0,0,0,0.3)',
+            justifyContent: 'flex-start',
+            alignItems: 'flex-end',
+            padding: 1.5,
+          }}
         >
           <Text style={styles.cellNum}>{sq}</Text>
-          {hasSnake && <Text style={styles.cellIcon}>🐍</Text>}
-          {hasLadder && <Text style={styles.cellIcon}>🪜</Text>}
         </View>
       );
     }
     return cells;
-  };
+  }, []);
 
-  const renderPlayers = () => {
+  // ── SVG overlays: snakes & ladders ────────────────────────────────────────
+  const svgOverlays = useMemo(() => {
+    const ladderElements: React.ReactElement[] = [];
+    const snakeElements: React.ReactElement[] = [];
+
+    // Draw ladders
+    Object.entries(LADDERS).forEach(([startStr, end]) => {
+      const start = Number(startStr);
+      const s = squareToCenter(start);
+      const e = squareToCenter(end);
+
+      // Ladder: two parallel rails + rungs
+      const dx = e.x - s.x;
+      const dy = e.y - s.y;
+      const len = Math.sqrt(dx * dx + dy * dy);
+      const ux = dy / len;  // perpendicular unit vector
+      const uy = -dx / len;
+      const railOffset = 5;
+
+      const rails = [
+        { x1: s.x + ux * railOffset, y1: s.y + uy * railOffset, x2: e.x + ux * railOffset, y2: e.y + uy * railOffset },
+        { x1: s.x - ux * railOffset, y1: s.y - uy * railOffset, x2: e.x - ux * railOffset, y2: e.y - uy * railOffset },
+      ];
+
+      // Rungs at even intervals
+      const rungs = [];
+      const rungCount = Math.max(2, Math.floor(len / (CELL * 0.7)));
+      for (let r = 1; r <= rungCount; r++) {
+        const t = r / (rungCount + 1);
+        const mx = s.x + dx * t;
+        const my = s.y + dy * t;
+        rungs.push(
+          <Line
+            key={`rung-${start}-${r}`}
+            x1={mx + ux * (railOffset + 2)} y1={my + uy * (railOffset + 2)}
+            x2={mx - ux * (railOffset + 2)} y2={my - uy * (railOffset + 2)}
+            stroke="#F59E0B" strokeWidth="3.5" strokeLinecap="round"
+          />
+        );
+      }
+
+      ladderElements.push(
+        <G key={`ladder-${start}`}>
+          {/* Shadow rails */}
+          {rails.map((r, i) => (
+            <Line key={`shadow-${i}`} x1={r.x1 + 1} y1={r.y1 + 1} x2={r.x2 + 1} y2={r.y2 + 1}
+              stroke="rgba(0,0,0,0.4)" strokeWidth="5" strokeLinecap="round" />
+          ))}
+          {/* Gold rails */}
+          {rails.map((r, i) => (
+            <Line key={`rail-${i}`} x1={r.x1} y1={r.y1} x2={r.x2} y2={r.y2}
+              stroke="url(#ladderGold)" strokeWidth="4.5" strokeLinecap="round" />
+          ))}
+          {rungs}
+          {/* Top glow circle */}
+          <Circle cx={e.x} cy={e.y} r={5} fill="#FDE68A" opacity={0.9} />
+          {/* Bottom anchor */}
+          <Circle cx={s.x} cy={s.y} r={4} fill="#D97706" opacity={0.8} />
+        </G>
+      );
+    });
+
+    // Draw snakes — sinuous SVG path with deterministic control points
+    Object.entries(SNAKES).forEach(([startStr, end]) => {
+      const start = Number(startStr);
+      const s = squareToCenter(start);
+      const e = squareToCenter(end);
+
+      const ctrl1Offset = snakeCtrlOffset(start);
+      const ctrl2Offset = -ctrl1Offset;
+
+      // Mid points for cubic bezier
+      const mx = (s.x + e.x) / 2;
+      const my = (s.y + e.y) / 2;
+      const cx1 = mx + ctrl1Offset;
+      const cy1 = my - Math.abs(ctrl1Offset) * 0.3;
+      const cx2 = mx + ctrl2Offset;
+      const cy2 = my + Math.abs(ctrl2Offset) * 0.3;
+
+      const path = `M ${s.x} ${s.y} C ${cx1} ${cy1} ${cx2} ${cy2} ${e.x} ${e.y}`;
+
+      snakeElements.push(
+        <G key={`snake-${start}`}>
+          {/* Shadow */}
+          <Path d={path} stroke="rgba(0,0,0,0.5)" strokeWidth="12" fill="none" strokeLinecap="round" />
+          {/* Body gradient */}
+          <Path d={path} stroke="url(#snakeGreen)" strokeWidth="10" fill="none" strokeLinecap="round" />
+          {/* Scale pattern - lighter center stripe */}
+          <Path d={path} stroke="rgba(134,239,172,0.35)" strokeWidth="3" fill="none"
+            strokeLinecap="round" strokeDasharray="6,8" />
+          {/* Snake head at start */}
+          <Circle cx={s.x} cy={s.y} r={8} fill="#16A34A" />
+          <Circle cx={s.x} cy={s.y} r={8} fill="none" stroke="#4ADE80" strokeWidth="1.5" />
+          {/* Eyes */}
+          <Circle cx={s.x - 3} cy={s.y - 2} r={2} fill="#FFF" />
+          <Circle cx={s.x + 3} cy={s.y - 2} r={2} fill="#FFF" />
+          <Circle cx={s.x - 3} cy={s.y - 2} r={1} fill="#000" />
+          <Circle cx={s.x + 3} cy={s.y - 2} r={1} fill="#000" />
+          {/* Tail tip */}
+          <Circle cx={e.x} cy={e.y} r={4} fill="#15803D" />
+        </G>
+      );
+    });
+
+    return { ladderElements, snakeElements };
+  }, []);
+
+  // ── Player tokens ─────────────────────────────────────────────────────────
+  const renderTokens = () => {
     if (!state?.positions) return null;
+
     return Object.entries(state.positions).map(([uid, pos]: [string, any], i: number) => {
-      const square = pos > 0 ? pos : 1; // Show at square 1 if not started
-      const { row, col } = squareToGrid(square);
-      const offset = i * (CELL * 0.12);
-      const size = CELL * 0.52;
+      const sq = pos > 0 ? pos : 1;
+      const anim = getOrCreateTokenAnim(uid, sq);
       const isMe = uid === userId;
+      const color = PLAYER_COLORS[i % 4];
+      const tokenSize = CELL * 0.56;
 
       return (
-        <View
-          key={`player-${uid}`}
-          style={[
-            styles.playerToken,
-            {
-              left: col * CELL + offset + (CELL - size) / 2,
-              top: row * CELL + offset + (CELL - size) / 2,
-              width: size,
-              height: size,
-              borderRadius: size / 2,
-              backgroundColor: PLAYER_COLORS[i % 4],
-              borderWidth: isMe ? 2.5 : 1.5,
-              borderColor: isMe ? '#FFF' : 'rgba(255,255,255,0.5)',
-              zIndex: isMe ? 10 : 5,
-            },
-          ]}
+        <Animated.View
+          key={`tok-${uid}`}
+          style={{
+            position: 'absolute',
+            width: tokenSize,
+            height: tokenSize,
+            borderRadius: tokenSize / 2,
+            left: Animated.subtract(anim.x, tokenSize / 2 - (i % 2 === 0 ? -2 : 4)),
+            top: Animated.subtract(anim.y, tokenSize / 2 - (i > 1 ? 4 : -2)),
+            backgroundColor: color,
+            borderWidth: isMe ? 3 : 2,
+            borderColor: isMe ? '#FFF' : 'rgba(255,255,255,0.5)',
+            justifyContent: 'center',
+            alignItems: 'center',
+            elevation: isMe ? 10 : 5,
+            shadowColor: color,
+            shadowOpacity: 0.7,
+            shadowRadius: isMe ? 6 : 3,
+            shadowOffset: { width: 0, height: 2 },
+            zIndex: isMe ? 20 : 10,
+          }}
         >
-          <Text style={[styles.tokenNum, { fontSize: size * 0.38 }]}>{isMe ? '★' : i + 1}</Text>
-        </View>
+          <Text style={{ fontSize: tokenSize * 0.38, fontWeight: '900', color: '#FFF' }}>
+            {PLAYER_LABELS[i % 4]}
+          </Text>
+        </Animated.View>
       );
     });
   };
 
-  const renderVisuals = () => {
-    return (
-      <Svg height={BOARD_SIZE} width={BOARD_SIZE} style={{ position: 'absolute', top: 0, left: 0, zIndex: 3 }}>
-        <Defs>
-          <SvgLinearGradient id="ladderGrad" x1="0" y1="0" x2="0" y2="1">
-            <Stop offset="0" stopColor="#FACC15" stopOpacity="0.9" />
-            <Stop offset="1" stopColor="#CA8A04" stopOpacity="0.9" />
-          </SvgLinearGradient>
-          <SvgLinearGradient id="snakeGrad" x1="0" y1="0" x2="0" y2="1">
-            <Stop offset="0" stopColor="#EF4444" stopOpacity="0.9" />
-            <Stop offset="1" stopColor="#991B1B" stopOpacity="0.9" />
-          </SvgLinearGradient>
-        </Defs>
-
-        {Object.entries(LADDERS).map(([start, end]) => {
-          const s = squareToGrid(Number(start));
-          const e = squareToGrid(end);
-          const x1 = s.col * CELL + CELL / 2;
-          const y1 = s.row * CELL + CELL / 2;
-          const x2 = e.col * CELL + CELL / 2;
-          const y2 = e.row * CELL + CELL / 2;
-          return (
-            <React.Fragment key={`l-${start}`}>
-              <Line x1={x1 - 8} y1={y1} x2={x2 - 8} y2={y2} stroke="url(#ladderGrad)" strokeWidth="6" strokeLinecap="round" />
-              <Line x1={x1 + 8} y1={y1} x2={x2 + 8} y2={y2} stroke="url(#ladderGrad)" strokeWidth="6" strokeLinecap="round" />
-              {[0.2, 0.4, 0.6, 0.8].map(ratio => {
-                const px = x1 + (x2 - x1) * ratio;
-                const py = y1 + (y2 - y1) * ratio;
-                return <Line key={`l-${start}-${ratio}`} x1={px - 8} y1={py} x2={px + 8} y2={py} stroke="#FACC15" strokeWidth="4" />
-              })}
-            </React.Fragment>
-          );
-        })}
-
-        {Object.entries(SNAKES).map(([start, end]) => {
-          const s = squareToGrid(Number(start));
-          const e = squareToGrid(end);
-          const x1 = s.col * CELL + CELL / 2;
-          const y1 = s.row * CELL + CELL / 2;
-          const x2 = e.col * CELL + CELL / 2;
-          const y2 = e.row * CELL + CELL / 2;
-          const cx = (x1 + x2) / 2 + (Math.random() > 0.5 ? 40 : -40);
-          const cy = (y1 + y2) / 2;
-          return (
-            <Path
-              key={`s-${start}`}
-              d={`M ${x1} ${y1} Q ${cx} ${cy} ${x2} ${y2}`}
-              stroke="url(#snakeGrad)"
-              strokeWidth="10"
-              fill="none"
-              strokeLinecap="round"
-            />
-          );
-        })}
-      </Svg>
-    );
+  // ── Dice face ──────────────────────────────────────────────────────────────
+  const DOT_POSITIONS: Record<number, [number, number][]> = {
+    1: [[50, 50]],
+    2: [[28, 28], [72, 72]],
+    3: [[28, 28], [50, 50], [72, 72]],
+    4: [[28, 28], [72, 28], [28, 72], [72, 72]],
+    5: [[28, 28], [72, 28], [50, 50], [28, 72], [72, 72]],
+    6: [[28, 22], [72, 22], [28, 50], [72, 50], [28, 78], [72, 78]],
   };
 
-
-  // ── Controls state ──────────────────────────────────────────────
-  const dice = state?.lastDice ?? diceResult;
-  const currentTurnIdx = state?.currentTurnIndex ?? 0;
-  const currentColor = PLAYER_COLORS[currentTurnIdx % 4];
-
-  // Dice faces
-  const renderDiceFace = (val: number | null) => {
-    const dots: Record<number, [number, number][]> = {
-      1: [[50, 50]],
-      2: [[30, 30], [70, 70]],
-      3: [[30, 30], [50, 50], [70, 70]],
-      4: [[30, 30], [70, 30], [30, 70], [70, 70]],
-      5: [[30, 30], [70, 30], [50, 50], [30, 70], [70, 70]],
-      6: [[30, 22], [70, 22], [30, 50], [70, 50], [30, 78], [70, 78]],
-    };
-    if (val === null || val === undefined) {
-      return <Text style={styles.diceQ}>?</Text>;
-    }
-    return (dots[val] || []).map(([x, y], i) => (
-      <View key={i} style={[styles.diceDot, { left: `${x}%` as any, top: `${y}%` as any }]} />
+  const renderDice = () => {
+    const dots = lastDice ? (DOT_POSITIONS[lastDice] || []) : [];
+    return dots.map(([x, y], i) => (
+      <View key={i} style={[styles.diceDot, {
+        left: `${x}%` as any,
+        top: `${y}%` as any,
+      }]} />
     ));
   };
 
+  // ── Turn info ──────────────────────────────────────────────────────────────
+  const currentTurnIdx = state?.currentTurnIndex ?? 0;
+  const currentColor = PLAYER_COLORS[currentTurnIdx % 4];
+
+  // ── Screens ────────────────────────────────────────────────────────────────
   if (status === 'connecting') {
     return (
-      <View style={styles.fullCenter}>
-        <Text style={styles.splashIcon}>🐍</Text>
+      <LinearGradient colors={['#0D1117', '#0D2137']} style={styles.fullCenter}>
+        <Text style={styles.splashEmoji}>🐍</Text>
         <Text style={styles.splashTitle}>Snake & Ladder</Text>
-        <Text style={styles.splashSub}>Connecting…</Text>
-      </View>
+        <Text style={styles.splashSub}>Connecting to match…</Text>
+        <LoadingDots />
+      </LinearGradient>
     );
   }
 
   if (status === 'waiting') {
     return (
-      <View style={styles.fullCenter}>
-        <Text style={styles.splashIcon}>⏳</Text>
+      <LinearGradient colors={['#0D1117', '#0D2137']} style={styles.fullCenter}>
+        <Text style={styles.splashEmoji}>⏳</Text>
         <Text style={styles.splashTitle}>Snake & Ladder</Text>
         <Text style={styles.splashSub}>Waiting for opponent…</Text>
-        <View style={styles.dotRow}>
-          {[0,1,2].map(i => <WaitDot key={i} delay={i*200} />)}
-        </View>
-      </View>
+        <LoadingDots />
+      </LinearGradient>
     );
   }
 
+  const spin = diceRotate.interpolate({
+    inputRange: [-1, 0, 1],
+    outputRange: ['-15deg', '0deg', '15deg'],
+  });
+
   return (
-    <View style={styles.container}>
-      {/* Turn banner */}
-      <View style={[styles.banner, { borderColor: currentColor + '60' }]}>
-        <View style={[styles.bannerDot, { backgroundColor: currentColor }]} />
-        <Text style={[styles.bannerText, { color: currentColor }]}>
-          {rolling
-            ? '🎲 Rolling…'
-            : isMyTurn
-            ? '🎲 Your Turn — Roll!'
-            : `Player ${currentTurnIdx + 1}'s Turn`}
-        </Text>
+    <LinearGradient colors={['#0D1117', '#0C1829']} style={styles.container}>
+      {/* Header / Turn banner */}
+      <View style={styles.header}>
+        <View style={[styles.turnPill, { borderColor: currentColor + '60', backgroundColor: currentColor + '15' }]}>
+          <View style={[styles.turnDot, { backgroundColor: currentColor }]} />
+          <Text style={[styles.turnText, { color: currentColor }]}>
+            {rolling
+              ? '🎲 Rolling…'
+              : isMyTurn
+              ? '🎲 Your Turn!'
+              : `Player ${currentTurnIdx + 1}'s Turn`}
+          </Text>
+        </View>
+
+        {/* Score pills */}
+        {state?.positions && (
+          <View style={styles.scorePills}>
+            {Object.entries(state.positions).map(([uid, pos]: any, i) => (
+              <View key={uid} style={[styles.scorePill, { backgroundColor: PLAYER_COLORS[i % 4] + '25', borderColor: PLAYER_COLORS[i % 4] + '50' }]}>
+                <Text style={[styles.scorePillLabel, { color: PLAYER_COLORS[i % 4] }]}>
+                  {uid === userId ? 'You' : (opponentName || `P${i + 1}`)}
+                </Text>
+                <Text style={[styles.scorePillVal, { color: '#FFF' }]}>
+                  sq {pos > 0 ? pos : '–'}
+                </Text>
+              </View>
+            ))}
+          </View>
+        )}
       </View>
 
       {/* Board */}
-      <View style={[styles.board, { width: BOARD_SIZE, height: BOARD_SIZE }]}>
-        {renderBoard()}
-        {renderVisuals()}
-        {renderPlayers()}
+      <View style={[styles.boardWrapper, { width: BOARD_SIZE + 8, height: BOARD_SIZE + 8 }]}>
+        <LinearGradient
+          colors={['rgba(124,58,237,0.5)', 'rgba(6,182,212,0.3)']}
+          style={[styles.boardGlow, { width: BOARD_SIZE + 8, height: BOARD_SIZE + 8 }]}
+        />
+        <View style={[styles.board, { width: BOARD_SIZE, height: BOARD_SIZE }]}>
+          {/* Cell backgrounds */}
+          {boardCells}
+
+          {/* SVG snakes & ladders (rendered above cells, below tokens) */}
+          <Svg
+            height={BOARD_SIZE} width={BOARD_SIZE}
+            style={{ position: 'absolute', top: 0, left: 0, zIndex: 3 }}
+          >
+            <Defs>
+              <SvgGrad id="ladderGold" x1="0" y1="0" x2="0" y2="1">
+                <Stop offset="0" stopColor="#FDE68A" stopOpacity="1" />
+                <Stop offset="0.5" stopColor="#F59E0B" stopOpacity="1" />
+                <Stop offset="1" stopColor="#D97706" stopOpacity="1" />
+              </SvgGrad>
+              <SvgGrad id="snakeGreen" x1="0" y1="0" x2="1" y2="1">
+                <Stop offset="0" stopColor="#16A34A" stopOpacity="1" />
+                <Stop offset="0.5" stopColor="#22C55E" stopOpacity="1" />
+                <Stop offset="1" stopColor="#15803D" stopOpacity="1" />
+              </SvgGrad>
+            </Defs>
+            {/* Ladders behind snakes */}
+            {svgOverlays.ladderElements}
+            {svgOverlays.snakeElements}
+          </Svg>
+
+          {/* Player tokens */}
+          {renderTokens()}
+        </View>
       </View>
 
       {/* Controls */}
       <View style={styles.controls}>
         {/* Dice */}
-        <Animated.View style={[styles.diceBox, { transform: [{ scale: diceAnim }] }]}>
-          {renderDiceFace(dice)}
+        <Animated.View style={[styles.diceOuter, { transform: [{ scale: diceAnim }, { rotate: spin }] }]}>
+          <LinearGradient
+            colors={lastDice ? ['#1E1B4B', '#2E1065'] : ['#0F172A', '#1E293B']}
+            style={styles.diceInner}
+          >
+            {lastDice ? renderDice() : <Text style={styles.diceQ}>?</Text>}
+          </LinearGradient>
         </Animated.View>
 
+        {/* Roll button */}
         <TouchableOpacity
           style={[styles.rollBtn, (!isMyTurn || rolling) && styles.rollBtnDisabled]}
           onPress={rollDice}
           disabled={!isMyTurn || rolling}
-          activeOpacity={0.8}
+          activeOpacity={0.85}
         >
           <LinearGradient
             colors={isMyTurn && !rolling ? ['#7C3AED', '#0891B2'] : ['#1E293B', '#1E293B']}
             start={{ x: 0, y: 0 }} end={{ x: 1, y: 0 }}
-            style={styles.rollBtnGradient}
+            style={styles.rollBtnGrad}
           >
             <Text style={[styles.rollBtnText, (!isMyTurn || rolling) && { color: '#475569' }]}>
-              {rolling
-                ? 'Rolling…'
-                : isMyTurn
-                ? 'Roll Dice 🎲'
-                : 'Waiting…'}
+              {rolling ? 'Rolling…' : isMyTurn ? 'Roll Dice  🎲' : 'Waiting…'}
             </Text>
           </LinearGradient>
         </TouchableOpacity>
       </View>
 
-      {/* Position display */}
-      {state?.positions && (
-        <View style={styles.posRow}>
-          {Object.entries(state.positions).map(([uid, pos]: any, i) => (
-            <View key={uid} style={styles.posItem}>
-              <View style={[styles.posColor, { backgroundColor: PLAYER_COLORS[i % 4] }]} />
-              <Text style={styles.posText}>{uid === userId ? 'You' : `P${i + 1}`}: sq {pos > 0 ? pos : '–'}</Text>
-            </View>
-          ))}
+      {/* Legend */}
+      <View style={styles.legend}>
+        <View style={styles.legendItem}>
+          <View style={[styles.legendDot, { backgroundColor: '#16A34A' }]} />
+          <Text style={styles.legendText}>Snake (slide down)</Text>
         </View>
-      )}
+        <View style={styles.legendItem}>
+          <View style={[styles.legendDot, { backgroundColor: '#F59E0B' }]} />
+          <Text style={styles.legendText}>Ladder (climb up)</Text>
+        </View>
+      </View>
 
-      {/* Toast */}
+      {/* Toast notification */}
       {toast && (
         <Animated.View style={[styles.toast, {
           opacity: toastAnim,
-          transform: [{ translateY: toastAnim.interpolate({ inputRange: [0, 1], outputRange: [20, 0] }) }],
+          transform: [{ translateY: toastAnim.interpolate({ inputRange: [0, 1], outputRange: [30, 0] }) }],
         }]}>
-          <Text style={styles.toastText}>{toast}</Text>
+          <LinearGradient colors={['#1E1B4B', '#1E293B']} style={styles.toastInner}>
+            <Text style={styles.toastText}>{toast}</Text>
+          </LinearGradient>
         </Animated.View>
       )}
+    </LinearGradient>
+  );
+}
+
+// ── Loading dots ─────────────────────────────────────────────────────────────
+function LoadingDots() {
+  return (
+    <View style={{ flexDirection: 'row', gap: 8, marginTop: 24 }}>
+      {[0, 1, 2].map(i => <PulseDot key={i} delay={i * 200} />)}
     </View>
   );
 }
 
-function WaitDot({ delay }: { delay: number }) {
-  const anim = useRef(new Animated.Value(0)).current;
+function PulseDot({ delay }: { delay: number }) {
+  const anim = useRef(new Animated.Value(0.3)).current;
   useEffect(() => {
     Animated.loop(
       Animated.sequence([
         Animated.delay(delay),
         Animated.timing(anim, { toValue: 1, duration: 400, useNativeDriver: true }),
-        Animated.timing(anim, { toValue: 0, duration: 400, useNativeDriver: true }),
+        Animated.timing(anim, { toValue: 0.3, duration: 400, useNativeDriver: true }),
       ])
     ).start();
   }, []);
-  return <Animated.View style={[styles.dot, { opacity: anim }]} />;
+  return <Animated.View style={{ width: 10, height: 10, borderRadius: 5, backgroundColor: '#7C3AED', opacity: anim }} />;
 }
 
+// ── Styles ────────────────────────────────────────────────────────────────────
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#05050F', alignItems: 'center', paddingTop: 8 },
-  fullCenter: { flex: 1, backgroundColor: '#05050F', justifyContent: 'center', alignItems: 'center' },
-  splashIcon: { fontSize: 64, marginBottom: 16 },
-  splashTitle: { fontSize: 26, fontWeight: '900', color: '#F8FAFC', marginBottom: 8 },
-  splashSub: { fontSize: 14, color: '#64748B', marginBottom: 20 },
-  dotRow: { flexDirection: 'row', gap: 8 },
-  dot: { width: 8, height: 8, borderRadius: 4, backgroundColor: '#7C3AED' },
+  container: { flex: 1, alignItems: 'center', paddingTop: 8, paddingBottom: 16 },
+  fullCenter: { flex: 1, justifyContent: 'center', alignItems: 'center' },
+  splashEmoji: { fontSize: 72, marginBottom: 12 },
+  splashTitle: { fontSize: 28, fontWeight: '900', color: '#F8FAFC', marginBottom: 6 },
+  splashSub: { fontSize: 15, color: '#64748B' },
 
-  banner: { flexDirection: 'row', alignItems: 'center', gap: 8, paddingHorizontal: 16, paddingVertical: 8, borderRadius: 20, borderWidth: 1.5, marginBottom: 10, backgroundColor: '#0F172A' },
-  bannerDot: { width: 8, height: 8, borderRadius: 4 },
-  bannerText: { fontSize: 13, fontWeight: '800' },
+  header: { width: '100%', paddingHorizontal: 12, marginBottom: 8, gap: 8 },
+  turnPill: {
+    flexDirection: 'row', alignItems: 'center', gap: 8,
+    paddingHorizontal: 16, paddingVertical: 8,
+    borderRadius: 24, borderWidth: 1.5, alignSelf: 'center',
+  },
+  turnDot: { width: 9, height: 9, borderRadius: 4.5 },
+  turnText: { fontSize: 14, fontWeight: '800' },
 
-  board: { position: 'relative', backgroundColor: '#0C1222', borderRadius: 10, borderWidth: 2, borderColor: 'rgba(124,58,237,0.3)', overflow: 'hidden' },
-  cell: { borderWidth: 0.3, borderColor: 'rgba(255,255,255,0.05)', justifyContent: 'flex-start', alignItems: 'flex-end', padding: 1 },
-  cellNum: { fontSize: 6.5, color: 'rgba(255,255,255,0.25)', fontWeight: '600' },
-  cellIcon: { position: 'absolute', bottom: 1, left: 1, fontSize: 10 },
-  playerToken: { position: 'absolute', justifyContent: 'center', alignItems: 'center', elevation: 6, shadowColor: '#000', shadowOpacity: 0.6, shadowRadius: 4, shadowOffset: { width: 0, height: 2 } },
-  tokenNum: { fontWeight: '900', color: '#FFF' },
+  scorePills: { flexDirection: 'row', gap: 8, justifyContent: 'center', flexWrap: 'wrap' },
+  scorePill: { flexDirection: 'row', gap: 6, paddingHorizontal: 12, paddingVertical: 5, borderRadius: 16, borderWidth: 1, alignItems: 'center' },
+  scorePillLabel: { fontSize: 11, fontWeight: '800', textTransform: 'uppercase' },
+  scorePillVal: { fontSize: 11, fontWeight: '600', opacity: 0.85 },
 
-  controls: { flexDirection: 'row', alignItems: 'center', marginTop: 14, gap: 12, paddingHorizontal: 16, width: '100%' },
-  diceBox: { width: 58, height: 58, backgroundColor: '#1E293B', borderRadius: 13, borderWidth: 2, borderColor: 'rgba(124,58,237,0.4)', justifyContent: 'center', alignItems: 'center', position: 'relative' },
-  diceBoxRolled: { borderColor: '#7C3AED', backgroundColor: '#1a1040' },
-  diceDot: { position: 'absolute', width: 9, height: 9, borderRadius: 4.5, backgroundColor: '#F8FAFC', transform: [{ translateX: -4.5 }, { translateY: -4.5 }] },
-  diceQ: { fontSize: 26, color: '#475569', fontWeight: '900' },
-  rollBtn: { flex: 1, borderRadius: 30, overflow: 'hidden' },
+  boardWrapper: { position: 'relative', justifyContent: 'center', alignItems: 'center' },
+  boardGlow: { position: 'absolute', borderRadius: 14, opacity: 0.8 },
+  board: {
+    position: 'relative', backgroundColor: '#0C1829',
+    borderRadius: 10, overflow: 'hidden',
+    borderWidth: 1.5, borderColor: 'rgba(124,58,237,0.4)',
+    elevation: 16, shadowColor: '#7C3AED', shadowOpacity: 0.4,
+    shadowRadius: 12, shadowOffset: { width: 0, height: 4 },
+  },
+  cellNum: { fontSize: 6.5, color: 'rgba(255,255,255,0.3)', fontWeight: '700' },
+
+  controls: {
+    flexDirection: 'row', alignItems: 'center', marginTop: 14,
+    gap: 12, paddingHorizontal: 12, width: '100%',
+  },
+  diceOuter: {
+    width: 62, height: 62,
+    borderRadius: 15, borderWidth: 2.5,
+    borderColor: 'rgba(124,58,237,0.6)',
+    elevation: 8, shadowColor: '#7C3AED', shadowOpacity: 0.5, shadowRadius: 8,
+    shadowOffset: { width: 0, height: 2 },
+  },
+  diceInner: {
+    width: 60, height: 60, borderRadius: 14,
+    justifyContent: 'center', alignItems: 'center', position: 'relative',
+  },
+  diceDot: {
+    position: 'absolute', width: 10, height: 10,
+    borderRadius: 5, backgroundColor: '#F8FAFC',
+    transform: [{ translateX: -5 }, { translateY: -5 }],
+    elevation: 2,
+  },
+  diceQ: { fontSize: 28, color: '#475569', fontWeight: '900' },
+
+  rollBtn: { flex: 1, borderRadius: 32, overflow: 'hidden', elevation: 6 },
   rollBtnDisabled: { opacity: 0.5 },
-  rollBtnGradient: { height: 52, justifyContent: 'center', alignItems: 'center' },
-  rollBtnText: { color: '#FFF', fontSize: 15, fontWeight: '900' },
+  rollBtnGrad: { height: 56, justifyContent: 'center', alignItems: 'center' },
+  rollBtnText: { color: '#FFF', fontSize: 16, fontWeight: '900', letterSpacing: 0.5 },
 
-  posRow: { flexDirection: 'row', gap: 14, marginTop: 10, flexWrap: 'wrap', justifyContent: 'center' },
-  posItem: { flexDirection: 'row', alignItems: 'center', gap: 5 },
-  posColor: { width: 10, height: 10, borderRadius: 5 },
-  posText: { color: '#94A3B8', fontSize: 12, fontWeight: '700' },
+  legend: { flexDirection: 'row', gap: 16, marginTop: 10 },
+  legendItem: { flexDirection: 'row', alignItems: 'center', gap: 6 },
+  legendDot: { width: 10, height: 10, borderRadius: 5 },
+  legendText: { color: '#64748B', fontSize: 11, fontWeight: '600' },
 
-  toast: { position: 'absolute', bottom: 90, alignSelf: 'center', backgroundColor: '#1E293B', borderRadius: 20, paddingHorizontal: 20, paddingVertical: 10, borderWidth: 1.5, borderColor: 'rgba(124,58,237,0.4)', elevation: 12 },
-  toastText: { color: '#F8FAFC', fontSize: 14, fontWeight: '800' },
+  toast: { position: 'absolute', bottom: 100, alignSelf: 'center', borderRadius: 24, overflow: 'hidden', elevation: 16 },
+  toastInner: { paddingHorizontal: 24, paddingVertical: 12, borderRadius: 24, borderWidth: 1.5, borderColor: 'rgba(124,58,237,0.5)' },
+  toastText: { color: '#F8FAFC', fontSize: 15, fontWeight: '900' },
 });

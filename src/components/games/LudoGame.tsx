@@ -1,68 +1,73 @@
-import React, { useEffect, useState, useCallback, useRef } from 'react';
+import React, { useEffect, useState, useCallback, useRef, useMemo } from 'react';
 import {
-  View, Text, TouchableOpacity, StyleSheet, Animated, Dimensions, Alert,
+  View, Text, TouchableOpacity, StyleSheet, Animated, Dimensions, Image,
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
+import Svg, { Polygon, Circle, Defs, LinearGradient as SvgGrad, Stop, Rect } from 'react-native-svg';
 import type { HtmlGameResult } from '../../games/types';
 import { createGameEngineSocket } from '../../services/socketClient';
 
-// ── Constants ────────────────────────────────────────────────────────────────
-const { width } = Dimensions.get('window');
-const BOARD_SIZE = Math.min(Math.floor(width - 16), 400);
+// ── Constants ─────────────────────────────────────────────────────────────────
+const { width: SCREEN_W, height: SCREEN_H } = Dimensions.get('window');
+// Board fills width minus margins, but leave room for dice + header
+const BOARD_SIZE = Math.min(Math.floor(SCREEN_W - 24), Math.floor(SCREEN_H * 0.56), 390);
 const CELL = BOARD_SIZE / 15;
 
-// Player colors
-const PLAYER_COLORS = ['#EF4444', '#3B82F6', '#22C55E', '#EAB308'] as const;
-const PLAYER_NAMES = ['Red', 'Blue', 'Green', 'Yellow'] as const;
-const HOME_BG = ['rgba(239,68,68,0.25)', 'rgba(59,130,246,0.25)', 'rgba(34,197,94,0.25)', 'rgba(234,179,8,0.25)'] as const;
+const PLAYER_COLORS   = ['#E32636', '#009E60', '#FFC000', '#007FFF'] as const;
+const PLAYER_COLORS_D = ['#9D1313', '#006B40', '#CC9900', '#0055AA'] as const;
+const PLAYER_NAMES    = ['Red', 'Green', 'Yellow', 'Blue'] as const;
 
-// ── Ludo board path (15×15 grid, col/row coordinates) ────────────────────────
-// The standard Ludo board path for player 0 (Red), starting at col=1, row=6
-// 56 steps total: outer track (52) + home column (4) + home (1)
+// ── Board path (15×15 grid) ───────────────────────────────────────────────────
 const LUDO_PATH: [number, number][] = [
-  // Bottom-left to right (row 6, going right through middle section)
   [1,6],[2,6],[3,6],[4,6],[5,6],
-  // Up the left side
   [6,5],[6,4],[6,3],[6,2],[6,1],[6,0],
-  // Right across top
   [7,0],[8,0],
-  // Down the right of top
   [8,1],[8,2],[8,3],[8,4],[8,5],
-  // Right across upper-middle
   [9,6],[10,6],[11,6],[12,6],[13,6],[14,6],
-  // Down right side
   [14,7],[14,8],
-  // Left across bottom-right
   [13,8],[12,8],[11,8],[10,8],[9,8],
-  // Down lower-right
   [8,9],[8,10],[8,11],[8,12],[8,13],[8,14],
-  // Left across bottom
   [7,14],[6,14],
-  // Up left side bottom
   [6,13],[6,12],[6,11],[6,10],[6,9],
-  // Left across lower-middle
   [5,8],[4,8],[3,8],[2,8],[1,8],[0,8],
-  // Up left side upper
   [0,7],[0,6],
-  // Home column (Red — going right)
   [1,7],[2,7],[3,7],[4,7],[5,7],
 ];
 
-// Safe squares (star positions) — col, row
-const SAFE_CELLS = new Set(['1,6','6,2','2,8','8,13','13,8','8,1','12,6','6,12','7,7']);
+// Starts + Stars
+const SAFE_CELLS = new Set(['1,6','8,1','13,8','6,13', '6,2','12,6','8,12','2,8']);
 
-// Home quadrant positions for 4 tokens
-const HOME_POSITIONS: [number, number][][] = [
-  [[1.5,1.5],[3.5,1.5],[1.5,3.5],[3.5,3.5]], // Red TL
-  [[11.5,1.5],[13.5,1.5],[11.5,3.5],[13.5,3.5]], // Blue TR
-  [[11.5,11.5],[13.5,11.5],[11.5,13.5],[13.5,13.5]], // Green BR
-  [[1.5,11.5],[3.5,11.5],[1.5,13.5],[3.5,13.5]], // Yellow BL
+// Slot positions inside each home yard (col, row)
+const HOME_SLOTS: [number, number][][] = [
+  [[2,2],[4,2],[2,4],[4,4]],          // Red TL
+  [[11,2],[13,2],[11,4],[13,4]],      // Green TR
+  [[11,11],[13,11],[11,13],[13,13]],  // Yellow BR
+  [[2,11],[4,11],[2,13],[4,13]],      // Blue BL
 ];
 
-// Path offset per player (how many steps ahead on the LUDO_PATH they start)
 const PLAYER_PATH_OFFSET = [0, 13, 26, 39];
 
-const E = {
+function getTokenPos(pi: number, tokenId: number, pos: number): { x: number; y: number } {
+  if (pos === -1) {
+    const [col, row] = HOME_SLOTS[pi % 4][tokenId % 4];
+    return { x: col * CELL, y: row * CELL };
+  }
+  if (pos >= 56) return { x: 7.5 * CELL, y: 7.5 * CELL };
+  const idx = (PLAYER_PATH_OFFSET[pi % 4] + pos) % LUDO_PATH.length;
+  const [col, row] = LUDO_PATH[idx];
+  return { x: (col + 0.5) * CELL, y: (row + 0.5) * CELL };
+}
+
+// Star polygon helper
+function starPts(cx: number, cy: number, r1: number, r2: number, n: number): string {
+  return Array.from({ length: n * 2 }, (_, i) => {
+    const a = (Math.PI / n) * i - Math.PI / 2;
+    const r = i % 2 === 0 ? r1 : r2;
+    return `${(cx + r * Math.cos(a)).toFixed(1)},${(cy + r * Math.sin(a)).toFixed(1)}`;
+  }).join(' ');
+}
+
+const EVENTS = {
   READY: 'READY', MOVE: 'MOVE', CONNECT_ACK: 'CONNECT',
   START: 'START', SYNC: 'SYNC', GAME_OVER: 'GAME_OVER', ERROR: 'ERROR',
 };
@@ -71,43 +76,64 @@ type Props = {
   matchId: string;
   userId: string;
   wsToken: string;
+  myName?: string;
+  myAvatar?: string | null;
+  opponentName?: string;
   onComplete: (result: HtmlGameResult) => void;
 };
 
-function getTokenScreenPos(playerIdx: number, tokenId: number, pos: number): { col: number; row: number } {
-  if (pos === -1) {
-    // In home yard
-    const [col, row] = HOME_POSITIONS[playerIdx % 4][tokenId % 4];
-    return { col, row };
-  }
-  if (pos >= 56) {
-    // Reached home center
-    return { col: 7, row: 7 };
-  }
-  const offset = PLAYER_PATH_OFFSET[playerIdx % 4];
-  const pathIdx = (offset + pos) % LUDO_PATH.length;
-  const [col, row] = LUDO_PATH[pathIdx];
-  return { col: col + 0.5, row: row + 0.5 };
-}
+// ── Dot positions for dice faces ──────────────────────────────────────────────
+const DOT_POS: Record<number, [number, number][]> = {
+  1: [[50,50]],
+  2: [[28,28],[72,72]],
+  3: [[28,28],[50,50],[72,72]],
+  4: [[28,28],[72,28],[28,72],[72,72]],
+  5: [[28,28],[72,28],[50,50],[28,72],[72,72]],
+  6: [[28,20],[72,20],[28,50],[72,50],[28,80],[72,80]],
+};
 
-export default function LudoGame({ matchId, userId, wsToken, onComplete }: Props) {
+export default function LudoGame({
+  matchId, userId, wsToken, myName, myAvatar, opponentName, onComplete
+}: Props) {
   const [socket, setSocket] = useState<any>(null);
   const [status, setStatus] = useState<'connecting' | 'waiting' | 'active' | 'finished'>('connecting');
-  const [state, setState] = useState<any>(null);
-  const [myPlayerIndex, setMyPlayerIndex] = useState<number>(0);
+  const [gameState, setGameState] = useState<any>(null);
+  const [myPlayerIdx, setMyPlayerIdx] = useState(0);
   const [isMyTurn, setIsMyTurn] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
 
-  const diceAnim = useRef(new Animated.Value(0)).current;
-  const diceScale = useRef(new Animated.Value(1)).current;
-  const toastAnim = useRef(new Animated.Value(0)).current;
+  // Player info from socket (name + avatar for opponents)
+  const [playerInfo, setPlayerInfo] = useState<Record<string, { name: string; avatar?: string }>>({});
+
+  const diceScale  = useRef(new Animated.Value(1)).current;
+  const diceRotate = useRef(new Animated.Value(0)).current;
+  const toastAnim  = useRef(new Animated.Value(0)).current;
+
+  // Per-token spring animations
+  const tokenAnims = useRef<Record<string, { x: Animated.Value; y: Animated.Value }>>({}).current;
+
+  const getAnim = useCallback((key: string, x: number, y: number) => {
+    if (!tokenAnims[key]) {
+      tokenAnims[key] = { x: new Animated.Value(x), y: new Animated.Value(y) };
+    }
+    return tokenAnims[key];
+  }, []);
+
+  const springToken = useCallback((key: string, x: number, y: number) => {
+    const a = tokenAnims[key];
+    if (!a) return;
+    Animated.parallel([
+      Animated.spring(a.x, { toValue: x, useNativeDriver: false, speed: 16, bounciness: 8 }),
+      Animated.spring(a.y, { toValue: y, useNativeDriver: false, speed: 16, bounciness: 8 }),
+    ]).start();
+  }, []);
 
   const showToast = (msg: string) => {
     setToast(msg);
     toastAnim.setValue(0);
     Animated.sequence([
-      Animated.timing(toastAnim, { toValue: 1, duration: 250, useNativeDriver: true }),
-      Animated.delay(1800),
+      Animated.timing(toastAnim, { toValue: 1, duration: 200, useNativeDriver: true }),
+      Animated.delay(2300),
       Animated.timing(toastAnim, { toValue: 0, duration: 300, useNativeDriver: true }),
     ]).start(() => setToast(null));
   };
@@ -116,388 +142,571 @@ export default function LudoGame({ matchId, userId, wsToken, onComplete }: Props
     const s = createGameEngineSocket(matchId, userId, wsToken);
     setSocket(s);
 
-    s.on(E.CONNECT_ACK, (data: any) => {
+    s.on(EVENTS.CONNECT_ACK, (data: any) => {
       const ps = data.state?.pluginState;
-      const players = data.state?.players || data.state?.metadata?.players || [];
+      const players: any[] = data.state?.players || data.state?.metadata?.players || [];
       const idx = players.findIndex((p: any) => p.userId === userId);
-      setMyPlayerIndex(idx >= 0 ? idx : 0);
-      if (ps) setState(ps);
+      setMyPlayerIdx(idx >= 0 ? idx : 0);
+
+      // Collect player info (name / avatar)
+      const info: Record<string, { name: string; avatar?: string }> = {};
+      players.forEach((p: any) => {
+        info[p.userId] = { name: p.name || p.username || 'Player', avatar: p.avatarUrl || p.avatar };
+      });
+      // Inject self
+      info[userId] = { name: myName || 'You', avatar: myAvatar || undefined };
+      setPlayerInfo(info);
+
+      if (ps) setGameState(ps);
       setStatus(data.state?.status === 'ACTIVE' ? 'active' : 'waiting');
-      s.emit(E.READY);
+      s.emit(EVENTS.READY);
     });
 
-    s.on(E.START, (data: any) => {
+    s.on(EVENTS.START, (data: any) => {
       const ps = data.state?.pluginState ?? data.state;
-      if (ps) setState(ps);
+      if (ps) setGameState(ps);
       setStatus('active');
     });
 
-    s.on(E.SYNC, (data: any) => {
+    s.on(EVENTS.SYNC, (data: any) => {
       if (!data.state) return;
-      setState(data.state);
-      const curTurnIdx = data.state.currentTurnIndex ?? 0;
-      setIsMyTurn(curTurnIdx === myPlayerIndex);
+      const ns = data.state;
+      // Animate all tokens
+      if (ns.tokens) {
+        Object.entries(ns.tokens).forEach(([uid, tks]: [string, any]) => {
+          const pi = ns.turnOrder?.indexOf(uid) ?? 0;
+          (tks || []).forEach((t: any) => {
+            const key = `${uid}-${t.id}`;
+            const { x, y } = getTokenPos(pi, t.id, t.pos ?? -1);
+            if (tokenAnims[key]) springToken(key, x, y);
+          });
+        });
+      }
+      setGameState(ns);
+      setIsMyTurn((ns.currentTurnIndex ?? 0) === myPlayerIdx);
     });
 
-    s.on(E.GAME_OVER, (data: any) => {
+    s.on(EVENTS.GAME_OVER, (data: any) => {
       setStatus('finished');
-      const winnerId = data.winner || data.state?.pluginState?.winner;
-      const won = winnerId === userId;
+      const won = (data.winner || data.state?.pluginState?.winner) === userId;
       showToast(won ? '🏆 You Won!' : '😢 You Lost');
       setTimeout(() => {
         onComplete({ score: won ? 1 : 0, won, xpEarned: won ? 60 : 10, durationSeconds: 0 });
-      }, 2000);
+      }, 2500);
     });
 
-    s.on(E.ERROR, (e: any) => {
-      showToast('⚠️ ' + (e.message || 'Error'));
-    });
-
+    s.on(EVENTS.ERROR, (e: any) => showToast('⚠️ ' + (e.message || 'Error')));
     return () => s.disconnect();
   }, [matchId, userId, wsToken]);
 
   useEffect(() => {
-    if (state) setIsMyTurn((state.currentTurnIndex ?? 0) === myPlayerIndex);
-  }, [state, myPlayerIndex]);
+    if (gameState) setIsMyTurn((gameState.currentTurnIndex ?? 0) === myPlayerIdx);
+  }, [gameState, myPlayerIdx]);
 
   const rollDice = useCallback(() => {
-    if (!isMyTurn || state?.dice !== null) return;
-    socket?.emit(E.MOVE, { type: 'ROLL' });
-    // Shake + scale animation
+    if (!isMyTurn || gameState?.dice !== null) return;
+    socket?.emit(EVENTS.MOVE, { type: 'ROLL' });
+    diceRotate.setValue(0);
     Animated.sequence([
       Animated.parallel([
-        Animated.timing(diceAnim, { toValue: 1, duration: 60, useNativeDriver: true }),
-        Animated.timing(diceScale, { toValue: 1.2, duration: 100, useNativeDriver: true }),
+        Animated.spring(diceScale, { toValue: 1.3, useNativeDriver: true, speed: 80 }),
+        Animated.timing(diceRotate, { toValue: 1, duration: 100, useNativeDriver: true }),
       ]),
-      Animated.timing(diceAnim, { toValue: -1, duration: 80, useNativeDriver: true }),
-      Animated.timing(diceAnim, { toValue: 1, duration: 80, useNativeDriver: true }),
+      Animated.spring(diceScale, { toValue: 0.9, useNativeDriver: true, speed: 60 }),
       Animated.parallel([
-        Animated.timing(diceAnim, { toValue: 0, duration: 60, useNativeDriver: true }),
-        Animated.timing(diceScale, { toValue: 1, duration: 100, useNativeDriver: true }),
+        Animated.spring(diceScale, { toValue: 1, useNativeDriver: true, speed: 30 }),
+        Animated.timing(diceRotate, { toValue: 0, duration: 120, useNativeDriver: true }),
       ]),
     ]).start();
-  }, [isMyTurn, state, socket]);
+  }, [isMyTurn, gameState, socket]);
 
   const moveToken = useCallback((tokenId: number) => {
-    if (!isMyTurn || state?.dice === null) return;
-    socket?.emit(E.MOVE, { type: 'MOVE_TOKEN', tokenId });
-  }, [isMyTurn, state, socket]);
+    if (!isMyTurn || gameState?.dice === null) return;
+    socket?.emit(EVENTS.MOVE, { type: 'MOVE_TOKEN', tokenId });
+  }, [isMyTurn, gameState, socket]);
 
-  // ── Render helpers ────────────────────────────────────────────────────────
+  // ── Static SVG board (memoized) ───────────────────────────────────────────
+  const boardSvg = useMemo(() => {
+    const C = CELL;
+    const S = BOARD_SIZE;
+    const elements: React.ReactElement[] = [];
 
-  const renderBoardGrid = () => {
-    const cells = [];
+    // Background for path (white grid)
+    elements.push(<Rect key="bg" width={S} height={S} fill="#FFFFFF" />);
+
+    // 1. Draw the 15x15 grid for the path
     for (let row = 0; row < 15; row++) {
       for (let col = 0; col < 15; col++) {
         const key = `${col},${row}`;
-        const isSafe = SAFE_CELLS.has(key);
-        // Home quadrants
-        const isRedHome = col < 6 && row < 6;
-        const isBlueHome = col > 8 && row < 6;
-        const isGreenHome = col > 8 && row > 8;
-        const isYellowHome = col < 6 && row > 8;
-        const isCenter = col >= 6 && col <= 8 && row >= 6 && row <= 8;
+        const isRedH    = col < 6 && row < 6;
+        const isGreenH  = col > 8 && row < 6;
+        const isYellH   = col > 8 && row > 8;
+        const isBlueH   = col < 6 && row > 8;
+        const isCenter  = col >= 6 && col <= 8 && row >= 6 && row <= 8;
+        const isYardOrCenter = isRedH || isBlueH || isGreenH || isYellH || isCenter;
 
-        // Path cells
-        const isPath = !isRedHome && !isBlueHome && !isGreenHome && !isYellowHome && !isCenter;
+        const isRedLane    = row === 7 && col >= 1 && col <= 5;
+        const isGreenLane  = col === 7 && row >= 1 && row <= 5;
+        const isYellLane   = row === 7 && col >= 9 && col <= 13;
+        const isBlueLane   = col === 7 && row >= 9 && row <= 13;
 
-        // Home column coloring (Red: Left, Blue: Top, Green: Right, Yellow: Bottom)
-        const isRedCol = row === 7 && col >= 1 && col <= 5;
-        const isBlueCol = col === 7 && row >= 1 && row <= 5;
-        const isGreenCol = row === 7 && col >= 9 && col <= 13;
-        const isYellowCol = col === 7 && row >= 9 && row <= 13;
+        // Start cells
+        const isRedStart   = col === 1 && row === 6;
+        const isGreenStart = col === 8 && row === 1;
+        const isYellStart  = col === 13 && row === 8;
+        const isBlueStart  = col === 6 && row === 13;
 
-        let bgColor = 'rgba(255,255,255,0.03)';
-        if (isRedHome) bgColor = 'rgba(239,68,68,0.18)';
-        else if (isBlueHome) bgColor = 'rgba(59,130,246,0.18)';
-        else if (isGreenHome) bgColor = 'rgba(34,197,94,0.18)';
-        else if (isYellowHome) bgColor = 'rgba(234,179,8,0.18)';
-        else if (isCenter) bgColor = 'rgba(124,58,237,0.25)';
-        else if (isRedCol) bgColor = 'rgba(239,68,68,0.35)';
-        else if (isBlueCol) bgColor = 'rgba(59,130,246,0.35)';
-        else if (isGreenCol) bgColor = 'rgba(34,197,94,0.35)';
-        else if (isYellowCol) bgColor = 'rgba(234,179,8,0.35)';
+        if (!isYardOrCenter) {
+          let fill = '#FFFFFF';
+          if (isRedLane || isRedStart) fill = PLAYER_COLORS[0];
+          else if (isGreenLane || isGreenStart) fill = PLAYER_COLORS[1];
+          else if (isYellLane || isYellStart) fill = PLAYER_COLORS[2];
+          else if (isBlueLane || isBlueStart) fill = PLAYER_COLORS[3];
 
-        cells.push(
-          <View
-            key={key}
-            style={{
-              position: 'absolute',
-              left: col * CELL,
-              top: row * CELL,
-              width: CELL,
-              height: CELL,
-              backgroundColor: bgColor,
-              borderWidth: 0.3,
-              borderColor: 'rgba(255,255,255,0.05)',
-              justifyContent: 'center',
-              alignItems: 'center',
-            }}
-          >
-            {isSafe && isPath && (
-              <Text style={{ fontSize: CELL * 0.5, opacity: 0.5 }}>★</Text>
-            )}
-            {isCenter && col === 7 && row === 7 && (
-              <Text style={{ fontSize: CELL * 1.2, color: '#7C3AED' }}>★</Text>
-            )}
-          </View>
-        );
+          elements.push(
+            <Rect key={key} x={col*C} y={row*C} width={C} height={C}
+              fill={fill} stroke="#D1D5DB" strokeWidth={0.8} />
+          );
+
+          // Stars for safe squares that are not starts
+          if (SAFE_CELLS.has(key) && !isRedStart && !isGreenStart && !isYellStart && !isBlueStart) {
+            elements.push(
+              <Polygon key={`s${key}`}
+                points={starPts(col*C + C/2, row*C + C/2, C*0.35, C*0.15, 5)}
+                fill="none" stroke="#9CA3AF" strokeWidth={1.5} strokeLinejoin="round"
+              />
+            );
+          }
+
+          // Arrows for start cells
+          if (isRedStart || isGreenStart || isYellStart || isBlueStart) {
+            const cx = col*C + C/2;
+            const cy = row*C + C/2;
+            let pts = "";
+            if (isRedStart)   pts = `${cx-C*0.2},${cy-C*0.2} ${cx+C*0.2},${cy} ${cx-C*0.2},${cy+C*0.2}`; // Right arrow
+            if (isGreenStart) pts = `${cx-C*0.2},${cy-C*0.2} ${cx+C*0.2},${cy-C*0.2} ${cx},${cy+C*0.2}`; // Down arrow
+            if (isYellStart)  pts = `${cx+C*0.2},${cy-C*0.2} ${cx-C*0.2},${cy} ${cx+C*0.2},${cy+C*0.2}`; // Left arrow
+            if (isBlueStart)  pts = `${cx-C*0.2},${cy+C*0.2} ${cx+C*0.2},${cy+C*0.2} ${cx},${cy-C*0.2}`; // Up arrow
+            elements.push(<Polygon key={`arr${key}`} points={pts} fill="#FFFFFF" />);
+          }
+        }
       }
     }
-    return cells;
-  };
 
-  const renderTokens = () => {
-    if (!state?.tokens) return null;
-    const allTokens: JSX.Element[] = [];
+    // 2. Draw the 4 Corner Yards
+    const yards = [
+      { x: 0, y: 0, color: PLAYER_COLORS[0] }, // TL Red
+      { x: 9*C, y: 0, color: PLAYER_COLORS[1] }, // TR Green
+      { x: 9*C, y: 9*C, color: PLAYER_COLORS[2] }, // BR Yellow
+      { x: 0, y: 9*C, color: PLAYER_COLORS[3] }, // BL Blue
+    ];
 
-    Object.entries(state.tokens).forEach(([uid, playerTokens]: [string, any]) => {
-      const pi = state.turnOrder?.indexOf(uid) ?? 0;
-      const color = PLAYER_COLORS[pi % 4];
-      const canMoveThisPlayer = isMyTurn && uid === userId && state.dice !== null;
-
-      (playerTokens || []).forEach((token: any) => {
-        const { col, row } = getTokenScreenPos(pi, token.id, token.pos ?? -1);
-        const canMove = canMoveThisPlayer && (state.movableTokens?.includes(token.id) ?? true);
-        const size = CELL * 0.72;
-        const offset = (token.id % 2) * (CELL * 0.08) - CELL * 0.04;
-
-        allTokens.push(
-          <TouchableOpacity
-            key={`${uid}-${token.id}`}
-            onPress={() => canMove && moveToken(token.id)}
-            activeOpacity={canMove ? 0.7 : 1}
-            style={{
-              position: 'absolute',
-              left: col * CELL - size / 2 + offset,
-              top: row * CELL - size / 2 + offset,
-              width: size,
-              height: size,
-              borderRadius: size / 2,
-              backgroundColor: color,
-              borderWidth: canMove ? 2 : 1,
-              borderColor: canMove ? '#FFFFFF' : 'rgba(255,255,255,0.7)',
-              justifyContent: 'center',
-              alignItems: 'center',
-              elevation: canMove ? 8 : 4,
-              shadowColor: canMove ? color : '#000',
-              shadowOpacity: canMove ? 0.8 : 0.4,
-              shadowRadius: canMove ? 6 : 3,
-              shadowOffset: { width: 0, height: 0 },
-              zIndex: canMove ? 10 : 5,
-            }}
-          >
-            {/* Inner bevel for 3D token look */}
-            <View style={{
-              position: 'absolute',
-              inset: 3,
-              borderRadius: size / 2,
-              borderWidth: 1,
-              borderColor: 'rgba(255,255,255,0.4)',
-              backgroundColor: 'rgba(255,255,255,0.15)',
-              alignItems: 'center',
-              justifyContent: 'center',
-            }}>
-              <Text style={{ fontSize: size * 0.38, fontWeight: '900', color: '#FFF', opacity: 0.9 }}>
-                {token.id + 1}
-              </Text>
-            </View>
-            {canMove && (
-              <View style={{
-                position: 'absolute', inset: -3, borderRadius: size / 2 + 3,
-                borderWidth: 2, borderColor: 'rgba(255,255,255,0.6)',
-              }} />
-            )}
-          </TouchableOpacity>
+    yards.forEach((yard, i) => {
+      // Large colored square
+      elements.push(<Rect key={`yBg${i}`} x={yard.x} y={yard.y} width={6*C} height={6*C} fill={yard.color} />);
+      // Inner white square
+      elements.push(<Rect key={`yWh${i}`} x={yard.x + C} y={yard.y + C} width={4*C} height={4*C} fill="#FFFFFF" />);
+      
+      // 4 circular home slots for tokens
+      const slotCenters = [
+        { cx: yard.x + 2*C, cy: yard.y + 2*C },
+        { cx: yard.x + 4*C, cy: yard.y + 2*C },
+        { cx: yard.x + 2*C, cy: yard.y + 4*C },
+        { cx: yard.x + 4*C, cy: yard.y + 4*C },
+      ];
+      slotCenters.forEach((pos, j) => {
+        elements.push(
+          <Circle key={`slot${i}-${j}`} cx={pos.cx} cy={pos.cy} r={C*0.7}
+            fill="none" stroke={yard.color} strokeWidth={C*0.3} />
         );
       });
     });
 
-    return allTokens;
+    // 3. Center Triangles
+    const cx = 7.5*C, cy = 7.5*C, r = 1.5*C;
+    const triangles = [
+      { pts: `${cx},${cy} ${cx-r},${cy+r} ${cx-r},${cy-r}`, color: PLAYER_COLORS[0] }, // Left (Red)
+      { pts: `${cx},${cy} ${cx-r},${cy-r} ${cx+r},${cy-r}`, color: PLAYER_COLORS[1] }, // Top (Green)
+      { pts: `${cx},${cy} ${cx+r},${cy-r} ${cx+r},${cy+r}`, color: PLAYER_COLORS[2] }, // Right (Yellow)
+      { pts: `${cx},${cy} ${cx-r},${cy+r} ${cx+r},${cy+r}`, color: PLAYER_COLORS[3] }, // Bottom (Blue)
+    ];
+    triangles.forEach((t, i) => {
+      elements.push(<Polygon key={`tri${i}`} points={t.pts} fill={t.color} />);
+    });
+
+    return (
+      <Svg width={S} height={S} style={StyleSheet.absoluteFill}>
+        {elements}
+      </Svg>
+    );
+  }, []);
+
+  // ── Token renderer ────────────────────────────────────────────────────────
+  const renderTokens = () => {
+    if (!gameState?.tokens) return null;
+    const elements: React.ReactElement[] = [];
+
+    Object.entries(gameState.tokens).forEach(([uid, tks]: [string, any]) => {
+      const pi      = gameState.turnOrder?.indexOf(uid) ?? 0;
+      const color   = PLAYER_COLORS[pi % 4];
+      const colorD  = PLAYER_COLORS_D[pi % 4];
+      const isMe    = uid === userId;
+      const canMovePl = isMyTurn && isMe && gameState.dice !== null;
+      const info    = playerInfo[uid];
+      const avatarUri = isMe ? (myAvatar || null) : (info?.avatar || null);
+
+      (tks || []).forEach((token: any, tidx: number) => {
+        const tKey = `${uid}-${token.id}`;
+        const { x, y } = getTokenPos(pi, token.id, token.pos ?? -1);
+        const anim   = getAnim(tKey, x, y);
+        const canMove = canMovePl && (gameState.movableTokens?.includes(token.id) ?? true);
+        const SIZE   = CELL * 0.78;
+        const HALF   = SIZE / 2;
+        // Remove all stagger to ensure tokens are mathematically centered in path cells
+        const sX = 0;
+        const sY = 0;
+
+        elements.push(
+          <Animated.View key={tKey} style={{
+            position: 'absolute',
+            width: SIZE, height: SIZE,
+            left: Animated.add(anim.x, new Animated.Value(-HALF + sX)),
+            top:  Animated.add(anim.y, new Animated.Value(-HALF + sY)),
+            zIndex: canMove ? 30 : isMe ? 20 : 10,
+          }}>
+            <TouchableOpacity
+              onPress={() => canMove && moveToken(token.id)}
+              activeOpacity={canMove ? 0.7 : 1}
+              style={{ width: SIZE, height: SIZE }}
+            >
+              {/* Pulsing highlight ring */}
+              {canMove && <PulseRing size={SIZE} color={color} />}
+
+              {/* Coin body */}
+              <View style={[styles.tokenOuter, {
+                width: SIZE, height: SIZE, borderRadius: HALF,
+                backgroundColor: color,
+                borderColor: canMove ? '#FFFFFF' : 'rgba(255,255,255,0.45)',
+                borderWidth: canMove ? 2.5 : 1.5,
+                shadowColor: color,
+                shadowOpacity: canMove ? 1 : 0.5,
+                shadowRadius: canMove ? 10 : 4,
+                elevation: canMove ? 14 : 6,
+              }]}>
+                {/* Shine overlay */}
+                <View style={[styles.tokenShine, {
+                  borderTopLeftRadius: HALF, borderTopRightRadius: HALF,
+                }]} />
+
+                {/* Profile photo or initials */}
+                {avatarUri ? (
+                  <Image
+                    source={{ uri: avatarUri }}
+                    style={{
+                      width: SIZE * 0.68, height: SIZE * 0.68,
+                      borderRadius: SIZE * 0.34,
+                      borderWidth: 1.5,
+                      borderColor: colorD,
+                    }}
+                  />
+                ) : (
+                  <View style={[styles.tokenInner, {
+                    width: SIZE * 0.68, height: SIZE * 0.68,
+                    borderRadius: SIZE * 0.34,
+                    backgroundColor: colorD,
+                  }]}>
+                    <Text style={[styles.tokenLabel, { fontSize: SIZE * 0.3 }]}>
+                      {isMe ? (myName?.[0] || 'Y') : (info?.name?.[0] || (pi + 1).toString())}
+                    </Text>
+                  </View>
+                )}
+              </View>
+            </TouchableOpacity>
+          </Animated.View>
+        );
+      });
+    });
+    return elements;
   };
 
-  const renderDice = () => {
-    const face = state?.dice;
-    const dots: Record<number, [number, number][]> = {
-      1: [[50, 50]],
-      2: [[28, 28], [72, 72]],
-      3: [[28, 28], [50, 50], [72, 72]],
-      4: [[28, 28], [72, 28], [28, 72], [72, 72]],
-      5: [[28, 28], [72, 28], [50, 50], [28, 72], [72, 72]],
-      6: [[28, 22], [72, 22], [28, 50], [72, 50], [28, 78], [72, 78]],
-    };
-    const diceDots = typeof face === 'number' ? (dots[face] || []) : [];
+  // ── Player info strip ─────────────────────────────────────────────────────
+  const renderPlayerStrip = () => {
+    if (!gameState?.tokens) return null;
+    const playerIds = Object.keys(gameState.tokens);
     return (
-      <Animated.View style={[
-        styles.dice,
-        {
-          transform: [
-            { rotate: diceAnim.interpolate({ inputRange: [-1, 1], outputRange: ['-20deg', '20deg'] }) },
-            { scale: diceScale },
-          ],
-        },
-        face !== null && face !== undefined && styles.diceRolled,
-      ]}>
-        {typeof face === 'number' ? (
-          diceDots.map(([x, y], i) => (
-            <View key={i} style={[styles.diceDot, { left: `${x}%` as any, top: `${y}%` as any }]} />
-          ))
-        ) : (
-          <Text style={styles.diceQuest}>?</Text>
-        )}
-      </Animated.View>
+      <View style={styles.playerStrip}>
+        {playerIds.map((uid, i) => {
+          const isMe    = uid === userId;
+          const color   = PLAYER_COLORS[i % 4];
+          const info    = playerInfo[uid];
+          const avatarUri = isMe ? (myAvatar || null) : (info?.avatar || null);
+          const label   = isMe ? (myName || 'You') : (info?.name || opponentName || `P${i+1}`);
+          const isActive = (gameState.currentTurnIndex ?? 0) === i;
+
+          return (
+            <View key={uid} style={[styles.playerChip, isActive && { borderColor: color + 'CC' }]}>
+              {/* Tiny avatar coin */}
+              {avatarUri ? (
+                <Image source={{ uri: avatarUri }} style={[styles.chipAvatar, { borderColor: color }]} />
+              ) : (
+                <View style={[styles.chipAvatarFallback, { backgroundColor: color }]}>
+                  <Text style={styles.chipAvatarText}>{label[0]}</Text>
+                </View>
+              )}
+              <View>
+                <Text style={[styles.chipName, { color: isMe ? color : '#94A3B8' }]} numberOfLines={1}>
+                  {isMe ? 'You' : label}
+                </Text>
+                {isActive && (
+                  <View style={[styles.activeDot, { backgroundColor: color }]} />
+                )}
+              </View>
+            </View>
+          );
+        })}
+      </View>
     );
   };
 
-  const currentTurnIdx = state?.currentTurnIndex ?? 0;
-  const currentColor = PLAYER_COLORS[currentTurnIdx % 4];
-  const currentName = PLAYER_NAMES[currentTurnIdx % 4];
-  const hasDice = state?.dice !== null && state?.dice !== undefined;
+  // ── State helpers ─────────────────────────────────────────────────────────
+  const face    = gameState?.dice;
+  const hasDice = face !== null && face !== undefined;
+  const curIdx  = gameState?.currentTurnIndex ?? 0;
+  const curColor = PLAYER_COLORS[curIdx % 4];
 
-  // ── Full render ────────────────────────────────────────────────────────────
-  if (status === 'connecting') {
+  // ── Loading screens ───────────────────────────────────────────────────────
+  if (status === 'connecting' || status === 'waiting') {
     return (
-      <View style={styles.fullCenter}>
-        <Text style={styles.splashIcon}>🎲</Text>
+      <LinearGradient colors={['#0D1117', '#0D1F2D']} style={styles.fullCenter}>
+        <Text style={styles.splashEmoji}>{status === 'connecting' ? '🎲' : '⏳'}</Text>
         <Text style={styles.splashTitle}>Ludo Classic</Text>
-        <Text style={styles.splashSub}>Connecting…</Text>
-      </View>
+        <Text style={styles.splashSub}>{status === 'connecting' ? 'Connecting…' : 'Waiting for players…'}</Text>
+        <LoadingDots />
+      </LinearGradient>
     );
   }
 
-  if (status === 'waiting') {
-    return (
-      <View style={styles.fullCenter}>
-        <Text style={styles.splashIcon}>⏳</Text>
-        <Text style={styles.splashTitle}>Ludo Classic</Text>
-        <Text style={styles.splashSub}>Waiting for players…</Text>
-        <View style={styles.dotRow}>
-          {[0,1,2].map(i => <WaitDot key={i} delay={i*200} />)}
-        </View>
-      </View>
-    );
-  }
+  const spin = diceRotate.interpolate({ inputRange: [0, 1], outputRange: ['0deg', '15deg'] });
 
   return (
-    <View style={styles.container}>
-      {/* Status banner */}
-      <View style={[styles.banner, { borderColor: currentColor + '60' }]}>
-        <View style={[styles.bannerDot, { backgroundColor: currentColor }]} />
-        <Text style={[styles.bannerText, { color: currentColor }]}>
+    <LinearGradient colors={['#0D1117', '#0B1624']} style={styles.container}>
+
+      {/* ─ Turn banner ─ */}
+      <View style={[styles.turnBanner, { borderColor: curColor + '55', backgroundColor: curColor + '12' }]}>
+        <View style={[styles.turnDot, { backgroundColor: curColor }]} />
+        <Text style={[styles.turnText, { color: curColor }]} numberOfLines={1}>
           {isMyTurn
-            ? hasDice
-              ? `🎯 Rolled ${state.dice} — tap your token!`
-              : '🎲 Your Turn — Roll the dice!'
-            : `${currentName}'s Turn`}
+            ? hasDice ? `🎯 Rolled ${face} — Tap a token!` : '🎲 Your Turn — Roll!'
+            : `${PLAYER_NAMES[curIdx % 4]}'s Turn`}
         </Text>
       </View>
 
-      {/* Board */}
-      <View style={[styles.board, { width: BOARD_SIZE, height: BOARD_SIZE }]}>
-        {renderBoardGrid()}
-        {renderTokens()}
+      {/* ─ Player info strip ─ */}
+      {renderPlayerStrip()}
+
+      {/* ─ Board ─ */}
+      <View style={styles.boardWrap}>
+        <LinearGradient
+          colors={[curColor + '55', 'transparent']}
+          style={[StyleSheet.absoluteFill, { borderRadius: 14 }]}
+          pointerEvents="none"
+        />
+        <View style={[styles.board, { width: BOARD_SIZE, height: BOARD_SIZE }]}>
+          {boardSvg}
+          {renderTokens()}
+        </View>
       </View>
 
-      {/* Controls */}
+      {/* ─ Dice + Roll button ─ */}
       <View style={styles.controls}>
-        <TouchableOpacity
-          onPress={rollDice}
-          disabled={!isMyTurn || hasDice}
-          activeOpacity={0.8}
-        >
-          {renderDice()}
+        <TouchableOpacity onPress={rollDice} disabled={!isMyTurn || hasDice} activeOpacity={0.85}>
+          <Animated.View style={[styles.diceWrap, hasDice && styles.diceWrapRolled,
+            { transform: [{ scale: diceScale }, { rotate: spin }] }
+          ]}>
+            <LinearGradient
+              colors={hasDice ? ['#2D1B69', '#1E1B4B'] : ['#111827', '#1E293B']}
+              style={styles.diceBody}
+            >
+              {hasDice ? (
+                (DOT_POS[face] || []).map(([dx, dy], i) => (
+                  <View key={i} style={[styles.dot, { left: `${dx}%` as any, top: `${dy}%` as any }]} />
+                ))
+              ) : (
+                <Text style={styles.diceQ}>?</Text>
+              )}
+            </LinearGradient>
+          </Animated.View>
         </TouchableOpacity>
 
         <TouchableOpacity
-          style={[
-            styles.rollBtn,
-            (!isMyTurn || hasDice) && styles.rollBtnDisabled,
-          ]}
+          style={[styles.rollBtn, (!isMyTurn || hasDice) && { opacity: 0.5 }]}
           onPress={rollDice}
           disabled={!isMyTurn || hasDice}
-          activeOpacity={0.8}
+          activeOpacity={0.85}
         >
           <LinearGradient
             colors={isMyTurn && !hasDice ? ['#7C3AED', '#0891B2'] : ['#1E293B', '#1E293B']}
             start={{ x: 0, y: 0 }} end={{ x: 1, y: 0 }}
-            style={styles.rollBtnGradient}
+            style={styles.rollBtnGrad}
           >
-            <Text style={[styles.rollBtnText, (!isMyTurn || hasDice) && { color: '#475569' }]}>
-              {hasDice ? `Rolled ${state.dice} — Pick token` : isMyTurn ? 'Roll Dice 🎲' : `${currentName}'s turn…`}
+            <Text style={[styles.rollBtnText, (!isMyTurn || hasDice) && { color: '#4B5563' }]}>
+              {hasDice
+                ? `Rolled ${face} — Pick a token`
+                : isMyTurn ? 'Roll Dice  🎲' : `${PLAYER_NAMES[curIdx % 4]}'s turn…`}
             </Text>
           </LinearGradient>
         </TouchableOpacity>
       </View>
 
-      {/* Player legend */}
-      <View style={styles.legend}>
-        {Object.entries(state?.scores || {}).map(([uid, score]: any, i: number) => (
-          <View key={uid} style={[styles.legendItem, uid === userId && styles.legendItemMe]}>
-            <View style={[styles.legendDot, { backgroundColor: PLAYER_COLORS[i % 4] }]} />
-            <Text style={styles.legendText}>{uid === userId ? 'You' : `P${i + 1}`}</Text>
-          </View>
-        ))}
-      </View>
-
-      {/* Toast */}
+      {/* ─ Toast ─ */}
       {toast && (
-        <Animated.View style={[styles.toast, { opacity: toastAnim, transform: [{ translateY: toastAnim.interpolate({ inputRange: [0, 1], outputRange: [20, 0] }) }] }]}>
-          <Text style={styles.toastText}>{toast}</Text>
+        <Animated.View style={[styles.toast, {
+          opacity: toastAnim,
+          transform: [{ translateY: toastAnim.interpolate({ inputRange: [0, 1], outputRange: [24, 0] }) }],
+        }]}>
+          <LinearGradient colors={['#1E1B4B', '#0F172A']} style={styles.toastInner}>
+            <Text style={styles.toastText}>{toast}</Text>
+          </LinearGradient>
         </Animated.View>
       )}
-    </View>
+    </LinearGradient>
   );
 }
 
-function WaitDot({ delay }: { delay: number }) {
-  const anim = useRef(new Animated.Value(0)).current;
+// ── Pulsing ring on movable tokens ────────────────────────────────────────────
+function PulseRing({ size, color }: { size: number; color: string }) {
+  const anim = useRef(new Animated.Value(1)).current;
   useEffect(() => {
     Animated.loop(
       Animated.sequence([
-        Animated.delay(delay),
-        Animated.timing(anim, { toValue: 1, duration: 400, useNativeDriver: true }),
-        Animated.timing(anim, { toValue: 0, duration: 400, useNativeDriver: true }),
+        Animated.timing(anim, { toValue: 1.4, duration: 650, useNativeDriver: true }),
+        Animated.timing(anim, { toValue: 1,   duration: 650, useNativeDriver: true }),
       ])
     ).start();
   }, []);
-  return <Animated.View style={[styles.dot, { opacity: anim }]} />;
+  return (
+    <Animated.View style={{
+      position: 'absolute', top: 0, left: 0,
+      width: size, height: size, borderRadius: size / 2,
+      borderWidth: 2.5, borderColor: color,
+      opacity: anim.interpolate({ inputRange: [1, 1.4], outputRange: [0.85, 0] }),
+      transform: [{ scale: anim }],
+    }} />
+  );
 }
 
+// ── Loading dots ──────────────────────────────────────────────────────────────
+function LoadingDots() {
+  return (
+    <View style={{ flexDirection: 'row', gap: 8, marginTop: 24 }}>
+      {[0, 1, 2].map(i => <Dot key={i} delay={i * 200} />)}
+    </View>
+  );
+}
+function Dot({ delay }: { delay: number }) {
+  const a = useRef(new Animated.Value(0.3)).current;
+  useEffect(() => {
+    Animated.loop(Animated.sequence([
+      Animated.delay(delay),
+      Animated.timing(a, { toValue: 1,   duration: 400, useNativeDriver: true }),
+      Animated.timing(a, { toValue: 0.3, duration: 400, useNativeDriver: true }),
+    ])).start();
+  }, []);
+  return <Animated.View style={{ width: 10, height: 10, borderRadius: 5, backgroundColor: '#7C3AED', opacity: a }} />;
+}
+
+// ── Styles ────────────────────────────────────────────────────────────────────
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#05050F', alignItems: 'center', paddingTop: 8 },
-  fullCenter: { flex: 1, backgroundColor: '#05050F', justifyContent: 'center', alignItems: 'center' },
-  splashIcon: { fontSize: 64, marginBottom: 16 },
-  splashTitle: { fontSize: 26, fontWeight: '900', color: '#F8FAFC', marginBottom: 8 },
-  splashSub: { fontSize: 14, color: '#64748B', marginBottom: 20 },
-  dotRow: { flexDirection: 'row', gap: 8 },
-  dot: { width: 8, height: 8, borderRadius: 4, backgroundColor: '#7C3AED' },
+  container: { flex: 1, alignItems: 'center', paddingTop: 8, paddingBottom: 8 },
+  fullCenter: { flex: 1, justifyContent: 'center', alignItems: 'center' },
+  splashEmoji: { fontSize: 64, marginBottom: 10 },
+  splashTitle: { fontSize: 26, fontWeight: '900', color: '#F1F5F9', marginBottom: 5 },
+  splashSub:   { fontSize: 14, color: '#64748B' },
 
-  banner: { flexDirection: 'row', alignItems: 'center', gap: 8, paddingHorizontal: 16, paddingVertical: 8, borderRadius: 20, borderWidth: 1.5, marginBottom: 10, backgroundColor: '#0F172A' },
-  bannerDot: { width: 8, height: 8, borderRadius: 4 },
-  bannerText: { fontSize: 14, fontWeight: '800' },
+  turnBanner: {
+    flexDirection: 'row', alignItems: 'center', gap: 8,
+    paddingHorizontal: 18, paddingVertical: 8,
+    borderRadius: 24, borderWidth: 1.5,
+    marginBottom: 8, alignSelf: 'center',
+  },
+  turnDot:  { width: 8, height: 8, borderRadius: 4 },
+  turnText: { fontSize: 13, fontWeight: '800', maxWidth: 260 },
 
-  board: { position: 'relative', backgroundColor: '#0C1222', borderRadius: 12, borderWidth: 2, borderColor: 'rgba(124,58,237,0.35)', overflow: 'hidden' },
+  // Player strip
+  playerStrip: {
+    flexDirection: 'row', gap: 8, marginBottom: 8,
+    paddingHorizontal: 12, flexWrap: 'wrap', justifyContent: 'center',
+  },
+  playerChip: {
+    flexDirection: 'row', alignItems: 'center', gap: 6,
+    paddingHorizontal: 10, paddingVertical: 5,
+    borderRadius: 20, borderWidth: 1.5,
+    borderColor: 'rgba(255,255,255,0.07)',
+    backgroundColor: 'rgba(255,255,255,0.04)',
+  },
+  chipAvatar: {
+    width: 26, height: 26, borderRadius: 13,
+    borderWidth: 2,
+  },
+  chipAvatarFallback: {
+    width: 26, height: 26, borderRadius: 13,
+    justifyContent: 'center', alignItems: 'center',
+  },
+  chipAvatarText: { fontSize: 11, fontWeight: '900', color: '#FFF' },
+  chipName: { fontSize: 11, fontWeight: '700', maxWidth: 70 },
+  activeDot: { width: 5, height: 5, borderRadius: 2.5, marginTop: 2 },
 
-  controls: { flexDirection: 'row', alignItems: 'center', gap: 14, paddingHorizontal: 16, marginTop: 14, width: '100%' },
-  dice: {
-    width: 58, height: 58, backgroundColor: '#1E293B', borderRadius: 13,
-    borderWidth: 2, borderColor: 'rgba(124,58,237,0.4)',
+  // Board
+  boardWrap: { justifyContent: 'center', alignItems: 'center', borderRadius: 14, padding: 3 },
+  board: {
+    borderRadius: 10, overflow: 'hidden',
+    borderWidth: 1.5, borderColor: 'rgba(124,58,237,0.4)',
+    elevation: 20, shadowColor: '#7C3AED',
+    shadowOpacity: 0.45, shadowRadius: 14, shadowOffset: { width: 0, height: 4 },
+  },
+
+  // Token
+  tokenOuter: {
+    position: 'absolute', inset: 0,
+    justifyContent: 'center', alignItems: 'center',
+    overflow: 'hidden',
+  },
+  tokenShine: {
+    position: 'absolute', top: 0, left: 0, right: 0,
+    height: '50%', backgroundColor: 'rgba(255,255,255,0.18)',
+  },
+  tokenInner: { justifyContent: 'center', alignItems: 'center' },
+  tokenLabel: { fontWeight: '900', color: '#FFF' },
+
+  // Controls
+  controls: {
+    flexDirection: 'row', alignItems: 'center',
+    gap: 12, paddingHorizontal: 12, marginTop: 10, width: '100%',
+  },
+  diceWrap: {
+    width: 60, height: 60, borderRadius: 14,
+    borderWidth: 2.5, borderColor: 'rgba(124,58,237,0.4)',
+    elevation: 10, shadowColor: '#7C3AED',
+    shadowOpacity: 0.5, shadowRadius: 8,
+  },
+  diceWrapRolled: { borderColor: '#7C3AED' },
+  diceBody: {
+    width: 60, height: 60, borderRadius: 13,
     justifyContent: 'center', alignItems: 'center', position: 'relative',
   },
-  diceRolled: { borderColor: '#7C3AED', backgroundColor: '#1a1040' },
-  diceDot: { position: 'absolute', width: 10, height: 10, borderRadius: 5, backgroundColor: '#F8FAFC', transform: [{ translateX: -5 }, { translateY: -5 }] },
-  diceQuest: { fontSize: 26, color: '#475569', fontWeight: '900' },
-  rollBtn: { flex: 1, borderRadius: 30, overflow: 'hidden' },
-  rollBtnDisabled: { opacity: 0.55 },
-  rollBtnGradient: { height: 52, justifyContent: 'center', alignItems: 'center' },
-  rollBtnText: { color: '#FFF', fontSize: 15, fontWeight: '900', letterSpacing: 0.3 },
+  dot: {
+    position: 'absolute', width: 10, height: 10, borderRadius: 5,
+    backgroundColor: '#F8FAFC',
+    transform: [{ translateX: -5 }, { translateY: -5 }],
+  },
+  diceQ: { fontSize: 26, color: '#4B5563', fontWeight: '900' },
 
-  legend: { flexDirection: 'row', gap: 12, marginTop: 10, flexWrap: 'wrap', justifyContent: 'center' },
-  legendItem: { flexDirection: 'row', alignItems: 'center', gap: 6, backgroundColor: '#0F172A', borderRadius: 20, paddingHorizontal: 10, paddingVertical: 4, borderWidth: 1, borderColor: 'rgba(255,255,255,0.06)' },
-  legendItemMe: { borderColor: 'rgba(124,58,237,0.4)' },
-  legendDot: { width: 10, height: 10, borderRadius: 5 },
-  legendText: { color: '#94A3B8', fontSize: 12, fontWeight: '700' },
+  rollBtn: { flex: 1, borderRadius: 30, overflow: 'hidden', elevation: 6 },
+  rollBtnGrad: { height: 56, justifyContent: 'center', alignItems: 'center' },
+  rollBtnText: { color: '#FFF', fontSize: 15, fontWeight: '900', letterSpacing: 0.4 },
 
-  toast: { position: 'absolute', bottom: 100, alignSelf: 'center', backgroundColor: '#1E293B', borderRadius: 20, paddingHorizontal: 20, paddingVertical: 10, borderWidth: 1.5, borderColor: 'rgba(124,58,237,0.4)', elevation: 10 },
-  toastText: { color: '#F8FAFC', fontSize: 15, fontWeight: '800' },
+  // Toast
+  toast: { position: 'absolute', bottom: 80, alignSelf: 'center', borderRadius: 24, overflow: 'hidden', elevation: 18 },
+  toastInner: { paddingHorizontal: 22, paddingVertical: 11, borderRadius: 24, borderWidth: 1.5, borderColor: 'rgba(124,58,237,0.45)' },
+  toastText: { color: '#F1F5F9', fontSize: 15, fontWeight: '900' },
 });

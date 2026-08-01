@@ -55,6 +55,7 @@ import { apiClient } from "../../services/apiClient";
 import { socketClient } from "../../services/socketClient";
 import type { User } from "../../types";
 import { useAuth } from "../../context/AuthContext";
+import TournamentLeaderboardModal from "../../components/games/TournamentLeaderboardModal";
 
 type ActiveTab = "games" | "tournaments" | "history";
 type ScreenModal = "none" | "history";
@@ -146,6 +147,9 @@ export default function GamesScreen() {
   const [activeSession, setActiveSession] = useState<ActiveSession | null>(
     null,
   );
+  
+  const [leaderboardModalVisible, setLeaderboardModalVisible] = useState(false);
+  const [selectedTournament, setSelectedTournament] = useState<GameTournament | null>(null);
   const [reconnectSession, setReconnectSession] = useState<any>(null);
   const [matchModalVisible, setMatchModalVisible] = useState(false);
   const [selectedGame, setSelectedGame] = useState<Game | null>(
@@ -527,19 +531,27 @@ export default function GamesScreen() {
                 const game = findLocalGame(tournament.gameId);
                 if (!game) return null;
                 return (
-                  <TournamentCard
+                  <TouchableOpacity
                     key={tournament.id}
-                    tournament={tournament}
-                    game={game}
-                    onJoin={() => joinTournament(tournament)}
-                    onPlay={() =>
-                      startQueue({
-                        game,
-                        mode: "tournament",
-                        tournamentId: tournament.id,
-                      })
-                    }
-                  />
+                    activeOpacity={0.9}
+                    onPress={() => {
+                      setSelectedTournament(tournament);
+                      setLeaderboardModalVisible(true);
+                    }}
+                  >
+                    <TournamentCard
+                      tournament={tournament}
+                      game={game}
+                      onJoin={() => joinTournament(tournament)}
+                      onPlay={() =>
+                        startQueue({
+                          game,
+                          mode: "tournament",
+                          tournamentId: tournament.id,
+                        })
+                      }
+                    />
+                  </TouchableOpacity>
                 );
               })
             )}
@@ -594,6 +606,15 @@ export default function GamesScreen() {
         visible={screenModal === "history"}
         matches={matches}
         onClose={() => setScreenModal("none")}
+      />
+
+      <TournamentLeaderboardModal
+        visible={leaderboardModalVisible}
+        tournament={selectedTournament}
+        onClose={() => {
+          setLeaderboardModalVisible(false);
+          setSelectedTournament(null);
+        }}
       />
     </View>
   );
@@ -1206,6 +1227,8 @@ function GamePlayModal({
                     matchId={mid}
                     userId={uid}
                     wsToken={token}
+                    myName={user?.username || user?.name || 'You'}
+                    myAvatar={user?.avatarUrl || user?.avatar || null}
                     opponentName={session.opponentName || (session.mode === 'bot' ? 'Bot' : 'Opponent')}
                     onComplete={handleComplete}
                   />

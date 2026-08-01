@@ -81,6 +81,16 @@ export default function TapRushGame({ matchId, userId, wsToken, opponentName, on
           xpEarned: state.reward.xpEarned || 0,
           durationSeconds: state.reward.duration || 20,
         });
+      } else {
+        // Fallback: game ended (e.g. bot won), grab score from state
+        const pState = state.state?.pluginState || state;
+        const finalScore = pState.scores?.[userId] || 0;
+        onComplete({
+          score: finalScore,
+          won: pState.winner === userId,
+          xpEarned: 0,
+          durationSeconds: 20,
+        });
       }
     });
 

@@ -59,14 +59,23 @@ export default function MemoryGridGame({ matchId, userId, wsToken, opponentName,
       }
     });
 
-    s.on(EVENTS.GAME_OVER, (state: any) => {
+    s.on(EVENTS.GAME_OVER, (payload: any) => {
       setStatus("finished");
-      if (state.reward) {
+      if (payload.reward) {
         onComplete({
-          score: state.reward.score || 0,
-          won: state.reward.result === "WIN",
-          xpEarned: state.reward.xpEarned || 0,
-          durationSeconds: state.reward.duration || 30,
+          score: payload.reward.score || 0,
+          won: payload.reward.result === "WIN",
+          xpEarned: payload.reward.xpEarned || 0,
+          durationSeconds: payload.reward.duration || 30,
+        });
+      } else {
+        const pState = payload.state?.pluginState || payload;
+        const finalScore = pState.scores?.[userId] || 0;
+        onComplete({
+          score: finalScore,
+          won: pState.winner === userId || (finalScore >= 1 && pState.winner === null),
+          xpEarned: 0,
+          durationSeconds: 30,
         });
       }
     });

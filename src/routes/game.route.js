@@ -33,6 +33,7 @@ router.post('/session/complete', verifyToken, gameController.completeGameSession
 
 router.get('/leaderboard',      verifyToken,  validateRequest({query: paginationSchema}),   gameController.getLeaderboard);
 router.get('/tournaments',      verifyToken,  validateRequest({query: paginationSchema}),   gameController.getTournaments);
+router.get('/tournaments/:tournamentId/leaderboard', verifyToken, validateRequest({params: tournamentIdParamSchema, query: paginationSchema}), gameController.getTournamentLeaderboard);
 router.post('/tournaments/:tournamentId/join', verifyToken, validateRequest({params: tournamentIdParamSchema}), gameController.joinTournament);
 router.post('/matchmaking/join', verifyToken, validateRequest({body: joinMatchmakingSchema}), gameController.joinMatchmaking);
 router.post('/matchmaking/invite', verifyToken, validateRequest({body: inviteMatchmakingSchema}), gameController.inviteMatchmaking);

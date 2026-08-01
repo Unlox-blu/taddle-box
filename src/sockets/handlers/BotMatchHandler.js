@@ -41,6 +41,13 @@ class BotMatchHandler {
             .to(`match:${matchId}`)
             .emit(this.EVENTS.SYNC, { state: updatedState.pluginState, botMove: true });
           this.startTurnTimer(this.ns, matchId, gameSlug, updatedState);
+          
+          if (updatedState.isBotMatch) {
+            const turnBasedSlugs = ['chess', 'ludo', 'snake-ladder'];
+            if (!turnBasedSlugs.includes(gameSlug)) {
+              this.handleTurn(matchId, gameSlug, updatedState);
+            }
+          }
         }
       }
     } catch (e) {

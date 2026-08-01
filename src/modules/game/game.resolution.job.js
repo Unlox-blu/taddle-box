@@ -138,6 +138,21 @@ async function resolveTournaments() {
             payload: { tournamentId: t.id, reward }
           });
         }
+        
+        // Auto-reset recurring tournaments
+        if (t.metadata && t.metadata.type === 'recurring') {
+           await client.query(`
+              INSERT INTO ${gameModel.GAME_TOURNAMENT_TABLE} (
+                  game_id, title, description, entry_fee_xp, prize_xp, 
+                  max_players, starts_at, ends_at, status, metadata
+              )
+              VALUES ($1, $2, $3, $4, $5, $6, NOW(), NOW() + INTERVAL '24 hours', 'ACTIVE', $7)
+           `, [
+              t.game_id, t.title, t.description, t.entry_fee_xp, t.prize_xp, 
+              t.max_players, JSON.stringify(t.metadata)
+           ]);
+        }
+        
         await client.query('COMMIT');
       } catch(e) {
         await client.query('ROLLBACK');

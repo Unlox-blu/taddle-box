@@ -1,14 +1,19 @@
 module.exports = {
     onMatchStart: (session, state) => {
-        let tapCount = 0;
-        
+        session.tapCount = 0;
+        module.exports.onResume(session, state);
+    },
+    onPause: (session) => {
+        session.cleanup();
+    },
+    onResume: (session, state) => {
         const doTap = () => {
-            if (tapCount >= 10) return; // 10 taps to win
+            if (session.tapCount >= 14) return; // Need enough for win based on winScore=14
             
-            session.submitMove({ type: 'TAP', seq: tapCount, clientTs: Date.now() });
-            tapCount++;
+            session.submitMove({ type: 'TAP', seq: session.tapCount, clientTs: Date.now() });
+            session.tapCount++;
             
-            if (tapCount < 10) {
+            if (session.tapCount < 14) {
                 // Varied interval to simulate human inconsistency
                 const delay = session.difficulty.reactionMs + (session.random() * 400 - 200);
                 session.setTimeout(doTap, Math.max(100, delay));

@@ -19,30 +19,28 @@ class GameService {
     const safeDuration = Math.max(0, Math.floor(Number(duration) || 0));
 
     if (game.slug === 'tap-rush') {
-      if (safeDuration < 10 || safeDuration > 35) {
-        throw createError('Invalid game duration', 400);
-      }
+      // Clamp duration to valid range — engine may not report timestamps for bot/reconnect flows
+      const clampedDuration = Math.max(10, Math.min(35, safeDuration > 0 ? safeDuration : (Number(metadata.durationSeconds) || 20)));
       if (safeScore > 100) {
         throw createError('Invalid game score', 400);
       }
       return {
         score: safeScore,
-        duration: safeDuration,
+        duration: clampedDuration,
         result: safeScore >= winScore ? 'WIN' : 'LOSS',
         xpEarned: Math.min(maxXp, safeScore > 0 ? 10 + Math.floor((safeScore * maxXp) / 28) : 0),
       };
     }
 
     if (game.slug === 'memory-grid') {
-      if (safeDuration < 1 || safeDuration > 300) {
-        throw createError('Invalid game duration', 400);
-      }
+      // Clamp duration to valid range
+      const clampedDuration = Math.max(1, Math.min(300, safeDuration > 0 ? safeDuration : 30));
       if (safeScore > Number(metadata.maxScore || 5)) {
         throw createError('Invalid game score', 400);
       }
       return {
         score: safeScore,
-        duration: safeDuration,
+        duration: clampedDuration,
         result: safeScore >= winScore ? 'WIN' : 'LOSS',
         xpEarned: Math.min(maxXp, safeScore > 0 ? 8 + Math.floor((safeScore * maxXp) / 6) : 0),
       };
@@ -263,6 +261,14 @@ class GameService {
 	    }
 	  }
 
+	  async getTournamentLeaderboard({tournamentId, limit, offset}) {
+	    try {
+	      return await this.gameRepo.findTournamentLeaderboard({tournamentId, limit, offset})
+	    } catch (error) {
+	      throw error
+	    }
+	  }
+
 	  async joinTournament({userId, tournamentId}) {
 	    try {
 	      const tournament = await this.gameRepo.findTournamentById({tournamentId, userId})
@@ -278,7 +284,7 @@ class GameService {
 	          userId,
 	          xp: tournament.entryFeeXP,
 	          transactionType: 'spent',
-	          sourceType: `game_tournament_${tournament.id}`,
+	          sourceType: `tournament_${tournament.id}`,
 	        })
 	      }
 
@@ -468,14 +474,34 @@ class GameService {
       const matchGroupId = session.metadata?.matchGroupId || session.id;
       const { state: matchState } = await MatchManager.loadOrInitializeMatch(matchGroupId, game.slug, session.metadata || {});
       
-      if (matchState && matchState.status === MATCH_STATES.FINISHED) {
+      if (matchState) {
          if (game.slug === 'chess' || game.slug === 'ludo' || game.slug === 'snake-ladder') {
-            rawScore = matchState.pluginState?.winner === userId ? (game.metadata?.winScore || 1) : 0;
+            if (matchState.status === MATCH_STATES.FINISHED) {
+               rawScore = matchState.pluginState?.winner === userId ? (game.metadata?.winScore || 1) : 0;
+               duration = 60;
+            } else {
+               throw createError("Match is not finished yet", 400);
+            }
          } else {
+            // For realtime games: read score from engine state (player or bot winner result)
             rawScore = matchState.pluginState?.scores?.[userId] || 0;
+            // If match ended by bot winning (player score is 0), check if player actually lost
+            if (rawScore === 0 && matchState.status === MATCH_STATES.FINISHED) {
+               // Player finished with 0 — keep as LOSS (score stays 0)
+            }
+            if (matchState.pluginState?.startedAt && matchState.pluginState?.finishedAt) {
+                duration = Math.floor((matchState.pluginState.finishedAt - matchState.pluginState.startedAt) / 1000);
+            } else if (matchState.pluginState?.startedAt) {
+                // Game started but finishedAt not set (e.g. abrupt end)
+                duration = Math.floor((Date.now() - matchState.pluginState.startedAt) / 1000);
+            } else {
+                duration = Number(game.metadata?.durationSeconds) || 60;
+            }
          }
-         duration = 60; // Approximate
          engineResult = matchState.pluginState;
+      } else {
+         // matchState unavailable (Redis cleaned up after game ended) — use game defaults
+         duration = Number(game.metadata?.durationSeconds) || 60;
       }
 
       let calculated = this.calculateResult({ game, score: rawScore, duration });
@@ -486,6 +512,11 @@ class GameService {
         
         await this.gameRepo.updateGameSessionStatus({
           sessionId, status: 'COMPLETED', completedAt: new Date().toISOString()
+        });
+
+        await this.gameRepo.recordMatchHistory({
+          userId, gameId: game.id, mode: session.metadata?.mode, result: calculated.result, 
+          score: calculated.score, duration, xpEarned: calculated.xpEarned
         });
 
         const ledgerEntry = await this.gameRepo.createRewardLedgerEntry({
@@ -504,7 +535,7 @@ class GameService {
       }
       
       // PVP Resolution (Opponent SSOT)
-      const matchGroupId = session.metadata?.matchGroupId;
+      // matchGroupId already declared above
       
       // Save the score but do not credit XP yet
       await this.gameRepo.updateGameSessionStatus({
@@ -538,6 +569,11 @@ class GameService {
           sessionId, status: 'COMPLETED', completedAt: new Date().toISOString()
         });
         
+        await this.gameRepo.recordMatchHistory({
+          userId, gameId: game.id, mode: session.metadata?.mode, result: myResult,
+          score: myScore, duration, xpEarned: myXp
+        });
+        
         if (myXp > 0 && this.xpSvc) {
           await this.xpSvc.creditXP({
             userId, xp: myXp,
@@ -553,6 +589,18 @@ class GameService {
         this.gameRepo.updateGameSessionStatus({
           sessionId: opponentSession.id, status: 'COMPLETED', completedAt: new Date().toISOString()
         }).catch(console.error);
+        
+        await this.gameRepo.recordMatchHistory({
+          userId: opponentSession.user_id, gameId: game.id, mode: session.metadata?.mode, result: opResult,
+          score: opScore, duration, xpEarned: opXp
+        });
+
+        if (opXp > 0 && this.xpSvc) {
+          this.xpSvc.creditXP({
+            userId: opponentSession.user_id, xp: opXp,
+            transactionType: 'earned', sourceType: `game_session_${opponentSession.id}`
+          }).catch(console.error);
+        }
 
         const { emitNotification } = require('../../sockets/notification.socket');
         emitNotification(opponentSession.user_id, {

@@ -150,17 +150,30 @@ class GameController {
 	  };
 
 	  getTournaments = async (req, res, next) => {
-	    try {
-	      const userId = req.userId;
-	      const { limit, offset, page } = getPaginationParams(req.query);
-	      const { tournaments, total } = await this.gameSvc.getTournaments({userId, limit, offset});
-	      res.json(apiResponse(tournaments, "game tournaments fetched successfuly", paginationMeta(total, page, limit)));
-	    } catch (error) {
-	      next(error);
-	    }
-	  };
+    try {
+      const userId = req.userId;
+      const limit = parseInt(req.query.limit) || 20;
+      const offset = (parseInt(req.query.page) - 1) * limit || 0;
+      const result = await this.gameSvc.getTournaments({ userId, limit, offset });
+      res.json(apiResponse(result.tournaments, "Tournaments fetched successfully", { total: result.total }));
+    } catch (error) {
+      next(error);
+    }
+  };
 
-	  joinTournament = async (req, res, next) => {
+  getTournamentLeaderboard = async (req, res, next) => {
+    try {
+      const tournamentId = req.params.tournamentId;
+      const limit = parseInt(req.query.limit) || 10;
+      const offset = (parseInt(req.query.page) - 1) * limit || 0;
+      const result = await this.gameSvc.getTournamentLeaderboard({ tournamentId, limit, offset });
+      res.json(apiResponse(result.leaderboard, "Tournament leaderboard fetched successfully", { total: result.total }));
+    } catch (error) {
+      next(error);
+    }
+  };
+
+  joinTournament = async (req, res, next) => {
 	    try {
 	      const userId = req.userId;
 	      const { tournamentId } = req.params;

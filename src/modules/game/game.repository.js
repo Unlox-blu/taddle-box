@@ -3,59 +3,58 @@
 const pool = require('../../config/database');
 const gameModel = require('./game.model');
 
-
-const findManyGames = async ({limit, offset}) => {
+const findManyGames = async ({ limit, offset }) => {
   try {
-    const {rows} = await pool.query(
+    const { rows } = await pool.query(
       `SELECT ${gameModel.GAME_FIELDS}, COUNT(*) OVER() AS total
       FROM ${gameModel.GAME_TABLE}
       WHERE is_active = TRUE
       ORDER BY created_at DESC
       LIMIT $1 OFFSET $2`,
       [limit, offset]
-    )
+    );
     const total = rows[0]?.total || 0;
-    const games = rows.map(gameModel.formatGame)
+    const games = rows.map(gameModel.formatGame);
     return { games, total: parseInt(total, 10) };
   } catch (error) {
-    throw error
+    throw error;
   }
-}
+};
 
-const findManyGamesBydDfficulty = async ({difficulty, limit, offset}) => {
+const findManyGamesBydDfficulty = async ({ difficulty, limit, offset }) => {
   try {
-    const {rows} = await pool.query(
+    const { rows } = await pool.query(
       `SELECT ${gameModel.GAME_FIELDS}, COUNT(*) OVER() AS total
       FROM ${gameModel.GAME_TABLE}
       WHERE is_active = TRUE AND difficulty = $1
       ORDER BY created_at DESC
       LIMIT $2 OFFSET $3`,
       [difficulty, limit, offset]
-    )
+    );
     const total = rows[0]?.total || 0;
-    const games = rows.map(gameModel.formatGame)
+    const games = rows.map(gameModel.formatGame);
     return { games, total: parseInt(total, 10) };
   } catch (error) {
-    throw error
+    throw error;
   }
-}
+};
 
-const findGameById = async ({gameId}) => {
+const findGameById = async ({ gameId }) => {
   try {
-    const {rows} = await pool.query(
+    const { rows } = await pool.query(
       `SELECT ${gameModel.GAME_FIELDS}
       FROM ${gameModel.GAME_TABLE}
       WHERE id = $1`,
       [gameId]
-    )    
-    const game = rows[0] ? gameModel.formatGame(rows[0]) : null
-    return  game ;
+    );
+    const game = rows[0] ? gameModel.formatGame(rows[0]) : null;
+    return game;
   } catch (error) {
-    throw error
+    throw error;
   }
-}
+};
 
-const searchGames = async ({query, limit, offset}) => {
+const searchGames = async ({ query, limit, offset }) => {
   try {
     const { rows } = await pool.query(
       `SELECT ${gameModel.GAME_FIELDS}, 
@@ -68,58 +67,65 @@ const searchGames = async ({query, limit, offset}) => {
       [`%${query}%`, limit, offset]
     );
     const total = rows[0]?.total || 0;
-    const games = rows.map(gameModel.formatGame) 
+    const games = rows.map(gameModel.formatGame);
     return { games, total: parseInt(total, 10) };
   } catch (error) {
     throw error;
   }
 };
 
-
-const createGameMatche = async ({matchData}) => {
+const createGameMatche = async ({ matchData }) => {
   try {
-    const {rows} = await pool.query(
+    const { rows } = await pool.query(
       `INSERT INTO ${gameModel.GAME_MATCH_TABLE}
       (user_id, game_id, mode, category, difficulty, metadata)
       VALUES ($1, $2, $3, $4, $5, $6::jsonb)
       RETURNING *`,
       [
-        matchData.userId, matchData.gameId, matchData.mode, 
-        matchData.category || null, matchData.difficulty || null, JSON.stringify(matchData.metadata || [])
+        matchData.userId,
+        matchData.gameId,
+        matchData.mode,
+        matchData.category || null,
+        matchData.difficulty || null,
+        JSON.stringify(matchData.metadata || []),
       ]
-    )
-    const match = gameModel.formatGameMatch(rows[0])
-    return match
+    );
+    const match = gameModel.formatGameMatch(rows[0]);
+    return match;
   } catch (error) {
-    throw error
+    throw error;
   }
-}
+};
 
-const updateGameMatcheByMatchId = async ({matchData}) => {
+const updateGameMatcheByMatchId = async ({ matchData }) => {
   try {
-    const {rows} = await pool.query(
+    const { rows } = await pool.query(
       `UPDATE ${gameModel.GAME_MATCH_TABLE}
       SET result = $1, score = $2, duration = $3, xp_earned = $4, updated_at = NOW()
       WHERE id = $5 AND user_id = $6 AND result IS NULL
       RETURNING *`,
       [
-        matchData.result, matchData.score, matchData.duration, 
-        matchData.xpEarned, matchData.matchId, matchData.userId
+        matchData.result,
+        matchData.score,
+        matchData.duration,
+        matchData.xpEarned,
+        matchData.matchId,
+        matchData.userId,
       ]
-    )
-    const match = gameModel.formatGameMatch(rows[0])
-    return match
+    );
+    const match = gameModel.formatGameMatch(rows[0]);
+    return match;
   } catch (error) {
-    throw error
+    throw error;
   }
-}
+};
 
-const completeGameMatch = async ({matchData}) => {
+const completeGameMatch = async ({ matchData }) => {
   const client = await pool.connect();
   try {
     await client.query('BEGIN');
 
-    const {rows} = await client.query(
+    const { rows } = await client.query(
       `UPDATE ${gameModel.GAME_MATCH_TABLE} gm
       SET result = $1, score = $2, duration = $3, xp_earned = $4, metadata = COALESCE(gm.metadata, '{}'::jsonb) || $7::jsonb, updated_at = NOW()
       FROM ${gameModel.GAME_TABLE} g
@@ -179,11 +185,11 @@ const completeGameMatch = async ({matchData}) => {
         `UPDATE ${gameModel.GAME_TOURNAMENT_ENTRY_TABLE}
         SET status = 'PLAYED',
           match_id = $1,
-          score = GREATEST(score, $2),
-          xp_earned = GREATEST(xp_earned, $3),
+          score = score + $2,
+          xp_earned = xp_earned + $3,
           updated_at = NOW()
         WHERE tournament_id = $4 AND user_id = $5`,
-        [rows[0].id, matchData.score, matchData.xpEarned, tournamentId, matchData.userId]
+        [rows[0].id, isWin ? 1 : 0, matchData.xpEarned, tournamentId, matchData.userId]
       );
     }
 
@@ -195,11 +201,11 @@ const completeGameMatch = async ({matchData}) => {
   } finally {
     client.release();
   }
-}
+};
 
-const findManyGameMatshs = async ({userId, limit, offset}) => {
+const findManyGameMatshs = async ({ userId, limit, offset }) => {
   try {
-    const {rows} = await pool.query(
+    const { rows } = await pool.query(
       `SELECT gm.id, gm.user_id, gm.game_id, gm.mode, gm.result, gm.score, gm.duration, gm.xp_earned,
         gm.category, gm.difficulty, gm.metadata, gm.created_at, gm.updated_at,
         g.name AS game_name, g.slug AS game_slug, COUNT(*) OVER() AS total
@@ -209,14 +215,14 @@ const findManyGameMatshs = async ({userId, limit, offset}) => {
       ORDER BY gm.created_at DESC
       LIMIT $2 OFFSET $3`,
       [userId, limit, offset]
-    )
+    );
     const total = rows[0]?.total || 0;
-    const matchs = rows.map(gameModel.formatGameMatch)
+    const matchs = rows.map(gameModel.formatGameMatch);
     return { matchs, total: parseInt(total, 10) };
   } catch (error) {
-    throw error
+    throw error;
   }
-}
+};
 
 const recordMatchHistory = async ({ userId, gameId, mode, result, score, duration, xpEarned }) => {
   try {
@@ -227,9 +233,9 @@ const recordMatchHistory = async ({ userId, gameId, mode, result, score, duratio
       [userId, gameId, mode || 'QUICK', result, score, duration, xpEarned]
     );
   } catch (error) {
-    console.error("Failed to record match history:", error.message);
+    console.error('Failed to record match history:', error.message);
   }
-}
+};
 
 const getTrendingGames = async ({ limit = 3 }) => {
   try {
@@ -242,7 +248,7 @@ const getTrendingGames = async ({ limit = 3 }) => {
        LIMIT $1`,
       [limit]
     );
-    return rows.map(row => ({
+    return rows.map((row) => ({
       ...gameModel.formatGame(row),
       playCount: parseInt(row.play_count || '0', 10),
     }));
@@ -251,9 +257,42 @@ const getTrendingGames = async ({ limit = 3 }) => {
   }
 };
 
-const findLeaderboard = async ({limit, offset}) => {
+const findTournamentLeaderboard = async ({ tournamentId, limit, offset }) => {
   try {
-    const {rows} = await pool.query(
+    const { rows } = await pool.query(
+      `SELECT
+        gte.user_id,
+        u.name,
+        u.username,
+        avatar_media.cloudfront_url AS avatar_url,
+        gte.score AS best_score,
+        COUNT(*) OVER() AS total
+      FROM ${gameModel.GAME_TOURNAMENT_ENTRY_TABLE} gte
+      JOIN users u ON u.id = gte.user_id
+      LEFT JOIN media AS avatar_media ON avatar_media.id = u.avatar_url
+      WHERE gte.tournament_id = $1 AND gte.status <> 'CANCELLED'
+      ORDER BY gte.score DESC NULLS LAST
+      LIMIT $2 OFFSET $3`,
+      [tournamentId, limit, offset]
+    );
+
+    const total = rows[0]?.total || 0;
+    const leaderboard = rows.map((row) => ({
+      userId: row.user_id,
+      name: row.name,
+      username: row.username,
+      avatarUrl: row.avatar_url,
+      bestScore: row.best_score,
+    }));
+    return { leaderboard, total: parseInt(total, 10) };
+  } catch (error) {
+    throw error;
+  }
+};
+
+const findLeaderboard = async ({ limit, offset }) => {
+  try {
+    const { rows } = await pool.query(
       `SELECT
         gs.user_id,
         u.name,
@@ -293,11 +332,11 @@ const findLeaderboard = async ({limit, offset}) => {
   } catch (error) {
     throw error;
   }
-}
+};
 
-const findTournaments = async ({userId, limit, offset}) => {
+const findTournaments = async ({ userId, limit, offset }) => {
   try {
-    const {rows} = await pool.query(
+    const { rows } = await pool.query(
       `SELECT
         gt.*,
         g.name AS game_name,
@@ -327,11 +366,11 @@ const findTournaments = async ({userId, limit, offset}) => {
   } catch (error) {
     throw error;
   }
-}
+};
 
-const findTournamentById = async ({tournamentId, userId}) => {
+const findTournamentById = async ({ tournamentId, userId }) => {
   try {
-    const {rows} = await pool.query(
+    const { rows } = await pool.query(
       `SELECT
         gt.*,
         g.name AS game_name,
@@ -354,11 +393,11 @@ const findTournamentById = async ({tournamentId, userId}) => {
   } catch (error) {
     throw error;
   }
-}
+};
 
-const joinTournament = async ({userId, tournamentId}) => {
+const joinTournament = async ({ userId, tournamentId }) => {
   try {
-    const {rows} = await pool.query(
+    const { rows } = await pool.query(
       `INSERT INTO ${gameModel.GAME_TOURNAMENT_ENTRY_TABLE} (tournament_id, user_id)
       VALUES ($1, $2)
       ON CONFLICT (tournament_id, user_id) DO UPDATE SET
@@ -372,11 +411,11 @@ const joinTournament = async ({userId, tournamentId}) => {
   } catch (error) {
     throw error;
   }
-}
+};
 
-const hasTournamentEntry = async ({userId, tournamentId}) => {
+const hasTournamentEntry = async ({ userId, tournamentId }) => {
   try {
-    const {rows} = await pool.query(
+    const { rows } = await pool.query(
       `SELECT 1
       FROM ${gameModel.GAME_TOURNAMENT_ENTRY_TABLE}
       WHERE tournament_id = $1 AND user_id = $2 AND status <> 'CANCELLED'
@@ -388,11 +427,11 @@ const hasTournamentEntry = async ({userId, tournamentId}) => {
   } catch (error) {
     throw error;
   }
-}
+};
 
-const findMatchmakingTicketById = async ({userId, ticketId}) => {
+const findMatchmakingTicketById = async ({ userId, ticketId }) => {
   try {
-    const {rows} = await pool.query(
+    const { rows } = await pool.query(
       `SELECT q.*, opponent.name AS opponent_name, opponent.username AS opponent_username
       FROM ${gameModel.GAME_MATCHMAKING_TICKET_TABLE} q
       LEFT JOIN users opponent ON opponent.id = q.opponent_user_id
@@ -417,13 +456,13 @@ const findMatchmakingTicketById = async ({userId, ticketId}) => {
       match = gameModel.formatGameMatch(matchRows.rows[0]);
     }
 
-    return {ticket, match};
+    return { ticket, match };
   } catch (error) {
     throw error;
   }
-}
+};
 
-const cancelWaitingMatchmakingTickets = async ({userId, gameId, mode, tournamentId}) => {
+const cancelWaitingMatchmakingTickets = async ({ userId, gameId, mode, tournamentId }) => {
   try {
     await pool.query(
       `UPDATE ${gameModel.GAME_MATCHMAKING_TICKET_TABLE}
@@ -438,9 +477,9 @@ const cancelWaitingMatchmakingTickets = async ({userId, gameId, mode, tournament
   } catch (error) {
     throw error;
   }
-}
+};
 
-const joinMatchmaking = async ({userId, game, mode, tournamentId}) => {
+const joinMatchmaking = async ({ userId, game, mode, tournamentId }) => {
   const client = await pool.connect();
   try {
     await client.query('BEGIN');
@@ -486,7 +525,7 @@ const joinMatchmaking = async ({userId, game, mode, tournamentId}) => {
           tournamentId || null,
           mode,
           matchGroupId,
-          JSON.stringify({runtime: game.metadata?.runtime, queuedAt: new Date().toISOString()}),
+          JSON.stringify({ runtime: game.metadata?.runtime, queuedAt: new Date().toISOString() }),
         ]
       );
 
@@ -501,10 +540,9 @@ const joinMatchmaking = async ({userId, game, mode, tournamentId}) => {
 
     const opponentTicket = opponentResult.rows[0];
     const startedAt = new Date().toISOString();
-    const currentUserResult = await client.query(
-      `SELECT name, username FROM users WHERE id = $1`,
-      [userId]
-    );
+    const currentUserResult = await client.query(`SELECT name, username FROM users WHERE id = $1`, [
+      userId,
+    ]);
     const currentUser = currentUserResult.rows[0] || {};
 
     const userMatchResult = await client.query(
@@ -566,7 +604,7 @@ const joinMatchmaking = async ({userId, game, mode, tournamentId}) => {
         userMatchResult.rows[0].id,
         opponentMatchResult.rows[0].id,
         matchGroupId,
-        JSON.stringify({runtime: game.metadata?.runtime, matchedAt: startedAt}),
+        JSON.stringify({ runtime: game.metadata?.runtime, matchedAt: startedAt }),
       ]
     );
 
@@ -586,7 +624,7 @@ const joinMatchmaking = async ({userId, game, mode, tournamentId}) => {
         opponentMatchResult.rows[0].id,
         userMatchResult.rows[0].id,
         matchGroupId,
-        JSON.stringify({matchedAt: startedAt}),
+        JSON.stringify({ matchedAt: startedAt }),
         opponentTicket.id,
       ]
     );
@@ -616,12 +654,11 @@ const joinMatchmaking = async ({userId, game, mode, tournamentId}) => {
   } finally {
     client.release();
   }
-}
+};
 
-
-const findGameMatchById = async ({matchId}) => {
+const findGameMatchById = async ({ matchId }) => {
   try {
-    const {rows} = await pool.query(
+    const { rows } = await pool.query(
       `SELECT gm.id, gm.user_id, gm.game_id, gm.mode, gm.result, gm.score, gm.duration, gm.xp_earned,
         gm.category, gm.difficulty, gm.metadata, gm.created_at, gm.updated_at,
         g.name AS game_name, g.slug AS game_slug
@@ -629,17 +666,17 @@ const findGameMatchById = async ({matchId}) => {
       JOIN ${gameModel.GAME_TABLE} g ON g.id = gm.game_id
       WHERE gm.id = $1`,
       [matchId]
-    )    
-    const match = rows[0] ? gameModel.formatGameMatch(rows[0]) : null
-    return  match ;
+    );
+    const match = rows[0] ? gameModel.formatGameMatch(rows[0]) : null;
+    return match;
   } catch (error) {
-    throw error
+    throw error;
   }
-}
+};
 
-const cancelMatchmakingTicket = async ({userId, ticketId}) => {
+const cancelMatchmakingTicket = async ({ userId, ticketId }) => {
   try {
-    const {rows} = await pool.query(
+    const { rows } = await pool.query(
       `UPDATE ${gameModel.GAME_MATCHMAKING_TICKET_TABLE}
       SET status = 'CANCELLED', updated_at = NOW()
       WHERE id = $1 AND user_id = $2 AND status = 'WAITING'
@@ -651,46 +688,44 @@ const cancelMatchmakingTicket = async ({userId, ticketId}) => {
   } catch (error) {
     throw error;
   }
-}
+};
 
-const findGameStatsByUserId = async ({userId}) => {
+const findGameStatsByUserId = async ({ userId }) => {
   try {
-    const {rows} = await pool.query(
+    const { rows } = await pool.query(
       `SELECT ${gameModel.GAME_STATS_FIELDS}
       FROM ${gameModel.GAME_STATS_TABLE}
       WHERE user_id = $1`,
       [userId]
-    )    
-    const gameStats = rows[0] ? gameModel.formatGameStats(rows[0]) : null
-    return  gameStats ;
+    );
+    const gameStats = rows[0] ? gameModel.formatGameStats(rows[0]) : null;
+    return gameStats;
   } catch (error) {
-    throw error
+    throw error;
   }
-}
+};
 
-const createGameStatsByUserId = async ({userId}) => {
+const createGameStatsByUserId = async ({ userId }) => {
   try {
-    const {rows} = await pool.query(
+    const { rows } = await pool.query(
       `INSERT INTO ${gameModel.GAME_STATS_TABLE}
       (user_id)
       VALUES ($1)
       RETURNING *`,
       [userId]
-    )    
-    const gameStats = rows[0] ? gameModel.formatGameStats(rows[0]) : null
-    return  gameStats ;
+    );
+    const gameStats = rows[0] ? gameModel.formatGameStats(rows[0]) : null;
+    return gameStats;
   } catch (error) {
-    throw error
+    throw error;
   }
-}
-
-
+};
 
 const setupMatchSession = async ({ matchId, gameId, userId, wsToken, mode, gameSlug }) => {
   const client = await pool.connect();
   try {
     await client.query('BEGIN');
-    
+
     // Ensure the game_matches row exists
     await client.query(
       `INSERT INTO game_matches (id, game_id, mode, status)
@@ -700,18 +735,21 @@ const setupMatchSession = async ({ matchId, gameId, userId, wsToken, mode, gameS
     );
 
     // Fetch existing colors to determine this player's color
-    const existing = await client.query(`SELECT player_color FROM match_members WHERE match_id = $1`, [matchId]);
-    const existingColors = existing.rows.map(r => r.player_color);
-    
+    const existing = await client.query(
+      `SELECT player_color FROM match_members WHERE match_id = $1`,
+      [matchId]
+    );
+    const existingColors = existing.rows.map((r) => r.player_color);
+
     let playerColor = 'blue';
     if (gameSlug === 'chess') {
-       playerColor = existingColors.includes('b') ? 'w' : 'b';
+      playerColor = existingColors.includes('b') ? 'w' : 'b';
     } else if (gameSlug === 'ludo') {
-       const colors = ['red', 'green', 'yellow', 'blue'];
-       playerColor = colors.find(c => !existingColors.includes(c)) || 'red';
+      const colors = ['red', 'green', 'yellow', 'blue'];
+      playerColor = colors.find((c) => !existingColors.includes(c)) || 'red';
     } else if (gameSlug === 'snake-ladder') {
-       const colors = ['red', 'blue', 'green', 'yellow'];
-       playerColor = colors.find(c => !existingColors.includes(c)) || 'red';
+      const colors = ['red', 'blue', 'green', 'yellow'];
+      playerColor = colors.find((c) => !existingColors.includes(c)) || 'red';
     }
 
     // Insert the member token
@@ -737,11 +775,11 @@ const createGameSession = async ({ sessionData }) => {
       `INSERT INTO game_sessions (user_id, game_id, seed, expires_at, metadata)
        VALUES ($1, $2, $3, $4, $5::jsonb) RETURNING *`,
       [
-        sessionData.userId, 
-        sessionData.gameId, 
-        sessionData.seed, 
+        sessionData.userId,
+        sessionData.gameId,
+        sessionData.seed,
         sessionData.expiresAt,
-        JSON.stringify(sessionData.metadata || {})
+        JSON.stringify(sessionData.metadata || {}),
       ]
     );
     return rows[0];
@@ -752,10 +790,7 @@ const createGameSession = async ({ sessionData }) => {
 
 const findGameSessionById = async ({ sessionId }) => {
   try {
-    const { rows } = await pool.query(
-      `SELECT * FROM game_sessions WHERE id = $1`,
-      [sessionId]
-    );
+    const { rows } = await pool.query(`SELECT * FROM game_sessions WHERE id = $1`, [sessionId]);
     return rows[0];
   } catch (error) {
     throw error;
@@ -779,7 +814,15 @@ const createRewardLedgerEntry = async ({ ledgerData }, clientToUse = pool) => {
     const { rows } = await clientToUse.query(
       `INSERT INTO reward_ledger (session_id, user_id, game_id, validated_score, xp_awarded, device_id, ip_address)
        VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING *`,
-      [ledgerData.sessionId, ledgerData.userId, ledgerData.gameId, ledgerData.validatedScore, ledgerData.xpAwarded, ledgerData.deviceId, ledgerData.ipAddress]
+      [
+        ledgerData.sessionId,
+        ledgerData.userId,
+        ledgerData.gameId,
+        ledgerData.validatedScore,
+        ledgerData.xpAwarded,
+        ledgerData.deviceId,
+        ledgerData.ipAddress,
+      ]
     );
     return rows[0];
   } catch (error) {
@@ -787,9 +830,9 @@ const createRewardLedgerEntry = async ({ ledgerData }, clientToUse = pool) => {
   }
 };
 
-const findOpponentSessionByMatchGroup = async ({matchGroupId, excludeUserId}) => {
+const findOpponentSessionByMatchGroup = async ({ matchGroupId, excludeUserId }) => {
   try {
-    const {rows} = await pool.query(
+    const { rows } = await pool.query(
       `SELECT gs.*, rl.validated_score
       FROM ${gameModel.GAME_SESSION_TABLE} gs
       LEFT JOIN reward_ledger rl ON rl.session_id = gs.id
@@ -797,12 +840,12 @@ const findOpponentSessionByMatchGroup = async ({matchGroupId, excludeUserId}) =>
       AND gs.user_id <> $2
       LIMIT 1`,
       [matchGroupId, excludeUserId]
-    )
-    return rows[0] || null
+    );
+    return rows[0] || null;
   } catch (error) {
-    throw error
+    throw error;
   }
-}
+};
 
 const findActiveBotSession = async ({ userId, gameId }) => {
   try {
@@ -849,10 +892,10 @@ const findActiveSession = async ({ userId }) => {
     let opponentName = null;
     if (rows[0].mode !== 'bot' && rows[0].mode !== 'BOT') {
       const opps = await pool.query(
-         `SELECT u.name, u.username FROM match_members mm
+        `SELECT u.name, u.username FROM match_members mm
           JOIN users u ON u.id = mm.user_id
           WHERE mm.match_id = $1 AND mm.user_id != $2 LIMIT 1`,
-         [rows[0].match_id, userId]
+        [rows[0].match_id, userId]
       );
       if (opps.rows.length > 0) {
         opponentName = opps.rows[0].name || opps.rows[0].username;
@@ -866,12 +909,34 @@ const findActiveSession = async ({ userId }) => {
 };
 
 module.exports = {
-                  findManyGames, findManyGamesBydDfficulty, findGameById, searchGames,
-                  createGameMatche, updateGameMatcheByMatchId, completeGameMatch, findManyGameMatshs, recordMatchHistory,
-                  getTrendingGames, findLeaderboard,
-                  findManyGameTournaments, findGameTournamentById,
-                  createGameTournamentEntry, findManyGameTournamentEntries,
-                  joinMatchmaking, setupMatchSession, createGameSession,
-                  findGameSessionById, updateGameSessionStatus, createRewardLedgerEntry,
-                  findOpponentSessionByMatchGroup, updateTournamentPlayerCount, completeTournament
-                };
+  findManyGames,
+  findManyGamesBydDfficulty,
+  findGameById,
+  searchGames,
+  createGameMatche,
+  updateGameMatcheByMatchId,
+  completeGameMatch,
+  findManyGameMatshs,
+  recordMatchHistory,
+  findGameMatchById,
+  findGameStatsByUserId,
+  createGameStatsByUserId,
+  findLeaderboard,
+  findTournamentLeaderboard,
+  findTournaments,
+  findTournamentById,
+  joinTournament,
+  hasTournamentEntry,
+  findMatchmakingTicketById,
+  cancelMatchmakingTicket,
+  getTrendingGames,
+  joinMatchmaking,
+  setupMatchSession,
+  createGameSession,
+  findGameSessionById,
+  updateGameSessionStatus,
+  createRewardLedgerEntry,
+  findOpponentSessionByMatchGroup,
+  findActiveBotSession,
+  findActiveSession,
+};

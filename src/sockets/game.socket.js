@@ -364,6 +364,13 @@ const setupGameSocket = (io) => {
             });
           }
           _startTurnTimer(gameNs, matchId, gameSlug, updatedState);
+          
+          if (updatedState.isBotMatch) {
+            const turnBasedSlugs = ['chess', 'ludo', 'snake-ladder'];
+            if (!turnBasedSlugs.includes(gameSlug)) {
+              botHandler.handleTurn(matchId, gameSlug, updatedState);
+            }
+          }
         }
       } catch (e) {
         socket.emit(EVENTS.ERROR, { message: e.message });

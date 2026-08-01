@@ -1,17 +1,33 @@
 module.exports = {
+    onMatchStart: (session, state) => {
+        module.exports.onTurn(session, state);
+    },
+    onPause: (session) => {
+        session.cleanup();
+        session.currentRoundScheduled = -1;
+    },
+    onResume: (session, state) => {
+        module.exports.onTurn(session, state);
+    },
     // Memory Grid round advancements typically trigger onTurn in the new architecture
     onTurn: (session, state) => {
         const ps = state.pluginState;
         if (!ps || !ps.currentPattern) return;
         
-        const delay = session.difficulty.reactionMs;
+        if (ps.playerInputs && ps.playerInputs[session.botId]) return;
         
-        session.setTimeout(() => {
-            session.submitMove({ type: 'READY_INPUT' });
+        if (ps.roundPhase === 'SHOW') {
+            if (session.currentRoundScheduled === ps.currentRound) return;
+            session.currentRoundScheduled = ps.currentRound;
             
-            // Wait a moment then input the sequence
             session.setTimeout(() => {
-                // Calculate accuracy based on difficulty profile
+                session.submitMove({ type: 'READY_INPUT' });
+            }, session.difficulty.reactionMs);
+        } else if (ps.roundPhase === 'INPUT') {
+            if (session.currentInputScheduled === ps.currentRound) return;
+            session.currentInputScheduled = ps.currentRound;
+
+            session.setTimeout(() => {
                 const isPerfect = (session.random() * 100) <= session.difficulty.memoryAccuracy;
                 let tiles = [...ps.currentPattern];
                 
@@ -22,6 +38,6 @@ module.exports = {
                 
                 session.submitMove({ type: 'INPUT', tiles });
             }, 1000 + session.random() * 500);
-        }, delay);
+        }
     }
 };

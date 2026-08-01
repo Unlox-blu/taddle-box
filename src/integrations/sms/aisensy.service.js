@@ -39,7 +39,7 @@ const sendWhatsappOtp = async (phonenumber, otp) => {
     });
 
     logger.info(
-      `[AiSensy] OTP sent successfully via WhatsApp: ${JSON.stringify(message_res.data)}`
+      `[AiSensy] OTP [${otp}] sent successfully via WhatsApp: ${JSON.stringify(message_res.data)}`
     );
     return message_res.data;
   } catch (err) {

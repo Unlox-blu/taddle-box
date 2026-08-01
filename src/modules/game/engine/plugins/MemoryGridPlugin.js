@@ -101,28 +101,58 @@ class MemoryGridPlugin extends GamePlugin {
 
   applyMove(userId, moveData, currentState) {
     if (moveData.type === 'READY_INPUT') {
-      return { ...currentState, roundPhase: 'INPUT' };
+      const readyPlayers = currentState.readyPlayers || [];
+      if (!readyPlayers.includes(userId)) {
+        readyPlayers.push(userId);
+      }
+      if (readyPlayers.length >= this.players.length) {
+        return { ...currentState, roundPhase: 'INPUT', readyPlayers: [] };
+      }
+      return { ...currentState, readyPlayers };
     }
 
     const { tiles } = moveData;
     const correct = tiles.every((t, i) => t === currentState.currentPattern[i]);
 
     const newScores = { ...currentState.scores };
-    if (correct) {
-      newScores[userId] = (newScores[userId] || 0) + 1;
-    }
+    const newPlayerInputs = { ...currentState.playerInputs, [userId]: tiles };
 
-    const isLastRound = currentState.currentRound >= currentState.totalRounds - 1;
-
-    if (isLastRound || !correct) {
-      // Game over for this player — determine winner if multiplayer
+    if (!correct) {
+      // Game over for this player — if they are wrong, they lose
       const winner = Object.entries(newScores).sort((a, b) => b[1] - a[1])[0][0];
       return {
         ...currentState,
         scores: newScores,
         status: 'finished',
         winner,
-        playerInputs: { ...currentState.playerInputs, [userId]: tiles },
+        playerInputs: newPlayerInputs,
+      };
+    }
+
+    newScores[userId] = (newScores[userId] || 0) + 1;
+
+    const numPlayers = Object.keys(newScores).length;
+    const numInputs = Object.keys(newPlayerInputs).length;
+
+    if (numInputs < numPlayers) {
+      // Wait for other players
+      return {
+        ...currentState,
+        scores: newScores,
+        playerInputs: newPlayerInputs,
+      };
+    }
+
+    const isLastRound = currentState.currentRound >= currentState.totalRounds - 1;
+
+    if (isLastRound) {
+      const winner = Object.entries(newScores).sort((a, b) => b[1] - a[1])[0][0];
+      return {
+        ...currentState,
+        scores: newScores,
+        status: 'finished',
+        winner,
+        playerInputs: newPlayerInputs,
       };
     }
 

@@ -69,6 +69,7 @@ export default function SnakeLadderGame({ matchId, userId, wsToken, opponentName
   const [toast, setToast] = useState<string | null>(null);
   const [rolling, setRolling] = useState(false);
   const [lastDice, setLastDice] = useState<number | null>(null);
+  const [playerInfo, setPlayerInfo] = useState<Record<string, { name: string; avatar?: string }>>({});
 
   const diceAnim = useRef(new Animated.Value(1)).current;
   const diceRotate = useRef(new Animated.Value(0)).current;
@@ -113,9 +114,19 @@ export default function SnakeLadderGame({ matchId, userId, wsToken, opponentName
     setSocket(s);
 
     s.on(E.CONNECT_ACK, (data: any) => {
-      const players = data.state?.players || data.state?.metadata?.players || [];
-      const idx = players.findIndex((p: any) => p.userId === userId);
+      const players = data.state?.metadata?.playerSnapshots || data.state?.metadata?.players || data.state?.players || [];
+      const idx = players.findIndex((p: any) => p.id === userId || p.userId === userId);
       setMyPlayerIndex(idx >= 0 ? idx : 0);
+      
+      const info: Record<string, { name: string; avatar?: string }> = {};
+      players.forEach((p: any) => {
+        const uid = p.id || p.userId;
+        if (uid) {
+          info[uid] = { name: p.displayName || p.name || p.username || 'Player', avatar: p.avatar || p.avatarUrl };
+        }
+      });
+      setPlayerInfo(info);
+
       if (data.state?.pluginState) setState(data.state.pluginState);
       setStatus(data.state?.status === 'ACTIVE' ? 'active' : 'waiting');
       s.emit(E.READY);
@@ -346,7 +357,9 @@ export default function SnakeLadderGame({ matchId, userId, wsToken, opponentName
       const anim = getOrCreateTokenAnim(uid, sq);
       const isMe = uid === userId;
       const color = PLAYER_COLORS[i % 4];
-      const tokenSize = CELL * 0.56;
+      const tokenSize = CELL * 0.6;
+      const info = playerInfo[uid] || { name: 'Player' };
+      const hasAvatar = !!info.avatar;
 
       return (
         <Animated.View
@@ -356,24 +369,32 @@ export default function SnakeLadderGame({ matchId, userId, wsToken, opponentName
             width: tokenSize,
             height: tokenSize,
             borderRadius: tokenSize / 2,
-            left: Animated.subtract(anim.x, tokenSize / 2 - (i % 2 === 0 ? -2 : 4)),
-            top: Animated.subtract(anim.y, tokenSize / 2 - (i > 1 ? 4 : -2)),
-            backgroundColor: color,
+            left: Animated.subtract(anim.x, tokenSize / 2 - (i % 2 === 0 ? -3 : 3)),
+            top: Animated.subtract(anim.y, tokenSize / 2 - (i > 1 ? 3 : -3)),
+            backgroundColor: hasAvatar ? '#FFF' : color,
             borderWidth: isMe ? 3 : 2,
-            borderColor: isMe ? '#FFF' : 'rgba(255,255,255,0.5)',
+            borderColor: isMe ? '#FFF' : 'rgba(255,255,255,0.8)',
             justifyContent: 'center',
             alignItems: 'center',
-            elevation: isMe ? 10 : 5,
-            shadowColor: color,
-            shadowOpacity: 0.7,
+            elevation: isMe ? 12 : 6,
+            shadowColor: '#000',
+            shadowOpacity: 0.5,
             shadowRadius: isMe ? 6 : 3,
             shadowOffset: { width: 0, height: 2 },
             zIndex: isMe ? 20 : 10,
+            overflow: 'hidden',
           }}
         >
-          <Text style={{ fontSize: tokenSize * 0.38, fontWeight: '900', color: '#FFF' }}>
-            {PLAYER_LABELS[i % 4]}
-          </Text>
+          {hasAvatar ? (
+            <Animated.Image 
+              source={{ uri: info.avatar }} 
+              style={{ width: '100%', height: '100%', resizeMode: 'cover' }} 
+            />
+          ) : (
+            <Text style={{ fontSize: tokenSize * 0.45, fontWeight: '900', color: '#FFF' }}>
+              {info.name.charAt(0).toUpperCase()}
+            </Text>
+          )}
         </Animated.View>
       );
     });

@@ -862,15 +862,17 @@ function QueueModal({
   const [statusText, setStatusText] = useState("Joining queue...");
   const [countdown, setCountdown] = useState<number | null>(null);
   const [closing, setClosing] = useState(false);
+  const [lobbyState, setLobbyState] = useState<{players: any[], maxPlayers: number} | null>(null);
   const matchedRef = useRef(false);
 
   useEffect(() => {
     if (!request) return;
     let cancelled = false;
-    let poll: ReturnType<typeof setInterval> | null = null;
+    let pollMatched: ReturnType<typeof setInterval> | null = null;
     let fallbackTimer: ReturnType<typeof setInterval> | null = null;
     matchedRef.current = false;
     setTicketId(null);
+    setLobbyState(null);
     setStatusText(
       request.mode === "invite"
         ? "Waiting for friends to join..."
@@ -880,19 +882,25 @@ function QueueModal({
       request.mode === "quick" ? 10 : request.mode === "invite" ? 10 : null,
     );
 
-    const handleResponse = (response: MatchmakingResponse) => {
+    const handleResponse = (response: MatchmakingResponse | any) => {
       if (cancelled) return;
       if (
         response.status === "MATCHED" ||
         response.ticket?.status === "MATCHED"
       ) {
         matchedRef.current = true;
-        if (poll) (poll as any).cancel();
         onMatched(request, response);
         return;
       }
+      
       setTicketId(response.ticket?.id || null);
-      setStatusText("Waiting for another real player...");
+      if (response.players && response.maxPlayers) {
+        setLobbyState({
+          players: response.players,
+          maxPlayers: response.maxPlayers
+        });
+      }
+      setStatusText(`Waiting for players...`);
     };
 
     gamesService
@@ -914,15 +922,25 @@ function QueueModal({
         if (!id || res.data.status === "MATCHED") return;
 
         const onSocketMatched = (data: any) => {
-          if (data.ticket?.id === id || data.opponent?.userId) {
+          if (data.ticket?.id === id || data.opponent?.userId || data.players) {
             handleResponse(data);
           }
         };
 
+        const onSocketLobbyUpdated = (data: any) => {
+           if (data.lobbyId && res.data.lobbyId === data.lobbyId) {
+             handleResponse(data);
+           }
+        };
+
         socketClient.events.on("matchmaking:matched", onSocketMatched);
-        poll = {
-          cancel: () =>
-            socketClient.events.off("matchmaking:matched", onSocketMatched),
+        socketClient.events.on("matchmaking:lobbyUpdated", onSocketLobbyUpdated);
+
+        pollMatched = {
+          cancel: () => {
+            socketClient.events.off("matchmaking:matched", onSocketMatched);
+            socketClient.events.off("matchmaking:lobbyUpdated", onSocketLobbyUpdated);
+          }
         } as any;
 
         if (
@@ -936,7 +954,7 @@ function QueueModal({
             setCountdown(timeRemaining);
             if (timeRemaining <= 0) {
               if (fallbackTimer) clearInterval(fallbackTimer);
-              if (poll) (poll as any).cancel();
+              if (pollMatched) (pollMatched as any).cancel();
               cancelled = true;
               gamesService.cancelMatchmakingTicket(id).catch(() => {});
               onTimeoutFallback(request);
@@ -952,7 +970,7 @@ function QueueModal({
 
     return () => {
       cancelled = true;
-      if (poll) (poll as any).cancel();
+      if (pollMatched) (pollMatched as any).cancel();
       if (fallbackTimer) clearInterval(fallbackTimer);
     };
   }, [request]);
@@ -971,6 +989,66 @@ function QueueModal({
     }
   };
 
+  const fillLobby = async () => {
+    if (!ticketId) return;
+    try {
+      await apiClient.post(`/game/matchmaking/${ticketId}/fill-bots`);
+    } catch (e) {
+      console.warn("Failed to fill bots", e);
+    }
+  };
+
+  const renderRadar = () => {
+    if (!lobbyState) {
+      return (
+        <View style={{ marginVertical: 32 }}>
+          <ActivityIndicator size="large" color={colors.primaryLight} />
+        </View>
+      );
+    }
+    const { players, maxPlayers } = lobbyState;
+    const radius = 100;
+    
+    return (
+      <View style={{ width: 250, height: 250, alignItems: 'center', justifyContent: 'center', marginVertical: 20 }}>
+        <View style={{ position: 'absolute', width: 200, height: 200, borderRadius: 100, borderWidth: 1, borderColor: colors.primary, opacity: 0.3 }} />
+        <View style={{ position: 'absolute', width: 100, height: 100, borderRadius: 50, borderWidth: 1, borderColor: colors.primary, opacity: 0.5 }} />
+        
+        <View style={{ width: 40, height: 40, borderRadius: 20, backgroundColor: colors.primary, alignItems: 'center', justifyContent: 'center', zIndex: 10 }}>
+           <Ionicons name="search" size={20} color="white" />
+        </View>
+
+        {players.map((p, i) => {
+          const angle = (i * 2 * Math.PI) / maxPlayers - Math.PI / 2;
+          const x = Math.cos(angle) * radius;
+          const y = Math.sin(angle) * radius;
+          
+          return (
+            <View key={p.id} style={{ position: 'absolute', transform: [{ translateX: x }, { translateY: y }], alignItems: 'center', justifyContent: 'center' }}>
+               <ImageBackground 
+                  source={{ uri: p.avatar || "https://api.dicebear.com/7.x/avataaars/png" }} 
+                  style={{ width: 50, height: 50, borderRadius: 25, overflow: 'hidden', borderWidth: 2, borderColor: colors.primaryLight }}
+               />
+               <Text style={{ color: colors.text, fontSize: 10, textAlign: 'center', marginTop: 4, width: 70, marginLeft: -10 }} numberOfLines={1}>
+                 {p.displayName || p.username}
+               </Text>
+            </View>
+          );
+        })}
+        {Array.from({ length: maxPlayers - players.length }).map((_, j) => {
+          const i = players.length + j;
+          const angle = (i * 2 * Math.PI) / maxPlayers - Math.PI / 2;
+          const x = Math.cos(angle) * radius;
+          const y = Math.sin(angle) * radius;
+          
+          return (
+            <View key={`empty-${j}`} style={{ position: 'absolute', width: 50, height: 50, borderRadius: 25, borderWidth: 2, borderColor: colors.border, borderStyle: 'dashed', backgroundColor: colors.card, transform: [{ translateX: x }, { translateY: y }] }} />
+          );
+        })}
+      </View>
+    );
+  };
+
   return (
     <Modal
       visible={Boolean(request)}
@@ -981,33 +1059,44 @@ function QueueModal({
       <View style={styles.queueBackdrop}>
         <View style={styles.queuePanel}>
           <View style={styles.queueHeader}>
-            <ActivityIndicator
-              size="large"
-              color={colors.primaryLight}
-              style={{ marginBottom: 16 }}
-            />
+            <Text style={styles.queueTitle}>
+              {request?.mode === "tournament"
+                ? "Tournament Queue"
+                : request?.mode === "invite"
+                  ? "Private Match"
+                  : "Matchmaking"}
+            </Text>
+            <Text style={styles.queueSubtitle}>{request?.game.name}</Text>
+            
+            {renderRadar()}
+
+            <Text style={styles.queueStatus}>{statusText}</Text>
+            
             {countdown !== null && !matchedRef.current && (
               <Text
                 style={{
-                  fontSize: 24,
-                  fontWeight: "800",
-                  color: colors.primaryLight,
-                  marginVertical: 8,
+                  fontSize: 16,
+                  fontWeight: "600",
+                  color: colors.textSecondary,
+                  marginVertical: 4,
                 }}
               >
-                {countdown}s
+                Timeout in {countdown}s
               </Text>
             )}
-            <Text style={styles.queueStatus}>{statusText}</Text>
           </View>
-          <Text style={styles.queueTitle}>
-            {request?.mode === "tournament"
-              ? "Tournament Queue"
-              : request?.mode === "invite"
-                ? "Private Match"
-                : "Real Matchmaking"}
-          </Text>
-          <Text style={styles.queueSubtitle}>{request?.game.name}</Text>
+          
+          {lobbyState && lobbyState.players.length < lobbyState.maxPlayers && ticketId && !closing && (
+            <TouchableOpacity
+              style={[styles.cancelButton, { backgroundColor: colors.primary, borderColor: colors.primary, marginBottom: 8 }]}
+              onPress={fillLobby}
+            >
+              <Text style={[styles.cancelButtonText, { color: 'white' }]}>
+                Fill with Bots
+              </Text>
+            </TouchableOpacity>
+          )}
+
           <TouchableOpacity
             style={styles.cancelButton}
             onPress={closeQueue}

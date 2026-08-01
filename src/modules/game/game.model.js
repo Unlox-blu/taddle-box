@@ -119,6 +119,8 @@ const formatMatchmakingTicket = (row) => {
     userMatchId: row.user_match_id,
     opponentMatchId: row.opponent_match_id,
     matchGroupId: row.match_group_id,
+    lobbyId: row.lobby_id,
+    settings: row.settings,
     metadata: row.metadata,
     matchedAt: row.matched_at,
     createdAt: row.created_at,

@@ -479,7 +479,7 @@ const cancelWaitingMatchmakingTickets = async ({ userId, gameId, mode, tournamen
   }
 };
 
-const joinMatchmaking = async ({ userId, game, mode, tournamentId, targetPlayers }) => {
+const joinMatchmaking = async ({ userId, game, mode, tournamentId, targetPlayers, visibility = "PUBLIC" }) => {
   const client = await pool.connect();
   try {
     await client.query('BEGIN');
@@ -497,25 +497,31 @@ const joinMatchmaking = async ({ userId, game, mode, tournamentId, targetPlayers
 
     const maxPlayers = targetPlayers || game.metadata?.maxPlayers || 2;
 
-    const lobbyResult = await client.query(
-      `SELECT * FROM game_lobby 
-       WHERE game_id = $1 
-         AND status = 'WAITING' 
-         AND current_players < max_players
-         AND max_players = $2
-       ORDER BY created_at ASC 
-       FOR UPDATE SKIP LOCKED 
-       LIMIT 1`,
-      [game.id, maxPlayers]
-    );
+    let lobby = null;
+    
+    if (visibility === 'PUBLIC') {
+        const lobbyResult = await client.query(
+          `SELECT * FROM game_lobby 
+           WHERE game_id = $1 
+             AND status = 'WAITING' 
+             AND current_players < max_players
+             AND max_players = $2
+             AND (settings->>'visibility' IS NULL OR settings->>'visibility' = 'PUBLIC')
+           ORDER BY created_at ASC 
+           FOR UPDATE SKIP LOCKED 
+           LIMIT 1`,
+          [game.id, maxPlayers]
+        );
+        lobby = lobbyResult.rows[0];
+    }
 
-    let lobby = lobbyResult.rows[0];
     if (!lobby) {
+      const settings = JSON.stringify({ visibility, targetPlayers: maxPlayers });
       const newLobbyRes = await client.query(
-        `INSERT INTO game_lobby (game_id, status, max_players, current_players, host_user_id, expires_at)
-         VALUES ($1, 'WAITING', $2, 0, $3, NOW() + INTERVAL '10 seconds')
+        `INSERT INTO game_lobby (game_id, status, max_players, current_players, host_user_id, expires_at, settings)
+         VALUES ($1, 'WAITING', $2, 0, $3, NOW() + INTERVAL '10 seconds', $4::jsonb)
          RETURNING *`,
-        [game.id, maxPlayers, userId]
+        [game.id, maxPlayers, userId, settings]
       );
       lobby = newLobbyRes.rows[0];
     }
@@ -625,23 +631,38 @@ const joinMatchmaking = async ({ userId, game, mode, tournamentId, targetPlayers
   }
 };
 
-const fillMatchmakingLobby = async ({ userId, ticketId }) => {
+const fillMatchmakingLobby = async ({ userId, ticketId, overrideLobbyId, fillBots = true }) => {
   const client = await pool.connect();
   try {
     await client.query('BEGIN');
     
-    const initialTicketRes = await client.query(
-      `SELECT lobby_id, game_id, mode, tournament_id FROM game_matchmaking_ticket WHERE id = $1 AND user_id = $2`,
-      [ticketId, userId]
-    );
-    const initialTicket = initialTicketRes.rows[0];
-    if (!initialTicket) throw new Error("Ticket not found");
+    let lobbyId = overrideLobbyId;
+    let initialTicket = null;
+
+    if (ticketId) {
+      const initialTicketRes = await client.query(
+        `SELECT lobby_id, game_id, mode, tournament_id FROM game_matchmaking_ticket WHERE id = $1 AND user_id = $2`,
+        [ticketId, userId]
+      );
+      initialTicket = initialTicketRes.rows[0];
+      if (!initialTicket) throw new Error("Ticket not found");
+      lobbyId = initialTicket.lobby_id;
+    }
 
     const lobbyRes = await client.query(
       `SELECT * FROM game_lobby WHERE id = $1 FOR UPDATE`,
-      [initialTicket.lobby_id]
+      [lobbyId]
     );
     const lobby = lobbyRes.rows[0];
+    if (!lobby) throw new Error("Lobby not found");
+
+    if (!initialTicket) {
+      const anyTicket = await client.query(
+        `SELECT game_id, mode, tournament_id FROM game_matchmaking_ticket WHERE lobby_id = $1 LIMIT 1`,
+        [lobbyId]
+      );
+      initialTicket = anyTicket.rows[0] || { game_id: lobby.game_id, mode: 'QUICK', tournament_id: null };
+    }
 
     if (lobby.status !== 'WAITING') {
       await client.query('ROLLBACK');

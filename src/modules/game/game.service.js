@@ -321,7 +321,7 @@ class GameService {
 	        tournamentId = null
 	      }
 
-	      const result = await this.gameRepo.joinMatchmaking({userId, game, mode, tournamentId, targetPlayers: matchData.targetPlayers});
+	      const result = await this.gameRepo.joinMatchmaking({userId, game, mode, tournamentId, targetPlayers: matchData.targetPlayers, visibility: matchData.visibility});
         try {
           const { getIO } = require('../../sockets/index');
           const io = getIO();

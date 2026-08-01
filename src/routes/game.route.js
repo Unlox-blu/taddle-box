@@ -18,6 +18,7 @@ const {
   joinMatchmakingSchema,
   inviteMatchmakingSchema,
   lobbyIdParamSchema,
+  lobbyPlayerParamSchema,
   updateLobbySchema,
   updateLobbyPlayerSchema
 } = require('../modules/game/game.validator');
@@ -49,8 +50,8 @@ router.delete('/lobbies/:lobbyId', verifyToken, validateRequest({params: lobbyId
 router.post('/lobbies/join', verifyToken, gameController.joinLobbyByCode);
 
 router.get('/lobbies/:lobbyId/players', verifyToken, validateRequest({params: lobbyIdParamSchema}), gameController.getLobbyPlayers);
-router.patch('/lobbies/:lobbyId/players/:playerId', verifyToken, validateRequest({params: lobbyIdParamSchema, body: updateLobbyPlayerSchema}), gameController.updateLobbyPlayer);
-router.delete('/lobbies/:lobbyId/players/:playerId', verifyToken, validateRequest({params: lobbyIdParamSchema}), gameController.removeLobbyPlayer);
+router.patch('/lobbies/:lobbyId/players/:playerId', verifyToken, validateRequest({params: lobbyPlayerParamSchema, body: updateLobbyPlayerSchema}), gameController.updateLobbyPlayer);
+router.delete('/lobbies/:lobbyId/players/:playerId', verifyToken, validateRequest({params: lobbyPlayerParamSchema}), gameController.removeLobbyPlayer);
 
 router.post('/lobbies/:lobbyId/invitations', verifyToken, validateRequest({params: lobbyIdParamSchema}), gameController.inviteLobbyPlayer);
 

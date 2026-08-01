@@ -23,12 +23,14 @@ function formatLobbyDTO(lobby, players = []) {
     gameId: lobby.game_id,
     hostUserId: lobby.host_user_id,
     settings: {
+      mode: lobby.settings?.mode || (lobby.visibility === 'PRIVATE' ? 'CUSTOM' : 'AUTO'),
       visibility: lobby.visibility || 'PUBLIC',
       teamsLocked: lobby.settings?.teamsLocked || false,
       autoBalance: lobby.settings?.autoBalance !== undefined ? lobby.settings.autoBalance : true,
-      targetPlayers: lobby.max_players,
+      targetPlayers: lobby.settings?.targetPlayers || lobby.max_players,
       minPlayers: lobby.settings?.minPlayers || 2,
-      inviteCode: lobby.invite_code || null
+      inviteCode: lobby.invite_code || null,
+      pendingInvites: lobby.settings?.pendingInvites || [],
     },
     state: {
       status: lobby.status,

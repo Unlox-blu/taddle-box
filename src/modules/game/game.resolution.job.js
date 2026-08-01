@@ -150,20 +150,22 @@ async function resolveTournaments() {
         await client.query(`UPDATE ${gameModel.GAME_TOURNAMENT_TABLE} SET status = 'COMPLETED' WHERE id = $1`, [t.id]);
         
         const { rows: entries } = await client.query(`
-          SELECT user_id, best_score 
+          SELECT user_id, score AS best_score
           FROM ${gameModel.GAME_TOURNAMENT_ENTRY_TABLE}
           WHERE tournament_id = $1 AND status <> 'CANCELLED'
-          ORDER BY best_score DESC NULLS LAST
+          ORDER BY score DESC NULLS LAST
           LIMIT 3
         `, [t.id]);
         
         if (entries.length > 0 && t.prize_xp > 0) {
           const reward = t.prize_xp;
+          // source_type is VARCHAR(50) — use short UUID prefix (8 chars) to stay within limit
+          const shortId = t.id.replace(/-/g, '').slice(0, 12);
           await xpService.creditXP({
             userId: entries[0].user_id,
             xp: reward,
             transactionType: 'earned',
-            sourceType: `tournament_win_${t.id}`
+            sourceType: `tourney_win_${shortId}`   // 12 + 12 = 24 chars, well within 50
           });
           
           const { emitNotification } = require('../../sockets/notification.socket');

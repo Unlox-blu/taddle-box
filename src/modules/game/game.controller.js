@@ -299,34 +299,33 @@ class GameController {
 	  fillLobbyBots = async (req, res, next) => {
 	    try {
 	      const { lobbyId } = req.params;
-	      const result = await this.gameSvc.fillLobbyBots({ userId: req.userId, lobbyId });
-	      res.json(apiResponse(result, "Lobby filled with bots"));
-	    } catch (error) {
-	      next(error);
-	    }
-	  };
+      const count = Number(req.body?.count ?? 1);
+      const result = await this.gameSvc.fillLobbyBots({ userId: req.userId, lobbyId, count });
+      res.json(apiResponse(result, "Lobby filled with bots"));
+    } catch (error) {
+      next(error);
+    }
+  };
 
-	  continueLobby = async (req, res, next) => {
-	    try {
-	      const { lobbyId } = req.params;
-	      const result = await this.gameSvc.continueLobby({ userId: req.userId, lobbyId });
-	      res.json(apiResponse(result, "Timeout extended successfully"));
-	    } catch (error) {
-	      next(error);
-	    }
-	  };
+  continueLobby = async (req, res, next) => {
+    try {
+      const { lobbyId } = req.params;
+      const result = await this.gameSvc.continueLobby({ userId: req.userId, lobbyId });
+      res.json(apiResponse(result, "Timeout extended successfully"));
+    } catch (error) {
+      next(error);
+    }
+  };
 
-	  startLobby = async (req, res, next) => {
-	    try {
-	      const { lobbyId } = req.params;
-	      const result = await this.gameSvc.startLobby({ userId: req.userId, lobbyId });
-	      res.json(apiResponse(result, "Lobby started successfully"));
-	    } catch (error) {
-	      next(error);
-	    }
-	  };
+  startLobby = async (req, res, next) => {
+    try {
+      const { lobbyId } = req.params;
+      const result = await this.gameSvc.startLobby({ userId: req.userId, lobbyId });
+      res.json(apiResponse(result, "Lobby started successfully"));
+    } catch (error) {
+      next(error);
+    }
+  };
 }
-
-
 
 module.exports = GameController;

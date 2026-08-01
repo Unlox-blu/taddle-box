@@ -3,7 +3,7 @@
 const { z } = require('zod');
 const config = require('../../config/app.config')
 
-const ALLOWED_MODE = ['BOT', 'QUICK', 'TOURNAMENT', 'CUSTOM']
+const ALLOWED_MODE = ['AUTO', 'CUSTOM', 'TOURNAMENT']
 const DIFFICULTY_TYPE = ['easy', 'medium', 'hard']
 const RESULT_TYPE = ['WIN', 'LOSS', 'DRAW']
 
@@ -90,11 +90,11 @@ const updateMatchSchema = z.object({
 
 const joinMatchmakingSchema = z.object({
   gameId: z.string().uuid({ message: 'Invalid game ID format' }),
-  mode : z.enum(['QUICK', 'TOURNAMENT'], {
-            error_map: () => ({ message: "Mode must be QUICK or TOURNAMENT" })
+  mode : z.enum(['AUTO', 'CUSTOM', 'TOURNAMENT'], {
+            error_map: () => ({ message: "Mode must be AUTO, CUSTOM, or TOURNAMENT" })
           }),
   tournamentId: z.string().uuid({ message: 'Invalid tournament ID format' }).optional(),
-  targetPlayers: z.union([z.number().positive(), z.literal("AUTO")]).optional(),
+  targetPlayers: z.number().positive().optional(),
   visibility: z.enum(['PUBLIC', 'PRIVATE']).optional(),
 })
 
@@ -108,8 +108,12 @@ const lobbyIdParamSchema = z.object({
   lobbyId: z.string().uuid({ message: 'Invalid lobby ID format' })
 }).strict();
 
+const lobbyPlayerParamSchema = z.object({
+  lobbyId: z.string().uuid({ message: 'Invalid lobby ID format' }),
+  playerId: z.string().uuid({ message: 'Invalid player ID format' })
+}).strict();
+
 const updateLobbySchema = z.object({
-  visibility: z.enum(['PUBLIC', 'PRIVATE']).optional(),
   teamsLocked: z.boolean().optional(),
   autoBalance: z.boolean().optional(),
   targetPlayers: z.number().positive().optional()
@@ -135,6 +139,7 @@ module.exports = {
   joinMatchmakingSchema,
   inviteMatchmakingSchema,
   lobbyIdParamSchema,
+  lobbyPlayerParamSchema,
   updateLobbySchema,
   updateLobbyPlayerSchema
 };

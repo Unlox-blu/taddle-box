@@ -77,12 +77,13 @@ class GameService {
         reconnectWindowMs = Math.max(0, totalPauseWindow - elapsed);
       }
 
+      const normalizedMode = String(active.mode || 'AUTO').toUpperCase();
       return {
         sessionId: active.session_id,
         matchId: active.match_id,
         gameId: active.game_id,
         wsToken: active.ws_token,
-        mode: active.mode || 'QUICK',
+        mode: normalizedMode,
         opponentName: active.opponent_name,
         ticket: { userMatchId: active.match_id, token: active.ws_token },
         reconnectWindowMs,
@@ -159,21 +160,16 @@ class GameService {
 	      const isGameExist = await this.gameRepo.findGameById({gameId})
 	      if(!isGameExist)
 	        throw createError("Game not found", 404)
-	      if (!['html5_webview', 'native'].includes(isGameExist.metadata?.runtime)) {
-	        throw createError("Unsupported game runtime", 400)
-	      }
-	      matchData.mode = matchData.mode.toUpperCase()
-	      if (['QUICK', 'TOURNAMENT'].includes(matchData.mode)) {
-	        throw createError("Use matchmaking endpoint for this mode", 400)
-	      }
-	      matchData.metadata = {
-	        ...(matchData.metadata || {}),
-	        runtime: isGameExist.metadata.runtime,
-	        startedAt: new Date().toISOString(),
-	      }
-
-	      const match = await this.gameRepo.createGameMatche({matchData})
-	      return match
+      matchData.mode = matchData.mode.toUpperCase()
+      if (['AUTO', 'TOURNAMENT'].includes(matchData.mode)) {
+        throw createError("Use matchmaking endpoint for this mode", 400)
+      }
+      matchData.metadata = {
+        ...(matchData.metadata || {}),
+        runtime: isGameExist.metadata?.runtime || 'native',
+      }
+      const match = await this.gameRepo.createGameMatche({matchData})
+      return match
     } catch (error) {
       throw error;
     }
@@ -298,14 +294,11 @@ class GameService {
 	  async joinMatchmaking({userId, matchData}) {
 	    try {
 	      const mode = matchData.mode.toUpperCase()
-	      if (!['QUICK', 'TOURNAMENT'].includes(mode))
-	        throw createError("Matchmaking supports QUICK and TOURNAMENT only", 400)
-
+      if (!['AUTO', 'CUSTOM', 'TOURNAMENT'].includes(mode))
+        throw createError("Matchmaking supports AUTO, CUSTOM, and TOURNAMENT only", 400)
 	      const game = await this.gameRepo.findGameById({gameId: matchData.gameId})
 	      if(!game)
 	        throw createError("Game not found", 404)
-	      if (!['html5_webview', 'native'].includes(game.metadata?.runtime))
-	        throw createError("Unsupported game runtime", 400)
 
 	      let tournamentId = matchData.tournamentId || null
 	      if (mode === 'TOURNAMENT') {
@@ -327,12 +320,14 @@ class GameService {
           const io = getIO();
           
           if (result.status === 'MATCHED') {
+            // Emit to ALL players (including requester's other devices/tabs)
             for (const p of result.players) {
-              if (p.id !== userId && !p.isBot) {
+              if (!p.isBot) {
                 io.to(`user:${p.id}`).emit('matchmaking:matched', result);
               }
             }
           } else if (result.status === 'WAITING') {
+            // Notify all other players already in the lobby that someone joined
             for (const p of result.players) {
               if (p.id !== userId && !p.isBot) {
                 io.to(`user:${p.id}`).emit('matchmaking:lobbyUpdated', result);
@@ -370,53 +365,96 @@ class GameService {
 	    }
 	  }
 
-	  async getLobby({ userId, lobbyId }) {
-	    return await this.gameRepo.getLobby({ userId, lobbyId });
-	  }
+  async getLobby({ userId, lobbyId }) {
+    return await this.gameRepo.getLobby({ userId, lobbyId });
+  }
 
-	  async updateLobby({ userId, lobbyId, updates }) {
-	    return await this.gameRepo.updateLobby({ userId, lobbyId, updates });
-	  }
+  async updateLobby({ userId, lobbyId, updates }) {
+    return await this.gameRepo.updateLobby({ userId, lobbyId, updates });
+  }
 
-	  async deleteLobby({ userId, lobbyId }) {
-	    return await this.gameRepo.deleteLobby({ userId, lobbyId });
-	  }
+  async deleteLobby({ userId, lobbyId }) {
+    return await this.gameRepo.deleteLobby({ userId, lobbyId });
+  }
 
-	  async joinLobbyByCode({ userId, inviteCode }) {
-	    return await this.gameRepo.joinLobbyByCode({ userId, inviteCode });
-	  }
+  async joinLobbyByCode({ userId, inviteCode }) {
+    const result = await this.gameRepo.joinLobbyByCode({ userId, inviteCode });
+    // Notify all existing lobby players that someone joined
+    try {
+      const { getIO } = require('../../sockets/index');
+      const io = getIO();
+      for (const p of (result.players || [])) {
+        if ((p.id || p.userId) !== userId && !p.isBot) {
+          io.to(`user:${p.id || p.userId}`).emit('matchmaking:lobbyUpdated', result);
+        }
+      }
+    } catch (e) { /* non-fatal */ }
+    return result;
+  }
 
-	  async getLobbyPlayers({ userId, lobbyId }) {
-	    return await this.gameRepo.getLobbyPlayers({ userId, lobbyId });
-	  }
+  async getLobbyPlayers({ userId, lobbyId }) {
+    return await this.gameRepo.getLobbyPlayers({ userId, lobbyId });
+  }
 
-	  async updateLobbyPlayer({ userId, lobbyId, targetUserId, updates }) {
-	    return await this.gameRepo.updateLobbyPlayer({ userId, lobbyId, targetUserId, updates });
-	  }
+  async updateLobbyPlayer({ userId, lobbyId, targetUserId, updates }) {
+    return await this.gameRepo.updateLobbyPlayer({ userId, lobbyId, targetUserId, updates });
+  }
 
 	  async removeLobbyPlayer({ userId, lobbyId, targetUserId }) {
 	    return await this.gameRepo.removeLobbyPlayer({ userId, lobbyId, targetUserId });
 	  }
 
 	  async inviteLobbyPlayer({ userId, lobbyId, opponentId }) {
-	    return await this.gameRepo.inviteLobbyPlayer({ userId, lobbyId, opponentId });
-	  }
+    const result = await this.gameRepo.inviteLobbyPlayer({ userId, lobbyId, opponentId });
+    // Notify the invited player
+    try {
+      const { getIO } = require('../../sockets/index');
+      const io = getIO();
+      io.to(`user:${opponentId}`).emit('matchmaking:lobbyUpdated', result);
+    } catch (e) { /* non-fatal */ }
+    return result;
+  }
 
-	  async shrinkLobby({ userId, lobbyId }) {
-	    return await this.gameRepo.shrinkLobby({ userId, lobbyId });
-	  }
+  async shrinkLobby({ userId, lobbyId }) {
+    return await this.gameRepo.shrinkLobby({ userId, lobbyId });
+  }
 
-	  async fillLobbyBots({ userId, lobbyId }) {
-	    return await this.gameRepo.fillLobbyBots({ userId, lobbyId });
-	  }
+  async fillLobbyBots({ userId, lobbyId, count }) {
+    const result = await this.gameRepo.fillLobbyBots({ userId, lobbyId, count });
+    // Emit lobby update to all real players in the lobby so they see the bot slot fill live
+    try {
+      const { getIO } = require('../../sockets/index');
+      const io = getIO();
+      const lobby = await this.gameRepo.getLobby({ userId, lobbyId });
+      for (const p of (lobby.players || [])) {
+        if (!p.isBot) {
+          io.to(`user:${p.id || p.userId}`).emit('matchmaking:lobbyUpdated', lobby);
+        }
+      }
+    } catch (e) { /* non-fatal */ }
+    return result;
+  }
 
-	  async continueLobby({ userId, lobbyId }) {
-	    return await this.gameRepo.continueLobby({ userId, lobbyId });
-	  }
+  async continueLobby({ userId, lobbyId }) {
+    return await this.gameRepo.continueLobby({ userId, lobbyId });
+  }
 
-	  async startLobby({ userId, lobbyId }) {
-	    return await this.gameRepo.startLobby({ userId, lobbyId });
-	  }
+  async startLobby({ userId, lobbyId }) {
+    const result = await this.gameRepo.startLobby({ userId, lobbyId });
+    // Emit matched event to all real players so their lobbies transition
+    if (result && result.status === 'MATCHED') {
+      try {
+        const { getIO } = require('../../sockets/index');
+        const io = getIO();
+        for (const p of (result.players || [])) {
+          if (!p.isBot) {
+            io.to(`user:${p.id}`).emit('matchmaking:matched', result);
+          }
+        }
+      } catch (e) { /* non-fatal */ }
+    }
+    return result;
+  }
 
 
 
@@ -467,7 +505,7 @@ class GameService {
           gameId, 
           seed, 
           expiresAt,
-          metadata: { mode: mode || 'QUICK', matchGroupId: effectiveMatchId }
+          metadata: { mode: mode || 'AUTO', matchGroupId: effectiveMatchId }
         }
       });
 

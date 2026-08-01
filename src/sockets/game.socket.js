@@ -196,7 +196,7 @@ const setupGameSocket = (io) => {
       socket.gameSlug = myRow.game_slug;
       socket.matchPlayers = rows.map(r => ({ userId: r.user_id, color: r.player_color }));
       socket.matchMetadata = myRow.match_metadata || {};
-      socket.matchMode = (myRow.match_mode || 'QUICK').toUpperCase();
+      socket.matchMode = (myRow.match_mode || 'AUTO').toUpperCase();
 
       next();
     } catch (e) {

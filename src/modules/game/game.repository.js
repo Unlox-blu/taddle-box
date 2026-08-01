@@ -230,7 +230,7 @@ const recordMatchHistory = async ({ userId, gameId, mode, result, score, duratio
       `INSERT INTO ${gameModel.GAME_MATCH_TABLE} 
        (user_id, game_id, mode, result, score, duration, xp_earned, created_at, updated_at)
        VALUES ($1, $2, $3, $4, $5, $6, $7, NOW(), NOW())`,
-      [userId, gameId, mode || 'QUICK', result, score, duration, xpEarned]
+      [userId, gameId, mode || 'AUTO', result, score, duration, xpEarned]
     );
   } catch (error) {
     console.error('Failed to record match history:', error.message);
@@ -484,6 +484,8 @@ const joinMatchmaking = async ({ userId, game, mode, tournamentId, targetPlayers
   try {
     await client.query('BEGIN');
 
+    const normalizedMode = String(mode || 'AUTO').toUpperCase();
+
     await client.query(
       `UPDATE ${gameModel.GAME_MATCHMAKING_TICKET_TABLE}
       SET status = 'CANCELLED', updated_at = NOW()
@@ -492,36 +494,62 @@ const joinMatchmaking = async ({ userId, game, mode, tournamentId, targetPlayers
         AND mode = $3
         AND status = 'WAITING'
         AND (($4::uuid IS NULL AND tournament_id IS NULL) OR tournament_id = $4::uuid)`,
-      [userId, game.id, mode, tournamentId || null]
+      [userId, game.id, normalizedMode, tournamentId || null]
     );
 
     const maxPlayers = targetPlayers || game.metadata?.maxPlayers || 2;
+    const lobbyVisibility = normalizedMode === 'CUSTOM' ? 'PRIVATE' : 'PUBLIC';
+    // For AUTO without a specific targetPlayers, join any available lobby regardless of size
+    const isAutoAny = normalizedMode === 'AUTO' && !targetPlayers;
 
     let lobby = null;
-    
-    if (visibility === 'PUBLIC') {
+    if (normalizedMode !== 'CUSTOM') {
+      if (isAutoAny) {
+        // Auto-any: join the oldest waiting AUTO lobby for this game, any size
+        const lobbyResult = await client.query(
+          `SELECT * FROM game_lobby 
+           WHERE game_id = $1 
+             AND status = 'WAITING' 
+             AND current_players < max_players
+             AND ((settings->>'mode' = $2) OR (settings->>'mode' IS NULL AND visibility = 'PUBLIC'))
+           ORDER BY created_at ASC 
+           FOR UPDATE SKIP LOCKED 
+           LIMIT 1`,
+          [game.id, normalizedMode]
+        );
+        lobby = lobbyResult.rows[0];
+      } else {
+        // Exact size: only join a lobby with matching max_players
         const lobbyResult = await client.query(
           `SELECT * FROM game_lobby 
            WHERE game_id = $1 
              AND status = 'WAITING' 
              AND current_players < max_players
              AND max_players = $2
-             AND (settings->>'visibility' IS NULL OR settings->>'visibility' = 'PUBLIC')
+             AND ((settings->>'mode' = $3) OR (settings->>'mode' IS NULL AND visibility = 'PUBLIC'))
            ORDER BY created_at ASC 
            FOR UPDATE SKIP LOCKED 
            LIMIT 1`,
-          [game.id, maxPlayers]
+          [game.id, maxPlayers, normalizedMode]
         );
         lobby = lobbyResult.rows[0];
+      }
     }
 
     if (!lobby) {
-      const settings = JSON.stringify({ visibility, targetPlayers: maxPlayers });
+      const settings = JSON.stringify({ mode: normalizedMode, targetPlayers: maxPlayers, teamsLocked: false, autoBalance: true });
+      // CUSTOM lobbies stay open 30 minutes; AUTO lobbies 30 seconds (bot fallback kicks in at 15s)
+      const expirySeconds = normalizedMode === 'CUSTOM' ? 1800 : 30;
+      // Generate a short invite code for CUSTOM lobbies
+      const inviteCode = normalizedMode === 'CUSTOM'
+        ? require('crypto').randomBytes(4).toString('hex').toUpperCase()
+        : null;
+
       const newLobbyRes = await client.query(
-        `INSERT INTO game_lobby (game_id, status, max_players, current_players, host_user_id, expires_at, settings)
-         VALUES ($1, 'WAITING', $2, 0, $3, NOW() + INTERVAL '10 seconds', $4::jsonb)
+        `INSERT INTO game_lobby (game_id, status, max_players, current_players, host_user_id, expires_at, visibility, settings, invite_code)
+         VALUES ($1, 'WAITING', $2, 0, $3, NOW() + ($7 * INTERVAL '1 second'), $4, $5::jsonb, $6)
          RETURNING *`,
-        [game.id, maxPlayers, userId, settings]
+        [game.id, maxPlayers, userId, lobbyVisibility, settings, inviteCode, expirySeconds]
       );
       lobby = newLobbyRes.rows[0];
     }
@@ -532,7 +560,7 @@ const joinMatchmaking = async ({ userId, game, mode, tournamentId, targetPlayers
       VALUES ($1, $2, $3, $4, 'WAITING', $5, $6::jsonb)
       RETURNING *`,
       [
-        userId, game.id, tournamentId || null, mode, lobby.id,
+        userId, game.id, tournamentId || null, normalizedMode, lobby.id,
         JSON.stringify({ runtime: game.metadata?.runtime, queuedAt: new Date().toISOString() })
       ]
     );
@@ -571,6 +599,7 @@ const joinMatchmaking = async ({ userId, game, mode, tournamentId, targetPlayers
       const startedAt = new Date().toISOString();
       const matchMetadata = {
         lobbyId: lobby.id,
+        matchGroupId: lobby.id,
         gameId: game.id,
         gameMode: mode,
         playerIds: playerSnapshots.map(p => p.id),
@@ -661,7 +690,7 @@ const fillMatchmakingLobby = async ({ userId, ticketId, overrideLobbyId, fillBot
         `SELECT game_id, mode, tournament_id FROM game_matchmaking_ticket WHERE lobby_id = $1 LIMIT 1`,
         [lobbyId]
       );
-      initialTicket = anyTicket.rows[0] || { game_id: lobby.game_id, mode: 'QUICK', tournament_id: null };
+      initialTicket = anyTicket.rows[0] || { game_id: lobby.game_id, mode: 'AUTO', tournament_id: null };
     }
 
     if (lobby.status !== 'WAITING') {
@@ -677,17 +706,6 @@ const fillMatchmakingLobby = async ({ userId, ticketId, overrideLobbyId, fillBot
     await client.query(`UPDATE game_lobby SET status = 'LOCKED' WHERE id = $1`, [lobby.id]);
 
     const remaining = lobby.max_players - lobby.current_players;
-
-    const BOT_PROFILES = [
-      { id: 'bot-11111111-1111-1111-1111-111111111111', username: 'bot_alpha', name: 'Bot Alpha', avatar: 'https://api.dicebear.com/7.x/bottts/svg?seed=Alpha', rating: 1250, level: 10, badge: 'silver' },
-      { id: 'bot-22222222-2222-2222-2222-222222222222', username: 'bot_bravo', name: 'Bot Bravo', avatar: 'https://api.dicebear.com/7.x/bottts/svg?seed=Bravo', rating: 1420, level: 15, badge: 'gold' },
-      { id: 'bot-33333333-3333-3333-3333-333333333333', username: 'bot_charlie', name: 'Bot Charlie', avatar: 'https://api.dicebear.com/7.x/bottts/svg?seed=Charlie', rating: 1600, level: 20, badge: 'platinum' },
-      { id: 'bot-44444444-4444-4444-4444-444444444444', username: 'bot_delta', name: 'Bot Delta', avatar: 'https://api.dicebear.com/7.x/bottts/svg?seed=Delta', rating: 1100, level: 8, badge: 'bronze' },
-      { id: 'bot-55555555-5555-5555-5555-555555555555', username: 'bot_echo', name: 'Bot Echo', avatar: 'https://api.dicebear.com/7.x/bottts/svg?seed=Echo', rating: 1350, level: 12, badge: 'silver' },
-      { id: 'bot-66666666-6666-6666-6666-666666666666', username: 'bot_nova', name: 'Bot Nova', avatar: 'https://api.dicebear.com/7.x/bottts/svg?seed=Nova', rating: 1550, level: 18, badge: 'gold' },
-      { id: 'bot-77777777-7777-7777-7777-777777777777', username: 'bot_blaze', name: 'Bot Blaze', avatar: 'https://api.dicebear.com/7.x/bottts/svg?seed=Blaze', rating: 1800, level: 25, badge: 'diamond' },
-      { id: 'bot-88888888-8888-8888-8888-888888888888', username: 'bot_titan', name: 'Bot Titan', avatar: 'https://api.dicebear.com/7.x/bottts/svg?seed=Titan', rating: 1950, level: 30, badge: 'master' }
-    ];
 
     const playersRes = await client.query(
       `SELECT t.user_id, u.name, u.username, m.cloudfront_url AS avatar, t.id as ticket_id
@@ -710,24 +728,77 @@ const fillMatchmakingLobby = async ({ userId, ticketId, overrideLobbyId, fillBot
       status: 'JOINED'
     }));
 
-    let seatIndex = playerSnapshots.length;
-    for (let i = 0; i < remaining; i++) {
-      const bot = BOT_PROFILES[i % BOT_PROFILES.length];
+    // Add bots from settings.bots[] first (already added via fillLobbyBots)
+    const existingBots = Array.isArray(lobby.settings?.bots) ? lobby.settings.bots : [];
+    for (const bot of existingBots) {
       playerSnapshots.push({
         id: bot.id,
         username: bot.username,
         displayName: bot.name,
         avatar: bot.avatar,
         isBot: true,
-        team: seatIndex % 2,
-        seat: seatIndex,
+        team: bot.team,
+        seat: bot.seat,
         status: 'JOINED',
         rating: bot.rating,
         level: bot.level,
-        badge: bot.badge
+        badge: bot.badge,
       });
-      seatIndex++;
     }
+
+    // Fill any remaining empty slots with new bots stored in settings.bots[]
+    const stillNeeded = remaining - existingBots.length;
+    const updatedSettings = { ...(lobby.settings || {}) };
+    updatedSettings.bots = [...existingBots];
+
+    if (stillNeeded > 0) {
+      const usedSeats = new Set(playerSnapshots.map(p => p.seat));
+      for (let i = 0; i < stillNeeded; i++) {
+        let seat = 0;
+        while (usedSeats.has(seat)) seat++;
+        usedSeats.add(seat);
+
+        const profile = BOT_PROFILES[seat % BOT_PROFILES.length];
+        const botId = `${profile.id}_${lobby.id.replace(/-/g, '').slice(0, 8)}_${seat}`;
+        const newBot = {
+          id: botId,
+          username: profile.username,
+          name: profile.name,
+          avatar: profile.avatar,
+          rating: profile.rating,
+          level: profile.level,
+          badge: profile.badge,
+          seat,
+          team: seat % 2,
+          isBot: true,
+          isReady: true,
+        };
+        updatedSettings.bots.push(newBot);
+        playerSnapshots.push({
+          id: botId,
+          username: profile.username,
+          displayName: profile.name,
+          avatar: profile.avatar,
+          isBot: true,
+          team: seat % 2,
+          seat,
+          status: 'JOINED',
+          rating: profile.rating,
+          level: profile.level,
+          badge: profile.badge,
+        });
+      }
+      // Persist the new bots into settings
+      await client.query(
+        `UPDATE game_lobby SET settings = $1::jsonb WHERE id = $2`,
+        [JSON.stringify(updatedSettings), lobby.id]
+      );
+    }
+
+    await client.query(
+      `UPDATE game_lobby SET status = 'WAITING', current_players = $2, updated_at = NOW() WHERE id = $1`,
+      [lobby.id, Math.min(lobby.max_players, playerSnapshots.length)]
+    );
 
     const startedAt = new Date().toISOString();
     
@@ -736,6 +807,7 @@ const fillMatchmakingLobby = async ({ userId, ticketId, overrideLobbyId, fillBot
 
     const matchMetadata = {
       lobbyId: lobby.id,
+      matchGroupId: lobby.id,
       gameId: game.id,
       gameMode: initialTicket.mode,
       playerIds: playerSnapshots.map(p => p.id),
@@ -911,7 +983,7 @@ const setupMatchSession = async ({ matchId, gameId, userId, wsToken, mode, gameS
       `INSERT INTO game_matches (id, game_id, mode, status)
        VALUES ($1, $2, $3, 'ACTIVE')
        ON CONFLICT (id) DO NOTHING`,
-      [matchId, gameId, mode || 'QUICK']
+      [matchId, gameId, mode || 'AUTO']
     );
 
     // Fetch existing colors to determine this player's color
@@ -1116,8 +1188,28 @@ const getLobby = async ({ userId, lobbyId }) => {
     team: p.metadata?.team,
     lobbyRole: p.metadata?.lobbyRole || (rows[0].host_user_id === p.userId ? 'HOST' : 'PLAYER'),
     isReady: p.metadata?.isReady,
+    isBot: false,
     status: p.metadata?.status || 'CONNECTED'
   }));
+
+  // Merge bots stored in settings.bots[] — they are never in game_matchmaking_ticket
+  const settingsBots = Array.isArray(rows[0].settings?.bots) ? rows[0].settings.bots : [];
+  for (const bot of settingsBots) {
+    players.push({
+      userId: bot.id,
+      displayName: bot.name,
+      avatar: bot.avatar,
+      seat: bot.seat,
+      team: bot.team,
+      lobbyRole: 'PLAYER',
+      isReady: true,
+      isBot: true,
+      status: 'BOT',
+      rating: bot.rating,
+      level: bot.level,
+      badge: bot.badge,
+    });
+  }
 
   return formatLobbyDTO(rows[0], players);
 };
@@ -1140,10 +1232,18 @@ const updateLobby = async ({ userId, lobbyId, updates }) => {
        lobby.settings = lobby.settings || {};
        lobby.settings.autoBalance = updates.autoBalance;
     }
+    if (updates.targetPlayers !== undefined) {
+       if (updates.targetPlayers < lobby.current_players) {
+         throw require('../../utils/error.util').createError('Target players cannot be less than current players', 400);
+       }
+       lobby.max_players = updates.targetPlayers;
+       lobby.settings = lobby.settings || {};
+       lobby.settings.targetPlayers = updates.targetPlayers;
+    }
     
     const updated = await client.query(
-      'UPDATE game_lobby SET visibility = $1, settings = $2::jsonb, updated_at = NOW() WHERE id = $3 RETURNING *',
-      [lobby.visibility, JSON.stringify(lobby.settings || {}), lobbyId]
+      'UPDATE game_lobby SET visibility = $1, settings = $2::jsonb, max_players = $3, updated_at = NOW() WHERE id = $4 RETURNING *',
+      [lobby.visibility, JSON.stringify(lobby.settings || {}), lobby.max_players, lobbyId]
     );
     await client.query('COMMIT');
     return await getLobby({ userId, lobbyId });
@@ -1195,10 +1295,11 @@ const joinLobbyByCode = async ({ userId, inviteCode }) => {
     while(usedSeats.includes(seat)) seat++;
 
     const metadata = { seat, team: seat, isReady: false, lobbyRole: 'PLAYER', status: 'CONNECTED' };
+    const lobbyMode = lobby.settings?.mode || 'CUSTOM';
 
     await client.query(
       'INSERT INTO game_matchmaking_ticket (user_id, game_id, mode, status, lobby_id, metadata) VALUES ($1, $2, $3, \'WAITING\', $4, $5::jsonb)',
-      [userId, lobby.game_id, 'QUICK', lobby.id, JSON.stringify(metadata)]
+      [userId, lobby.game_id, lobbyMode, lobby.id, JSON.stringify(metadata)]
     );
 
     await client.query('UPDATE game_lobby SET current_players = current_players + 1 WHERE id = $1', [lobby.id]);
@@ -1260,26 +1361,52 @@ const removeLobbyPlayer = async ({ userId, lobbyId, targetUserId }) => {
   try {
     await client.query('BEGIN');
     const { rows } = await client.query('SELECT * FROM game_lobby WHERE id = $1 FOR UPDATE', [lobbyId]);
-    if (!rows[0]) throw require('../../utils/error.util').createError('Lobby not found', 404);
-    
+    const lobby = rows[0];
+    if (!lobby) throw require('../../utils/error.util').createError('Lobby not found', 404);
+
     // Only host or the player themselves can remove
-    if (rows[0].host_user_id !== userId && userId !== targetUserId) {
-        throw require('../../utils/error.util').createError('Unauthorized', 403);
+    if (lobby.host_user_id !== userId && userId !== targetUserId) {
+      throw require('../../utils/error.util').createError('Unauthorized', 403);
     }
-    
-    await client.query('UPDATE game_matchmaking_ticket SET status = \'CANCELLED\' WHERE lobby_id = $1 AND user_id = $2', [lobbyId, targetUserId]);
-    await client.query('UPDATE game_lobby SET current_players = current_players - 1 WHERE id = $1', [lobbyId]);
-    
-    // Host migration
-    if (rows[0].host_user_id === targetUserId) {
-        const { rows: remain } = await client.query('SELECT user_id FROM game_matchmaking_ticket WHERE lobby_id = $1 AND status != \'CANCELLED\' ORDER BY created_at ASC LIMIT 1', [lobbyId]);
+
+    const currentSettings = { ...(lobby.settings || {}) };
+    const existingBots = Array.isArray(currentSettings.bots) ? currentSettings.bots : [];
+
+    // Check if this is a bot (stored in settings.bots, not in tickets)
+    const isBot = existingBots.some(b => b.id === targetUserId);
+
+    if (isBot) {
+      // Remove from settings.bots[]
+      currentSettings.bots = existingBots.filter(b => b.id !== targetUserId);
+      await client.query(
+        'UPDATE game_lobby SET settings = $1::jsonb, current_players = current_players - 1, updated_at = NOW() WHERE id = $2',
+        [JSON.stringify(currentSettings), lobbyId]
+      );
+    } else {
+      // Real player — cancel their ticket
+      await client.query(
+        'UPDATE game_matchmaking_ticket SET status = \'CANCELLED\' WHERE lobby_id = $1 AND user_id = $2',
+        [lobbyId, targetUserId]
+      );
+      await client.query(
+        'UPDATE game_lobby SET current_players = current_players - 1, updated_at = NOW() WHERE id = $1',
+        [lobbyId]
+      );
+
+      // Host migration — promote next real player
+      if (lobby.host_user_id === targetUserId) {
+        const { rows: remain } = await client.query(
+          'SELECT user_id FROM game_matchmaking_ticket WHERE lobby_id = $1 AND status != \'CANCELLED\' ORDER BY created_at ASC LIMIT 1',
+          [lobbyId]
+        );
         if (remain[0]) {
-            await client.query('UPDATE game_lobby SET host_user_id = $1 WHERE id = $2', [remain[0].user_id, lobbyId]);
+          await client.query('UPDATE game_lobby SET host_user_id = $1 WHERE id = $2', [remain[0].user_id, lobbyId]);
         } else {
-            await client.query('UPDATE game_lobby SET status = \'CANCELLED\' WHERE id = $1', [lobbyId]);
+          await client.query('UPDATE game_lobby SET status = \'CANCELLED\', updated_at = NOW() WHERE id = $1', [lobbyId]);
         }
+      }
     }
-    
+
     await client.query('COMMIT');
     return { success: true };
   } catch (error) {
@@ -1291,8 +1418,93 @@ const removeLobbyPlayer = async ({ userId, lobbyId, targetUserId }) => {
 };
 
 const inviteLobbyPlayer = async ({ userId, lobbyId, opponentId }) => {
-  // To be integrated with notifications
-  return { success: true };
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+
+    const { rows: lobbyRows } = await client.query(
+      'SELECT * FROM game_lobby WHERE id = $1 FOR UPDATE',
+      [lobbyId]
+    );
+    const lobby = lobbyRows[0];
+    if (!lobby) throw require('../../utils/error.util').createError('Lobby not found', 404);
+    if (lobby.host_user_id !== userId) throw require('../../utils/error.util').createError('Only the host can invite players', 403);
+    if (lobby.current_players >= lobby.max_players) throw require('../../utils/error.util').createError('Lobby is full', 400);
+    if (opponentId === userId) throw require('../../utils/error.util').createError('Cannot invite yourself', 400);
+
+    // Check if they already have an active ticket (already joined)
+    const { rows: existingRows } = await client.query(
+      `SELECT id FROM game_matchmaking_ticket
+       WHERE lobby_id = $1 AND user_id = $2 AND status != 'CANCELLED'
+       LIMIT 1`,
+      [lobbyId, opponentId]
+    );
+    if (existingRows[0]) {
+      await client.query('COMMIT');
+      return await getLobby({ userId, lobbyId });
+    }
+
+    // Get sender name for notification
+    const { rows: senderRows } = await client.query(
+      `SELECT name, username FROM users WHERE id = $1`,
+      [userId]
+    );
+    const senderName = senderRows[0]?.name || senderRows[0]?.username || 'Someone';
+
+    // Get game name
+    const { rows: gameRows } = await client.query(
+      `SELECT name FROM game WHERE id = $1`,
+      [lobby.game_id]
+    );
+    const gameName = gameRows[0]?.name || 'a game';
+
+    // Store pending invite in lobby settings (no ticket yet — friend must accept)
+    const currentSettings = lobby.settings || {};
+    const pendingInvites = currentSettings.pendingInvites || [];
+    // Remove any old invite for same opponent
+    const filtered = pendingInvites.filter(inv => inv.userId !== opponentId);
+    filtered.push({ userId: opponentId, invitedAt: new Date().toISOString() });
+    currentSettings.pendingInvites = filtered;
+
+    await client.query(
+      'UPDATE game_lobby SET settings = $1::jsonb, updated_at = NOW() WHERE id = $2',
+      [JSON.stringify(currentSettings), lobbyId]
+    );
+
+    await client.query('COMMIT');
+
+    // Push invite notification to the friend — they must tap Accept to join
+    // Payload format: "Accept to join {name}'s lobby | lobbyId | inviteCode"
+    const inviteCode = lobby.invite_code || lobbyId.split('-')[0].toUpperCase();
+    try {
+      const notificationRepo = require('../notification/notification.repository');
+      const notification = await notificationRepo.createNotification({
+        recipientId: opponentId,
+        senderId: userId,
+        type: 'GAME_INVITE',
+        title: `${senderName} invited you to play ${gameName}!`,
+        message: `Tap to join their private lobby | ${lobbyId} | ${inviteCode}`,
+        resourceType: 'game_lobby',
+        resourceId: lobby.game_id,
+      });
+      // Also push real-time via socket
+      const { emitNotification } = require('../../sockets/notification.socket');
+      emitNotification(opponentId, {
+        ...notification,
+        type: 'GAME_INVITE',
+        payload: { lobbyId, inviteCode, gameName, senderName },
+      });
+    } catch (notifErr) {
+      console.error('Failed to send invite notification:', notifErr.message);
+    }
+
+    return await getLobby({ userId, lobbyId });
+  } catch (error) {
+    await client.query('ROLLBACK');
+    throw error;
+  } finally {
+    client.release();
+  }
 };
 
 const shrinkLobby = async ({ userId, lobbyId }) => {
@@ -1321,8 +1533,101 @@ const shrinkLobby = async ({ userId, lobbyId }) => {
   }
 };
 
-const fillLobbyBots = async ({ userId, lobbyId }) => {
-  return await fillMatchmakingLobby({ userId, ticketId: null, overrideLobbyId: lobbyId, fillBots: true });
+const BOT_PROFILES = [
+  { id: 'bot_alpha',   username: 'bot_alpha',   name: 'Bot Alpha',   avatar: 'https://api.dicebear.com/7.x/bottts/svg?seed=Alpha',   rating: 1250, level: 10, badge: 'silver'   },
+  { id: 'bot_bravo',   username: 'bot_bravo',   name: 'Bot Bravo',   avatar: 'https://api.dicebear.com/7.x/bottts/svg?seed=Bravo',   rating: 1420, level: 15, badge: 'gold'     },
+  { id: 'bot_charlie', username: 'bot_charlie', name: 'Bot Charlie', avatar: 'https://api.dicebear.com/7.x/bottts/svg?seed=Charlie', rating: 1600, level: 20, badge: 'platinum' },
+  { id: 'bot_delta',   username: 'bot_delta',   name: 'Bot Delta',   avatar: 'https://api.dicebear.com/7.x/bottts/svg?seed=Delta',   rating: 1100, level:  8, badge: 'bronze'   },
+  { id: 'bot_echo',    username: 'bot_echo',    name: 'Bot Echo',    avatar: 'https://api.dicebear.com/7.x/bottts/svg?seed=Echo',    rating: 1350, level: 12, badge: 'silver'   },
+  { id: 'bot_nova',    username: 'bot_nova',    name: 'Bot Nova',    avatar: 'https://api.dicebear.com/7.x/bottts/svg?seed=Nova',    rating: 1550, level: 18, badge: 'gold'     },
+  { id: 'bot_blaze',   username: 'bot_blaze',   name: 'Bot Blaze',   avatar: 'https://api.dicebear.com/7.x/bottts/svg?seed=Blaze',   rating: 1800, level: 25, badge: 'diamond'  },
+  { id: 'bot_titan',   username: 'bot_titan',   name: 'Bot Titan',   avatar: 'https://api.dicebear.com/7.x/bottts/svg?seed=Titan',   rating: 1950, level: 30, badge: 'master'   },
+];
+
+/**
+ * Adds bot(s) to a lobby by storing them in game_lobby.settings.bots[].
+ * Bots are never inserted into game_matchmaking_ticket (which requires real user UUIDs).
+ * current_players is incremented so slot counts remain accurate.
+ */
+const fillLobbyBots = async ({ userId, lobbyId, count = 1 }) => {
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+
+    const { rows: lobbyRows } = await client.query(
+      'SELECT * FROM game_lobby WHERE id = $1 FOR UPDATE',
+      [lobbyId]
+    );
+    const lobby = lobbyRows[0];
+    if (!lobby) throw require('../../utils/error.util').createError('Lobby not found', 404);
+    if (lobby.host_user_id !== userId) throw require('../../utils/error.util').createError('Only the host can add bots', 403);
+
+    const slotsToFill = Math.max(0, Math.min(Number(count) || 1, lobby.max_players - lobby.current_players));
+    if (slotsToFill <= 0) {
+      await client.query('COMMIT');
+      return await getLobby({ userId, lobbyId });
+    }
+
+    // Current bots already in settings
+    const currentSettings = { ...(lobby.settings || {}) };
+    const existingBots = Array.isArray(currentSettings.bots) ? currentSettings.bots : [];
+
+    // Collect seats already taken by real players (from tickets)
+    const { rows: ticketSeatRows } = await client.query(
+      `SELECT metadata->>'seat' AS seat FROM game_matchmaking_ticket
+       WHERE lobby_id = $1 AND status != 'CANCELLED'`,
+      [lobbyId]
+    );
+    const usedSeats = new Set([
+      ...ticketSeatRows.map(r => parseInt(r.seat, 10)).filter(s => !isNaN(s)),
+      ...existingBots.map(b => b.seat),
+    ]);
+
+    const newBots = [];
+    for (let i = 0; i < slotsToFill; i++) {
+      let seat = 0;
+      while (usedSeats.has(seat)) seat++;
+      usedSeats.add(seat);
+
+      const profile = BOT_PROFILES[seat % BOT_PROFILES.length];
+      // Give each bot a unique id scoped to this lobby+seat so the frontend can key on it
+      const botId = `${profile.id}_${lobbyId.replace(/-/g, '').slice(0, 8)}_${seat}`;
+      newBots.push({
+        id: botId,
+        username: profile.username,
+        name: profile.name,
+        avatar: profile.avatar,
+        rating: profile.rating,
+        level: profile.level,
+        badge: profile.badge,
+        seat,
+        team: seat % 2,
+        isBot: true,
+        isReady: true,
+        lobbyRole: 'PLAYER',
+        status: 'BOT',
+      });
+    }
+
+    currentSettings.bots = [...existingBots, ...newBots];
+
+    await client.query(
+      `UPDATE game_lobby
+       SET settings = $1::jsonb,
+           current_players = current_players + $2,
+           updated_at = NOW()
+       WHERE id = $3`,
+      [JSON.stringify(currentSettings), slotsToFill, lobbyId]
+    );
+
+    await client.query('COMMIT');
+    return await getLobby({ userId, lobbyId });
+  } catch (error) {
+    await client.query('ROLLBACK');
+    throw error;
+  } finally {
+    client.release();
+  }
 };
 
 const continueLobby = async ({ userId, lobbyId }) => {

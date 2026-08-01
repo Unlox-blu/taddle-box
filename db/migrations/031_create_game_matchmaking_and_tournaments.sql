@@ -37,7 +37,7 @@ CREATE TABLE IF NOT EXISTS game_matchmaking_ticket (
   user_id           UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
   game_id           UUID NOT NULL REFERENCES game(id) ON DELETE CASCADE,
   tournament_id     UUID REFERENCES game_tournament(id) ON DELETE CASCADE,
-  mode              VARCHAR(20) NOT NULL CHECK (mode IN ('QUICK', 'TOURNAMENT')),
+  mode              VARCHAR(20) NOT NULL CHECK (mode IN ('AUTO', 'CUSTOM', 'TOURNAMENT')),
   status            VARCHAR(20) NOT NULL DEFAULT 'WAITING'
                     CHECK (status IN ('WAITING', 'MATCHED', 'CANCELLED', 'EXPIRED')),
   opponent_user_id  UUID REFERENCES users(id) ON DELETE SET NULL,

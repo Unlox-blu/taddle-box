@@ -32,7 +32,8 @@ export const searchService = {
     const res = await apiClient.get(
       `/search/all?q=${encodeURIComponent(q)}&limit=${limit}`,
     );
-    const data = res?.data?.data || {};
+    // Response shape: { data: { dataType, data: { people, posts, ... } } }
+    const data = res?.data?.data?.data || res?.data?.data || {};
     return {
       people: Array.isArray(data.people) ? data.people : [],
       communities: Array.isArray(data.communities) ? data.communities : [],

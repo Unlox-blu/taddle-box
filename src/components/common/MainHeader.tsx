@@ -50,6 +50,7 @@ export default function MainHeader() {
             else if (route.name === 'Profile' || route.name === 'UserProfile') tab = 'people';
             else if (route.name === 'Community' || route.name === 'CommunityList' || route.name === 'CommunityDetail') tab = 'communities';
             else if (route.name === 'Events') tab = 'events';
+            else if (route.name === 'Games') tab = 'games';
             else tab = 'posts'; // fallback
             
             navigation.navigate("Search", { tab });

@@ -886,147 +886,8 @@ function InfoPill({ label, value }: { label: string; value: string }) {
 }
 
 /**
- * WaitingForPlayers — full-screen pre-match lobby shown inside GamePlayModal.
- *
- * The engine STARTs only once every real player has connected + readied, so
- * this screen holds the "waiting for players" state BEFORE the 3-2-1 countdown
- * (the reverse of the old order where the countdown played first). It lists
- * the joined roster with a pulsing indicator; invited players appear here as
- * they accept (first come, first served — they never occupy a reserved slot).
+ * GamePlayModal — full-screen modal that hosts the game and its pre/post overlays.
  */
-function WaitingForPlayers({
-  game,
-  modeLabel,
-  players,
-  myName,
-  myAvatar,
-  onExit,
-}: {
-  game: Game;
-  modeLabel: string;
-  players: PlayerContext[];
-  myName: string;
-  myAvatar?: string | null;
-  onExit: () => void;
-}) {
-  const colors = useThemeColors();
-  const styles = useMemo(() => makeStyles(colors), [colors]);
-  const pulse = useRef(new Animated.Value(0)).current;
-
-  useEffect(() => {
-    const loop = Animated.loop(
-      Animated.sequence([
-        Animated.timing(pulse, {
-          toValue: 1,
-          duration: 900,
-          easing: Easing.inOut(Easing.ease),
-          useNativeDriver: true,
-        }),
-        Animated.timing(pulse, {
-          toValue: 0,
-          duration: 900,
-          easing: Easing.inOut(Easing.ease),
-          useNativeDriver: true,
-        }),
-      ]),
-    );
-    loop.start();
-    return () => {
-      loop.stop();
-      pulse.stopAnimation();
-    };
-  }, [pulse]);
-
-  const roster: Array<{
-    id: string;
-    name: string;
-    avatar?: string | null;
-    isMe: boolean;
-    isBot: boolean;
-  }> = [
-    { id: "me", name: myName, avatar: myAvatar, isMe: true, isBot: false },
-    ...(players || []).map((p) => ({
-      id: p.id,
-      name: p.name,
-      avatar: p.avatar,
-      isMe: false,
-      isBot: p.id?.startsWith("bot_") || false,
-    })),
-  ];
-
-  return (
-    <View style={[StyleSheet.absoluteFill, styles.waitingWrap]}>
-      <GameLogo game={game} size={72} radius={20} />
-
-      <View style={styles.waitingModePill}>
-        <Ionicons name="people" size={12} color={colors.primaryLight} />
-        <Text style={styles.waitingModeText}>{modeLabel}</Text>
-      </View>
-
-      <Text style={styles.waitingTitle}>Waiting for players</Text>
-      <Text style={styles.waitingSub}>
-        The match starts the moment every player connects. Invited friends join
-        on a first-come, first-served basis.
-      </Text>
-
-      <View style={styles.waitingRoster}>
-        {roster.map((p) => (
-          <View key={p.id} style={styles.waitingPlayer}>
-            {p.avatar ? (
-              <Image source={{ uri: p.avatar }} style={styles.waitingAvatar} />
-            ) : (
-              <View
-                style={[
-                  styles.waitingAvatar,
-                  { backgroundColor: p.isMe ? "rgba(34,211,238,0.2)" : "rgba(255,255,255,0.08)" },
-                ]}
-              >
-                <Text style={styles.waitingAvatarText}>
-                  {(p.name || "?")[0].toUpperCase()}
-                </Text>
-              </View>
-            )}
-            <Text style={styles.waitingName} numberOfLines={1}>
-              {p.name}
-            </Text>
-            <Text style={styles.waitingTag}>
-              {p.isMe ? "YOU" : "READY"}
-            </Text>
-          </View>
-        ))}
-      </View>
-
-      <Animated.View
-        style={[
-          styles.waitingDots,
-          {
-            opacity: pulse.interpolate({
-              inputRange: [0, 1],
-              outputRange: [0.35, 1],
-            }),
-            transform: [
-              {
-                scale: pulse.interpolate({
-                  inputRange: [0, 1],
-                  outputRange: [0.95, 1.06],
-                }),
-              },
-            ],
-          },
-        ]}
-      >
-        <ActivityIndicator size="small" color={colors.primaryLight} />
-        <Text style={styles.waitingHint}>Waiting for other players…</Text>
-      </Animated.View>
-
-      <TouchableOpacity style={styles.waitingExit} onPress={onExit}>
-        <Ionicons name="close" size={14} color={colors.text.secondary} />
-        <Text style={styles.waitingExitText}>EXIT LOBBY</Text>
-      </TouchableOpacity>
-    </View>
-  );
-}
-
 function GamePlayModal({
   session,
   onClose,
@@ -1047,10 +908,13 @@ function GamePlayModal({
   const canEngineConnect =
     (session.game as any)?.metadata?.runtime === "native" && !!session.wsToken;
   const [phase, setPhase] = useState<
-    "waiting" | "countdown" | "playing" | "result"
+    "prestart" | "playing" | "result"
   >(
-    session.isRejoin ? "playing" : canEngineConnect ? "waiting" : "countdown",
+    session.isRejoin ? "playing" : "prestart",
   );
+  // True once the engine fires START — transitions GameStartScreen from
+  // "waiting" state into the 3-2-1 countdown.
+  const [matchStarted, setMatchStarted] = useState(false);
   const [score, setScore] = useState(0);
   const [result, setResult] = useState<"win" | "loss" | "draw" | "pending">("pending");
   const [xpEarned, setXpEarned] = useState(0);
@@ -1061,6 +925,7 @@ function GamePlayModal({
   }>({});
 
   const [opponentPausedCountdown, setOpponentPausedCountdown] = useState<number | null>(null);
+  const [pausedPlayerName, setPausedPlayerName] = useState<string>("Opponent");
   // Guards against double-completion: some games (e.g. TapRush) fire onComplete
   // from a local timer while the server also emits GAME_OVER, so completeGameSession
   // could run twice and hit "Session already completed".
@@ -1075,6 +940,14 @@ function GamePlayModal({
     const onPause = (event: any) => {
       if (event.matchId === session.matchId && event.data?.reconnectWindowMs) {
         setOpponentPausedCountdown(Math.floor(event.data.reconnectWindowMs / 1000));
+        // Resolve the disconnected player's name from the session players list.
+        // The server sends the userId in disconnectedPlayers[0]; fall back to
+        // "Opponent" when absent (bot matches, legacy payloads).
+        const disconnectedId = event.data?.disconnectedPlayers?.[0] || event.data?.userId;
+        const match = (session.players || []).find(
+          (p) => p.id === disconnectedId
+        );
+        setPausedPlayerName(match?.name || "Opponent");
       }
     };
     
@@ -1084,26 +957,22 @@ function GamePlayModal({
       }
     };
 
-    // The engine STARTs only when every real player has connected + readied,
-    // so "waiting for players" stays up until that fires, THEN the 3-2-1 runs.
+    // The engine STARTs only when every real player has connected + readied.
+    // Flip matchStarted → GameStartScreen transitions from "waiting" to 3-2-1.
     const onStart = (event: any) => {
       if (event.matchId === session.matchId) {
-        // Real-time games (e.g. tap-rush) start their game clock on the engine
-        // START, so skip the cosmetic 3-2-1 overlay to avoid burning match time.
-        setPhase((p) =>
-          p === "waiting"
-            ? (session.game as any)?.slug === "tap-rush"
-              ? "playing"
-              : "countdown"
-            : p,
-        );
+        setMatchStarted(true);
+        // Real-time games skip the cosmetic countdown entirely.
+        if ((session.game as any)?.slug === "tap-rush") {
+          setPhase("playing");
+        }
       }
     };
 
-    // Rejoining an already-ACTIVE match skips the countdown entirely.
+    // Rejoining an already-ACTIVE match — skip straight to the game.
     const onActive = (event: any) => {
       if (event.matchId === session.matchId) {
-        setPhase((p) => (p === "waiting" ? "playing" : p));
+        setPhase("playing");
       }
     };
 
@@ -1133,13 +1002,12 @@ function GamePlayModal({
   useEffect(() => {
     completingRef.current = false;
     resultSoundPlayedRef.current = false;
-    setPhase(
-      session.isRejoin ? "playing" : canEngineConnect ? "waiting" : "countdown",
-    );
+    setMatchStarted(false);
+    setPhase(session.isRejoin ? "playing" : "prestart");
     setScore(0);
     setXpEarned(0);
     setGameStats({});
-  }, [session.matchId, session.sessionId, canEngineConnect]);
+  }, [session.matchId, session.sessionId]);
 
   // Resolve a pending PVP result when the server broadcasts the final outcome
   useEffect(() => {
@@ -1250,9 +1118,6 @@ function GamePlayModal({
               <GameLogo game={session.game} size={26} radius={8} />
               <Text style={styles.playTitle}>{session.game.name}</Text>
             </View>
-            <Text style={styles.playSubtitle}>
-              {`${user?.username || user?.name || "You"} vs ${session.players?.[0]?.name || "Opponent"}`}
-            </Text>
           </View>
           {session.game.metadata?.runtime === "html5_webview" ? (
             <View style={styles.scoreBox}>
@@ -1264,16 +1129,12 @@ function GamePlayModal({
           )}
         </View>
 
-        {/* A single stage below the header holds the game + every phase overlay.
-            The native game mounts from the waiting phase onward so its engine
-            socket connects and keeps READY registered — the engine STARTs the
-            match only once every real player has readied, which then flips this
-            phase to "countdown". Mounting it earlier also guarantees the
-            socket never drops mid-countdown (which would look like a disconnect
-            and pause the match). Overlays are absolute so they stack cleanly on
-            top of the live game instead of sharing its flex space. */}
+        {/* playStage: game mounts immediately so its socket connects and sends
+            READY. It stays invisible until the prestart screen is done.
+            GameStartScreen handles both "waiting for players" and "3-2-1"
+            as a single unified screen — matchStarted drives the transition. */}
         <View style={styles.playStage}>
-          {(phase === "waiting" || phase === "countdown" || phase === "playing") &&
+          {(phase === "prestart" || phase === "playing") &&
             (() => {
               const { slug } = session.game as any;
               const uid = user?.id || "";
@@ -1293,17 +1154,9 @@ function GamePlayModal({
               if ((session.game as any).metadata?.runtime === "native") {
                 const NativeGame = GAME_COMPONENTS[slug];
                 if (NativeGame && token) {
-                  // The game stays MOUNTED during waiting + countdown so its
-                  // engine socket keeps READY registered (unmounting would look
-                  // like a disconnect and pause the match) — but it stays
-                  // INVISIBLE until the 3-2-1 finishes. First the countdown,
-                  // then the game appears.
                   return (
                     <View
-                      style={[
-                        StyleSheet.absoluteFill,
-                        { opacity: phase === "playing" ? 1 : 0 },
-                      ]}
+                      style={[StyleSheet.absoluteFill, { opacity: phase === "playing" ? 1 : 0 }]}
                       pointerEvents={phase === "playing" ? "auto" : "none"}
                     >
                       <NativeGame
@@ -1312,6 +1165,7 @@ function GamePlayModal({
                         userId={uid}
                         wsToken={token}
                         players={session.players || []}
+                        externalPhase={phase === "playing" ? "playing" : "waiting"}
                         myName={user?.username || user?.name || 'You'}
                         myAvatar={user?.avatarUrl || user?.avatar || null}
                         opponentName={session.players?.[0]?.name || "Opponent"}
@@ -1321,30 +1175,10 @@ function GamePlayModal({
                   );
                 }
               }
-
               return null;
             })()}
 
-          {phase === "waiting" && (
-            <WaitingForPlayers
-              game={session.game}
-              modeLabel={
-                session.mode === "tournament"
-                  ? "TOURNAMENT"
-                  : session.mode === "practice"
-                    ? "PRACTICE"
-                    : session.mode === "custom"
-                      ? "CUSTOM LOBBY"
-                      : "AUTO MATCH"
-              }
-              players={session.players || []}
-              myName={user?.username || user?.name || "You"}
-              myAvatar={user?.avatarUrl || user?.avatar || null}
-              onExit={onClose}
-            />
-          )}
-
-          {phase === "countdown" && (
+          {phase === "prestart" && (
             <View style={StyleSheet.absoluteFill}>
               <GameStartScreen
                 key={session.matchId}
@@ -1360,15 +1194,14 @@ function GamePlayModal({
                   team: p.team,
                 }))}
                 modeLabel={
-                  session.mode === "tournament"
-                    ? "TOURNAMENT"
-                    : session.mode === "practice"
-                      ? "PRACTICE"
-                      : session.mode === "custom"
-                        ? "CUSTOM LOBBY"
-                        : "AUTO MATCH"
+                  session.mode === "tournament" ? "TOURNAMENT"
+                  : session.mode === "practice" ? "PRACTICE"
+                  : session.mode === "custom" ? "CUSTOM LOBBY"
+                  : "AUTO MATCH"
                 }
+                matchStarted={matchStarted}
                 onDone={() => setPhase("playing")}
+                onExit={onClose}
               />
             </View>
           )}
@@ -1377,19 +1210,19 @@ function GamePlayModal({
             <View style={[StyleSheet.absoluteFill, { backgroundColor: 'rgba(0,0,0,0.85)', justifyContent: 'center', alignItems: 'center', zIndex: 100 }]}>
               <Ionicons name="warning" size={64} color={colors.warning} />
               <Text style={{ color: '#fff', fontSize: 24, fontWeight: 'bold', marginTop: 16 }}>
-                Player Disconnected
+                {pausedPlayerName} Disconnected
               </Text>
               <Text style={{ color: colors.text.secondary, fontSize: 16, textAlign: 'center', marginHorizontal: 32, marginTop: 12 }}>
-                Match paused — waiting for them to return...
+                Match paused — waiting for them to return…
               </Text>
               <Text style={{ color: colors.primaryLight, fontSize: 36, fontWeight: '900', marginTop: 16 }}>
                 {opponentPausedCountdown}s
               </Text>
-              <TouchableOpacity 
-                 style={{ marginTop: 40, backgroundColor: colors.danger, paddingHorizontal: 32, paddingVertical: 14, borderRadius: 24 }}
-                 onPress={onClose}
+              <TouchableOpacity
+                style={{ marginTop: 40, backgroundColor: colors.danger, paddingHorizontal: 32, paddingVertical: 14, borderRadius: 24 }}
+                onPress={onClose}
               >
-                 <Text style={{ color: '#fff', fontSize: 16, fontWeight: 'bold' }}>Exit Match</Text>
+                <Text style={{ color: '#fff', fontSize: 16, fontWeight: 'bold' }}>Exit Match</Text>
               </TouchableOpacity>
             </View>
           )}
@@ -1404,12 +1237,9 @@ function GamePlayModal({
               longestStreak={gameStats.longestStreak}
               gameName={session.game.name}
               modeLabel={
-                session.mode === "tournament"
-                  ? "TOURNAMENT"
-                  : session.mode === "practice"
-                    ? "PRACTICE"
-                    : session.mode === "custom"
-                      ? "CUSTOM LOBBY"
+                session.mode === "tournament" ? "TOURNAMENT"
+                  : session.mode === "practice" ? "PRACTICE"
+                  : session.mode === "custom" ? "CUSTOM LOBBY"
                       : "AUTO MATCH"
               }
               opponentName={session.players?.[0]?.name}

@@ -34,6 +34,8 @@ type Props = {
   userId: string;
   wsToken: string;
   players?: PlayerContext[];
+  /** Forwarded from GamePlayModal — "playing" means the 3-2-1 is done. */
+  externalPhase?: ExternalPhase;
   onComplete: (result: HtmlGameResult) => void;
 };
 
@@ -52,10 +54,15 @@ const EVENTS = {
 
 type GameStatus = "connecting" | "waiting" | "active" | "finished" | "paused";
 
+// Passed in from GamePlayModal — "playing" means the prestart screen is done.
+type ExternalPhase = "waiting" | "playing";
+
 export default function ChessGame({
   matchId,
   userId,
   wsToken,
+  players,
+  externalPhase,
   onComplete,
 }: Props) {
   const [chess] = useState(new Chess());
@@ -73,6 +80,16 @@ export default function ChessGame({
 
   const [opponentName, setOpponentName] = useState("Opponent");
   const [isMyTurn, setIsMyTurn] = useState(false);
+
+  // START may arrive while the 3-2-1 countdown is still showing. Hold the
+  // payload here and apply it only once externalPhase flips to "playing".
+  const pendingStartRef = useRef<any>(null);
+  // Mirror externalPhase in a ref so the socket closure (set up once on mount)
+  // can always read the current value without going stale.
+  const externalPhaseRef = useRef(externalPhase);
+  useEffect(() => {
+    externalPhaseRef.current = externalPhase;
+  }, [externalPhase]);
   const [moves, setMoves] = useState<{ w: string | null; b: string | null }>({
     w: null,
     b: null,
@@ -96,9 +113,10 @@ export default function ChessGame({
     q: "♛\uFE0E",
   };
 
-  // Local timer countdown
+  // Local timer countdown — only ticks once the countdown screen is gone
+  // and the board is actually visible to prevent burning match time during 3-2-1.
   useEffect(() => {
-    if (status !== "active") return;
+    if (status !== "active" || externalPhase !== "playing") return;
     const interval = setInterval(() => {
       setTimers((prev) => {
         const activeColor = chess.turn();
@@ -109,7 +127,7 @@ export default function ChessGame({
       });
     }, 1000);
     return () => clearInterval(interval);
-  }, [status]);
+  }, [status, externalPhase]);
 
   const pulseAnim = useRef(new Animated.Value(1)).current;
   const checkAnim = useRef(new Animated.Value(0)).current;
@@ -208,8 +226,8 @@ export default function ChessGame({
     });
 
     s.on(EVENTS.START, (data: any) => {
-      setStatus("active");
       const ps = data.state?.pluginState ?? data.state;
+      // Sync board state immediately regardless of phase.
       if (ps?.fen) {
         chess.load(ps.fen);
         chessboardRef.current?.reset(ps.fen);
@@ -222,7 +240,15 @@ export default function ChessGame({
           setMoves((prev) => ({ ...prev, [last.color]: last.san }));
         }
       }
-      updateTurnState(chess, playerColorRef.current);
+      // If the countdown is already done, activate immediately.
+      // Otherwise park the payload — the externalPhase effect will flush it.
+      if (externalPhaseRef.current === "playing") {
+        pendingStartRef.current = null;
+        setStatus("active");
+        updateTurnState(chess, playerColorRef.current);
+      } else {
+        pendingStartRef.current = data;
+      }
     });
 
     s.on(EVENTS.SYNC, (data: any) => {
@@ -267,8 +293,18 @@ export default function ChessGame({
       setTimeout(() => onComplete(result), 3000);
     });
 
-    s.on(EVENTS.PAUSE, () => {
+    s.on(EVENTS.PAUSE, (data: any) => {
       setStatus("paused");
+      // Bubble the reconnect window up so GamePlayModal shows the 60s overlay
+      // with the opponent's name and countdown. The server always sends
+      // reconnectWindowMs in the PAUSE payload.
+      if (data?.reconnectWindowMs) {
+        const { DeviceEventEmitter } = require('react-native');
+        DeviceEventEmitter.emit('GAME_ENGINE_PAUSE', {
+          matchId,
+          data: { reconnectWindowMs: data.reconnectWindowMs },
+        });
+      }
     });
 
     s.on(EVENTS.ERROR, (error: any) => {
@@ -279,6 +315,36 @@ export default function ChessGame({
       s.disconnect();
     };
   }, [matchId, userId, wsToken]);
+
+  // When the 3-2-1 countdown finishes (externalPhase flips to "playing"),
+  // apply any pending START payload and activate the game clock.
+  useEffect(() => {
+    if (externalPhase !== "playing") return;
+    if (pendingStartRef.current !== null) {
+      const ps = pendingStartRef.current?.state?.pluginState
+        ?? pendingStartRef.current?.state;
+      // Only apply timers from START — do NOT reload the FEN from START,
+      // because a SYNC from the bot's first move may have already updated
+      // chess.js to the post-move position. Loading START's FEN here would
+      // overwrite that and reset the board to the starting position.
+      if (ps?.timers) setTimers(ps.timers);
+      pendingStartRef.current = null;
+    }
+    // Always sync the board to the current chess.js state — covers:
+    // 1. Bot moved during countdown (SYNC updated chess.js but board wasn't rendered)
+    // 2. Normal START flush
+    // 3. Rejoin (board already at correct FEN, reset is a no-op)
+    // Use a small delay to ensure the Chessboard component has mounted
+    // (status change → re-render → Chessboard mounts → ref becomes available).
+    setTimeout(() => {
+      chessboardRef.current?.reset?.(chess.fen());
+      (chessboardRef.current as any)?.resetBoard?.(chess.fen());
+    }, 150);
+    setStatus((prev) =>
+      prev === "finished" || prev === "paused" ? prev : "active"
+    );
+    updateTurnState(chess, playerColorRef.current);
+  }, [externalPhase]);
 
   const updateTurnState = (chessInstance: Chess, color: "w" | "b") => {
     setIsMyTurn(chessInstance.turn() === color);

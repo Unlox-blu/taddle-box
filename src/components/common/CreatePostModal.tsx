@@ -754,25 +754,25 @@ export default function CreatePostModal({
                 flexDirection: "row",
                 alignItems: "center",
                 backgroundColor: "rgba(251,191,36,0.15)",
-                paddingHorizontal: 6,
+                paddingHorizontal: 8,
                 paddingVertical: 4,
                 borderRadius: 12,
+                gap: 3,
               }}
             >
               <Ionicons
                 name="flash"
                 size={12}
                 color={colors.xpGold || "#FBBF24"}
-                style={{ marginRight: 4 }}
               />
               <Text
                 style={{
                   color: colors.xpGold || "#FBBF24",
-                  fontSize: 12,
+                  fontSize: 11,
                   fontWeight: "700",
                 }}
               >
-                +{xpReward}
+                up to 100 XP
               </Text>
             </View>
             <TouchableOpacity onPress={handlePost} disabled={uploading}>

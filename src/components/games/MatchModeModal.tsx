@@ -88,6 +88,18 @@ export default function MatchModeModal({
   const [mode, setMode] = useState<MatchMode>("AUTO");
   const [step, setStep] = useState<Step>("select");
 
+  // When the modal becomes visible, skip mode selection for flows that don't
+  // need it. We do this in a layout effect so it applies before paint —
+  // eliminating the single-frame flash of the "Choose Mode" screen.
+  React.useLayoutEffect(() => {
+    if (!visible) return;
+    if (autoQueue || initialTournamentId) {
+      setStep("queue");
+      if (autoQueue) setMode(initialMode === "PRACTICE" ? "PRACTICE" : "AUTO");
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [visible]);
+
   // ── auto / shared ─────────────────────────────────────────────────────────
   const [targetPlayers, setTargetPlayers] = useState<AutoSize>("auto");
 
@@ -136,7 +148,9 @@ export default function MatchModeModal({
 
   function _reset() {
     autoQueuedRef.current = false;
-    setMode("AUTO"); setStep("select"); setTargetPlayers("auto");
+    setMode("AUTO");
+    setStep("select");
+    setTargetPlayers("auto");
     setJoinCode(""); setJoinCodeLoading(false);
     setLobbyLoading(false); setLobbyPlayers([]); setLobbyMaxPlayers(2);
     setLobbyAuto(true);
@@ -349,8 +363,8 @@ export default function MatchModeModal({
     setQueuePhase(isPractice ? "filling" : "searching");
     setStatusText(
       isPractice
-        ? "Preparing your practice lobby — bots joining now..."
-        : "Searching for opponents..."
+        ? "Preparing your practice lobby..."
+        : "Searching for taddlers..."
     );
     setCountdown(null); setBotFilling(isPractice); setStep("queue");
     // "auto" = no targetPlayers constraint, backend joins any waiting lobby
@@ -430,22 +444,26 @@ export default function MatchModeModal({
   };
 
   // ── instant rematch re-queue ──────────────────────────────────────────────
-  // When opened with autoQueue (from the result overlay's Rematch button),
-  // skip the mode-select screen and jump straight into the AUTO queue for the
-  // same game. Fires once per open; _reset() re-arms it for the next rematch.
   useEffect(() => {
     if (!visible || !autoQueue || !game) return;
     if (autoQueuedRef.current) return;
     autoQueuedRef.current = true;
-    // Small delay so the modal's slide-in animation is visible before the queue
-    const t = setTimeout(() => {
-      const qm = initialMode === "PRACTICE" ? "PRACTICE" : "AUTO";
-      setMode(qm);
-      startAutoQueue("auto", qm);
-    }, 500);
-    return () => clearTimeout(t);
+    const qm = initialMode === "PRACTICE" ? "PRACTICE" : "AUTO";
+    setMode(qm);
+    startAutoQueue("auto", qm);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [visible, autoQueue, game, initialMode]);
+
+  // ── tournament queue — skip mode select, jump straight to TOURNAMENT queue ──
+  useEffect(() => {
+    if (!visible || !initialTournamentId || !game) return;
+    if (autoQueue) return;
+    if (autoQueuedRef.current) return;
+    autoQueuedRef.current = true;
+    setMode("AUTO");
+    startAutoQueue("auto", "AUTO");
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [visible, initialTournamentId, game, autoQueue]);
 
 
   // ── CUSTOM lobby actions ──────────────────────────────────────────────────
@@ -592,7 +610,7 @@ export default function MatchModeModal({
           // the copy neutral while the lobby continues filling.
           setStatusText(
             pendingInviteIds.length > 0
-              ? "Waiting for invited friends to accept..."
+              ? "Waiting for invited taddlers to accept..."
               : "Waiting for players to join..."
           );
         }
@@ -683,6 +701,7 @@ export default function MatchModeModal({
     step === "select"        ? "Choose Mode"
     : step === "playerCount" ? "Player Count"
     : step === "lobby"       ? "Custom Lobby"
+    : initialTournamentId    ? "Tournament Queue"
     : "Matchmaking";
 
   const canGoBack = step === "playerCount" || step === "lobby";
@@ -712,8 +731,8 @@ export default function MatchModeModal({
                 <Ionicons name="fitness" size={22} color="#fff" />
               </LinearGradient>
               <View style={{ flex: 1 }}>
-                <Text style={styles.modeTitle}>Practice Mode</Text>
-                <Text style={styles.modeDesc}>Solo practice — bots join right away. Entry fee applies, no XP rewards.</Text>
+                <Text style={styles.modeTitle}>Practice Match</Text>
+                <Text style={styles.modeDesc}>Just Warm up! Entry fee applies, no XP rewards.</Text>
               </View>
               <Ionicons name="chevron-forward" size={20} color={colors.text.muted} />
             </TouchableOpacity>
@@ -725,7 +744,7 @@ export default function MatchModeModal({
               </LinearGradient>
               <View style={{ flex: 1 }}>
                 <Text style={styles.modeTitle}>Auto Match</Text>
-                <Text style={styles.modeDesc}>Jump into a queue. Choose auto or exact player count then go.</Text>
+                <Text style={styles.modeDesc}>Jump into a global taddlers world.</Text>
               </View>
               <Ionicons name="chevron-forward" size={20} color={colors.text.muted} />
             </TouchableOpacity>
@@ -736,8 +755,8 @@ export default function MatchModeModal({
                 <Ionicons name="people" size={22} color="#fff" />
               </LinearGradient>
               <View style={{ flex: 1 }}>
-                <Text style={styles.modeTitle}>Custom Lobby</Text>
-                <Text style={styles.modeDesc}>Set a lobby size, invite friends or bots, and start when ready.</Text>
+                <Text style={styles.modeTitle}>Custom Match</Text>
+                <Text style={styles.modeDesc}>Have a fun with mutual taddlers.</Text>
               </View>
               {lobbyLoading
                 ? <ActivityIndicator size="small" color={colors.primaryLight} />
@@ -750,7 +769,7 @@ export default function MatchModeModal({
                 <Ionicons name="key-outline" size={18} color={colors.primaryLight} />
                 <Text style={styles.joinCodeTitle}>Join with Code</Text>
               </View>
-              <Text style={styles.joinCodeHint}>Enter an invite code to join a friend's private lobby.</Text>
+              <Text style={styles.joinCodeHint}>Enter into your taddler lobby and have fun!.</Text>
               <View style={styles.joinCodeRow}>
                 <TextInput
                   value={joinCode}
@@ -818,6 +837,7 @@ export default function MatchModeModal({
             cancelling={cancelling} onCancel={cancelQueue}
             players={displayPlayers}
             initialCount={spawnBaseline}
+            isTournament={!!initialTournamentId}
           />
         )}
       </View>
@@ -1255,7 +1275,7 @@ function LobbyStep({
 
 // ─── QueueStep ────────────────────────────────────────────────────────────────
 
-function QueueStep({ colors, styles, mode, game, phase, statusText, countdown, botFilling, cancelling, onCancel, players, initialCount = 1 }: {
+function QueueStep({ colors, styles, mode, game, phase, statusText, countdown, botFilling, cancelling, onCancel, players, initialCount = 1, isTournament = false }: {
   colors: ColorPalette; styles: ReturnType<typeof makeStyles>;
   mode: MatchMode; game: Game;
   phase: "searching" | "filling" | "matched";
@@ -1263,20 +1283,20 @@ function QueueStep({ colors, styles, mode, game, phase, statusText, countdown, b
   botFilling: boolean; cancelling: boolean;
   onCancel: () => void;
   players?: any[]; initialCount?: number;
+  isTournament?: boolean;
 }) {
   return (
     <ScrollView contentContainerStyle={styles.body} showsVerticalScrollIndicator={false}>
-      {/* Matchmaking screen shows the radar only — no slot ring / team layout,
-          so it stays clean for auto + practice + custom alike. */}
       <MatchmakingRadar colors={colors} isActive={phase !== "matched"} players={players || []} initialCount={initialCount} />
       <View style={styles.queueCard}>
         <View style={styles.rowBetween}>
-          <View style={styles.modePill}>
-            <Text style={styles.modePillText}>
-              {mode === "AUTO" ? "AUTO MATCH" : mode === "PRACTICE" ? "PRACTICE" : "CUSTOM LOBBY"}
+          <View style={[styles.modePill, isTournament && { backgroundColor: "rgba(251,191,36,0.12)", borderColor: "rgba(251,191,36,0.35)" }]}>
+            <Text style={[styles.modePillText, isTournament && { color: "#FBBF24" }]}>
+              {isTournament ? "TOURNAMENT" : mode === "AUTO" ? "AUTO MATCH" : mode === "PRACTICE" ? "PRACTICE" : "CUSTOM LOBBY"}
             </Text>
           </View>
-          {countdown !== null && phase === "searching" && !botFilling && (
+          {/* Countdown only shown for non-tournament queues — tournaments wait indefinitely */}
+          {countdown !== null && phase === "searching" && !botFilling && !isTournament && (
             <View style={styles.timerPill}>
               <Ionicons name="time-outline" size={13} color={colors.primaryLight} />
               <Text style={styles.timerText}>{countdown}s</Text>
@@ -1284,7 +1304,13 @@ function QueueStep({ colors, styles, mode, game, phase, statusText, countdown, b
           )}
         </View>
         <Text style={styles.queueTitle}>
-          {phase === "matched" ? "Match Found!" : phase === "filling" ? "Setting up match..." : "Finding your match"}
+          {phase === "matched"
+            ? "Match Found!"
+            : isTournament
+              ? "Hold On!"
+              : phase === "filling"
+                ? "Setting up match..."
+                : "Finding your match"}
         </Text>
         <Text style={styles.queueGame}>{game.name}</Text>
         <Text style={styles.queueStatus}>{statusText}</Text>
@@ -1299,17 +1325,8 @@ function QueueStep({ colors, styles, mode, game, phase, statusText, countdown, b
   );
 }
 
-// ─── Radar animation ──────────────────────────────────────────────────────────
+// ─── Radar ────────────────────────────────────────────────────────────────────
 
-/**
- * Radar with player/bot pins. Pins spawn one at a time (staggered spring) so
- * bots joining to fill slots look like real players trickling in. When joining
- * an existing lobby the already-present players are pinned immediately; in a
- * brand-new lobby the current user is the first (only) pin.
- */
-// Stable pseudo-random radar spot per player, so each pin spawns in its own
-// random corner of the scanner (never the same fixed ring positions) and keeps
-// that spot for the whole queue.
 function hashStr(s: string): number {
   let h = 0;
   for (let i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) >>> 0;
@@ -1318,120 +1335,218 @@ function hashStr(s: string): number {
 
 function radarSpot(id: string): { x: number; y: number } {
   const h = hashStr(id || "x");
-  const angle = (h % 360) * (Math.PI / 180);
-  const radius = 22 + ((h >> 3) % 58);
+  const angle  = (h % 360) * (Math.PI / 180);
+  // Centre icon is 52px diameter (radius 26px) + pin is 36px (radius 18px)
+  // so minimum safe radius is 26 + 18 + 10 (gap) = 54px.
+  // Disc radius is 130px; pin radius 18px + name-tag ~32px overhead leaves ~80px max.
+  const radius = 58 + ((h >> 4) % 38);   // 58 – 95 px from centre
   return { x: Math.cos(angle) * radius, y: Math.sin(angle) * radius };
 }
 
-function MatchmakingRadar({ colors, isActive, players = [], initialCount = 1 }: {
-  colors: ColorPalette; isActive: boolean; players?: any[]; initialCount?: number;
+function MatchmakingRadar({
+  colors,
+  isActive,
+  players = [],
+  initialCount = 1,
+}: {
+  colors: ColorPalette;
+  isActive: boolean;
+  players?: any[];
+  initialCount?: number;
 }) {
-  const pulse = useRef(new Animated.Value(0.85)).current;
-  const sweep = useRef(new Animated.Value(0)).current;
+  const sweep   = useRef(new Animated.Value(0)).current;
+  const pulse   = useRef(new Animated.Value(0)).current;
+  const ripple1 = useRef(new Animated.Value(0)).current;
+  const ripple2 = useRef(new Animated.Value(0)).current;
 
   useEffect(() => {
-    if (!isActive) return;
-    const p = Animated.loop(Animated.sequence([
-      Animated.timing(pulse, { toValue: 1.1, duration: 1300, useNativeDriver: true }),
-      Animated.timing(pulse, { toValue: 0.85, duration: 1300, useNativeDriver: true }),
-    ]));
-    // Scanner beam: a thin wedge sweeping the radar
-    const s = Animated.loop(Animated.timing(sweep, { toValue: 1, duration: 3200, useNativeDriver: true }));
-    p.start(); s.start();
-    return () => { p.stop(); s.stop(); };
-  }, [isActive, pulse, sweep]);
+    if (!isActive) {
+      [sweep, pulse, ripple1, ripple2].forEach(a => a.stopAnimation());
+      return;
+    }
+    // Sweep beam rotation
+    const sweepAnim = Animated.loop(
+      Animated.timing(sweep, { toValue: 1, duration: 2800, easing: Easing.linear, useNativeDriver: true }),
+    );
+    // Centre glow pulse
+    const pulseAnim = Animated.loop(
+      Animated.sequence([
+        Animated.timing(pulse, { toValue: 1, duration: 1000, useNativeDriver: true }),
+        Animated.timing(pulse, { toValue: 0, duration: 1000, useNativeDriver: true }),
+      ]),
+    );
+    // Two offset ripple rings expanding from centre
+    const makeRipple = (anim: Animated.Value, delay: number) =>
+      Animated.loop(
+        Animated.sequence([
+          Animated.delay(delay),
+          Animated.timing(anim, { toValue: 1, duration: 2200, easing: Easing.out(Easing.quad), useNativeDriver: true }),
+          Animated.timing(anim, { toValue: 0, duration: 0, useNativeDriver: true }),
+        ]),
+      );
+    sweepAnim.start();
+    pulseAnim.start();
+    makeRipple(ripple1, 0).start();
+    makeRipple(ripple2, 1100).start();
+    return () => [sweepAnim, pulseAnim].forEach(a => a.stop());
+  }, [isActive]);
 
-  const sweepRotate = sweep.interpolate({ inputRange: [0, 1], outputRange: ["0deg", "360deg"] });
+  const sweepDeg = sweep.interpolate({ inputRange: [0, 1], outputRange: ["0deg", "360deg"] });
+  const centreOp = pulse.interpolate({ inputRange: [0, 1], outputRange: [0.7, 1] });
 
-  // Invited friends are excluded — only actually-joined players/bots pin.
   const pins = players.filter((p) => p._status !== "invited");
-  const RADAR = 240;         // canvas size
-  const CENTER = RADAR / 2;  // 120,120
-  // Players already in the lobby when the queue screen appeared are "already
-  // spawned" — render instantly. Only newly arriving players/bots (beyond
-  // initialCount) animate in one by one, like real players trickling in.
-  const pinDelay = (i: number) => (i < initialCount ? 0 : Math.min((i - initialCount + 1) * 280, 1600));
+  const DISC   = 260;
+  const CENTER = DISC / 2;   // 130
+
+  const pinDelay = (i: number) =>
+    i < initialCount ? 0 : Math.min((i - initialCount + 1) * 320, 2000);
 
   return (
-    <View style={{ width: RADAR, height: RADAR, alignItems: "center", justifyContent: "center", marginBottom: 10, alignSelf: "center" }}>
-      {/* Radar dish: pulsing rings + center */}
-      {([170, 132, 94] as number[]).map((size) => (
-        <Animated.View key={size} style={{
-          position: "absolute", width: size, height: size, borderRadius: size / 2,
-          borderWidth: 1, borderColor: colors.primaryLight,
-          opacity: 0.5, transform: [{ scale: pulse }],
-        }} />
-      ))}
-      {/* Scanner beam — a light wedge rotating around the center */}
-      <Animated.View
-        pointerEvents="none"
-        style={{
-          position: "absolute", width: 200, height: 200, borderRadius: 100,
+    <View style={{ alignItems: "center", marginBottom: 8 }}>
+      {/*
+        Two-layer approach:
+        1. clipDisc  — clips the sweep beam to the circle (overflow:hidden)
+        2. pinLayer  — sits on top, overflow:visible, so name tags don't get clipped
+      */}
+      <View style={{ width: DISC, height: DISC }}>
+
+        {/* ── Layer 1: disc + rings + sweep beam (clipped to circle) ── */}
+        <View style={{
+          position: "absolute", width: DISC, height: DISC, borderRadius: DISC / 2,
+          backgroundColor: "#040910",
+          borderWidth: 1.5, borderColor: colors.primaryLight + "38",
+          overflow: "hidden",
+        }}>
+          {/* Concentric rings */}
+          {[200, 150, 100, 56].map((d) => (
+            <View key={d} style={{
+              position: "absolute",
+              left: CENTER - d / 2, top: CENTER - d / 2,
+              width: d, height: d, borderRadius: d / 2,
+              borderWidth: 1, borderColor: colors.primaryLight + "1A",
+            }} />
+          ))}
+
+          {/* Sweep beam — clipped inside disc */}
+          <Animated.View
+            pointerEvents="none"
+            style={{
+              position: "absolute", width: DISC, height: DISC,
+              transform: [{ rotate: sweepDeg }],
+            }}
+          >
+            {/* Trailing glow wedge */}
+            <LinearGradient
+              colors={[colors.primaryLight + "00", colors.primaryLight + "33", colors.primaryLight + "08"]}
+              start={{ x: 0, y: 0 }} end={{ x: 1, y: 0 }}
+              style={{
+                position: "absolute",
+                left: CENTER, top: 0,
+                width: CENTER, height: DISC,
+              }}
+            />
+            {/* Sharp leading edge */}
+            <View style={{
+              position: "absolute", left: CENTER, top: 0,
+              width: 1.5, height: CENTER,
+              backgroundColor: colors.primaryLight + "CC",
+            }} />
+          </Animated.View>
+        </View>
+
+        {/* ── Layer 2: ripple rings + centre icon (not clipped) ── */}
+        <View style={{
+          position: "absolute", width: DISC, height: DISC,
           alignItems: "center", justifyContent: "center",
-          opacity: 0.5, transform: [{ rotate: sweepRotate }],
-        }}
-      >
-        <LinearGradient
-          colors={["transparent", colors.primaryLight + "55", "transparent"]}
-          start={{ x: 0, y: 0 }} end={{ x: 1, y: 0 }}
-          style={{ width: 4, height: 96, borderRadius: 2 }}
-        />
-      </Animated.View>
-      <View style={{
-        width: 56, height: 56, borderRadius: 28,
-        backgroundColor: colors.bg.elevated, borderWidth: 1.5,
-        borderColor: colors.primaryLight, alignItems: "center", justifyContent: "center",
-      }}>
-        <Ionicons name="scan" size={24} color={colors.primaryLight} />
+        }} pointerEvents="none">
+          {/* Ripple 1 */}
+          <Animated.View style={{
+            position: "absolute",
+            width: 64, height: 64, borderRadius: 32,
+            borderWidth: 1.5, borderColor: colors.primaryLight,
+            opacity: ripple1.interpolate({ inputRange: [0, 0.5, 1], outputRange: [0.7, 0.2, 0] }),
+            transform: [{ scale: ripple1.interpolate({ inputRange: [0, 1], outputRange: [1, 3.2] }) }],
+          }} />
+          {/* Ripple 2 */}
+          <Animated.View style={{
+            position: "absolute",
+            width: 64, height: 64, borderRadius: 32,
+            borderWidth: 1.5, borderColor: colors.primaryLight,
+            opacity: ripple2.interpolate({ inputRange: [0, 0.5, 1], outputRange: [0.7, 0.2, 0] }),
+            transform: [{ scale: ripple2.interpolate({ inputRange: [0, 1], outputRange: [1, 3.2] }) }],
+          }} />
+
+          {/* Centre icon */}
+          <Animated.View style={{
+            width: 52, height: 52, borderRadius: 26,
+            backgroundColor: colors.bg.elevated,
+            borderWidth: 2, borderColor: colors.primaryLight,
+            alignItems: "center", justifyContent: "center",
+            shadowColor: colors.primaryLight, shadowOpacity: 0.6, shadowRadius: 12,
+            elevation: 6,
+            opacity: centreOp,
+            transform: [{ scale: pulse.interpolate({ inputRange: [0, 1], outputRange: [0.97, 1.04] }) }],
+          }}>
+            {/* Radar cross-hair: two lines + rotating sweep line */}
+            <Animated.View style={{
+              position: "absolute", width: 26, height: 26,
+              alignItems: "center", justifyContent: "center",
+              transform: [{ rotate: sweepDeg }],
+            }}>
+              <View style={{ position: "absolute", width: 1, height: 24, backgroundColor: colors.primaryLight + "CC" }} />
+            </Animated.View>
+            <View style={{ position: "absolute", width: 24, height: 1, backgroundColor: colors.primaryLight + "55" }} />
+            <View style={{ position: "absolute", width: 1, height: 24, backgroundColor: colors.primaryLight + "55" }} />
+            <View style={{ width: 6, height: 6, borderRadius: 3, backgroundColor: colors.primaryLight }} />
+          </Animated.View>
+        </View>
+
+        {/* ── Layer 3: player pins — overflow visible so name tags show ── */}
+        <View style={{
+          position: "absolute", width: DISC, height: DISC,
+        }}>
+          {pins.slice(0, 8).map((p, i) => {
+            const id = p.id || p.userId || String(i);
+            const spot = radarSpot(id);
+            return (
+              <RadarPin
+                key={id}
+                colors={colors}
+                player={p}
+                x={CENTER + spot.x}
+                y={CENTER + spot.y}
+                delay={pinDelay(i)}
+              />
+            );
+          })}
+        </View>
       </View>
-      {/* Player/bot pins spawn at RANDOM spots with a sonar ping */}
-      {pins.slice(0, 8).map((p, i) => {
-        const spot = radarSpot(pid(p));
-        return (
-          <RadarPin
-            key={pid(p) || `pin-${i}`}
-            colors={colors}
-            player={p}
-            x={CENTER + spot.x}
-            y={CENTER + spot.y}
-            delay={pinDelay(i)}
-          />
-        );
-      })}
     </View>
   );
 }
 
-/**
- * A single pin on the radar — avatar with a name tag, springing in with a
- * stagger so players (real or bot) appear to join one by one.
- */
-function RadarPin({ colors, player, x, y, delay = 0 }: {
+function RadarPin({
+  colors, player, x, y, delay = 0,
+}: {
   colors: ColorPalette; player: any; x: number; y: number; delay?: number;
 }) {
   const scale = useRef(new Animated.Value(0)).current;
   const fade  = useRef(new Animated.Value(0)).current;
   const ping  = useRef(new Animated.Value(0)).current;
   const bob   = useRef(new Animated.Value(0)).current;
-  // Delay is fixed at mount (pins are keyed by player id, so a pin mounts once).
-  // Capturing it in a ref keeps the spawn animation from re-firing if a player
-  // leaves and shifts the array indices of the remaining pins.
   const delayRef = useRef(delay);
 
   useEffect(() => {
     const t = setTimeout(() => {
-      // Spawn: pop in with a sonar ping ring + a gentle idle bob
       Animated.parallel([
-        Animated.spring(scale, { toValue: 1, friction: 5, tension: 130, useNativeDriver: true }),
-        Animated.timing(fade, { toValue: 1, duration: 260, useNativeDriver: true }),
-        Animated.timing(ping, {
-          toValue: 1, duration: 900, easing: Easing.out(Easing.cubic), useNativeDriver: true,
-        }),
+        Animated.spring(scale, { toValue: 1, friction: 4, tension: 120, useNativeDriver: true }),
+        Animated.timing(fade,  { toValue: 1, duration: 200, useNativeDriver: true }),
+        Animated.timing(ping,  { toValue: 1, duration: 900, easing: Easing.out(Easing.cubic), useNativeDriver: true }),
       ]).start();
       Animated.loop(
         Animated.sequence([
-          Animated.timing(bob, { toValue: 1, duration: 900, useNativeDriver: true }),
-          Animated.timing(bob, { toValue: 0, duration: 900, useNativeDriver: true }),
+          Animated.timing(bob, { toValue: 1, duration: 1100, easing: Easing.inOut(Easing.sin), useNativeDriver: true }),
+          Animated.timing(bob, { toValue: 0, duration: 1100, easing: Easing.inOut(Easing.sin), useNativeDriver: true }),
         ]),
       ).start();
     }, delayRef.current);
@@ -1439,56 +1554,93 @@ function RadarPin({ colors, player, x, y, delay = 0 }: {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  const isBot  = player.isBot || String(player.id || player.userId || "").startsWith("bot_");
   const isHost = player._status === "host";
-  const name   = isHost ? "You" : (player.name || player.displayName || player.username || "?");
+  const name   = isHost
+    ? "You"
+    : (player.name || player.displayName || player.username || (isBot ? "Bot" : "?"));
   const avatar = player.avatar || player.avatarUrl;
-  const PIN = 34;
+  const PIN    = 36;
+
+  const pinColor = isBot ? colors.text.muted : colors.primaryLight;
 
   return (
     <Animated.View style={{
-      position: "absolute", left: x - PIN / 2, top: y - PIN / 2,
-      width: PIN, height: PIN,
-      alignItems: "center", justifyContent: "center",
+      position: "absolute",
+      // Centre the pin on x,y
+      left: x - PIN / 2 - 52, // 52 = half of name tag max width (104/2)
+      top:  y - PIN / 2 - 32, // 32 = name tag height + caret
+      width: PIN + 104,        // wide enough for name tag
+      alignItems: "center",
       opacity: fade,
-      transform: [{ scale }, { translateY: bob.interpolate({ inputRange: [0, 1], outputRange: [0, -3] }) }],
+      transform: [
+        { scale },
+        { translateY: bob.interpolate({ inputRange: [0, 1], outputRange: [0, -4] }) },
+      ],
     }}>
-      {/* Sonar ping ring on spawn */}
-      <Animated.View style={{
-        position: "absolute", width: PIN, height: PIN, borderRadius: PIN / 2,
-        borderWidth: 2, borderColor: colors.primaryLight,
-        opacity: ping.interpolate({ inputRange: [0, 1], outputRange: [0.9, 0] }),
-        transform: [{ scale: ping.interpolate({ inputRange: [0, 1], outputRange: [1, 2.2] }) }],
-      }} />
-      {avatar
-        ? <Image source={{ uri: avatar }} style={{ width: PIN - 4, height: PIN - 4, borderRadius: (PIN - 4) / 2, borderWidth: 2, borderColor: colors.primaryLight }} />
-        : <LinearGradient
-            colors={isHost ? ["#F59E0B", "#D97706"] : [colors.primary, colors.cyanDark]}
-            style={{ width: PIN - 4, height: PIN - 4, borderRadius: (PIN - 4) / 2, borderWidth: 2, borderColor: colors.primaryLight, alignItems: "center", justifyContent: "center" }}
-          >
-            <Text style={{ color: "#fff", fontSize: 11, fontWeight: "800" }}>
-              {(name || "?")[0].toUpperCase()}
-            </Text>
-          </LinearGradient>}
-      {/* Name tag — always fully visible, above the pin */}
+      {/* Name tag */}
       <View style={{
-        position: "absolute", bottom: PIN + 3, alignItems: "center",
+        backgroundColor: "rgba(2,6,20,0.95)",
+        borderRadius: 8, paddingHorizontal: 8, paddingVertical: 4,
+        borderWidth: 1,
+        borderColor: isBot ? colors.text.muted + "40" : colors.primaryLight + "60",
+        alignSelf: "center",
+        marginBottom: 4,
+        maxWidth: 110,
       }}>
-        <View style={{
-          backgroundColor: "rgba(3,7,30,0.92)", borderRadius: 8,
-          paddingHorizontal: 8, paddingVertical: 3,
-          borderWidth: 1, borderColor: colors.primaryLight + "66",
-          minWidth: 52, maxWidth: 104, alignItems: "center",
-        }}>
-          <Text style={{ color: "#FFF", fontSize: 10, fontWeight: "800" }} numberOfLines={1}>
-            {name}
-          </Text>
-        </View>
-        <View style={{
-          width: 0, height: 0, marginTop: -1,
-          borderLeftWidth: 5, borderRightWidth: 5, borderTopWidth: 5,
-          borderLeftColor: "transparent", borderRightColor: "transparent",
-          borderTopColor: colors.primaryLight + "66",
+        <Text style={{
+          color: isBot ? colors.text.muted : "#F8FAFC",
+          fontSize: 10, fontWeight: "800",
+          textAlign: "center",
+        }} numberOfLines={1} ellipsizeMode="tail">
+          {name}
+        </Text>
+      </View>
+
+      {/* Caret connector */}
+      <View style={{
+        width: 0, height: 0, marginBottom: 1,
+        borderLeftWidth: 4, borderRightWidth: 4, borderTopWidth: 4,
+        borderLeftColor: "transparent", borderRightColor: "transparent",
+        borderTopColor: isBot ? colors.text.muted + "40" : colors.primaryLight + "60",
+      }} />
+
+      {/* Pin disc */}
+      <View style={{ alignItems: "center", justifyContent: "center" }}>
+        {/* Sonar ping */}
+        <Animated.View style={{
+          position: "absolute",
+          width: PIN, height: PIN, borderRadius: PIN / 2,
+          borderWidth: 2, borderColor: pinColor,
+          opacity: ping.interpolate({ inputRange: [0, 1], outputRange: [0.85, 0] }),
+          transform: [{ scale: ping.interpolate({ inputRange: [0, 1], outputRange: [1, 2.6] }) }],
         }} />
+
+        {avatar ? (
+          <Image source={{ uri: avatar }} style={{
+            width: PIN, height: PIN, borderRadius: PIN / 2,
+            borderWidth: 2.5, borderColor: pinColor,
+          }} />
+        ) : (
+          <LinearGradient
+            colors={
+              isBot
+                ? [colors.bg.elevated, colors.bg.surface]
+                : isHost
+                  ? ["#F59E0B", "#D97706"]
+                  : [colors.primary, colors.cyanDark]
+            }
+            style={{
+              width: PIN, height: PIN, borderRadius: PIN / 2,
+              borderWidth: 2.5, borderColor: pinColor,
+              alignItems: "center", justifyContent: "center",
+            }}
+          >
+            <Text style={{ color: isBot ? colors.text.muted : "#fff", fontSize: 14, fontWeight: "900" }}>
+              {isBot ? "🤖" : (name[0] || "?").toUpperCase()}
+            </Text>
+          </LinearGradient>
+        )}
       </View>
     </Animated.View>
   );

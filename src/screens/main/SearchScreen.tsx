@@ -80,6 +80,9 @@ export default function SearchScreen({ navigation, route }: Props) {
   const [activeTab, setActiveTab] = useState<SearchType>(initialTab);
   const [rows, setRows] = useState<Row[]>([]);
   const [loading, setLoading] = useState(false);
+  // Track whether we've loaded discovery content at least once — prevents the
+  // empty-state flash on the "all" tab when discovery data is already available.
+  const [discoveryLoaded, setDiscoveryLoaded] = useState(false);
 
   const { mutate: toggleLike } = useToggleLike();
   const { mutate: toggleSave } = useToggleSave();
@@ -110,9 +113,10 @@ export default function SearchScreen({ navigation, route }: Props) {
     setLoading(true);
     try {
       if (tab === "all") {
-        // Single combined request — the backend runs all searches in parallel.
         const res = await searchService.searchAll(q, 6);
-        setRows(buildAllRows(res, !q.trim()));
+        const built = buildAllRows(res, !q.trim());
+        setRows(built);
+        if (!q.trim() && built.length > 0) setDiscoveryLoaded(true);
       } else if (tab === "hashtags") {
         const hashtags = await searchService.getHashtags(q);
         setRows(
@@ -352,6 +356,11 @@ export default function SearchScreen({ navigation, route }: Props) {
   const isEmptyQuery = !query.trim();
   const hasResults = rows.length > 0;
 
+  // Show a discovery hint only on the "all" tab with no search query.
+  // Don't show the generic "type something" empty state when we already know
+  // discovery content was loaded — it briefly flashes before rows populate.
+  const showSearchPrompt = isEmptyQuery && !hasResults && !loading && !discoveryLoaded && activeTab === "all";
+
   return (
     <View style={[styles.container, { paddingTop: insets.top }]}>
       <StatusBar style={isDark ? "light" : "dark"} />
@@ -427,20 +436,20 @@ export default function SearchScreen({ navigation, route }: Props) {
             ) : null
           }
         />
-      ) : isEmptyQuery ? (
+      ) : showSearchPrompt ? (
         <View style={styles.centerBox}>
           <Ionicons name="search-outline" size={64} color={colors.border} />
           <Text style={styles.emptyText}>
             Type something to start searching, or explore the tabs above.
           </Text>
         </View>
-      ) : (
+      ) : !isEmptyQuery ? (
         <View style={styles.centerBox}>
           <Text style={styles.emptyText}>
             No results found for "{query}" in {activeTab}
           </Text>
         </View>
-      )}
+      ) : null}
     </View>
   );
 }

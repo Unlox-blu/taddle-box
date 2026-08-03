@@ -364,6 +364,8 @@ const setupGameSocket = (io) => {
             s.emit(EVENTS.START, { state: playerState, startedAt: snap.startedAt });
           }
 
+          console.info(`[GameEngine] Match ${matchId} started — isBotMatch=${isBotMatch}`);
+
           // For bot match: initialize bot and start
           botHandler.handleMatchStart(matchId, gameSlug, snap);
           

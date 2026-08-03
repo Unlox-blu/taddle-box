@@ -15,7 +15,9 @@ module.exports = {
                 input: process.stdout,
                 terminal: false
             });
-            
+
+            let uciOk = false;
+
             const engine = {
                 process,
                 sendCommand: (cmd) => {
@@ -30,9 +32,20 @@ module.exports = {
             rl.on('line', (line) => {
                 const msg = line.trim();
                 
-                // You can uncomment this if you want to see engine thinking logs:
-                // console.log(`[ChessBot ${session.botId}] ${msg}`);
-                
+                if (msg === 'uciok' && !uciOk) {
+                    uciOk = true;
+                    // Configure difficulty, then send isready — engine will
+                    // finish loading NNUE networks and reply with readyok.
+                    const { chessSkill } = session.difficulty;
+                    engine.sendCommand(`setoption name Skill Level value ${chessSkill}`);
+                    engine.sendCommand('isready');
+                }
+
+                if (msg === 'readyok') {
+                    // Engine is fully initialised — safe to send 'go' now.
+                    resolve(engine);
+                }
+
                 if (msg.startsWith('bestmove')) {
                     const parts = msg.split(' ');
                     const moveString = parts[1]; // e.g. "e2e4" or "e7e8q"
@@ -62,12 +75,6 @@ module.exports = {
 
             session.engine = engine;
             engine.sendCommand('uci');
-            
-            // Configure difficulty
-            const { chessSkill } = session.difficulty;
-            engine.sendCommand(`setoption name Skill Level value ${chessSkill}`);
-            
-            resolve(engine);
         });
     },
 

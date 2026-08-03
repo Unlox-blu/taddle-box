@@ -51,7 +51,7 @@ import type { Game } from "../../types";
 import type { HtmlGameResult } from "../../games/types";
 import MatchModeModal from "../../components/games/MatchModeModal";
 import GameResultOverlay from "../../components/games/GameResultOverlay";
-import { socketClient } from "../../services/socketClient";
+import { socketClient, createGameEngineSocket } from "../../services/socketClient";
 import type { User } from "../../types";
 import { useAuth } from "../../context/AuthContext";
 import TournamentLeaderboardModal from "../../components/games/TournamentLeaderboardModal";
@@ -373,18 +373,30 @@ export default function GamesScreen() {
             Compete, climb rankings, and earn XP.
           </Text>
         </View>
-        <TouchableOpacity
-          style={styles.iconButton}
-          onPress={() =>
-            navigation.navigate("Leaderboards", { initialTab: "Games" })
-          }
-        >
-          <Ionicons
-            name="trophy-outline"
-            size={20}
-            color={colors.text.secondary}
-          />
-        </TouchableOpacity>
+        <View style={styles.headerActions}>
+          <TouchableOpacity
+            style={styles.iconButton}
+            onPress={() => navigation.navigate("Settings")}
+          >
+            <Ionicons
+              name="settings-outline"
+              size={20}
+              color={colors.text.secondary}
+            />
+          </TouchableOpacity>
+          <TouchableOpacity
+            style={styles.iconButton}
+            onPress={() =>
+              navigation.navigate("Leaderboards", { initialTab: "Games" })
+            }
+          >
+            <Ionicons
+              name="trophy-outline"
+              size={20}
+              color={colors.text.secondary}
+            />
+          </TouchableOpacity>
+        </View>
       </View>
 
       <View style={styles.tabRow}>
@@ -1283,6 +1295,7 @@ function makeStyles(c: ColorPalette) {
       borderWidth: 1,
       borderColor: c.border,
     },
+    headerActions: { flexDirection: "row", alignItems: "center", gap: spacing.sm },
     statsRow: {
       flexDirection: "row",
       paddingHorizontal: spacing.lg,

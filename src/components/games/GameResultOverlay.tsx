@@ -38,7 +38,7 @@ const CONFETTI_COLORS = [
 ];
 
 export type GameResultOverlayProps = {
-  result: "win" | "loss" | "pending";
+  result: "win" | "loss" | "draw" | "pending";
   score: number;
   xpEarned: number;
   accuracy?: number;
@@ -67,6 +67,7 @@ export default function GameResultOverlay({
 }: GameResultOverlayProps) {
   const colors = useThemeColors();
   const win = result === "win";
+  const draw = result === "draw";
   const pending = result === "pending";
 
   // Panel entrance
@@ -94,16 +95,20 @@ export default function GameResultOverlay({
 
   const title = win
     ? "VICTORY"
-    : pending
-      ? "Waiting for Opponent"
-      : "DEFEAT";
+    : draw
+      ? "DRAW"
+      : pending
+        ? "Waiting for Opponent"
+        : "DEFEAT";
   const subtitle = pending
     ? isPractice
       ? "Your score is saved. Practice matches award no XP."
       : "Your score is saved. XP will be awarded when your opponent finishes."
     : win
       ? `You beat ${opponentName || "your opponent"} in ${gameName}`
-      : `${opponentName || "Your opponent"} takes this one in ${gameName}`;
+      : draw
+        ? `You tied with ${opponentName || "your opponent"} in ${gameName}`
+        : `${opponentName || "Your opponent"} takes this one in ${gameName}`;
 
   return (
     <View style={styles.root}>
@@ -112,7 +117,7 @@ export default function GameResultOverlay({
         colors={
           win
             ? ["rgba(251,191,36,0.16)", "rgba(124,58,237,0.10)", "transparent"]
-            : ["rgba(148,163,184,0.10)", "transparent"]
+            : ["rgba(96,165,250,0.10)", "transparent"]
         }
         style={StyleSheet.absoluteFill}
         pointerEvents="none"
@@ -140,9 +145,14 @@ export default function GameResultOverlay({
           <Text style={styles.modePillText}>{modeLabel}</Text>
         </View>
 
-        {pending ? <WaitingEmblem /> : <VictoryEmblem win={win} />}
+        {pending ? <WaitingEmblem /> : <VictoryEmblem win={win} draw={draw} />}
 
-        <Text style={[styles.title, { color: win ? "#FBBF24" : "#F87171" }]}>
+        <Text
+          style={[
+            styles.title,
+            { color: win ? "#FBBF24" : draw ? "#60A5FA" : "#F87171" },
+          ]}
+        >
           {title}
         </Text>
         <Text style={styles.subtitle}>{subtitle}</Text>
@@ -181,6 +191,8 @@ export default function GameResultOverlay({
                 Practice match — entry fee deducted, no XP rewards
               </Text>
             </View>
+          ) : draw ? (
+            <XpCounter xp={xpEarned} showZero={false} />
           ) : (
             <XpCounter xp={xpEarned} showZero={!win} />
           ))}
@@ -216,7 +228,7 @@ export default function GameResultOverlay({
 
 // ─── Victory / defeat emblem ─────────────────────────────────────────────────
 
-function VictoryEmblem({ win }: { win: boolean }) {
+function VictoryEmblem({ win, draw }: { win: boolean; draw?: boolean }) {
   const pop = useRef(new Animated.Value(0)).current;
   const pulse = useRef(new Animated.Value(0)).current;
   const rays = useRef(new Animated.Value(0)).current;
@@ -255,7 +267,7 @@ function VictoryEmblem({ win }: { win: boolean }) {
     );
     pulseLoop.start();
     raysLoop.start();
-    if (!win) {
+    if (!win && !draw) {
       Animated.sequence([
         Animated.timing(wobble, { toValue: 1, duration: 90, useNativeDriver: true }),
         Animated.timing(wobble, { toValue: -1, duration: 90, useNativeDriver: true }),
@@ -270,7 +282,7 @@ function VictoryEmblem({ win }: { win: boolean }) {
       rays.stopAnimation();
       wobble.stopAnimation();
     };
-  }, [win, pop, pulse, rays, wobble]);
+  }, [win, draw, pop, pulse, rays, wobble]);
 
   const RAY_COUNT = 12;
   const emblem = useMemo(
@@ -338,6 +350,7 @@ function VictoryEmblem({ win }: { win: boolean }) {
         style={[
           styles.emblemBadge,
           win && styles.emblemBadgeWin,
+          draw && styles.emblemBadgeDraw,
           {
             transform: [
               { scale: pop },
@@ -347,9 +360,9 @@ function VictoryEmblem({ win }: { win: boolean }) {
         ]}
       >
         <Ionicons
-          name={win ? "trophy" : "shield-half"}
+          name={win ? "trophy" : draw ? "hand-left-outline" : "shield-half"}
           size={54}
-          color={win ? "#FBBF24" : "#94A3B8"}
+          color={win ? "#FBBF24" : draw ? "#60A5FA" : "#94A3B8"}
         />
       </Animated.View>
     </View>
@@ -814,6 +827,10 @@ const styles = StyleSheet.create({
   emblemBadgeWin: {
     backgroundColor: "rgba(251,191,36,0.12)",
     borderColor: "rgba(251,191,36,0.45)",
+  },
+  emblemBadgeDraw: {
+    backgroundColor: "rgba(96,165,250,0.12)",
+    borderColor: "rgba(96,165,250,0.45)",
   },
   emblemBadgeWait: {
     backgroundColor: "#1E293B",

@@ -5,29 +5,24 @@ import { useNavigation, useRoute } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { fontSizes, spacing, radii } from '../../theme';
 import { useThemeColors } from '../../context/ThemeContext';
-import { notificationService } from '../../services/notification.service';
+import { useNotifications } from '../../context/NotificationContext';
 import SideDrawer from '../home/SideDrawer';
 
 export default function MainHeader() {
   const colors = useThemeColors();
   const navigation = useNavigation<NativeStackNavigationProp<any>>();
   const route = useRoute();
-  const [unreadCount, setUnreadCount] = useState(0);
   const [isDrawerOpen, setDrawerOpen] = useState(false);
 
+  // Live unread badge — updated in real-time by the socket, synced to backend
+  // on mount and whenever the app regains focus.
+  const { unreadCount, refreshUnread } = useNotifications();
+
   useEffect(() => {
-    const fetchUnread = async () => {
-      try {
-        const notifRes = await notificationService.getNotifications(1, 1, true);
-        if (notifRes?.meta?.unreadCount !== undefined) {
-          setUnreadCount(notifRes.meta.unreadCount);
-        }
-      } catch (e) {
-        // ignore
-      }
-    };
-    fetchUnread();
-  }, []);
+    refreshUnread();
+    const sub = navigation.addListener('focus', refreshUnread);
+    return sub;
+  }, [navigation, refreshUnread]);
 
   return (
     <View style={[styles.header, { borderBottomColor: colors.border }]}>

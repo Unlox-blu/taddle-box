@@ -21,14 +21,19 @@ export type StartPlayer = {
   name: string;
   avatar?: string | null;
   isBot?: boolean;
+  team?: number;
+  seat?: number;
+  isMe?: boolean;
 };
 
 type Props = {
   game: Game;
   myName: string;
   myAvatar?: string | null;
+  myTeam?: number;
   opponents: StartPlayer[];
   modeLabel?: string;
+  teamsLocked?: boolean;
   onDone: () => void;
 };
 
@@ -83,8 +88,114 @@ function AvatarCircle({
       }}
     >
       <Text style={{ color: "#fff", fontSize: size * 0.42, fontWeight: "900" }}>
-        {player.isBot ? "🤖" : (player.name || "?")[0].toUpperCase()}
+        {(player.name || "?")[0].toUpperCase()}
       </Text>
+    </View>
+  );
+}
+
+// ─── Matchup board ────────────────────────────────────────────────────────────
+// Replaces the old "me vs opponent +N MORE" row. Renders a clean, mode-aware
+// lineup:
+//   • 1v1            → classic YOU vs OPPONENT cards
+//   • Multiplayer FFA → a wrap grid of every player, YOU highlighted
+//   • Team PvP        → two team panels (TEAM 1 vs TEAM 2) with members
+
+function MatchupBoard({
+  me,
+  opponents,
+  teamsLocked,
+  gradient,
+}: {
+  me: StartPlayer;
+  opponents: StartPlayer[];
+  teamsLocked?: boolean;
+  gradient: [string, string];
+}) {
+  const all = [me, ...opponents];
+  const total = all.length;
+  // Team PvP needs the lobby to have locked teams and a 4+ player match. The
+  // current user's own team may be absent on legacy flows, so fall back to seat
+  // parity rather than gating the whole board on it.
+  const hasTeamData = teamsLocked && total >= 4 && all.some((p) => typeof p.team === "number");
+  const teamOf = (p: StartPlayer, i: number) =>
+    typeof p.team === "number" ? p.team : i % 2;
+
+  // ── Team PvP: two team panels (fall back to the FFA grid if either side
+  // ends up empty, e.g. legacy data puts everyone on one team) ──
+  if (hasTeamData) {
+    const teamA = all.filter((p, i) => teamOf(p, i) === 0);
+    const teamB = all.filter((p, i) => teamOf(p, i) === 1);
+    if (teamA.length > 0 && teamB.length > 0) {
+      return (
+        <View style={styles.teamRow}>
+          <TeamPanel label="TEAM 1" members={teamA} accent={gradient[0]} />
+          <View style={styles.vsBadge}>
+            <Text style={styles.vsText}>VS</Text>
+          </View>
+          <TeamPanel label="TEAM 2" members={teamB} accent={gradient[1]} />
+        </View>
+      );
+    }
+  }
+
+  // ── 1v1 (or solo with a graceful fallback opponent): classic VS cards ──
+  if (total <= 2) {
+    const opp = opponents[0] || { name: "Opponent" };
+    return (
+      <View style={styles.vsRow}>
+        <View style={styles.playerCard}>
+          <AvatarCircle player={me} size={58} isMe />
+          <Text style={styles.playerName} numberOfLines={1}>{me.name}</Text>
+          <Text style={styles.playerTag}>YOU</Text>
+        </View>
+        <View style={styles.vsBadge}>
+          <Text style={styles.vsText}>VS</Text>
+        </View>
+        <View style={styles.playerCard}>
+          <AvatarCircle player={opp} size={58} />
+          <Text style={styles.playerName} numberOfLines={1}>{opp.name}</Text>
+          <Text style={styles.playerTag}>OPPONENT</Text>
+        </View>
+      </View>
+    );
+  }
+
+  // ── Multiplayer FFA: wrap grid of everyone ──
+  return (
+    <View style={styles.ffaWrap}>
+      <Text style={styles.ffaTitle}>{total} PLAYERS</Text>
+      <View style={styles.ffaGrid}>
+        {all.map((p, i) => (
+          <View key={p.id || `${p.name}-${i}`} style={[styles.ffaCard, p.isMe && styles.ffaCardMe]}>
+            <AvatarCircle player={p} size={44} isMe={p.isMe} />
+            <Text style={styles.ffaName} numberOfLines={1}>{p.name}</Text>
+            <Text style={[styles.ffaTag, p.isMe && styles.ffaTagMe]}>
+              {p.isMe ? "YOU" : `PLAYER ${i}`}
+            </Text>
+          </View>
+        ))}
+      </View>
+    </View>
+  );
+}
+
+function TeamPanel({ label, members, accent }: {
+  label: string;
+  members: StartPlayer[];
+  accent: string;
+}) {
+  return (
+    <View style={styles.teamPanel}>
+      <Text style={[styles.teamLabel, { color: accent }]}>{label}</Text>
+      <View style={styles.teamMembers}>
+        {members.map((p) => (
+          <View key={p.id || p.name} style={styles.teamMember}>
+            <AvatarCircle player={p} size={40} isMe={p.isMe} />
+            <Text style={styles.teamMemberName} numberOfLines={1}>{p.name}</Text>
+          </View>
+        ))}
+      </View>
     </View>
   );
 }
@@ -93,8 +204,10 @@ export default function GameStartScreen({
   game,
   myName,
   myAvatar,
+  myTeam,
   opponents,
   modeLabel,
+  teamsLocked,
   onDone,
 }: Props) {
   const insets = useSafeAreaInsets();
@@ -132,15 +245,13 @@ export default function GameStartScreen({
       ? (game.gradient as [string, string])
       : (["#7C3AED", "#0891B2"] as [string, string]);
 
-  const primaryOpp: StartPlayer = useMemo(
-    () =>
-      opponents?.[0] || {
-        name: game.metadata?.botName || "Opponent",
-        isBot: true,
-      },
-    [opponents, game.metadata],
+  const allPlayers: StartPlayer[] = useMemo(
+    () => [
+      { name: myName, avatar: myAvatar, isMe: true, team: myTeam },
+      ...(opponents || []),
+    ],
+    [myName, myAvatar, myTeam, opponents],
   );
-  const extraCount = Math.max(0, (opponents?.length || 0) - 1);
 
   // Countdown ticking
   useEffect(() => {
@@ -316,30 +427,13 @@ export default function GameStartScreen({
         </Animated.View>
       </View>
 
-      {/* VS player cards */}
-      <View style={styles.vsRow}>
-        <View style={styles.playerCard}>
-          <AvatarCircle player={{ name: myName, avatar: myAvatar }} size={58} isMe />
-          <Text style={styles.playerName} numberOfLines={1}>
-            {myName}
-          </Text>
-          <Text style={styles.playerTag}>YOU</Text>
-        </View>
-
-        <View style={styles.vsBadge}>
-          <Text style={styles.vsText}>VS</Text>
-        </View>
-
-        <View style={styles.playerCard}>
-          <AvatarCircle player={primaryOpp} size={58} />
-          <Text style={styles.playerName} numberOfLines={1}>
-            {primaryOpp.name}
-          </Text>
-          <Text style={styles.playerTag}>
-            {extraCount > 0 ? `+${extraCount} MORE` : primaryOpp.isBot ? "BOT" : "OPPONENT"}
-          </Text>
-        </View>
-      </View>
+      {/* Matchup board — adapts to 1v1, multiplayer FFA, and team PvP */}
+      <MatchupBoard
+        me={allPlayers[0]}
+        opponents={allPlayers.slice(1)}
+        teamsLocked={teamsLocked}
+        gradient={gradient}
+      />
     </View>
   );
 }
@@ -430,6 +524,96 @@ const styles = StyleSheet.create({
     alignItems: "center",
     gap: 14,
     width: "100%",
+  },
+  // ── Multiplayer FFA board ──
+  ffaWrap: {
+    width: "100%",
+    alignItems: "center",
+  },
+  ffaTitle: {
+    color: "#C4B5FD",
+    fontSize: 11,
+    fontWeight: "900",
+    letterSpacing: 3,
+    marginBottom: 12,
+  },
+  ffaGrid: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    justifyContent: "center",
+    gap: 10,
+    width: "100%",
+  },
+  ffaCard: {
+    alignItems: "center",
+    width: 96,
+    paddingVertical: 12,
+    paddingHorizontal: 6,
+    borderRadius: 18,
+    backgroundColor: "rgba(15,23,42,0.72)",
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.1)",
+  },
+  ffaCardMe: {
+    borderColor: "#22D3EE",
+    backgroundColor: "rgba(34,211,238,0.08)",
+  },
+  ffaName: {
+    marginTop: 8,
+    color: "#F8FAFC",
+    fontSize: 12,
+    fontWeight: "800",
+    maxWidth: "100%",
+  },
+  ffaTag: {
+    marginTop: 3,
+    color: "#64748B",
+    fontSize: 9,
+    fontWeight: "900",
+    letterSpacing: 1.5,
+  },
+  ffaTagMe: {
+    color: "#22D3EE",
+  },
+  // ── Team PvP board ──
+  teamRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+    width: "100%",
+  },
+  teamPanel: {
+    flex: 1,
+    alignItems: "center",
+    paddingVertical: 14,
+    borderRadius: 20,
+    backgroundColor: "rgba(15,23,42,0.72)",
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.1)",
+  },
+  teamLabel: {
+    fontSize: 11,
+    fontWeight: "900",
+    letterSpacing: 2,
+    marginBottom: 10,
+  },
+  teamMembers: {
+    flexDirection: "row",
+    gap: 10,
+    alignItems: "flex-start",
+    justifyContent: "center",
+    flexWrap: "wrap",
+  },
+  teamMember: {
+    alignItems: "center",
+    width: 64,
+  },
+  teamMemberName: {
+    marginTop: 6,
+    color: "#F8FAFC",
+    fontSize: 10,
+    fontWeight: "700",
+    maxWidth: "100%",
   },
   playerCard: {
     flex: 1,

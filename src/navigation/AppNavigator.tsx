@@ -1,5 +1,5 @@
 import React from 'react';
-import { NavigationContainer, DefaultTheme, DarkTheme } from '@react-navigation/native';
+import { createNavigationContainerRef, NavigationContainer, DefaultTheme, DarkTheme } from '@react-navigation/native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import type { RootStackParamList } from '../types';
 import { useTheme } from '../context/ThemeContext';
@@ -10,6 +10,10 @@ import MainNavigator from './MainNavigator';
 import ForceUpdateScreen from '../screens/main/ForceUpdateScreen';
 
 const Stack = createNativeStackNavigator<RootStackParamList>();
+
+// App-wide navigation ref so non-component code (notification banners, deep
+// links, push response handlers) can navigate without being inside the tree.
+export const navigationRef = createNavigationContainerRef<RootStackParamList>();
 
 export default function AppNavigator() {
   const { isLoggedIn, needsForceUpdate } = useAuth();
@@ -30,7 +34,7 @@ export default function AppNavigator() {
   };
 
   return (
-    <NavigationContainer theme={navTheme}>
+    <NavigationContainer ref={navigationRef} theme={navTheme}>
       <Stack.Navigator screenOptions={{ headerShown: false, animation: 'fade' }}>
         {needsForceUpdate ? (
           <Stack.Screen name="ForceUpdate" component={ForceUpdateScreen} />

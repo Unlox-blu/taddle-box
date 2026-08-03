@@ -34,7 +34,22 @@
       "expo-font",
       "@react-native-community/datetimepicker",
       "expo-local-authentication",
-      "expo-audio"
-    ]
+      "expo-audio",
+      [
+        "expo-notifications",
+        {
+          "color": "#7C3AED",
+          "defaultChannel": "default",
+          "sounds": []
+        }
+      ]
+    ],
+    "android": {
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/adaptive-icon.png",
+        "backgroundColor": "#070714"
+      },
+      "package": "com.taddlebox.app"
+    }
   }
 }

@@ -8,9 +8,13 @@ import React, {
 import {
   ActivityIndicator,
   Alert,
+  Animated,
+  Easing,
+  Image,
   Modal,
   ScrollView,
   StyleSheet,
+  Switch,
   Text,
   TouchableOpacity,
   View,
@@ -51,11 +55,11 @@ import type { Game } from "../../types";
 import type { HtmlGameResult } from "../../games/types";
 import MatchModeModal from "../../components/games/MatchModeModal";
 import GameResultOverlay from "../../components/games/GameResultOverlay";
-import { socketClient, createGameEngineSocket } from "../../services/socketClient";
+import { socketClient } from "../../services/socketClient";
 import type { User } from "../../types";
 import { useAuth } from "../../context/AuthContext";
 import TournamentLeaderboardModal from "../../components/games/TournamentLeaderboardModal";
-import { gameSound } from "../../services/gameSound";
+import { gameSound, useGameSoundPrefs } from "../../services/gameSound";
 
 type ActiveTab = "games" | "tournaments" | "history";
 type ScreenModal = "none" | "history";
@@ -76,6 +80,12 @@ type ActiveSession = {
   wsToken?: string;
   players?: PlayerContext[];
   tournamentId?: string;
+  /** True when the lobby locked teams (team PvP), from match metadata. */
+  teamsLocked?: boolean;
+  /** The current user's assigned team, from match metadata snapshots. */
+  myTeam?: number;
+  /** Set when the session was re-opened from a reconnect — skip the countdown. */
+  isRejoin?: boolean;
 };
 
 const formatTimeLeft = (endsAt: string) => {
@@ -101,10 +111,11 @@ export default function GamesScreen() {
     fetchGamesData,
   } = useGames();
 
-  // Merge backend games with local assets
+  // Merge backend games with local assets, then order the display list so
+  // trending games (top 3) appear FIRST, followed by the rest.
   const realGames: Game[] = useMemo(() => {
     if (!backendGames || backendGames.length === 0) return [];
-    return backendGames.map((bg) => {
+    const merged = backendGames.map((bg) => {
       const assets = GAME_ASSETS[bg.slug] || GAME_ASSETS["tap-rush"];
       return {
         ...bg,
@@ -118,7 +129,19 @@ export default function GamesScreen() {
           bg.metadata?.averageDurationLabel || assets.averageDurationLabel,
       };
     });
-  }, [backendGames]);
+
+    const trendingSet = new Set<string>(backendTrending || []);
+    const trending: Game[] = [];
+    const rest: Game[] = [];
+    for (const g of merged) {
+      if (trendingSet.has(g.id) || trendingSet.has(g.slug || "")) {
+        trending.push(g);
+      } else {
+        rest.push(g);
+      }
+    }
+    return [...trending, ...rest];
+  }, [backendGames, backendTrending]);
 
   const findLocalGame = useCallback(
     (gameId: string) =>
@@ -153,6 +176,9 @@ export default function GamesScreen() {
   const [rematchAutoQueue, setRematchAutoQueue] = useState(false);
   // Which queue the rematch should land in (practice matches re-queue practice).
   const [rematchInitialMode, setRematchInitialMode] = useState<"AUTO" | "PRACTICE">("AUTO");
+  // Game-specific settings (sound + haptics) — a dedicated modal like Wallet's,
+  // NOT the global Settings screen.
+  const [gameSettingsVisible, setGameSettingsVisible] = useState(false);
 
   const loadGamesData = useCallback(async () => {
     setLoading(true);
@@ -280,18 +306,25 @@ export default function GamesScreen() {
         .then((res) => {
           // Build opponent list from whatever the server returned
           const players: PlayerContext[] = [];
+          // Capture the current user's own team + the lobby's teamsLocked flag
+          // from the match snapshots, so the countdown can show team PvP cleanly.
+          let myTeam: number | undefined;
 
           // From matchMetadata.playerSnapshots (new lobby flow)
           const snapshots: any[] = (response as any).matchMetadata?.playerSnapshots || [];
           snapshots.forEach((p: any) => {
-            if (p.id !== user?.id) {
-              players.push({
-                id: p.id,
-                name: p.displayName || p.username || "Opponent",
-                username: p.username,
-                avatar: p.avatar,
-              });
+            if (p.id === user?.id) {
+              myTeam = p.team;
+              return;
             }
+            players.push({
+              id: p.id,
+              name: p.displayName || p.username || "Opponent",
+              username: p.username,
+              avatar: p.avatar,
+              team: p.team,
+              seat: p.seat,
+            });
           });
 
           // Fallback: legacy opponent field
@@ -330,6 +363,8 @@ export default function GamesScreen() {
             wsToken: res.data?.wsToken || res.data?.ticket?.token,
             players: players.length > 0 ? players : undefined,
             tournamentId: request.tournamentId,
+            teamsLocked: !!(response as any).matchMetadata?.teamsLocked,
+            myTeam,
           });
         })
         .catch((err: any) => {
@@ -376,7 +411,7 @@ export default function GamesScreen() {
         <View style={styles.headerActions}>
           <TouchableOpacity
             style={styles.iconButton}
-            onPress={() => navigation.navigate("Settings")}
+            onPress={() => setGameSettingsVisible(true)}
           >
             <Ionicons
               name="settings-outline"
@@ -496,7 +531,7 @@ export default function GamesScreen() {
                   rejoinWindowMs={rejoinWindowMs}
                   onPlayClick={() => {
                     if (isRejoin) {
-                      setActiveSession(reconnectSession);
+                      setActiveSession({ ...reconnectSession, isRejoin: true });
                       setReconnectSession(null); // Clear from banner so it opens fresh
                       return;
                     }
@@ -613,6 +648,11 @@ export default function GamesScreen() {
           setLeaderboardModalVisible(false);
           setSelectedTournament(null);
         }}
+      />
+
+      <GameSettingsModal
+        visible={gameSettingsVisible}
+        onClose={() => setGameSettingsVisible(false)}
       />
     </View>
   );
@@ -845,6 +885,148 @@ function InfoPill({ label, value }: { label: string; value: string }) {
   );
 }
 
+/**
+ * WaitingForPlayers — full-screen pre-match lobby shown inside GamePlayModal.
+ *
+ * The engine STARTs only once every real player has connected + readied, so
+ * this screen holds the "waiting for players" state BEFORE the 3-2-1 countdown
+ * (the reverse of the old order where the countdown played first). It lists
+ * the joined roster with a pulsing indicator; invited players appear here as
+ * they accept (first come, first served — they never occupy a reserved slot).
+ */
+function WaitingForPlayers({
+  game,
+  modeLabel,
+  players,
+  myName,
+  myAvatar,
+  onExit,
+}: {
+  game: Game;
+  modeLabel: string;
+  players: PlayerContext[];
+  myName: string;
+  myAvatar?: string | null;
+  onExit: () => void;
+}) {
+  const colors = useThemeColors();
+  const styles = useMemo(() => makeStyles(colors), [colors]);
+  const pulse = useRef(new Animated.Value(0)).current;
+
+  useEffect(() => {
+    const loop = Animated.loop(
+      Animated.sequence([
+        Animated.timing(pulse, {
+          toValue: 1,
+          duration: 900,
+          easing: Easing.inOut(Easing.ease),
+          useNativeDriver: true,
+        }),
+        Animated.timing(pulse, {
+          toValue: 0,
+          duration: 900,
+          easing: Easing.inOut(Easing.ease),
+          useNativeDriver: true,
+        }),
+      ]),
+    );
+    loop.start();
+    return () => {
+      loop.stop();
+      pulse.stopAnimation();
+    };
+  }, [pulse]);
+
+  const roster: Array<{
+    id: string;
+    name: string;
+    avatar?: string | null;
+    isMe: boolean;
+    isBot: boolean;
+  }> = [
+    { id: "me", name: myName, avatar: myAvatar, isMe: true, isBot: false },
+    ...(players || []).map((p) => ({
+      id: p.id,
+      name: p.name,
+      avatar: p.avatar,
+      isMe: false,
+      isBot: p.id?.startsWith("bot_") || false,
+    })),
+  ];
+
+  return (
+    <View style={[StyleSheet.absoluteFill, styles.waitingWrap]}>
+      <GameLogo game={game} size={72} radius={20} />
+
+      <View style={styles.waitingModePill}>
+        <Ionicons name="people" size={12} color={colors.primaryLight} />
+        <Text style={styles.waitingModeText}>{modeLabel}</Text>
+      </View>
+
+      <Text style={styles.waitingTitle}>Waiting for players</Text>
+      <Text style={styles.waitingSub}>
+        The match starts the moment every player connects. Invited friends join
+        on a first-come, first-served basis.
+      </Text>
+
+      <View style={styles.waitingRoster}>
+        {roster.map((p) => (
+          <View key={p.id} style={styles.waitingPlayer}>
+            {p.avatar ? (
+              <Image source={{ uri: p.avatar }} style={styles.waitingAvatar} />
+            ) : (
+              <View
+                style={[
+                  styles.waitingAvatar,
+                  { backgroundColor: p.isMe ? "rgba(34,211,238,0.2)" : "rgba(255,255,255,0.08)" },
+                ]}
+              >
+                <Text style={styles.waitingAvatarText}>
+                  {(p.name || "?")[0].toUpperCase()}
+                </Text>
+              </View>
+            )}
+            <Text style={styles.waitingName} numberOfLines={1}>
+              {p.name}
+            </Text>
+            <Text style={styles.waitingTag}>
+              {p.isMe ? "YOU" : "READY"}
+            </Text>
+          </View>
+        ))}
+      </View>
+
+      <Animated.View
+        style={[
+          styles.waitingDots,
+          {
+            opacity: pulse.interpolate({
+              inputRange: [0, 1],
+              outputRange: [0.35, 1],
+            }),
+            transform: [
+              {
+                scale: pulse.interpolate({
+                  inputRange: [0, 1],
+                  outputRange: [0.95, 1.06],
+                }),
+              },
+            ],
+          },
+        ]}
+      >
+        <ActivityIndicator size="small" color={colors.primaryLight} />
+        <Text style={styles.waitingHint}>Waiting for other players…</Text>
+      </Animated.View>
+
+      <TouchableOpacity style={styles.waitingExit} onPress={onExit}>
+        <Ionicons name="close" size={14} color={colors.text.secondary} />
+        <Text style={styles.waitingExitText}>EXIT LOBBY</Text>
+      </TouchableOpacity>
+    </View>
+  );
+}
+
 function GamePlayModal({
   session,
   onClose,
@@ -859,11 +1041,18 @@ function GamePlayModal({
   const styles = useMemo(() => makeStyles(colors), [colors]);
   const { addMatch } = useGames();
   const { user } = useAuth();
-  const [phase, setPhase] = useState<"countdown" | "playing" | "result">(
-    "countdown",
+  // Wait for players only when the native game can actually connect (it needs
+  // a wsToken to open the engine socket that sends READY — without one the
+  // engine would never START and the waiting screen would deadlock).
+  const canEngineConnect =
+    (session.game as any)?.metadata?.runtime === "native" && !!session.wsToken;
+  const [phase, setPhase] = useState<
+    "waiting" | "countdown" | "playing" | "result"
+  >(
+    session.isRejoin ? "playing" : canEngineConnect ? "waiting" : "countdown",
   );
   const [score, setScore] = useState(0);
-  const [result, setResult] = useState<"win" | "loss" | "pending">("pending");
+  const [result, setResult] = useState<"win" | "loss" | "draw" | "pending">("pending");
   const [xpEarned, setXpEarned] = useState(0);
   // Per-game breakdown (accuracy / longest streak) surfaced on the result overlay
   const [gameStats, setGameStats] = useState<{
@@ -895,14 +1084,41 @@ function GamePlayModal({
       }
     };
 
+    // The engine STARTs only when every real player has connected + readied,
+    // so "waiting for players" stays up until that fires, THEN the 3-2-1 runs.
+    const onStart = (event: any) => {
+      if (event.matchId === session.matchId) {
+        // Real-time games (e.g. tap-rush) start their game clock on the engine
+        // START, so skip the cosmetic 3-2-1 overlay to avoid burning match time.
+        setPhase((p) =>
+          p === "waiting"
+            ? (session.game as any)?.slug === "tap-rush"
+              ? "playing"
+              : "countdown"
+            : p,
+        );
+      }
+    };
+
+    // Rejoining an already-ACTIVE match skips the countdown entirely.
+    const onActive = (event: any) => {
+      if (event.matchId === session.matchId) {
+        setPhase((p) => (p === "waiting" ? "playing" : p));
+      }
+    };
+
     const sub1 = DeviceEventEmitter.addListener('GAME_ENGINE_PAUSE', onPause);
     const sub2 = DeviceEventEmitter.addListener('GAME_ENGINE_RESUME', onResume);
     const sub3 = DeviceEventEmitter.addListener('GAME_ENGINE_OVER', onResume);
+    const sub4 = DeviceEventEmitter.addListener('GAME_ENGINE_START', onStart);
+    const sub5 = DeviceEventEmitter.addListener('GAME_ENGINE_ACTIVE', onActive);
 
     return () => {
       sub1.remove();
       sub2.remove();
       sub3.remove();
+      sub4.remove();
+      sub5.remove();
     };
   }, [session.matchId]);
 
@@ -917,27 +1133,42 @@ function GamePlayModal({
   useEffect(() => {
     completingRef.current = false;
     resultSoundPlayedRef.current = false;
-    setPhase("countdown");
+    setPhase(
+      session.isRejoin ? "playing" : canEngineConnect ? "waiting" : "countdown",
+    );
     setScore(0);
     setXpEarned(0);
     setGameStats({});
-  }, [session.matchId, session.sessionId]);
+  }, [session.matchId, session.sessionId, canEngineConnect]);
 
   // Resolve a pending PVP result when the server broadcasts the final outcome
   useEffect(() => {
     const onNotif = (notif: any) => {
       if (notif?.type !== "MATCH_RESOLVED") return;
-      if (phase !== "result" || result !== "pending") return;
+      if (result !== "pending") return;
       const payload = notif.payload || {};
-      setResult(payload.result === "WIN" ? "win" : "loss");
+      // Ignore stale resolutions from an earlier match (payload.matchId added
+      // server-side; fall back to matchId/sessionId when absent).
+      const notifMatchId = payload.matchId || payload.sessionId;
+      if (notifMatchId && notifMatchId !== session.matchId) return;
+      const resolved =
+        payload.result === "WIN"
+          ? "win"
+          : payload.result === "DRAW"
+            ? "draw"
+            : "loss";
+      setResult(resolved);
       setXpEarned(payload.xpEarned || 0);
       if (payload.score != null) setScore(payload.score);
+      // Server resolved the outcome (finish, forfeit, or draw) — always land
+      // on the result overlay, even if the match was still in waiting/countdown.
+      setPhase("result");
       // Live victory/defeat feedback when the pending result resolves
       if (!resultSoundPlayedRef.current) {
         resultSoundPlayedRef.current = true;
         if (payload.result === "WIN") {
           gameSound.playWin();
-        } else {
+        } else if (payload.result !== "DRAW") {
           gameSound.playLoss();
         }
       }
@@ -963,9 +1194,11 @@ function GamePlayModal({
       const finalResult =
         match.result === "WIN"
           ? "win"
-          : match.result === "PENDING"
-            ? "pending"
-            : "loss";
+          : match.result === "DRAW"
+            ? "draw"
+            : match.result === "PENDING"
+              ? "pending"
+              : "loss";
       setResult(finalResult);
       setXpEarned(match.xpEarned || 0);
       setGameStats({
@@ -1031,114 +1264,161 @@ function GamePlayModal({
           )}
         </View>
 
-        {phase === "countdown" && (
-          <GameStartScreen
-            key={session.matchId}
-            game={session.game}
-            myName={user?.username || user?.name || "You"}
-            myAvatar={user?.avatarUrl || user?.avatar || null}
-            opponents={(session.players || []).map((p) => ({
-              id: p.id,
-              name: p.name,
-              avatar: p.avatar,
-              isBot: p.id?.startsWith("bot_"),
-            }))}
-            modeLabel={
-              session.mode === "tournament"
-                ? "TOURNAMENT"
-                : session.mode === "practice"
-                  ? "PRACTICE"
-                  : session.mode === "custom"
-                    ? "CUSTOM LOBBY"
-                    : "AUTO MATCH"
-            }
-            onDone={() => setPhase("playing")}
-          />
-        )}
+        {/* A single stage below the header holds the game + every phase overlay.
+            The native game mounts from the waiting phase onward so its engine
+            socket connects and keeps READY registered — the engine STARTs the
+            match only once every real player has readied, which then flips this
+            phase to "countdown". Mounting it earlier also guarantees the
+            socket never drops mid-countdown (which would look like a disconnect
+            and pause the match). Overlays are absolute so they stack cleanly on
+            top of the live game instead of sharing its flex space. */}
+        <View style={styles.playStage}>
+          {(phase === "waiting" || phase === "countdown" || phase === "playing") &&
+            (() => {
+              const { slug } = session.game as any;
+              const uid = user?.id || "";
+              const token = session.wsToken || "";
+              const mid = session.matchId;
 
-        {phase === "playing" &&
-          (() => {
-            const { slug } = session.game as any;
-            const uid = user?.id || "";
-            const token = session.wsToken || "";
-            const mid = session.matchId;
+              const GAME_COMPONENTS: Record<string, any> = {
+                chess: ChessGame,
+                ludo: LudoGame,
+                "snake-ladder": SnakeLadderGame,
+                scribble: ScribbleGame,
+                "word-rush": WordRushGame,
+                "tap-rush": TapRushGame,
+                "memory-grid": MemoryGridGame,
+              };
 
-            const GAME_COMPONENTS: Record<string, any> = {
-              chess: ChessGame,
-              ludo: LudoGame,
-              "snake-ladder": SnakeLadderGame,
-              scribble: ScribbleGame,
-              "word-rush": WordRushGame,
-              "tap-rush": TapRushGame,
-              "memory-grid": MemoryGridGame,
-            };
-
-            if ((session.game as any).metadata?.runtime === "native") {
-              const NativeGame = GAME_COMPONENTS[slug];
-              if (NativeGame && token) {
-                return (
-                  <NativeGame
-                    key={mid}
-                    matchId={mid}
-                    userId={uid}
-                    wsToken={token}
-                    myName={user?.username || user?.name || 'You'}
-                    myAvatar={user?.avatarUrl || user?.avatar || null}
-                    opponentName={session.players?.[0]?.name || "Opponent"}
-                    onComplete={handleComplete}
-                  />
-                );
+              if ((session.game as any).metadata?.runtime === "native") {
+                const NativeGame = GAME_COMPONENTS[slug];
+                if (NativeGame && token) {
+                  // The game stays MOUNTED during waiting + countdown so its
+                  // engine socket keeps READY registered (unmounting would look
+                  // like a disconnect and pause the match) — but it stays
+                  // INVISIBLE until the 3-2-1 finishes. First the countdown,
+                  // then the game appears.
+                  return (
+                    <View
+                      style={[
+                        StyleSheet.absoluteFill,
+                        { opacity: phase === "playing" ? 1 : 0 },
+                      ]}
+                      pointerEvents={phase === "playing" ? "auto" : "none"}
+                    >
+                      <NativeGame
+                        key={mid}
+                        matchId={mid}
+                        userId={uid}
+                        wsToken={token}
+                        players={session.players || []}
+                        myName={user?.username || user?.name || 'You'}
+                        myAvatar={user?.avatarUrl || user?.avatar || null}
+                        opponentName={session.players?.[0]?.name || "Opponent"}
+                        onComplete={handleComplete}
+                      />
+                    </View>
+                  );
+                }
               }
-            }
 
-            return null;
-          })()}
+              return null;
+            })()}
 
-        {opponentPausedCountdown !== null && phase === "playing" && (
-          <View style={[StyleSheet.absoluteFill, { backgroundColor: 'rgba(0,0,0,0.85)', justifyContent: 'center', alignItems: 'center', zIndex: 100 }]}>
-            <Ionicons name="warning" size={64} color={colors.warning} />
-            <Text style={{ color: '#fff', fontSize: 24, fontWeight: 'bold', marginTop: 16 }}>
-              Opponent Disconnected
-            </Text>
-            <Text style={{ color: colors.text.secondary, fontSize: 16, textAlign: 'center', marginHorizontal: 32, marginTop: 12 }}>
-              Waiting for opponent to return...
-            </Text>
-            <Text style={{ color: colors.primaryLight, fontSize: 36, fontWeight: '900', marginTop: 16 }}>
-              {opponentPausedCountdown}s
-            </Text>
-            <TouchableOpacity 
-               style={{ marginTop: 40, backgroundColor: colors.danger, paddingHorizontal: 32, paddingVertical: 14, borderRadius: 24 }}
-               onPress={onClose}
-            >
-               <Text style={{ color: '#fff', fontSize: 16, fontWeight: 'bold' }}>Exit Match</Text>
-            </TouchableOpacity>
-          </View>
-        )}
+          {phase === "waiting" && (
+            <WaitingForPlayers
+              game={session.game}
+              modeLabel={
+                session.mode === "tournament"
+                  ? "TOURNAMENT"
+                  : session.mode === "practice"
+                    ? "PRACTICE"
+                    : session.mode === "custom"
+                      ? "CUSTOM LOBBY"
+                      : "AUTO MATCH"
+              }
+              players={session.players || []}
+              myName={user?.username || user?.name || "You"}
+              myAvatar={user?.avatarUrl || user?.avatar || null}
+              onExit={onClose}
+            />
+          )}
 
-        {phase === "result" && (
-          <GameResultOverlay
-            key={result}
-            result={result}
-            score={score}
-            xpEarned={xpEarned}
-            accuracy={gameStats.accuracy}
-            longestStreak={gameStats.longestStreak}
-            gameName={session.game.name}
-            modeLabel={
-              session.mode === "tournament"
-                ? "TOURNAMENT"
-                : session.mode === "practice"
-                  ? "PRACTICE"
-                  : session.mode === "custom"
-                    ? "CUSTOM LOBBY"
-                    : "AUTO MATCH"
-            }
-            opponentName={session.players?.[0]?.name}
-            isPractice={session.mode === "practice"}
-            onRematch={onRematch}
-            onClose={onClose}
-          />
-        )}
+          {phase === "countdown" && (
+            <View style={StyleSheet.absoluteFill}>
+              <GameStartScreen
+                key={session.matchId}
+                game={session.game}
+                myName={user?.username || user?.name || "You"}
+                myAvatar={user?.avatarUrl || user?.avatar || null}
+                myTeam={session.myTeam}
+                teamsLocked={session.teamsLocked}
+                opponents={(session.players || []).map((p) => ({
+                  id: p.id,
+                  name: p.name,
+                  avatar: p.avatar,
+                  team: p.team,
+                }))}
+                modeLabel={
+                  session.mode === "tournament"
+                    ? "TOURNAMENT"
+                    : session.mode === "practice"
+                      ? "PRACTICE"
+                      : session.mode === "custom"
+                        ? "CUSTOM LOBBY"
+                        : "AUTO MATCH"
+                }
+                onDone={() => setPhase("playing")}
+              />
+            </View>
+          )}
+
+          {opponentPausedCountdown !== null && phase !== "result" && (
+            <View style={[StyleSheet.absoluteFill, { backgroundColor: 'rgba(0,0,0,0.85)', justifyContent: 'center', alignItems: 'center', zIndex: 100 }]}>
+              <Ionicons name="warning" size={64} color={colors.warning} />
+              <Text style={{ color: '#fff', fontSize: 24, fontWeight: 'bold', marginTop: 16 }}>
+                Player Disconnected
+              </Text>
+              <Text style={{ color: colors.text.secondary, fontSize: 16, textAlign: 'center', marginHorizontal: 32, marginTop: 12 }}>
+                Match paused — waiting for them to return...
+              </Text>
+              <Text style={{ color: colors.primaryLight, fontSize: 36, fontWeight: '900', marginTop: 16 }}>
+                {opponentPausedCountdown}s
+              </Text>
+              <TouchableOpacity 
+                 style={{ marginTop: 40, backgroundColor: colors.danger, paddingHorizontal: 32, paddingVertical: 14, borderRadius: 24 }}
+                 onPress={onClose}
+              >
+                 <Text style={{ color: '#fff', fontSize: 16, fontWeight: 'bold' }}>Exit Match</Text>
+              </TouchableOpacity>
+            </View>
+          )}
+
+          {phase === "result" && (
+            <GameResultOverlay
+              key={result}
+              result={result}
+              score={score}
+              xpEarned={xpEarned}
+              accuracy={gameStats.accuracy}
+              longestStreak={gameStats.longestStreak}
+              gameName={session.game.name}
+              modeLabel={
+                session.mode === "tournament"
+                  ? "TOURNAMENT"
+                  : session.mode === "practice"
+                    ? "PRACTICE"
+                    : session.mode === "custom"
+                      ? "CUSTOM LOBBY"
+                      : "AUTO MATCH"
+              }
+              opponentName={session.players?.[0]?.name}
+              isPractice={session.mode === "practice"}
+              onRematch={onRematch}
+              onClose={onClose}
+            />
+          )}
+        </View>
       </View>
     </Modal>
   );
@@ -1238,6 +1518,78 @@ function ModalHeader({
       <Text style={styles.modalTitle}>{title}</Text>
       <View style={{ width: 24 }} />
     </View>
+  );
+}
+
+/**
+ * GameSettingsModal — game-specific settings (like Wallet's SettingsModal),
+ * opened from the Games tab header gear. Kept separate from the global
+ * Settings screen: sound effects + haptics for the game flow only.
+ */
+function GameSettingsModal({
+  visible,
+  onClose,
+}: {
+  visible: boolean;
+  onClose: () => void;
+}) {
+  const insets = useSafeAreaInsets();
+  const colors = useThemeColors();
+  const styles = useMemo(() => makeStyles(colors), [colors]);
+  const { soundEnabled, hapticsEnabled, setSoundEnabled, setHapticsEnabled } =
+    useGameSoundPrefs();
+
+  return (
+    <Modal
+      visible={visible}
+      animationType="slide"
+      presentationStyle="pageSheet"
+      onRequestClose={onClose}
+    >
+      <View style={[styles.modalShell, { paddingTop: insets.top || 16 }]}>
+        <ModalHeader title="Game Settings" onClose={onClose} />
+        <ScrollView contentContainerStyle={styles.modalContent}>
+          <Text style={styles.settingsSection}>Audio & Feedback</Text>
+          <View style={styles.settingsCard}>
+            <View style={styles.settingsRow}>
+              <View style={styles.settingsRowLeft}>
+                <Ionicons name="volume-high-outline" size={20} color={colors.primaryLight} />
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.settingsRowLabel}>Sound Effects</Text>
+                  <Text style={styles.settingsRowDesc}>
+                    Countdown beeps and game sounds
+                  </Text>
+                </View>
+              </View>
+              <Switch
+                value={soundEnabled}
+                onValueChange={(v) => setSoundEnabled(v)}
+                trackColor={{ false: colors.bg.elevated, true: colors.primary }}
+                thumbColor={soundEnabled ? "#fff" : colors.text.muted}
+              />
+            </View>
+            <View style={[styles.settingsRow, { borderTopWidth: 1, borderTopColor: colors.border }]}>
+              <View style={styles.settingsRowLeft}>
+                <Ionicons name="phone-portrait-outline" size={20} color={colors.primaryLight} />
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.settingsRowLabel}>Haptics</Text>
+                  <Text style={styles.settingsRowDesc}>
+                    Vibration feedback while playing
+                  </Text>
+                </View>
+              </View>
+              <Switch
+                value={hapticsEnabled}
+                onValueChange={(v) => setHapticsEnabled(v)}
+                trackColor={{ false: colors.bg.elevated, true: colors.primary }}
+                thumbColor={hapticsEnabled ? "#fff" : colors.text.muted}
+              />
+            </View>
+          </View>
+          <View style={{ height: 40 }} />
+        </ScrollView>
+      </View>
+    </Modal>
   );
 }
 
@@ -1499,6 +1851,121 @@ function makeStyles(c: ColorPalette) {
       fontWeight: "800",
     },
     playModal: { flex: 1, backgroundColor: "#05050F" },
+    playStage: {
+      flex: 1,
+      overflow: "hidden",
+      backgroundColor: "#05050F",
+    },
+    waitingWrap: {
+      flex: 1,
+      alignItems: "center",
+      justifyContent: "center",
+      paddingHorizontal: spacing.xl,
+      backgroundColor: "#05050F",
+    },
+    waitingModePill: {
+      flexDirection: "row",
+      alignItems: "center",
+      gap: 6,
+      marginTop: spacing.md,
+      paddingHorizontal: 14,
+      paddingVertical: 7,
+      borderRadius: radii.full,
+      backgroundColor: "rgba(124,58,237,0.16)",
+      borderWidth: 1,
+      borderColor: "rgba(124,58,237,0.4)",
+    },
+    waitingModeText: {
+      color: c.primaryLight,
+      fontSize: 12,
+      fontWeight: "900",
+      letterSpacing: 1.5,
+    },
+    waitingTitle: {
+      marginTop: spacing.lg,
+      color: "#F8FAFC",
+      fontSize: 24,
+      fontWeight: "900",
+      letterSpacing: 0.5,
+    },
+    waitingSub: {
+      marginTop: spacing.sm,
+      color: "#94A3B8",
+      fontSize: fontSizes.sm,
+      textAlign: "center",
+      lineHeight: 19,
+      maxWidth: 320,
+    },
+    waitingRoster: {
+      marginTop: spacing.xl,
+      flexDirection: "row",
+      flexWrap: "wrap",
+      justifyContent: "center",
+      gap: spacing.md,
+    },
+    waitingPlayer: {
+      alignItems: "center",
+      width: 72,
+    },
+    waitingAvatar: {
+      width: 52,
+      height: 52,
+      borderRadius: 26,
+      alignItems: "center",
+      justifyContent: "center",
+      borderWidth: 1.5,
+      borderColor: "rgba(255,255,255,0.22)",
+    },
+    waitingAvatarText: {
+      color: "#fff",
+      fontSize: 20,
+      fontWeight: "900",
+    },
+    waitingName: {
+      marginTop: 8,
+      color: "#E2E8F0",
+      fontSize: 12,
+      fontWeight: "700",
+      maxWidth: "100%",
+    },
+    waitingTag: {
+      marginTop: 3,
+      color: "#64748B",
+      fontSize: 9,
+      fontWeight: "900",
+      letterSpacing: 1.2,
+    },
+    waitingDots: {
+      marginTop: spacing.xl,
+      alignItems: "center",
+      gap: 10,
+    },
+    waitingHint: {
+      color: "#64748B",
+      fontSize: 12,
+      fontWeight: "700",
+      letterSpacing: 0.4,
+    },
+    waitingExit: {
+      position: "absolute",
+      top: spacing.md,
+      right: spacing.lg,
+      flexDirection: "row",
+      alignItems: "center",
+      gap: 6,
+      paddingHorizontal: 14,
+      paddingVertical: 8,
+      borderRadius: radii.full,
+      backgroundColor: "rgba(255,255,255,0.06)",
+      borderWidth: 1,
+      borderColor: "rgba(255,255,255,0.14)",
+    },
+    waitingExitText: {
+      color: "#94A3B8",
+      fontSize: 10,
+      fontWeight: "900",
+      letterSpacing: 1.2,
+    },
     playHeader: {
       minHeight: 68,
       flexDirection: "row",
@@ -1570,6 +2037,33 @@ function makeStyles(c: ColorPalette) {
       fontWeight: "900",
     },
     modalContent: { paddingVertical: spacing.md, paddingBottom: 50 },
+    settingsSection: {
+      fontSize: fontSizes.xs,
+      fontWeight: "800",
+      color: c.text.muted,
+      textTransform: "uppercase",
+      letterSpacing: 0.5,
+      paddingHorizontal: spacing.lg,
+      marginTop: spacing.lg,
+      marginBottom: 6,
+    },
+    settingsCard: {
+      marginHorizontal: spacing.lg,
+      backgroundColor: c.bg.card,
+      borderRadius: radii.lg,
+      borderWidth: 1,
+      borderColor: c.border,
+      overflow: "hidden",
+    },
+    settingsRow: {
+      flexDirection: "row",
+      alignItems: "center",
+      justifyContent: "space-between",
+      padding: spacing.md,
+    },
+    settingsRowLeft: { flexDirection: "row", alignItems: "center", gap: 12, flex: 1 },
+    settingsRowLabel: { fontSize: fontSizes.sm, fontWeight: "600", color: c.text.primary },
+    settingsRowDesc: { fontSize: fontSizes.xs, color: c.text.muted, marginTop: 2 },
     emptyBlock: {
       margin: spacing.lg,
       padding: spacing.xl,

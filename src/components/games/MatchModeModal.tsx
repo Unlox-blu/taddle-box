@@ -12,6 +12,7 @@ import {
   ActivityIndicator,
   Alert,
   Animated,
+  Easing,
   Image,
   Modal,
   ScrollView,
@@ -98,6 +99,9 @@ export default function MatchModeModal({
   const [lobbyLoading, setLobbyLoading] = useState(false);
   const [lobbyPlayers, setLobbyPlayers] = useState<any[]>([]);
   const [lobbyMaxPlayers, setLobbyMaxPlayers] = useState<number>(2);
+  // true = auto size (game max); false = custom stepper. Lives INSIDE the
+  // lobby screen — CUSTOM skips the separate slot-size chooser entirely.
+  const [lobbyAuto, setLobbyAuto] = useState(true);
   const [lobbyInviteCode, setLobbyInviteCode] = useState<string | null>(null);
   const [followers, setFollowers] = useState<any[]>([]);
   const [followersLoading, setFollowersLoading] = useState(false);
@@ -135,6 +139,7 @@ export default function MatchModeModal({
     setMode("AUTO"); setStep("select"); setTargetPlayers("auto");
     setJoinCode(""); setJoinCodeLoading(false);
     setLobbyLoading(false); setLobbyPlayers([]); setLobbyMaxPlayers(2);
+    setLobbyAuto(true);
     setLobbyInviteCode(null); setFollowers([]); setFollowersLoading(false);
     setSearchQuery(""); setPendingInviteIds([]); setCopyState("Copy");
     setInvitedAtMap({});
@@ -272,28 +277,28 @@ export default function MatchModeModal({
   const pickMode = (m: MatchMode) => {
     setMode(m);
     setTargetPlayers("auto");
-    // EVERY mode goes through the auto/custom slot-size chooser first — CUSTOM
-    // uses it to pick the lobby size before the lobby is created.
+    if (m === "CUSTOM") {
+      // CUSTOM goes straight into the lobby — the auto/custom slot-size
+      // selector lives inside the lobby screen itself (no separate step).
+      setLobbyAuto(true);
+      loadFollowers();
+      createLobby(maxP).then(() => setStep("lobby"));
+      return;
+    }
+    // AUTO / PRACTICE still pick a player count first.
     setStep("playerCount");
   };
 
   // Called from the auto/custom slot-size screen. AUTO/PRACTICE queue with the
-  // chosen size; CUSTOM creates the lobby at the chosen size then shows it.
+  // chosen size; CUSTOM never reaches this step (it goes straight to lobby).
   const proceedFromCount = () => {
-    if (mode === "CUSTOM") {
-      const size = targetPlayers === "auto" ? maxP : (targetPlayers as number);
-      setLobbyMaxPlayers(size);
-      loadFollowers();
-      createLobby(size).then(() => setStep("lobby"));
-      return;
-    }
     startAutoQueue(targetPlayers, mode === "PRACTICE" ? "PRACTICE" : "AUTO");
   };
 
   const goBack = () => {
     if (step === "playerCount") setStep("select");
-    // CUSTOM lobby came from the slot-size step (or join-by-code from select)
-    else if (step === "lobby") setStep(mode === "CUSTOM" ? "playerCount" : "select");
+    // CUSTOM lobby came straight from mode select (or join-by-code from select)
+    else if (step === "lobby") setStep("select");
   };
 
   // ── join by invite code (called from select screen button OR notification auto-accept) ──
@@ -338,9 +343,16 @@ export default function MatchModeModal({
     if (!game) return;
     cancelledRef.current = false; matchedRef.current = false;
     const isPractice = queueMode === "PRACTICE";
-    setQueuePhase("searching");
-    setStatusText(isPractice ? "Preparing your practice lobby..." : "Searching for opponents...");
-    setCountdown(null); setBotFilling(false); setStep("queue");
+    // PRACTICE is solo-vs-bots — no real players will ever join, so bots start
+    // joining IMMEDIATELY (the server sweep has no 15s window for practice).
+    // Skip the cosmetic 15s countdown and go straight to the filling radar.
+    setQueuePhase(isPractice ? "filling" : "searching");
+    setStatusText(
+      isPractice
+        ? "Preparing your practice lobby — bots joining now..."
+        : "Searching for opponents..."
+    );
+    setCountdown(null); setBotFilling(isPractice); setStep("queue");
     // "auto" = no targetPlayers constraint, backend joins any waiting lobby
     const exactCount = size === "auto" ? undefined : size;
     const tournamentId = initialTournamentId || undefined;
@@ -370,10 +382,16 @@ export default function MatchModeModal({
         // Joining an existing lobby? Its current players are "already spawned"
         // — render them instantly; only later joins (bots filling slots) animate.
         setSpawnBaseline(Math.max(1, Array.isArray(d?.players) ? d.players.length : 1));
-        const expiresAt = d.expiresAt ? new Date(d.expiresAt).getTime() : Date.now() + 15_000;
+        // The pill mirrors the backend timing: AUTO lobbies have a 30s window
+        // (bots quietly start filling at 15s), so the countdown runs the full
+        // 30s. PRACTICE fills from t=0 — its pill is hidden anyway
+        // (phase=filling, botFilling=true). Tournament queues never bot-fill
+        // and rely on matchmaking:timedOut at lobby expiry.
+        const expiresAt = d.expiresAt ? new Date(d.expiresAt).getTime() : Date.now() + 30_000;
+        const countdownDeadline = expiresAt;
         fallbackTimerRef.current = setInterval(() => {
           if (cancelledRef.current || matchedRef.current) { clearInterval(fallbackTimerRef.current!); return; }
-          const rem = Math.max(0, Math.ceil((expiresAt - Date.now()) / 1000));
+          const rem = Math.max(0, Math.ceil((countdownDeadline - Date.now()) / 1000));
           setCountdown(rem);
           if (rem <= 0) {
             clearInterval(fallbackTimerRef.current!);
@@ -384,12 +402,14 @@ export default function MatchModeModal({
             const isTournament = !!tournamentId;
             setBotFilling(!isTournament);
             setQueuePhase(isTournament ? "searching" : "filling");
+            // Practice bots joined from t=0 — never regress the message to
+            // "no players found" once the cosmetic expiry passes.
             setStatusText(
               isTournament
                 ? "Still searching for tournament opponents..."
                 : isPractice
-                  ? "No players found — filling with bots for practice..."
-                  : "No opponent found — filling with a bot..."
+                  ? "Bots are joining your practice match..."
+                  : "Waiting for players to join..."
             );
             // Safety net: if the server never resolves (e.g. lobby emptied), close gracefully.
             fallbackTimerRef.current = setTimeout(() => {
@@ -481,28 +501,6 @@ export default function MatchModeModal({
 
   // Cancel a pending invite — MUST hit the server so settings.pendingInvites is
   // cleared (otherwise the invite resurrects from stale local state and the
-  // server's bot-fill grace keeps waiting for a friend who was never in the
-  // lobby). The friend is NOT onboarded until they accept, so this is a pure
-  // invite revocation, never a player removal.
-  //
-  // onLobbyUpdated only ever MERGES server pendingInvites into local state, so a
-  // stale socket event racing this DELETE could re-add the invite. Re-fetching
-  // the lobby afterwards reconciles pendingInviteIds to server truth, which no
-  // longer contains the revoked invite.
-  const removePendingInvite = async (playerId: string) => {
-    const id = lobbyIdRef.current;
-    setPendingInviteIds((prev) => prev.filter((i) => i !== playerId));
-    if (!id) return;
-    try {
-      await apiClient.delete(`/game/lobbies/${id}/players/${playerId}`);
-      const res = await apiClient.get(`/game/lobbies/${id}`);
-      const d = (res as any).data?.data ?? (res as any).data;
-      const serverPending: Array<{ userId: string }> = d?.settings?.pendingInvites || [];
-      const joinedIds = new Set((d?.players || []).map((p: any) => pid(p)));
-      setPendingInviteIds(serverPending.map((p) => p.userId).filter((uid) => !joinedIds.has(uid)));
-    } catch { /* reconciled via socket */ }
-  };
-
   const changeLobbySize = async (next: number) => {
     const id = lobbyIdRef.current;
     setLobbyMaxPlayers(next);
@@ -510,6 +508,12 @@ export default function MatchModeModal({
       try { await apiClient.patch(`/game/lobbies/${id}`, { targetPlayers: next }); }
       catch { /* optimistic — ignore */ }
     }
+  };
+
+  // Auto = game's max lobby size (stepper disabled). Custom = exact stepper.
+  const toggleLobbyAuto = (auto: boolean) => {
+    setLobbyAuto(auto);
+    if (auto) changeLobbySize(maxP);
   };
 
   const copyCode = async () => {
@@ -558,8 +562,8 @@ export default function MatchModeModal({
     // Everyone currently in the lobby is "already spawned" — render instantly;
     // only bots that join to fill slots animate in one by one.
     setSpawnBaseline(Math.max(1, displayPlayers.filter((p: any) => p._status !== "invited").length));
-    setQueuePhase("searching"); setStatusText("Queuing lobby — bots will join to fill open slots...");
-    setCountdown(15); setBotFilling(false); setStep("queue");
+    setQueuePhase("searching"); setStatusText("Queuing lobby — waiting for players to join...");
+    setCountdown(30); setBotFilling(false); setStep("queue");
     try {
       const res = await apiClient.post(`/game/lobbies/${id}/queue`, { active: true });
       const d = (res as any).data?.data ?? (res as any).data;
@@ -574,9 +578,9 @@ export default function MatchModeModal({
         _handleMatched(d);
         return;
       }
-      // Cosmetic countdown for the 15s real-player window; the sweep's
+      // Cosmetic countdown for the 30s matchmaking window; the sweep's
       // matchmaking:lobbyUpdated / matchmaking:matched events drive the rest.
-      const queueExpiry = Date.now() + 15_000;
+      const queueExpiry = Date.now() + 30_000;
       fallbackTimerRef.current = setInterval(() => {
         if (cancelledRef.current || matchedRef.current) { clearInterval(fallbackTimerRef.current!); return; }
         const rem = Math.max(0, Math.ceil((queueExpiry - Date.now()) / 1000));
@@ -584,12 +588,12 @@ export default function MatchModeModal({
         if (rem <= 0) {
           clearInterval(fallbackTimerRef.current!);
           setBotFilling(true); setQueuePhase("filling");
-          // The server holds off up to 30s while fresh invites are out, so say so
-          // instead of claiming bots are filling while nothing happens yet.
+          // The server holds off up to 30s while fresh invites are out, so keep
+          // the copy neutral while the lobby continues filling.
           setStatusText(
             pendingInviteIds.length > 0
-              ? "Waiting for invited friends to accept — bots will fill the rest shortly"
-              : "Filling remaining slots with bots..."
+              ? "Waiting for invited friends to accept..."
+              : "Waiting for players to join..."
           );
         }
       }, 1000);
@@ -654,21 +658,8 @@ export default function MatchModeModal({
       });
       seen.add(hostId);
     }
-    pendingInviteIds.forEach((personId) => {
-      if (seen.has(personId)) return;
-      const person = followers.find((f) => pid(f) === personId);
-      if (!person) return;
-      confirmed.push({
-        id: personId,
-        name: person.name || person.username,
-        username: person.username,
-        avatar: person.avatar || person.profileImage,
-        _status: "invited",
-      });
-      seen.add(personId);
-    });
     return confirmed;
-  }, [lobbyPlayers, pendingInviteIds, followers, user]);
+  }, [lobbyPlayers, followers, user]);
 
   // Invited friends are placeholders, not lobby members — they only count
   // once they accept and actually join. This also keeps "Start Match" from
@@ -690,7 +681,7 @@ export default function MatchModeModal({
 
   const headerTitle =
     step === "select"        ? "Choose Mode"
-    : step === "playerCount" ? (mode === "CUSTOM" ? "Lobby Size" : "Player Count")
+    : step === "playerCount" ? "Player Count"
     : step === "lobby"       ? "Custom Lobby"
     : "Matchmaking";
 
@@ -715,7 +706,19 @@ export default function MatchModeModal({
           <ScrollView contentContainerStyle={styles.body} showsVerticalScrollIndicator={false}>
             <Text style={styles.sectionLabel}>How do you want to play?</Text>
 
-            {/* Auto Match */}
+            {/* Practice Mode — first */}
+            <TouchableOpacity style={styles.modeCard} activeOpacity={0.85} onPress={() => pickMode("PRACTICE")}>
+              <LinearGradient colors={["#0EA5E9", "#22C55E"]} style={styles.modeIconCircle}>
+                <Ionicons name="fitness" size={22} color="#fff" />
+              </LinearGradient>
+              <View style={{ flex: 1 }}>
+                <Text style={styles.modeTitle}>Practice Mode</Text>
+                <Text style={styles.modeDesc}>Solo practice — bots join right away. Entry fee applies, no XP rewards.</Text>
+              </View>
+              <Ionicons name="chevron-forward" size={20} color={colors.text.muted} />
+            </TouchableOpacity>
+
+            {/* Auto Match — second */}
             <TouchableOpacity style={styles.modeCard} activeOpacity={0.85} onPress={() => pickMode("AUTO")}>
               <LinearGradient colors={[colors.primary, colors.cyanDark]} style={styles.modeIconCircle}>
                 <Ionicons name="flash" size={22} color="#fff" />
@@ -723,18 +726,6 @@ export default function MatchModeModal({
               <View style={{ flex: 1 }}>
                 <Text style={styles.modeTitle}>Auto Match</Text>
                 <Text style={styles.modeDesc}>Jump into a queue. Choose auto or exact player count then go.</Text>
-              </View>
-              <Ionicons name="chevron-forward" size={20} color={colors.text.muted} />
-            </TouchableOpacity>
-
-            {/* Practice Mode */}
-            <TouchableOpacity style={styles.modeCard} activeOpacity={0.85} onPress={() => pickMode("PRACTICE")}>
-              <LinearGradient colors={["#0EA5E9", "#22C55E"]} style={styles.modeIconCircle}>
-                <Ionicons name="fitness" size={22} color="#fff" />
-              </LinearGradient>
-              <View style={{ flex: 1 }}>
-                <Text style={styles.modeTitle}>Practice Mode</Text>
-                <Text style={styles.modeDesc}>Solo practice — bots fill the match. Entry fee applies, no XP rewards.</Text>
               </View>
               <Ionicons name="chevron-forward" size={20} color={colors.text.muted} />
             </TouchableOpacity>
@@ -791,7 +782,6 @@ export default function MatchModeModal({
             colors={colors} styles={styles} maxP={maxP}
             value={targetPlayers} onChange={(v) => setTargetPlayers(v)}
             isPractice={mode === "PRACTICE"}
-            isCustom={mode === "CUSTOM"}
             onProceed={proceedFromCount}
           />
         )}
@@ -803,16 +793,17 @@ export default function MatchModeModal({
             lobbyCode={lobbyCode} lobbyMaxPlayers={lobbyMaxPlayers}
             displayPlayers={displayPlayers} filledCount={filledCount}
             allFilled={allFilled} maxP={maxP}
+            lobbyAuto={lobbyAuto}
             followers={filteredFollowers} followersLoading={followersLoading}
             searchQuery={searchQuery} copyState={copyState}
             pendingInviteIds={pendingInviteIds}
             invitedAtMap={invitedAtMap}
             onSearchChange={setSearchQuery}
             onInviteFriend={inviteFriend}
-            onRemovePendingInvite={removePendingInvite}
             onRemovePlayer={removePlayer}
             onInviteBot={inviteBot}
             onChangeLobbySize={changeLobbySize}
+            onToggleLobbyAuto={toggleLobbyAuto}
             onCopyCode={copyCode}
             onProceed={proceedFromLobby}
           />
@@ -826,7 +817,6 @@ export default function MatchModeModal({
             countdown={countdown} botFilling={botFilling}
             cancelling={cancelling} onCancel={cancelQueue}
             players={displayPlayers}
-            maxPlayers={lobbyMaxPlayers}
             initialCount={spawnBaseline}
           />
         )}
@@ -840,32 +830,27 @@ export default function MatchModeModal({
 
 // ─── PlayerCountStep (AUTO only) ─────────────────────────────────────────────
 
-function PlayerCountStep({ colors, styles, maxP, value, onChange, isPractice, isCustom, onProceed }: {
+function PlayerCountStep({ colors, styles, maxP, value, onChange, isPractice, onProceed }: {
   colors: ColorPalette; styles: ReturnType<typeof makeStyles>;
   maxP: number;
   value: AutoSize;
   onChange: (v: AutoSize) => void;
   isPractice?: boolean;
-  isCustom?: boolean;
   onProceed: () => void;
 }) {
   const isAuto = value === "auto";
   const count  = isAuto ? maxP : (value as number);
-  const ctaLabel = isCustom
-    ? (isAuto ? "Create Lobby" : `Create ${count}-Player Lobby`)
-    : isPractice
+  const ctaLabel = isPractice
     ? (isAuto ? "Start Practice" : `Practice with ${count} Players`)
     : (isAuto ? "Find Any Match" : `Find ${count}-Player Match`);
 
   return (
     <ScrollView contentContainerStyle={styles.body} showsVerticalScrollIndicator={false}>
-      <Text style={styles.sectionLabel}>{isCustom ? "How many slots?" : "How many players?"}</Text>
+      <Text style={styles.sectionLabel}>How many players?</Text>
       <Text style={styles.sectionHint}>
-        {isCustom
-          ? "Auto uses the game's max lobby size. Or pick an exact slot count for your custom lobby."
-          : isPractice
-            ? "Bots will fill every seat for a solo practice match. Entry fee applies, no XP rewards."
-            : "Auto joins any available match. Or pick a custom exact count."}
+        {isPractice
+          ? "Bots will fill every seat for a solo practice match. Entry fee applies, no XP rewards."
+          : "Auto joins any available match. Or pick a custom exact count."}
       </Text>
 
       {/* Auto / Custom toggle */}
@@ -930,16 +915,14 @@ function PlayerCountStep({ colors, styles, maxP, value, onChange, isPractice, is
       {isAuto && (
         <View style={styles.autoDescCard}>
           <Ionicons
-            name={isPractice ? "fitness" : isCustom ? "people-outline" : "sparkles-outline"}
+            name={isPractice ? "fitness" : "sparkles-outline"}
             size={18}
             color={colors.primaryLight}
           />
           <Text style={styles.autoDescText}>
-            {isCustom
-              ? "Your lobby opens at the game's max size. Invite friends or add bots — then start when ready."
-              : isPractice
-                ? "Your private practice lobby is created instantly. Bots join to fill every open seat."
-                : "You'll be placed into the first available match regardless of lobby size."}
+            {isPractice
+              ? "Your private practice lobby is created instantly. Bots join to fill every open seat."
+              : "You'll be placed into the first available match regardless of lobby size."}
           </Text>
         </View>
       )}
@@ -1059,23 +1042,24 @@ function SlotRing({
 
 function LobbyStep({
   colors, styles, game, lobbyCode, lobbyMaxPlayers, displayPlayers,
-  filledCount, allFilled, maxP, followers, followersLoading, searchQuery,
+  filledCount, allFilled, maxP, lobbyAuto, followers, followersLoading, searchQuery,
   copyState, pendingInviteIds, invitedAtMap, onSearchChange, onInviteFriend,
-  onRemovePendingInvite, onRemovePlayer, onInviteBot, onChangeLobbySize,
+  onRemovePlayer, onInviteBot, onChangeLobbySize, onToggleLobbyAuto,
   onCopyCode, onProceed,
 }: {
   colors: ColorPalette; styles: ReturnType<typeof makeStyles>; game: Game;
   lobbyCode: string; lobbyMaxPlayers: number; displayPlayers: any[];
   filledCount: number; allFilled: boolean; maxP: number;
+  lobbyAuto: boolean;
   followers: any[]; followersLoading: boolean; searchQuery: string;
   copyState: string; pendingInviteIds: string[];
   invitedAtMap: Record<string, number>;
   onSearchChange: (s: string) => void;
   onInviteFriend: (p: any) => void;
-  onRemovePendingInvite: (id: string) => void;
   onRemovePlayer: (id: string) => void;
   onInviteBot: () => void;
   onChangeLobbySize: (n: number) => void;
+  onToggleLobbyAuto: (auto: boolean) => void;
   onCopyCode: () => void;
   onProceed: () => void;
 }) {
@@ -1099,29 +1083,68 @@ function LobbyStep({
         <Text style={styles.codeHint}>Share this code so friends can join your lobby.</Text>
       </View>
 
-      {/* ── Player count stepper ── */}
+      {/* ── Slot count — auto/custom selector lives here (no separate step) ── */}
       <View style={styles.panel}>
-        <View style={styles.rowBetween}>
-          <Text style={styles.panelTitle}>Slots</Text>
-          <View style={styles.stepper}>
-            <TouchableOpacity
-              style={[styles.stepBtn, lobbyMaxPlayers <= 2 && styles.stepBtnDisabled]}
-              onPress={() => onChangeLobbySize(Math.max(2, lobbyMaxPlayers - 1))}
-              disabled={lobbyMaxPlayers <= 2}
-            >
-              <Ionicons name="remove" size={16} color={lobbyMaxPlayers <= 2 ? colors.text.muted : colors.primaryLight} />
-            </TouchableOpacity>
-            <Text style={styles.stepVal}>{lobbyMaxPlayers}</Text>
-            <TouchableOpacity
-              style={[styles.stepBtn, lobbyMaxPlayers >= maxP && styles.stepBtnDisabled]}
-              onPress={() => onChangeLobbySize(Math.min(maxP, lobbyMaxPlayers + 1))}
-              disabled={lobbyMaxPlayers >= maxP}
-            >
-              <Ionicons name="add" size={16} color={lobbyMaxPlayers >= maxP ? colors.text.muted : colors.primaryLight} />
-            </TouchableOpacity>
-          </View>
+        <Text style={styles.panelTitle}>Slots</Text>
+        {/* Auto / Custom toggle */}
+        <View style={styles.countToggleRow}>
+          <TouchableOpacity
+            style={[styles.countToggleBtn, lobbyAuto && styles.countToggleBtnActive]}
+            onPress={() => onToggleLobbyAuto(true)}
+            activeOpacity={0.8}
+          >
+            <Ionicons
+              name="shuffle"
+              size={16}
+              color={lobbyAuto ? colors.primaryLight : colors.text.muted}
+            />
+            <Text style={[styles.countToggleText, lobbyAuto && styles.countToggleTextActive]}>
+              Auto
+            </Text>
+          </TouchableOpacity>
+          <TouchableOpacity
+            style={[styles.countToggleBtn, !lobbyAuto && styles.countToggleBtnActive]}
+            onPress={() => onToggleLobbyAuto(false)}
+            activeOpacity={0.8}
+          >
+            <Ionicons
+              name="options"
+              size={16}
+              color={!lobbyAuto ? colors.primaryLight : colors.text.muted}
+            />
+            <Text style={[styles.countToggleText, !lobbyAuto && styles.countToggleTextActive]}>
+              Custom
+            </Text>
+          </TouchableOpacity>
         </View>
-        <Text style={styles.slotCountText}>{filledCount} / {lobbyMaxPlayers} filled</Text>
+        {/* Auto selection is enough — no stepper / count when Auto is on */}
+        {!lobbyAuto && (
+          <View style={styles.rowBetween}>
+            <Text style={styles.slotCountText}>{filledCount} / {lobbyMaxPlayers} filled</Text>
+            <View style={styles.stepper}>
+              <TouchableOpacity
+                style={[styles.stepBtn, lobbyMaxPlayers <= 2 && styles.stepBtnDisabled]}
+                onPress={() => onChangeLobbySize(Math.max(2, lobbyMaxPlayers - 1))}
+                disabled={lobbyMaxPlayers <= 2}
+              >
+                <Ionicons name="remove" size={16} color={lobbyMaxPlayers <= 2 ? colors.text.muted : colors.primaryLight} />
+              </TouchableOpacity>
+              <Text style={styles.stepVal}>{lobbyMaxPlayers}</Text>
+              <TouchableOpacity
+                style={[styles.stepBtn, lobbyMaxPlayers >= maxP && styles.stepBtnDisabled]}
+                onPress={() => onChangeLobbySize(Math.min(maxP, lobbyMaxPlayers + 1))}
+                disabled={lobbyMaxPlayers >= maxP}
+              >
+                <Ionicons name="add" size={16} color={lobbyMaxPlayers >= maxP ? colors.text.muted : colors.primaryLight} />
+              </TouchableOpacity>
+            </View>
+          </View>
+        )}
+        {lobbyAuto && (
+          <Text style={styles.slotAutoHint}>
+            Auto opens the lobby at the game's max size ({maxP} slots).
+          </Text>
+        )}
       </View>
 
       {/* ── Circular slot ring ── */}
@@ -1132,41 +1155,6 @@ function LobbyStep({
         totalSlots={totalSlots}
         onRemovePlayer={onRemovePlayer}
       />
-
-      {/* ── Pending invites (never occupy a slot — first come, first serve) ── */}
-      {displayPlayers.some((p: any) => p._status === "invited") && (
-        <View style={styles.pendingPanel}>
-          <Text style={styles.panelTitle}>Pending Invites</Text>
-          <Text style={styles.pendingHint}>
-            Invited friends don't reserve a seat — first come, first served.
-          </Text>
-          {displayPlayers
-            .filter((p: any) => p._status === "invited")
-            .map((p: any) => (
-              <View key={pid(p)} style={styles.pendingRow}>
-                {p.avatar
-                  ? <Image source={{ uri: p.avatar }} style={styles.friendAvatar} />
-                  : <View style={styles.friendAvatarPh}>
-                      <Text style={styles.friendInitial}>{(p.name || "?")[0].toUpperCase()}</Text>
-                    </View>}
-                <View style={{ flex: 1 }}>
-                  <Text style={styles.friendName} numberOfLines={1}>{p.name}</Text>
-                  {p.username ? <Text style={styles.friendHandle}>@{p.username}</Text> : null}
-                </View>
-                <View style={styles.invitedPill}>
-                  <Ionicons name="time-outline" size={12} color={colors.primaryLight} />
-                  <Text style={[styles.invitedPillText, { color: colors.primaryLight }]}>Invited</Text>
-                </View>
-                <TouchableOpacity
-                  onPress={() => onRemovePendingInvite(pid(p))}
-                  hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-                >
-                  <Ionicons name="close-circle" size={18} color={colors.text.muted} />
-                </TouchableOpacity>
-              </View>
-            ))}
-        </View>
-      )}
 
       {/* ── Invite / bot actions ── */}
       <View style={styles.actionRow}>
@@ -1267,21 +1255,20 @@ function LobbyStep({
 
 // ─── QueueStep ────────────────────────────────────────────────────────────────
 
-function QueueStep({ colors, styles, mode, game, phase, statusText, countdown, botFilling, cancelling, onCancel, players, maxPlayers, initialCount = 1 }: {
+function QueueStep({ colors, styles, mode, game, phase, statusText, countdown, botFilling, cancelling, onCancel, players, initialCount = 1 }: {
   colors: ColorPalette; styles: ReturnType<typeof makeStyles>;
   mode: MatchMode; game: Game;
   phase: "searching" | "filling" | "matched";
   statusText: string; countdown: number | null;
   botFilling: boolean; cancelling: boolean;
   onCancel: () => void;
-  players?: any[]; maxPlayers?: number; initialCount?: number;
+  players?: any[]; initialCount?: number;
 }) {
   return (
     <ScrollView contentContainerStyle={styles.body} showsVerticalScrollIndicator={false}>
+      {/* Matchmaking screen shows the radar only — no slot ring / team layout,
+          so it stays clean for auto + practice + custom alike. */}
       <MatchmakingRadar colors={colors} isActive={phase !== "matched"} players={players || []} initialCount={initialCount} />
-      {mode === "CUSTOM" && players && players.length > 0 && (
-        <SlotRing colors={colors} styles={styles} players={players} totalSlots={maxPlayers || players.length} />
-      )}
       <View style={styles.queueCard}>
         <View style={styles.rowBetween}>
           <View style={styles.modePill}>
@@ -1302,12 +1289,7 @@ function QueueStep({ colors, styles, mode, game, phase, statusText, countdown, b
         <Text style={styles.queueGame}>{game.name}</Text>
         <Text style={styles.queueStatus}>{statusText}</Text>
       </View>
-      {botFilling && (
-        <View style={styles.noticeRow}>
-          <Ionicons name="sparkles" size={15} color={colors.primaryLight} />
-          <Text style={styles.noticeText}>Bots are joining to fill the remaining slots.</Text>
-        </View>
-      )}
+
       {phase !== "matched" && (
         <TouchableOpacity style={styles.cancelBtn} onPress={onCancel} disabled={cancelling}>
           <Text style={styles.cancelText}>{cancelling ? "Cancelling..." : "Cancel"}</Text>
@@ -1325,83 +1307,112 @@ function QueueStep({ colors, styles, mode, game, phase, statusText, countdown, b
  * an existing lobby the already-present players are pinned immediately; in a
  * brand-new lobby the current user is the first (only) pin.
  */
+// Stable pseudo-random radar spot per player, so each pin spawns in its own
+// random corner of the scanner (never the same fixed ring positions) and keeps
+// that spot for the whole queue.
+function hashStr(s: string): number {
+  let h = 0;
+  for (let i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) >>> 0;
+  return h;
+}
+
+function radarSpot(id: string): { x: number; y: number } {
+  const h = hashStr(id || "x");
+  const angle = (h % 360) * (Math.PI / 180);
+  const radius = 22 + ((h >> 3) % 58);
+  return { x: Math.cos(angle) * radius, y: Math.sin(angle) * radius };
+}
+
 function MatchmakingRadar({ colors, isActive, players = [], initialCount = 1 }: {
   colors: ColorPalette; isActive: boolean; players?: any[]; initialCount?: number;
 }) {
   const pulse = useRef(new Animated.Value(0.85)).current;
-  const spin  = useRef(new Animated.Value(0)).current;
+  const sweep = useRef(new Animated.Value(0)).current;
 
   useEffect(() => {
     if (!isActive) return;
     const p = Animated.loop(Animated.sequence([
-      Animated.timing(pulse, { toValue: 1.12, duration: 1300, useNativeDriver: true }),
+      Animated.timing(pulse, { toValue: 1.1, duration: 1300, useNativeDriver: true }),
       Animated.timing(pulse, { toValue: 0.85, duration: 1300, useNativeDriver: true }),
     ]));
-    const s = Animated.loop(Animated.timing(spin, { toValue: 1, duration: 4200, useNativeDriver: true }));
+    // Scanner beam: a thin wedge sweeping the radar
+    const s = Animated.loop(Animated.timing(sweep, { toValue: 1, duration: 3200, useNativeDriver: true }));
     p.start(); s.start();
     return () => { p.stop(); s.stop(); };
-  }, [isActive, pulse, spin]);
+  }, [isActive, pulse, sweep]);
 
-  const rotate = spin.interpolate({ inputRange: [0, 1], outputRange: ["0deg", "360deg"] });
+  const sweepRotate = sweep.interpolate({ inputRange: [0, 1], outputRange: ["0deg", "360deg"] });
 
-  // Pins orbit the radar center on a ring just inside the outer circle.
   // Invited friends are excluded — only actually-joined players/bots pin.
-  const PIN_R = 60;
   const pins = players.filter((p) => p._status !== "invited");
-  const visibleCount = Math.min(pins.length, 8);
-  const positions = useMemo(() => {
-    if (visibleCount === 0) return [];
-    return circlePositions(visibleCount, PIN_R);
-  }, [visibleCount]);
-  const CENTER = 105; // radar canvas is 210x210, center at 105,105
+  const RADAR = 240;         // canvas size
+  const CENTER = RADAR / 2;  // 120,120
   // Players already in the lobby when the queue screen appeared are "already
   // spawned" — render instantly. Only newly arriving players/bots (beyond
   // initialCount) animate in one by one, like real players trickling in.
-  const pinDelay = (i: number) => (i < initialCount ? 0 : Math.min((i - initialCount + 1) * 260, 1500));
+  const pinDelay = (i: number) => (i < initialCount ? 0 : Math.min((i - initialCount + 1) * 280, 1600));
 
   return (
-    <View style={{ width: 210, height: 210, alignItems: "center", justifyContent: "center", marginBottom: 16, alignSelf: "center" }}>
-      {/* Rotating radar rings + center */}
-      <Animated.View style={{ width: 170, height: 170, alignItems: "center", justifyContent: "center", transform: [{ rotate }] }}>
-        {([170, 130, 90] as number[]).map((size) => (
-          <Animated.View key={size} style={{
-            position: "absolute", width: size, height: size, borderRadius: size / 2,
-            borderWidth: 1, borderColor: colors.primaryLight,
-            opacity: 0.5, transform: [{ scale: pulse }],
-          }} />
-        ))}
-        <View style={{
-          width: 56, height: 56, borderRadius: 28,
-          backgroundColor: colors.bg.elevated, borderWidth: 1.5,
-          borderColor: colors.primaryLight, alignItems: "center", justifyContent: "center",
-        }}>
-          <Ionicons name="scan" size={24} color={colors.primaryLight} />
-        </View>
-      </Animated.View>
-      {/* Player/bot pins — pre-existing players render instantly, new joins spring in */}
-      {pins.slice(0, 8).map((p, i) => (
-        <RadarPin
-          key={pid(p) || `pin-${i}`}
-          colors={colors}
-          player={p}
-          x={CENTER + (positions[i]?.x || 0)}
-          y={CENTER + (positions[i]?.y || 0)}
-          delay={pinDelay(i)}
-        />
+    <View style={{ width: RADAR, height: RADAR, alignItems: "center", justifyContent: "center", marginBottom: 10, alignSelf: "center" }}>
+      {/* Radar dish: pulsing rings + center */}
+      {([170, 132, 94] as number[]).map((size) => (
+        <Animated.View key={size} style={{
+          position: "absolute", width: size, height: size, borderRadius: size / 2,
+          borderWidth: 1, borderColor: colors.primaryLight,
+          opacity: 0.5, transform: [{ scale: pulse }],
+        }} />
       ))}
+      {/* Scanner beam — a light wedge rotating around the center */}
+      <Animated.View
+        pointerEvents="none"
+        style={{
+          position: "absolute", width: 200, height: 200, borderRadius: 100,
+          alignItems: "center", justifyContent: "center",
+          opacity: 0.5, transform: [{ rotate: sweepRotate }],
+        }}
+      >
+        <LinearGradient
+          colors={["transparent", colors.primaryLight + "55", "transparent"]}
+          start={{ x: 0, y: 0 }} end={{ x: 1, y: 0 }}
+          style={{ width: 4, height: 96, borderRadius: 2 }}
+        />
+      </Animated.View>
+      <View style={{
+        width: 56, height: 56, borderRadius: 28,
+        backgroundColor: colors.bg.elevated, borderWidth: 1.5,
+        borderColor: colors.primaryLight, alignItems: "center", justifyContent: "center",
+      }}>
+        <Ionicons name="scan" size={24} color={colors.primaryLight} />
+      </View>
+      {/* Player/bot pins spawn at RANDOM spots with a sonar ping */}
+      {pins.slice(0, 8).map((p, i) => {
+        const spot = radarSpot(pid(p));
+        return (
+          <RadarPin
+            key={pid(p) || `pin-${i}`}
+            colors={colors}
+            player={p}
+            x={CENTER + spot.x}
+            y={CENTER + spot.y}
+            delay={pinDelay(i)}
+          />
+        );
+      })}
     </View>
   );
 }
 
 /**
- * A single pin on the radar — avatar (or 🤖 for bots) with a name tag,
- * springing in with a stagger so players appear to join one by one.
+ * A single pin on the radar — avatar with a name tag, springing in with a
+ * stagger so players (real or bot) appear to join one by one.
  */
 function RadarPin({ colors, player, x, y, delay = 0 }: {
   colors: ColorPalette; player: any; x: number; y: number; delay?: number;
 }) {
   const scale = useRef(new Animated.Value(0)).current;
   const fade  = useRef(new Animated.Value(0)).current;
+  const ping  = useRef(new Animated.Value(0)).current;
+  const bob   = useRef(new Animated.Value(0)).current;
   // Delay is fixed at mount (pins are keyed by player id, so a pin mounts once).
   // Capturing it in a ref keeps the spawn animation from re-firing if a player
   // leaves and shifts the array indices of the remaining pins.
@@ -1409,43 +1420,75 @@ function RadarPin({ colors, player, x, y, delay = 0 }: {
 
   useEffect(() => {
     const t = setTimeout(() => {
+      // Spawn: pop in with a sonar ping ring + a gentle idle bob
       Animated.parallel([
-        Animated.spring(scale, { toValue: 1, friction: 5, tension: 120, useNativeDriver: true }),
-        Animated.timing(fade, { toValue: 1, duration: 280, useNativeDriver: true }),
+        Animated.spring(scale, { toValue: 1, friction: 5, tension: 130, useNativeDriver: true }),
+        Animated.timing(fade, { toValue: 1, duration: 260, useNativeDriver: true }),
+        Animated.timing(ping, {
+          toValue: 1, duration: 900, easing: Easing.out(Easing.cubic), useNativeDriver: true,
+        }),
       ]).start();
+      Animated.loop(
+        Animated.sequence([
+          Animated.timing(bob, { toValue: 1, duration: 900, useNativeDriver: true }),
+          Animated.timing(bob, { toValue: 0, duration: 900, useNativeDriver: true }),
+        ]),
+      ).start();
     }, delayRef.current);
     return () => clearTimeout(t);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const isBot  = !!player.isBot || player._status === "bot";
   const isHost = player._status === "host";
-  const name   = isHost ? "You" : (player.name || player.displayName || player.username || (isBot ? "Bot" : "?"));
+  const name   = isHost ? "You" : (player.name || player.displayName || player.username || "?");
   const avatar = player.avatar || player.avatarUrl;
+  const PIN = 34;
 
   return (
     <Animated.View style={{
-      position: "absolute", left: x - 14, top: y - 14, width: 28, height: 28,
+      position: "absolute", left: x - PIN / 2, top: y - PIN / 2,
+      width: PIN, height: PIN,
       alignItems: "center", justifyContent: "center",
-      opacity: fade, transform: [{ scale }],
+      opacity: fade,
+      transform: [{ scale }, { translateY: bob.interpolate({ inputRange: [0, 1], outputRange: [0, -3] }) }],
     }}>
+      {/* Sonar ping ring on spawn */}
+      <Animated.View style={{
+        position: "absolute", width: PIN, height: PIN, borderRadius: PIN / 2,
+        borderWidth: 2, borderColor: colors.primaryLight,
+        opacity: ping.interpolate({ inputRange: [0, 1], outputRange: [0.9, 0] }),
+        transform: [{ scale: ping.interpolate({ inputRange: [0, 1], outputRange: [1, 2.2] }) }],
+      }} />
       {avatar
-        ? <Image source={{ uri: avatar }} style={{ width: 26, height: 26, borderRadius: 13, borderWidth: 2, borderColor: isBot ? "#64748B" : colors.primaryLight }} />
+        ? <Image source={{ uri: avatar }} style={{ width: PIN - 4, height: PIN - 4, borderRadius: (PIN - 4) / 2, borderWidth: 2, borderColor: colors.primaryLight }} />
         : <LinearGradient
-            colors={isBot ? ["#334155", "#1E293B"] : [colors.primary, colors.cyanDark]}
-            style={{ width: 26, height: 26, borderRadius: 13, borderWidth: 2, borderColor: colors.primaryLight, alignItems: "center", justifyContent: "center" }}
+            colors={isHost ? ["#F59E0B", "#D97706"] : [colors.primary, colors.cyanDark]}
+            style={{ width: PIN - 4, height: PIN - 4, borderRadius: (PIN - 4) / 2, borderWidth: 2, borderColor: colors.primaryLight, alignItems: "center", justifyContent: "center" }}
           >
-            <Text style={{ color: "#fff", fontSize: 10, fontWeight: "700" }}>
-              {isBot ? "🤖" : (name || "?")[0].toUpperCase()}
+            <Text style={{ color: "#fff", fontSize: 11, fontWeight: "800" }}>
+              {(name || "?")[0].toUpperCase()}
             </Text>
           </LinearGradient>}
-      {/* Name tag */}
+      {/* Name tag — always fully visible, above the pin */}
       <View style={{
-        position: "absolute", bottom: -16, backgroundColor: colors.bg.elevated,
-        borderRadius: 6, paddingHorizontal: 5, paddingVertical: 1,
-        borderWidth: 1, borderColor: colors.border, maxWidth: 64,
+        position: "absolute", bottom: PIN + 3, alignItems: "center",
       }}>
-        <Text style={{ color: colors.text.primary, fontSize: 8, fontWeight: "700" }} numberOfLines={1}>{name}</Text>
+        <View style={{
+          backgroundColor: "rgba(3,7,30,0.92)", borderRadius: 8,
+          paddingHorizontal: 8, paddingVertical: 3,
+          borderWidth: 1, borderColor: colors.primaryLight + "66",
+          minWidth: 52, maxWidth: 104, alignItems: "center",
+        }}>
+          <Text style={{ color: "#FFF", fontSize: 10, fontWeight: "800" }} numberOfLines={1}>
+            {name}
+          </Text>
+        </View>
+        <View style={{
+          width: 0, height: 0, marginTop: -1,
+          borderLeftWidth: 5, borderRightWidth: 5, borderTopWidth: 5,
+          borderLeftColor: "transparent", borderRightColor: "transparent",
+          borderTopColor: colors.primaryLight + "66",
+        }} />
       </View>
     </Animated.View>
   );
@@ -1519,6 +1562,7 @@ function makeStyles(c: ColorPalette) {
     stepBtnDisabled: { opacity: 0.4 },
     stepVal:     { minWidth: 28, textAlign: "center", fontSize: fontSizes.md, fontWeight: "700", color: c.text.primary },
     slotCountText: { color: c.text.muted, fontSize: fontSizes.xs, marginTop: 4 },
+    slotAutoHint:  { color: c.text.muted, fontSize: fontSizes.xs, marginTop: 8, lineHeight: 16 },
 
     // circular ring
     ringContainer: { alignSelf: "center", alignItems: "center", justifyContent: "center", marginBottom: spacing.md, position: "relative" },
@@ -1557,11 +1601,6 @@ function makeStyles(c: ColorPalette) {
     inviteBtnText:{ color: "#fff", fontSize: fontSizes.xs, fontWeight: "700" },
     inLobbyPill:  { flexDirection: "row", alignItems: "center", gap: 4, paddingHorizontal: 10, paddingVertical: 6 },
     inLobbyText:  { fontSize: fontSizes.xs, fontWeight: "700" },
-    pendingPanel: { backgroundColor: c.bg.card, borderRadius: radii.lg, borderWidth: 1, borderColor: c.border, padding: spacing.md, marginBottom: spacing.md },
-    pendingHint:  { fontSize: fontSizes.xs, color: c.text.muted, marginBottom: 6, lineHeight: 16 },
-    pendingRow:   { flexDirection: "row", alignItems: "center", gap: spacing.sm, paddingVertical: 6 },
-    invitedPill:  { flexDirection: "row", alignItems: "center", gap: 4, paddingHorizontal: 10, paddingVertical: 5, backgroundColor: c.bg.elevated, borderRadius: radii.full, borderWidth: 1, borderColor: "rgba(124,58,237,0.3)" },
-    invitedPillText: { fontSize: fontSizes.xs, fontWeight: "700" },
 
     // queue
     queueCard:   { backgroundColor: c.bg.card, borderRadius: radii.lg, borderWidth: 1, borderColor: c.border, padding: spacing.lg, marginBottom: spacing.md },
@@ -1572,8 +1611,6 @@ function makeStyles(c: ColorPalette) {
     queueTitle:  { fontSize: fontSizes.lg, fontWeight: "700", color: c.text.primary, marginTop: spacing.sm },
     queueGame:   { fontSize: fontSizes.sm, color: c.text.secondary, marginTop: 4 },
     queueStatus: { fontSize: fontSizes.sm, color: c.text.secondary, marginTop: spacing.sm, lineHeight: 20 },
-    noticeRow:   { flexDirection: "row", alignItems: "center", gap: 8, backgroundColor: c.bg.elevated, padding: spacing.md, borderRadius: radii.md, marginBottom: spacing.md },
-    noticeText:  { color: c.text.primary, fontWeight: "600", fontSize: fontSizes.sm },
     cancelBtn:   { marginTop: spacing.sm, height: 52, borderRadius: radii.full, backgroundColor: c.bg.card, borderWidth: 1, borderColor: c.border, alignItems: "center", justifyContent: "center" },
     cancelText:  { color: c.text.secondary, fontWeight: "700", fontSize: fontSizes.md },
   });

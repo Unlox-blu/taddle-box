@@ -10,6 +10,8 @@ import {
   ScrollView,
   Modal,
   Image,
+  Share,
+  Alert,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useNavigation } from "@react-navigation/native";
@@ -108,7 +110,27 @@ export default function SideDrawer({
 
   const navigation = useNavigation<any>();
 
+  const shareReferral = async () => {
+    const code = user?.referralCode || user?.referral_code;
+    if (!code) {
+      Alert.alert("Referral Unavailable", "Your referral code isn't ready yet. Please try again in a moment.");
+      return;
+    }
+    onClose();
+    const message =
+      `🎮 Join me on TaddleBox! Use my referral code ${code} at signup and get 500 XP free. Let's play, post and win together! 🚀`;
+    setTimeout(() => {
+      Share.share({ message }).catch(() => {});
+    }, CLOSE_DELAY);
+  };
+
   const mainMenu: MenuRow[] = [
+    {
+      icon: "gift-outline",
+      label: "Share Referral",
+      purple: true,
+      onPress: shareReferral,
+    },
     {
       icon: "wallet-outline",
       label: "Wallet",

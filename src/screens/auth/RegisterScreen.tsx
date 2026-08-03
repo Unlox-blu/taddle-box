@@ -119,6 +119,7 @@ export default function RegisterScreen({ navigation, route }: Props) {
   const [showCountryDropdown, setShowCountryDropdown] = useState(false);
   const [phone, setPhone] = useState("");
   const [password, setPassword] = useState("");
+  const [referralCode, setReferralCode] = useState("");
 
   const [usernameStatus, setUsernameStatus] = useState<
     "idle" | "loading" | "available" | "taken"
@@ -413,6 +414,7 @@ export default function RegisterScreen({ navigation, route }: Props) {
         occupation,
         organization: organization.trim(),
         interests,
+        referralCode: referralCode.trim() || undefined,
         socialToken, // Pass this along so OTP screen/backend can use it
       };
 
@@ -629,6 +631,16 @@ export default function RegisterScreen({ navigation, route }: Props) {
                   autoComplete="password-new"
                   passwordRules="minlength: 8; required: lower; required: upper; required: digit; required: [-];"
                   error={fieldErrors.password}
+                />
+                <Input
+                  label="Referral Code (Optional)"
+                  icon="gift-outline"
+                  value={referralCode}
+                  onChangeText={(text) => setReferralCode(text.toUpperCase())}
+                  placeholder="e.g. 8A2F9C4B — get 500 XP bonus"
+                  autoCapitalize="characters"
+                  autoCorrect={false}
+                  maxLength={12}
                 />
               </View>
             </View>

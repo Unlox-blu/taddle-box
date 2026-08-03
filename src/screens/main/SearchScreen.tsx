@@ -7,7 +7,6 @@ import {
   FlatList,
   StyleSheet,
   ActivityIndicator,
-  Keyboard,
   Image,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -16,21 +15,23 @@ import { StatusBar } from "expo-status-bar";
 import { NativeStackScreenProps } from "@react-navigation/native-stack";
 import { fontSizes, spacing, radii, type ColorPalette } from "../../theme";
 import { useTheme, useThemeColors } from "../../context/ThemeContext";
-import { apiClient } from "../../services/apiClient";
-import type { HomeStackParamList, Post, User, Community } from "../../types";
-import { useAuth } from "../../context/AuthContext";
+import { searchService, type SearchType } from "../../services/search.service";
+import type { HomeStackParamList, Post } from "../../types";
 import { useToggleLike, useToggleSave } from "../../mutations/posts";
 import PostCard from "../../components/home/PostCard";
 
 type Props = NativeStackScreenProps<HomeStackParamList, "Search">;
 
-type SearchTab =
-  | "all"
-  | "posts"
-  | "people"
-  | "communities"
-  | "events"
-  | "hashtags";
+// Tabs rendered at the top of the search screen (ordered).
+const TABS: { key: SearchType; label: string }[] = [
+  { key: "all", label: "All" },
+  { key: "posts", label: "Posts" },
+  { key: "people", label: "People" },
+  { key: "communities", label: "Communities" },
+  { key: "events", label: "Events" },
+  { key: "games", label: "Games" },
+  { key: "hashtags", label: "Hashtags" },
+];
 
 const normalizePostResult = (item: any): Post => {
   const author = item.author || {
@@ -61,6 +62,10 @@ const normalizePostResult = (item: any): Post => {
   } as Post;
 };
 
+type Row =
+  | { isHeader: true; title: string; type: SearchType }
+  | { isHeader: false; item: any; type: SearchType };
+
 export default function SearchScreen({ navigation, route }: Props) {
   const insets = useSafeAreaInsets();
   const { isDark } = useTheme();
@@ -72,83 +77,54 @@ export default function SearchScreen({ navigation, route }: Props) {
   const initialTab = (route.params as any)?.tab || "all";
 
   const [query, setQuery] = useState(initialQuery);
-  const [activeTab, setActiveTab] = useState<SearchTab>(initialTab);
-  const [results, setResults] = useState<any[]>([]);
+  const [activeTab, setActiveTab] = useState<SearchType>(initialTab);
+  const [rows, setRows] = useState<Row[]>([]);
   const [loading, setLoading] = useState(false);
 
   const { mutate: toggleLike } = useToggleLike();
   const { mutate: toggleSave } = useToggleSave();
 
-  const fetchResults = useCallback(async (q: string, tab: SearchTab) => {
-    if (!q.trim()) {
-      setResults([]);
-      return;
-    }
+  // Build a flat, sectioned row list for the "all" tab.
+  const buildAllRows = (r: any, isDiscovery: boolean): Row[] => {
+    const sections: { title: string; type: SearchType; items: any[] }[] = [
+      { title: isDiscovery ? "People to Follow" : "People", type: "people", items: r.people },
+      { title: "Communities", type: "communities", items: r.communities },
+      { title: "Upcoming Events", type: "events", items: r.events },
+      { title: "Games", type: "games", items: r.games },
+      { title: isDiscovery ? "Trending Posts" : "Posts", type: "posts", items: r.posts },
+      { title: "Hashtags", type: "hashtags", items: r.hashtags.map((h: string) => ({ text: h })) },
+    ];
+
+    const out: Row[] = [];
+    sections.forEach((section) => {
+      if (!section.items?.length) return;
+      out.push({ isHeader: true, title: section.title, type: section.type });
+      section.items.forEach((item: any) =>
+        out.push({ isHeader: false, item: { ...item, itemType: section.type }, type: section.type }),
+      );
+    });
+    return out;
+  };
+
+  const fetchResults = useCallback(async (q: string, tab: SearchType) => {
     setLoading(true);
     try {
       if (tab === "all") {
-        // Fetch from multiple endpoints concurrently
-        const [postsRes, peopleRes, communitiesRes, eventsRes] =
-          await Promise.all([
-            apiClient.get(`/search?type=posts&q=${encodeURIComponent(q)}`),
-            apiClient.get(`/search?type=people&q=${encodeURIComponent(q)}`),
-            apiClient.get(
-              `/search?type=communities&q=${encodeURIComponent(q)}`,
-            ),
-            apiClient.get(`/search?type=events&q=${encodeURIComponent(q)}`),
-          ]);
-
-        const extractData = (res: any, itemType: string) => {
-          let data = [];
-          if (res.data?.data && Array.isArray(res.data.data))
-            data = res.data.data;
-          else if (res.data?.data?.data && Array.isArray(res.data.data.data))
-            data = res.data.data.data;
-          return data.slice(0, 3).map((item: any) => ({ ...item, itemType }));
-        };
-
-        const allResults = [
-          ...extractData(peopleRes, "people"),
-          ...extractData(communitiesRes, "communities"),
-          ...extractData(eventsRes, "events"),
-          ...extractData(postsRes, "posts"),
-        ];
-        setResults(allResults);
+        // Single combined request — the backend runs all searches in parallel.
+        const res = await searchService.searchAll(q, 6);
+        setRows(buildAllRows(res, !q.trim()));
       } else if (tab === "hashtags") {
-        const res = await apiClient.get(
-          `/search/hashtags?q=${encodeURIComponent(q)}`,
+        const hashtags = await searchService.getHashtags(q);
+        setRows(
+          hashtags.map((h) => ({ isHeader: false, item: { text: h, itemType: "hashtags" }, type: "hashtags" as SearchType })),
         );
-        if (res.data?.data && Array.isArray(res.data.data)) {
-          setResults(
-            res.data.data.map((h: any) => ({ text: h, itemType: "hashtags" })),
-          );
-        } else if (res.data?.data && Array.isArray(res.data.data.data)) {
-          setResults(
-            res.data.data.data.map((h: any) => ({
-              text: h,
-              itemType: "hashtags",
-            })),
-          );
-        } else {
-          setResults([]);
-        }
       } else {
-        const res = await apiClient.get(
-          `/search?type=${tab}&q=${encodeURIComponent(q)}`,
-        );
-        if (res.data?.data && Array.isArray(res.data.data)) {
-          setResults(res.data.data.map((i: any) => ({ ...i, itemType: tab })));
-        } else if (res.data?.data?.data && Array.isArray(res.data.data.data)) {
-          setResults(
-            res.data.data.data.map((i: any) => ({ ...i, itemType: tab })),
-          );
-        } else {
-          setResults([]);
-        }
+        const items = await searchService.searchByType(tab, q);
+        setRows(items.map((item) => ({ isHeader: false, item, type: tab })));
       }
     } catch (e) {
       console.warn("Search failed", e);
-      setResults([]);
+      setRows([]);
     } finally {
       setLoading(false);
     }
@@ -157,26 +133,43 @@ export default function SearchScreen({ navigation, route }: Props) {
   useEffect(() => {
     const handler = setTimeout(() => {
       fetchResults(query, activeTab);
-    }, 500);
+    }, 300);
     return () => clearTimeout(handler);
   }, [query, activeTab, fetchResults]);
 
-  const renderTab = (tab: SearchTab, label: string) => (
+  // Open a games tab result inside the Games screen.
+  const openGames = () => {
+    (navigation as any).navigate("Main", { screen: "Games" });
+  };
+
+  const renderTab = (tab: { key: SearchType; label: string }) => (
     <TouchableOpacity
-      style={[styles.tabBtn, activeTab === tab && styles.tabBtnActive]}
-      onPress={() => setActiveTab(tab)}
+      style={[styles.tabBtn, activeTab === tab.key && styles.tabBtnActive]}
+      onPress={() => setActiveTab(tab.key)}
+      activeOpacity={0.8}
     >
-      <Text style={[styles.tabText, activeTab === tab && styles.tabTextActive]}>
-        {label}
+      <Text style={[styles.tabText, activeTab === tab.key && styles.tabTextActive]}>
+        {tab.label}
       </Text>
     </TouchableOpacity>
   );
 
-  const renderItem = ({ item }: { item: any }) => {
-    const type = item.itemType || activeTab;
+  const renderItem = ({ item }: { item: Row }) => {
+    if (item.isHeader) {
+      return (
+        <View style={styles.sectionHeader}>
+          <Text style={styles.sectionTitle}>{item.title}</Text>
+          <TouchableOpacity onPress={() => setActiveTab(item.type)}>
+            <Text style={styles.seeAll}>See all</Text>
+          </TouchableOpacity>
+        </View>
+      );
+    }
+
+    const { item: data, type } = item;
 
     if (type === "posts") {
-      const post = normalizePostResult(item);
+      const post = normalizePostResult(data);
       return (
         <PostCard
           post={post}
@@ -196,22 +189,23 @@ export default function SearchScreen({ navigation, route }: Props) {
       return (
         <TouchableOpacity
           style={styles.peopleRow}
-          onPress={() => navigation.navigate("UserProfile", { user: item })}
+          onPress={() => navigation.navigate("UserProfile", { user: data })}
+          activeOpacity={0.8}
         >
           <View style={styles.avatarBubble}>
-            {item.user_avatar ||
-            item.avatar ||
-            item.avatarUrl ||
-            item.avatar_url ||
-            item.profile_image ? (
+            {data.user_avatar ||
+            data.avatar ||
+            data.avatarUrl ||
+            data.avatar_url ||
+            data.profile_image ? (
               <Image
                 source={{
                   uri:
-                    item.user_avatar ||
-                    item.avatar ||
-                    item.avatarUrl ||
-                    item.avatar_url ||
-                    item.profile_image,
+                    data.user_avatar ||
+                    data.avatar ||
+                    data.avatarUrl ||
+                    data.avatar_url ||
+                    data.profile_image,
                 }}
                 style={styles.avatarImg}
               />
@@ -220,9 +214,11 @@ export default function SearchScreen({ navigation, route }: Props) {
             )}
           </View>
           <View style={styles.peopleInfo}>
-            <Text style={styles.peopleName}>{item.name}</Text>
-            <Text style={styles.peopleHandle}>@{item.username}</Text>
+            <Text style={styles.peopleName}>{data.name}</Text>
+            <Text style={styles.peopleHandle}>@{data.username}</Text>
+            <Text style={styles.peopleMeta}>{data.follower_count || 0} followers</Text>
           </View>
+          <Ionicons name="chevron-forward" size={16} color={colors.text.muted} />
         </TouchableOpacity>
       );
     }
@@ -234,15 +230,16 @@ export default function SearchScreen({ navigation, route }: Props) {
           onPress={() =>
             (navigation as any).navigate("Community", {
               screen: "CommunityDetail",
-              params: { communitySlug: item.slug },
+              params: { communitySlug: data.slug },
             })
           }
+          activeOpacity={0.8}
         >
           <View style={styles.avatarBubble}>
-            {(item.community_avatar || item.avatar || item.avatarUrl || item.avatar_url) ? (
+            {(data.community_avatar || data.avatar || data.avatarUrl || data.avatar_url) ? (
               <Image
                 source={{
-                  uri: item.community_avatar || item.avatar || item.avatarUrl || item.avatar_url,
+                  uri: data.community_avatar || data.avatar || data.avatarUrl || data.avatar_url,
                 }}
                 style={styles.avatarImg}
               />
@@ -255,22 +252,31 @@ export default function SearchScreen({ navigation, route }: Props) {
             )}
           </View>
           <View style={styles.peopleInfo}>
-            <Text style={styles.peopleName}>{item.name}</Text>
+            <Text style={styles.peopleName}>{data.name}</Text>
             <Text style={styles.peopleHandle}>
-              {item.member_count || 0} members
+              {data.member_count || 0} members
             </Text>
           </View>
+          <Ionicons name="chevron-forward" size={16} color={colors.text.muted} />
         </TouchableOpacity>
       );
     }
 
     if (type === "events") {
+      const location =
+        typeof data.location === "object"
+          ? data.location?.address || "Online"
+          : data.location || "Online";
       return (
-        <TouchableOpacity style={styles.peopleRow}>
+        <TouchableOpacity
+          style={styles.peopleRow}
+          onPress={() => (navigation as any).navigate("Main", { screen: "Events" })}
+          activeOpacity={0.8}
+        >
           <View style={styles.avatarBubble}>
-            {item.cover_image_url ? (
+            {data.cover_image_url ? (
               <Image
-                source={{ uri: item.cover_image_url }}
+                source={{ uri: data.cover_image_url }}
                 style={styles.avatarImg}
               />
             ) : (
@@ -278,30 +284,58 @@ export default function SearchScreen({ navigation, route }: Props) {
             )}
           </View>
           <View style={styles.peopleInfo}>
-            <Text style={styles.peopleName}>{item.title}</Text>
-            <Text style={styles.peopleHandle}>
-              {typeof item.location === "object"
-                ? item.location.address || "Online"
-                : item.location || "Online"}
+            <Text style={styles.peopleName}>{data.title}</Text>
+            <Text style={styles.peopleHandle}>{location}</Text>
+            <Text style={styles.peopleMeta}>
+              {data.attendee_count || 0} attending · {data.event_type || "event"}
             </Text>
           </View>
+          <Ionicons name="chevron-forward" size={16} color={colors.text.muted} />
+        </TouchableOpacity>
+      );
+    }
+
+    if (type === "games") {
+      const thumbnail = data.thumbnail;
+      return (
+        <TouchableOpacity
+          style={styles.peopleRow}
+          onPress={openGames}
+          activeOpacity={0.8}
+        >
+          <View style={styles.avatarBubble}>
+            {thumbnail ? (
+              <Image source={{ uri: thumbnail }} style={styles.avatarImg} />
+            ) : (
+              <Text style={{ fontSize: 18 }}>🎮</Text>
+            )}
+          </View>
+          <View style={styles.peopleInfo}>
+            <Text style={styles.peopleName}>{data.name}</Text>
+            <Text style={styles.peopleHandle}>
+              {[data.category, data.difficulty].filter(Boolean).join(" · ") || "Play now"}
+            </Text>
+            <Text style={styles.peopleMeta}>Up to {data.maxPlayers || 2} players</Text>
+          </View>
+          <Ionicons name="chevron-forward" size={16} color={colors.text.muted} />
         </TouchableOpacity>
       );
     }
 
     if (type === "hashtags") {
       return (
-        <TouchableOpacity 
+        <TouchableOpacity
           style={styles.hashtagRow}
           onPress={() => {
-            setQuery(item.text);
+            setQuery(data.text);
             setActiveTab("posts");
           }}
+          activeOpacity={0.8}
         >
           <View style={styles.hashIconBubble}>
             <Text style={styles.hashIcon}>#</Text>
           </View>
-          <Text style={styles.hashtagText}>{item.text}</Text>
+          <Text style={styles.hashtagText}>{data.text}</Text>
         </TouchableOpacity>
       );
     }
@@ -309,11 +343,14 @@ export default function SearchScreen({ navigation, route }: Props) {
     return (
       <View style={styles.genericRow}>
         <Text style={{ color: colors.text.primary }}>
-          {item.name || item.title || "Result"}
+          {data.name || data.title || "Result"}
         </Text>
       </View>
     );
   };
+
+  const isEmptyQuery = !query.trim();
+  const hasResults = rows.length > 0;
 
   return (
     <View style={[styles.container, { paddingTop: insets.top }]}>
@@ -356,21 +393,10 @@ export default function SearchScreen({ navigation, route }: Props) {
         <FlatList
           horizontal
           showsHorizontalScrollIndicator={false}
-          data={
-            [
-              "all",
-              "posts",
-              "people",
-              "communities",
-              "events",
-              "hashtags",
-            ] as SearchTab[]
-          }
-          keyExtractor={(item) => item}
+          data={TABS}
+          keyExtractor={(item) => item.key}
           contentContainerStyle={styles.tabsContainer}
-          renderItem={({ item }) =>
-            renderTab(item, item.charAt(0).toUpperCase() + item.slice(1))
-          }
+          renderItem={({ item }) => renderTab(item)}
         />
       </View>
 
@@ -379,28 +405,39 @@ export default function SearchScreen({ navigation, route }: Props) {
         <View style={styles.centerBox}>
           <ActivityIndicator size="large" color={colors.primaryLight} />
         </View>
-      ) : results.length > 0 ? (
+      ) : hasResults ? (
         <FlatList
-          data={results}
-          keyExtractor={(item, index) => item.id || `res-${index}`}
+          data={rows}
+          keyExtractor={(row, index) =>
+            row.isHeader ? `header-${row.type}-${index}` : `${row.type}-${row.item.id || index}`
+          }
           renderItem={renderItem}
           contentContainerStyle={[
             styles.listContent,
             { paddingBottom: insets.bottom + 20 },
           ]}
-          ItemSeparatorComponent={() => <View style={{ height: 12 }} />}
+          ItemSeparatorComponent={() => <View style={{ height: 10 }} />}
+          keyboardShouldPersistTaps="handled"
+          ListHeaderComponent={
+            isEmptyQuery && activeTab === "all" ? (
+              <View style={styles.discoverBanner}>
+                <Ionicons name="sparkles" size={18} color={colors.xpGold} />
+                <Text style={styles.discoverText}>Discoveries — popular right now</Text>
+              </View>
+            ) : null
+          }
         />
-      ) : query.trim().length > 0 ? (
+      ) : isEmptyQuery ? (
         <View style={styles.centerBox}>
+          <Ionicons name="search-outline" size={64} color={colors.border} />
           <Text style={styles.emptyText}>
-            No results found for "{query}" in {activeTab}
+            Type something to start searching, or explore the tabs above.
           </Text>
         </View>
       ) : (
         <View style={styles.centerBox}>
-          <Ionicons name="search-outline" size={64} color={colors.border} />
           <Text style={styles.emptyText}>
-            Type something to start searching.
+            No results found for "{query}" in {activeTab}
           </Text>
         </View>
       )}
@@ -474,13 +511,50 @@ function makeStyles(c: ColorPalette) {
     },
     listContent: {
       paddingVertical: spacing.md,
-      gap: 12,
+      gap: 4,
+    },
+    discoverBanner: {
+      flexDirection: "row",
+      alignItems: "center",
+      gap: 8,
+      marginHorizontal: spacing.md,
+      marginBottom: 6,
+      paddingVertical: 8,
+      paddingHorizontal: 12,
+      borderRadius: radii.md,
+      backgroundColor: "rgba(251,191,36,0.08)",
+      borderWidth: 1,
+      borderColor: "rgba(251,191,36,0.22)",
+    },
+    discoverText: {
+      fontSize: fontSizes.sm,
+      fontWeight: "700",
+      color: c.xpGold,
+    },
+    sectionHeader: {
+      flexDirection: "row",
+      alignItems: "center",
+      justifyContent: "space-between",
+      paddingHorizontal: spacing.lg,
+      paddingTop: 14,
+      paddingBottom: 6,
+    },
+    sectionTitle: {
+      fontSize: fontSizes.md,
+      fontWeight: "800",
+      color: c.text.primary,
+    },
+    seeAll: {
+      fontSize: fontSizes.xs,
+      fontWeight: "700",
+      color: c.primaryLight,
     },
     centerBox: {
       flex: 1,
       alignItems: "center",
       justifyContent: "center",
       paddingTop: 60,
+      paddingHorizontal: spacing.xl,
     },
     emptyText: {
       marginTop: 16,
@@ -526,6 +600,12 @@ function makeStyles(c: ColorPalette) {
       fontSize: fontSizes.sm,
       color: c.text.muted,
       marginTop: 2,
+    },
+    peopleMeta: {
+      fontSize: fontSizes.xs,
+      color: c.text.muted,
+      marginTop: 2,
+      opacity: 0.8,
     },
     genericRow: {
       backgroundColor: c.bg.card,

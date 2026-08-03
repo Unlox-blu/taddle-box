@@ -15,7 +15,7 @@ export type HomeStackParamList = {
   ChangePassword: undefined;
   ChangePhone:    undefined;
   ChangeEmail:    undefined;
-  Search:         { query?: string } | undefined;
+  Search:         { query?: string; tab?: 'all' | 'posts' | 'people' | 'communities' | 'events' | 'games' | 'hashtags' } | undefined;
 };
 
 export type CommunityStackParamList = {

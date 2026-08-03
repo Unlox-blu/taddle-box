@@ -1,0 +1,163 @@
+import React, { createContext, useContext, useEffect, useRef, useState, useCallback } from "react";
+import * as Notifications from "expo-notifications";
+import { useAuth } from "./AuthContext";
+import { socketClient } from "../services/socketClient";
+import { notificationService } from "../services/notification.service";
+import { registerForPushNotificationsAsync, clearPushBadge } from "../services/push.service";
+import { notificationBus, NOTIF_EVENTS } from "../lib/notificationBus";
+
+export type InAppBanner = {
+  id: string;
+  title: string;
+  body: string;
+  type?: string;
+  data?: Record<string, any>;
+} | null;
+
+type NotificationContextType = {
+  /** Number of unread notifications (live-updated via socket). */
+  unreadCount: number;
+  /** The banner currently displayed in-app (top overlay). */
+  banner: InAppBanner;
+  showBanner: (b: Exclude<InAppBanner, null>) => void;
+  hideBanner: () => void;
+  /** Re-sync unread count from the backend. */
+  refreshUnread: () => Promise<void>;
+  /** Sets unread to 0 (e.g. user opened the notifications screen). */
+  clearUnread: () => void;
+};
+
+const NotificationContext = createContext<NotificationContextType>({
+  unreadCount: 0,
+  banner: null,
+  showBanner: () => {},
+  hideBanner: () => {},
+  refreshUnread: async () => {},
+  clearUnread: () => {},
+});
+
+export const useNotifications = () => useContext(NotificationContext);
+
+// Maps a backend notification payload (from socket or DB) into banner fields.
+const toBanner = (notif: any): Exclude<InAppBanner, null> => {
+  const title = notif?.title || "Taddlebox";
+  const body =
+    typeof notif?.message === "string"
+      ? notif.message
+      : notif?.type || "You have a new notification";
+  return {
+    id: String(notif?.id || Date.now()),
+    title,
+    body: body.length > 140 ? body.slice(0, 140) + "…" : body,
+    type: notif?.type,
+    data: notif,
+  };
+};
+
+export function NotificationProvider({ children }: { children: React.ReactNode }) {
+  const { isLoggedIn } = useAuth();
+  const [unreadCount, setUnreadCount] = useState(0);
+  const [banner, setBanner] = useState<InAppBanner>(null);
+  const bannerTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const registeredRef = useRef(false);
+  const lastNotifKey = useRef<string>("");
+
+  const refreshUnread = useCallback(async () => {
+    try {
+      const res = await notificationService.getNotifications(1, 1, true);
+      const count = res?.meta?.unreadCount ?? 0;
+      setUnreadCount(count);
+      notificationBus.emit(NOTIF_EVENTS.UNREAD_CHANGED, count);
+      if (count === 0) clearPushBadge();
+    } catch {
+      // offline — keep current count
+    }
+  }, []);
+
+  const hideBanner = useCallback(() => {
+    if (bannerTimer.current) clearTimeout(bannerTimer.current);
+    setBanner(null);
+  }, []);
+
+  const showBanner = useCallback((b: Exclude<InAppBanner, null>) => {
+    setBanner(b);
+    if (bannerTimer.current) clearTimeout(bannerTimer.current);
+    bannerTimer.current = setTimeout(() => setBanner(null), 6000);
+  }, []);
+
+  const clearUnread = useCallback(() => {
+    setUnreadCount(0);
+    clearPushBadge();
+    notificationBus.emit(NOTIF_EVENTS.UNREAD_CHANGED, 0);
+  }, []);
+
+  // Handle an incoming notification (socket or system foreground) uniformly.
+  const handleIncoming = useCallback(
+    (notif: any) => {
+      const key = String(notif?.id || notif?.message || Date.now());
+      // De-dupe rapid socket re-emissions of the same notification.
+      if (key === lastNotifKey.current) return;
+      lastNotifKey.current = key;
+
+      setUnreadCount((prev) => prev + 1);
+      notificationBus.emit(NOTIF_EVENTS.NEW, notif);
+      showBanner(toBanner(notif));
+    },
+    [showBanner],
+  );
+
+  // Reset on logout so a different account on the same device re-registers its
+  // own push token (device tokens are stored per user on the backend).
+  useEffect(() => {
+    if (!isLoggedIn) registeredRef.current = false;
+  }, [isLoggedIn]);
+
+  // ── Push token registration + system notification listeners ──────────────
+  useEffect(() => {
+    if (!isLoggedIn || registeredRef.current) return;
+    registeredRef.current = true;
+
+    registerForPushNotificationsAsync();
+
+    // Tapped from the system tray → open the notifications list.
+    const responseSub = Notifications.addNotificationResponseReceivedListener(
+      (response) => {
+        clearUnread();
+        notificationBus.emit(NOTIF_EVENTS.OPEN, response.notification.request.content.data);
+      },
+    );
+
+    // Foreground system notifications → render as an in-app banner.
+    const notifSub = Notifications.addNotificationReceivedListener((notification) => {
+      handleIncoming(notification.request.content.data || {
+        id: Date.now(),
+        title: notification.request.content.title,
+        message: notification.request.content.body,
+        type: "system",
+      });
+    });
+
+    return () => {
+      responseSub.remove();
+      notifSub.remove();
+    };
+  }, [isLoggedIn, handleIncoming, clearUnread]);
+
+  // ── Real-time socket notifications ───────────────────────────────────────
+  useEffect(() => {
+    if (!isLoggedIn) return;
+    refreshUnread();
+    socketClient.events.on("notification:new", handleIncoming);
+    return () => {
+      socketClient.events.off("notification:new", handleIncoming);
+    };
+  }, [isLoggedIn, handleIncoming, refreshUnread]);
+
+  return (
+    <NotificationContext.Provider
+      value={{ unreadCount, banner, showBanner, hideBanner, refreshUnread, clearUnread }}
+    >
+      {children}
+    </NotificationContext.Provider>
+  );
+}

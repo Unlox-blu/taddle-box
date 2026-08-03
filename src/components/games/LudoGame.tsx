@@ -10,9 +10,44 @@ import { gameSound, useTurnSound } from '../../services/gameSound';
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 const { width: SCREEN_W, height: SCREEN_H } = Dimensions.get('window');
-// Board fills width minus margins, but leave room for dice + header
-const BOARD_SIZE = Math.min(Math.floor(SCREEN_W - 24), Math.floor(SCREEN_H * 0.56), 390);
+// Board fills width minus margins, but leave room for corner avatars + dice
+const BOARD_SIZE = Math.min(Math.floor(SCREEN_W - 88), Math.floor(SCREEN_H * 0.5), 330);
 const CELL = BOARD_SIZE / 15;
+
+// Reference-style backdrop
+const BG_TOP = '#0A2472';
+const BG_BOTTOM = '#050D3A';
+
+// Corner position for each player index (matches the board quadrants)
+// TL = Red(0), TR = Green(1), BR = Yellow(2), BL = Blue(3)
+const CORNER_POS: Record<number, { align: 'left' | 'right'; vert: 'top' | 'bottom' }> = {
+  0: { align: 'left', vert: 'top' },
+  1: { align: 'right', vert: 'top' },
+  2: { align: 'right', vert: 'bottom' },
+  3: { align: 'left', vert: 'bottom' },
+};
+
+// Deterministic pseudo-random stars for the backdrop
+function seededStars(count: number, seed = 42) {
+  let s = seed;
+  const rnd = () => { s = (s * 1103515245 + 12345) % 2147483647; return s / 2147483647; };
+  return Array.from({ length: count }, () => ({
+    x: rnd() * 100, y: rnd() * 100, r: 0.8 + rnd() * 1.6, o: 0.25 + rnd() * 0.5,
+  }));
+}
+
+// Player progress % — sum of token path positions vs a full 4-token journey
+function playerProgress(tokens: any[] | undefined): number {
+  const tks = Array.isArray(tokens) ? tokens : [];
+  if (tks.length === 0) return 0;
+  let total = 0;
+  tks.forEach((t: any) => {
+    const p = Number(t?.pos ?? -1);
+    if (p < 0) return;
+    total += Math.min(1, (p + 1) / 57);
+  });
+  return Math.round((total / 4) * 100);
+}
 
 const PLAYER_COLORS   = ['#E32636', '#009E60', '#FFC000', '#007FFF'] as const;
 const PLAYER_COLORS_D = ['#9D1313', '#006B40', '#CC9900', '#0055AA'] as const;
@@ -91,6 +126,9 @@ type Props = {
 };
 
 // ── Dot positions for dice faces ──────────────────────────────────────────────
+// Fixed star field for the reference-style deep-blue backdrop
+const STARS = seededStars(34);
+
 const DOT_POS: Record<number, [number, number][]> = {
   1: [[50,50]],
   2: [[28,28],[72,72]],
@@ -380,67 +418,72 @@ export default function LudoGame({
         const { x, y } = getTokenPos(pi, token.id, token.pos ?? -1);
         const anim   = getAnim(tKey, x, y);
         const canMove = canMovePl && (gameState.movableTokens?.includes(token.id) ?? true);
-        const SIZE   = CELL * 0.78;
-        const HALF   = SIZE / 2;
-        // Remove all stagger to ensure tokens are mathematically centered in path cells
-        const sX = 0;
-        const sY = 0;
+        // Location-pin token: circular head (profile pic inside) + pointy tail
+        const HEAD  = CELL * 0.74;
+        const POINT = HEAD * 0.34;
+        const TOKEN_H = HEAD + POINT * 0.72;
 
         elements.push(
           <Animated.View key={tKey} style={{
             position: 'absolute',
-            width: SIZE, height: SIZE,
-            left: Animated.add(anim.x, new Animated.Value(-HALF + sX)),
-            top:  Animated.add(anim.y, new Animated.Value(-HALF + sY)),
+            width: HEAD, height: TOKEN_H,
+            left: Animated.add(anim.x, new Animated.Value(-HEAD / 2)),
+            top:  Animated.add(anim.y, new Animated.Value(-HEAD / 2)),
             zIndex: canMove ? 30 : isMe ? 20 : 10,
+            alignItems: 'center',
           }}>
             <TouchableOpacity
               onPress={() => canMove && moveToken(token.id)}
               activeOpacity={canMove ? 0.7 : 1}
-              style={{ width: SIZE, height: SIZE }}
+              style={{ width: HEAD, height: TOKEN_H, alignItems: 'center' }}
             >
               {/* Pulsing highlight ring */}
-              {canMove && <PulseRing size={SIZE} color={color} />}
+              {canMove && <PulseRing size={HEAD} color={color} />}
 
-              {/* Coin body */}
-              <View style={[styles.tokenOuter, {
-                width: SIZE, height: SIZE, borderRadius: HALF,
+              {/* Head — circle with profile pic */}
+              <View style={{
+                width: HEAD, height: HEAD, borderRadius: HEAD / 2,
                 backgroundColor: color,
-                borderColor: canMove ? '#FFFFFF' : 'rgba(255,255,255,0.45)',
-                borderWidth: canMove ? 2.5 : 1.5,
+                borderColor: canMove ? '#FFFFFF' : 'rgba(255,255,255,0.6)',
+                borderWidth: canMove ? 2.5 : 2,
                 shadowColor: color,
-                shadowOpacity: canMove ? 1 : 0.5,
-                shadowRadius: canMove ? 10 : 4,
-                elevation: canMove ? 14 : 6,
-              }]}>
-                {/* Shine overlay */}
-                <View style={[styles.tokenShine, {
-                  borderTopLeftRadius: HALF, borderTopRightRadius: HALF,
-                }]} />
-
-                {/* Profile photo or initials */}
+                shadowOpacity: canMove ? 1 : 0.55,
+                shadowRadius: canMove ? 9 : 4,
+                elevation: canMove ? 13 : 6,
+                alignItems: 'center', justifyContent: 'center',
+                overflow: 'hidden',
+              }}>
                 {avatarUri ? (
                   <Image
                     source={{ uri: avatarUri }}
                     style={{
-                      width: SIZE * 0.68, height: SIZE * 0.68,
-                      borderRadius: SIZE * 0.34,
-                      borderWidth: 1.5,
-                      borderColor: colorD,
+                      width: HEAD - 6, height: HEAD - 6,
+                      borderRadius: (HEAD - 6) / 2,
+                      borderWidth: 1.5, borderColor: colorD,
                     }}
                   />
                 ) : (
-                  <View style={[styles.tokenInner, {
-                    width: SIZE * 0.68, height: SIZE * 0.68,
-                    borderRadius: SIZE * 0.34,
+                  <View style={{
+                    width: HEAD - 6, height: HEAD - 6,
+                    borderRadius: (HEAD - 6) / 2,
                     backgroundColor: colorD,
-                  }]}>
-                    <Text style={[styles.tokenLabel, { fontSize: SIZE * 0.3 }]}>
+                    alignItems: 'center', justifyContent: 'center',
+                  }}>
+                    <Text style={{ fontSize: HEAD * 0.3, fontWeight: '900', color: '#FFF' }}>
                       {isMe ? (myName?.[0] || 'Y') : (info?.name?.[0] || (pi + 1).toString())}
                     </Text>
                   </View>
                 )}
               </View>
+
+              {/* Pin point tail */}
+              <View style={{
+                width: POINT, height: POINT, borderRadius: 4,
+                backgroundColor: color,
+                transform: [{ rotate: '45deg' }],
+                marginTop: -POINT * 0.35,
+                borderWidth: 1.5, borderColor: '#FFF',
+              }} />
             </TouchableOpacity>
           </Animated.View>
         );
@@ -494,10 +537,57 @@ export default function LudoGame({
   const curIdx  = gameState?.currentTurnIndex ?? 0;
   const curColor = PLAYER_COLORS[curIdx % 4];
 
+  // ── Corner avatar cards (reference-style) ─────────────────────────────────
+  const renderCornerCards = () => {
+    if (!gameState?.tokens) return null;
+    const playerIds = Object.keys(gameState.tokens);
+    return (
+      <>
+        {playerIds.slice(0, 4).map((uid, i) => {
+          const pos = CORNER_POS[i];
+          if (!pos) return null;
+          const isMe    = uid === userId;
+          const color   = PLAYER_COLORS[i % 4];
+          const info    = playerInfo[uid];
+          const avatarUri = isMe ? (myAvatar || null) : (info?.avatar || null);
+          const label = isMe ? (myName || 'You') : (info?.name || `P${i + 1}`);
+          const isActive = (gameState.currentTurnIndex ?? 0) === i;
+          const pct = playerProgress(gameState.tokens[uid]);
+          return (
+            <View
+              key={uid}
+              pointerEvents="none"
+              style={[styles.cornerCard, {
+                [pos.align]: 10,
+                [pos.vert]: 10,
+                borderColor: isActive ? '#FDE68A' : 'rgba(124,168,255,0.45)',
+                backgroundColor: isActive ? 'rgba(6,20,90,0.85)' : 'rgba(4,12,56,0.6)',
+              }]}
+            >
+              <View style={[styles.cornerAvatarFrame, { borderColor: isActive ? '#FDE68A' : '#5B82EC' }]}>
+                {avatarUri ? (
+                  <Image source={{ uri: avatarUri }} style={styles.cornerAvatar} />
+                ) : (
+                  <View style={[styles.cornerAvatarPh, { backgroundColor: color }]}>
+                    <Text style={styles.cornerAvatarInitial}>{(label || '?')[0].toUpperCase()}</Text>
+                  </View>
+                )}
+              </View>
+              <Text style={[styles.cornerName, { color: isActive ? '#FFF' : '#B9CBF8' }]} numberOfLines={1}>
+                {isMe ? 'You' : label}
+              </Text>
+              <Text style={[styles.cornerPct, { color }]}>{pct}%</Text>
+            </View>
+          );
+        })}
+      </>
+    );
+  };
+
   // ── Loading screens ───────────────────────────────────────────────────────
   if (status === 'connecting' || status === 'waiting') {
     return (
-      <LinearGradient colors={['#0D1117', '#0D1F2D']} style={styles.fullCenter}>
+      <LinearGradient colors={[BG_TOP, BG_BOTTOM]} style={styles.fullCenter}>
         <Text style={styles.splashEmoji}>{status === 'connecting' ? '🎲' : '⏳'}</Text>
         <Text style={styles.splashTitle}>Ludo Classic</Text>
         <Text style={styles.splashSub}>{status === 'connecting' ? 'Connecting…' : 'Waiting for players…'}</Text>
@@ -509,25 +599,33 @@ export default function LudoGame({
   const spin = diceRotate.interpolate({ inputRange: [0, 1], outputRange: ['0deg', '15deg'] });
 
   return (
-    <LinearGradient colors={['#0D1117', '#0B1624']} style={styles.container}>
+    <LinearGradient colors={[BG_TOP, BG_BOTTOM]} style={styles.container}>
+
+      {/* ─ Stars backdrop ─ */}
+      <View pointerEvents="none" style={StyleSheet.absoluteFill}>
+        {STARS.map((s, i) => (
+          <View key={i} style={{
+            position: 'absolute', left: `${s.x}%` as any, top: `${s.y}%` as any,
+            width: s.r * 2, height: s.r * 2, borderRadius: s.r,
+            backgroundColor: '#FFFFFF', opacity: s.o,
+          }} />
+        ))}
+      </View>
 
       {/* ─ Turn banner ─ */}
-      <View style={[styles.turnBanner, { borderColor: curColor + '55', backgroundColor: curColor + '12' }]}>
+      <View style={[styles.turnBanner, { borderColor: curColor + '88', backgroundColor: 'rgba(5,13,58,0.65)' }]}>
         <View style={[styles.turnDot, { backgroundColor: curColor }]} />
-        <Text style={[styles.turnText, { color: curColor }]} numberOfLines={1}>
+        <Text style={[styles.turnText, { color: '#F8FAFC' }]} numberOfLines={1}>
           {isMyTurn
-            ? hasDice ? `🎯 Rolled ${face} — Tap a token!` : '🎲 Your Turn — Roll!'
+            ? hasDice ? `🎯 Rolled ${face} — Tap a token!` : '🎲 Your Turn — Tap the die!'
             : `${PLAYER_NAMES[curIdx % 4]}'s Turn`}
         </Text>
       </View>
 
-      {/* ─ Player info strip ─ */}
-      {renderPlayerStrip()}
-
       {/* ─ Board ─ */}
       <View style={styles.boardWrap}>
         <LinearGradient
-          colors={[curColor + '55', 'transparent']}
+          colors={[curColor + '66', 'transparent']}
           style={[StyleSheet.absoluteFill, { borderRadius: 14 }]}
           pointerEvents="none"
         />
@@ -537,19 +635,24 @@ export default function LudoGame({
         </View>
       </View>
 
-      {/* ─ Dice + Roll button ─ */}
-      <View style={styles.controls}>
+      {/* ─ Corner avatar cards (like the reference) ─ */}
+      {renderCornerCards()}
+
+      {/* ─ Die — bottom center, tap to roll ─ */}
+      <View style={styles.dieArea}>
         <TouchableOpacity onPress={rollDice} disabled={!isMyTurn || hasDice} activeOpacity={0.85}>
-          <Animated.View style={[styles.diceWrap, hasDice && styles.diceWrapRolled,
-            { transform: [{ scale: diceScale }, { rotate: spin }] }
+          <Animated.View style={[
+            styles.dieGlowWrap,
+            hasDice && styles.dieGlowWrapRolled,
+            { transform: [{ scale: diceScale }, { rotate: spin }] },
           ]}>
             <LinearGradient
-              colors={hasDice ? ['#2D1B69', '#1E1B4B'] : ['#111827', '#1E293B']}
-              style={styles.diceBody}
+              colors={hasDice ? ['#FDE68A', '#F8FAFC'] : ['#FFFFFF', '#DBE4F6']}
+              style={styles.dieBody}
             >
               {hasDice ? (
                 (DOT_POS[face] || []).map(([dx, dy], i) => (
-                  <View key={i} style={[styles.dot, { left: `${dx}%` as any, top: `${dy}%` as any }]} />
+                  <View key={i} style={[styles.dot, styles.dotDark, { left: `${dx}%` as any, top: `${dy}%` as any }]} />
                 ))
               ) : (
                 <Text style={styles.diceQ}>?</Text>
@@ -557,25 +660,11 @@ export default function LudoGame({
             </LinearGradient>
           </Animated.View>
         </TouchableOpacity>
-
-        <TouchableOpacity
-          style={[styles.rollBtn, (!isMyTurn || hasDice) && { opacity: 0.5 }]}
-          onPress={rollDice}
-          disabled={!isMyTurn || hasDice}
-          activeOpacity={0.85}
-        >
-          <LinearGradient
-            colors={isMyTurn && !hasDice ? ['#7C3AED', '#0891B2'] : ['#1E293B', '#1E293B']}
-            start={{ x: 0, y: 0 }} end={{ x: 1, y: 0 }}
-            style={styles.rollBtnGrad}
-          >
-            <Text style={[styles.rollBtnText, (!isMyTurn || hasDice) && { color: '#4B5563' }]}>
-              {hasDice
-                ? `Rolled ${face} — Pick a token`
-                : isMyTurn ? 'Roll Dice  🎲' : `${PLAYER_NAMES[curIdx % 4]}'s turn…`}
-            </Text>
-          </LinearGradient>
-        </TouchableOpacity>
+        <Text style={styles.dieHint}>
+          {hasDice
+            ? `Rolled ${face} — tap a token`
+            : isMyTurn ? 'Tap the die to roll' : `${PLAYER_NAMES[curIdx % 4]}'s turn…`}
+        </Text>
       </View>
 
       {/* ─ Toast ─ */}
@@ -698,35 +787,55 @@ const styles = StyleSheet.create({
   tokenInner: { justifyContent: 'center', alignItems: 'center' },
   tokenLabel: { fontWeight: '900', color: '#FFF' },
 
-  // Controls
-  controls: {
-    flexDirection: 'row', alignItems: 'center',
-    gap: 12, paddingHorizontal: 12, marginTop: 10, width: '100%',
+  // Corner avatar cards
+  cornerCard: {
+    position: 'absolute',
+    alignItems: 'center', paddingVertical: 6, paddingHorizontal: 8,
+    borderRadius: 16, borderWidth: 1.5,
+    shadowColor: '#6FA0FF', shadowOpacity: 0.45, shadowRadius: 8,
+    shadowOffset: { width: 0, height: 2 }, elevation: 10,
+    minWidth: 66,
   },
-  diceWrap: {
-    width: 60, height: 60, borderRadius: 14,
-    borderWidth: 2.5, borderColor: 'rgba(124,58,237,0.4)',
-    elevation: 10, shadowColor: '#7C3AED',
-    shadowOpacity: 0.5, shadowRadius: 8,
+  cornerAvatarFrame: {
+    width: 42, height: 42, borderRadius: 12,
+    borderWidth: 2, padding: 2,
+    backgroundColor: 'rgba(8,26,100,0.85)',
+    alignItems: 'center', justifyContent: 'center',
   },
-  diceWrapRolled: { borderColor: '#7C3AED' },
-  diceBody: {
-    width: 60, height: 60, borderRadius: 13,
+  cornerAvatar: { width: 34, height: 34, borderRadius: 9 },
+  cornerAvatarPh: {
+    width: 34, height: 34, borderRadius: 9,
+    alignItems: 'center', justifyContent: 'center',
+  },
+  cornerAvatarInitial: { color: '#FFF', fontWeight: '900', fontSize: 15 },
+  cornerName: { fontSize: 10, fontWeight: '800', marginTop: 4, maxWidth: 70, textAlign: 'center' },
+  cornerPct: { fontSize: 11, fontWeight: '900', marginTop: 1 },
+
+  // Die — bottom center (reference style: white die, blue glow)
+  dieArea: { alignItems: 'center', marginTop: 12 },
+  dieGlowWrap: {
+    width: 62, height: 62, borderRadius: 16,
+    borderWidth: 2.5, borderColor: '#7FA6FF',
+    backgroundColor: '#FFFFFF',
+    elevation: 14, shadowColor: '#6FA0FF',
+    shadowOpacity: 0.8, shadowRadius: 12, shadowOffset: { width: 0, height: 0 },
+  },
+  dieGlowWrapRolled: { borderColor: '#FDE68A', shadowColor: '#FDE68A' },
+  dieBody: {
+    width: 62, height: 62, borderRadius: 14,
     justifyContent: 'center', alignItems: 'center', position: 'relative',
   },
   dot: {
-    position: 'absolute', width: 10, height: 10, borderRadius: 5,
+    position: 'absolute', width: 11, height: 11, borderRadius: 5.5,
     backgroundColor: '#F8FAFC',
-    transform: [{ translateX: -5 }, { translateY: -5 }],
+    transform: [{ translateX: -5.5 }, { translateY: -5.5 }],
   },
-  diceQ: { fontSize: 26, color: '#4B5563', fontWeight: '900' },
-
-  rollBtn: { flex: 1, borderRadius: 30, overflow: 'hidden', elevation: 6 },
-  rollBtnGrad: { height: 56, justifyContent: 'center', alignItems: 'center' },
-  rollBtnText: { color: '#FFF', fontSize: 15, fontWeight: '900', letterSpacing: 0.4 },
+  dotDark: { backgroundColor: '#0A2472' },
+  diceQ: { fontSize: 28, color: '#0A2472', fontWeight: '900' },
+  dieHint: { marginTop: 6, color: '#C7D6FF', fontSize: 12, fontWeight: '700' },
 
   // Toast
-  toast: { position: 'absolute', bottom: 80, alignSelf: 'center', borderRadius: 24, overflow: 'hidden', elevation: 18 },
+  toast: { position: 'absolute', bottom: 96, alignSelf: 'center', borderRadius: 24, overflow: 'hidden', elevation: 18 },
   toastInner: { paddingHorizontal: 22, paddingVertical: 11, borderRadius: 24, borderWidth: 1.5, borderColor: 'rgba(124,58,237,0.45)' },
   toastText: { color: '#F1F5F9', fontSize: 15, fontWeight: '900' },
 });

@@ -116,7 +116,7 @@ export function GamesProvider({ children }: { children: React.ReactNode }) {
       const [historyRes, gamesRes, trendingRes] = await Promise.all([
         gamesService.getMatchHistory(1, 20).catch(() => ({ data: [] })),
         gamesService.getGames(1, 50).catch(() => ({ data: [] })),
-        gamesService.getTrendingGames(5).catch(() => ({ data: [] })),
+        gamesService.getTrendingGames(3).catch(() => ({ data: [] })),
       ]);
       
       const history = Array.isArray(historyRes?.data) ? historyRes.data.map(formatMatch) : [];

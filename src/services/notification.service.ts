@@ -30,25 +30,47 @@ export const notificationService = {
       const match = n.message?.match(/^(\S+)/);
       const firstWord = match ? match[1] : 'U';
 
-      // backend type could be 'follow', 'like_post', etc. Map it to frontend Notification['type'].
+      // backend type could be 'follow', 'FOLLOW', 'like_post', 'GAME_INVITE', etc.
+      // Normalize case so both lowercase (legacy job processor) and uppercase
+      // (publishNotification/normalizeType) stored types map correctly.
+      const rawType = String(n.type || '').toUpperCase();
       let mappedType: Notification['type'] = 'mention';
-      if (n.type === 'follow') mappedType = 'follow';
-      else if (n.type?.includes('like')) mappedType = 'like';
-      else if (n.type?.includes('comment')) mappedType = 'comment';
-      else if (n.type?.includes('event')) mappedType = 'event';
-      else if (n.type === 'wallet_credit') mappedType = 'achievement';
-      else if (n.type === 'GAME_INVITE' || n.type === 'game_invite') mappedType = 'game_invite';
+      if (rawType === 'FOLLOW' || rawType === 'REQUEST_TO_FOLLOW' || rawType === 'APPROVED_TO_FOLLOW') mappedType = 'follow';
+      else if (rawType.includes('LIKE')) mappedType = 'like';
+      else if (rawType.includes('COMMENT')) mappedType = 'comment';
+      else if (rawType.includes('EVENT')) mappedType = 'event';
+      else if (rawType === 'WALLET_CREDIT' || rawType === 'REFERRAL_REWARD' || rawType === 'LEVEL_UP') mappedType = 'achievement';
+      else if (rawType === 'GAME_INVITE') mappedType = 'game_invite';
 
       let payload: any = undefined;
       let text = n.message || '';
       if (mappedType === 'game_invite') {
+        // Backend message format: "Tap to join their private lobby | <lobbyId> | <inviteCode>"
         const parts = text.split('|');
         if (parts.length > 1) {
-          payload = { gameId: n.resourceId, matchGroupId: parts[1] };
+          const lobbyId = parts[1]?.trim();
+          const inviteCode = parts[2]?.trim() || lobbyId;
+          // Title format: "<sender> invited you to play <game>!"
+          const gameName = n.title?.match(/play\s+(.+?)\s*!/)?.[1];
+          payload = {
+            gameId: n.resourceId,
+            lobbyId,
+            matchGroupId: lobbyId,
+            inviteCode,
+            gameName,
+            senderId: n.senderId,
+          };
           text = parts[0];
         } else {
-          payload = { gameId: n.resourceId };
+          payload = { gameId: n.resourceId, inviteCode: n.resourceId };
         }
+      } else if (mappedType === 'follow') {
+        // Carry the follower's identity so the NotificationsScreen can render a
+        // Follow Back action without another API call.
+        const username = n.message?.match(/\(@([^)]+)\)/)?.[1];
+        payload = { userId: n.senderId, username };
+      } else if (mappedType === 'achievement' && rawType === 'REFERRAL_REWARD') {
+        payload = { kind: 'referral_reward', userId: n.senderId };
       }
 
       return {

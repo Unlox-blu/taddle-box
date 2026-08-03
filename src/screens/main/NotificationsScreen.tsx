@@ -10,6 +10,9 @@ import { fontSizes, spacing, radii, type ColorPalette } from '../../theme';
 import { useTheme, useThemeColors } from '../../context/ThemeContext';
 import type { HomeStackParamList, Notification } from '../../types';
 import { notificationService } from '../../services/notification.service';
+import { userService } from '../../services/user.service';
+import { useNotifications } from '../../context/NotificationContext';
+import { notificationBus, NOTIF_EVENTS } from '../../lib/notificationBus';
 
 type Props = NativeStackScreenProps<HomeStackParamList, 'Notifications'>;
 
@@ -115,6 +118,22 @@ function makeStyles(c: ColorPalette) {
     btnJoinText: { color: '#fff', fontSize: fontSizes.sm, fontWeight: '700' },
     btnDeny: { flex: 1, backgroundColor: c.bg.elevated, paddingVertical: 8, borderRadius: radii.md, alignItems: 'center' },
     btnDenyText: { color: c.text.secondary, fontSize: fontSizes.sm, fontWeight: '700' },
+
+    // Follow-back action for "New follower" notifications
+    followBackBtn: {
+      alignSelf: 'flex-start', marginTop: 10,
+      flexDirection: 'row', alignItems: 'center', gap: 6,
+      paddingHorizontal: 14, paddingVertical: 7,
+      borderRadius: radii.full,
+      backgroundColor: 'rgba(124,58,237,0.16)',
+      borderWidth: 1, borderColor: 'rgba(124,58,237,0.4)',
+    },
+    followBackDone: {
+      backgroundColor: 'rgba(16,185,129,0.12)',
+      borderColor: 'rgba(16,185,129,0.35)',
+    },
+    followBackText: { fontSize: fontSizes.xs, fontWeight: '800', color: c.primaryLight },
+    followBackDoneText: { color: c.success },
   });
 }
 
@@ -128,6 +147,10 @@ export default function NotificationsScreen({ navigation }: Props) {
   const [notifs, setNotifs] = useState<Notification[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
+  // Tracks which follow notifications the user already followed back
+  const [followedBack, setFollowedBack] = useState<Record<string, boolean>>({});
+  const [followBusy, setFollowBusy] = useState<string | null>(null);
+  const { clearUnread } = useNotifications();
 
   const fetchNotifs = async () => {
     try {
@@ -138,8 +161,21 @@ export default function NotificationsScreen({ navigation }: Props) {
     }
   };
 
+  // Refetch in real-time when a new notification arrives over the socket, and
+  // when the user lands here from a system-tray tap or banner.
   useEffect(() => {
     fetchNotifs().finally(() => setLoading(false));
+    const offNew = notificationBus.on(NOTIF_EVENTS.NEW, () => fetchNotifs());
+    const offOpen = notificationBus.on(NOTIF_EVENTS.OPEN, () => fetchNotifs());
+    const sub = navigation.addListener('focus', () => fetchNotifs());
+
+    clearUnread();
+
+    return () => {
+      offNew();
+      offOpen();
+      sub();
+    };
   }, []);
 
   const onRefresh = async () => {
@@ -246,7 +282,9 @@ export default function NotificationsScreen({ navigation }: Props) {
                             onPress={(e) => {
                               e.stopPropagation();
                               markRead(notif.id);
-                              require('react-native').DeviceEventEmitter.emit('GAME_INVITE_ACCEPTED', notif.payload);
+                              if (notif.payload) {
+                                require('react-native').DeviceEventEmitter.emit('GAME_INVITE_ACCEPTED', notif.payload);
+                              }
                               (navigation as any).navigate('Main', { screen: 'Games' });
                             }}
                           >
@@ -262,6 +300,54 @@ export default function NotificationsScreen({ navigation }: Props) {
                             <Text style={styles.btnDenyText}>Deny</Text>
                           </TouchableOpacity>
                         </View>
+                      )}
+
+                      {notif.type === 'follow' && notif.payload?.username && (
+                        <TouchableOpacity
+                          style={[
+                            styles.followBackBtn,
+                            followedBack[notif.id] && styles.followBackDone,
+                          ]}
+                          disabled={followedBack[notif.id] || followBusy === notif.id}
+                          onPress={async (e) => {
+                            e.stopPropagation();
+                            markRead(notif.id);
+                            if (followedBack[notif.id]) return;
+                            const followUsername = notif.payload?.username;
+                            if (!followUsername) return;
+                            setFollowBusy(notif.id);
+                            try {
+                              await userService.followUser(followUsername);
+                              setFollowedBack(prev => ({ ...prev, [notif.id]: true }));
+                            } catch (err: any) {
+                              // "already following" is a success for the follow-back flow
+                              const msg = err?.response?.data?.message || err?.message || '';
+                              if (/already following|request/i.test(msg)) {
+                                setFollowedBack(prev => ({ ...prev, [notif.id]: true }));
+                              }
+                            } finally {
+                              setFollowBusy(null);
+                            }
+                          }}
+                        >
+                          <Ionicons
+                            name={followedBack[notif.id] ? 'checkmark' : 'person-add'}
+                            size={13}
+                            color={followedBack[notif.id] ? colors.success : colors.primaryLight}
+                          />
+                          <Text
+                            style={[
+                              styles.followBackText,
+                              followedBack[notif.id] && styles.followBackDoneText,
+                            ]}
+                          >
+                            {followBusy === notif.id
+                              ? 'Following…'
+                              : followedBack[notif.id]
+                                ? 'Following'
+                                : 'Follow Back'}
+                          </Text>
+                        </TouchableOpacity>
                       )}
                     </View>
 

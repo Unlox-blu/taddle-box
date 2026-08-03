@@ -11,9 +11,11 @@ import { PostsProvider }    from './src/context/PostsContext';
 import { CommunityProvider }from './src/context/CommunityContext';
 import { WalletProvider }   from './src/context/WalletContext';
 import { GamesProvider }    from './src/context/GamesContext';
+import { NotificationProvider } from './src/context/NotificationContext';
 import { QueryClientProvider } from '@tanstack/react-query';
 import { queryClient } from './src/lib/react-query';
 import AppLockOverlay       from './src/components/common/AppLockOverlay';
+import NotificationBanner   from './src/components/common/NotificationBanner';
 import { initGameSound }     from './src/services/gameSound';
 
 SplashScreen.preventAutoHideAsync();
@@ -37,6 +39,7 @@ function AppShell() {
           backgroundColor={colors.bg.base}
         />
         <AppNavigator />
+        <NotificationBanner />
         <AppLockOverlay />
       </SafeAreaProvider>
     </GestureHandlerRootView>
@@ -52,7 +55,9 @@ export default function App() {
             <GamesProvider>
               <CommunityProvider>
                 <PostsProvider>
-                  <AppShell />
+                  <NotificationProvider>
+                    <AppShell />
+                  </NotificationProvider>
                 </PostsProvider>
               </CommunityProvider>
             </GamesProvider>

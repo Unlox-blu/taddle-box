@@ -16,8 +16,9 @@ import { createGameEngineSocket } from "../../services/socketClient";
 import { gameSound, useTurnSound } from "../../services/gameSound";
 import type { HtmlGameResult } from "../../games/types";
 
-const { width } = Dimensions.get("window");
-const BOARD_SIZE = width - 24;
+const { width: SCREEN_W, height: SCREEN_H } = Dimensions.get("window");
+// Board fits between the two player rows + safe-area, with a max cap
+const BOARD_SIZE = Math.min(SCREEN_W - 24, Math.floor(SCREEN_H * 0.62), 400);
 
 export type PlayerContext = {
   id: string;
@@ -398,48 +399,116 @@ export default function ChessGame({
     );
   }
 
-  return (
-    <GestureHandlerRootView style={styles.container}>
-      {/* Opponent row */}
-      <View style={styles.playerRow}>
+  const renderPlayerRow = ({
+    isOpponent,
+    label,
+    avatarUri,
+    colorKey,
+    caps,
+    advantage,
+    time,
+    isTurn,
+  }: {
+    isOpponent: boolean;
+    label: string;
+    avatarUri: string | null | undefined;
+    colorKey: "w" | "b";
+    caps: string[];
+    advantage: string | null;
+    time: number;
+    isTurn: boolean;
+  }) => {
+    return (
+      <View style={[styles.playerRow, isTurn && status === "active" && styles.playerRowActive]}>
         <View style={styles.avatarContainer}>
-            <Image 
-                source={require("../../../assets/icon.png")}
-                style={styles.avatar} 
-            />
-            <View style={[styles.colorChipMini, { backgroundColor: playerColor === "w" ? "#F8FAFC" : "#1E293B" }]}>
-              <Text style={[styles.colorChipTextMini, { color: playerColor === "w" ? "#0F172A" : "#94A3B8" }]}>{myColorName[0]}</Text>
+          {avatarUri ? (
+            <Image source={{ uri: avatarUri }} style={styles.avatar} />
+          ) : (
+            <View style={[styles.avatarFallback, { backgroundColor: colorKey === "w" ? "#E2E8F0" : "#1E293B" }]}>
+              <Text style={[styles.avatarFallbackText, { color: colorKey === "w" ? "#0F172A" : "#94A3B8" }]}>
+                {(label || "?")[0].toUpperCase()}
+              </Text>
             </View>
+          )}
+          <View style={[styles.colorChipMini, { backgroundColor: colorKey === "w" ? "#F8FAFC" : "#1E293B" }]}>
+            <Text style={[styles.colorChipTextMini, { color: colorKey === "w" ? "#0F172A" : "#94A3B8" }]}>
+              {colorKey === "w" ? "W" : "B"}
+            </Text>
+          </View>
         </View>
 
         <View style={styles.playerInfo}>
           <View style={styles.nameRow}>
-            <Text style={styles.playerName}>You</Text>
-            {moves[playerColor] && (
+            <Text style={styles.playerName} numberOfLines={1}>{label}</Text>
+            {moves[colorKey] && (
               <View style={styles.moveBadge}>
-                <Text style={styles.moveBadgeText}>{moves[playerColor]}</Text>
+                <Text style={styles.moveBadgeText}>{moves[colorKey]}</Text>
               </View>
             )}
           </View>
-          {renderCaptures(myCaps, myAdvantage)}
+          {renderCaptures(caps, advantage)}
         </View>
 
-        <View
-          style={[
-            styles.timerBadge,
-            isMyTurn && status === "active" && styles.timerActive,
-          ]}
-        >
-          <Text
-            style={[
-              styles.timerText,
-              isMyTurn && status === "active" && styles.timerTextActive,
-            ]}
-          >
-            {formatTime(timers[playerColor])}
+        <View style={[styles.timerBadge, isTurn && status === "active" && styles.timerActive]}>
+          <Text style={[styles.timerText, isTurn && status === "active" && styles.timerTextActive]}>
+            {formatTime(time)}
           </Text>
         </View>
       </View>
+    );
+  };
+
+  const myAvatarUri = (() => {
+    const me = (players || []).find((p: any) => p.id === userId);
+    return me?.avatar || null;
+  })();
+  const oppAvatarUri = (() => {
+    const opp = (players || []).find((p: any) => p.id !== userId);
+    return opp?.avatar || null;
+  })();
+
+  return (
+    <GestureHandlerRootView style={styles.container}>
+      {/* Opponent row (top) */}
+      {renderPlayerRow({
+        isOpponent: true,
+        label: opponentName,
+        avatarUri: oppAvatarUri,
+        colorKey: oppColor,
+        caps: oppCaps,
+        advantage: oppAdvantage,
+        time: timers[oppColor],
+        isTurn: chess.turn() === oppColor && status === "active",
+      })}
+
+      {/* Board — the star of the screen */}
+      <View style={[styles.boardWrap, inCheck && styles.boardWrapCheck]}>
+        {inCheck && (
+          <View style={styles.checkBanner}>
+            <Text style={styles.checkText}>⚠ CHECK</Text>
+          </View>
+        )}
+        <Chessboard
+          ref={chessboardRef}
+          fen={chess.fen()}
+          boardSize={BOARD_SIZE}
+          boardOrientation={playerColor === "w" ? "white" : "black"}
+          playerSide={playerColor === "w" ? "white" : "black"}
+          onMove={onMove}
+        />
+      </View>
+
+      {/* My row (bottom) */}
+      {renderPlayerRow({
+        isOpponent: false,
+        label: "You",
+        avatarUri: myAvatarUri,
+        colorKey: playerColor,
+        caps: myCaps,
+        advantage: myAdvantage,
+        time: timers[playerColor],
+        isTurn: isMyTurn && status === "active",
+      })}
 
       {/* Game over overlay */}
       {status === "finished" && (
@@ -558,25 +627,39 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     backgroundColor: "rgba(31, 41, 55, 0.5)",
-    padding: 12,
+    padding: 10,
     marginHorizontal: 12,
     borderRadius: 16,
     borderWidth: 1,
     borderColor: "rgba(255,255,255,0.05)",
   },
+  playerRowActive: {
+    borderColor: "rgba(124,58,237,0.6)",
+    backgroundColor: "rgba(76,29,149,0.22)",
+  },
   avatarContainer: {
     position: "relative",
-    width: 44,
-    height: 44,
+    width: 40,
+    height: 40,
     marginRight: 12,
   },
   avatar: {
-    width: 44,
-    height: 44,
-    borderRadius: 22,
+    width: 40,
+    height: 40,
+    borderRadius: 20,
     borderWidth: 2,
     borderColor: "rgba(255,255,255,0.1)",
   },
+  avatarFallback: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    alignItems: "center",
+    justifyContent: "center",
+    borderWidth: 2,
+    borderColor: "rgba(255,255,255,0.1)",
+  },
+  avatarFallbackText: { fontSize: 16, fontWeight: "900" },
   colorChipMini: {
     position: "absolute",
     bottom: -4,
@@ -655,31 +738,40 @@ const styles = StyleSheet.create({
   myTurnGradient: { paddingHorizontal: 14, paddingVertical: 7 },
   myTurnText: { color: "#FFF", fontWeight: "900", fontSize: 13 },
 
-  checkBanner: {
-    borderRadius: 10,
-    padding: 8,
-    marginBottom: 6,
-    alignItems: "center",
-    borderWidth: 1.5,
-    borderColor: "rgba(239,68,68,0.5)",
-  },
-  checkText: {
-    color: "#EF4444",
-    fontWeight: "900",
-    fontSize: 15,
-    letterSpacing: 1,
-  },
 
   boardWrap: {
-    width: BOARD_SIZE,
-    height: BOARD_SIZE,
-    borderRadius: 10,
+    width: BOARD_SIZE + 8,
+    height: BOARD_SIZE + 8,
+    borderRadius: 14,
     overflow: "hidden",
     borderWidth: 2,
-    borderColor: "rgba(124,58,237,0.3)",
+    borderColor: "rgba(124,58,237,0.45)",
     alignSelf: "center",
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "#0F172A",
+    marginVertical: 10,
+    elevation: 14,
+    shadowColor: "#7C3AED",
+    shadowOpacity: 0.4,
+    shadowRadius: 16,
+    shadowOffset: { width: 0, height: 4 },
   },
-  boardWrapCheck: { borderColor: "#EF4444" },
+  boardWrapCheck: { borderColor: "#EF4444", shadowColor: "#EF4444" },
+  checkBanner: {
+    position: "absolute", top: 8, zIndex: 20,
+    borderRadius: 20, paddingHorizontal: 14, paddingVertical: 5,
+    backgroundColor: "rgba(239,68,68,0.9)",
+    shadowColor: "#EF4444", shadowOpacity: 0.6, shadowRadius: 10,
+  },
+  checkText: { color: "#FFF", fontWeight: "900", fontSize: 12, letterSpacing: 1 },
+  gameOverOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: "rgba(5,5,15,0.88)",
+    justifyContent: "center",
+    alignItems: "center",
+    zIndex: 50,
+  },
 
   gameOverOverlay: {
     ...StyleSheet.absoluteFillObject,

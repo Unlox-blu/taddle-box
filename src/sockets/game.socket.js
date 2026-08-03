@@ -57,23 +57,10 @@ const setupGameSocket = (io) => {
   
       if (type === 'reconnect') {
         if (latestState.status !== MATCH_STATES.PAUSED) return;
-        latestState.status = MATCH_STATES.FINISHED;
-        latestState.winner = 'opponent'; 
-        await EventStore.saveMatchSnapshot(matchId, latestState);
-        await EventStore.appendEvent(matchId, { type: 'FORFEIT', userId });
-        gameNs.to(`match:${matchId}`).emit(EVENTS.GAME_OVER, {
-          state: latestState,
-          reason: 'forfeit',
-          forfeitedBy: userId,
-        });
-        botHandler.handleMatchEnd(matchId, gameSlug, latestState);
-        await _archiveMatch(matchId, latestState);
-        
-        // Notify players in their global user rooms (for updating UI like GamesScreen)
-        const players = latestState.metadata?.players || [];
-        players.forEach(p => {
-          io.to(`user:${p.userId}`).emit('SESSION_EXPIRED', { matchId });
-        });
+        // The player may have returned right as this timer fired — only resolve
+        // if they are still listed as offline.
+        if (!(latestState.disconnectedPlayers || []).includes(userId)) return;
+        await _resolveReconnectTimeout(gameNs, matchId, gameSlug, userId, latestState);
       } else if (type === 'turn') {
         if (latestState.status !== MATCH_STATES.ACTIVE) return;
         const currentPlayerId = latestState.pluginState?.turnOrder?.[latestState.pluginState?.currentTurnIndex];
@@ -179,7 +166,7 @@ const setupGameSocket = (io) => {
     try {
       // Validate the user's match token AND fetch all players in this match
       const { rows } = await pool.query(
-        `SELECT mm.user_id, mm.ws_token, mm.player_color, g.slug as game_slug, gm.metadata as match_metadata, gm.mode as match_mode
+        `SELECT mm.user_id, mm.ws_token, mm.player_color, g.slug as game_slug, gm.metadata as match_metadata
          FROM match_members mm
          JOIN game_matches gm ON mm.match_id = gm.id
          JOIN game g ON gm.game_id = g.id
@@ -196,7 +183,18 @@ const setupGameSocket = (io) => {
       socket.gameSlug = myRow.game_slug;
       socket.matchPlayers = rows.map(r => ({ userId: r.user_id, color: r.player_color }));
       socket.matchMetadata = myRow.match_metadata || {};
-      socket.matchMode = (myRow.match_mode || 'AUTO').toUpperCase();
+
+      // AUTO/CUSTOM lobbies fill empty spots with bots stored in game_lobby.settings.bots.
+      // Load them so the engine runs the bot as a real player and the match flows completely.
+      socket.lobbyBots = [];
+      try {
+        const lobbyRes = await pool.query(
+          `SELECT settings FROM game_lobby WHERE id = $1`,
+          [matchId]
+        );
+        const settings = lobbyRes.rows[0]?.settings || {};
+        if (Array.isArray(settings.bots)) socket.lobbyBots = settings.bots;
+      } catch (e) { /* matchId may not be a lobby id (tournament/direct match) */ }
 
       next();
     } catch (e) {
@@ -216,11 +214,14 @@ const setupGameSocket = (io) => {
     let state;
     try {
       const players = [...(socket.matchPlayers || [])];
-      const isBotMode = botHandler.setupBotPlayer(socket, players, matchId);
+      // Inject lobby bots (AUTO/CUSTOM flow) so the engine includes them as players
+      botHandler.setupBotPlayer(socket, players);
+      // Keep the enriched list on the socket so READY detects bot matches correctly
+      socket.matchPlayers = players;
 
       const result = await MatchManager.loadOrInitializeMatch(matchId, gameSlug, {
         players,
-        maxPlayers: isBotMode ? 2 : players.length || 2,
+        maxPlayers: players.length || 2,
         matchMetadata: socket.matchMetadata,
       });
       state = result.state;
@@ -233,25 +234,41 @@ const setupGameSocket = (io) => {
       const activeReconnectTimeout = RECONNECT_TIMEOUT_MS;
 
       if (state.status === MATCH_STATES.PAUSED) {
-      const pausedAt = state.pausedAt || Date.now() - activeReconnectTimeout; // assume expired if missing
-      if (Date.now() - pausedAt >= activeReconnectTimeout) {
-        state.status = MATCH_STATES.FINISHED;
-        state.winner = 'opponent';
-        await EventStore.saveMatchSnapshot(matchId, state);
-        await _archiveMatch(matchId, state);
-        socket.emit(EVENTS.GAME_OVER, { state, reason: 'forfeit', forfeitedBy: 'opponent' });
-        botHandler.handleMatchEnd(matchId, gameSlug, state);
-        return socket.disconnect();
-      } else {
-        // Player returned within the reconnect window
-        state.status = MATCH_STATES.ACTIVE;
-        state.pausedAt = null;
-        await EventStore.saveMatchSnapshot(matchId, state);
-        
-        gameNs.to(matchRoom).emit(EVENTS.RESUME, { userId });
-        botHandler.handleResume(matchId, gameSlug, state);
+        const pausedAt = state.pausedAt || Date.now() - activeReconnectTimeout; // assume expired if missing
+        if (Date.now() - pausedAt >= activeReconnectTimeout) {
+          // Window expired — resolve via the size-aware path (2p forfeit with
+          // real winner id, 3+ removal, or everyone-offline draw).
+          await _resolveReconnectTimeout(gameNs, matchId, gameSlug, userId, state);
+          return socket.disconnect();
+        } else {
+          // Player returned within the reconnect window: mark them back.
+          state.disconnectedPlayers = (state.disconnectedPlayers || []).filter(id => id !== userId);
+          // Only resume once EVERY real player is back online. If others are
+          // still away, keep the match paused and refresh the offline banner.
+          const realPlayerIds = (state.players || state.metadata?.players || [])
+            .filter(p => !p.isBot && !String(p.userId || p.id || '').startsWith('bot_'))
+            .map(p => p.userId || p.id);
+          const stillOffline = (state.disconnectedPlayers || []).filter(id => realPlayerIds.includes(id));
+
+          if (stillOffline.length === 0) {
+            state.status = MATCH_STATES.ACTIVE;
+            state.pausedAt = null;
+            await EventStore.saveMatchSnapshot(matchId, state);
+            gameNs.to(matchRoom).emit(EVENTS.RESUME, { userId });
+            botHandler.handleResume(matchId, gameSlug, state);
+            _startTurnTimer(gameNs, matchId, gameSlug, state);
+          } else {
+            state.pausedAt = state.pausedAt || Date.now();
+            await EventStore.saveMatchSnapshot(matchId, state);
+            gameNs.to(matchRoom).emit(EVENTS.PAUSE, {
+              reason: 'player_disconnected',
+              userId: stillOffline[0],
+              reconnectWindowMs: activeReconnectTimeout,
+              disconnectedPlayers: stillOffline,
+            });
+          }
+        }
       }
-    }
 
     let reconnectWindowMs = 0;
     if (state.status === MATCH_STATES.PAUSED) {
@@ -288,11 +305,14 @@ const setupGameSocket = (io) => {
         if (!snap.readyPlayers) snap.readyPlayers = [];
         if (!snap.readyPlayers.includes(userId)) snap.readyPlayers.push(userId);
 
-        // BOT MATCH: if match mode is BOT, only 1 real player needed
-        const isBotMatch = socket.matchMode === 'BOT' || socket.matchMetadata?.mode === 'BOT' || socket.matchMetadata?.mode === 'bot';
-        const totalPlayers = (socket.matchPlayers && socket.matchPlayers.length > 0) ? socket.matchPlayers.length : 2;
-        // For bot match or solo match, we need 1 real player ready; for others, need all
-        const requiredReady = (isBotMatch || totalPlayers === 1) ? 1 : totalPlayers;
+        // BOT MATCH: lobby bots don't send READY — only real players count.
+        // Solo matches (1 real player + N bots) start on that player's READY; multi-human matches
+        // wait for every real player so nobody misses the start.
+        const realPlayerCount = (socket.matchPlayers || [])
+          .filter(p => !String(p.userId || '').startsWith('bot_')).length;
+        const isBotMatch = (socket.matchPlayers || [])
+          .some(p => p.isBot || String(p.userId || '').startsWith('bot_'));
+        const requiredReady = realPlayerCount === 1 ? 1 : Math.max(1, realPlayerCount);
         const allReady = snap.readyPlayers.length >= requiredReady;
 
         if (allReady && snap.status !== MATCH_STATES.ACTIVE) {
@@ -398,34 +418,245 @@ const setupGameSocket = (io) => {
 
   async function _handleDisconnect(ns, socket, matchRoom) {
     const { matchId, userId, gameSlug } = socket;
-
-    // Pause the game briefly and give the player a reconnect window
-    const state = await EventStore.loadMatchSnapshot(matchId);
-    const isBotMatch = state && (state.isBotMatch || state.metadata?.mode === 'BOT' || state.metadata?.mode === 'bot');
     const activeReconnectTimeout = RECONNECT_TIMEOUT_MS;
 
-    if (state && state.status === MATCH_STATES.ACTIVE) {
-      state.status = MATCH_STATES.PAUSED;
-      state.pausedAt = Date.now();
+    // If the user has another live socket in this match (e.g. a second device
+    // or a reconnect that landed before the old socket dropped), do NOT pause
+    // the match — they are still connected.
+    try {
+      const liveSockets = await ns.in(matchRoom).fetchSockets();
+      const hasOtherSocket = liveSockets.some(s => (s.data?.userId || s.userId) === userId);
+      if (hasOtherSocket) return;
+    } catch (e) { /* fall through — proceed with pause */ }
+
+    const state = await EventStore.loadMatchSnapshot(matchId);
+    if (!state) return;
+
+    if (state.status === MATCH_STATES.ACTIVE) {
+      // Track who is offline so multi-player matches can resume only when
+      // every real player is back (and so we can draw when everyone is gone).
+      state.disconnectedPlayers = [...new Set([...(state.disconnectedPlayers || []), userId])];
       if (state.readyPlayers) {
         state.readyPlayers = state.readyPlayers.filter(id => id !== userId);
       }
+      state.status = MATCH_STATES.PAUSED;
+      state.pausedAt = Date.now();
       await EventStore.saveMatchSnapshot(matchId, state);
       ns.to(matchRoom).emit(EVENTS.PAUSE, {
         reason: 'player_disconnected',
         userId,
         reconnectWindowMs: activeReconnectTimeout,
+        disconnectedPlayers: state.disconnectedPlayers,
       });
-      
       botHandler.handlePause(matchId, gameSlug, state);
+    } else if (state.status === MATCH_STATES.WAITING) {
+      // Match hasn't started yet — just drop them from the ready gate. The
+      // waiting-for-players screen keeps everyone informed; no need to pause
+      // a match that never started (that would skip the ready gate on return).
+      state.disconnectedPlayers = [...new Set([...(state.disconnectedPlayers || []), userId])];
+      if (state.readyPlayers) {
+        state.readyPlayers = state.readyPlayers.filter(id => id !== userId);
+      }
+      await EventStore.saveMatchSnapshot(matchId, state);
+      ns.to(matchRoom).emit(EVENTS.STATE, { state });
     }
 
-    // Set reconnect timeout — forfeit if player doesn't return
+    // Set reconnect timeout — forfeit / remove / draw if the player doesn't return
     await TimerEngine.startTimer(matchId, `reconnect:${userId}`, activeReconnectTimeout, {
       type: 'reconnect',
       userId,
       gameSlug,
     });
+  }
+
+  // ── Reconnect-timeout resolution (size-aware) ─────────────────────────────
+  // Called when a real player's 60s reconnect window expires.
+  //   • Everyone offline            → the match is a DRAW for all real players.
+  //   • 2-player match              → the OTHER player wins (real winner id).
+  //   • Solo-vs-bots match          → the human forfeits (bots win).
+  //   • 3+ player match             → the offline player is removed and the
+  //     match continues, skipping their turns; resumes once every remaining
+  //     real player is back online.
+  async function _resolveReconnectTimeout(ns, matchId, gameSlug, userId, state) {
+    if (!state || state.status !== MATCH_STATES.PAUSED) return;
+
+    const players = state.players || state.metadata?.players || [];
+    const realPlayers = players.filter(p => !String(p.userId || p.id || '').startsWith('bot_'));
+    const realIds = realPlayers.map(p => p.userId || p.id);
+    const offline = state.disconnectedPlayers || [];
+
+    // Everyone offline (only meaningful with 2+ real players) → DRAW
+    const everyoneOffline = realIds.length >= 2 && realIds.every(id => offline.includes(id));
+    if (everyoneOffline) {
+      state.status = MATCH_STATES.FINISHED;
+      state.winner = null;
+      state.pausedAt = null;
+      if (state.pluginState) {
+        state.pluginState.status = 'finished';
+        state.pluginState.winner = null;
+        state.pluginState.drawReason = 'all_offline';
+      }
+      await EventStore.saveMatchSnapshot(matchId, state);
+      await EventStore.appendEvent(matchId, { type: 'DRAW', reason: 'all_offline' });
+      gameNs.to(`match:${matchId}`).emit(EVENTS.GAME_OVER, { state, reason: 'draw' });
+      botHandler.handleMatchEnd(matchId, gameSlug, state);
+      await _archiveMatch(matchId, state);
+      for (const rid of realIds) {
+        await _resolvePlayerSession({ matchId, userId: rid, result: 'DRAW', score: 0 });
+      }
+      for (const p of realPlayers) {
+        io.to(`user:${p.userId || p.id}`).emit('SESSION_EXPIRED', { matchId });
+      }
+      return;
+    }
+
+    // 2-player match → the other real player is the winner (real winner id)
+    if (realIds.length === 2) {
+      const otherId = realIds.find(id => id !== userId) || null;
+      state.status = MATCH_STATES.FINISHED;
+      state.winner = otherId;
+      state.pausedAt = null;
+      if (state.pluginState) {
+        state.pluginState.status = 'finished';
+        state.pluginState.winner = otherId;
+        state.pluginState.drawReason = 'forfeit';
+      }
+      await EventStore.saveMatchSnapshot(matchId, state);
+      await EventStore.appendEvent(matchId, { type: 'FORFEIT', userId, winner: otherId });
+      gameNs.to(`match:${matchId}`).emit(EVENTS.GAME_OVER, {
+        state,
+        reason: 'forfeit',
+        winner: otherId,
+        forfeitedBy: userId,
+      });
+      botHandler.handleMatchEnd(matchId, gameSlug, state);
+      await _archiveMatch(matchId, state);
+      await _resolvePlayerSession({ matchId, userId, result: 'LOSS', score: 0 });
+      for (const p of realPlayers) {
+        io.to(`user:${p.userId || p.id}`).emit('SESSION_EXPIRED', { matchId });
+      }
+      return;
+    }
+
+    // Solo-vs-bots match → the human forfeits (bots win)
+    if (realIds.length === 1) {
+      const bot = players.find(p => String(p.userId || p.id || '').startsWith('bot_'));
+      const winnerId = bot ? (bot.userId || bot.id) : null;
+      state.status = MATCH_STATES.FINISHED;
+      state.winner = winnerId;
+      state.pausedAt = null;
+      if (state.pluginState) {
+        state.pluginState.status = 'finished';
+        state.pluginState.winner = winnerId;
+        state.pluginState.drawReason = 'forfeit';
+      }
+      await EventStore.saveMatchSnapshot(matchId, state);
+      await EventStore.appendEvent(matchId, { type: 'FORFEIT', userId, winner: winnerId });
+      gameNs.to(`match:${matchId}`).emit(EVENTS.GAME_OVER, {
+        state,
+        reason: 'forfeit',
+        winner: winnerId,
+        forfeitedBy: userId,
+      });
+      botHandler.handleMatchEnd(matchId, gameSlug, state);
+      await _archiveMatch(matchId, state);
+      await _resolvePlayerSession({ matchId, userId, result: 'LOSS', score: 0 });
+      io.to(`user:${userId}`).emit('SESSION_EXPIRED', { matchId });
+      return;
+    }
+
+    // 3+ players → remove the offline player and continue, skipping their turns
+    state.disconnectedPlayers = offline.filter(id => id !== userId);
+    state.players = (state.players || []).filter(p => (p.userId || p.id) !== userId);
+    if (state.metadata?.players) {
+      state.metadata.players = state.metadata.players.filter(p => (p.userId || p.id) !== userId);
+    }
+    if (state.readyPlayers) {
+      state.readyPlayers = state.readyPlayers.filter(id => id !== userId);
+    }
+    if (state.pluginState) {
+      if (Array.isArray(state.pluginState.turnOrder)) {
+        const idx = state.pluginState.turnOrder.indexOf(userId);
+        state.pluginState.turnOrder = state.pluginState.turnOrder.filter(id => id !== userId);
+        const len = state.pluginState.turnOrder.length;
+        if (len > 0 && state.pluginState.currentTurnIndex != null) {
+          // If the removed player held the current turn, advance to the next
+          if (idx >= 0 && idx <= state.pluginState.currentTurnIndex) {
+            state.pluginState.currentTurnIndex =
+              Math.min(len - 1, state.pluginState.currentTurnIndex) % len;
+          }
+        }
+      }
+      if (state.pluginState.scores) delete state.pluginState.scores[userId];
+    }
+    await EventStore.saveMatchSnapshot(matchId, state);
+    await EventStore.appendEvent(matchId, { type: 'PLAYER_REMOVED', userId });
+    await _resolvePlayerSession({ matchId, userId, result: 'LOSS', score: 0 });
+    io.to(`user:${userId}`).emit('SESSION_EXPIRED', { matchId });
+
+    // Resume only when every remaining real player is back online
+    const remainingReal = (state.players || state.metadata?.players || [])
+      .filter(p => !String(p.userId || p.id || '').startsWith('bot_'))
+      .map(p => p.userId || p.id);
+    const stillOffline = (state.disconnectedPlayers || []).filter(id => remainingReal.includes(id));
+    if (stillOffline.length === 0) {
+      state.status = MATCH_STATES.ACTIVE;
+      state.pausedAt = null;
+      await EventStore.saveMatchSnapshot(matchId, state);
+      // Tell every remaining client to drop the removed player from the board
+      const sockets = await ns.in(`match:${matchId}`).fetchSockets();
+      for (const s of sockets) {
+        const sid = s.data?.userId || s.userId;
+        const ps = _getPlayerState(gameSlug, state, sid);
+        s.emit(EVENTS.SYNC, { state: ps.pluginState, reason: 'player_removed', removedPlayer: userId });
+      }
+      ns.to(`match:${matchId}`).emit(EVENTS.RESUME, { removedPlayer: userId });
+      botHandler.handleResume(matchId, gameSlug, state);
+      _startTurnTimer(ns, matchId, gameSlug, state);
+    } else {
+      // Others still offline — keep paused and refresh the offline banner
+      ns.to(`match:${matchId}`).emit(EVENTS.PAUSE, {
+        reason: 'player_disconnected',
+        userId: stillOffline[0],
+        reconnectWindowMs: RECONNECT_TIMEOUT_MS,
+        disconnectedPlayers: stillOffline,
+      });
+    }
+  }
+
+  // ── Server-side session resolution ────────────────────────────────────────
+  // Resolves a player's game_session + match history when no client will call
+  // completeGameSession (forfeit / draw / player removed by reconnect timeout).
+  async function _resolvePlayerSession({ matchId, userId, result, score = 0 }) {
+    try {
+      const repo = require('../modules/game/game.repository');
+      const { rows } = await pool.query(
+        `SELECT id, game_id, metadata FROM game_sessions
+         WHERE metadata->>'matchGroupId' = $1 AND user_id = $2
+           AND status IN ('ACTIVE','PENDING')
+         ORDER BY created_at DESC LIMIT 1`,
+        [matchId, userId]
+      );
+      const session = rows[0];
+      if (!session) return;
+      await repo.updateGameSessionStatus({
+        sessionId: session.id,
+        status: 'COMPLETED',
+        completedAt: new Date().toISOString(),
+      });
+      await repo.recordMatchHistory({
+        userId,
+        gameId: session.game_id,
+        mode: session.metadata?.mode,
+        result,
+        score,
+        duration: 60,
+        xpEarned: 0,
+        matchGroupId: matchId,
+      });
+    } catch (e) {
+      console.error(`[GameEngine] Failed to resolve session for ${userId} in ${matchId}:`, e.message);
+    }
   }
 
   async function _startTurnTimer(ns, matchId, gameSlug, state) {

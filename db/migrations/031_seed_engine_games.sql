@@ -47,7 +47,7 @@ SELECT
   'board',
   'medium',
   TRUE,
-  '{"runtime":"native","maxXp":75,"entryFee":15}'::jsonb
+  '{"runtime":"native","maxXp":75,"entryFee":15,"maxPlayers":4}'::jsonb
 WHERE NOT EXISTS (SELECT 1 FROM game WHERE slug = 'ludo');
 
 INSERT INTO game (id, name, slug, description, thumbnail, category, difficulty, is_active, metadata)
@@ -60,7 +60,7 @@ SELECT
   'board',
   'easy',
   TRUE,
-  '{"runtime":"native","maxXp":60,"entryFee":10}'::jsonb
+  '{"runtime":"native","maxXp":60,"entryFee":10,"maxPlayers":4}'::jsonb
 WHERE NOT EXISTS (SELECT 1 FROM game WHERE slug = 'snake-ladder');
 
 INSERT INTO game (id, name, slug, description, thumbnail, category, difficulty, is_active, metadata)

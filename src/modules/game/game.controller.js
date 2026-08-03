@@ -317,6 +317,17 @@ class GameController {
     }
   };
 
+  queueLobbyForMatchmaking = async (req, res, next) => {
+    try {
+      const { lobbyId } = req.params;
+      const active = req.body?.active !== false;
+      const result = await this.gameSvc.queueLobbyForMatchmaking({ userId: req.userId, lobbyId, active });
+      res.json(apiResponse(result, active ? "Lobby queued for matchmaking" : "Lobby unqueued"));
+    } catch (error) {
+      next(error);
+    }
+  };
+
   startLobby = async (req, res, next) => {
     try {
       const { lobbyId } = req.params;

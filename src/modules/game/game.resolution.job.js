@@ -64,6 +64,19 @@ async function resolveAbandonedMatches() {
               transactionType: 'earned', sourceType: `game_session_${session.id}`
             });
           }
+
+          // Record the forfeit win in match history so abandoned PVP matches
+          // still appear in the player's history (mode is normalized on write).
+          await gameRepository.recordMatchHistory({
+            userId: session.user_id,
+            gameId: session.game_id,
+            mode: session.metadata?.mode,
+            result: 'WIN',
+            score: myScore,
+            duration: 60,
+            xpEarned: myXp,
+            matchGroupId
+          });
           
           // Optionally emit WebSocket event to the winning user
           const { emitNotification } = require('../../sockets/notification.socket');
@@ -100,11 +113,10 @@ async function resolveAbandonedMatches() {
 async function resolveExpiredLobbies() {
   const client = await pool.connect();
   try {
-    await client.query('BEGIN');
+    // Find expired WAITING lobbies (no locks held — each lobby is processed on its own connection)
     const { rows: expiredLobbies } = await client.query(`
-      UPDATE game_lobby SET status = 'TIMED_OUT', updated_at = NOW()
+      SELECT id, host_user_id, settings FROM game_lobby
       WHERE status = 'WAITING' AND expires_at <= NOW()
-      RETURNING id, host_user_id
     `);
 
     if (expiredLobbies.length > 0) {
@@ -113,10 +125,57 @@ async function resolveExpiredLobbies() {
       
       for (const lobby of expiredLobbies) {
         try {
-          const lobbyData = await gameRepository.getLobby({ userId: lobby.host_user_id, lobbyId: lobby.id });
-          for (const p of lobbyData.players) {
-            if (!p.isBot) {
-              io.to(`user:${p.id}`).emit('matchmaking:timedOut', lobbyData);
+          const lobbyMode = String(lobby.settings?.mode || 'AUTO').toUpperCase();
+          let handled = false;
+
+          // AUTO/PRACTICE queues: fill empty slots with bots so the match starts
+          // and flows completely. fillMatchmakingLobby manages its own transaction
+          // (FOR UPDATE + WAITING check), so no cross-connection lock waits occur here.
+          if (lobbyMode === 'AUTO' || lobbyMode === 'PRACTICE') {
+            try {
+              const ticketCount = await client.query(
+                `SELECT COUNT(*)::int AS c FROM game_matchmaking_ticket
+                 WHERE lobby_id = $1 AND status = 'WAITING'`,
+                [lobby.id]
+              );
+              if ((ticketCount.rows[0]?.c || 0) > 0) {
+                const result = await gameRepository.fillMatchmakingLobby({
+                  userId: lobby.host_user_id,
+                  ticketId: null,
+                  overrideLobbyId: lobby.id,
+                  fillBots: true,
+                });
+                const realPlayers = (result?.players || []).filter(p => !p.isBot);
+                // MATCHED (players present, or lobby already full/processed) means the
+                // lobby is taken care of — don't mark it TIMED_OUT or notify timeouts.
+                if (result && result.status === 'MATCHED') {
+                  for (const p of realPlayers) {
+                    io.to(`user:${p.id}`).emit('matchmaking:matched', result);
+                  }
+                  handled = true;
+                }
+              }
+            } catch (fillErr) {
+              console.error(`Failed to bot-fill expired lobby ${lobby.id}:`, fillErr.message);
+            }
+          }
+
+          // CUSTOM lobbies (or lobbies still WAITING after a failed fill): mark TIMED_OUT and
+          // notify remaining real players. The guarded UPDATE prevents notifying players of a
+          // lobby that was matched by another process meanwhile.
+          if (!handled) {
+            const statusRes = await client.query(
+              `UPDATE game_lobby SET status = 'TIMED_OUT', updated_at = NOW()
+               WHERE id = $1 AND status = 'WAITING' RETURNING status`,
+              [lobby.id]
+            );
+            if (statusRes.rows.length > 0) {
+              const lobbyData = await gameRepository.getLobby({ userId: lobby.host_user_id, lobbyId: lobby.id });
+              for (const p of lobbyData.players) {
+                if (!p.isBot) {
+                  io.to(`user:${p.id}`).emit('matchmaking:timedOut', lobbyData);
+                }
+              }
             }
           }
         } catch (err) {
@@ -124,10 +183,149 @@ async function resolveExpiredLobbies() {
         }
       }
     }
-    await client.query('COMMIT');
   } catch (err) {
-    await client.query('ROLLBACK');
     console.error('Error sweeping expired lobbies', err);
+  } finally {
+    client.release();
+  }
+}
+
+/**
+ * Gradual bot-fill for matchmaking lobbies (AUTO/PRACTICE + queued CUSTOM).
+ *
+ * During the 30s matchmaking window, real players get the first 15s to join.
+ * After that, any still-open slot is filled ONE bot at a time (paced 2.5–5s
+ * apart, like real players trickling in). Each bot join emits
+ * `matchmaking:lobbyUpdated` so the lobby UI shows them appearing gradually;
+ * once the lobby is full, the match is created and `matchmaking:matched` is
+ * emitted to every real player.
+ *
+ * Runs every 2.5s alongside resolveExpiredLobbies, which remains the 30s
+ * expiry backstop for lobbies that somehow never filled.
+ *
+ * CUSTOM lobbies are NEVER auto-filled while sitting on the manual lobby
+ * screen — the host controls that screen (Add Bot / invites only). They are
+ * only filled once the host explicitly queues them via "Auto Match & Proceed"
+ * (POST /lobbies/:id/queue, which stamps settings.matchmakingQueuedAt); the
+ * 15s real-player window starts at that moment, mirroring the AUTO queue.
+ *
+ * A short pending-invite grace is kept: if the host queued while fresh invites
+ * are still out, bots hold off briefly so the invited friends (who are NOT yet
+ * onboarded) get a chance to accept before their seats are taken.
+ */
+const REAL_PLAYER_WINDOW_MS = 15 * 1000;
+const PENDING_INVITE_GRACE_MS = 30 * 1000;
+
+async function resolveBotFillingLobbies() {
+  const client = await pool.connect();
+  try {
+    const nowMs = Date.now();
+    // The 15s real-player window is enforced IN SQL so unqueued CUSTOM lobbies
+    // and young AUTO lobbies never consume the LIMIT batch — eligible lobbies
+    // can't be starved behind ineligible rows on a busy server.
+    //   AUTO/null: window starts at lobby creation.
+    //   CUSTOM:    only when the host explicitly queued it (matchmakingQueuedAt).
+    const { rows: fillableLobbies } = await client.query(`
+      SELECT id, host_user_id, max_players, settings, created_at
+      FROM game_lobby
+      WHERE status = 'WAITING'
+        AND current_players < max_players
+        AND (
+          (
+            (settings->>'mode' IS NULL OR settings->>'mode' IN ('AUTO', 'PRACTICE'))
+            AND created_at <= NOW() - INTERVAL '15 seconds'
+          )
+          OR
+          (
+            settings->>'mode' = 'CUSTOM'
+            AND settings->>'matchmakingQueuedAt' IS NOT NULL
+            AND to_timestamp((settings->>'matchmakingQueuedAt')::bigint / 1000)
+                <= NOW() - INTERVAL '15 seconds'
+          )
+        )
+        AND EXISTS (
+          SELECT 1 FROM game_matchmaking_ticket t
+          WHERE t.lobby_id = game_lobby.id AND t.status = 'WAITING'
+        )
+      ORDER BY created_at ASC
+      LIMIT 50
+    `);
+
+    if (fillableLobbies.length === 0) return;
+
+    const { getIO } = require('../../sockets/index');
+    const io = getIO();
+
+    for (const lobby of fillableLobbies) {
+      try {
+        const mode = String(lobby.settings?.mode || 'AUTO').toUpperCase();
+
+        // AUTO lobbies: the 15s real-player window starts at lobby creation.
+        // CUSTOM lobbies: only fill when the host explicitly queued the lobby;
+        // the 15s window starts at matchmakingQueuedAt. An unqueued CUSTOM
+        // lobby sitting on the manual lobby screen is never auto-filled.
+        let windowStartMs;
+        if (mode === 'CUSTOM') {
+          const queuedAt = Number(lobby.settings?.matchmakingQueuedAt) || 0;
+          if (!queuedAt) continue;
+          windowStartMs = queuedAt;
+        } else {
+          windowStartMs = new Date(lobby.created_at).getTime();
+        }
+        if (nowMs - windowStartMs < REAL_PLAYER_WINDOW_MS) continue;
+
+        // Pending-invite grace: an invited friend is NOT in the lobby until they
+        // accept. If fresh invites are still out, hold off so they aren't crowded
+        // out by a bot taking their seat. (Queueing is still an opt-in to bot-fill,
+        // so this only delays it for the grace window, never blocks it forever.)
+        if (mode === 'CUSTOM' && Array.isArray(lobby.settings?.pendingInvites)) {
+          const freshInvite = lobby.settings.pendingInvites.some(
+            (inv) => inv.invitedAt && nowMs - new Date(inv.invitedAt).getTime() < PENDING_INVITE_GRACE_MS
+          );
+          if (freshInvite) continue;
+        }
+
+        // Pacing gate (addOneBotToLobby re-checks inside its transaction too)
+        const pacing = Number(lobby.settings?.botFillNextAt) || 0;
+        if (pacing > nowMs) continue;
+
+        const addRes = await gameRepository.addOneBotToLobby({ lobbyId: lobby.id });
+        if (!addRes || !addRes.added) continue;
+
+        // Emit lobby update so real players see this bot join gradually
+        const lobbyData = await gameRepository.getLobby({ userId: lobby.host_user_id, lobbyId: lobby.id });
+        const realPlayers = (lobbyData.players || []).filter(p => !p.isBot);
+        const payload = {
+          ...lobbyData,
+          lobbyId: lobby.id,
+          maxPlayers: lobbyData.settings?.targetPlayers || lobby.max_players,
+          status: 'WAITING',
+        };
+        for (const p of realPlayers) {
+          io.to(`user:${p.id}`).emit('matchmaking:lobbyUpdated', payload);
+        }
+
+        // Lobby is full now → create the match and notify everyone
+        const targetMax = lobbyData.settings?.targetPlayers || lobby.max_players;
+        if ((lobbyData.state?.currentPlayers || 0) >= targetMax) {
+          const result = await gameRepository.fillMatchmakingLobby({
+            userId: lobby.host_user_id,
+            ticketId: null,
+            overrideLobbyId: lobby.id,
+            fillBots: true,
+          });
+          if (result && result.status === 'MATCHED') {
+            for (const p of (result.players || []).filter(x => !x.isBot)) {
+              io.to(`user:${p.id}`).emit('matchmaking:matched', result);
+            }
+          }
+        }
+      } catch (err) {
+        console.error(`Failed gradual bot-fill for lobby ${lobby.id}:`, err.message);
+      }
+    }
+  } catch (err) {
+    console.error('Error sweeping bot-fill lobbies', err);
   } finally {
     client.release();
   }
@@ -207,5 +405,6 @@ async function resolveTournaments() {
 module.exports = {
   resolveAbandonedMatches,
   resolveTournaments,
-  resolveExpiredLobbies
+  resolveExpiredLobbies,
+  resolveBotFillingLobbies
 };

@@ -24,6 +24,34 @@ const GAME_STATS_FIELDS = [
     'total_xp', 'created_at', 'updated_at'
 ].join(', ');
 
+// Natural player capacity per game. Used as the fallback when AUTO matchmaking
+// has no explicit targetPlayers so 4-player games (ludo, snake-ladder) don't
+// default to a 1v1 queue. Prefer row.metadata.maxPlayers if the game defines it.
+const GAME_MAX_PLAYERS = {
+  'ludo': 4,
+  'snake-ladder': 4,
+  'tap-rush': 2,
+  'memory-grid': 2,
+  'scribble': 2,
+  'chess': 2,
+  'word-rush': 2,
+};
+
+// Resolve a game's natural player capacity: explicit metadata wins, then the
+// per-game map (ludo/snake-ladder = 4), then a default of 2 (1v1).
+const resolveNaturalMaxPlayers = (game) =>
+  Number(game?.metadata?.maxPlayers || (game && GAME_MAX_PLAYERS[game.slug]) || 2);
+
+// Normalize a match mode for storage. game_match.mode has a CHECK constraint
+// that only allows uppercase AUTO/CUSTOM/TOURNAMENT/PRACTICE — the app sends
+// lowercase ('auto', 'custom', 'tournament', 'practice'). Map to the canonical
+// uppercase set so history inserts never fail; anything unknown defaults to AUTO.
+const normalizeMatchMode = (mode) => {
+  const m = String(mode || 'AUTO').toUpperCase();
+  if (['AUTO', 'CUSTOM', 'TOURNAMENT', 'PRACTICE'].includes(m)) return m;
+  return 'AUTO';
+};
+
 const formatGame = (row) => {
   if (!row) return null;
   return {
@@ -37,6 +65,7 @@ const formatGame = (row) => {
     isActive: row.is_active,
     metadata: row.metadata,
     maxXp: Number(row.metadata?.maxXp || 25),
+    maxPlayers: resolveNaturalMaxPlayers(row),
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   };
@@ -132,5 +161,8 @@ module.exports = {
   GAME_TABLE, GAME_MATCH_TABLE, GAME_STATS_TABLE,
   GAME_TOURNAMENT_TABLE, GAME_TOURNAMENT_ENTRY_TABLE, GAME_MATCHMAKING_TICKET_TABLE, GAME_SESSION_TABLE,
   GAME_FIELDS, GAME_MATCH_FIELDS, GAME_STATS_FIELDS,
+  GAME_MAX_PLAYERS,
+  resolveNaturalMaxPlayers,
+  normalizeMatchMode,
   formatGame, formatGameMatch, formatGameStats, formatTournament, formatMatchmakingTicket
 }

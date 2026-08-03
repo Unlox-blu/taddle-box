@@ -84,7 +84,7 @@ const createGameMatche = async ({ matchData }) => {
       [
         matchData.userId,
         matchData.gameId,
-        matchData.mode,
+        gameModel.normalizeMatchMode(matchData.mode),
         matchData.category || null,
         matchData.difficulty || null,
         JSON.stringify(matchData.metadata || []),
@@ -224,13 +224,31 @@ const findManyGameMatshs = async ({ userId, limit, offset }) => {
   }
 };
 
-const recordMatchHistory = async ({ userId, gameId, mode, result, score, duration, xpEarned }) => {
+const recordMatchHistory = async ({ userId, gameId, mode, result, score, duration, xpEarned, matchGroupId }) => {
   try {
+    // Matchmaking already created a placeholder row (result = NULL) per player with the
+    // matchGroupId in metadata. Prefer updating it so we don't accumulate duplicate rows.
+    if (matchGroupId) {
+      const upd = await pool.query(
+        `UPDATE ${gameModel.GAME_MATCH_TABLE}
+         SET result = $1, score = $2, duration = $3, xp_earned = $4,
+             mode = $5, updated_at = NOW()
+         WHERE user_id = $6 AND game_id = $7
+           AND metadata->>'matchGroupId' = $8 AND result IS NULL
+         RETURNING id`,
+        // Normalize mode: the column CHECK only accepts uppercase AUTO/CUSTOM/TOURNAMENT,
+        // and callers pass lowercase ('auto').
+        [result, score, duration, xpEarned, gameModel.normalizeMatchMode(mode), userId, gameId, matchGroupId]
+      );
+      if (upd.rows.length > 0) return;
+    }
+
+    // No placeholder found (e.g. direct matches) — insert a fresh history row.
     await pool.query(
       `INSERT INTO ${gameModel.GAME_MATCH_TABLE} 
        (user_id, game_id, mode, result, score, duration, xp_earned, created_at, updated_at)
        VALUES ($1, $2, $3, $4, $5, $6, $7, NOW(), NOW())`,
-      [userId, gameId, mode || 'AUTO', result, score, duration, xpEarned]
+      [userId, gameId, gameModel.normalizeMatchMode(mode), result, score, duration, xpEarned]
     );
   } catch (error) {
     console.error('Failed to record match history:', error.message);
@@ -497,13 +515,17 @@ const joinMatchmaking = async ({ userId, game, mode, tournamentId, targetPlayers
       [userId, game.id, normalizedMode, tournamentId || null]
     );
 
-    const maxPlayers = targetPlayers || game.metadata?.maxPlayers || 2;
-    const lobbyVisibility = normalizedMode === 'CUSTOM' ? 'PRIVATE' : 'PUBLIC';
+    const maxPlayers = targetPlayers || gameModel.resolveNaturalMaxPlayers(game);
+    // PRACTICE lobbies are always private & solo: the user is the only real
+    // player and bots fill every remaining seat (never other users).
+    const lobbyVisibility = normalizedMode === 'CUSTOM' || normalizedMode === 'PRACTICE' ? 'PRIVATE' : 'PUBLIC';
     // For AUTO without a specific targetPlayers, join any available lobby regardless of size
-    const isAutoAny = normalizedMode === 'AUTO' && !targetPlayers;
+    const isAutoAny = (normalizedMode === 'AUTO' || normalizedMode === 'PRACTICE') && !targetPlayers;
 
     let lobby = null;
-    if (normalizedMode !== 'CUSTOM') {
+    // PRACTICE never joins an existing lobby — every practice run is a fresh
+    // solo-vs-bots match, so bots (never other users) fill it.
+    if (normalizedMode !== 'CUSTOM' && normalizedMode !== 'PRACTICE') {
       if (isAutoAny) {
         // Auto-any: join the oldest waiting AUTO lobby for this game, any size
         const lobbyResult = await client.query(
@@ -537,8 +559,10 @@ const joinMatchmaking = async ({ userId, game, mode, tournamentId, targetPlayers
     }
 
     if (!lobby) {
-      const settings = JSON.stringify({ mode: normalizedMode, targetPlayers: maxPlayers, teamsLocked: false, autoBalance: true });
-      // CUSTOM lobbies stay open 30 minutes; AUTO lobbies 30 seconds (bot fallback kicks in at 15s)
+      // autoSize: true marks lobbies created without an explicit targetPlayers so the
+      // bot-fill path can size the match to the game's natural player count (e.g. 4 for ludo).
+      const settings = JSON.stringify({ mode: normalizedMode, targetPlayers: maxPlayers, autoSize: isAutoAny, teamsLocked: false, autoBalance: true });
+      // CUSTOM lobbies stay open 30 minutes; AUTO/PRACTICE lobbies 30 seconds (bot fallback kicks in at 15s)
       const expirySeconds = normalizedMode === 'CUSTOM' ? 1800 : 30;
       // Generate a short invite code for CUSTOM lobbies
       const inviteCode = normalizedMode === 'CUSTOM'
@@ -595,13 +619,33 @@ const joinMatchmaking = async ({ userId, game, mode, tournamentId, targetPlayers
       status: 'JOINED'
     }));
 
+    // Mid-fill joins: the gradual bot-fill sweep may have already added bots to
+    // settings.bots during the 15s+ window. Include them in the match payload so
+    // they don't silently disappear when this real player fills the last slot.
+    const midFillBots = Array.isArray(lobby.settings?.bots) ? lobby.settings.bots : [];
+    for (const bot of midFillBots) {
+      playerSnapshots.push({
+        id: bot.id,
+        username: bot.username,
+        displayName: bot.name,
+        avatar: bot.avatar,
+        isBot: true,
+        team: bot.team,
+        seat: bot.seat,
+        status: 'JOINED',
+        rating: bot.rating,
+        level: bot.level,
+        badge: bot.badge,
+      });
+    }
+
     if (lobby.current_players === lobby.max_players) {
       const startedAt = new Date().toISOString();
       const matchMetadata = {
         lobbyId: lobby.id,
         matchGroupId: lobby.id,
         gameId: game.id,
-        gameMode: mode,
+        gameMode: gameModel.normalizeMatchMode(mode),
         playerIds: playerSnapshots.map(p => p.id),
         playerSnapshots,
         maxPlayers: lobby.max_players,
@@ -611,12 +655,15 @@ const joinMatchmaking = async ({ userId, game, mode, tournamentId, targetPlayers
       };
 
       for (const p of playerSnapshots) {
+        // Bots have no ticket/match row — they participate via the socket layer's
+        // lobby-bot injection (game.socket.js setupBotPlayer).
+        if (p.isBot) continue;
         const matchRes = await client.query(
           `INSERT INTO ${gameModel.GAME_MATCH_TABLE}
             (user_id, game_id, mode, category, difficulty, metadata)
           VALUES ($1, $2, $3, $4, $5, $6::jsonb)
           RETURNING *`,
-          [p.id, game.id, mode, game.category || null, game.difficulty || null, JSON.stringify(matchMetadata)]
+          [p.id, game.id, gameModel.normalizeMatchMode(mode), game.category || null, game.difficulty || null, JSON.stringify(matchMetadata)]
         );
 
         await client.query(
@@ -698,12 +745,31 @@ const fillMatchmakingLobby = async ({ userId, ticketId, overrideLobbyId, fillBot
       return { status: 'MATCHED', message: 'Lobby already processed' };
     }
 
-    if (lobby.current_players >= lobby.max_players) {
-      await client.query('ROLLBACK');
-      return { status: 'MATCHED', message: 'Lobby is already full' };
-    }
+    // Note: a full lobby is NOT an error here. The gradual bot-fill sweep
+    // (resolveBotFillingLobbies) fills the last slot, then calls this function
+    // with the lobby already full so the match rows get created and the lobby
+    // transitions to READY. Previously this early-return made a full lobby a
+    // silent no-op (the custom-lobby "Start" button did nothing).
 
     await client.query(`UPDATE game_lobby SET status = 'LOCKED' WHERE id = $1`, [lobby.id]);
+
+    const gameRes = await client.query(`SELECT * FROM game WHERE id = $1`, [initialTicket.game_id]);
+    const game = gameRes.rows[0];
+
+    // Safety net: AUTO lobbies created without an explicit targetPlayers (autoSize: true)
+    // should fill to the game's natural player count (e.g. 4 for ludo), not default to a 1v1.
+    // joinMatchmaking already sizes new auto lobbies, so this only guards shrunk/legacy ones.
+    if (fillBots && game && lobby.settings?.autoSize === true) {
+      const naturalMax = gameModel.resolveNaturalMaxPlayers(game);
+      if (naturalMax > lobby.max_players) {
+        lobby.max_players = naturalMax;
+        const resizedSettings = { ...(lobby.settings || {}), targetPlayers: naturalMax };
+        await client.query(
+          `UPDATE game_lobby SET max_players = $1, settings = $2::jsonb WHERE id = $3`,
+          [lobby.max_players, JSON.stringify(resizedSettings), lobby.id]
+        );
+      }
+    }
 
     const remaining = lobby.max_players - lobby.current_players;
 
@@ -801,15 +867,12 @@ const fillMatchmakingLobby = async ({ userId, ticketId, overrideLobbyId, fillBot
     );
 
     const startedAt = new Date().toISOString();
-    
-    const gameRes = await client.query(`SELECT * FROM game WHERE id = $1`, [initialTicket.game_id]);
-    const game = gameRes.rows[0];
 
     const matchMetadata = {
       lobbyId: lobby.id,
       matchGroupId: lobby.id,
       gameId: game.id,
-      gameMode: initialTicket.mode,
+      gameMode: gameModel.normalizeMatchMode(initialTicket.mode),
       playerIds: playerSnapshots.map(p => p.id),
       playerSnapshots,
       maxPlayers: lobby.max_players,
@@ -825,7 +888,7 @@ const fillMatchmakingLobby = async ({ userId, ticketId, overrideLobbyId, fillBot
             (user_id, game_id, mode, category, difficulty, metadata)
           VALUES ($1, $2, $3, $4, $5, $6::jsonb)
           RETURNING *`,
-          [p.id, game.id, initialTicket.mode, game.category || null, game.difficulty || null, JSON.stringify(matchMetadata)]
+          [p.id, game.id, gameModel.normalizeMatchMode(initialTicket.mode), game.category || null, game.difficulty || null, JSON.stringify(matchMetadata)]
         );
 
         await client.query(
@@ -983,7 +1046,7 @@ const setupMatchSession = async ({ matchId, gameId, userId, wsToken, mode, gameS
       `INSERT INTO game_matches (id, game_id, mode, status)
        VALUES ($1, $2, $3, 'ACTIVE')
        ON CONFLICT (id) DO NOTHING`,
-      [matchId, gameId, mode || 'AUTO']
+      [matchId, gameId, gameModel.normalizeMatchMode(mode)]
     );
 
     // Fetch existing colors to determine this player's color
@@ -1099,24 +1162,36 @@ const findOpponentSessionByMatchGroup = async ({ matchGroupId, excludeUserId }) 
   }
 };
 
-const findActiveBotSession = async ({ userId, gameId }) => {
+const findCompletedMatchRecord = async ({ userId, matchGroupId }) => {
   try {
     const { rows } = await pool.query(
-      `SELECT gs.id, gs.metadata->>'matchGroupId' AS match_id, mm.ws_token
-       FROM game_sessions gs
-       JOIN match_members mm ON mm.match_id::text = gs.metadata->>'matchGroupId' AND mm.user_id = gs.user_id
-       JOIN game_matches gm ON gm.id::text = gs.metadata->>'matchGroupId'
-       WHERE gs.user_id = $1 AND gs.game_id = $2 
-         AND gs.status = 'ACTIVE' 
-         AND gs.metadata->>'mode' = 'bot' 
-         AND gm.status = 'ACTIVE'
-         AND gs.expires_at >= NOW()
-       ORDER BY gs.expires_at DESC LIMIT 1`,
-      [userId, gameId]
+      `SELECT result, score, xp_earned FROM ${gameModel.GAME_MATCH_TABLE}
+       WHERE user_id = $1 AND metadata->>'matchGroupId' = $2 AND result IS NOT NULL
+       ORDER BY updated_at DESC LIMIT 1`,
+      [userId, matchGroupId]
     );
     return rows[0] || null;
   } catch (error) {
-    throw error;
+    return null;
+  }
+};
+
+const getMatchArchivedState = async ({ matchId }) => {
+  try {
+    const { rows } = await pool.query(
+      `SELECT metadata->>'finalState' AS final_state
+       FROM game_matches
+       WHERE id = $1`,
+      [matchId]
+    );
+    if (!rows[0]?.final_state) return null;
+    try {
+      return JSON.parse(rows[0].final_state);
+    } catch (e) {
+      return null;
+    }
+  } catch (error) {
+    return null;
   }
 };
 
@@ -1142,16 +1217,14 @@ const findActiveSession = async ({ userId }) => {
 
     // Get opponent name if PvP
     let opponentName = null;
-    if (rows[0].mode !== 'bot' && rows[0].mode !== 'BOT') {
-      const opps = await pool.query(
-        `SELECT u.name, u.username FROM match_members mm
-          JOIN users u ON u.id = mm.user_id
-          WHERE mm.match_id = $1 AND mm.user_id != $2 LIMIT 1`,
-        [rows[0].match_id, userId]
-      );
-      if (opps.rows.length > 0) {
-        opponentName = opps.rows[0].name || opps.rows[0].username;
-      }
+    const opps = await pool.query(
+      `SELECT u.name, u.username FROM match_members mm
+        JOIN users u ON u.id = mm.user_id
+        WHERE mm.match_id = $1 AND mm.user_id != $2 LIMIT 1`,
+      [rows[0].match_id, userId]
+    );
+    if (opps.rows.length > 0) {
+      opponentName = opps.rows[0].name || opps.rows[0].username;
     }
 
     return { ...rows[0], opponent_name: opponentName };
@@ -1371,15 +1444,28 @@ const removeLobbyPlayer = async ({ userId, lobbyId, targetUserId }) => {
 
     const currentSettings = { ...(lobby.settings || {}) };
     const existingBots = Array.isArray(currentSettings.bots) ? currentSettings.bots : [];
+    const pendingInvites = Array.isArray(currentSettings.pendingInvites) ? currentSettings.pendingInvites : [];
 
     // Check if this is a bot (stored in settings.bots, not in tickets)
     const isBot = existingBots.some(b => b.id === targetUserId);
+    // A pending invite has NO ticket — the friend never joined. Removing it just
+    // drops the invite from settings.pendingInvites (current_players unchanged).
+    // Previously this fell through to the "real player" branch, decrementing
+    // current_players for a player who was never in the lobby.
+    const isPendingInvite = !isBot && pendingInvites.some(inv => inv.userId === targetUserId);
 
     if (isBot) {
       // Remove from settings.bots[]
       currentSettings.bots = existingBots.filter(b => b.id !== targetUserId);
       await client.query(
         'UPDATE game_lobby SET settings = $1::jsonb, current_players = current_players - 1, updated_at = NOW() WHERE id = $2',
+        [JSON.stringify(currentSettings), lobbyId]
+      );
+    } else if (isPendingInvite) {
+      // Remove the pending invite (host cancelled it / friend declined)
+      currentSettings.pendingInvites = pendingInvites.filter(inv => inv.userId !== targetUserId);
+      await client.query(
+        'UPDATE game_lobby SET settings = $1::jsonb, updated_at = NOW() WHERE id = $2',
         [JSON.stringify(currentSettings), lobbyId]
       );
     } else {
@@ -1630,6 +1716,145 @@ const fillLobbyBots = async ({ userId, lobbyId, count = 1 }) => {
   }
 };
 
+/**
+ * Adds exactly ONE bot to a WAITING lobby (gradual bot-fill).
+ *
+ * Used by the matchmaking sweep (resolveBotFillingLobbies) so that, after the
+ * 15s real-player window, bots join one at a time — spaced by botFillPacingMs
+ * — just like real players trickling in. Bots live in settings.bots[] and
+ * current_players is incremented so slot counts stay accurate.
+ *
+ * Returns { added: true } when a bot was added, or { added: false } when the
+ * lobby is not fillable (not WAITING, full, or still pacing).
+ */
+const addOneBotToLobby = async ({ lobbyId }) => {
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+
+    const { rows: lobbyRows } = await client.query(
+      'SELECT * FROM game_lobby WHERE id = $1 FOR UPDATE',
+      [lobbyId]
+    );
+    const lobby = lobbyRows[0];
+    if (!lobby) throw require('../../utils/error.util').createError('Lobby not found', 404);
+
+    const currentSettings = { ...(lobby.settings || {}) };
+    const existingBots = Array.isArray(currentSettings.bots) ? currentSettings.bots : [];
+
+    if (lobby.status !== 'WAITING' || lobby.current_players >= lobby.max_players) {
+      await client.query('COMMIT');
+      return { added: false };
+    }
+
+    // Pacing: at most one bot per window so they join gradually, like real players.
+    const nextFillAt = Number(currentSettings.botFillNextAt) || 0;
+    if (nextFillAt > Date.now()) {
+      await client.query('COMMIT');
+      return { added: false };
+    }
+
+    // Collect seats already taken by real players (from tickets) and existing bots
+    const { rows: ticketSeatRows } = await client.query(
+      `SELECT metadata->>'seat' AS seat FROM game_matchmaking_ticket
+       WHERE lobby_id = $1 AND status != 'CANCELLED'`,
+      [lobbyId]
+    );
+    const usedSeats = new Set([
+      ...ticketSeatRows.map(r => parseInt(r.seat, 10)).filter(s => !isNaN(s)),
+      ...existingBots.map(b => b.seat),
+    ]);
+
+    let seat = 0;
+    while (usedSeats.has(seat)) seat++;
+    usedSeats.add(seat);
+
+    const profile = BOT_PROFILES[seat % BOT_PROFILES.length];
+    const botId = `${profile.id}_${lobbyId.replace(/-/g, '').slice(0, 8)}_${seat}`;
+    const newBot = {
+      id: botId,
+      username: profile.username,
+      name: profile.name,
+      avatar: profile.avatar,
+      rating: profile.rating,
+      level: profile.level,
+      badge: profile.badge,
+      seat,
+      team: seat % 2,
+      isBot: true,
+      isReady: true,
+      lobbyRole: 'PLAYER',
+      status: 'BOT',
+    };
+
+    // Stagger the next bot ~2.5–5s out, with a little randomness so it feels human
+    currentSettings.bots = [...existingBots, newBot];
+    currentSettings.botFillNextAt = Date.now() + 2500 + Math.floor(Math.random() * 2500);
+
+    await client.query(
+      `UPDATE game_lobby
+       SET settings = $1::jsonb,
+           current_players = current_players + 1,
+           updated_at = NOW()
+       WHERE id = $2`,
+      [JSON.stringify(currentSettings), lobbyId]
+    );
+
+    await client.query('COMMIT');
+    return { added: true };
+  } catch (error) {
+    await client.query('ROLLBACK');
+    throw error;
+  } finally {
+    client.release();
+  }
+};
+
+/**
+ * Marks a CUSTOM lobby as queued for matchmaking (host pressed "Auto Match & Proceed").
+ *
+ * The lobby stays fully manual while sitting on the lobby screen — bots are never
+ * auto-added there. Only once the host explicitly queues it does the matchmaking
+ * sweep (resolveBotFillingLobbies) start filling the remaining slots with bots,
+ * one at a time, and start the match when the lobby is full.
+ *
+ * Host-only. Idempotent: re-queueing just resets the queue clock.
+ *
+ * active=false un-queues the lobby (returns it to the fully manual lobby screen).
+ */
+const queueLobbyForMatchmaking = async ({ userId, lobbyId, active = true }) => {
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    const { rows } = await client.query('SELECT * FROM game_lobby WHERE id = $1 FOR UPDATE', [lobbyId]);
+    const lobby = rows[0];
+    if (!lobby) throw require('../../utils/error.util').createError('Lobby not found', 404);
+    if (lobby.host_user_id !== userId) throw require('../../utils/error.util').createError('Only the host can queue the lobby', 403);
+    if (lobby.status !== 'WAITING') throw require('../../utils/error.util').createError('Lobby is not waiting', 400);
+
+    const currentSettings = { ...(lobby.settings || {}) };
+    if (active) {
+      currentSettings.matchmakingQueuedAt = Date.now();
+      delete currentSettings.botFillNextAt; // allow the first bot right after the 15s window
+    } else {
+      delete currentSettings.matchmakingQueuedAt;
+      delete currentSettings.botFillNextAt;
+    }
+
+    await client.query(
+      `UPDATE game_lobby SET settings = $1::jsonb, updated_at = NOW() WHERE id = $2`,
+      [JSON.stringify(currentSettings), lobbyId]
+    );
+    await client.query('COMMIT');
+    return await getLobby({ userId, lobbyId });
+  } catch (error) {
+    await client.query('ROLLBACK');
+    throw error;
+  } finally {
+    client.release();
+  }
+};
+
 const continueLobby = async ({ userId, lobbyId }) => {
   const client = await pool.connect();
   try {
@@ -1695,6 +1920,8 @@ module.exports = {
   inviteLobbyPlayer,
   shrinkLobby,
   fillLobbyBots,
+  addOneBotToLobby,
+  queueLobbyForMatchmaking,
   continueLobby,
   startLobby,
   cancelMatchmaking,
@@ -1726,6 +1953,7 @@ module.exports = {
   updateGameSessionStatus,
   createRewardLedgerEntry,
   findOpponentSessionByMatchGroup,
-  findActiveBotSession,
+  getMatchArchivedState,
+  findCompletedMatchRecord,
   findActiveSession,
 };

@@ -36,7 +36,13 @@ module.exports = {
                 if (msg.startsWith('bestmove')) {
                     const parts = msg.split(' ');
                     const moveString = parts[1]; // e.g. "e2e4" or "e7e8q"
-                    
+
+                    // Always release the thinking lock — including "(none)" and
+                    // malformed output — so a stuck engine can never deadlock the
+                    // match. A later re-drive (or the guard in handleTurn) will
+                    // handle the next turn normally.
+                    session.botThinking = false;
+
                     if (moveString && moveString !== '(none)') {
                         const from = moveString.substring(0, 2);
                         const to = moveString.substring(2, 4);
@@ -44,7 +50,7 @@ module.exports = {
                         
                         const move = { from, to };
                         if (promotion) move.promotion = promotion;
-                        
+
                         // Add a tiny human delay using the difficulty profile
                         const delay = session.difficulty.reactionMs + (session.random() * 500);
                         session.setTimeout(() => {
@@ -67,13 +73,27 @@ module.exports = {
 
     onTurn: async (session, state) => {
         if (!session.enginePromise) return;
+        // Guard against double-driving the same bot (e.g. a delayed move from a
+        // previous drive firing after the turn already advanced). Stockfish can
+        // only produce one bestmove per `go` — a second `go` before the first
+        // resolves yields a stale move that gets rejected as "Not your turn".
+        if (session.botThinking) return;
         const engine = await session.enginePromise;
         if (!engine) return;
-        
+
         const ps = state.pluginState;
-        
+
         // Ensure it's actually the bot's turn
         if (ps.turnOrder[ps.currentTurnIndex] !== session.botId) return;
+
+        session.botThinking = true;
+
+        // Safety net: if stockfish never emits a bestmove (crash, hang), release
+        // the lock after the move-time budget + margin so a re-drive can happen.
+        const budgetMs = session.difficulty.chessMoveTime || 1000;
+        session.setTimeout(() => {
+            if (session.botThinking) session.botThinking = false;
+        }, budgetMs + 8000);
 
         // Tell stockfish the current board state
         engine.sendCommand(`position fen ${ps.fen}`);
@@ -87,7 +107,21 @@ module.exports = {
         }
     },
 
+    onPause: (session) => {
+        // Release the thinking lock on pause so a resume/re-drive isn't blocked.
+        session.botThinking = false;
+    },
+
+    onResume: (session) => {
+        session.botThinking = false;
+    },
+
+    onMatchEnd: (session) => {
+        session.botThinking = false;
+    },
+
     cleanup: (session) => {
+        session.botThinking = false;
         if (session.engine) {
             session.engine.quit();
             session.engine = null;

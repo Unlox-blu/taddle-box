@@ -2,6 +2,7 @@
 
 const crypto = require('crypto');
 const { createError } = require('../../utils/error.util');
+const gameModel = require('./game.model');
 
 class GameService {
   constructor({ gameRepository, xpService, notificationService, userRepository }) {
@@ -77,7 +78,9 @@ class GameService {
         reconnectWindowMs = Math.max(0, totalPauseWindow - elapsed);
       }
 
-      const normalizedMode = String(active.mode || 'AUTO').toUpperCase();
+      // Lowercase so it matches the frontend's session mode convention
+      // ('auto' | 'custom' | 'tournament' | 'practice') used for labels/rematch.
+      const normalizedMode = String(active.mode || 'AUTO').toLowerCase();
       return {
         sessionId: active.session_id,
         matchId: active.match_id,
@@ -161,7 +164,7 @@ class GameService {
 	      if(!isGameExist)
 	        throw createError("Game not found", 404)
       matchData.mode = matchData.mode.toUpperCase()
-      if (['AUTO', 'TOURNAMENT'].includes(matchData.mode)) {
+      if (['AUTO', 'TOURNAMENT', 'PRACTICE'].includes(matchData.mode)) {
         throw createError("Use matchmaking endpoint for this mode", 400)
       }
       matchData.metadata = {
@@ -294,8 +297,8 @@ class GameService {
 	  async joinMatchmaking({userId, matchData}) {
 	    try {
 	      const mode = matchData.mode.toUpperCase()
-      if (!['AUTO', 'CUSTOM', 'TOURNAMENT'].includes(mode))
-        throw createError("Matchmaking supports AUTO, CUSTOM, and TOURNAMENT only", 400)
+      if (!['AUTO', 'CUSTOM', 'TOURNAMENT', 'PRACTICE'].includes(mode))
+        throw createError("Matchmaking supports AUTO, CUSTOM, TOURNAMENT, and PRACTICE only", 400)
 	      const game = await this.gameRepo.findGameById({gameId: matchData.gameId})
 	      if(!game)
 	        throw createError("Game not found", 404)
@@ -401,7 +404,20 @@ class GameService {
   }
 
 	  async removeLobbyPlayer({ userId, lobbyId, targetUserId }) {
-	    return await this.gameRepo.removeLobbyPlayer({ userId, lobbyId, targetUserId });
+	    const result = await this.gameRepo.removeLobbyPlayer({ userId, lobbyId, targetUserId });
+	    // Emit so all real players sync — including revoking a pending invite the
+	    // host cancelled, so it doesn't resurrect from stale local state.
+	    try {
+	      const { getIO } = require('../../sockets/index');
+	      const io = getIO();
+	      const lobby = await this.gameRepo.getLobby({ userId, lobbyId });
+	      for (const p of (lobby.players || [])) {
+	        if (!p.isBot) {
+	          io.to(`user:${p.id || p.userId}`).emit('matchmaking:lobbyUpdated', lobby);
+	        }
+	      }
+	    } catch (e) { /* non-fatal */ }
+	    return result;
 	  }
 
 	  async inviteLobbyPlayer({ userId, lobbyId, opponentId }) {
@@ -439,6 +455,21 @@ class GameService {
     return await this.gameRepo.continueLobby({ userId, lobbyId });
   }
 
+  async queueLobbyForMatchmaking({ userId, lobbyId, active = true }) {
+    const result = await this.gameRepo.queueLobbyForMatchmaking({ userId, lobbyId, active });
+    // Notify all real players in the lobby that the queue state changed
+    try {
+      const { getIO } = require('../../sockets/index');
+      const io = getIO();
+      for (const p of (result.players || [])) {
+        if (!p.isBot) {
+          io.to(`user:${p.id || p.userId}`).emit('matchmaking:lobbyUpdated', result);
+        }
+      }
+    } catch (e) { /* non-fatal */ }
+    return result;
+  }
+
   async startLobby({ userId, lobbyId }) {
     const result = await this.gameRepo.startLobby({ userId, lobbyId });
     // Emit matched event to all real players so their lobbies transition
@@ -462,18 +493,6 @@ class GameService {
     try {
       const game = await this.gameRepo.findGameById({ gameId });
       if (!game) throw createError("Game not found", 404);
-
-      if (mode === 'bot' || mode === 'BOT') {
-        const activeSession = await this.gameRepo.findActiveBotSession({ userId, gameId });
-        if (activeSession) {
-          return {
-             sessionId: activeSession.id,
-             wsToken: activeSession.ws_token,
-             expiresAt: new Date(Date.now() + 60*60*1000).toISOString(),
-             ticket: { userMatchId: activeSession.match_id, token: activeSession.ws_token }
-          };
-        }
-      }
 
       // Deduct XP (tournaments are paid upfront)
       if (mode !== 'TOURNAMENT' && mode !== 'tournament') {
@@ -505,7 +524,9 @@ class GameService {
           gameId, 
           seed, 
           expiresAt,
-          metadata: { mode: mode || 'AUTO', matchGroupId: effectiveMatchId }
+          // Normalize to the canonical uppercase mode set so session metadata and
+          // match-history inserts are consistent (game_match CHECK constraint).
+          metadata: { mode: gameModel.normalizeMatchMode(mode), matchGroupId: effectiveMatchId }
         }
       });
 
@@ -525,7 +546,25 @@ class GameService {
       const session = await this.gameRepo.findGameSessionById({ sessionId });
       if (!session) throw createError("Session not found", 404);
       if (session.user_id !== userId) throw createError("Unauthorized", 403);
-      if (session.status !== 'ACTIVE') throw createError("Session already completed or cancelled", 400);
+      if (session.status !== 'ACTIVE') {
+        // Already resolved — either the client double-fired, or the server
+        // resolved it itself (forfeit / all-offline draw / 3+ removal). Return
+        // the recorded outcome so the client renders the final result instead
+        // of a confusing error or a stuck "pending" state.
+        const recorded = await this.gameRepo.findCompletedMatchRecord({
+          userId,
+          matchGroupId: session.metadata?.matchGroupId || session.id,
+        });
+        if (recorded) {
+          return {
+            result: recorded.result,
+            score: recorded.score,
+            xpEarned: recorded.xpEarned,
+            alreadyResolved: true,
+          };
+        }
+        throw createError("Session already completed or cancelled", 400);
+      }
       if (new Date(session.expires_at) < new Date()) throw createError("Session expired", 400);
 
       const game = await this.gameRepo.findGameById({ gameId: session.game_id });
@@ -537,12 +576,37 @@ class GameService {
 
       // Native Runtime Resolution
       const { MatchManager, MATCH_STATES } = require('./engine/MatchManager');
+      const EventStore = require('./engine/EventStore');
       const matchGroupId = session.metadata?.matchGroupId || session.id;
-      const { state: matchState } = await MatchManager.loadOrInitializeMatch(matchGroupId, game.slug, session.metadata || {});
-      
+
+      // Redis snapshots are cleaned up after the engine archives a finished match.
+      // Load from Redis first, then fall back to the archived final state so PVP
+      // scores are still read correctly instead of silently defaulting to 0.
+      let matchState = await EventStore.loadMatchSnapshot(matchGroupId);
+      if (!matchState) {
+        const archived = await this.gameRepo.getMatchArchivedState({ matchId: matchGroupId });
+        if (archived) matchState = archived;
+      }
+      if (!matchState) {
+        const init = await MatchManager.loadOrInitializeMatch(matchGroupId, game.slug, session.metadata || {});
+        matchState = init.state;
+      }
+
       if (matchState) {
          if (game.slug === 'chess' || game.slug === 'ludo' || game.slug === 'snake-ladder') {
             if (matchState.status === MATCH_STATES.FINISHED) {
+               // A finished turn-based match with no winner is a forced draw
+               // (all players went offline, or the engine produced a draw).
+               if (!matchState.pluginState?.winner) {
+                  await this.gameRepo.updateGameSessionStatus({
+                    sessionId, status: 'COMPLETED', completedAt: new Date().toISOString()
+                  });
+                  await this.gameRepo.recordMatchHistory({
+                    userId, gameId: game.id, mode: session.metadata?.mode, result: 'DRAW',
+                    score: 0, duration: 60, xpEarned: 0, matchGroupId
+                  });
+                  return { result: 'DRAW', score: 0, xpEarned: 0, forcedDraw: true };
+               }
                rawScore = matchState.pluginState?.winner === userId ? (game.metadata?.winScore || 1) : 0;
                duration = 60;
             } else {
@@ -571,35 +635,65 @@ class GameService {
       }
 
       let calculated = this.calculateResult({ game, score: rawScore, duration });
-      
-      const isBotMode = session.metadata?.mode === 'bot';
-      if (isBotMode) {
-        calculated.xpEarned = 0; // No XP for bot practice
-        
+
+      // PRACTICE mode: the entry fee is deducted at session start, but the run is
+      // solo practice — no XP reward, regardless of win/loss. Keep the result and
+      // score for history, but zero out any credit so nothing is awarded.
+      const isPractice = gameModel.normalizeMatchMode(session.metadata?.mode) === 'PRACTICE';
+
+      // Bot-filled matches (AUTO/PRACTICE/CUSTOM lobbies) — the bot has no game_session, so
+      // resolve immediately against the bot's final score instead of waiting on a PVP opponent.
+      const ps = (matchState && matchState.pluginState) || {};
+      const matchPlayers = (matchState && (matchState.metadata?.players || matchState.players)) || [];
+      const hasBotOpponent =
+        matchPlayers.some((p) => p && (p.isBot || String(p.userId || p.id || '').startsWith('bot_')))
+        || Object.keys(ps.scores || {}).some((id) => String(id).startsWith('bot_'));
+      if (hasBotOpponent) {
+        const botScores = Object.entries(ps.scores || {})
+          .filter(([id]) => String(id).startsWith('bot_'))
+          .map(([, v]) => Number(v) || 0);
+        const botScore = botScores.length ? Math.max(...botScores) : 0;
+
+        let myResult = calculated.score > botScore ? 'WIN' : calculated.score < botScore ? 'LOSS' : 'DRAW';
+        // Turn-based games: the engine winner is authoritative (draw if null)
+        if (['chess', 'ludo', 'snake-ladder'].includes(game.slug)) {
+          const winner = ps.winner;
+          myResult = winner === userId ? 'WIN' : winner ? 'LOSS' : 'DRAW';
+        }
+        // Practice = no rewards: force 0 XP even on a win.
+        const myXp = isPractice ? 0 : (myResult === 'WIN' ? calculated.xpEarned : 0);
+
         await this.gameRepo.updateGameSessionStatus({
           sessionId, status: 'COMPLETED', completedAt: new Date().toISOString()
         });
 
         await this.gameRepo.recordMatchHistory({
-          userId, gameId: game.id, mode: session.metadata?.mode, result: calculated.result, 
-          score: calculated.score, duration, xpEarned: calculated.xpEarned
+          userId, gameId: game.id, mode: session.metadata?.mode, result: myResult,
+          score: calculated.score, duration, xpEarned: myXp, matchGroupId
         });
+
+        if (myXp > 0 && this.xpSvc) {
+          await this.xpSvc.creditXP({
+            userId, xp: myXp,
+            transactionType: 'earned', sourceType: `game_session_${sessionId}`
+          });
+        }
 
         const ledgerEntry = await this.gameRepo.createRewardLedgerEntry({
           ledgerData: {
             sessionId, userId, gameId: game.id,
             validatedScore: calculated.score,
-            xpAwarded: calculated.xpEarned,
+            xpAwarded: myXp,
             deviceId: null, ipAddress: null
           }
         });
 
         return {
-          result: calculated.result, score: calculated.score,
-          xpEarned: calculated.xpEarned, ledgerId: ledgerEntry.id
+          result: myResult, score: calculated.score,
+          xpEarned: myXp, ledgerId: ledgerEntry.id
         };
       }
-      
+
       // PVP Resolution (Opponent SSOT)
       // matchGroupId already declared above
       
@@ -627,7 +721,8 @@ class GameService {
         const opScore = opponentSession.validated_score || 0; // We need to fetch this from ledger ideally
         
         let myResult = myScore > opScore ? 'WIN' : myScore < opScore ? 'LOSS' : 'DRAW';
-        let myXp = myResult === 'WIN' ? calculated.xpEarned : 0;
+        // Practice = no rewards: force 0 XP even on a win.
+        let myXp = isPractice ? 0 : (myResult === 'WIN' ? calculated.xpEarned : 0);
         
         // In a real app we'd update both ledgers and wallets here and emit WS events.
         // For now, we instantly resolve the current player.
@@ -637,7 +732,7 @@ class GameService {
         
         await this.gameRepo.recordMatchHistory({
           userId, gameId: game.id, mode: session.metadata?.mode, result: myResult,
-          score: myScore, duration, xpEarned: myXp
+          score: myScore, duration, xpEarned: myXp, matchGroupId
         });
         
         if (myXp > 0 && this.xpSvc) {
@@ -658,7 +753,7 @@ class GameService {
         
         await this.gameRepo.recordMatchHistory({
           userId: opponentSession.user_id, gameId: game.id, mode: session.metadata?.mode, result: opResult,
-          score: opScore, duration, xpEarned: opXp
+          score: opScore, duration, xpEarned: opXp, matchGroupId
         });
 
         if (opXp > 0 && this.xpSvc) {

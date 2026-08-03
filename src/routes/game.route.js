@@ -16,6 +16,7 @@ const {
   createMatchSchema,
   updateMatchSchema,
   joinMatchmakingSchema,
+  startGameSessionSchema,
   inviteMatchmakingSchema,
   lobbyIdParamSchema,
   lobbyPlayerParamSchema,
@@ -31,7 +32,7 @@ router.post('/create-match',    verifyToken,  validateRequest({body: createMatch
 router.patch('/update-match',   verifyToken,  validateRequest({body: updateMatchSchema}),   gameController.updateGameMatch);
 
 router.get('/session/active',   verifyToken,  gameController.getActiveSession);
-router.post('/session/start',   verifyToken,  gameController.startGameSession);
+router.post('/session/start',   verifyToken,  validateRequest({body: startGameSessionSchema}),   gameController.startGameSession);
 router.post('/session/complete', verifyToken, gameController.completeGameSession);
 
 
@@ -58,6 +59,7 @@ router.post('/lobbies/:lobbyId/invitations', verifyToken, validateRequest({param
 router.post('/lobbies/:lobbyId/shrink', verifyToken, validateRequest({params: lobbyIdParamSchema}), gameController.shrinkLobby);
 router.post('/lobbies/:lobbyId/fill-bots', verifyToken, validateRequest({params: lobbyIdParamSchema}), gameController.fillLobbyBots);
 router.post('/lobbies/:lobbyId/continue', verifyToken, validateRequest({params: lobbyIdParamSchema}), gameController.continueLobby);
+router.post('/lobbies/:lobbyId/queue', verifyToken, validateRequest({params: lobbyIdParamSchema}), gameController.queueLobbyForMatchmaking);
 router.post('/lobbies/:lobbyId/start', verifyToken, validateRequest({params: lobbyIdParamSchema}), gameController.startLobby);
 
 router.get('/trending',         verifyToken,                                                gameController.getTrendingGames);

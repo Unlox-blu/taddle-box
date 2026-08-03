@@ -3,9 +3,21 @@
 const { z } = require('zod');
 const config = require('../../config/app.config')
 
-const ALLOWED_MODE = ['AUTO', 'CUSTOM', 'TOURNAMENT']
+const ALLOWED_MODE = ['AUTO', 'CUSTOM', 'TOURNAMENT', 'PRACTICE']
 const DIFFICULTY_TYPE = ['easy', 'medium', 'hard']
 const RESULT_TYPE = ['WIN', 'LOSS', 'DRAW']
+
+// Canonical match-mode gate shared by every endpoint that accepts a mode.
+// Accepts auto/custom/tournament case-insensitively, normalizes to uppercase,
+// and rejects anything else (legacy 'quick'/'bot'/'invite' or junk) before it
+// can reach the DB. validateRequest writes result.data back onto req.body, so
+// controllers always receive the normalized uppercase value.
+const matchModeSchema = z.preprocess(
+  (val) => (typeof val === 'string' ? val.toUpperCase() : val),
+  z.enum(ALLOWED_MODE, {
+    error: () => ({ message: `Mode must be one of: ${ALLOWED_MODE.join(', ')}` })
+  })
+);
 
 const typeCheck = (val) => {
     if (typeof val === 'string') {
@@ -68,9 +80,7 @@ const paginationSchema = z.object({
 
 const createMatchSchema = z.object({
   gameId: z.string().uuid({ message: 'Invalid game ID format' }),
-  mode : z.enum(ALLOWED_MODE, {
-            error_map: () => ({ message: `Mode must be one of: ${ALLOWED_MODE.join(', ')}` })
-          }),
+  mode: matchModeSchema,
   category: z.string().optional(),
   difficulty: z.enum(DIFFICULTY_TYPE, {
             error_map: () => ({ message: `Difficulty must be one of: ${DIFFICULTY_TYPE.join(', ')}` })
@@ -90,12 +100,16 @@ const updateMatchSchema = z.object({
 
 const joinMatchmakingSchema = z.object({
   gameId: z.string().uuid({ message: 'Invalid game ID format' }),
-  mode : z.enum(['AUTO', 'CUSTOM', 'TOURNAMENT'], {
-            error_map: () => ({ message: "Mode must be AUTO, CUSTOM, or TOURNAMENT" })
-          }),
+  mode: matchModeSchema,
   tournamentId: z.string().uuid({ message: 'Invalid tournament ID format' }).optional(),
   targetPlayers: z.number().positive().optional(),
   visibility: z.enum(['PUBLIC', 'PRIVATE']).optional(),
+})
+
+const startGameSessionSchema = z.object({
+  gameId: z.string().uuid({ message: 'Invalid game ID format' }),
+  mode: matchModeSchema,
+  matchGroupId: z.string().uuid({ message: 'Invalid match group ID format' }).optional().nullable(),
 })
 
 const inviteMatchmakingSchema = z.object({
@@ -108,9 +122,17 @@ const lobbyIdParamSchema = z.object({
   lobbyId: z.string().uuid({ message: 'Invalid lobby ID format' })
 }).strict();
 
+// playerId may be a real user UUID or a bot id (bots live in settings.bots[]
+// with ids like "bot_alpha_<lobbyHash>_<seat>", never in game_matchmaking_ticket).
+const lobbyPlayerIdSchema = z.string().refine(
+  (v) => /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(v)
+      || /^bot_[a-z0-9_]+$/i.test(v),
+  { message: 'Invalid player ID format' }
+);
+
 const lobbyPlayerParamSchema = z.object({
   lobbyId: z.string().uuid({ message: 'Invalid lobby ID format' }),
-  playerId: z.string().uuid({ message: 'Invalid player ID format' })
+  playerId: lobbyPlayerIdSchema
 }).strict();
 
 const updateLobbySchema = z.object({
@@ -128,6 +150,7 @@ const updateLobbyPlayerSchema = z.object({
 
 module.exports = {
   typeCheck,
+  matchModeSchema,
   paginationSchema,
   searchSchema,
   gameIdParamSchema,
@@ -137,6 +160,7 @@ module.exports = {
   createMatchSchema,
   updateMatchSchema,
   joinMatchmakingSchema,
+  startGameSessionSchema,
   inviteMatchmakingSchema,
   lobbyIdParamSchema,
   lobbyPlayerParamSchema,

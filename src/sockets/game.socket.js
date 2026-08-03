@@ -676,7 +676,7 @@ const setupGameSocket = (io) => {
         `SELECT id, game_id, metadata FROM game_sessions
          WHERE metadata->>'matchGroupId' = $1 AND user_id = $2
            AND status IN ('ACTIVE','PENDING')
-         ORDER BY created_at DESC LIMIT 1`,
+         ORDER BY started_at DESC LIMIT 1`,
         [matchId, userId]
       );
       const session = rows[0];

@@ -1646,14 +1646,14 @@ const shrinkLobby = async ({ userId, lobbyId }) => {
 // bot engine (BotManager) — weak bots make realistic mistakes, strong ones
 // genuinely win more. Keep in sync with PROFILE_DIFFICULTY in BotManager.js.
 const BOT_PROFILES = [
-  { id: 'bot_alpha',   username: 'aarav_07',    name: 'Aarav Singh',    avatar: 'https://i.pravatar.cc/150?img=12', rating: 1250, level: 10, badge: 'silver',   difficulty: 'Easy'   },
-  { id: 'bot_bravo',   username: 'riya.sharma', name: 'Riya Sharma',    avatar: 'https://i.pravatar.cc/150?img=47', rating: 1420, level: 15, badge: 'gold',     difficulty: 'Medium' },
-  { id: 'bot_charlie', username: 'kabir_mehta', name: 'Kabir Mehta',    avatar: 'https://i.pravatar.cc/150?img=59', rating: 1600, level: 20, badge: 'platinum', difficulty: 'Medium' },
-  { id: 'bot_delta',   username: 'ananya_21',   name: 'Ananya Iyer',    avatar: 'https://i.pravatar.cc/150?img=32', rating: 1100, level:  8, badge: 'bronze',   difficulty: 'Easy'   },
-  { id: 'bot_echo',    username: 'rohan_k',     name: 'Rohan Khanna',   avatar: 'https://i.pravatar.cc/150?img=68', rating: 1350, level: 12, badge: 'silver',   difficulty: 'Medium' },
-  { id: 'bot_nova',    username: 'sara.khan',   name: 'Sara Khan',      avatar: 'https://i.pravatar.cc/150?img=25', rating: 1550, level: 18, badge: 'gold',     difficulty: 'Medium' },
-  { id: 'bot_blaze',   username: 'arjun_reddy', name: 'Arjun Reddy',    avatar: 'https://i.pravatar.cc/150?img=53', rating: 1800, level: 25, badge: 'diamond',  difficulty: 'Hard'   },
-  { id: 'bot_titan',   username: 'dev_patel',   name: 'Dev Patel',      avatar: 'https://i.pravatar.cc/150?img=61', rating: 1950, level: 30, badge: 'master',   difficulty: 'Hard'   },
+  { id: 'bot_001', username: 'alpha_001',   name: 'Aarav Singh',      avatar: 'https://i.pravatar.cc/150?img=12', rating: 1250, level: 10, badge: 'silver',   difficulty: 'Easy'   },
+  { id: 'bot_002', username: 'beta_002',    name: 'Trisha',           avatar: 'https://imgtree.co/i/zdoNE3sg',    rating: 1420, level: 15, badge: 'gold',     difficulty: 'Medium' },
+  { id: 'bot_003', username: 'gamma_003',   name: 'Kabir Mehta',      avatar: 'https://i.pravatar.cc/150?img=59', rating: 1600, level: 20, badge: 'platinum', difficulty: 'Medium' },
+  { id: 'bot_004', username: 'delta_004',   name: 'Ananya Iyer',      avatar: 'https://i.pravatar.cc/150?img=32', rating: 1100, level:  8, badge: 'bronze',   difficulty: 'Easy'   },
+  { id: 'bot_005', username: 'epsilon_005', name: 'Rohan Khanna',     avatar: 'https://i.pravatar.cc/150?img=68', rating: 1350, level: 12, badge: 'silver',   difficulty: 'Medium' },
+  { id: 'bot_006', username: 'kappa_006',   name: 'Sara Khan',        avatar: 'https://i.pravatar.cc/150?img=25', rating: 1550, level: 18, badge: 'gold',     difficulty: 'Medium' },
+  { id: 'bot_007', username: 'epsilon_007', name: 'Arjun Reddy',      avatar: 'https://i.pravatar.cc/150?img=53', rating: 1800, level: 25, badge: 'diamond',  difficulty: 'Hard'   },
+  { id: 'bot_008', username: 'sigma_008',   name: 'Thalapathy Vijay', avatar: 'https://imgtree.co/i/yZfKfhS8',    rating: 1950, level: 30, badge: 'master',   difficulty: 'Hard'   },
 ];
 
 // Deterministic per-lobby shuffle of BOT_PROFILES (seeded by lobby id) so the

@@ -17,7 +17,7 @@ const setupActiveStatus = (io) => {
 
         console.log(`${socket.userId} is online`)
     } catch (error) {
-        console.error(err);
+        console.error(error);
     }
 
     socket.on('heartbeat', async () => {

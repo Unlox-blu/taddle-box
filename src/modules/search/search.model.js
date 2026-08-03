@@ -4,6 +4,7 @@ const USER_TABLE = 'users';
 const COMMUNITY_TABLE = 'communities';
 const EVENT_TABLE = 'events';
 const POST_TABLE = 'posts';
+const GAME_TABLE = 'game';
 
 const USER_FIELDS = [
   'u.id', 'u.name', 'u.username', 'u.avatar_url', 'u.follower_count', 'u.following_count',
@@ -34,8 +35,15 @@ const POST_FIELDS = [
   'ca.cloudfront_url AS community_avatar',
 ].join(', ');
 
+// Games are returned as-is (matches game module's formatGame shape) so the app
+// can render them directly with the existing Game type.
+const GAME_FIELDS = [
+  'id', 'name', 'slug', 'description', 'thumbnail', 'category',
+  'difficulty', 'is_active', 'metadata', 'created_at', 'updated_at',
+].join(', ');
+
 
 module.exports = {
-    USER_TABLE, COMMUNITY_TABLE, EVENT_TABLE, POST_TABLE,
-    USER_FIELDS, COMMUNITY_FIELDS, EVENT_FIELDS, POST_FIELDS,
+    USER_TABLE, COMMUNITY_TABLE, EVENT_TABLE, POST_TABLE, GAME_TABLE,
+    USER_FIELDS, COMMUNITY_FIELDS, EVENT_FIELDS, POST_FIELDS, GAME_FIELDS,
 }

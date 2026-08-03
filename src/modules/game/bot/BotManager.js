@@ -6,6 +6,26 @@ const seedrandom = require('seedrandom');
 
 const difficulties = { Easy, Medium, Hard };
 
+// Maps each bot profile id (embedded in bot ids like bot_alpha_<hash>_<seat>)
+// to its gameplay skill tier, matching the `difficulty` field on BOT_PROFILES
+// in game.repository.js. Weak bots (bronze/silver) are Easy and make realistic
+// mistakes; strong ones (diamond/master) are Hard and genuinely dominate.
+const PROFILE_DIFFICULTY = {
+  bot_alpha: 'Easy',
+  bot_delta: 'Easy',
+  bot_bravo: 'Medium',
+  bot_charlie: 'Medium',
+  bot_echo: 'Medium',
+  bot_nova: 'Medium',
+  bot_blaze: 'Hard',
+  bot_titan: 'Hard',
+};
+
+const resolveBotDifficulty = (botId) => {
+  const key = String(botId || '').split('_').slice(0, 2).join('_');
+  return PROFILE_DIFFICULTY[key] || 'Medium';
+};
+
 class BotSession {
     constructor(matchId, gameSlug, botId, difficultyLevel, engineCallback) {
         this.matchId = matchId;
@@ -83,9 +103,9 @@ class BotManager {
         const matchSessions = this.sessions.get(matchId);
         
         if (!matchSessions.has(botId)) {
-            // Determine difficulty from somewhere, default to Medium for now
-            // Ideally, this is passed during match setup metadata
-            const session = new BotSession(matchId, gameSlug, botId, 'Medium', engineCallback);
+            // Difficulty is derived from the bot's profile id (its rating tier),
+            // so a strong bot plays Hard and a weak one plays Easy.
+            const session = new BotSession(matchId, gameSlug, botId, resolveBotDifficulty(botId), engineCallback);
             matchSessions.set(botId, session);
         }
         

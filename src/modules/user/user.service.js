@@ -222,9 +222,9 @@ class UserService {
         await notificationService.publishNotification({
           type: 'REQUEST_TO_FOLLOW',
           recipientId: followingId,
-          actorId: followerId,
-          entityId: followingId,
-          entityType: 'user',
+          senderId: followerId,
+          resourceType: 'user',
+          resourceId: followerId,
           title: 'Request to follow',
           message: `${follower.name} requested to follow you`,
         })
@@ -238,11 +238,11 @@ class UserService {
       await notificationService.publishNotification({
         type: 'FOLLOW',
         recipientId: followingId,
-        actorId: followerId,
-        entityId: followingId,
-        entityType: 'user',
+        senderId: followerId,
+        resourceType: 'user',
+        resourceId: followerId,
         title: 'New follower',
-        message: `${follower.name} started following you`,
+        message: `${follower.name} (@${follower.username}) started following you`,
       })
 
       return {message: 'Follow successfully'}
@@ -275,11 +275,11 @@ class UserService {
       await notificationService.publishNotification({
         type: 'FOLLOW',
         recipientId: followerId,
-        actorId: followingId,
-        entityId: followingId,
-        entityType: 'user',
+        senderId: followingId,
+        resourceType: 'user',
+        resourceId: followingId,
         title: 'Follow request approved',
-        message: `${following.name} approved your request`,
+        message: `${following.name} (@${following.username}) approved your request`,
       })
       return {message: "Request approved to follow"}
     } catch (error) {

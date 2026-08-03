@@ -82,6 +82,7 @@ const signupSchema = z.object({
   occupation: z.enum(['Student', 'Working Professional', 'Self-employed / Freelancer', 'Other'], { required_error: 'Occupation Type is required' }),
   organization: z.string().optional(),
   interests: z.preprocess(typeCheck, z.array(z.string()).min(3, "Please select at least 3 interests").default([])),
+  referralCode: z.string().trim().min(3).max(12).optional(),
   socialToken: z.string().optional(),
 }).strict().superRefine((data, ctx) => {
   if (!data.socialToken) {

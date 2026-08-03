@@ -98,8 +98,27 @@ const searchPost = async (query, limit, offset) => {
             AND (p.visibility = 'public' OR (p.visibility = 'community' AND c.privacy != 'private'))
             AND ($1 = '' OR p.title ILIKE $1 OR p.content ILIKE $1)
           GROUP BY p.id, u.id, ua.id, c.id, ca.id
-          ORDER BY p.created_at DESC
+          ORDER BY CASE WHEN $1 = '' THEN (p.likes_count + p.comments_count) END DESC NULLS LAST, p.created_at DESC
            LIMIT $2 OFFSET $3`,
+      [`%${q}%`, limit, offset]
+    );
+    const total = rows[0]?.total || 0;
+    return { rows, total: parseInt(total, 10) };
+  } catch (error) {
+    throw error;
+  }
+};
+
+const searchGame = async (query, limit, offset) => {
+  try {
+    const q = query || '';
+    const { rows } = await pool.query(
+      `SELECT ${SearchModel.GAME_FIELDS}, COUNT(*) OVER() AS total
+       FROM ${SearchModel.GAME_TABLE}
+       WHERE is_active = TRUE
+         AND ($1 = '' OR name ILIKE $1 OR slug ILIKE $1)
+       ORDER BY CASE WHEN $1 = '' THEN (metadata->>'maxXp')::int END DESC NULLS LAST, created_at DESC
+       LIMIT $2 OFFSET $3`,
       [`%${q}%`, limit, offset]
     );
     const total = rows[0]?.total || 0;
@@ -131,5 +150,5 @@ const getHashtags = async (q = '') => {
 };
 
 module.exports = {
-    searchUser, searchCommunity, searchEvent, searchPost, getHashtags
+    searchUser, searchCommunity, searchEvent, searchPost, searchGame, getHashtags
 }

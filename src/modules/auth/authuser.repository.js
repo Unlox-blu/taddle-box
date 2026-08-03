@@ -107,15 +107,30 @@ const findPhoneByEmail = async ({ email }) => {
 };
 
 
-const create = async ({name, username, email, countryCode, phone, passwordHash, dateOfBirth, gender, location, latitude, longitude, occupation, organization, interests, googleId, appleId, avatarUrl}) => {
+const create = async ({name, username, email, countryCode, phone, passwordHash, dateOfBirth, gender, location, latitude, longitude, occupation, organization, interests, googleId, appleId, avatarUrl, referralCode, referredBy}) => {
   try {
     const { rows } = await pool.query(
-      `INSERT INTO ${AuthModel.USER_TABLE} (name, username, email, country_code, phone_number, password_hash, date_of_birth, gender, location, latitude, longitude, occupation, organization, interests, google_id, apple_id, avatar_url)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17)
+      `INSERT INTO ${AuthModel.USER_TABLE} (name, username, email, country_code, phone_number, password_hash, date_of_birth, gender, location, latitude, longitude, occupation, organization, interests, google_id, apple_id, avatar_url, referral_code, referred_by)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19)
        RETURNING ${AuthModel.RETURNING_USER_FIELDS}`,
-      [name, username, email, countryCode, phone, passwordHash, dateOfBirth, gender, location, latitude, longitude, occupation, organization, JSON.stringify(interests) || '[]', googleId, appleId, avatarUrl]
+      [name, username, email, countryCode, phone, passwordHash, dateOfBirth, gender, location, latitude, longitude, occupation, organization, JSON.stringify(interests) || '[]', googleId, appleId, avatarUrl, referralCode || null, referredBy || null]
     );
     const safe = rows[0] ? AuthModel.sanitize(rows[0]) : null
+    return safe ? AuthModel.format(safe) : null;
+  } catch (error) {
+    throw error;
+  }
+};
+
+const findByReferralCode = async ({ referralCode }) => {
+  try {
+    const { rows } = await pool.query(
+      `SELECT ${AuthModel.PRIVATE_FIELDS}
+      FROM ${AuthModel.USER_TABLE} u
+      WHERE UPPER(u.referral_code) = UPPER($1) AND u.deleted_at IS NULL`,
+      [referralCode]
+    );
+    const safe = rows[0] ? AuthModel.sanitize(rows[0]) : null;
     return safe ? AuthModel.format(safe) : null;
   } catch (error) {
     throw error;
@@ -519,5 +534,5 @@ module.exports = {
   updatePasswordResetToken, findByPasswordResetToken, getPasswordByUserId,
   updatePassword, updateLastLogin, softDelete, isEmailExist, isPhoneExist, isUsernameExist,
   findByIdSecure, findByIdAppLock, findByEmailUser, findByIdUser, updateAvatar, updateEmail, findPhoneByEmail,
-  findByIdentifier, findPhoneByUserId,
+  findByIdentifier, findPhoneByUserId, findByReferralCode,
 };

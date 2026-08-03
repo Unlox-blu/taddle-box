@@ -649,6 +649,7 @@ const joinMatchmaking = async ({ userId, game, mode, tournamentId, targetPlayers
         playerIds: playerSnapshots.map(p => p.id),
         playerSnapshots,
         maxPlayers: lobby.max_players,
+        teamsLocked: !!(lobby.settings?.teamsLocked),
         startedAt,
         runtime: game.metadata?.runtime,
         tournamentId
@@ -824,7 +825,7 @@ const fillMatchmakingLobby = async ({ userId, ticketId, overrideLobbyId, fillBot
         while (usedSeats.has(seat)) seat++;
         usedSeats.add(seat);
 
-        const profile = BOT_PROFILES[seat % BOT_PROFILES.length];
+        const profile = botProfileForSeat(lobby.id, seat);
         const botId = `${profile.id}_${lobby.id.replace(/-/g, '').slice(0, 8)}_${seat}`;
         const newBot = {
           id: botId,
@@ -834,6 +835,7 @@ const fillMatchmakingLobby = async ({ userId, ticketId, overrideLobbyId, fillBot
           rating: profile.rating,
           level: profile.level,
           badge: profile.badge,
+          difficulty: profile.difficulty,
           seat,
           team: seat % 2,
           isBot: true,
@@ -876,6 +878,7 @@ const fillMatchmakingLobby = async ({ userId, ticketId, overrideLobbyId, fillBot
       playerIds: playerSnapshots.map(p => p.id),
       playerSnapshots,
       maxPlayers: lobby.max_players,
+      teamsLocked: !!(lobby.settings?.teamsLocked),
       startedAt,
       runtime: game.metadata?.runtime,
       tournamentId: initialTicket.tournament_id
@@ -1580,6 +1583,21 @@ const inviteLobbyPlayer = async ({ userId, lobbyId, opponentId }) => {
         type: 'GAME_INVITE',
         payload: { lobbyId, inviteCode, gameName, senderName },
       });
+      // Queue a push when the friend is not connected to the socket right now.
+      const redis = require('../../config/redis');
+      const status = await redis.get(`user:status:${opponentId}`).catch(() => null);
+      if (status !== 'online') {
+        const { addJob } = require('../../jobs/queues/job.queue');
+        await addJob('notification:push', {
+          recipientId: opponentId,
+          senderId: userId,
+          type: 'GAME_INVITE',
+          title: `${senderName} invited you to play ${gameName}!`,
+          message: `Tap to join their private lobby | ${lobbyId} | ${inviteCode}`,
+          resourceType: 'game_lobby',
+          resourceId: lobby.game_id,
+        });
+      }
     } catch (notifErr) {
       console.error('Failed to send invite notification:', notifErr.message);
     }
@@ -1619,16 +1637,54 @@ const shrinkLobby = async ({ userId, lobbyId }) => {
   }
 };
 
+// Bots look like real players: human names, normal-looking usernames and
+// profile photos (never "bot" prefixes or robot avatars) so auto-match fills
+// read as real opponents. The internal id keeps the bot_ prefix so backend
+// result handling (game.service.js) can still detect them.
+//
+// `difficulty` maps the profile's rating to a gameplay skill tier used by the
+// bot engine (BotManager) — weak bots make realistic mistakes, strong ones
+// genuinely win more. Keep in sync with PROFILE_DIFFICULTY in BotManager.js.
 const BOT_PROFILES = [
-  { id: 'bot_alpha',   username: 'bot_alpha',   name: 'Bot Alpha',   avatar: 'https://api.dicebear.com/7.x/bottts/svg?seed=Alpha',   rating: 1250, level: 10, badge: 'silver'   },
-  { id: 'bot_bravo',   username: 'bot_bravo',   name: 'Bot Bravo',   avatar: 'https://api.dicebear.com/7.x/bottts/svg?seed=Bravo',   rating: 1420, level: 15, badge: 'gold'     },
-  { id: 'bot_charlie', username: 'bot_charlie', name: 'Bot Charlie', avatar: 'https://api.dicebear.com/7.x/bottts/svg?seed=Charlie', rating: 1600, level: 20, badge: 'platinum' },
-  { id: 'bot_delta',   username: 'bot_delta',   name: 'Bot Delta',   avatar: 'https://api.dicebear.com/7.x/bottts/svg?seed=Delta',   rating: 1100, level:  8, badge: 'bronze'   },
-  { id: 'bot_echo',    username: 'bot_echo',    name: 'Bot Echo',    avatar: 'https://api.dicebear.com/7.x/bottts/svg?seed=Echo',    rating: 1350, level: 12, badge: 'silver'   },
-  { id: 'bot_nova',    username: 'bot_nova',    name: 'Bot Nova',    avatar: 'https://api.dicebear.com/7.x/bottts/svg?seed=Nova',    rating: 1550, level: 18, badge: 'gold'     },
-  { id: 'bot_blaze',   username: 'bot_blaze',   name: 'Bot Blaze',   avatar: 'https://api.dicebear.com/7.x/bottts/svg?seed=Blaze',   rating: 1800, level: 25, badge: 'diamond'  },
-  { id: 'bot_titan',   username: 'bot_titan',   name: 'Bot Titan',   avatar: 'https://api.dicebear.com/7.x/bottts/svg?seed=Titan',   rating: 1950, level: 30, badge: 'master'   },
+  { id: 'bot_alpha',   username: 'aarav_07',    name: 'Aarav Singh',    avatar: 'https://i.pravatar.cc/150?img=12', rating: 1250, level: 10, badge: 'silver',   difficulty: 'Easy'   },
+  { id: 'bot_bravo',   username: 'riya.sharma', name: 'Riya Sharma',    avatar: 'https://i.pravatar.cc/150?img=47', rating: 1420, level: 15, badge: 'gold',     difficulty: 'Medium' },
+  { id: 'bot_charlie', username: 'kabir_mehta', name: 'Kabir Mehta',    avatar: 'https://i.pravatar.cc/150?img=59', rating: 1600, level: 20, badge: 'platinum', difficulty: 'Medium' },
+  { id: 'bot_delta',   username: 'ananya_21',   name: 'Ananya Iyer',    avatar: 'https://i.pravatar.cc/150?img=32', rating: 1100, level:  8, badge: 'bronze',   difficulty: 'Easy'   },
+  { id: 'bot_echo',    username: 'rohan_k',     name: 'Rohan Khanna',   avatar: 'https://i.pravatar.cc/150?img=68', rating: 1350, level: 12, badge: 'silver',   difficulty: 'Medium' },
+  { id: 'bot_nova',    username: 'sara.khan',   name: 'Sara Khan',      avatar: 'https://i.pravatar.cc/150?img=25', rating: 1550, level: 18, badge: 'gold',     difficulty: 'Medium' },
+  { id: 'bot_blaze',   username: 'arjun_reddy', name: 'Arjun Reddy',    avatar: 'https://i.pravatar.cc/150?img=53', rating: 1800, level: 25, badge: 'diamond',  difficulty: 'Hard'   },
+  { id: 'bot_titan',   username: 'dev_patel',   name: 'Dev Patel',      avatar: 'https://i.pravatar.cc/150?img=61', rating: 1950, level: 30, badge: 'master',   difficulty: 'Hard'   },
 ];
+
+// Deterministic per-lobby shuffle of BOT_PROFILES (seeded by lobby id) so the
+// same seats get different-looking opponents in different lobbies, while the
+// order stays stable within one lobby (bots join one at a time during the
+// gradual bot-fill sweep and must never repeat). Uses FNV-1a hashing + a tiny
+// LCG, so a 4-player lobby can't always pick the same first 4 bots.
+const _hashSeed = (str) => {
+  let h = 2166136261;
+  for (let i = 0; i < str.length; i++) {
+    h ^= str.charCodeAt(i);
+    h = Math.imul(h, 16777619);
+  }
+  return h >>> 0;
+};
+
+const _shuffledBotProfiles = (lobbyId) => {
+  const arr = [...BOT_PROFILES];
+  let seed = _hashSeed(String(lobbyId || 'lobby'));
+  for (let i = arr.length - 1; i > 0; i--) {
+    seed = (Math.imul(seed, 1664525) + 1013904223) >>> 0;
+    const j = seed % (i + 1);
+    [arr[i], arr[j]] = [arr[j], arr[i]];
+  }
+  return arr;
+};
+
+const botProfileForSeat = (lobbyId, seat) => {
+  const profiles = _shuffledBotProfiles(lobbyId);
+  return profiles[seat % profiles.length];
+};
 
 /**
  * Adds bot(s) to a lobby by storing them in game_lobby.settings.bots[].
@@ -1675,7 +1731,7 @@ const fillLobbyBots = async ({ userId, lobbyId, count = 1 }) => {
       while (usedSeats.has(seat)) seat++;
       usedSeats.add(seat);
 
-      const profile = BOT_PROFILES[seat % BOT_PROFILES.length];
+      const profile = botProfileForSeat(lobbyId, seat);
       // Give each bot a unique id scoped to this lobby+seat so the frontend can key on it
       const botId = `${profile.id}_${lobbyId.replace(/-/g, '').slice(0, 8)}_${seat}`;
       newBots.push({
@@ -1686,6 +1742,7 @@ const fillLobbyBots = async ({ userId, lobbyId, count = 1 }) => {
         rating: profile.rating,
         level: profile.level,
         badge: profile.badge,
+        difficulty: profile.difficulty,
         seat,
         team: seat % 2,
         isBot: true,
@@ -1769,7 +1826,7 @@ const addOneBotToLobby = async ({ lobbyId }) => {
     while (usedSeats.has(seat)) seat++;
     usedSeats.add(seat);
 
-    const profile = BOT_PROFILES[seat % BOT_PROFILES.length];
+    const profile = botProfileForSeat(lobbyId, seat);
     const botId = `${profile.id}_${lobbyId.replace(/-/g, '').slice(0, 8)}_${seat}`;
     const newBot = {
       id: botId,
@@ -1779,6 +1836,7 @@ const addOneBotToLobby = async ({ lobbyId }) => {
       rating: profile.rating,
       level: profile.level,
       badge: profile.badge,
+      difficulty: profile.difficulty,
       seat,
       team: seat % 2,
       isBot: true,
@@ -1830,6 +1888,37 @@ const queueLobbyForMatchmaking = async ({ userId, lobbyId, active = true }) => {
     const lobby = rows[0];
     if (!lobby) throw require('../../utils/error.util').createError('Lobby not found', 404);
     if (lobby.host_user_id !== userId) throw require('../../utils/error.util').createError('Only the host can queue the lobby', 403);
+
+    // The bot-fill sweep may have already resolved the lobby between the time the
+    // host hit "Auto Match & Proceed" and this call landing: it can be LOCKED
+    // (mid-fill, status flips WAITING -> LOCKED -> WAITING -> READY) or READY
+    // (match already created + matchmaking:matched already emitted). Never fail
+    // those with "Lobby is not waiting" — the host re-queueing is idempotent.
+    //   - LOCKED:      return the current lobby; the sweep finishes and the
+    //                  frontend transitions via matchmaking:matched.
+    //   - READY:       return a MATCHED-shaped payload (players + matchMetadata)
+    //                  so the frontend starts the game immediately.
+    if (lobby.status === 'LOCKED') {
+      await client.query('COMMIT');
+      return await getLobby({ userId, lobbyId });
+    }
+    if (lobby.status === 'READY') {
+      const matchRes = await client.query(
+        `SELECT metadata FROM game_match
+         WHERE metadata->>'matchGroupId' = $1 AND user_id = $2
+         ORDER BY created_at DESC LIMIT 1`,
+        [lobbyId, userId]
+      );
+      const matchMetadata = matchRes.rows[0]?.metadata || null;
+      await client.query('COMMIT');
+      // The frontend reads players from matchMetadata.playerSnapshots, so only
+      // the match metadata is needed here.
+      return {
+        status: 'MATCHED',
+        lobbyId,
+        matchMetadata,
+      };
+    }
     if (lobby.status !== 'WAITING') throw require('../../utils/error.util').createError('Lobby is not waiting', 400);
 
     const currentSettings = { ...(lobby.settings || {}) };

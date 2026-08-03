@@ -84,6 +84,8 @@ const PRIVATE_FIELDS = [
   'u.updated_at',
   'u.privacy',
   'u.theme',
+  'u.referral_code',
+  'u.referred_by',
 ].join(', ');
 
 const TOKEN = ['u.id', 'u.role', 'u.is_active', 'u.is_banned', 'u.flags', 'u.privacy'].join(
@@ -174,6 +176,8 @@ const PRIVATE_PROFILE = [
   'u.last_login_at',
   'u.created_at',
   'u.updated_at',
+  'u.referral_code',
+  'u.referred_by',
 ].join(', ');
 
 const FEED_AUTHOR = ['u.id', 'u.name', 'u.username', 'u.avatar_url', 'u.flags'].join(', ');
@@ -267,6 +271,8 @@ const format = (row) => {
     gender: row.gender,
     appLock: row.app_lock,
     appLockEnabled: row.app_lock_enabled,
+    referralCode: row.referral_code,
+    referredBy: row.referred_by,
   };
 };
 

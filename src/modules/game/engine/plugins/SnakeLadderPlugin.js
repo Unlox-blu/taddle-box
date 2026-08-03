@@ -2,8 +2,17 @@
 
 const GamePlugin = require('../GamePlugin');
 
-const SNAKES = { 99: 54, 70: 55, 52: 42, 43: 22, 36: 6, 32: 10, 49: 11 };
-const LADDERS = { 4: 25, 13: 46, 33: 49, 42: 63, 50: 69, 62: 81, 74: 92 };
+// Layout mirrors the reference board exactly (verified against the client's
+// SVG render + scratch/design_board.js geometry).
+// Snakes: head -> tail | Ladders: base -> top
+const SNAKES = {
+  99: 80, 95: 75, 92: 88, 89: 58, 74: 53,
+  62: 19, 64: 60, 46: 25, 49: 11, 16: 6,
+};
+const LADDERS = {
+  87: 94, 78: 98, 71: 91, 51: 67, 36: 44,
+  21: 42, 28: 84, 15: 26, 2: 38, 7: 14, 8: 31,
+};
 
 class SnakeLadderPlugin extends GamePlugin {
   constructor(matchData) {

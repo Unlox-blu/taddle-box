@@ -350,9 +350,30 @@ class AuthService {
     }
   }
 
+  // Generates a short, unique, uppercase referral code (md5-based + retry on collision)
+  async #generateReferralCode() {
+    for (let attempt = 0; attempt < 5; attempt++) {
+      const code = crypto.randomBytes(4).toString('hex').toUpperCase();
+      const existing = await this.authUserRepo.findByReferralCode({ referralCode: code });
+      if (!existing) return code;
+    }
+    // Extremely unlikely fallback
+    return crypto.randomBytes(5).toString('hex').toUpperCase();
+  }
+
   async signUp({ email, countryCode, phone, userData, socialToken }) {
     try {
       const { name, username, password, dateOfBirth, gender, location, latitude, longitude, occupation, organization, interests } = userData;
+
+      // Refer & Earn: optional referral code entered at signup. Validate it
+      // belongs to a real user (cannot refer yourself) and link the accounts.
+      let referredBy = null;
+      let enteredReferralCode = String(userData.referralCode || '').trim().toUpperCase();
+      if (enteredReferralCode) {
+        const referrer = await this.authUserRepo.findByReferralCode({ referralCode: enteredReferralCode });
+        if (!referrer) throw createError('Invalid referral code', 400);
+        referredBy = referrer.id;
+      }
 
       let verifiedEmail = email;
       let socialProviderId = null;
@@ -418,6 +439,10 @@ class AuthService {
         createData.appleRefreshToken = 'placeholder_token_for_now';
       }
 
+      // Every user gets their own referral code (used for the Share Referral button)
+      createData.referralCode = await this.#generateReferralCode();
+      createData.referredBy = referredBy;
+
       const newUser = await this.authUserRepo.create(createData);
 
       const userId = newUser.id;
@@ -464,6 +489,40 @@ class AuthService {
 
       // // Auto-create XP wallet for new user
       await this.xpSvc.createXPwallet({ userId });
+
+      // Refer & Earn: reward the new user 500 XP for signing up with a code,
+      // and reward the referrer with 500 XP + a notification too.
+      if (referredBy) {
+        try {
+          await this.xpSvc.creditXP({
+            userId,
+            xp: 500,
+            transactionType: 'reward',
+            sourceType: 'referral_signup_bonus',
+          });
+          await this.xpSvc.creditXP({
+            userId: referredBy,
+            xp: 500,
+            transactionType: 'reward',
+            sourceType: 'referral_invite_bonus',
+          });
+
+          const { notificationService } = require('../notification/notification.container');
+          if (notificationService) {
+            await notificationService.create({
+              recipientId: referredBy,
+              senderId: userId,
+              type: 'REFERRAL_REWARD',
+              title: 'Referral bonus earned! 🎉',
+              message: `${newUser.name} (@${newUser.username}) joined with your referral code — you earned 500 XP!`,
+              resourceType: 'user',
+              resourceId: userId,
+            });
+          }
+        } catch (err) {
+          console.error('Referral bonus failed:', err.message);
+        }
+      }
 
       // // Auto-create task for new user
       await this.taskSvc.createTask({ userId });

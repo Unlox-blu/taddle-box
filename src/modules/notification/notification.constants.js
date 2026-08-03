@@ -45,14 +45,27 @@ const DEFAULT_NOTIFICATION_DEFINITIONS = {
     category: 'comments',
   },
   FOLLOW: {
+    // Non-batched so follow notifications land in the notifications table and
+    // the socket instantly — the batch emit worker is unreliable and the
+    // follow-back action in-app needs a real notification row with senderId.
     save: true,
-    socket: false,
+    socket: true,
     push: true,
-    batch: true,
-    delay: 120000,
+    batch: false,
+    delay: 0,
     priority: PRIORITY.MEDIUM,
-    cooldown: 1200000,
+    cooldown: 0,
     category: 'follows',
+  },
+  REFERRAL_REWARD: {
+    save: true,
+    socket: true,
+    push: true,
+    batch: false,
+    delay: 0,
+    priority: PRIORITY.HIGH,
+    cooldown: 0,
+    category: 'rewards',
   },
   MENTION: {
     save: true,

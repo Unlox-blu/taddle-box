@@ -84,7 +84,7 @@ async function resolveAbandonedMatches() {
             type: 'MATCH_RESOLVED',
             title: 'Match Resolved',
             message: 'Your opponent forfeited. You won!',
-            payload: { result: 'WIN', score: myScore, xpEarned: myXp }
+            payload: { matchId: matchGroupId, result: 'WIN', score: myScore, xpEarned: myXp }
           });
         }
         
@@ -231,8 +231,14 @@ async function resolveBotFillingLobbies() {
       WHERE status = 'WAITING'
         AND current_players < max_players
         AND (
+          -- PRACTICE is solo-vs-bots: no real players will ever join, so bots
+          -- start joining IMMEDIATELY (no 15s real-player window).
           (
-            (settings->>'mode' IS NULL OR settings->>'mode' IN ('AUTO', 'PRACTICE'))
+            settings->>'mode' = 'PRACTICE'
+          )
+          OR
+          (
+            (settings->>'mode' IS NULL OR settings->>'mode' = 'AUTO')
             AND created_at <= NOW() - INTERVAL '15 seconds'
           )
           OR
@@ -260,19 +266,26 @@ async function resolveBotFillingLobbies() {
       try {
         const mode = String(lobby.settings?.mode || 'AUTO').toUpperCase();
 
+        // PRACTICE lobbies: bots join immediately — no real-player window at
+        // all (a practice run is always solo vs bots).
         // AUTO lobbies: the 15s real-player window starts at lobby creation.
         // CUSTOM lobbies: only fill when the host explicitly queued the lobby;
         // the 15s window starts at matchmakingQueuedAt. An unqueued CUSTOM
         // lobby sitting on the manual lobby screen is never auto-filled.
-        let windowStartMs;
-        if (mode === 'CUSTOM') {
-          const queuedAt = Number(lobby.settings?.matchmakingQueuedAt) || 0;
-          if (!queuedAt) continue;
-          windowStartMs = queuedAt;
+        if (mode === 'PRACTICE') {
+          // no window — bots start filling right away (still paced by
+          // botFillNextAt so they trickle in one at a time)
         } else {
-          windowStartMs = new Date(lobby.created_at).getTime();
+          let windowStartMs;
+          if (mode === 'CUSTOM') {
+            const queuedAt = Number(lobby.settings?.matchmakingQueuedAt) || 0;
+            if (!queuedAt) continue;
+            windowStartMs = queuedAt;
+          } else {
+            windowStartMs = new Date(lobby.created_at).getTime();
+          }
+          if (nowMs - windowStartMs < REAL_PLAYER_WINDOW_MS) continue;
         }
-        if (nowMs - windowStartMs < REAL_PLAYER_WINDOW_MS) continue;
 
         // Pending-invite grace: an invited friend is NOT in the lobby until they
         // accept. If fresh invites are still out, hold off so they aren't crowded

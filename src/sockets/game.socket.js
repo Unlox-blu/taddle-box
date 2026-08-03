@@ -33,6 +33,10 @@ const EVENTS = {
 const RECONNECT_TIMEOUT_MS = 60 * 1000;
 // Turn timeout (ms) for turn-based games
 const TURN_TIMEOUT_MS = 60 * 1000;
+// Snake-ladder: idle players are auto-rolled (dice + move) instead of skipping
+// their turn. 12s gives the client's visible 5s idle-grace + 5s countdown a
+// 2s buffer before the server forces the roll itself.
+const SNAKE_LADDER_TURN_TIMEOUT_MS = 12 * 1000;
 
 const setupGameSocket = (io) => {
   const gameNs = io.of('/game-engine');
@@ -98,12 +102,43 @@ const setupGameSocket = (io) => {
             io.to(`user:${p.userId}`).emit('SESSION_EXPIRED', { matchId });
           });
         } else {
-          latestState.pluginState = {
-            ...latestState.pluginState,
-            currentTurnIndex:
-              ((latestState.pluginState.currentTurnIndex || 0) + 1) %
-              (latestState.pluginState.turnOrder?.length || 1),
-          };
+          // Snake-ladder: an idle player gets auto-rolled (dice + move) rather
+          // than silently skipping the turn — keeps the match flowing. The
+          // plugin rolls server-side, applies snakes/ladders and advances the
+          // turn, exactly like a real ROLL move.
+          if (gameSlug === 'snake-ladder') {
+            const GameRegistry = require('../modules/game/engine/GameRegistry');
+            const plugin = GameRegistry.createInstance(gameSlug, latestState.metadata);
+            latestState.pluginState = plugin.applyMove(
+              currentPlayerId,
+              { type: 'ROLL' },
+              latestState.pluginState,
+            );
+            if (plugin.isFinished(latestState.pluginState)) {
+              latestState.status = MATCH_STATES.FINISHED;
+              TimerEngine.clearAllTimers(matchId);
+              await EventStore.saveMatchSnapshot(matchId, latestState);
+              gameNs.to(`match:${matchId}`).emit(EVENTS.GAME_OVER, {
+                state: latestState,
+                winner: latestState.pluginState?.winner || null,
+                reason: 'timeout',
+              });
+              botHandler.handleMatchEnd(matchId, gameSlug, latestState);
+              await _archiveMatch(matchId, latestState);
+              const players = latestState.metadata?.players || [];
+              players.forEach(p => {
+                io.to(`user:${p.userId}`).emit('SESSION_EXPIRED', { matchId });
+              });
+              return;
+            }
+          } else {
+            latestState.pluginState = {
+              ...latestState.pluginState,
+              currentTurnIndex:
+                ((latestState.pluginState.currentTurnIndex || 0) + 1) %
+                (latestState.pluginState.turnOrder?.length || 1),
+            };
+          }
           await EventStore.saveMatchSnapshot(matchId, latestState);
           gameNs.to(`match:${matchId}`).emit(EVENTS.SYNC, {
             state: latestState.pluginState,
@@ -580,10 +615,15 @@ const setupGameSocket = (io) => {
         state.pluginState.turnOrder = state.pluginState.turnOrder.filter(id => id !== userId);
         const len = state.pluginState.turnOrder.length;
         if (len > 0 && state.pluginState.currentTurnIndex != null) {
-          // If the removed player held the current turn, advance to the next
-          if (idx >= 0 && idx <= state.pluginState.currentTurnIndex) {
+          if (idx >= 0 && idx < state.pluginState.currentTurnIndex) {
+            // The removed player sat BEFORE the current turn holder, so the
+            // whole order shifted left — move the turn index back by one.
+            state.pluginState.currentTurnIndex -= 1;
+          } else if (idx === state.pluginState.currentTurnIndex) {
+            // The removed player held the current turn — keep the same index
+            // (it now points at the next player in line), wrapping modulo len.
             state.pluginState.currentTurnIndex =
-              Math.min(len - 1, state.pluginState.currentTurnIndex) % len;
+              state.pluginState.currentTurnIndex % len;
           }
         }
       }
@@ -684,6 +724,9 @@ const setupGameSocket = (io) => {
           state.pluginState.lastMoveTime = Date.now();
           EventStore.saveMatchSnapshot(matchId, state);
         }
+      } else if (gameSlug === 'snake-ladder') {
+        // Idle players get auto-rolled shortly after the client countdown ends.
+        timerDuration = SNAKE_LADDER_TURN_TIMEOUT_MS;
       }
 
       await TimerEngine.startTimer(matchId, 'turn', timerDuration, {

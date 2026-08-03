@@ -184,11 +184,45 @@ class NotificationService {
 
     const activeCacheKey = `user:status:${recipientId}`;
 
-    const isActive = await redis.get(activeCacheKey);
+    // Push whenever the recipient is NOT actively connected to the socket. This
+    // includes users who never connected (status key missing) — previously a
+    // missing key meant NO push was ever queued, which is why users with the
+    // app killed or on a fresh device never received anything.
+    //
+    // Batched events (POST_LIKE, COMMENT) skip the immediate push — their emit
+    // worker queues the push AFTER aggregation with the final message, so
+    // pushing here would send a duplicate.
+    const isOnline = (await redis.get(activeCacheKey)) === 'online';
 
-    if(isActive && isActive !== 'online') {
+    if (!isOnline && !policy.batch && (await this.shouldPush(recipientId, policy.category))) {
       const pushNotification = { recipientId, senderId, type, title, message: event.message, resourceType, resourceId };
       await addJob('notification:push', pushNotification);
+    }
+  }
+
+  // Respects the recipient's notification preferences before queueing a push.
+  // Any preference we can't map or can't load defaults to enabled so delivery
+  // is never silently blocked by a schema mismatch.
+  async shouldPush(userId, category) {
+    try {
+      const prefs = await this.notifRepo.findPreferenceByUserId(userId);
+      if (!prefs) return true;
+      const columnMap = {
+        likes: 'post_like',
+        comments: 'comment',
+        replies: 'reply',
+        mentions: 'mention',
+        follows: 'follow',
+        communities: 'community',
+        events: 'event',
+        marketing: 'promotion',
+      };
+      const column = columnMap[category];
+      if (!column) return true;
+      const value = prefs[column];
+      return value === undefined ? true : Boolean(value);
+    } catch (error) {
+      return true;
     }
   }
 }

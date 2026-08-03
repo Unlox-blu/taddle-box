@@ -47,4 +47,18 @@ const findByUser = async (userId) => {
   }
 };
 
-module.exports = { create, findByUser, toggleNotification};
+// Removes device tokens that no longer accept pushes (e.g. DeviceNotRegistered)
+// so future broadcasts don't keep wasting delivery attempts.
+const deleteTokens = async (tokens) => {
+  try {
+    if (!tokens || !tokens.length) return;
+    await pool.query(
+      `DELETE FROM ${PushModel.TABLE} WHERE token = ANY($1::text[])`,
+      [tokens]
+    );
+  } catch (error) {
+    throw error;
+  }
+};
+
+module.exports = { create, findByUser, toggleNotification, deleteTokens};

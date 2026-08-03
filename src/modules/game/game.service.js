@@ -508,7 +508,14 @@ class GameService {
       }
 
       const seed = crypto.randomBytes(32).toString('hex');
-      const expiresAt = new Date(Date.now() + 5 * 60 * 1000); // 5 mins
+      // Turn-based games (chess/ludo/snake-ladder) routinely run longer than
+      // 5 minutes, so a short expiry caused "Session expired" when the client
+      // completed the session after a long match. Give them a generous window;
+      // realtime games keep the tight 5-minute cap.
+      const TURN_BASED = ['chess', 'ludo', 'snake-ladder'];
+      const isTurnBased = TURN_BASED.includes(game.slug);
+      const sessionTtlMs = isTurnBased ? 4 * 60 * 60 * 1000 : 5 * 60 * 1000;
+      const expiresAt = new Date(Date.now() + sessionTtlMs);
       
       const wsToken = crypto.randomBytes(16).toString('hex');
       let effectiveMatchId = matchGroupId;
@@ -768,7 +775,7 @@ class GameService {
           type: 'MATCH_RESOLVED',
           title: 'Match Resolved',
           message: opResult === 'WIN' ? 'You won!' : 'You lost.',
-          payload: { result: opResult, score: opScore, xpEarned: opXp }
+          payload: { matchId: matchGroupId, result: opResult, score: opScore, xpEarned: opXp }
         });
 
         return {

@@ -3,6 +3,7 @@ import { View, StyleSheet, Text, TouchableOpacity, Dimensions, Image } from "rea
 import { LinearGradient } from "expo-linear-gradient";
 import { Ionicons } from "@expo/vector-icons";
 import { createGameEngineSocket } from "../../services/socketClient";
+import { gameSound } from "../../services/gameSound";
 import type { HtmlGameResult } from "../../games/types";
 
 const { width, height } = Dimensions.get("window");
@@ -89,6 +90,9 @@ export default function TapRushGame({ matchId, userId, wsToken, players, onCompl
           won: state.reward.result === "WIN",
           xpEarned: state.reward.xpEarned || 0,
           durationSeconds: state.reward.duration || 20,
+          // Score = successful taps; accuracy is hits vs total targets spawned
+          accuracy: Math.min(100, Math.round(((state.reward.score || 0) / 15) * 100)),
+          longestStreak: state.reward.score || 0,
         });
       } else {
         // Fallback: game ended (e.g. bot won), grab score from state
@@ -99,6 +103,8 @@ export default function TapRushGame({ matchId, userId, wsToken, players, onCompl
           won: pState.winner === userId,
           xpEarned: 0,
           durationSeconds: 20,
+          accuracy: Math.min(100, Math.round((finalScore / 15) * 100)),
+          longestStreak: finalScore,
         });
       }
     });
@@ -123,6 +129,8 @@ export default function TapRushGame({ matchId, userId, wsToken, players, onCompl
         score,
         won: score >= 1, // basic win condition if at least 1 tap
         durationSeconds: 20,
+        accuracy: Math.min(100, Math.round((score / 15) * 100)),
+        longestStreak: score,
       });
     }
   }, [timeLeft, status, score, onComplete]);
@@ -156,6 +164,7 @@ export default function TapRushGame({ matchId, userId, wsToken, players, onCompl
     setActiveTarget(null);
     
     socket.emit("MOVE", { type: "TAP", seq, clientTs: Date.now() });
+    gameSound.playTap();
   };
 
   return (

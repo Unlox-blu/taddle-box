@@ -3,13 +3,14 @@ import { gamesService } from '../services/games.service';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
-export type PlayMode = 'bot' | 'auto' | 'tournament';
+export type PlayMode = 'auto' | 'tournament' | 'custom' | 'practice';
 
 export type GameMatch = {
   id:         string;
   gameId:     string;
   gameName:   string;
   gameEmoji:  string;
+  gameSlug?:  string;
   mode:       PlayMode;
   result:     'win' | 'loss';
   xpEarned:   number;
@@ -51,21 +52,20 @@ const formatDuration = (seconds = 0) => {
 };
 
 const formatMatch = (match: any): GameMatch => {
-  const rawMode = String(match.mode || 'BOT').toLowerCase();
-  const normalizedMode = rawMode === 'quick' ? 'auto' : rawMode;
+  const rawMode = String(match.mode || 'AUTO').toLowerCase();
+  const normalizedMode = rawMode === 'quick' ? 'auto' : rawMode === 'custom' || rawMode === 'invite' ? 'custom' : rawMode;
   return {
     id: match.id,
     gameId: match.gameId,
     gameName: match.gameName || 'Game',
     gameEmoji: GAME_EMOJIS[match.gameSlug] || 'GM',
+    gameSlug: match.gameSlug,
     mode: normalizedMode as PlayMode,
     result: String(match.result || 'LOSS').toLowerCase() === 'win' ? 'win' : 'loss',
     xpEarned: match.xpEarned || 0,
     score: `${(match.score || 0).toLocaleString()} pts`,
     duration: formatDuration(match.duration),
-    opponent: String(match.mode || 'BOT').toUpperCase() === 'BOT'
-      ? 'AI Bot'
-      : (match.metadata?.opponentName || match.metadata?.opponentUsername || 'Matched Player'),
+    opponent: match.metadata?.opponentName || match.metadata?.opponentUsername || 'Matched Player',
     playedAt: match.createdAt ? new Date(match.createdAt).toLocaleDateString() : 'Just now',
   };
 };
@@ -149,7 +149,7 @@ export function GamesProvider({ children }: { children: React.ReactNode }) {
 
         const match: GameMatch = {
           id: normalized.id || `local-${Date.now()}`,
-          opponent: normalized.opponent || (normalized.mode === 'bot' ? 'AI Bot' : 'Guest Player'),
+          opponent: normalized.opponent || 'Guest Player',
           playedAt: normalized.playedAt || 'Just now',
           ...normalized,
         };

@@ -14,8 +14,12 @@ import { GamesProvider }    from './src/context/GamesContext';
 import { QueryClientProvider } from '@tanstack/react-query';
 import { queryClient } from './src/lib/react-query';
 import AppLockOverlay       from './src/components/common/AppLockOverlay';
+import { initGameSound }     from './src/services/gameSound';
 
 SplashScreen.preventAutoHideAsync();
+
+// Warm up game audio + haptics prefs so the first match has zero startup latency
+initGameSound();
 
 // Inner shell reads theme so background + status bar react to light/dark toggle
 function AppShell() {

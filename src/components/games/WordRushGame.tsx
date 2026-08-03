@@ -5,6 +5,7 @@ import {
 import { LinearGradient } from 'expo-linear-gradient';
 import type { HtmlGameResult } from '../../games/types';
 import { createGameEngineSocket } from '../../services/socketClient';
+import { gameSound } from '../../services/gameSound';
 
 const { width } = Dimensions.get('window');
 const GRID_COLS = 4;
@@ -158,6 +159,7 @@ export default function WordRushGame({ matchId, userId, wsToken, onComplete }: P
   };
 
   const triggerSuccess = () => {
+    gameSound.playCorrect();
     resultAnim.setValue(0);
     Animated.sequence([
       Animated.spring(resultAnim, { toValue: 1, useNativeDriver: true, speed: 20 }),
@@ -169,6 +171,7 @@ export default function WordRushGame({ matchId, userId, wsToken, onComplete }: P
   };
 
   const triggerShake = () => {
+    gameSound.playError();
     Animated.sequence([
       Animated.timing(shakeAnim, { toValue: 8, duration: 60, useNativeDriver: true }),
       Animated.timing(shakeAnim, { toValue: -8, duration: 60, useNativeDriver: true }),
@@ -207,6 +210,7 @@ export default function WordRushGame({ matchId, userId, wsToken, onComplete }: P
     const word = selectedIndices.map(i => grid[i] || '').join('').toUpperCase();
     setSubmitting(true);
     socket.emit(E.MOVE, { type: 'SUBMIT_WORD', path: selectedIndices, word });
+    gameSound.playTap();
   }, [selectedIndices, grid, socket, submitting]);
 
   const clearSelection = useCallback(() => {

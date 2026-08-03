@@ -9,6 +9,7 @@ import Svg, {
 } from 'react-native-svg';
 import type { HtmlGameResult } from '../../games/types';
 import { createGameEngineSocket } from '../../services/socketClient';
+import { gameSound, useTurnSound } from '../../services/gameSound';
 
 const { width: SCREEN_W } = Dimensions.get('window');
 const BOARD_SIZE = Math.min(Math.floor(SCREEN_W - 24), 400);
@@ -122,9 +123,6 @@ export default function SnakeLadderGame({ matchId, userId, wsToken, players, onC
   useEffect(() => {
     const s = createGameEngineSocket(matchId, userId, wsToken);
     setSocket(s);
-    return () => {
-      s.disconnect();
-    };
 
     s.on(E.CONNECT_ACK, (data: any) => {
       const players = data.state?.metadata?.playerSnapshots || data.state?.metadata?.players || data.state?.players || [];
@@ -187,17 +185,23 @@ export default function SnakeLadderGame({ matchId, userId, wsToken, players, onC
     });
 
     s.on(E.ERROR, (e: any) => showToast('⚠️ ' + (e.message || 'Error')));
-    return () => s.disconnect();
+    return () => {
+      s.disconnect();
+    };
   }, [matchId, userId, wsToken]);
 
   useEffect(() => {
     if (state) setIsMyTurn((state.currentTurnIndex ?? 0) === myPlayerIndex);
   }, [state, myPlayerIndex]);
 
+  // Turn-change sound + haptic when it becomes your turn
+  useTurnSound(isMyTurn, status === 'active');
+
   const rollDice = useCallback(() => {
     if (!isMyTurn || rolling) return;
     setRolling(true);
     socket?.emit(E.MOVE, { type: 'ROLL' });
+    gameSound.playTap();
 
     // Animate dice: bounce + slight rotation
     diceRotate.setValue(0);

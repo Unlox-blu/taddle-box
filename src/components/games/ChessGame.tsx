@@ -13,6 +13,7 @@ import { GestureHandlerRootView } from "react-native-gesture-handler";
 import { Chess } from "chess.js";
 import { LinearGradient } from "expo-linear-gradient";
 import { createGameEngineSocket } from "../../services/socketClient";
+import { gameSound, useTurnSound } from "../../services/gameSound";
 import type { HtmlGameResult } from "../../games/types";
 
 const { width } = Dimensions.get("window");
@@ -111,6 +112,9 @@ export default function ChessGame({
 
   const pulseAnim = useRef(new Animated.Value(1)).current;
   const checkAnim = useRef(new Animated.Value(0)).current;
+
+  // Turn-change sound + haptic when it becomes your turn
+  useTurnSound(isMyTurn, status === "active");
 
   // Pulse animation for "Your Turn"
   useEffect(() => {
@@ -317,6 +321,7 @@ export default function ChessGame({
       setMoves((prev) => ({ ...prev, [playerColor]: result.san }));
       setIsMyTurn(false);
       socket?.emit(EVENTS.MOVE, moveObj);
+      gameSound.playTap();
     } catch {
       chessboardRef.current?.reset(chess.fen());
     }

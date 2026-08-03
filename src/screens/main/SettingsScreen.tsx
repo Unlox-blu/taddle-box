@@ -23,6 +23,7 @@ import { useAuth } from "../../context/AuthContext";
 import { authService } from "../../services/auth.service";
 import { appConfigService } from "../../services/appConfig.service";
 import { settingsService } from "../../services/settings.service";
+import { useGameSoundPrefs } from "../../services/gameSound";
 import * as SecureStore from "expo-secure-store";
 import * as LocalAuthentication from "expo-local-authentication";
 import { useFocusEffect } from "@react-navigation/native";
@@ -56,6 +57,12 @@ const maskPhone = (phone?: string, countryCode?: string) => {
   const navigation = useNavigation<NavProp>();
   const { wallet, toggleSetting, fetchWalletData } = useWallet();
   const { isDark, colors, themePreference, setThemePreference } = useTheme();
+  const {
+    soundEnabled,
+    hapticsEnabled,
+    setSoundEnabled,
+    setHapticsEnabled,
+  } = useGameSoundPrefs();
   const { storeUrl } = useAuth();
 
   const [checkingVersion, setCheckingVersion] = useState(false);
@@ -500,6 +507,20 @@ const maskPhone = (phone?: string, countryCode?: string) => {
         {/* ── App Preferences ── */}
         <SectionHeader title="App Preferences" />
         <SettingsGroup>
+          <SettingsToggle
+            icon="volume-high-outline"
+            label="Sound Effects"
+            description="Countdown beeps and game sounds"
+            value={soundEnabled}
+            onToggle={() => setSoundEnabled(!soundEnabled)}
+          />
+          <SettingsToggle
+            icon="pulse-outline"
+            label="Haptic Feedback"
+            description="Vibrate on taps, turns and results"
+            value={hapticsEnabled}
+            onToggle={() => setHapticsEnabled(!hapticsEnabled)}
+          />
           <SettingsRow
             icon="color-palette-outline"
             label="App Theme"

@@ -8,7 +8,6 @@ export type HomeStackParamList = {
   Bookmarks:      undefined;
   Leaderboards:   { initialTab?: 'Global' | 'Friends' | 'Games' | 'Feed' | 'Community' | 'Events' } | undefined;
   Settings:       undefined;
-  Lobby:          { lobbyId: string; gameId: string };
   EditProfile:    undefined;
   Terms:          undefined;
   Privacy:        undefined;
@@ -159,6 +158,8 @@ export interface Game {
   emoji: string;
   gradient: [string, string];
   imageUrl?: string;
+  /** Branded logo asset (require'd PNG) — takes precedence over monogram tile */
+  logo?: any;
   slug?: string;
   metadata?: Record<string, any>;
   maxXp: number;

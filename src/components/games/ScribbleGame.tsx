@@ -6,6 +6,7 @@ import {
 import { LinearGradient } from 'expo-linear-gradient';
 import type { HtmlGameResult } from '../../games/types';
 import { createGameEngineSocket } from '../../services/socketClient';
+import { gameSound } from '../../services/gameSound';
 
 const { width, height } = Dimensions.get('window');
 const CANVAS_W = width - 24;
@@ -62,8 +63,9 @@ export default function ScribbleGame({ matchId, userId, wsToken, players, onComp
   const roleAnim = useRef(new Animated.Value(0)).current;
   const timerBarAnim = useRef(new Animated.Value(1)).current;
 
-  // Show role announcement card
+  // Show role announcement card — cue the player their turn/role changed
   const announceRole = (drawing: boolean) => {
+    gameSound.playTurn();
     setShowRoleCard(true);
     roleAnim.setValue(0);
     Animated.sequence([
@@ -255,6 +257,7 @@ export default function ScribbleGame({ matchId, userId, wsToken, players, onComp
     if (!guess.trim() || isDrawer) return;
     socket?.emit(E.MOVE, { type: 'GUESS', text: guess.trim() });
     setGuess('');
+    gameSound.playTap();
   }, [guess, isDrawer, socket]);
 
   // ── Canvas stroke rendering ──────────────────────────────────────────────

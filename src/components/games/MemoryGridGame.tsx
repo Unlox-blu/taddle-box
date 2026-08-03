@@ -2,6 +2,7 @@ import React, { useEffect, useState, useRef } from "react";
 import { View, StyleSheet, Text, TouchableOpacity, Dimensions, Image } from "react-native";
 import { LinearGradient } from "expo-linear-gradient";
 import { createGameEngineSocket } from "../../services/socketClient";
+import { gameSound } from "../../services/gameSound";
 import type { HtmlGameResult } from "../../games/types";
 
 const { width } = Dimensions.get("window");
@@ -71,11 +72,15 @@ export default function MemoryGridGame({ matchId, userId, wsToken, players, onCo
     s.on(EVENTS.GAME_OVER, (payload: any) => {
       setStatus("finished");
       if (payload.reward) {
+        const finalScore = payload.reward.score || 0;
         onComplete({
-          score: payload.reward.score || 0,
+          score: finalScore,
           won: payload.reward.result === "WIN",
           xpEarned: payload.reward.xpEarned || 0,
           durationSeconds: payload.reward.duration || 30,
+          // Score = rounds memorized correctly out of 5 max rounds
+          accuracy: Math.min(100, Math.round((finalScore / 5) * 100)),
+          longestStreak: finalScore,
         });
       } else {
         const pState = payload.state?.pluginState || payload;
@@ -85,6 +90,8 @@ export default function MemoryGridGame({ matchId, userId, wsToken, players, onCo
           won: pState.winner === userId || (finalScore >= 1 && pState.winner === null),
           xpEarned: 0,
           durationSeconds: 30,
+          accuracy: Math.min(100, Math.round((finalScore / 5) * 100)),
+          longestStreak: finalScore,
         });
       }
     });
@@ -162,7 +169,10 @@ export default function MemoryGridGame({ matchId, userId, wsToken, players, onCo
     if (newInputs.length === pattern.length) {
       // Submit
       socket?.emit("MOVE", { type: "INPUT", tiles: newInputs });
+      gameSound.playCorrect();
       setRoundPhase("SHOW"); // Optimistic wait
+    } else {
+      gameSound.playTap();
     }
   };
 

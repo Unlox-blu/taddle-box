@@ -6,6 +6,7 @@ import { LinearGradient } from 'expo-linear-gradient';
 import Svg, { Polygon, Circle, Defs, LinearGradient as SvgGrad, Stop, Rect } from 'react-native-svg';
 import type { HtmlGameResult } from '../../games/types';
 import { createGameEngineSocket } from '../../services/socketClient';
+import { gameSound, useTurnSound } from '../../services/gameSound';
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 const { width: SCREEN_W, height: SCREEN_H } = Dimensions.get('window');
@@ -152,9 +153,6 @@ export default function LudoGame({
   useEffect(() => {
     const s = createGameEngineSocket(matchId, userId, wsToken);
     setSocket(s);
-    return () => {
-      s.disconnect();
-    };
 
     s.on(EVENTS.CONNECT_ACK, (data: any) => {
       const ps = data.state?.pluginState;
@@ -210,16 +208,22 @@ export default function LudoGame({
     });
 
     s.on(EVENTS.ERROR, (e: any) => showToast('⚠️ ' + (e.message || 'Error')));
-    return () => s.disconnect();
+    return () => {
+      s.disconnect();
+    };
   }, [matchId, userId, wsToken]);
 
   useEffect(() => {
     if (gameState) setIsMyTurn((gameState.currentTurnIndex ?? 0) === myPlayerIdx);
   }, [gameState, myPlayerIdx]);
 
+  // Turn-change sound + haptic when it becomes your turn
+  useTurnSound(isMyTurn, status === 'active');
+
   const rollDice = useCallback(() => {
     if (!isMyTurn || gameState?.dice !== null) return;
     socket?.emit(EVENTS.MOVE, { type: 'ROLL' });
+    gameSound.playTap();
     diceRotate.setValue(0);
     Animated.sequence([
       Animated.parallel([
@@ -237,6 +241,7 @@ export default function LudoGame({
   const moveToken = useCallback((tokenId: number) => {
     if (!isMyTurn || gameState?.dice === null) return;
     socket?.emit(EVENTS.MOVE, { type: 'MOVE_TOKEN', tokenId });
+    gameSound.playTap();
   }, [isMyTurn, gameState, socket]);
 
   // ── Static SVG board (memoized) ───────────────────────────────────────────

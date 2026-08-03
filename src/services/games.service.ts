@@ -1,19 +1,5 @@
 import { apiClient } from './apiClient';
 import type { Game } from '../types';
-import type { PlayMode } from '../context/GamesContext';
-
-export type GameLeaderboardEntry = {
-  rank: number;
-  userId: string;
-  name: string;
-  username: string;
-  avatarUrl?: string;
-  gamesPlayed: number;
-  wins: number;
-  currentStreak: number;
-  bestStreak: number;
-  totalXP: number;
-};
 
 export type GameTournament = {
   id: string;
@@ -39,7 +25,7 @@ export type MatchmakingResponse = {
     id?: string;
     gameId?: string;
     tournamentId?: string | null;
-    mode?: 'AUTO' | 'CUSTOM' | 'TOURNAMENT';
+    mode?: 'AUTO' | 'CUSTOM' | 'TOURNAMENT' | 'PRACTICE';
     status?: 'WAITING' | 'MATCHED' | 'CANCELLED' | 'EXPIRED';
     opponentUserId?: string | null;
     opponentName?: string | null;
@@ -101,35 +87,8 @@ export const gamesService = {
     return response.data;
   },
 
-  getGameDetail: async (id: string): Promise<{ data: Game }> => {
-    const response = await apiClient.get(`/game/${id}`);
-    return response.data;
-  },
-
-
-
   getMatchHistory: async (page = 1, limit = 20) => {
     const response = await apiClient.get(`/game/match/history?page=${page}&limit=${limit}`);
-    return response.data;
-  },
-
-  createMatch: async (gameId: string, mode: PlayMode) => {
-    const response = await apiClient.post('/game/create-match', {
-      gameId,
-      mode: mode.toUpperCase(),
-      metadata: { client: 'native' },
-    });
-    return response.data;
-  },
-
-  completeMatch: async (data: {
-    matchId: string;
-    result: 'WIN' | 'LOSS' | 'DRAW';
-    score: number;
-    duration: number;
-    xpEarned?: number;
-  }) => {
-    const response = await apiClient.patch('/game/update-match', data);
     return response.data;
   },
 
@@ -147,11 +106,6 @@ export const gamesService = {
     return response.data;
   },
 
-  getLeaderboard: async (page = 1, limit = 20): Promise<{ data: GameLeaderboardEntry[] }> => {
-    const response = await apiClient.get(`/game/leaderboard?page=${page}&limit=${limit}`);
-    return response.data;
-  },
-
   getTournaments: async (page = 1, limit = 20): Promise<{ data: GameTournament[] }> => {
     const response = await apiClient.get(`/game/tournaments?page=${page}&limit=${limit}`);
     return response.data;
@@ -164,16 +118,11 @@ export const gamesService = {
 
   joinMatchmaking: async (data: {
     gameId: string;
-    mode: 'AUTO' | 'CUSTOM' | 'TOURNAMENT';
+    mode: 'AUTO' | 'CUSTOM' | 'TOURNAMENT' | 'PRACTICE';
     tournamentId?: string;
     targetPlayers?: number;
   }): Promise<{ data: MatchmakingResponse }> => {
     const response = await apiClient.post('/game/matchmaking/join', data);
-    return response.data;
-  },
-
-  getMatchmakingTicket: async (ticketId: string): Promise<{ data: MatchmakingResponse }> => {
-    const response = await apiClient.get(`/game/matchmaking/${ticketId}`);
     return response.data;
   },
 

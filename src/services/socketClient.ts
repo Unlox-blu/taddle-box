@@ -96,20 +96,36 @@ export const createGameEngineSocket = (matchId: string, userId: string, token: s
   });
 
   s.on('CONNECT_ACK', (data: any) => {
-    if (data?.state?.status === 'PAUSED' && data.reconnectWindowMs > 0) {
+    // Rejoining an already-ACTIVE match → skip the countdown and go straight to
+    // the live game (the game component syncs itself from the state snapshot).
+    if (data?.state?.status === 'ACTIVE') {
+      DeviceEventEmitter.emit('GAME_ENGINE_ACTIVE', { matchId, data });
+    } else if (data?.state?.status === 'PAUSED' && data.reconnectWindowMs > 0) {
+      // Returning to a paused match → show the offline/waiting overlay.
       DeviceEventEmitter.emit('GAME_ENGINE_PAUSE', { 
         matchId, 
         data: { reconnectWindowMs: data.reconnectWindowMs } 
       });
     }
+    DeviceEventEmitter.emit('GAME_ENGINE_CONNECT', { matchId, data });
   });
 
   s.on('PAUSE', (data: any) => {
     DeviceEventEmitter.emit('GAME_ENGINE_PAUSE', { matchId, data });
   });
 
+  // The match actually started (all real players readied) → countdown then play.
   s.on('START', (data: any) => {
+    DeviceEventEmitter.emit('GAME_ENGINE_START', { matchId, data });
+  });
+
+  // A paused match resumed → clear the offline overlay.
+  s.on('RESUME', (data: any) => {
     DeviceEventEmitter.emit('GAME_ENGINE_RESUME', { matchId, data });
+  });
+
+  s.on('STATE', (data: any) => {
+    DeviceEventEmitter.emit('GAME_ENGINE_STATE', { matchId, data });
   });
 
   s.on('GAME_OVER', (data: any) => {

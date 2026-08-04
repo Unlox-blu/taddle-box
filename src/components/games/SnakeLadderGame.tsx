@@ -211,7 +211,7 @@ function ladderPathPoints(baseSq: number, topSq: number): PathPt[] {
 const E = {
   READY: 'READY', MOVE: 'MOVE',
   CONNECT_ACK: 'CONNECT', START: 'START', SYNC: 'SYNC',
-  GAME_OVER: 'GAME_OVER', ERROR: 'ERROR',
+  GAME_OVER: 'GAME_OVER', ERROR: 'ERROR', CHAT: 'CHAT',
 };
 
 export type PlayerContext = {
@@ -315,6 +315,8 @@ export default function SnakeLadderGame({ matchId, userId, wsToken, players, myN
   // Chat bookkeeping
   const chatScroll = useRef<ScrollView>(null);
   const msgIdRef = useRef(0);
+  const stateRef = useRef(state);
+  stateRef.current = state;
 
   // Dice-roll buffering bookkeeping
   const rollingRef = useRef(false);
@@ -554,6 +556,29 @@ export default function SnakeLadderGame({ matchId, userId, wsToken, players, myN
     });
 
     s.on(E.ERROR, (e: any) => showToast('⚠️ ' + (e.message || 'Error')));
+
+    // ── Real multiplayer chat (server broadcasts to the match room) ──────
+    s.on(E.CHAT, (data: any) => {
+      const text = String(data?.text || '').trim();
+      if (!text) return;
+      const uid = String(data?.userId || '');
+      const order = stateRef.current?.turnOrder || [];
+      const idx = order.indexOf(uid);
+      const color = PLAYER_COLORS[(idx >= 0 ? idx : 0) % PLAYER_COLORS.length];
+      const info = data?.name || (uid === userId ? myName : `Player ${idx + 1}`) || 'Player';
+      const id = ++msgIdRef.current;
+      setMessages(m => [...m, {
+        id,
+        uid,
+        name: info,
+        color,
+        text,
+        time: new Date(data?.ts || Date.now()).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+      }]);
+      // Pop the message up over the sender's profile card
+      setChatPopups(p => [...p, { id, uid, name: info, color, text }]);
+    });
+
     return () => {
       if (landedTimer.current) clearTimeout(landedTimer.current);
       if (remoteRollTimer.current) clearTimeout(remoteRollTimer.current);
@@ -692,24 +717,12 @@ export default function SnakeLadderGame({ matchId, userId, wsToken, players, myN
   const sendChat = useCallback((text: string) => {
     const t = text.trim();
     if (!t) return;
-    const order = state?.turnOrder || [];
-    const myIdx = order.indexOf(userId);
-    const color = PLAYER_COLORS[(myIdx >= 0 ? myIdx : 0) % PLAYER_COLORS.length];
-    const info = playersRef.current?.find(p => p.id === userId) || playerInfoRef.current[userId];
-    const name = info?.name || myName || 'You';
-    const id = ++msgIdRef.current;
-    setMessages(m => [...m, {
-      id,
-      uid: userId,
-      name,
-      color,
-      text: t,
-      time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-    }]);
-    // Pop the message up over the sender's player card
-    setChatPopups(p => [...p, { id, uid: userId, name, color, text: t }]);
+    // Broadcast to the match room — the server echoes it to every player
+    // (including me), and the CHAT listener below renders it for everyone.
+    socket?.emit(E.CHAT, { text: t });
     setDraft('');
-  }, [state?.turnOrder, userId, myName]);
+    gameSound.playTap();
+  }, [socket]);
 
   // ── Board cells ──────────────────────────────────────────────────────────
   const boardCells = useMemo(() => {
@@ -1263,15 +1276,16 @@ export default function SnakeLadderGame({ matchId, userId, wsToken, players, myN
         </Animated.View>
       )}
 
-      {/* ── Frontend-only chit-chat ───────────────────────────────────────── */}
+      {/* ── Match chat ───────────────────────────────────────────────────── */}
       <Modal visible={chatOpen} transparent animationType="slide" onRequestClose={() => setChatOpen(false)}>
         <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={styles.chatWrap}>
           <TouchableOpacity style={styles.chatDismiss} activeOpacity={1} onPress={() => setChatOpen(false)} />
           <View style={styles.chatSheet}>
             <View style={styles.chatHeader}>
-              <Text style={styles.chatTitle}>💬 Chit-Chat</Text>
-              <View style={styles.chatLocalTag}>
-                <Text style={styles.chatLocalText}>local only</Text>
+              <Text style={styles.chatTitle}>💬 Match Chat</Text>
+              <View style={styles.chatLiveTag}>
+                <View style={styles.chatLiveDot} />
+                <Text style={styles.chatLiveText}>live</Text>
               </View>
               <TouchableOpacity onPress={() => setChatOpen(false)} hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}>
                 <Ionicons name="close" size={22} color="#C4B5FD" />
@@ -1578,11 +1592,13 @@ const styles = StyleSheet.create({
   },
   chatHeader: { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 8 },
   chatTitle: { flex: 1, fontSize: 16, fontWeight: '900', color: '#F3F0FF' },
-  chatLocalTag: {
+  chatLiveTag: {
+    flexDirection: 'row', alignItems: 'center', gap: 5,
     paddingHorizontal: 8, paddingVertical: 3, borderRadius: 9,
-    backgroundColor: 'rgba(124,58,237,0.25)',
+    backgroundColor: 'rgba(34,197,94,0.18)',
   },
-  chatLocalText: { fontSize: 9, fontWeight: '800', color: '#C4B5FD', letterSpacing: 0.5 },
+  chatLiveDot: { width: 6, height: 6, borderRadius: 3, backgroundColor: '#22C55E' },
+  chatLiveText: { fontSize: 9, fontWeight: '800', color: '#4ADE80', letterSpacing: 0.5 },
   chatList: { flexGrow: 0, maxHeight: 260, marginTop: 4 },
   chatListContent: { paddingBottom: 8 },
   chatEmpty: { color: '#8B84B8', fontSize: 13, textAlign: 'center', marginTop: 30, fontWeight: '600' },

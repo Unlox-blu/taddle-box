@@ -33,6 +33,7 @@ const EVENTS = {
   SYNC: "SYNC",
   GAME_OVER: "GAME_OVER",
   READY: "READY",
+  ERROR: "ERROR",
 };
 
 export default function MemoryGridGame({ matchId, userId, wsToken, players, onComplete }: Props) {
@@ -46,6 +47,12 @@ export default function MemoryGridGame({ matchId, userId, wsToken, players, onCo
   const [pattern, setPattern] = useState<number[]>([]);
   const [activeCell, setActiveCell] = useState<number | null>(null);
   const [playerInputs, setPlayerInputs] = useState<number[]>([]);
+  // Refs keep tap handling race-free (rapid taps must not lose taps) and
+  // prevent duplicate INPUT/READY_INPUT submissions across re-renders.
+  const inputsRef = useRef<number[]>([]);
+  const submittedRef = useRef(false);
+  const lastRoundRef = useRef(-1);
+  const prevPhaseRef = useRef("SHOW");
 
   useEffect(() => {
     const s = createGameEngineSocket(matchId, userId, wsToken);
@@ -67,6 +74,14 @@ export default function MemoryGridGame({ matchId, userId, wsToken, players, onCo
       if (payload.state) {
         syncState(payload.state);
       }
+    });
+
+    s.on(EVENTS.ERROR, () => {
+      // Server rejected a move (e.g. stale READY_INPUT / INPUT from a phase
+      // race) — unlock the grid so the player can retry once the SYNC lands.
+      submittedRef.current = false;
+      inputsRef.current = [];
+      setPlayerInputs([]);
     });
 
     s.on(EVENTS.GAME_OVER, (payload: any) => {
@@ -102,8 +117,31 @@ export default function MemoryGridGame({ matchId, userId, wsToken, players, onCo
   }, [matchId, userId, wsToken]);
 
   const syncState = (ps: any) => {
-    if (ps.roundPhase) setRoundPhase(ps.roundPhase);
-    if (ps.currentRound !== undefined) setCurrentRound(ps.currentRound);
+    if (ps.roundPhase) {
+      setRoundPhase(ps.roundPhase);
+      // SHOW → INPUT transition: the READY_INPUT was already sent (submittedRef
+      // was set true when the animation ended), so unlock the grid for taps.
+      // Only unlock on the actual transition — NOT on every INPUT-phase SYNC,
+      // or a player could re-tap after submitting while the server waits for
+      // the bot and overwrite a correct answer with a wrong one.
+      if (ps.roundPhase === 'INPUT' && prevPhaseRef.current === 'SHOW') {
+        submittedRef.current = false;
+      }
+      if (ps.roundPhase !== prevPhaseRef.current) {
+        prevPhaseRef.current = ps.roundPhase;
+      }
+    }
+    if (ps.currentRound !== undefined) {
+      // A new round means a fresh pattern — reset local input tracking exactly
+      // once per round so stale taps from the previous round never linger.
+      if (ps.currentRound !== lastRoundRef.current) {
+        lastRoundRef.current = ps.currentRound;
+        inputsRef.current = [];
+        submittedRef.current = false;
+        setPlayerInputs([]);
+      }
+      setCurrentRound(ps.currentRound);
+    }
     if (ps.scores) {
       setScore(ps.scores[userId] || 0);
       const oppId = Object.keys(ps.scores).find(id => id !== userId && !id.startsWith('bot_'));
@@ -144,7 +182,13 @@ export default function MemoryGridGame({ matchId, userId, wsToken, players, onCo
       }
 
       if (!isCancelled && socket) {
-        socket.emit("MOVE", { type: "READY_INPUT" });
+        // Exactly one READY_INPUT per round — the ref guard prevents a re-run
+        // of this effect (e.g. from a pattern state update) from double-firing.
+        if (!submittedRef.current) {
+          submittedRef.current = true;
+          socket.emit("MOVE", { type: "READY_INPUT" });
+        }
+        inputsRef.current = [];
         setPlayerInputs([]);
       }
     };
@@ -157,20 +201,24 @@ export default function MemoryGridGame({ matchId, userId, wsToken, players, onCo
   }, [status, roundPhase, pattern]);
 
   const handleCellTap = (index: number) => {
-    if (status !== "active" || roundPhase !== "INPUT") return;
-    
+    if (status !== "active" || roundPhase !== "INPUT" || submittedRef.current) return;
+
     // Flash cell
     setActiveCell(index);
     setTimeout(() => setActiveCell(null), 150);
 
-    const newInputs = [...playerInputs, index];
+    // Use a ref so rapid taps never read stale state (which used to drop taps
+    // and leave the input never reaching pattern.length).
+    const newInputs = [...inputsRef.current, index];
+    inputsRef.current = newInputs;
     setPlayerInputs(newInputs);
 
     if (newInputs.length === pattern.length) {
-      // Submit
+      // Submit — wait for the server SYNC (no optimistic phase flip, which
+      // used to double-fire READY_INPUT / fight the server's roundPhase).
+      submittedRef.current = true;
       socket?.emit("MOVE", { type: "INPUT", tiles: newInputs });
       gameSound.playCorrect();
-      setRoundPhase("SHOW"); // Optimistic wait
     } else {
       gameSound.playTap();
     }

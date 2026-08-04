@@ -136,7 +136,9 @@ export function WalletProvider({ children }: { children: React.ReactNode }) {
 
   useEffect(() => {
     const handleWalletUpdated = (data: any) => {
-      dispatch({ type: 'SET_DATA', payload: { cashBalance: data.balanceCents } });
+      // balanceCents arrives in paise — convert to rupees so the hero balance
+      // doesn't flash 100x the real amount after an XP conversion.
+      dispatch({ type: 'SET_DATA', payload: { cashBalance: (data.balanceCents || 0) / 100 } });
     };
     const handleXPUpdated = (data: any) => {
       dispatch({ type: 'SET_DATA', payload: { xpBalance: data.xp } });
@@ -183,11 +185,14 @@ export function WalletProvider({ children }: { children: React.ReactNode }) {
 
       const xpTxns = (xpTxnsRes.data || []).map((t: any) => ({
         id: t.id,
-        title: t.sourceType || (t.transactionType === 'earned' ? 'XP Earned' : 'XP Spent'),
+        title: t.sourceType || (t.transactionType === 'spent' ? 'XP Spent' : 'XP Earned'),
         date: t.createdAt || new Date().toISOString(),
         amount: t.xp || 0,
         currency: 'XP',
-        type: t.transactionType === 'earned' ? 'earn' : 'spend',
+        // 'earned' and 'bonus' (daily login / weekly streak) are earnings;
+        // only 'spent' is a deduction. Previously 'bonus' fell through to
+        // 'spend', so daily-login XP showed up as -50 in wallet history.
+        type: t.transactionType === 'spent' ? 'spend' : 'earn',
         status: t.status || 'completed'
       }));
 

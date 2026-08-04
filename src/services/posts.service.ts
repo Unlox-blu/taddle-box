@@ -19,6 +19,11 @@ export const postsService = {
     return response.data;
   },
 
+  getPost: async (postId: string): Promise<{ data: Post }> => {
+    const response = await apiClient.get(`/posts/${postId}`);
+    return response.data;
+  },
+
   getUserPosts: async (authorId: string, page = 1, limit = 20): Promise<{ data: Post[] }> => {
     const response = await apiClient.get(`/posts/user/${authorId}?page=${page}&limit=${limit}`);
     return response.data;

@@ -1,7 +1,7 @@
 import React, { useMemo, useState, useRef, useEffect } from 'react';
 import {
   View, Text, FlatList, TouchableOpacity,
-  StyleSheet, KeyboardAvoidingView, Platform, Modal, Animated, Dimensions, TouchableWithoutFeedback, Keyboard, ActivityIndicator, Image
+  StyleSheet, KeyboardAvoidingView, Platform, Modal, Animated, Dimensions, TouchableWithoutFeedback, Keyboard, ActivityIndicator, Image, Alert
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
@@ -14,6 +14,7 @@ import { useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import type { HomeStackParamList, Post } from '../../types';
 import { commentService, Comment } from '../../services/comment.service';
+import { usePosts } from '../../context/PostsContext';
 
 const { height: SCREEN_H } = Dimensions.get('window');
 
@@ -100,7 +101,9 @@ function makeStyles(c: ColorPalette) {
       backgroundColor: c.bg.card,
       borderWidth: 1, borderColor: c.borderHover,
       borderRadius: radii.xl,
-      overflow: 'hidden',
+      // overflow must NOT be hidden here — it clips the @ mention / # hashtag
+      // suggestion popover that SmartInput renders above the field.
+      overflow: 'visible',
     },
     input: {
       flex: 1,
@@ -143,6 +146,7 @@ export default function CommentsModal({ visible, onClose, post }: Props) {
   const colors = useThemeColors();
   const styles = useMemo(() => makeStyles(colors), [colors]);
   const navigation = useNavigation<NativeStackNavigationProp<HomeStackParamList>>();
+  const { updateCommentCount } = usePosts();
 
   const [text, setText] = useState('');
   const [comments, setComments] = useState<Comment[]>([]);
@@ -205,6 +209,9 @@ export default function CommentsModal({ visible, onClose, post }: Props) {
     setText('');
     setReplyingTo(null);
 
+    // Keep the feed card's comment count in sync (top-level comments only).
+    if (!parentId && post) updateCommentCount(post.id, 1);
+
     // Optimistic UI update
     setComments((prev) => {
       if (parentId) {
@@ -223,7 +230,51 @@ export default function CommentsModal({ visible, onClose, post }: Props) {
       if (!parentId) fetchTopLevelComments();
     } catch (e) {
       console.error(e);
+      // Roll back the optimistic feed count if the comment failed to post.
+      if (!parentId && post) updateCommentCount(post.id, -1);
     }
+  };
+
+  const handleDelete = async (comment: Comment) => {
+    Alert.alert(
+      'Delete comment',
+      'Are you sure you want to delete this comment?',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Delete',
+          style: 'destructive',
+          onPress: async () => {
+            try {
+              await commentService.deleteComment(comment.id);
+              // Keep the feed card's comment count in sync (top-level only).
+              if (!comment.parentId && post) updateCommentCount(post.id, -1);
+            } catch (e) {
+              console.error(e);
+            }
+            // Remove from list (top-level or nested)
+            const removeFromList = (list: Comment[]): Comment[] =>
+              list
+                .filter(c => c.id !== comment.id)
+                .map(c => (c as any).subComments
+                  ? { ...c, subComments: removeFromList((c as any).subComments) }
+                  : c);
+            setComments(prev => removeFromList(prev));
+          },
+        },
+      ],
+    );
+  };
+
+  const canDeleteComment = (comment: Comment) => {
+    if (!CURRENT_USER?.id) return false;
+    // Own comment, or the post owner moderating comments on their post.
+    return (
+      comment.author?.id === CURRENT_USER.id ||
+      (post as any)?.author?.id === CURRENT_USER.id ||
+      (post as any)?.authorId === CURRENT_USER.id ||
+      (post as any)?.author_id === CURRENT_USER.id
+    );
   };
 
   const handleLike = async (commentId: string, isCurrentlyLiked: boolean) => {
@@ -310,6 +361,11 @@ export default function CommentsModal({ visible, onClose, post }: Props) {
             }}>
               <Text style={styles.actionBtn}>Reply</Text>
             </TouchableOpacity>
+            {canDeleteComment(comment) && (
+              <TouchableOpacity onPress={() => handleDelete(comment)}>
+                <Text style={[styles.actionBtn, { color: colors.danger }]}>Delete</Text>
+              </TouchableOpacity>
+            )}
           </View>
 
           {/* View Replies Button */}

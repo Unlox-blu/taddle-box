@@ -174,9 +174,9 @@ export default function SmartInput({
                 onPress={() => onSelect!({ id: u.id, name: u.username })}
               >
                 <View style={styles.avatarBubble}>
-                  {u.avatar_url ? (
+                  {(u.user_avatar || u.avatarUrl) ? (
                     <Image
-                      source={{ uri: u.avatar_url }}
+                      source={{ uri: u.user_avatar || u.avatarUrl }}
                       style={{ width: 24, height: 24, borderRadius: 12 }}
                     />
                   ) : (

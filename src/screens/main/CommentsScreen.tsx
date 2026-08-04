@@ -1,8 +1,7 @@
-const COMMENTS: any[] = [];
-import React, { useMemo, useState, useRef } from 'react';
+import React, { useMemo, useState, useEffect, useCallback } from 'react';
 import {
-  View, Text, FlatList, TouchableOpacity, TextInput, Image,
-  StyleSheet, KeyboardAvoidingView, Platform,
+  View, Text, FlatList, TouchableOpacity, Image,
+  StyleSheet, KeyboardAvoidingView, Platform, Alert, ActivityIndicator,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
@@ -10,9 +9,11 @@ import { StatusBar } from 'expo-status-bar';
 import { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { fontSizes, spacing, radii, type ColorPalette } from '../../theme';
 import { useTheme, useThemeColors } from '../../context/ThemeContext';
-import type { HomeStackParamList, Comment } from '../../types';
+import type { HomeStackParamList } from '../../types';
 import { useAuth } from '../../context/AuthContext';
 import SmartInput from '../../components/common/SmartInput';
+import { commentService, Comment } from '../../services/comment.service';
+import { usePosts } from '../../context/PostsContext';
 
 type Props = NativeStackScreenProps<HomeStackParamList, 'Comments'>;
 
@@ -43,6 +44,7 @@ function makeStyles(c: ColorPalette) {
       width: 36, height: 36, borderRadius: 18,
       backgroundColor: c.bg.elevated,
       alignItems: 'center', justifyContent: 'center',
+      overflow: 'hidden',
     },
     previewAvatarEmoji: { fontSize: 18 },
     previewMeta: { flex: 1 },
@@ -61,6 +63,7 @@ function makeStyles(c: ColorPalette) {
       width: 36, height: 36, borderRadius: 18,
       backgroundColor: c.bg.card, borderWidth: 1, borderColor: c.border,
       alignItems: 'center', justifyContent: 'center', flexShrink: 0,
+      overflow: 'hidden',
     },
     commentAvatarEmoji: { fontSize: 18 },
     commentBody: { flex: 1 },
@@ -89,6 +92,7 @@ function makeStyles(c: ColorPalette) {
       width: 34, height: 34, borderRadius: 17,
       backgroundColor: c.bg.card, borderWidth: 1, borderColor: c.border,
       alignItems: 'center', justifyContent: 'center', flexShrink: 0, marginBottom: 2,
+      overflow: 'hidden',
     },
     inputAvatarEmoji: { fontSize: 16 },
     input: {
@@ -97,13 +101,16 @@ function makeStyles(c: ColorPalette) {
       fontSize: fontSizes.sm, color: c.text.primary,
       maxHeight: 100,
       backgroundColor: c.bg.card,
+      borderRadius: radii.xl,
     },
     inputContainer: {
       flex: 1,
       backgroundColor: c.bg.card,
       borderWidth: 1, borderColor: c.borderHover,
       borderRadius: radii.xl,
-      overflow: 'hidden',
+      // overflow must NOT be hidden here — it clips the @ mention / # hashtag
+      // suggestion popover that SmartInput renders above the field.
+      overflow: 'visible',
     },
     sendBtn: {
       width: 38, height: 38, borderRadius: 19,
@@ -114,48 +121,117 @@ function makeStyles(c: ColorPalette) {
   });
 }
 
+const formatRelativeTime = (dateString: string) => {
+  const diffInSecs = Math.floor((new Date().getTime() - new Date(dateString).getTime()) / 1000);
+  if (diffInSecs < 60) return 'now';
+  const diffInMins = Math.floor(diffInSecs / 60);
+  if (diffInMins < 60) return `${diffInMins}m`;
+  const diffInHrs = Math.floor(diffInMins / 60);
+  if (diffInHrs < 24) return `${diffInHrs}h`;
+  const diffInDays = Math.floor(diffInHrs / 24);
+  if (diffInDays < 7) return `${diffInDays}d`;
+  return `${Math.floor(diffInDays / 7)}w`;
+};
+
 export default function CommentsScreen({ navigation, route }: Props) {
   const { user: CURRENT_USER } = useAuth();
+  const { updateCommentCount } = usePosts();
   const { post } = route.params;
   const insets   = useSafeAreaInsets();
-  const inputRef = useRef<TextInput>(null);
   const { isDark } = useTheme();
   const colors = useThemeColors();
   const styles = useMemo(() => makeStyles(colors), [colors]);
 
-  const [text,     setText]     = useState('');
-  const [comments, setComments] = useState<Comment[]>(
-    COMMENTS.filter(c => c.postId === post.id)
-  );
+  const [text, setText] = useState('');
+  const [comments, setComments] = useState<Comment[]>([]);
+  const [loading, setLoading] = useState(true);
 
-  const handleSend = () => {
+  const postAuthorId =
+    (post as any)?.author?.id || (post as any)?.authorId || (post as any)?.author_id;
+
+  const fetchComments = useCallback(async () => {
+    try {
+      const res = await commentService.getComments(post.id);
+      if (res?.data) setComments(res.data);
+    } catch (e) {
+      console.error('Failed to fetch comments', e);
+    } finally {
+      setLoading(false);
+    }
+  }, [post.id]);
+
+  useEffect(() => {
+    fetchComments();
+  }, [fetchComments]);
+
+  const handleSend = async () => {
     const trimmed = text.trim();
     if (!trimmed) return;
-    const newComment: Comment = {
-      id: `cm_${Date.now()}`,
-      postId: post.id,
-      author: {
-        id: CURRENT_USER.id,
-        name: (CURRENT_USER?.name || 'Taddle User'),
-        handle: (CURRENT_USER?.username || 'user'),
-        avatar: '👾',
-      },
-      text: trimmed,
-      likes: 0,
-      isLiked: false,
-      createdAt: 'just now',
-    };
-    setComments(prev => [newComment, ...prev]);
     setText('');
+    updateCommentCount(post.id, 1);
+    try {
+      const res = await commentService.createComment(post.id, trimmed);
+      if (res?.data) {
+        setComments(prev => [res.data, ...prev]);
+      } else {
+        fetchComments();
+      }
+    } catch (e) {
+      console.error('Failed to post comment', e);
+      updateCommentCount(post.id, -1);
+      fetchComments();
+    }
   };
 
-  const toggleLike = (id: string) => {
+  const toggleLike = async (comment: Comment) => {
+    const isLiked = !!comment.isLiked;
     setComments(prev => prev.map(c =>
-      c.id === id
-        ? { ...c, isLiked: !c.isLiked, likes: c.isLiked ? c.likes - 1 : c.likes + 1 }
+      c.id === comment.id
+        ? { ...c, isLiked: !isLiked, likesCount: isLiked ? c.likesCount - 1 : c.likesCount + 1 }
         : c
     ));
+    try {
+      if (isLiked) await commentService.unlikeComment(comment.id);
+      else await commentService.likeComment(comment.id);
+    } catch (e) {
+      console.error('Failed to toggle like', e);
+    }
   };
+
+  const canDeleteComment = (comment: Comment) => {
+    if (!CURRENT_USER?.id) return false;
+    // Own comment, or the post owner moderating comments on their post.
+    return (
+      comment.author?.id === CURRENT_USER.id ||
+      postAuthorId === CURRENT_USER.id
+    );
+  };
+
+  const deleteComment = (comment: Comment) => {
+    Alert.alert(
+      'Delete comment',
+      'Are you sure you want to delete this comment?',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Delete',
+          style: 'destructive',
+          onPress: async () => {
+            try {
+              await commentService.deleteComment(comment.id);
+              if (!comment.parentId) updateCommentCount(post.id, -1);
+            } catch (e) {
+              console.error('Failed to delete comment', e);
+            }
+            setComments(prev => prev.filter(c => c.id !== comment.id));
+          },
+        },
+      ],
+    );
+  };
+
+  const postAvatar = (post as any)?.author?.avatarUrl || (post as any)?.author?.avatar_url;
+  const postAuthorName = (post as any)?.author?.name || 'Post';
 
   return (
     <KeyboardAvoidingView
@@ -179,31 +255,47 @@ export default function CommentsScreen({ navigation, route }: Props) {
         {/* Post preview strip */}
         <View style={styles.postPreview}>
           <View style={styles.previewAvatar}>
-            <Text style={styles.previewAvatarEmoji}>{post.author.avatar}</Text>
+            {postAvatar ? (
+              <Image source={{ uri: postAvatar }} style={{ width: '100%', height: '100%' }} />
+            ) : (
+              <Text style={styles.previewAvatarEmoji}>👾</Text>
+            )}
           </View>
           <View style={styles.previewMeta}>
-            <Text style={styles.previewAuthor}>{post.author.name}</Text>
-            <Text style={styles.previewContent} numberOfLines={2}>{post.content}</Text>
+            <Text style={styles.previewAuthor}>{postAuthorName}</Text>
+            <Text style={styles.previewContent} numberOfLines={2}>{(post as any).content || (post as any).title || ''}</Text>
           </View>
         </View>
 
         {/* Comment list */}
-        <FlatList
-          data={comments}
-          keyExtractor={item => item.id}
-          showsVerticalScrollIndicator={false}
-          contentContainerStyle={styles.listContent}
-          ListEmptyComponent={
-            <View style={styles.empty}>
-              <Text style={styles.emptyEmoji}>💬</Text>
-              <Text style={styles.emptyTitle}>No comments yet</Text>
-              <Text style={styles.emptyText}>Be the first to share your thoughts!</Text>
-            </View>
-          }
-          renderItem={({ item }) => (
-            <CommentRow comment={item} onLike={toggleLike} styles={styles} colors={colors} />
-          )}
-        />
+        {loading ? (
+          <View style={styles.empty}>
+            <ActivityIndicator color={colors.primary} />
+          </View>
+        ) : (
+          <FlatList
+            data={comments}
+            keyExtractor={item => item.id}
+            showsVerticalScrollIndicator={false}
+            contentContainerStyle={styles.listContent}
+            ListEmptyComponent={
+              <View style={styles.empty}>
+                <Text style={styles.emptyEmoji}>💬</Text>
+                <Text style={styles.emptyTitle}>No comments yet</Text>
+                <Text style={styles.emptyText}>Be the first to share your thoughts!</Text>
+              </View>
+            }
+            renderItem={({ item }) => (
+              <CommentRow
+                comment={item}
+                onLike={() => toggleLike(item)}
+                onDelete={canDeleteComment(item) ? () => deleteComment(item) : undefined}
+                styles={styles}
+                colors={colors}
+              />
+            )}
+          />
+        )}
 
         {/* Input bar */}
         <View style={[styles.inputBar, { paddingBottom: Math.max(insets.bottom, 12) }]}>
@@ -239,43 +331,50 @@ export default function CommentsScreen({ navigation, route }: Props) {
 }
 
 function CommentRow({
-  comment, onLike, styles, colors,
+  comment, onLike, onDelete, styles, colors,
 }: {
   comment: Comment;
-  onLike: (id: string) => void;
+  onLike: () => void;
+  onDelete?: () => void;
   styles: ReturnType<typeof makeStyles>;
   colors: ColorPalette;
 }) {
+  const avatarUrl = comment.author?.avatarUrl || (comment.author as any)?.avatar_url;
+
   return (
     <View style={styles.commentRow}>
       <View style={styles.commentAvatar}>
-        <Text style={styles.commentAvatarEmoji}>{comment.author.avatar}</Text>
+        {avatarUrl ? (
+          <Image source={{ uri: avatarUrl }} style={{ width: '100%', height: '100%' }} />
+        ) : (
+          <Text style={styles.commentAvatarEmoji}>👾</Text>
+        )}
       </View>
       <View style={styles.commentBody}>
         <View style={styles.bubble}>
-          <Text style={styles.commentAuthor}>{comment.author.name}</Text>
-          <Text style={styles.commentHandle}>{comment.author.handle}</Text>
-          <Text style={styles.commentText}>{comment.text}</Text>
+          <Text style={styles.commentAuthor}>{comment.author?.name || comment.author?.username}</Text>
+          <Text style={styles.commentHandle}>@{comment.author?.username}</Text>
+          <Text style={styles.commentText}>{comment.content}</Text>
         </View>
         <View style={styles.commentFooter}>
-          <Text style={styles.commentTime}>{comment.createdAt}</Text>
-          {(comment.replies ?? 0) > 0 && (
-            <TouchableOpacity>
-              <Text style={styles.replyBtn}>{comment.replies} Replies</Text>
-            </TouchableOpacity>
-          )}
-          <TouchableOpacity style={styles.likeBtn} onPress={() => onLike(comment.id)}>
+          <Text style={styles.commentTime}>{formatRelativeTime(comment.createdAt)}</Text>
+          <TouchableOpacity style={styles.likeBtn} onPress={onLike}>
             <Ionicons
               name={comment.isLiked ? 'heart' : 'heart-outline'}
               size={13}
               color={comment.isLiked ? colors.pink : colors.text.muted}
             />
-            {comment.likes > 0 && (
+            {comment.likesCount > 0 && (
               <Text style={[styles.likeCount, comment.isLiked && { color: colors.pink }]}>
-                {comment.likes}
+                {comment.likesCount}
               </Text>
             )}
           </TouchableOpacity>
+          {onDelete && (
+            <TouchableOpacity onPress={onDelete}>
+              <Ionicons name="trash-outline" size={13} color={colors.danger} />
+            </TouchableOpacity>
+          )}
         </View>
       </View>
     </View>

@@ -225,13 +225,15 @@ export default function LoginScreen({ navigation }: Props) {
 
 
       <KeyboardAvoidingView
-        behavior={Platform.OS === "ios" ? "padding" : undefined}
+        behavior={Platform.OS === "ios" ? "padding" : "height"}
+        keyboardVerticalOffset={Platform.OS === "ios" ? 0 : 24}
         style={styles.kav}
       >
         <ScrollView
           contentContainerStyle={styles.scroll}
           showsVerticalScrollIndicator={false}
           keyboardShouldPersistTaps="handled"
+          keyboardDismissMode="on-drag"
         >
           {/* Back */}
           <TouchableOpacity
@@ -336,7 +338,7 @@ export default function LoginScreen({ navigation }: Props) {
 const styles = StyleSheet.create({
   container: { flex: 1 },
   kav: { flex: 1 },
-  scroll: { flexGrow: 1, padding: 24, paddingTop: 60 },
+  scroll: { flexGrow: 1, padding: 24, paddingTop: 60, paddingBottom: 140 },
   back: {
     width: 40,
     height: 40,

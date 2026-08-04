@@ -1,18 +1,24 @@
 import React, { useMemo, useState, useEffect } from 'react';
 import {
-  View, Text, ScrollView, TouchableOpacity, StyleSheet, ActivityIndicator, RefreshControl,
+  View, Text, ScrollView, TouchableOpacity, StyleSheet, ActivityIndicator, RefreshControl, Image,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { StatusBar } from 'expo-status-bar';
 import { NativeStackScreenProps } from '@react-navigation/native-stack';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { fontSizes, spacing, radii, type ColorPalette } from '../../theme';
 import { useTheme, useThemeColors } from '../../context/ThemeContext';
-import type { HomeStackParamList, Notification } from '../../types';
+import type { HomeStackParamList, Notification, Post } from '../../types';
 import { notificationService } from '../../services/notification.service';
 import { userService } from '../../services/user.service';
+import { postsService } from '../../services/posts.service';
 import { useNotifications } from '../../context/NotificationContext';
 import { notificationBus, NOTIF_EVENTS } from '../../lib/notificationBus';
+
+const FOLLOWED_BACK_KEY = '@taddle_followed_back_usernames';
+// CUSTOM private lobbies stay open for 30 minutes before the invite expires.
+const GAME_INVITE_TTL_MS = 30 * 60 * 1000;
 
 type Props = NativeStackScreenProps<HomeStackParamList, 'Notifications'>;
 
@@ -147,10 +153,37 @@ export default function NotificationsScreen({ navigation }: Props) {
   const [notifs, setNotifs] = useState<Notification[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
-  // Tracks which follow notifications the user already followed back
+  // Tracks which follow notifications the user already followed back (session)
   const [followedBack, setFollowedBack] = useState<Record<string, boolean>>({});
+  // Usernames the user has followed back — persisted so re-entering the page
+  // doesn't keep showing "Follow Back" when they already follow that user.
+  const [followedUsernames, setFollowedUsernames] = useState<Set<string>>(new Set());
   const [followBusy, setFollowBusy] = useState<string | null>(null);
   const { clearUnread } = useNotifications();
+
+  // Load persisted followed-back usernames so the button stays correct across
+  // screen visits.
+  useEffect(() => {
+    AsyncStorage.getItem(FOLLOWED_BACK_KEY)
+      .then((raw) => {
+        if (!raw) return;
+        try {
+          setFollowedUsernames(new Set(JSON.parse(raw)));
+        } catch (e) {
+          console.warn('Failed to parse followed-back usernames', e);
+        }
+      })
+      .catch(() => {});
+  }, []);
+
+  const persistFollowedUsername = async (username: string) => {
+    setFollowedUsernames(prev => {
+      const next = new Set(prev);
+      next.add(username);
+      AsyncStorage.setItem(FOLLOWED_BACK_KEY, JSON.stringify([...next])).catch(() => {});
+      return next;
+    });
+  };
 
   const fetchNotifs = async () => {
     try {
@@ -177,6 +210,58 @@ export default function NotificationsScreen({ navigation }: Props) {
       sub();
     };
   }, []);
+
+  // Navigate to the specific content a notification refers to.
+  const openNotification = async (notif: Notification) => {
+    markRead(notif.id);
+    const { type, payload, resourceId } = notif;
+
+    try {
+      if (type === 'follow' && payload?.username) {
+        navigation.navigate('UserProfile', {
+          user: {
+            username: payload.username,
+            name: payload.name || notif.actor,
+            avatarUrl: notif.avatarUrl,
+          } as any,
+        });
+        return;
+      }
+
+      if (type === 'event') {
+        (navigation as any).navigate('Main', { screen: 'Events' });
+        return;
+      }
+
+      if (type === 'game_invite') {
+        (navigation as any).navigate('Main', { screen: 'Games' });
+        return;
+      }
+
+      if (type === 'achievement') {
+        (navigation as any).navigate('Main', { screen: 'Profile' });
+        return;
+      }
+
+      // like / comment / mention → open the comments for that post
+      if (resourceId) {
+        const res = await postsService.getPost(resourceId);
+        const post: Post | null = res?.data || null;
+        if (post) {
+          navigation.navigate('Comments', { post });
+        }
+      }
+    } catch (e) {
+      console.warn('Failed to open notification content', e);
+    }
+  };
+
+  const isGameInviteExpired = (notif: Notification) => {
+    if (notif.type !== 'game_invite') return false;
+    if (!notif.createdAt) return false;
+    const age = Date.now() - new Date(notif.createdAt).getTime();
+    return age > GAME_INVITE_TTL_MS;
+  };
 
   const onRefresh = async () => {
     setRefreshing(true);
@@ -256,12 +341,19 @@ export default function NotificationsScreen({ navigation }: Props) {
                   <TouchableOpacity
                     key={notif.id}
                     style={[styles.row, notif.isRead ? styles.rowRead : styles.rowUnread]}
-                    onPress={() => markRead(notif.id)}
+                    onPress={() => openNotification(notif)}
                     activeOpacity={0.7}
                   >
                     <View style={styles.avatarWrap}>
                       <View style={styles.avatar}>
-                        <Text style={styles.avatarEmoji}>{notif.avatar}</Text>
+                        {notif.avatarUrl ? (
+                          <Image
+                            source={{ uri: notif.avatarUrl }}
+                            style={{ width: 48, height: 48, borderRadius: 24 }}
+                          />
+                        ) : (
+                          <Text style={styles.avatarEmoji}>{notif.avatar}</Text>
+                        )}
                       </View>
                       <View style={[styles.typeDot, { backgroundColor: notifColor[notif.type] }]}>
                         <Ionicons name={NOTIF_ICON[notif.type] as any} size={10} color="#fff" />
@@ -275,7 +367,7 @@ export default function NotificationsScreen({ navigation }: Props) {
                       </Text>
                       <Text style={styles.time}>{notif.time}</Text>
 
-                      {notif.type === 'game_invite' && !notif.isRead && (
+                      {notif.type === 'game_invite' && !notif.isRead && !isGameInviteExpired(notif) && (
                         <View style={styles.inviteActions}>
                           <TouchableOpacity 
                             style={styles.btnJoin}
@@ -302,53 +394,67 @@ export default function NotificationsScreen({ navigation }: Props) {
                         </View>
                       )}
 
-                      {notif.type === 'follow' && notif.payload?.username && (
-                        <TouchableOpacity
-                          style={[
-                            styles.followBackBtn,
-                            followedBack[notif.id] && styles.followBackDone,
-                          ]}
-                          disabled={followedBack[notif.id] || followBusy === notif.id}
-                          onPress={async (e) => {
-                            e.stopPropagation();
-                            markRead(notif.id);
-                            if (followedBack[notif.id]) return;
-                            const followUsername = notif.payload?.username;
-                            if (!followUsername) return;
-                            setFollowBusy(notif.id);
-                            try {
-                              await userService.followUser(followUsername);
-                              setFollowedBack(prev => ({ ...prev, [notif.id]: true }));
-                            } catch (err: any) {
-                              // "already following" is a success for the follow-back flow
-                              const msg = err?.response?.data?.message || err?.message || '';
-                              if (/already following|request/i.test(msg)) {
-                                setFollowedBack(prev => ({ ...prev, [notif.id]: true }));
-                              }
-                            } finally {
-                              setFollowBusy(null);
-                            }
-                          }}
-                        >
-                          <Ionicons
-                            name={followedBack[notif.id] ? 'checkmark' : 'person-add'}
-                            size={13}
-                            color={followedBack[notif.id] ? colors.success : colors.primaryLight}
-                          />
-                          <Text
-                            style={[
-                              styles.followBackText,
-                              followedBack[notif.id] && styles.followBackDoneText,
-                            ]}
-                          >
-                            {followBusy === notif.id
-                              ? 'Following…'
-                              : followedBack[notif.id]
-                                ? 'Following'
-                                : 'Follow Back'}
+                      {notif.type === 'game_invite' && !notif.isRead && isGameInviteExpired(notif) && (
+                        <View style={{ marginTop: 10, alignSelf: 'flex-start' }}>
+                          <Text style={[styles.followBackText, { color: colors.text.muted, fontWeight: '600' }]}>
+                            ⏳ Invite expired
                           </Text>
-                        </TouchableOpacity>
+                        </View>
                       )}
+
+                      {notif.type === 'follow' && notif.payload?.username && (() => {
+                        const username = notif.payload.username;
+                        const isDone = followedBack[notif.id] || followedUsernames.has(username);
+                        return (
+                          <TouchableOpacity
+                            style={[
+                              styles.followBackBtn,
+                              isDone && styles.followBackDone,
+                            ]}
+                            disabled={isDone || followBusy === notif.id}
+                            onPress={async (e) => {
+                              e.stopPropagation();
+                              markRead(notif.id);
+                              if (isDone) return;
+                              const followUsername = notif.payload?.username;
+                              if (!followUsername) return;
+                              setFollowBusy(notif.id);
+                              try {
+                                await userService.followUser(followUsername);
+                                setFollowedBack(prev => ({ ...prev, [notif.id]: true }));
+                                await persistFollowedUsername(followUsername);
+                              } catch (err: any) {
+                                // "already following" is a success for the follow-back flow
+                                const msg = err?.response?.data?.message || err?.message || '';
+                                if (/already following|request/i.test(msg)) {
+                                  setFollowedBack(prev => ({ ...prev, [notif.id]: true }));
+                                  await persistFollowedUsername(followUsername);
+                                }
+                              } finally {
+                                setFollowBusy(null);
+                              }
+                            }}
+                          >
+                            <Ionicons
+                              name={isDone ? 'checkmark' : 'person-add'}
+                              size={13}
+                              color={isDone ? colors.success : colors.primaryLight}
+                            />
+                            <Text
+                              style={[
+                                styles.followBackText,
+                                isDone && styles.followBackDoneText,
+                              ]}
+                            >
+                              {followBusy === notif.id
+                                ? 'Following…'
+                                : isDone
+                                  ? 'Following'
+                                  : 'Follow Back'}
+                            </Text>
+                          </TouchableOpacity>
+                        );
+                      })()}
                     </View>
 
                     {!notif.isRead && <View style={styles.unreadDot} />}

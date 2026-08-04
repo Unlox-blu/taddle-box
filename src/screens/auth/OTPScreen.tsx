@@ -192,10 +192,11 @@ export default function OTPScreen({ navigation, route }: Props) {
       </TouchableOpacity>
 
       <KeyboardAvoidingView 
-        behavior={Platform.OS === 'ios' ? 'padding' : undefined} 
+        behavior={Platform.OS === 'ios' ? 'padding' : 'height'} 
+        keyboardVerticalOffset={Platform.OS === 'ios' ? 0 : 24}
         style={{ flex: 1 }}
       >
-        <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
+        <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
           {verified ? (
             <Animated.View style={[styles.successWrap, { transform: [{ scale: checkScale }] }]}>
               <LinearGradient colors={[colors.success, '#059669']} style={styles.successCircle}>
@@ -318,7 +319,7 @@ const styles = StyleSheet.create({
     borderWidth: 1, borderColor: colors.border,
     alignItems: 'center', justifyContent: 'center',
   },
-  content: { flexGrow: 1, alignItems: 'center', paddingBottom: 40 },
+  content: { flexGrow: 1, alignItems: 'center', paddingBottom: 140 },
   iconRow: { flexDirection: 'row', gap: 16, marginBottom: 20 },
   phoneIcon: {
     width: 64, height: 64,

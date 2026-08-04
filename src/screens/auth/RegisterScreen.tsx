@@ -448,12 +448,14 @@ export default function RegisterScreen({ navigation, route }: Props) {
     <LinearGradient colors={["#070714", "#0E0E24"]} style={styles.container}>
       <StatusBar style="light" />
       <KeyboardAvoidingView
-        behavior={Platform.OS === "ios" ? "padding" : undefined}
+        behavior={Platform.OS === "ios" ? "padding" : "height"}
+        keyboardVerticalOffset={Platform.OS === "ios" ? 0 : 24}
         style={{ flex: 1 }}
       >
         <ScrollView
           contentContainerStyle={styles.scroll}
           keyboardShouldPersistTaps="handled"
+          keyboardDismissMode="on-drag"
         >
           {/* Back */}
           <TouchableOpacity
@@ -982,7 +984,7 @@ export default function RegisterScreen({ navigation, route }: Props) {
 
 const styles = StyleSheet.create({
   container: { flex: 1 },
-  scroll: { flexGrow: 1, padding: 24, paddingTop: 60 },
+  scroll: { flexGrow: 1, padding: 24, paddingTop: 60, paddingBottom: 140 },
   back: {
     width: 40,
     height: 40,

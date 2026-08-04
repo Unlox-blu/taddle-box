@@ -139,6 +139,9 @@ export default function CreatePostModal({
   const [showPicker, setShowPicker] = useState(false);
   const [showHashtagInput, setShowHashtagInput] = useState(false);
   const [hashtagInput, setHashtagInput] = useState("");
+  const [validationError, setValidationError] = useState<string | null>(null);
+  const validationAnim = useRef(new Animated.Value(0)).current;
+  const validationTimer = useRef<any>(null);
 
   // ── Hashtags & Mentions ─────────────────────────────────────────
   const [hashtags, setHashtags] = useState<string[]>([]);
@@ -596,25 +599,49 @@ export default function CreatePostModal({
     onClose();
   };
 
+  const showValidationPop = (msg: string) => {
+    setValidationError(msg);
+    if (validationTimer.current) clearTimeout(validationTimer.current);
+    validationAnim.setValue(0);
+    Animated.spring(validationAnim, {
+      toValue: 1,
+      friction: 6,
+      tension: 80,
+      useNativeDriver: true,
+    }).start();
+    validationTimer.current = setTimeout(() => {
+      Animated.timing(validationAnim, {
+        toValue: 0,
+        duration: 220,
+        useNativeDriver: true,
+      }).start(() => setValidationError(null));
+    }, 2600);
+  };
+
+  React.useEffect(() => () => {
+    if (validationTimer.current) clearTimeout(validationTimer.current);
+  }, []);
+
   const handlePost = async () => {
-    // ── Validation with shakes ────────────────────────────────
+    // ── Validation with shakes + sleek pop under the Post button ──
     let hasValidationError = false;
 
     if (!hasTitle) {
       shake(shakeTitleAnim);
+      showValidationPop("Add a title to your post");
       hasValidationError = true;
-    }
-    if (!hasContent) {
+    } else if (!hasContent) {
       shake(shakeContentAnim);
       shake(shakeMediaAnim);
+      showValidationPop("Add some text or media to your post");
       hasValidationError = true;
-    }
-    if (!postType) {
+    } else if (!postType) {
       shake(shakeAudienceAnim);
+      showValidationPop("Choose where to post — Public or a Community");
       hasValidationError = true;
-    }
-    if (!hasHashtag) {
+    } else if (!hasHashtag) {
       shake(shakeHashtagAnim);
+      showValidationPop("Add at least one hashtag to your post");
       hasValidationError = true;
     }
 
@@ -775,27 +802,60 @@ export default function CreatePostModal({
                 up to 100 XP
               </Text>
             </View>
-            <TouchableOpacity onPress={handlePost} disabled={uploading}>
-              <LinearGradient
-                colors={
-                  !uploading
-                    ? [colors.primary, colors.cyanDark]
-                    : [colors.bg.elevated, colors.bg.elevated]
-                }
-                start={{ x: 0, y: 0 }}
-                end={{ x: 1, y: 0 }}
-                style={styles.postBtn}
-              >
-                <Text
+            <View style={{ position: 'relative', zIndex: 200, elevation: 20 }}>
+              <TouchableOpacity onPress={handlePost} disabled={uploading}>
+                <LinearGradient
+                  colors={
+                    !uploading
+                      ? [colors.primary, colors.cyanDark]
+                      : [colors.bg.elevated, colors.bg.elevated]
+                  }
+                  start={{ x: 0, y: 0 }}
+                  end={{ x: 1, y: 0 }}
+                  style={styles.postBtn}
+                >
+                  <Text
+                    style={[
+                      styles.postBtnText,
+                      uploading && styles.postBtnTextDisabled,
+                    ]}
+                  >
+                    {uploading ? "Posting..." : "Post"}
+                  </Text>
+                </LinearGradient>
+              </TouchableOpacity>
+
+              {/* Validation pop — sleek tooltip under the Post button */}
+              {validationError && (
+                <Animated.View
+                  pointerEvents="none"
                   style={[
-                    styles.postBtnText,
-                    uploading && styles.postBtnTextDisabled,
+                    styles.validationPop,
+                    {
+                      opacity: validationAnim,
+                      transform: [
+                        {
+                          translateY: validationAnim.interpolate({
+                            inputRange: [0, 1],
+                            outputRange: [-6, 0],
+                          }),
+                        },
+                      ],
+                    },
                   ]}
                 >
-                  {uploading ? "Posting..." : "Post"}
-                </Text>
-              </LinearGradient>
-            </TouchableOpacity>
+                  <Ionicons
+                    name="alert-circle"
+                    size={13}
+                    color="#fff"
+                    style={{ marginRight: 5 }}
+                  />
+                  <Text style={styles.validationPopText}>
+                    {validationError}
+                  </Text>
+                </Animated.View>
+              )}
+            </View>
           </View>
         </View>
 
@@ -1576,6 +1636,11 @@ function makeStyles(colors: ReturnType<typeof useThemeColors>) {
       paddingVertical: spacing.md,
       borderBottomWidth: 1,
       borderBottomColor: colors.border,
+      // Keep the header (and the validation tooltip it contains) above the
+      // ScrollView content so the tooltip never renders behind the composer.
+      position: "relative",
+      zIndex: 300,
+      elevation: 30,
     },
     closeBtn: { padding: 4 },
     headerTitle: {
@@ -1590,6 +1655,32 @@ function makeStyles(colors: ReturnType<typeof useThemeColors>) {
     },
     postBtnText: { fontSize: fontSizes.sm, fontWeight: "700", color: "#fff" },
     postBtnTextDisabled: { color: colors.text.muted },
+    validationPop: {
+      position: "absolute",
+      top: "100%",
+      right: 0,
+      marginTop: 8,
+      minWidth:150,
+      backgroundColor: "rgba(239,68,68,0.95)",
+      borderRadius: 10,
+      paddingHorizontal: 12,
+      paddingVertical: 8,
+      flexDirection: "row",
+      alignItems: "center",
+      shadowColor: "#EF4444",
+      shadowOffset: { width: 0, height: 4 },
+      shadowOpacity: 0.35,
+      shadowRadius: 10,
+      elevation: 12,
+      zIndex: 300,
+    },
+    validationPopText: {
+      fontSize: fontSizes.xs,
+      fontWeight: "700",
+      color: "#fff",
+      // Allow the message to wrap inside the bubble instead of spilling out.
+      flexShrink: 1,
+    },
 
     scroll: { flex: 1 },
     scrollContent: { paddingHorizontal: spacing.lg, paddingBottom: 200 },

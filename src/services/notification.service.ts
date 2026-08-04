@@ -77,12 +77,22 @@ export const notificationService = {
         id: n.id,
         type: mappedType,
         avatar: firstWord.charAt(0).toUpperCase(),
-        actor: n.title || 'Notification',
+        avatarUrl: n.senderAvatarUrl || undefined,
+        actor: n.senderName || n.title || 'Notification',
         text: text,
         time: timeStr,
         isRead: n.isRead,
         group,
-        payload,
+        resourceId: n.resourceId ?? undefined,
+        resourceType: n.resourceType ?? undefined,
+        createdAt: n.createdAt,
+        payload: {
+          ...(payload || {}),
+          // Prefer the server-resolved sender identity for follow-back actions.
+          ...(mappedType === 'follow' && n.senderUsername
+            ? { userId: n.senderId, username: n.senderUsername, name: n.senderName }
+            : {}),
+        },
       };
     });
 

@@ -1,4 +1,4 @@
-import React, { useMemo, useState, useEffect } from "react";
+import React, { useMemo, useState, useEffect, useCallback } from "react";
 import {
   View,
   Text,
@@ -10,6 +10,7 @@ import {
   FlatList,
   Image,
   Alert,
+  RefreshControl,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
@@ -19,7 +20,7 @@ import { useThemeColors, useTheme } from "../../context/ThemeContext";
 import { userService } from "../../services/user.service";
 import { useAuth } from "../../context/AuthContext";
 import XPProgressBar from "../home/XPProgressBar";
-import { useNavigation } from "@react-navigation/native";
+import { useNavigation, useFocusEffect } from "@react-navigation/native";
 import SharedFeed from "../common/SharedFeed";
 import { postsService } from "../../services/posts.service";
 
@@ -285,6 +286,7 @@ export default function SharedProfile({
   const [user, setUser] = useState<any>(initialUser);
   const [followed, setFollowed] = useState(!!initialUser?.isFollowing);
   const [loadingProfile, setLoadingProfile] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
   const [qrModalVisible, setQrModalVisible] = useState(false);
 
   const [showFollowList, setShowFollowList] = useState(false);
@@ -314,28 +316,29 @@ export default function SharedProfile({
     ]);
   };
 
-  useEffect(() => {
-    let active = true;
-    const loadProfile = async () => {
-      try {
-        const username = initialUser?.username || "";
-        if (!username) return;
-        const profileRes = await userService.getProfile(username);
-        if (active && profileRes?.data) {
-          setUser(profileRes.data);
-          setFollowed(!!profileRes.data.isFollowing);
-        }
-      } catch (e) {
-        console.warn("Failed to load profile", e);
-      } finally {
-        if (active) setLoadingProfile(false);
+  const loadProfile = useCallback(async () => {
+    const username = initialUser?.username || "";
+    if (!username) return;
+    try {
+      const profileRes = await userService.getProfile(username);
+      if (profileRes?.data) {
+        setUser(profileRes.data);
+        setFollowed(!!profileRes.data.isFollowing);
       }
-    };
-    loadProfile();
-    return () => {
-      active = false;
-    };
+    } catch (e) {
+      console.warn("Failed to load profile", e);
+    } finally {
+      setLoadingProfile(false);
+    }
   }, [initialUser?.username]);
+
+  // Refetch profile whenever the screen regains focus so follower/post/XP
+  // counts stay fresh (e.g. new followers while away).
+  useFocusEffect(
+    useCallback(() => {
+      loadProfile();
+    }, [loadProfile])
+  );
 
   useEffect(() => {
     let active = true;
@@ -380,6 +383,25 @@ export default function SharedProfile({
       console.warn("Failed to toggle follow", e);
     }
   };
+
+  const onRefresh = useCallback(async () => {
+    setRefreshing(true);
+    try {
+      await loadProfile();
+      if (user?.id) {
+        const postsRes = await postsService.getUserPosts(user.id);
+        if (postsRes?.data) setPosts(postsRes.data);
+      }
+    } catch (e) {
+      console.warn("Failed to refresh profile", e);
+    } finally {
+      setRefreshing(false);
+    }
+  }, [loadProfile, user?.id]);
+
+  const refreshControl = (
+    <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={colors.primary} />
+  );
 
   const openFollowList = (type: "followers" | "following") => {
     setFollowListType(type);
@@ -610,17 +632,17 @@ export default function SharedProfile({
       {headerComponent}
 
       {loadingPosts ? (
-        <ScrollView showsVerticalScrollIndicator={false}>
+        <ScrollView showsVerticalScrollIndicator={false} refreshControl={refreshControl}>
           {profileHeader}
           <View style={{ padding: 40, alignItems: "center" }}>
             <ActivityIndicator size="small" color={colors.primary} />
           </View>
         </ScrollView>
       ) : posts.length === 0 ? (
-        <ScrollView showsVerticalScrollIndicator={false}>
+        <ScrollView showsVerticalScrollIndicator={false} refreshControl={refreshControl}>
           {profileHeader}
           <View style={{ padding: 40, alignItems: "center" }}>
-            <Text style={{ color: colors.text.muted }}>Hang tight!</Text>
+            <Text style={{ color: colors.text.muted }}>No posts yet — pull down to refresh.</Text>
           </View>
         </ScrollView>
       ) : (
@@ -628,6 +650,8 @@ export default function SharedProfile({
           posts={posts}
           setPosts={setPosts}
           onDelete={handleDeletePost}
+          refreshing={refreshing}
+          onRefresh={onRefresh}
           ListHeaderComponent={profileHeader}
           ListFooterComponent={<View style={{ height: 100 }} />}
           contentContainerStyle={{ gap: 12 }}

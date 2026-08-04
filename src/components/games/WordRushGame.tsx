@@ -55,6 +55,7 @@ export default function WordRushGame({ matchId, userId, wsToken, onComplete }: P
   const shakeAnim = useRef(new Animated.Value(0)).current;
   const timerRef = useRef<any>(null);
   const timerBarAnim = useRef(new Animated.Value(1)).current;
+  const roundRef = useRef(0);
 
   useEffect(() => {
     const s = createGameEngineSocket(matchId, userId, wsToken);
@@ -84,7 +85,12 @@ export default function WordRushGame({ matchId, userId, wsToken, onComplete }: P
       applyState(data.state);
       setSubmitting(false);
 
-      if (data.result === 'VALID' || data.valid === true) {
+      // Only flash success for OUR words (SYNC also fires for bot moves / round
+      // advances, which used to show a false "correct!" flash).
+      if (
+        (data.result === 'VALID' || data.valid === true) &&
+        (!data.userId || data.userId === userId)
+      ) {
         triggerSuccess();
       }
     });
@@ -136,7 +142,19 @@ export default function WordRushGame({ matchId, userId, wsToken, onComplete }: P
     if (ps.grid && Array.isArray(ps.grid)) setGrid(ps.grid);
     if (ps.scores) setScores(ps.scores);
     if (ps.foundWords && Array.isArray(ps.foundWords)) setFoundWords(ps.foundWords);
-    if (ps.currentRound) setRound(ps.currentRound);
+    if (ps.currentRound) {
+      // Grid regenerates on each round — clear any stale selection and restart
+      // the local countdown so the UI matches the server's 90s round cadence.
+      // Note: read ps.status (fresh from the payload) rather than the `status`
+      // closure value, which is stale inside this effect and would never equal
+      // 'active'.
+      if (ps.currentRound !== roundRef.current) {
+        roundRef.current = ps.currentRound;
+        setSelectedIndices([]);
+        if (ps.status !== 'finished') startLocalTimer(90);
+      }
+      setRound(ps.currentRound);
+    }
     if (ps.totalRounds) setTotalRounds(ps.totalRounds);
   };
 

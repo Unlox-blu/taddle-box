@@ -18,7 +18,8 @@ type Action =
   | { type: 'ADD_POST';    post: Post }
   | { type: 'TOGGLE_LIKE'; id: string }
   | { type: 'TOGGLE_SAVE'; id: string }
-  | { type: 'DELETE_POST'; id: string };
+  | { type: 'DELETE_POST'; id: string }
+  | { type: 'UPDATE_COMMENT_COUNT'; id: string; delta: number };
 
 function reducer(state: State, action: Action): State {
   switch (action.type) {
@@ -61,6 +62,17 @@ function reducer(state: State, action: Action): State {
     case 'DELETE_POST':
       return { ...state, posts: state.posts.filter(p => p.id !== action.id) };
 
+    case 'UPDATE_COMMENT_COUNT':
+      return {
+        ...state,
+        posts: state.posts.map(p => {
+          if (p.id !== action.id) return p;
+          const current = p.comments ?? (p as any).commentsCount ?? 0;
+          const next = Math.max(0, current + action.delta);
+          return { ...p, comments: next, commentsCount: next };
+        }),
+      };
+
     default:
       return state;
   }
@@ -77,6 +89,8 @@ type PostsContextType = {
   toggleLike: (id: string) => Promise<void>;
   toggleSave: (id: string) => Promise<void>;
   deletePost: (id: string) => Promise<void>;
+  /** Optimistically bump a post's displayed comment count by delta (±1). */
+  updateCommentCount: (id: string, delta: number) => void;
 };
 
 const PostsContext = createContext<PostsContextType>({
@@ -88,6 +102,7 @@ const PostsContext = createContext<PostsContextType>({
   toggleLike: async () => {},
   toggleSave: async () => {},
   deletePost: async () => {},
+  updateCommentCount: () => {},
 });
 
 // ─── Provider ────────────────────────────────────────────────────────────────
@@ -181,6 +196,10 @@ export function PostsProvider({ children }: { children: React.ReactNode }) {
         }
         console.error('Failed to delete post:', e);
       }
+    },
+
+    updateCommentCount: (id, delta) => {
+      dispatch({ type: 'UPDATE_COMMENT_COUNT', id, delta });
     },
   };
 

@@ -838,13 +838,6 @@ const styles = StyleSheet.create({
     alignItems: "center",
     zIndex: 50,
   },
-
-  gameOverOverlay: {
-    ...StyleSheet.absoluteFillObject,
-    backgroundColor: "rgba(5,5,15,0.88)",
-    justifyContent: "center",
-    alignItems: "center",
-  },
   gameOverCard: {
     backgroundColor: "#0F172A",
     borderRadius: 24,

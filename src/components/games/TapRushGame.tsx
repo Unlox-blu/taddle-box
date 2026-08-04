@@ -51,7 +51,7 @@ export default function TapRushGame({ matchId, userId, wsToken, players, onCompl
   const [opponentScore, setOpponentScore] = useState(0);
   const [activeTarget, setActiveTarget] = useState<Target | null>(null);
   const [targetSequence, setTargetSequence] = useState<Target[]>([]);
-  const currentSeqRef = useRef(-1);
+  const lastTapSeqRef = useRef(-1);
 
   useEffect(() => {
     const s = createGameEngineSocket(matchId, userId, wsToken);
@@ -135,32 +135,37 @@ export default function TapRushGame({ matchId, userId, wsToken, players, onCompl
     }
   }, [timeLeft, status, score, onComplete]);
 
+  // Reveal targets on the server-provided cumulative schedule. Each target's
+  // `delay` is its absolute offset from game start, so we schedule every reveal
+  // once when the game goes active — no dependency on taps or score, meaning the
+  // tap area keeps appearing for the full match instead of stalling/skipping.
   useEffect(() => {
-    if (status !== "active") return;
-    if (targetSequence.length === 0) return;
+    if (status !== "active" || targetSequence.length === 0) return;
 
-    let timeout: NodeJS.Timeout;
+    const timers: NodeJS.Timeout[] = [];
+    targetSequence.forEach((t) => {
+      timers.push(
+        setTimeout(() => setActiveTarget(t), t.delay)
+      );
+    });
+    // Hide the last target shortly after the final reveal
+    const lastDelay = targetSequence[targetSequence.length - 1]?.delay || 0;
+    timers.push(setTimeout(() => setActiveTarget(null), lastDelay + 1500));
 
-    const spawnNext = () => {
-      currentSeqRef.current += 1;
-      const nextTarget = targetSequence.find(t => t.seq === currentSeqRef.current);
-      if (nextTarget) {
-        timeout = setTimeout(() => {
-          setActiveTarget(nextTarget);
-        }, nextTarget.delay);
-      }
-    };
-
-    spawnNext();
-    return () => clearTimeout(timeout);
-  }, [status, targetSequence, score]);
+    return () => timers.forEach(clearTimeout);
+  }, [status, targetSequence]);
 
   const handleTap = () => {
     if (!activeTarget || !socket || status !== "active") return;
-    
+
+    const seq = activeTarget.seq;
+    // Guard against double-tapping the same target (rapid taps emit the same
+    // seq twice, the second gets rejected server-side and desyncs the score).
+    if (seq === lastTapSeqRef.current) return;
+    lastTapSeqRef.current = seq;
+
     // Optimistic UI update
     setScore(s => s + 1);
-    const seq = activeTarget.seq;
     setActiveTarget(null);
     
     socket.emit("MOVE", { type: "TAP", seq, clientTs: Date.now() });

@@ -80,7 +80,7 @@ const calculateCompletedDays = (
 export default function HomeScreen() {
   const scrollRef = useRef<FlatList>(null);
 
-  const { user: CURRENT_USER } = useAuth();
+  const { user: CURRENT_USER, refreshUser } = useAuth();
   const { wallet } = useWallet();
   const insets = useSafeAreaInsets();
   const navigation = useNavigation<HomeNavProp>();
@@ -334,7 +334,8 @@ export default function HomeScreen() {
 
   const onRefresh = async () => {
     setRefreshing(true);
-    await initHomeData();
+    // Pull the latest user profile so XP (and streak) values refresh server-side
+    await Promise.all([initHomeData(), refreshUser()]);
     setRefreshing(false);
   };
 

@@ -1,12 +1,17 @@
 import React, { useEffect, useState, useCallback, useRef, useMemo } from 'react';
 import {
   View, Text, TouchableOpacity, StyleSheet, Animated, Dimensions, Image,
+  TextInput, Modal, ScrollView, Platform, KeyboardAvoidingView,
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
+import { Ionicons } from '@expo/vector-icons';
 import Svg, { Polygon, Circle, Defs, LinearGradient as SvgGrad, Stop, Rect } from 'react-native-svg';
 import type { HtmlGameResult } from '../../games/types';
 import { createGameEngineSocket } from '../../services/socketClient';
 import { gameSound, useTurnSound } from '../../services/gameSound';
+
+// Dice tumble duration — everyone (not just the roller) sees the roll.
+const DICE_ROLL_MS = 1000;
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 const { width: SCREEN_W, height: SCREEN_H } = Dimensions.get('window');
@@ -105,7 +110,7 @@ function starPts(cx: number, cy: number, r1: number, r2: number, n: number): str
 
 const EVENTS = {
   READY: 'READY', MOVE: 'MOVE', CONNECT_ACK: 'CONNECT',
-  START: 'START', SYNC: 'SYNC', GAME_OVER: 'GAME_OVER', ERROR: 'ERROR',
+  START: 'START', SYNC: 'SYNC', GAME_OVER: 'GAME_OVER', ERROR: 'ERROR', CHAT: 'CHAT',
 };
 
 export type PlayerContext = {
@@ -122,8 +127,12 @@ type Props = {
   userId: string;
   wsToken: string;
   players?: PlayerContext[];
+  myName?: string;
+  myAvatar?: string | null;
   onComplete: (result: HtmlGameResult) => void;
 };
+
+type ChatMsg = { id: number; uid?: string; name: string; color: string; text: string; time: string };
 
 // ── Dot positions for dice faces ──────────────────────────────────────────────
 // Fixed star field for the reference-style deep-blue backdrop
@@ -139,18 +148,27 @@ const DOT_POS: Record<number, [number, number][]> = {
 };
 
 export default function LudoGame({
-  matchId, userId, wsToken, players, onComplete
+  matchId, userId, wsToken, players, myName: myNameProp, myAvatar: myAvatarProp, onComplete
 }: Props) {
   const [socket, setSocket] = useState<any>(null);
   
   const me = players?.find(p => p.id === userId);
-  const myName = me?.name || 'You';
-  const myAvatar = me?.avatar || null;
+  const myName = myNameProp || me?.name || 'You';
+  const myAvatar = myAvatarProp || me?.avatar || null;
   const [status, setStatus] = useState<'connecting' | 'waiting' | 'active' | 'finished'>('connecting');
   const [gameState, setGameState] = useState<any>(null);
   const [myPlayerIdx, setMyPlayerIdx] = useState(0);
   const [isMyTurn, setIsMyTurn] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
+  // Dice roll animation — visible to every player, not just the roller.
+  const [rolling, setRolling] = useState(false);
+  const [remoteRolling, setRemoteRolling] = useState<string | null>(null);
+  const [dicePreview, setDicePreview] = useState<number | null>(null);
+  // Chat
+  const [chatOpen, setChatOpen] = useState(false);
+  const [messages, setMessages] = useState<ChatMsg[]>([]);
+  const [draft, setDraft] = useState('');
+  const [chatPopups, setChatPopups] = useState<Array<{ id: number; uid: string; name: string; text: string; color: string; cornerIdx: number }>>([]);
 
   // Player info from socket (name + avatar for opponents)
   const [playerInfo, setPlayerInfo] = useState<Record<string, { name: string; avatar?: string }>>({});
@@ -158,6 +176,15 @@ export default function LudoGame({
   const diceScale  = useRef(new Animated.Value(1)).current;
   const diceRotate = useRef(new Animated.Value(0)).current;
   const toastAnim  = useRef(new Animated.Value(0)).current;
+  // Dice-roll bookkeeping
+  const rollingRef = useRef(false);
+  const lastDiceRef = useRef<number | null>(null);
+  const remoteRollTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const msgIdRef = useRef(0);
+  const chatScroll = useRef<ScrollView>(null);
+  const chatInputRef = useRef<TextInput>(null);
+  const gameStateRef = useRef(gameState);
+  gameStateRef.current = gameState;
 
   // Per-token spring animations
   const tokenAnims = useRef<Record<string, { x: Animated.Value; y: Animated.Value }>>({}).current;
@@ -207,6 +234,10 @@ export default function LudoGame({
       info[userId] = { name: myName || 'You', avatar: myAvatar || undefined };
       setPlayerInfo(info);
 
+      // Seed dice bookkeeping so a reconnect mid-turn doesn't fake a remote roll
+      if (ps?.dice != null) {
+        lastDiceRef.current = ps.dice;
+      }
       if (ps) setGameState(ps);
       setStatus(data.state?.status === 'ACTIVE' ? 'active' : 'waiting');
       s.emit(EVENTS.READY);
@@ -232,6 +263,24 @@ export default function LudoGame({
           });
         });
       }
+
+      // Detect a fresh roll so EVERY player sees the tumble + result.
+      const newDice = ns.dice ?? null;
+      if (newDice !== null && newDice !== lastDiceRef.current) {
+        // Who just rolled? The current turn player is the roller.
+        const order = ns.turnOrder || [];
+        const rollerId = order[ns.currentTurnIndex ?? 0];
+        const isRemote = rollerId && rollerId !== userId && !rollingRef.current;
+        if (isRemote) {
+          setRemoteRolling(rollerId);
+          setDicePreview(null);
+          if (remoteRollTimer.current) clearTimeout(remoteRollTimer.current);
+          remoteRollTimer.current = setTimeout(() => setRemoteRolling(null), DICE_ROLL_MS);
+        }
+        // My own roll: rolling stays true until the tumble animation finishes,
+        // so the preview keeps cycling and the result lands with the final face.
+      }
+      lastDiceRef.current = newDice;
       setGameState(ns);
       setIsMyTurn((ns.currentTurnIndex ?? 0) === myPlayerIdx);
     });
@@ -246,7 +295,31 @@ export default function LudoGame({
     });
 
     s.on(EVENTS.ERROR, (e: any) => showToast('⚠️ ' + (e.message || 'Error')));
+
+    // ── Real multiplayer chat ─────────────────────────────────────────────
+    s.on(EVENTS.CHAT, (data: any) => {
+      const text = String(data?.text || '').trim();
+      if (!text) return;
+      const uid = String(data?.userId || '');
+      const order = gameStateRef.current?.turnOrder || [];
+      const idx = order.indexOf(uid);
+      const color = PLAYER_COLORS[(idx >= 0 ? idx : 0) % 4];
+      const name = data?.name || (uid === userId ? myName : `Player ${idx + 1}`) || 'Player';
+      const id = ++msgIdRef.current;
+      setMessages(m => [...m, {
+        id,
+        uid,
+        name,
+        color,
+        text,
+        time: new Date(data?.ts || Date.now()).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+      }]);
+      // Pop the message up over the sender's corner card
+      setChatPopups(p => [...p, { id, uid, name, color, text, cornerIdx: Math.max(0, idx) }]);
+    });
+
     return () => {
+      if (remoteRollTimer.current) clearTimeout(remoteRollTimer.current);
       s.disconnect();
     };
   }, [matchId, userId, wsToken]);
@@ -259,28 +332,67 @@ export default function LudoGame({
   useTurnSound(isMyTurn, status === 'active');
 
   const rollDice = useCallback(() => {
-    if (!isMyTurn || gameState?.dice !== null) return;
+    if (!isMyTurn || gameState?.dice !== null || rolling) return;
+    rollingRef.current = true;
+    setRolling(true);
     socket?.emit(EVENTS.MOVE, { type: 'ROLL' });
     gameSound.playTap();
+
+    // ~1s tumble — cycles random faces, then the real result lands via SYNC.
     diceRotate.setValue(0);
     Animated.sequence([
       Animated.parallel([
-        Animated.spring(diceScale, { toValue: 1.3, useNativeDriver: true, speed: 80 }),
-        Animated.timing(diceRotate, { toValue: 1, duration: 100, useNativeDriver: true }),
+        Animated.spring(diceScale, { toValue: 1.35, useNativeDriver: true, speed: 60 }),
+        Animated.timing(diceRotate, { toValue: 1, duration: 150, useNativeDriver: true }),
       ]),
-      Animated.spring(diceScale, { toValue: 0.9, useNativeDriver: true, speed: 60 }),
       Animated.parallel([
-        Animated.spring(diceScale, { toValue: 1, useNativeDriver: true, speed: 30 }),
-        Animated.timing(diceRotate, { toValue: 0, duration: 120, useNativeDriver: true }),
+        Animated.spring(diceScale, { toValue: 0.82, useNativeDriver: true, speed: 40 }),
+        Animated.timing(diceRotate, { toValue: -0.6, duration: 150, useNativeDriver: true }),
       ]),
-    ]).start();
-  }, [isMyTurn, gameState, socket]);
+      Animated.parallel([
+        Animated.spring(diceScale, { toValue: 1.18, useNativeDriver: true, speed: 40 }),
+        Animated.timing(diceRotate, { toValue: 1, duration: 150, useNativeDriver: true }),
+      ]),
+      Animated.parallel([
+        Animated.spring(diceScale, { toValue: 0.9, useNativeDriver: true, speed: 30 }),
+        Animated.timing(diceRotate, { toValue: -0.35, duration: 150, useNativeDriver: true }),
+      ]),
+      Animated.parallel([
+        Animated.spring(diceScale, { toValue: 1, useNativeDriver: true, speed: 20 }),
+        Animated.timing(diceRotate, { toValue: 0, duration: 150, useNativeDriver: true }),
+      ]),
+      Animated.delay(Math.max(0, DICE_ROLL_MS - 750)),
+    ]).start(() => {
+      rollingRef.current = false;
+      setRolling(false);
+    });
+  }, [isMyTurn, gameState, socket, rolling, diceScale, diceRotate]);
+
+  // Cycle the dice preview face while anyone is mid-roll (my roll or remote).
+  useEffect(() => {
+    if (!rolling && !remoteRolling) return;
+    const iv = setInterval(() => {
+      setDicePreview(1 + Math.floor(Math.random() * 6));
+    }, 110);
+    return () => clearInterval(iv);
+  }, [rolling, remoteRolling]);
 
   const moveToken = useCallback((tokenId: number) => {
     if (!isMyTurn || gameState?.dice === null) return;
     socket?.emit(EVENTS.MOVE, { type: 'MOVE_TOKEN', tokenId });
     gameSound.playTap();
   }, [isMyTurn, gameState, socket]);
+
+  // ── Real multiplayer chat (server broadcasts to the match room) ──────────
+  const sendChat = useCallback((text: string) => {
+    const t = text.trim();
+    if (!t) return;
+    // Broadcast to the match room — the server echoes it to every player
+    // (including me), and the CHAT listener below renders it for everyone.
+    socket?.emit(EVENTS.CHAT, { text: t });
+    setDraft('');
+    gameSound.playTap();
+  }, [socket]);
 
   // ── Static SVG board (memoized) ───────────────────────────────────────────
   const boardSvg = useMemo(() => {
@@ -419,9 +531,10 @@ export default function LudoGame({
         const anim   = getAnim(tKey, x, y);
         const canMove = canMovePl && (gameState.movableTokens?.includes(token.id) ?? true);
         // Location-pin token: circular head (profile pic inside) + pointy tail
-        const HEAD  = CELL * 0.74;
-        const POINT = HEAD * 0.34;
-        const TOKEN_H = HEAD + POINT * 0.72;
+        const HEAD  = CELL * 0.72;
+        const TAIL_W = HEAD * 0.66;
+        const TAIL_H = HEAD * 0.5;
+        const TOKEN_H = HEAD + TAIL_H;
 
         elements.push(
           <Animated.View key={tKey} style={{
@@ -476,14 +589,30 @@ export default function LudoGame({
                 )}
               </View>
 
-              {/* Pin point tail */}
+              {/* Pin point tail — dark outline + colored fill, like the reference */}
               <View style={{
-                width: POINT, height: POINT, borderRadius: 4,
-                backgroundColor: color,
-                transform: [{ rotate: '45deg' }],
-                marginTop: -POINT * 0.35,
-                borderWidth: 1.5, borderColor: '#FFF',
-              }} />
+                width: TAIL_W + 4, height: TAIL_H + 4, marginTop: -2,
+                alignItems: 'center', justifyContent: 'flex-start',
+              }}>
+                <View style={{
+                  width: 0, height: 0,
+                  borderLeftWidth: (TAIL_W + 4) / 2,
+                  borderRightWidth: (TAIL_W + 4) / 2,
+                  borderBottomWidth: TAIL_H + 4,
+                  borderLeftColor: 'transparent',
+                  borderRightColor: 'transparent',
+                  borderBottomColor: '#1E293B',
+                }} />
+                <View style={{
+                  width: 0, height: 0, marginTop: -(TAIL_H + 2),
+                  borderLeftWidth: TAIL_W / 2,
+                  borderRightWidth: TAIL_W / 2,
+                  borderBottomWidth: TAIL_H,
+                  borderLeftColor: 'transparent',
+                  borderRightColor: 'transparent',
+                  borderBottomColor: color,
+                }} />
+              </View>
             </TouchableOpacity>
           </Animated.View>
         );
@@ -532,10 +661,26 @@ export default function LudoGame({
   };
 
   // ── State helpers ─────────────────────────────────────────────────────────
-  const face    = gameState?.dice;
-  const hasDice = face !== null && face !== undefined;
+  const face    = gameState?.dice ?? null;
+  const hasDice = face !== null;
   const curIdx  = gameState?.currentTurnIndex ?? 0;
   const curColor = PLAYER_COLORS[curIdx % 4];
+  // Die face shown on everyone's screen: preview while tumbling, else the result
+  const diceFace = (rolling || remoteRolling) ? dicePreview : (hasDice ? face : null);
+  // Corner-anchored die position — pushed toward the board center so it never
+  // collides with the corner avatar card or the chat button at the screen corner.
+  const DIE_ANCHOR: Record<number, any> = {
+    0: { top: 96, left: 96 },
+    1: { top: 96, right: 96 },
+    2: { bottom: 96, right: 96 },
+    3: { bottom: 96, left: 96 },
+  };
+  const dieAnchor = DIE_ANCHOR[curIdx % 4] || DIE_ANCHOR[0];
+  // My corner index — computed from the SAME source the corner cards use
+  // (turnOrder order), so the chat button + popups always land on my corner.
+  const myCornerIdx = (gameState?.turnOrder || []).indexOf(userId);
+  const remoteUid = remoteRolling;
+  const remoteIdx = remoteUid ? (gameState?.turnOrder || []).indexOf(remoteUid) : -1;
 
   // ── Corner avatar cards (reference-style) ─────────────────────────────────
   const renderCornerCards = () => {
@@ -596,7 +741,7 @@ export default function LudoGame({
     );
   }
 
-  const spin = diceRotate.interpolate({ inputRange: [0, 1], outputRange: ['0deg', '15deg'] });
+  const spin = diceRotate.interpolate({ inputRange: [-1, 1], outputRange: ['-14deg', '14deg'] });
 
   return (
     <LinearGradient colors={[BG_TOP, BG_BOTTOM]} style={styles.container}>
@@ -616,9 +761,11 @@ export default function LudoGame({
       <View style={[styles.turnBanner, { borderColor: curColor + '88', backgroundColor: 'rgba(5,13,58,0.65)' }]}>
         <View style={[styles.turnDot, { backgroundColor: curColor }]} />
         <Text style={[styles.turnText, { color: '#F8FAFC' }]} numberOfLines={1}>
-          {isMyTurn
-            ? hasDice ? `🎯 Rolled ${face} — Tap a token!` : '🎲 Your Turn — Tap the die!'
-            : `${PLAYER_NAMES[curIdx % 4]}'s Turn`}
+          {remoteRolling
+            ? `🎲 ${PLAYER_NAMES[remoteIdx % 4]} is rolling…`
+            : isMyTurn
+              ? hasDice ? `🎯 Rolled ${face} — Tap a token!` : '🎲 Your Turn — Tap the die!'
+              : `${PLAYER_NAMES[curIdx % 4]}'s Turn`}
         </Text>
       </View>
 
@@ -638,20 +785,30 @@ export default function LudoGame({
       {/* ─ Corner avatar cards (like the reference) ─ */}
       {renderCornerCards()}
 
-      {/* ─ Die — bottom center, tap to roll ─ */}
-      <View style={styles.dieArea}>
-        <TouchableOpacity onPress={rollDice} disabled={!isMyTurn || hasDice} activeOpacity={0.85}>
+      {/* Chat bubbles popping over the sender's corner card */}
+      {chatPopups.map(pop => (
+        <CornerBubble
+          key={pop.id}
+          pop={pop}
+          cornerIdx={pop.cornerIdx}
+          onDone={(id) => setChatPopups(p => p.filter(x => x.id !== id))}
+        />
+      ))}
+
+      {/* ─ Die — anchored to the active player's corner, tap to roll ─ */}
+      <View style={[styles.dieArea, dieAnchor]}>
+        <TouchableOpacity onPress={rollDice} disabled={!isMyTurn || hasDice || rolling} activeOpacity={0.85}>
           <Animated.View style={[
             styles.dieGlowWrap,
-            hasDice && styles.dieGlowWrapRolled,
+            diceFace !== null && styles.dieGlowWrapRolled,
             { transform: [{ scale: diceScale }, { rotate: spin }] },
           ]}>
             <LinearGradient
-              colors={hasDice ? ['#FDE68A', '#F8FAFC'] : ['#FFFFFF', '#DBE4F6']}
+              colors={diceFace !== null ? ['#FDE68A', '#F8FAFC'] : ['#FFFFFF', '#DBE4F6']}
               style={styles.dieBody}
             >
-              {hasDice ? (
-                (DOT_POS[face] || []).map(([dx, dy], i) => (
+              {diceFace !== null ? (
+                (DOT_POS[diceFace] || []).map(([dx, dy], i) => (
                   <View key={i} style={[styles.dot, styles.dotDark, { left: `${dx}%` as any, top: `${dy}%` as any }]} />
                 ))
               ) : (
@@ -661,10 +818,22 @@ export default function LudoGame({
           </Animated.View>
         </TouchableOpacity>
         <Text style={styles.dieHint}>
-          {hasDice
-            ? `Rolled ${face} — tap a token`
-            : isMyTurn ? 'Tap the die to roll' : `${PLAYER_NAMES[curIdx % 4]}'s turn…`}
+          {rolling || remoteRolling
+            ? 'Rolling…'
+            : diceFace !== null
+              ? isMyTurn ? 'Tap a token' : `${PLAYER_NAMES[curIdx % 4]} rolled ${diceFace}`
+              : isMyTurn ? 'Tap to roll' : `${PLAYER_NAMES[curIdx % 4]} to roll…`}
         </Text>
+      </View>
+
+      {/* ─ Chat button near my corner card (reference-style orange bubble) ─ */}
+      <View pointerEvents="box-none" style={[styles.chatBtnPos, {
+        [CORNER_POS[myCornerIdx >= 0 ? myCornerIdx : 0]?.align ?? 'left']: 14,
+        [CORNER_POS[myCornerIdx >= 0 ? myCornerIdx : 0]?.vert === 'top' ? 'top' : 'bottom']: 104,
+      }]}>
+        <TouchableOpacity style={styles.chatBtn} onPress={() => setChatOpen(true)} activeOpacity={0.85}>
+          <Ionicons name="chatbubble" size={20} color="#FFF" />
+        </TouchableOpacity>
       </View>
 
       {/* ─ Toast ─ */}
@@ -678,6 +847,18 @@ export default function LudoGame({
           </LinearGradient>
         </Animated.View>
       )}
+
+      {/* ─ Chat sheet ─ */}
+      <ChatSheet
+        visible={chatOpen}
+        messages={messages}
+        draft={draft}
+        onDraftChange={setDraft}
+        onSend={(t) => sendChat(t)}
+        onClose={() => setChatOpen(false)}
+        scrollRef={chatScroll}
+        inputRef={chatInputRef}
+      />
     </LinearGradient>
   );
 }
@@ -722,6 +903,128 @@ function Dot({ delay }: { delay: number }) {
     ])).start();
   }, []);
   return <Animated.View style={{ width: 10, height: 10, borderRadius: 5, backgroundColor: '#7C3AED', opacity: a }} />;
+}
+
+// ── Chat bubble floating over a player's corner card ──────────────────────────
+function CornerBubble({ pop, cornerIdx, onDone }: {
+  pop: { id: number; uid: string; name: string; text: string; color: string };
+  cornerIdx: number;
+  onDone: (id: number) => void;
+}) {
+  const anim = useRef(new Animated.Value(0)).current;
+  useEffect(() => {
+    Animated.sequence([
+      Animated.timing(anim, { toValue: 1, duration: 180, useNativeDriver: true }),
+      Animated.delay(2200),
+      Animated.timing(anim, { toValue: 0, duration: 200, useNativeDriver: true }),
+    ]).start(() => onDone(pop.id));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+  const pos = CORNER_POS[cornerIdx % 4];
+  const vertKey = pos?.vert === 'bottom' ? 'bottom' : 'top';
+  const vertVal = pos?.vert === 'bottom' ? 118 : 88;
+  return (
+    <Animated.View pointerEvents="none" style={{
+      position: 'absolute',
+      [pos?.align ?? 'left']: 12,
+      [vertKey]: vertVal,
+      maxWidth: 190,
+      opacity: anim,
+      transform: [{
+        translateY: anim.interpolate({ inputRange: [0, 1], outputRange: [6, 0] }),
+      }],
+      zIndex: 60,
+    }}>
+      <View style={[styles.bubble, { borderLeftColor: pop.color }]}>
+        <Text style={[styles.bubbleName, { color: pop.color }]} numberOfLines={1}>{pop.name}</Text>
+        <Text style={styles.bubbleText} numberOfLines={2}>{pop.text}</Text>
+      </View>
+    </Animated.View>
+  );
+}
+
+// ── Chat sheet modal ──────────────────────────────────────────────────────────
+function ChatSheet({
+  visible, messages, draft, onDraftChange, onSend, onClose, scrollRef, inputRef,
+}: {
+  visible: boolean;
+  messages: ChatMsg[];
+  draft: string;
+  onDraftChange: (t: string) => void;
+  onSend: (t: string) => void;
+  onClose: () => void;
+  scrollRef: React.RefObject<ScrollView | null>;
+  inputRef: React.RefObject<TextInput | null>;
+}) {
+  const submit = () => {
+    onSend(draft);
+    inputRef.current?.focus();
+  };
+  return (
+    <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
+      <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={styles.chatWrap}>
+        <TouchableOpacity style={styles.chatDismiss} activeOpacity={1} onPress={onClose} />
+        <View style={styles.chatSheet}>
+          <View style={styles.chatHeader}>
+            <Text style={styles.chatTitle}>💬 Match Chat</Text>
+            <View style={styles.chatLiveTag}>
+              <View style={styles.chatLiveDot} />
+              <Text style={styles.chatLiveText}>live</Text>
+            </View>
+            <TouchableOpacity onPress={onClose} hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}>
+              <Ionicons name="close" size={22} color="#C4B5FD" />
+            </TouchableOpacity>
+          </View>
+
+          <ScrollView
+            ref={scrollRef}
+            style={styles.chatList}
+            contentContainerStyle={styles.chatListContent}
+            onContentSizeChange={() => scrollRef.current?.scrollToEnd({ animated: true })}
+            keyboardShouldPersistTaps="handled"
+          >
+            {messages.length === 0 && (
+              <Text style={styles.chatEmpty}>No messages yet — say hi! 👋</Text>
+            )}
+            {messages.map(m => (
+              <View key={m.id} style={styles.chatMsg}>
+                <View style={styles.chatMsgMeta}>
+                  <Text style={[styles.chatMsgName, { color: m.color }]}>{m.name}</Text>
+                  <Text style={styles.chatMsgTime}>{m.time}</Text>
+                </View>
+                <View style={[styles.chatBubbleRow, { borderLeftColor: m.color }]}>
+                  <Text style={styles.chatMsgText}>{m.text}</Text>
+                </View>
+              </View>
+            ))}
+          </ScrollView>
+
+          <View style={styles.chatInputRow}>
+            <TextInput
+              ref={inputRef}
+              style={styles.chatInput}
+              value={draft}
+              onChangeText={onDraftChange}
+              placeholder="Type a message…"
+              placeholderTextColor="#6B7280"
+              multiline
+              maxLength={140}
+              onSubmitEditing={submit}
+              returnKeyType="send"
+            />
+            <TouchableOpacity
+              style={[styles.chatSend, !draft.trim() && { opacity: 0.45 }]}
+              onPress={submit}
+              disabled={!draft.trim()}
+              activeOpacity={0.8}
+            >
+              <Ionicons name="send" size={18} color="#FFF" />
+            </TouchableOpacity>
+          </View>
+        </View>
+      </KeyboardAvoidingView>
+    </Modal>
+  );
 }
 
 // ── Styles ────────────────────────────────────────────────────────────────────
@@ -811,10 +1114,10 @@ const styles = StyleSheet.create({
   cornerName: { fontSize: 10, fontWeight: '800', marginTop: 4, maxWidth: 70, textAlign: 'center' },
   cornerPct: { fontSize: 11, fontWeight: '900', marginTop: 1 },
 
-  // Die — bottom center (reference style: white die, blue glow)
-  dieArea: { alignItems: 'center', marginTop: 12 },
+  // Die — absolutely anchored near the active player's corner card
+  dieArea: { position: 'absolute', alignItems: 'center', zIndex: 40 },
   dieGlowWrap: {
-    width: 62, height: 62, borderRadius: 16,
+    width: 56, height: 56, borderRadius: 15,
     borderWidth: 2.5, borderColor: '#7FA6FF',
     backgroundColor: '#FFFFFF',
     elevation: 14, shadowColor: '#6FA0FF',
@@ -822,17 +1125,88 @@ const styles = StyleSheet.create({
   },
   dieGlowWrapRolled: { borderColor: '#FDE68A', shadowColor: '#FDE68A' },
   dieBody: {
-    width: 62, height: 62, borderRadius: 14,
+    width: 56, height: 56, borderRadius: 13,
     justifyContent: 'center', alignItems: 'center', position: 'relative',
   },
   dot: {
-    position: 'absolute', width: 11, height: 11, borderRadius: 5.5,
+    position: 'absolute', width: 10, height: 10, borderRadius: 5,
     backgroundColor: '#F8FAFC',
-    transform: [{ translateX: -5.5 }, { translateY: -5.5 }],
+    transform: [{ translateX: -5 }, { translateY: -5 }],
   },
   dotDark: { backgroundColor: '#0A2472' },
-  diceQ: { fontSize: 28, color: '#0A2472', fontWeight: '900' },
-  dieHint: { marginTop: 6, color: '#C7D6FF', fontSize: 12, fontWeight: '700' },
+  diceQ: { fontSize: 26, color: '#0A2472', fontWeight: '900' },
+  dieHint: { marginTop: 5, color: '#C7D6FF', fontSize: 11, fontWeight: '700', textAlign: 'center', maxWidth: 120 },
+
+  // Chat button (reference-style orange bubble near my avatar)
+  chatBtnPos: { position: 'absolute', zIndex: 50 },
+  chatBtn: {
+    width: 34, height: 34, borderRadius: 17,
+    backgroundColor: '#F97316',
+    alignItems: 'center', justifyContent: 'center',
+    borderWidth: 2, borderColor: '#FFF',
+    elevation: 10, shadowColor: '#F97316',
+    shadowOpacity: 0.6, shadowRadius: 6, shadowOffset: { width: 0, height: 2 },
+  },
+
+  // Chat popup bubble
+  bubble: {
+    backgroundColor: 'rgba(8,16,64,0.95)',
+    borderRadius: 12,
+    borderWidth: 1, borderLeftWidth: 3,
+    borderColor: 'rgba(255,255,255,0.18)',
+    paddingHorizontal: 10, paddingVertical: 6,
+    elevation: 8,
+  },
+  bubbleName: { fontSize: 10, fontWeight: '900', marginBottom: 1 },
+  bubbleText: { color: '#E2E8F0', fontSize: 12, fontWeight: '600' },
+
+  // Chat sheet
+  chatWrap: { flex: 1, justifyContent: 'flex-end' },
+  chatDismiss: { flex: 1, backgroundColor: 'rgba(2,6,23,0.5)' },
+  chatSheet: {
+    backgroundColor: '#0B1026',
+    borderTopLeftRadius: 24, borderTopRightRadius: 24,
+    borderWidth: 1.5, borderColor: 'rgba(124,58,237,0.35)',
+    paddingHorizontal: 14, paddingTop: 12, paddingBottom: 20,
+    maxHeight: '62%',
+  },
+  chatHeader: { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 10, paddingHorizontal: 4 },
+  chatTitle: { color: '#F1F5F9', fontSize: 16, fontWeight: '900', flex: 1 },
+  chatLiveTag: {
+    flexDirection: 'row', alignItems: 'center', gap: 5,
+    backgroundColor: 'rgba(34,197,94,0.16)',
+    borderRadius: 10, paddingHorizontal: 8, paddingVertical: 3,
+  },
+  chatLiveDot: { width: 6, height: 6, borderRadius: 3, backgroundColor: '#22C55E' },
+  chatLiveText: { color: '#4ADE80', fontSize: 10, fontWeight: '800' },
+  chatList: { maxHeight: 320, flexGrow: 0 },
+  chatListContent: { paddingBottom: 8 },
+  chatEmpty: { color: '#64748B', fontSize: 13, textAlign: 'center', paddingVertical: 16, fontStyle: 'italic' },
+  chatMsg: { marginBottom: 8 },
+  chatMsgMeta: { flexDirection: 'row', alignItems: 'baseline', gap: 6, marginBottom: 2 },
+  chatMsgName: { fontSize: 11, fontWeight: '900' },
+  chatMsgTime: { fontSize: 9, color: '#64748B' },
+  chatBubbleRow: {
+    backgroundColor: 'rgba(255,255,255,0.05)',
+    borderRadius: 10, borderLeftWidth: 3,
+    paddingHorizontal: 10, paddingVertical: 6,
+  },
+  chatMsgText: { color: '#E2E8F0', fontSize: 14, lineHeight: 19 },
+  chatInputRow: { flexDirection: 'row', alignItems: 'flex-end', gap: 8, marginTop: 6 },
+  chatInput: {
+    flex: 1,
+    backgroundColor: 'rgba(255,255,255,0.06)',
+    borderRadius: 14,
+    color: '#F1F5F9',
+    paddingHorizontal: 12, paddingVertical: 8,
+    maxHeight: 90, fontSize: 14,
+    borderWidth: 1, borderColor: 'rgba(255,255,255,0.1)',
+  },
+  chatSend: {
+    width: 40, height: 40, borderRadius: 20,
+    backgroundColor: '#7C3AED',
+    alignItems: 'center', justifyContent: 'center',
+  },
 
   // Toast
   toast: { position: 'absolute', bottom: 96, alignSelf: 'center', borderRadius: 24, overflow: 'hidden', elevation: 18 },

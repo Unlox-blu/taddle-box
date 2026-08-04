@@ -183,11 +183,15 @@ export interface Notification {
   id: string;
   type: 'like' | 'comment' | 'follow' | 'mention' | 'event' | 'achievement' | 'game_invite';
   avatar: string;
+  avatarUrl?: string;
   actor: string;
   text: string;
   time: string;
   isRead: boolean;
   group: 'today' | 'yesterday' | 'earlier';
+  resourceId?: string;
+  resourceType?: string;
+  createdAt?: string;
   payload?: Record<string, any>;
 }
 

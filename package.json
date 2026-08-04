@@ -9,6 +9,7 @@
     "migrate": "node db/migrate.js",
     "seed": "node db/migrate.js --seed",
     "migrate:seed": "node db/migrate.js && node db/migrate.js --seed",
+    "reset:db": "node db/reset.js --force",
     "test": "jest --forceExit --detectOpenHandles",
     "test:watch": "jest --watch",
     "test:coverage": "jest --coverage --forceExit",

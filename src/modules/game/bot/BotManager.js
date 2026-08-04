@@ -11,14 +11,14 @@ const difficulties = { Easy, Medium, Hard };
 // in game.repository.js. Weak bots (bronze/silver) are Easy and make realistic
 // mistakes; strong ones (diamond/master) are Hard and genuinely dominate.
 const PROFILE_DIFFICULTY = {
-  bot_alpha: 'Easy',
-  bot_delta: 'Easy',
-  bot_bravo: 'Medium',
-  bot_charlie: 'Medium',
-  bot_echo: 'Medium',
-  bot_nova: 'Medium',
-  bot_blaze: 'Hard',
-  bot_titan: 'Hard',
+  bot_001: 'Easy',
+  bot_002: 'Easy',
+  bot_003: 'Medium',
+  bot_004: 'Medium',
+  bot_005: 'Medium',
+  bot_006: 'Medium',
+  bot_007: 'Hard',
+  bot_008: 'Hard',
 };
 
 const resolveBotDifficulty = (botId) => {

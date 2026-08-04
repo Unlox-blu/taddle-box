@@ -71,8 +71,8 @@ const findManyCommunity = async ({limit, offset, userId = null}) => {
 const create = async (data) => {
   try {
     const { rows } = await pool.query(
-      `INSERT INTO ${CommunityModel.TABLE} (name, slug, description, privacy, category, rules, owner_id)
-     VALUES ($1, $2, $3, $4, $5::text[], $6::jsonb, $7)
+      `INSERT INTO ${CommunityModel.TABLE} (name, slug, description, privacy, category, rules, owner_id, avatar_url, banner_url)
+     VALUES ($1, $2, $3, $4, $5::text[], $6::jsonb, $7, $8, $9)
      RETURNING *`,
       [
         data.name,
@@ -82,6 +82,8 @@ const create = async (data) => {
         data.category || [],
         JSON.stringify(data.rules || []),
         data.ownerId,
+        data.avatarMediaId,
+        data.bannerMediaId,
       ]
     );
     return rows[0] ? CommunityModel.format(rows[0]) : null;

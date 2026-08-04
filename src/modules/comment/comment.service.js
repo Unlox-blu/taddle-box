@@ -148,7 +148,17 @@ class CommentService {
 
       const isOwner = comment.author_id === userId;
       const isMod = ['admin', 'moderator', 'superadmin'].includes(userRole);
-      if (!isOwner && !isMod) throw createError("You are not authorized to delete this comment", 403);
+
+      // Post owners can moderate comments left on their own post.
+      let isPostAuthor = false;
+      try {
+        const post = await this.postRepo.findById(comment.post_id);
+        isPostAuthor = !!(post && post.author_id === userId);
+      } catch (e) {
+        isPostAuthor = false;
+      }
+
+      if (!isOwner && !isPostAuthor && !isMod) throw createError("You are not authorized to delete this comment", 403);
 
       await this.commentRepo.softDelete(commentId);
       await this.postRepo.decrementCommentCount(comment.post_id);

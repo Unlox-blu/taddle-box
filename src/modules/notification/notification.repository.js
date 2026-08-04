@@ -77,18 +77,35 @@ const addToBatchNotification = async ({recipientId, senderId, resourceId}) => {
 
 
 
+// Qualified field list for queries that join users/media — keeps column
+// references unambiguous when joined tables also expose id/type/created_at.
+const LIST_FIELDS_QUALIFIED = [
+  'n.id', 'n.sender_id', 'n.type', 'n.title', 'n.message',
+  'n.resource_type', 'n.resource_id', 'n.is_read', 'n.read_at', 'n.created_at',
+].join(', ');
+
 const findByUser = async (userId, limit, offset, unreadOnly = false) => {
   try {
     const { rows } = await pool.query(
-      `SELECT ${NotificationModel.LIST_FIELDS}, COUNT(*) OVER() AS total
-      FROM ${NotificationModel.NOTIFICATION_TABLE}
-      WHERE recipient_id = $1 AND ($4 = FALSE OR is_read = FALSE)
-      ORDER BY created_at DESC 
+      `SELECT ${LIST_FIELDS_QUALIFIED},
+              u.name AS sender_name, u.username AS sender_username,
+              avatar_media.cloudfront_url AS sender_avatar_url,
+              COUNT(*) OVER() AS total
+      FROM ${NotificationModel.NOTIFICATION_TABLE} n
+      LEFT JOIN users u ON u.id = n.sender_id
+      LEFT JOIN media avatar_media ON avatar_media.id = u.avatar_url
+      WHERE n.recipient_id = $1 AND ($4 = FALSE OR n.is_read = FALSE)
+      ORDER BY n.created_at DESC 
       LIMIT $2 OFFSET $3`,
       [userId, limit, offset, unreadOnly]
     );
     const total = rows[0]?.total || 0;
-    const notifications = rows.map(NotificationModel.format)
+    const notifications = rows.map((row) => ({
+      ...NotificationModel.format(row),
+      senderName: row.sender_name,
+      senderUsername: row.sender_username,
+      senderAvatarUrl: row.sender_avatar_url,
+    }));
     return { notifications, total: parseInt(total, 10) };
   } catch (error) {
     if (isMissingRelation(error)) return { notifications: [], total: 0 };

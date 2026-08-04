@@ -73,7 +73,11 @@ class MemoryGridPlugin extends GamePlugin {
    */
   validateMove(userId, moveData, currentState) {
     if (moveData.type === 'READY_INPUT') {
-      if (currentState.roundPhase !== 'SHOW') {
+      // Tolerate a late READY_INPUT landing after the phase already flipped to
+      // INPUT (e.g. the bot's READY_INPUT firing after the real player's flip).
+      // Treat it as a no-op instead of rejecting it, so the bot session never
+      // errors and the round keeps flowing.
+      if (currentState.roundPhase !== 'SHOW' && currentState.roundPhase !== 'INPUT') {
         return { valid: false, reason: 'Not in show phase' };
       }
       return { valid: true };
@@ -101,11 +105,21 @@ class MemoryGridPlugin extends GamePlugin {
 
   applyMove(userId, moveData, currentState) {
     if (moveData.type === 'READY_INPUT') {
+      // Late READY_INPUT after the phase already flipped — no-op, nothing to do.
+      if (currentState.roundPhase === 'INPUT') return currentState;
+
       const readyPlayers = currentState.readyPlayers || [];
       if (!readyPlayers.includes(userId)) {
         readyPlayers.push(userId);
       }
-      if (readyPlayers.length >= this.players.length) {
+      // Only real players gate the reveal — bots read the pattern straight from
+      // the state and never need to "watch" it, so a missing/late bot
+      // READY_INPUT must never stall the round (tap area would never appear).
+      const realIds = this.players
+        .filter(p => !String(p.userId || p.id || '').startsWith('bot_'))
+        .map(p => p.userId || p.id);
+      const readyReal = readyPlayers.filter(id => realIds.includes(id));
+      if (realIds.length === 0 || readyReal.length >= realIds.length) {
         return { ...currentState, roundPhase: 'INPUT', readyPlayers: [] };
       }
       return { ...currentState, readyPlayers };

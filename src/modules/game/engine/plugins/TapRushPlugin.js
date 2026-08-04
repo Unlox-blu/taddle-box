@@ -29,16 +29,25 @@ class TapRushPlugin extends GamePlugin {
   _generateTargetSequence(seed, count = 15) {
     const crypto = require('crypto');
     const targets = [];
+    // Spread the 15 reveals across the full game (~18s of the 20s window) so a
+    // tap target keeps appearing for the whole match instead of running out
+    // after the first ~9s. Each delay is the gap before the next reveal.
+    const totalBudget = (GAME_DURATION_SECONDS - 2) * 1000; // 18,000ms
+    const base = Math.floor(totalBudget / count); // ~1200ms per target
+    let acc = 0;
     for (let i = 0; i < count; i++) {
       const hash = crypto
         .createHmac('sha256', seed)
         .update(i.toString())
         .digest('hex');
+      const jitter = (parseInt(hash.slice(4, 6), 16) % 400) - 200; // ±200ms
+      acc = Math.max(250, acc + base + jitter);
       targets.push({
         seq: i,
         x: parseInt(hash.slice(0, 2), 16) % 100,
         y: parseInt(hash.slice(2, 4), 16) % 100,
-        delay: parseInt(hash.slice(4, 6), 16) % 800 + 200, // 200–1000ms reveal delay
+        // Absolute timestamp offset from game start (cumulative reveal schedule)
+        delay: acc,
       });
     }
     return targets;

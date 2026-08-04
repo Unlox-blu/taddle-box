@@ -16,6 +16,8 @@ const EVENTS = {
   READY: 'READY',
   MOVE: 'MOVE',
   PING: 'PING',
+  // Bidirectional
+  CHAT: 'CHAT',
 
   // Outbound (Server → Client)
   CONNECT_ACK: 'CONNECT',
@@ -33,6 +35,10 @@ const EVENTS = {
 const RECONNECT_TIMEOUT_MS = 60 * 1000;
 // Turn timeout (ms) for turn-based games
 const TURN_TIMEOUT_MS = 60 * 1000;
+// Minimum gap between chat messages from one user (ms) — light anti-spam
+const CHAT_THROTTLE_MS = 400;
+// Max chat message length (chars)
+const CHAT_MAX_LEN = 200;
 // Snake-ladder: idle players are auto-rolled (dice + move) instead of skipping
 // their turn. 12s gives the client's visible 5s idle-grace + 5s countdown a
 // 2s buffer before the server forces the roll itself.
@@ -40,6 +46,7 @@ const SNAKE_LADDER_TURN_TIMEOUT_MS = 12 * 1000;
 
 const setupGameSocket = (io) => {
   const gameNs = io.of('/game-engine');
+  const chatThrottle = new Map(); // userId → lastChatTs
 
   const botHandler = new BotMatchHandler(
     gameNs,
@@ -329,6 +336,44 @@ const setupGameSocket = (io) => {
     // ── PING / PONG ─────────────────────────────────────────────────────
     socket.on(EVENTS.PING, () => {
       socket.emit(EVENTS.PONG, { ts: Date.now() });
+    });
+
+    // ── CHAT ────────────────────────────────────────────────────────────
+    // Lightweight in-match chat: sanitize, throttle, then broadcast to every
+    // player in the match room (including the sender) so all clients stay in
+    // sync. No persistence — it's ephemeral game chat.
+    socket.on(EVENTS.CHAT, (chatData) => {
+      try {
+        const text = String(chatData?.text || '').replace(/\s+/g, ' ').trim().slice(0, CHAT_MAX_LEN);
+        if (!text) return;
+
+        // Per-user anti-spam throttle
+        const now = Date.now();
+        const last = chatThrottle.get(userId) || 0;
+        if (now - last < CHAT_THROTTLE_MS) return;
+        chatThrottle.set(userId, now);
+
+        // Resolve sender identity from the match roster (falls back to payload)
+        const roster = socket.matchPlayers || [];
+        const sender = roster.find(
+          (p) => String(p.userId || p.id || '') === String(userId)
+        );
+        const name = String(
+          sender?.name || sender?.username || chatData?.name || 'Player'
+        ).slice(0, 40);
+        const avatar = sender?.avatar || sender?.avatarUrl || chatData?.avatar || null;
+
+        gameNs.to(matchRoom).emit(EVENTS.CHAT, {
+          userId,
+          name,
+          avatar,
+          text,
+          ts: now,
+        });
+      } catch (e) {
+        // Chat must never break the match flow
+        socket.emit(EVENTS.ERROR, { message: 'Chat failed' });
+      }
     });
 
     // ── READY ───────────────────────────────────────────────────────────
@@ -737,6 +782,16 @@ const setupGameSocket = (io) => {
       });
     } else if (gameSlug === 'scribble') {
       const ROUND_TIMEOUT_MS = 80000;
+      botHandler.handleTurn(matchId, gameSlug, state);
+
+      await TimerEngine.startTimer(matchId, 'round', ROUND_TIMEOUT_MS, {
+        type: 'round',
+        gameSlug,
+      });
+    } else if (gameSlug === 'word-rush') {
+      // Word Rush runs 5 × 90s rounds — the server advances each round via the
+      // round timer (advanceRound) and finishes the match after round 5.
+      const ROUND_TIMEOUT_MS = 90000;
       botHandler.handleTurn(matchId, gameSlug, state);
 
       await TimerEngine.startTimer(matchId, 'round', ROUND_TIMEOUT_MS, {

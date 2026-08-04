@@ -43,9 +43,30 @@ const EVENTS = {
   READY: "READY",
 };
 
+// How long an unrevealed target stays tappable before it counts as missed and
+// disappears (keeps the field readable and prevents lingering/overlapping
+// targets during fast reveals).
+const TARGET_TTL_MS = 900;
+
+// Reads the round duration (ms) from whatever field the engine state uses,
+// falling back to 20s so the local timer always matches the server. The bare
+// `duration` field is sometimes sent in seconds, so a sub-1000 value is
+// treated as seconds to avoid a broken 3s round.
+const readDurationMs = (state: any): number => {
+  const ms =
+    state?.pluginState?.roundDurationMs ??
+    state?.roundDurationMs ??
+    state?.durationMs ??
+    state?.duration ??
+    20000;
+  const v = Number(ms) || 20000;
+  return Math.max(3000, v < 1000 ? v * 1000 : v);
+};
+
 export default function TapRushGame({ matchId, userId, wsToken, players, onComplete }: Props) {
   const [socket, setSocket] = useState<any>(null);
   const [status, setStatus] = useState<"connecting" | "waiting" | "active" | "finished">("connecting");
+  const [durationSec, setDurationSec] = useState(20);
   const [timeLeft, setTimeLeft] = useState(20);
   const [score, setScore] = useState(0);
   const [opponentScore, setOpponentScore] = useState(0);
@@ -62,6 +83,7 @@ export default function TapRushGame({ matchId, userId, wsToken, players, onCompl
       if (payload.state?.pluginState?.targetSequence) {
         setTargetSequence(payload.state.pluginState.targetSequence);
       }
+      setDurationSec(Math.round(readDurationMs(payload.state) / 1000));
       s.emit(EVENTS.READY);
     });
 
@@ -70,6 +92,7 @@ export default function TapRushGame({ matchId, userId, wsToken, players, onCompl
       if (payload.state?.pluginState?.targetSequence) {
         setTargetSequence(payload.state.pluginState.targetSequence);
       }
+      setDurationSec(Math.round(readDurationMs(payload.state) / 1000));
     });
 
     s.on(EVENTS.SYNC, (payload: any) => {
@@ -116,11 +139,12 @@ export default function TapRushGame({ matchId, userId, wsToken, players, onCompl
 
   useEffect(() => {
     if (status !== "active") return;
+    setTimeLeft(durationSec);
     const interval = setInterval(() => {
       setTimeLeft((prev) => Math.max(0, prev - 1));
     }, 1000);
     return () => clearInterval(interval);
-  }, [status]);
+  }, [status, durationSec]);
 
   useEffect(() => {
     if (status === "active" && timeLeft === 0) {
@@ -139,6 +163,8 @@ export default function TapRushGame({ matchId, userId, wsToken, players, onCompl
   // `delay` is its absolute offset from game start, so we schedule every reveal
   // once when the game goes active — no dependency on taps or score, meaning the
   // tap area keeps appearing for the full match instead of stalling/skipping.
+  // Each target also auto-hides TARGET_TTL_MS after its reveal if not tapped,
+  // so missed targets vanish instead of lingering under the next one.
   useEffect(() => {
     if (status !== "active" || targetSequence.length === 0) return;
 
@@ -147,10 +173,15 @@ export default function TapRushGame({ matchId, userId, wsToken, players, onCompl
       timers.push(
         setTimeout(() => setActiveTarget(t), t.delay)
       );
+      timers.push(
+        setTimeout(() => {
+          setActiveTarget((prev) => (prev?.seq === t.seq ? null : prev));
+        }, t.delay + TARGET_TTL_MS)
+      );
     });
     // Hide the last target shortly after the final reveal
     const lastDelay = targetSequence[targetSequence.length - 1]?.delay || 0;
-    timers.push(setTimeout(() => setActiveTarget(null), lastDelay + 1500));
+    timers.push(setTimeout(() => setActiveTarget(null), lastDelay + TARGET_TTL_MS + 200));
 
     return () => timers.forEach(clearTimeout);
   }, [status, targetSequence]);

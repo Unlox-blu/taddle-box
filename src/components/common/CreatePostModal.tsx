@@ -477,8 +477,11 @@ export default function CreatePostModal({
       const endpoint = query.trim()
         ? `search?q=${encodeURIComponent(query.trim())}&`
         : `trending?`;
+      const klipyKey =
+        process.env.EXPO_PUBLIC_KLIPY_KEY ||
+        'cVApYlZX4zBljHaSpnIstsHmTWPNThPuYmuJ167v0ETv7askko61kZKD2r2ytJ2X';
       const res = await fetch(
-        `https://api.klipy.co/api/v1/cVApYlZX4zBljHaSpnIstsHmTWPNThPuYmuJ167v0ETv7askko61kZKD2r2ytJ2X/gifs/${endpoint}limit=20`
+        `https://api.klipy.co/api/v1/${klipyKey}/gifs/${endpoint}limit=20`
       );
       const json = await res.json();
       setGifs(json.data?.data || []);

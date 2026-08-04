@@ -62,6 +62,18 @@ export default function ScribbleGame({ matchId, userId, wsToken, players, onComp
   const timerRef = useRef<any>(null);
   const roleAnim = useRef(new Animated.Value(0)).current;
   const timerBarAnim = useRef(new Animated.Value(1)).current;
+  // Mirrors `currentStroke` but is updated synchronously inside the PanResponder,
+  // so onPanResponderRelease never reads a stale snapshot (which used to drop
+  // the tail of fast strokes).
+  const currentStrokeRef = useRef<{ x: number; y: number }[]>([]);
+  const isDrawerRef = useRef(false);
+  isDrawerRef.current = isDrawer;
+  const socketRef = useRef<any>(null);
+  socketRef.current = socket;
+  const penColorRef = useRef(penColor);
+  penColorRef.current = penColor;
+  const penWidthRef = useRef(penWidth);
+  penWidthRef.current = penWidth;
 
   // Show role announcement card — cue the player their turn/role changed
   const announceRole = (drawing: boolean) => {
@@ -216,42 +228,60 @@ export default function ScribbleGame({ matchId, userId, wsToken, players, onComp
   };
 
   // ── Drawing ────────────────────────────────────────────────────────────────
+  // Stroke points are tracked in a ref so release/terminate handlers see the
+  // complete stroke even during fast drawing (state reads were stale and
+  // dropped the final chunks). The socket emit happens outside the state
+  // updater to avoid double-firing in React 18+ concurrent rendering.
+  const finishStroke = () => {
+    const pts = currentStrokeRef.current;
+    if (pts.length > 1) {
+      const newStroke: Stroke = {
+        points: pts,
+        color: penColorRef.current,
+        width: penWidthRef.current,
+      };
+      socketRef.current?.emit(E.MOVE, { type: 'STROKE_END', stroke: newStroke });
+      setStrokes(prev => [...prev, newStroke]);
+    }
+    currentStrokeRef.current = [];
+    setCurrentStroke([]);
+  };
+
   const panResponder = PanResponder.create({
-    onStartShouldSetPanResponder: () => isDrawer,
-    onMoveShouldSetPanResponder: () => isDrawer,
+    onStartShouldSetPanResponder: () => isDrawerRef.current,
+    onMoveShouldSetPanResponder: () => isDrawerRef.current,
 
     onPanResponderGrant: (evt) => {
       const { locationX: x, locationY: y } = evt.nativeEvent;
+      currentStrokeRef.current = [{ x, y }];
       setCurrentStroke([{ x, y }]);
     },
 
     onPanResponderMove: (evt) => {
       const { locationX: x, locationY: y } = evt.nativeEvent;
-      setCurrentStroke(prev => {
-        const updated = [...prev, { x, y }];
-        if (updated.length % 6 === 0) {
-          socket?.emit(E.MOVE, { type: 'STROKE_CHUNK', points: updated.slice(-6), color: penColor, width: penWidth });
-        }
-        return updated;
-      });
-    },
-
-    onPanResponderRelease: () => {
-      if (currentStroke.length > 1) {
-        const newStroke: Stroke = { points: currentStroke, color: penColor, width: penWidth };
-        socket?.emit(E.MOVE, { type: 'STROKE_END', stroke: newStroke });
-        setStrokes(prev => [...prev, newStroke]);
-        setCurrentStroke([]);
+      currentStrokeRef.current = [...currentStrokeRef.current, { x, y }];
+      setCurrentStroke(currentStrokeRef.current);
+      if (currentStrokeRef.current.length % 6 === 0) {
+        socketRef.current?.emit(E.MOVE, {
+          type: 'STROKE_CHUNK',
+          points: currentStrokeRef.current.slice(-6),
+          color: penColorRef.current,
+          width: penWidthRef.current,
+        });
       }
     },
+
+    onPanResponderRelease: finishStroke,
+    onPanResponderTerminate: finishStroke,
   });
 
   const clearCanvas = useCallback(() => {
-    if (!isDrawer) return;
+    if (!isDrawerRef.current) return;
     setStrokes([]);
+    currentStrokeRef.current = [];
     setCurrentStroke([]);
-    socket?.emit(E.MOVE, { type: 'CLEAR' });
-  }, [isDrawer, socket]);
+    socketRef.current?.emit(E.MOVE, { type: 'CLEAR' });
+  }, []);
 
   const submitGuess = useCallback(() => {
     if (!guess.trim() || isDrawer) return;

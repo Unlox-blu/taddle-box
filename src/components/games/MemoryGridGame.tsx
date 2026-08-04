@@ -1,5 +1,5 @@
 import React, { useEffect, useState, useRef } from "react";
-import { View, StyleSheet, Text, TouchableOpacity, Dimensions, Image } from "react-native";
+import { View, StyleSheet, Text, TouchableOpacity, Dimensions, Image, Animated } from "react-native";
 import { LinearGradient } from "expo-linear-gradient";
 import { createGameEngineSocket } from "../../services/socketClient";
 import { gameSound } from "../../services/gameSound";
@@ -47,12 +47,15 @@ export default function MemoryGridGame({ matchId, userId, wsToken, players, onCo
   const [pattern, setPattern] = useState<number[]>([]);
   const [activeCell, setActiveCell] = useState<number | null>(null);
   const [playerInputs, setPlayerInputs] = useState<number[]>([]);
+  const [totalRounds, setTotalRounds] = useState(5);
   // Refs keep tap handling race-free (rapid taps must not lose taps) and
   // prevent duplicate INPUT/READY_INPUT submissions across re-renders.
   const inputsRef = useRef<number[]>([]);
   const submittedRef = useRef(false);
   const lastRoundRef = useRef(-1);
   const prevPhaseRef = useRef("SHOW");
+  const patternKeyRef = useRef("");
+  const wrongAnim = useRef(new Animated.Value(0)).current;
 
   useEffect(() => {
     const s = createGameEngineSocket(matchId, userId, wsToken);
@@ -76,12 +79,28 @@ export default function MemoryGridGame({ matchId, userId, wsToken, players, onCo
       }
     });
 
-    s.on(EVENTS.ERROR, () => {
-      // Server rejected a move (e.g. stale READY_INPUT / INPUT from a phase
-      // race) — unlock the grid so the player can retry once the SYNC lands.
+    s.on(EVENTS.ERROR, (e: any) => {
+      // Server rejected a move — unlock the grid so the player can retry once
+      // the SYNC lands. Shake only for genuine wrong answers (the server sends
+      // a message on an incorrect sequence); benign phase races (stale
+      // READY_INPUT / INPUT) must NOT look like a mistake.
       submittedRef.current = false;
       inputsRef.current = [];
       setPlayerInputs([]);
+      const msg = String(e?.message || '').toLowerCase();
+      const looksWrong =
+        msg.includes('wrong') ||
+        msg.includes('incorrect') ||
+        msg.includes('does not match') ||
+        msg.includes('invalid sequence') ||
+        msg.includes('mismatch');
+      // A rejection received while in INPUT phase IS a wrong answer — shake
+      // regardless of how the server words the error. Rejections during SHOW
+      // are benign phase races (stale READY_INPUT) and must not look like a
+      // mistake.
+      if (looksWrong || prevPhaseRef.current === 'INPUT') {
+        triggerWrongShake();
+      }
     });
 
     s.on(EVENTS.GAME_OVER, (payload: any) => {
@@ -152,9 +171,33 @@ export default function MemoryGridGame({ matchId, userId, wsToken, players, onCo
     
     // Server sends full pattern in currentState in our updated plugin 
     // or we can extract it if it's there
+    // Only replace the pattern when the ROUND actually changed (the SHOW
+    // animation effect keys off `pattern`, so re-setting the same array on
+    // every SYNC used to replay the whole animation and double-fire
+    // READY_INPUT). Keying on currentRound guarantees each new round replays
+    // its SHOW animation even if the server sends an identical pattern twice
+    // in a row — otherwise that round would be unwinnable (blind INPUT).
     if (ps.currentPattern) {
-      setPattern(ps.currentPattern);
+      const key = `${ps.currentRound ?? "r"}:${ps.currentPattern.join(",")}`;
+      if (key !== patternKeyRef.current) {
+        patternKeyRef.current = key;
+        setPattern(ps.currentPattern);
+      }
     }
+    if (ps.totalRounds) setTotalRounds(ps.totalRounds);
+  };
+
+  // Wrong-answer / rejected-move feedback: shake the board horizontally.
+  const triggerWrongShake = () => {
+    gameSound.playError();
+    wrongAnim.setValue(0);
+    Animated.sequence([
+      Animated.timing(wrongAnim, { toValue: 10, duration: 60, useNativeDriver: true }),
+      Animated.timing(wrongAnim, { toValue: -10, duration: 60, useNativeDriver: true }),
+      Animated.timing(wrongAnim, { toValue: 7, duration: 50, useNativeDriver: true }),
+      Animated.timing(wrongAnim, { toValue: -7, duration: 50, useNativeDriver: true }),
+      Animated.timing(wrongAnim, { toValue: 0, duration: 50, useNativeDriver: true }),
+    ]).start();
   };
 
   // Animate Pattern when in SHOW phase
@@ -255,16 +298,24 @@ export default function MemoryGridGame({ matchId, userId, wsToken, players, onCo
 
       </View>
 
-      <Text style={styles.messageText}>
-        {status === "connecting" ? "Connecting..." : 
-         status === "waiting" ? "Waiting..." :
-         status === "finished" ? "Game Over" :
-         roundPhase === "SHOW" ? "Watch the pattern!" : "Your turn!"}
-      </Text>
+      <View style={styles.roundRow}>
+        <View style={styles.roundBadge}>
+          <Text style={styles.roundBadgeText}>ROUND {Math.max(currentRound, 1)}{totalRounds ? ` / ${totalRounds}` : ""}</Text>
+        </View>
+        <Text style={styles.messageText}>
+          {status === "connecting" ? "Connecting..." : 
+           status === "waiting" ? "Waiting..." :
+           status === "finished" ? "Game Over" :
+           roundPhase === "SHOW" ? "Watch the pattern! 👀" : "Your turn! 🧠"}
+        </Text>
+      </View>
 
-      <View style={styles.grid}>
+      <Animated.View
+        style={[styles.grid, { transform: [{ translateX: wrongAnim }] }]}
+      >
         {[0, 1, 2, 3, 4, 5, 6, 7, 8].map((index) => {
           const isActive = activeCell === index;
+          const isPicked = playerInputs.includes(index);
           return (
             <TouchableOpacity
               key={index}
@@ -272,19 +323,20 @@ export default function MemoryGridGame({ matchId, userId, wsToken, players, onCo
               onPress={() => handleCellTap(index)}
               style={[
                 styles.cell,
-                isActive && styles.cellActive
+                isActive && styles.cellActive,
+                isPicked && styles.cellPicked,
               ]}
             >
-              {isActive && (
+              {(isActive || isPicked) && (
                 <LinearGradient
-                  colors={["#10B981", "#34D399"]}
+                  colors={isPicked ? ["#7C3AED", "#A855F7"] : ["#10B981", "#34D399"]}
                   style={StyleSheet.absoluteFillObject}
                 />
               )}
             </TouchableOpacity>
           );
         })}
-      </View>
+      </Animated.View>
     </View>
   );
 }
@@ -348,12 +400,30 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontWeight: "900",
   },
+  roundRow: {
+    alignItems: "center",
+    marginBottom: 14,
+    gap: 10,
+  },
+  roundBadge: {
+    backgroundColor: "rgba(124,58,237,0.15)",
+    borderRadius: 20,
+    paddingHorizontal: 14,
+    paddingVertical: 5,
+    borderWidth: 1,
+    borderColor: "rgba(124,58,237,0.3)",
+  },
+  roundBadgeText: {
+    color: "#A78BFA",
+    fontSize: 12,
+    fontWeight: "800",
+    letterSpacing: 1.2,
+  },
   messageText: {
     color: "#fff",
-    fontSize: 24,
+    fontSize: 20,
     fontWeight: "bold",
-    marginBottom: 30,
-    height: 30,
+    height: 26,
   },
   grid: {
     flexDirection: "row",
@@ -375,6 +445,14 @@ const styles = StyleSheet.create({
   cellActive: {
     borderColor: "#10B981",
     shadowColor: "#10B981",
+    shadowOffset: { width: 0, height: 0 },
+    shadowOpacity: 0.8,
+    shadowRadius: 10,
+    elevation: 5,
+  },
+  cellPicked: {
+    borderColor: "#A855F7",
+    shadowColor: "#A855F7",
     shadowOffset: { width: 0, height: 0 },
     shadowOpacity: 0.8,
     shadowRadius: 10,

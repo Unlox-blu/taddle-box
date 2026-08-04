@@ -28,7 +28,9 @@
         "foregroundImage": "./assets/adaptive-icon.png",
         "backgroundColor": "#070714"
       },
-      "package": "com.taddlebox.app"
+      "package": "com.taddlebox.app",
+      "versionCode": 1,
+      "softwareKeyboardLayoutMode": "resize"
     },
     "plugins": [
       "expo-font",
@@ -42,14 +44,9 @@
           "defaultChannel": "default",
           "sounds": []
         }
-      ]
-    ],
-    "android": {
-      "adaptiveIcon": {
-        "foregroundImage": "./assets/adaptive-icon.png",
-        "backgroundColor": "#070714"
-      },
-      "package": "com.taddlebox.app"
-    }
+      ],
+      "expo-asset",
+      "expo-secure-store"
+    ]
   }
 }

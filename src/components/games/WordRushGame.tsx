@@ -16,7 +16,7 @@ const TILE_SIZE = Math.floor((width - BOARD_PADDING * 2 - TILE_GAP * (GRID_COLS 
 const E = {
   READY: 'READY', MOVE: 'MOVE',
   CONNECT_ACK: 'CONNECT', START: 'START', SYNC: 'SYNC',
-  GAME_OVER: 'GAME_OVER', ERROR: 'ERROR',
+  GAME_OVER: 'GAME_OVER', ERROR: 'ERROR', STATE: 'STATE',
 };
 
 export type PlayerContext = {
@@ -50,6 +50,10 @@ export default function WordRushGame({ matchId, userId, wsToken, onComplete }: P
   const [totalRounds, setTotalRounds] = useState(5);
   const [lastResult, setLastResult] = useState<'valid' | 'invalid' | 'duplicate' | null>(null);
   const [lastError, setLastError] = useState<string>('');
+  // The exact word that was accepted — captured before the selection is cleared
+  // so the "✅ WORD" flash doesn't render an empty string.
+  const [lastValidWord, setLastValidWord] = useState('');
+  const lastValidWordRef = useRef('');
   const [submitting, setSubmitting] = useState(false);
   const resultAnim = useRef(new Animated.Value(0)).current;
   const shakeAnim = useRef(new Animated.Value(0)).current;
@@ -93,6 +97,11 @@ export default function WordRushGame({ matchId, userId, wsToken, onComplete }: P
       ) {
         triggerSuccess();
       }
+    });
+
+    // Keep the board in sync on intermediate STATE broadcasts too.
+    s.on(E.STATE, (data: any) => {
+      if (data.state?.pluginState) applyState(data.state.pluginState);
     });
 
     s.on(E.GAME_OVER, (data: any) => {
@@ -178,6 +187,10 @@ export default function WordRushGame({ matchId, userId, wsToken, onComplete }: P
 
   const triggerSuccess = () => {
     gameSound.playCorrect();
+    // Capture the accepted word before clearing the selection, so the flash
+    // preview shows "✅ WORD" instead of an empty string.
+    const word = lastValidWordRef.current || selectedWordRef.current || '';
+    setLastValidWord(word);
     resultAnim.setValue(0);
     Animated.sequence([
       Animated.spring(resultAnim, { toValue: 1, useNativeDriver: true, speed: 20 }),
@@ -226,6 +239,7 @@ export default function WordRushGame({ matchId, userId, wsToken, onComplete }: P
   const submitWord = useCallback(() => {
     if (selectedIndices.length < 3 || submitting || !socket) return;
     const word = selectedIndices.map(i => grid[i] || '').join('').toUpperCase();
+    lastValidWordRef.current = word;
     setSubmitting(true);
     socket.emit(E.MOVE, { type: 'SUBMIT_WORD', path: selectedIndices, word });
     gameSound.playTap();
@@ -237,7 +251,14 @@ export default function WordRushGame({ matchId, userId, wsToken, onComplete }: P
 
   // ── Derived state ─────────────────────────────────────────────────────────
   const selectedWord = selectedIndices.map(i => grid[i] || '').join('').toUpperCase();
+  const selectedWordRef = useRef(selectedWord);
+  selectedWordRef.current = selectedWord;
   const myScore = scores[userId] || 0;
+  // Opponent score: the other real player, or the bot if no human opponent.
+  const oppId =
+    Object.keys(scores).find(id => id !== userId && !id.startsWith('bot_')) ||
+    Object.keys(scores).find(id => id.startsWith('bot_'));
+  const opponentScore = oppId ? scores[oppId] || 0 : 0;
   const myFoundWords = foundWords.filter(w => w.userId === userId);
   const isValid = selectedIndices.length >= 3;
 
@@ -314,6 +335,11 @@ export default function WordRushGame({ matchId, userId, wsToken, onComplete }: P
         </View>
         <View style={styles.scoreDiv} />
         <View style={styles.scoreItem}>
+          <Text style={styles.scoreNum}>{opponentScore}</Text>
+          <Text style={styles.scoreLabel}>Opponent</Text>
+        </View>
+        <View style={styles.scoreDiv} />
+        <View style={styles.scoreItem}>
           <Text style={styles.scoreNum}>{myFoundWords.length}</Text>
           <Text style={styles.scoreLabel}>Words Found</Text>
         </View>
@@ -333,7 +359,7 @@ export default function WordRushGame({ matchId, userId, wsToken, onComplete }: P
         { transform: [{ translateX: shakeAnim }] },
       ]}>
         {lastResult === 'valid' ? (
-          <Text style={styles.wordPreviewValidText}>✅ {selectedWord || '...'}</Text>
+          <Text style={styles.wordPreviewValidText}>✅ {lastValidWord || selectedWord || '...'}</Text>
         ) : lastResult === 'invalid' || lastResult === 'duplicate' ? (
           <Text style={styles.wordPreviewInvalidText}>❌ {lastError}</Text>
         ) : selectedIndices.length > 0 ? (

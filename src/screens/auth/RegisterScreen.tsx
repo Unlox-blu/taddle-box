@@ -447,9 +447,13 @@ export default function RegisterScreen({ navigation, route }: Props) {
   return (
     <LinearGradient colors={["#070714", "#0E0E24"]} style={styles.container}>
       <StatusBar style="light" />
+      {/* On Android the window already resizes natively (adjustResize) and the
+          ScrollView auto-scrolls the focused field into view — a height-based
+          KeyboardAvoidingView fights that and leaves inputs hidden under the
+          keyboard. iOS needs the manual "padding" lift; Android needs none. */}
       <KeyboardAvoidingView
-        behavior={Platform.OS === "ios" ? "padding" : "height"}
-        keyboardVerticalOffset={Platform.OS === "ios" ? 0 : 24}
+        behavior={Platform.OS === "ios" ? "padding" : 'height'}
+        keyboardVerticalOffset={Platform.OS === "ios" ? 0 : 0}
         style={{ flex: 1 }}
       >
         <ScrollView

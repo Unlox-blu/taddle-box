@@ -224,9 +224,12 @@ export default function LoginScreen({ navigation }: Props) {
       <StatusBar style="light" />
 
 
+      {/* On Android the window already resizes natively (adjustResize) and the
+          ScrollView auto-scrolls the focused field into view — a height-based
+          KeyboardAvoidingView fights that and hides inputs under the keyboard. */}
       <KeyboardAvoidingView
-        behavior={Platform.OS === "ios" ? "padding" : "height"}
-        keyboardVerticalOffset={Platform.OS === "ios" ? 0 : 24}
+        behavior={Platform.OS === "ios" ? "padding" : undefined}
+        keyboardVerticalOffset={Platform.OS === "ios" ? 0 : 0}
         style={styles.kav}
       >
         <ScrollView

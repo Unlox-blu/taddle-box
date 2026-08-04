@@ -191,9 +191,12 @@ export default function OTPScreen({ navigation, route }: Props) {
         <Ionicons name="arrow-back" size={22} color={colors.text.secondary} />
       </TouchableOpacity>
 
+      {/* On Android the window already resizes natively (adjustResize) and the
+          ScrollView auto-scrolls the focused field into view — a height-based
+          KeyboardAvoidingView fights that and hides inputs under the keyboard. */}
       <KeyboardAvoidingView 
-        behavior={Platform.OS === 'ios' ? 'padding' : 'height'} 
-        keyboardVerticalOffset={Platform.OS === 'ios' ? 0 : 24}
+        behavior={Platform.OS === 'ios' ? 'padding' : undefined} 
+        keyboardVerticalOffset={Platform.OS === 'ios' ? 0 : 0}
         style={{ flex: 1 }}
       >
         <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">

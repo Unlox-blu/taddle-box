@@ -139,6 +139,13 @@ export default function MatchModeModal({
   const cancelledRef = useRef(false);
   const lobbyIdRef = useRef<string | null>(null);
   const fallbackTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  // Self-heal: socket events can be missed (e.g. the client socket reconnects
+  // mid-queue after a server restart), leaving the user stuck on "Searching...".
+  // This poll checks the lobby's server state and starts the game when it's READY.
+  const lobbyPollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  // Always points at the latest _handleMatched so the poll interval (created
+  // once) never calls a stale closure with an outdated mode/game.
+  const handleMatchedRef = useRef<(r: any) => void>(() => {});
   // Rematch: auto-queue fired exactly once per modal open (guarded so the
   // socket-listeners effect + remounts can never double-join matchmaking).
   const autoQueuedRef = useRef(false);
@@ -164,6 +171,8 @@ export default function MatchModeModal({
     lobbyIdRef.current = null;
     if (fallbackTimerRef.current) clearInterval(fallbackTimerRef.current);
     fallbackTimerRef.current = null;
+    if (lobbyPollRef.current) clearInterval(lobbyPollRef.current);
+    lobbyPollRef.current = null;
   }
 
   // ── load mutual followers ─────────────────────────────────────────────────
@@ -264,9 +273,56 @@ export default function MatchModeModal({
     };
   }, [step]);
 
+  // Poll the lobby on the server so a missed matchmaking:matched event can't
+  // leave the user stuck on the queue screen forever (e.g. after a server
+  // restart reconnects the socket mid-queue). Stops on cancel/match.
+  const startLobbyPoll = useCallback((lobbyId: string) => {
+    if (lobbyPollRef.current) clearInterval(lobbyPollRef.current);
+    lobbyPollRef.current = setInterval(async () => {
+      if (matchedRef.current || cancelledRef.current) {
+        if (lobbyPollRef.current) { clearInterval(lobbyPollRef.current); lobbyPollRef.current = null; }
+        return;
+      }
+      try {
+        const res = await apiClient.get(`/game/lobbies/${lobbyId}`);
+        const d = (res as any).data?.data ?? (res as any).data;
+        if (d?.state?.status === "READY") {
+          if (lobbyPollRef.current) { clearInterval(lobbyPollRef.current); lobbyPollRef.current = null; }
+          // Build a MATCHED-shaped response from the lobby DTO so the flow is
+          // identical to the socket path (players + matchGroupId).
+          const players = (Array.isArray(d.players) ? d.players : []).map((p: any) => ({
+            id: pid(p),
+            displayName: p.displayName || p.name || p.username || "Player",
+            username: p.username,
+            avatar: p.avatar,
+            isBot: Boolean(p.isBot),
+            team: p.team !== undefined ? p.team : 1,
+            seat: p.seat !== undefined ? p.seat : 0,
+            status: "JOINED",
+          }));
+          handleMatchedRef.current({
+            status: "MATCHED",
+            lobbyId,
+            players,
+            matchMetadata: {
+              matchGroupId: lobbyId,
+              lobbyId,
+              maxPlayers: players.length,
+              playerSnapshots: players,
+              teamsLocked: !!(d.settings?.teamsLocked),
+            },
+          });
+        }
+      } catch {
+        // Lobby not found / offline — keep polling; the socket path or cancel handles it.
+      }
+    }, 2000);
+  }, []);
+
   function _handleMatched(response: any) {
     if (matchedRef.current || cancelledRef.current) return;
     matchedRef.current = true;
+    if (lobbyPollRef.current) { clearInterval(lobbyPollRef.current); lobbyPollRef.current = null; }
     setQueuePhase("matched");
     setStatusText("Match found! Starting game...");
     if (fallbackTimerRef.current) clearInterval(fallbackTimerRef.current);
@@ -286,6 +342,13 @@ export default function MatchModeModal({
     };
     setTimeout(() => { onMatched?.(request, normalized); onClose(); }, 600);
   }
+
+  // Keep the ref pointing at the latest closure so startLobbyPoll (created once
+  // with [] deps) can never invoke a stale _handleMatched — especially on the
+  // FIRST match where no socket event has fired yet and the poll is the only
+  // thing that can resolve the queue (otherwise the ref is still the initial
+  // noop and the user sits on "Searching..." forever).
+  handleMatchedRef.current = _handleMatched;
 
   // ── navigation ────────────────────────────────────────────────────────────
   const pickMode = (m: MatchMode) => {
@@ -386,7 +449,10 @@ export default function MatchModeModal({
         const d = res.data as any;
         if (d.status === "MATCHED" || d.ticket?.status === "MATCHED") { _handleMatched(d); return; }
         const id = d.lobbyId || d.ticket?.lobbyId;
-        if (id) lobbyIdRef.current = id;
+        if (id) {
+          lobbyIdRef.current = id;
+          startLobbyPoll(id);
+        }
         // Pre-populate players/max so radar pins show immediately when joining
         // an existing lobby (players already spawned) vs a fresh one (I'm first).
         if (Array.isArray(d?.players)) setLobbyPlayers(d.players);
@@ -582,6 +648,7 @@ export default function MatchModeModal({
     setSpawnBaseline(Math.max(1, displayPlayers.filter((p: any) => p._status !== "invited").length));
     setQueuePhase("searching"); setStatusText("Queuing lobby — waiting for players to join...");
     setCountdown(30); setBotFilling(false); setStep("queue");
+    startLobbyPoll(id);
     try {
       const res = await apiClient.post(`/game/lobbies/${id}/queue`, { active: true });
       const d = (res as any).data?.data ?? (res as any).data;

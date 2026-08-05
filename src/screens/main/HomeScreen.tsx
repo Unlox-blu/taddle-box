@@ -34,7 +34,6 @@ import { useToggleLike, useToggleSave } from "../../mutations/posts";
 import type { Post, HomeStackParamList } from "../../types";
 
 import { streakService } from "../../services/streak.service";
-import { notificationService } from "../../services/notification.service";
 import { xpService } from "../../services/xp.service";
 import { hashtagService } from "../../services/hashtag.service";
 
@@ -45,17 +44,6 @@ const TODAY_INDEX = new Date().getDay() === 0 ? 6 : new Date().getDay() - 1; // 
 const getTodayKey = () => {
   const d = new Date();
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
-};
-
-const isSameLocalDay = (dateString?: string | null) => {
-  if (!dateString) return false;
-  const date = new Date(dateString);
-  const today = new Date();
-  return (
-    date.getFullYear() === today.getFullYear() &&
-    date.getMonth() === today.getMonth() &&
-    date.getDate() === today.getDate()
-  );
 };
 
 const calculateCompletedDays = (
@@ -110,7 +98,6 @@ export default function HomeScreen() {
 
   const [realStreak, setRealStreak] = useState(0);
   const [completedDays, setCompletedDays] = useState<number[]>([]);
-  const [unreadCount, setUnreadCount] = useState(0);
   const [localXP, setLocalXP] = useState(CURRENT_USER?.xp || 0);
   const [hasDailyReward, setHasDailyReward] = useState(false);
 
@@ -205,14 +192,8 @@ export default function HomeScreen() {
         setLocalXP((prev: number) => prev + 150);
       }
 
-      try {
-        const notifRes = await notificationService.getNotifications(1, 1, true);
-        if (notifRes?.meta?.unreadCount !== undefined) {
-          setUnreadCount(notifRes.meta.unreadCount);
-        }
-      } catch (e) {
-        console.warn('Failed to fetch notifications on init:', e);
-      }
+      // Unread badge is handled by NotificationContext/MainHeader (socket-driven,
+      // synced on login + reconnect) — no need to re-fetch here on every focus.
 
       const todayKey = getTodayKey();
       let localClaimedToday = false;
@@ -223,12 +204,10 @@ export default function HomeScreen() {
 
       let serverClaimedToday = false;
       try {
-        const txRes = await xpService.getTransactions(1, 20);
-        const transactions = Array.isArray(txRes?.data) ? txRes.data : [];
-        serverClaimedToday = transactions.some(
-          (tx: any) =>
-            tx?.sourceType?.startsWith("Daily Login") && isSameLocalDay(tx?.createdAt),
-        );
+        // Cheap dedicated status endpoint — avoids fetching the whole XP
+        // transaction history just to know if today's reward is claimed.
+        const dailyRes = await xpService.getDailyLoginStatus(todayKey);
+        serverClaimedToday = !!dailyRes?.data?.claimed;
         if (serverClaimedToday) {
           AsyncStorage.setItem("lastDailyClaim", todayKey).catch(() => {});
         }

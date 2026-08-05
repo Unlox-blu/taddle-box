@@ -37,6 +37,12 @@ const BADGE_COLORS: Record<string, { bg: string; border: string }> = {
 function makeStyles(c: ColorPalette) {
   return StyleSheet.create({
     container: { flex: 1, backgroundColor: c.bg.base },
+    bannerWrap: {
+      width: "100%",
+      height: 150,
+      backgroundColor: c.bg.elevated,
+    },
+    bannerImage: { width: "100%", height: "100%" },
     heroGrad: { paddingBottom: 4 },
     profileRow: {
       flexDirection: "row",
@@ -484,6 +490,12 @@ export default function SharedProfile({
 
   const profileHeader = (
     <View>
+      {/* Profile banner (user-set cover image) */}
+      {user?.bannerUrl ? (
+        <View style={styles.bannerWrap}>
+          <Image source={{ uri: user.bannerUrl }} style={styles.bannerImage} />
+        </View>
+      ) : null}
       <LinearGradient
         colors={["rgba(124,58,237,0.28)", "transparent"]}
         style={styles.heroGrad}

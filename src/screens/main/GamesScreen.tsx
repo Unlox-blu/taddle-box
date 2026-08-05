@@ -101,6 +101,31 @@ const formatTimeLeft = (endsAt: string) => {
   return `${hours}h`;
 };
 
+const formatStartsIn = (startsAt: string) => {
+  const diff = new Date(startsAt).getTime() - Date.now();
+  if (diff <= 0) return "Started";
+  const hours = Math.floor(diff / 36e5);
+  const days = Math.floor(hours / 24);
+  if (days > 0) return `starts in ${days}d ${hours % 24}h`;
+  if (hours > 0) return `starts in ${hours}h`;
+  const minutes = Math.max(1, Math.floor(diff / 6e4));
+  return `starts in ${minutes}m`;
+};
+
+// Every game is rendered by a native React Native component (there is no HTML5
+// webview renderer anymore). Some DB rows still carry a stale `html5_webview`
+// runtime flag, so gate on the slug — never on the runtime metadata — or the
+// game would never mount and matches would appear stuck in "waiting".
+const NATIVE_GAME_SLUGS = new Set([
+  "chess",
+  "ludo",
+  "snake-ladder",
+  "scribble",
+  "word-rush",
+  "tap-rush",
+  "memory-grid",
+]);
+
 export default function GamesScreen() {
   const insets = useSafeAreaInsets();
   const navigation =
@@ -826,6 +851,8 @@ function TournamentCard({
     100,
     Math.round((tournament.playerCount / tournament.maxPlayers) * 100),
   );
+  const isUpcoming = tournament.status === "UPCOMING";
+  const joined = tournament.isJoined && !isUpcoming;
 
   return (
     <View style={styles.tournamentCard}>
@@ -842,8 +869,20 @@ function TournamentCard({
             {tournament.gameName} | Ends in {formatTimeLeft(tournament.endsAt)}
           </Text>
         </View>
-        <View style={styles.statusPill}>
-          <Text style={styles.statusText}>{tournament.status}</Text>
+        <View
+          style={[
+            styles.statusPill,
+            isUpcoming && styles.statusPillUpcoming,
+          ]}
+        >
+          <Text
+            style={[
+              styles.statusText,
+              isUpcoming && styles.statusTextUpcoming,
+            ]}
+          >
+            {isUpcoming ? "UPCOMING" : tournament.status}
+          </Text>
         </View>
       </View>
 
@@ -860,38 +899,67 @@ function TournamentCard({
         <View style={[styles.progressFill, { width: `${fill}%` }]} />
       </View>
 
-      <TouchableOpacity
-        onPress={tournament.isJoined ? onPlay : onJoin}
-        activeOpacity={0.85}
-      >
-        <LinearGradient
-          colors={
-            tournament.isJoined
-              ? [colors.primary, colors.cyanDark]
-              : ["rgba(124,58,237,0.18)", "rgba(6,182,212,0.12)"]
-          }
-          style={[
-            styles.tournamentButton,
-            !tournament.isJoined && styles.tournamentJoinButton,
-          ]}
+      {/* My rank: shown once the player has joined and played at least one match */}
+      {joined && tournament.myRank != null && (
+        <View style={styles.myRankRow}>
+          <Ionicons name="podium-outline" size={16} color={colors.xpGold} />
+          <Text style={styles.myRankText}>
+            Your rank: #{tournament.myRank}{" "}
+            <Text style={styles.myRankSub}>
+              · {tournament.myScore || 0}{" "}
+              {(tournament.myScore || 0) === 1 ? "win" : "wins"}
+            </Text>
+          </Text>
+        </View>
+      )}
+
+      {isUpcoming ? (
+        <View
+          style={[styles.tournamentButton, styles.tournamentDisabledButton]}
         >
           <Ionicons
-            name={tournament.isJoined ? "people-outline" : "add-circle-outline"}
+            name="time-outline"
             size={18}
-            color={tournament.isJoined ? "#fff" : colors.primaryLight}
+            color={colors.text.muted}
           />
           <Text
+            style={[styles.tournamentButtonText, { color: colors.text.muted }]}
+          >
+            {formatStartsIn(tournament.startsAt)}
+          </Text>
+        </View>
+      ) : (
+        <TouchableOpacity
+          onPress={joined ? onPlay : onJoin}
+          activeOpacity={0.85}
+        >
+          <LinearGradient
+            colors={
+              joined
+                ? [colors.primary, colors.cyanDark]
+                : ["rgba(124,58,237,0.18)", "rgba(6,182,212,0.12)"]
+            }
             style={[
-              styles.tournamentButtonText,
-              !tournament.isJoined && { color: colors.primaryLight },
+              styles.tournamentButton,
+              !joined && styles.tournamentJoinButton,
             ]}
           >
-            {tournament.isJoined
-              ? "Find Tournament Opponent"
-              : "Join Tournament"}
-          </Text>
-        </LinearGradient>
-      </TouchableOpacity>
+            <Ionicons
+              name={joined ? "people-outline" : "add-circle-outline"}
+              size={18}
+              color={joined ? "#fff" : colors.primaryLight}
+            />
+            <Text
+              style={[
+                styles.tournamentButtonText,
+                !joined && { color: colors.primaryLight },
+              ]}
+            >
+              {joined ? "Find Tournament Opponent" : "Join Tournament"}
+            </Text>
+          </LinearGradient>
+        </TouchableOpacity>
+      )}
     </View>
   );
 }
@@ -928,7 +996,7 @@ function GamePlayModal({
   // a wsToken to open the engine socket that sends READY — without one the
   // engine would never START and the waiting screen would deadlock).
   const canEngineConnect =
-    (session.game as any)?.metadata?.runtime === "native" && !!session.wsToken;
+    NATIVE_GAME_SLUGS.has((session.game as any)?.slug) && !!session.wsToken;
   const [phase, setPhase] = useState<
     "prestart" | "playing" | "result"
   >(
@@ -1169,7 +1237,7 @@ function GamePlayModal({
                 "memory-grid": MemoryGridGame,
               };
 
-              if ((session.game as any).metadata?.runtime === "native") {
+              if (NATIVE_GAME_SLUGS.has(slug)) {
                 const NativeGame = GAME_COMPONENTS[slug];
                 if (NativeGame && token) {
                   return (
@@ -1650,6 +1718,35 @@ function makeStyles(c: ColorPalette) {
       backgroundColor: "rgba(16,185,129,0.14)",
     },
     statusText: { fontSize: 10, fontWeight: "800", color: c.success },
+    statusPillUpcoming: {
+      backgroundColor: "rgba(251,191,36,0.12)",
+      borderWidth: 1,
+      borderColor: "rgba(251,191,36,0.35)",
+    },
+    statusTextUpcoming: { color: "#FBBF24" },
+    myRankRow: {
+      marginTop: spacing.md,
+      paddingHorizontal: 12,
+      paddingVertical: 9,
+      borderRadius: radii.md,
+      backgroundColor: "rgba(251,191,36,0.08)",
+      borderWidth: 1,
+      borderColor: "rgba(251,191,36,0.25)",
+      flexDirection: "row",
+      alignItems: "center",
+      gap: 8,
+    },
+    myRankText: {
+      flex: 1,
+      fontSize: fontSizes.sm,
+      fontWeight: "800",
+      color: c.text.primary,
+    },
+    myRankSub: {
+      fontSize: fontSizes.xs,
+      fontWeight: "600",
+      color: c.text.muted,
+    },
     tournamentNumbers: {
       flexDirection: "row",
       gap: spacing.sm,
@@ -1692,6 +1789,11 @@ function makeStyles(c: ColorPalette) {
     tournamentJoinButton: {
       borderWidth: 1,
       borderColor: "rgba(124,58,237,0.28)",
+    },
+    tournamentDisabledButton: {
+      backgroundColor: c.bg.elevated,
+      borderWidth: 1,
+      borderColor: c.border,
     },
     tournamentButtonText: {
       color: "#fff",

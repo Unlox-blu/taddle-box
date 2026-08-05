@@ -66,6 +66,8 @@ export interface User {
   phoneNumber?: string;
   avatarUrl?: string;
   avatar: string;
+  /** Profile cover/banner image URL (users.banner_url). */
+  bannerUrl?: string;
   level: number;
   xp: number;
   xpToNext: number;
@@ -131,6 +133,8 @@ export interface Community {
   updatedAt: string;
   isJoined?: boolean;
   isMember?: boolean;
+  /** True when the current user has a PENDING join request (private community). */
+  isPending?: boolean;
   memberRole?: 'member' | 'moderator' | 'admin' | null;
 }
 

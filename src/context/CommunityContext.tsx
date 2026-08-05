@@ -16,6 +16,8 @@ type Action =
   | { type: 'APPEND_COMMUNITIES'; communities: Community[]; page: number; hasMore: boolean }
   | { type: 'SET_LOADING'; isLoading: boolean }
   | { type: 'TOGGLE_JOIN'; id: string }
+  | { type: 'SET_PENDING'; id: string }
+  | { type: 'CLEAR_PENDING'; id: string }
   | { type: 'ADD_COMMUNITY'; community: Community };
 
 function reducer(state: State, action: Action): State {
@@ -33,8 +35,23 @@ function reducer(state: State, action: Action): State {
           c.id !== action.id ? c : {
             ...c,
             isJoined: !c.isJoined,
+            isPending: false,
             memberCount: c.isJoined ? Math.max(0, c.memberCount - 1) : c.memberCount + 1,
           }
+        ),
+      };
+    case 'SET_PENDING':
+      return {
+        ...state,
+        communities: state.communities.map(c =>
+          c.id !== action.id ? c : { ...c, isPending: true, isJoined: false },
+        ),
+      };
+    case 'CLEAR_PENDING':
+      return {
+        ...state,
+        communities: state.communities.map(c =>
+          c.id !== action.id ? c : { ...c, isPending: false },
         ),
       };
     case 'ADD_COMMUNITY':
@@ -94,18 +111,43 @@ export function CommunityProvider({ children }: { children: React.ReactNode }) {
     const community = state.communities.find(c => c.id === id);
     if (!community) return;
 
-    // Optimistic UI update
-    dispatch({ type: 'TOGGLE_JOIN', id });
-    try {
-      if (community.isJoined) {
+    // Private communities: not-joined → send a join REQUEST (pending), and a
+    // pending request can be cancelled. Active membership joins/leaves as before.
+    const isPrivate = community.privacy === 'private';
+
+    if (community.isPending) {
+      // Cancel the pending request (a pending member was never counted).
+      dispatch({ type: 'CLEAR_PENDING', id });
+      try {
         await communityService.leaveCommunity(id);
-      } else {
-        await communityService.joinCommunity(id);
+      } catch (e) {
+        dispatch({ type: 'SET_PENDING', id });
+        console.error('Failed to cancel join request:', e);
       }
-    } catch (e) {
-      // Revert on failure
+    } else if (community.isJoined) {
       dispatch({ type: 'TOGGLE_JOIN', id });
-      console.error('Failed to toggle community join status:', e);
+      try {
+        await communityService.leaveCommunity(id);
+      } catch (e) {
+        dispatch({ type: 'TOGGLE_JOIN', id });
+        console.error('Failed to leave community:', e);
+      }
+    } else if (isPrivate) {
+      dispatch({ type: 'SET_PENDING', id });
+      try {
+        await communityService.joinCommunity(id);
+      } catch (e) {
+        dispatch({ type: 'CLEAR_PENDING', id });
+        console.error('Failed to request community join:', e);
+      }
+    } else {
+      dispatch({ type: 'TOGGLE_JOIN', id });
+      try {
+        await communityService.joinCommunity(id);
+      } catch (e) {
+        dispatch({ type: 'TOGGLE_JOIN', id });
+        console.error('Failed to join community:', e);
+      }
     }
   };
 

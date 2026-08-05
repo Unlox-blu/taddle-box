@@ -25,6 +25,7 @@ export default function EditProfileScreen() {
   const [bio,        setBio]        = useState<string>(user?.bio        ?? '');
   const [website,    setWebsite]    = useState<string>(user?.websiteUrl ?? '');
   const [avatarAsset, setAvatarAsset] = useState<ImagePicker.ImagePickerAsset | null>(null);
+  const [bannerAsset, setBannerAsset] = useState<ImagePicker.ImagePickerAsset | null>(null);
   const [saving,     setSaving]     = useState(false);
 
   // Keyboard responsiveness: keep the focused field visible above the keyboard.
@@ -47,12 +48,14 @@ export default function EditProfileScreen() {
   });
 
   const avatarPreviewUri = avatarAsset?.uri || user?.avatarUrl;
+  const bannerPreviewUri = bannerAsset?.uri || user?.bannerUrl;
   const hasChanges =
     name     !== originalRef.current.name     ||
     username !== originalRef.current.username ||
     bio      !== originalRef.current.bio      ||
     website  !== originalRef.current.website ||
-    !!avatarAsset;
+    !!avatarAsset ||
+    !!bannerAsset;
 
   const pickAvatar = async () => {
     appLockBypass.beginNativeFlow();
@@ -100,6 +103,46 @@ export default function EditProfileScreen() {
     await authService.updateAvatar(res.data.mediaId);
   };
 
+  const pickBanner = async () => {
+    appLockBypass.beginNativeFlow();
+    try {
+      const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
+      if (status !== 'granted') {
+        Alert.alert('Permission needed', 'Allow access to your media library to update your profile banner.');
+        return;
+      }
+
+      const result = await ImagePicker.launchImageLibraryAsync({
+        mediaTypes: ['images'],
+        allowsEditing: true,
+        aspect: [3, 1],
+        quality: 0.85,
+      });
+
+      if (!result.canceled && result.assets.length > 0) {
+        setBannerAsset(result.assets[0]);
+      }
+    } finally {
+      appLockBypass.endNativeFlow();
+    }
+  };
+
+  const uploadBanner = async (asset: ImagePicker.ImagePickerAsset) => {
+    const mimeType = asset.mimeType || 'image/jpeg';
+    const fileSize = await getAvatarFileSize(asset);
+    const res = await mediaService.getSignedUrl(
+      'banners',
+      fileSize,
+      mimeType,
+      asset.width,
+      asset.height,
+    );
+
+    await mediaService.uploadFileDirect(res.data.signedUrl!, asset.uri, mimeType);
+    await mediaService.confirmUpload(res.data.mediaId, res.data.s3Key!);
+    await authService.updateBanner(res.data.mediaId);
+  };
+
   const handleSave = async () => {
     if (!hasChanges) { navigation.goBack(); return; }
     if (!name.trim()) { Alert.alert('Validation', 'Name cannot be empty.'); return; }
@@ -131,6 +174,10 @@ export default function EditProfileScreen() {
         tasks.push(uploadAvatar(avatarAsset));
       }
 
+      if (bannerAsset) {
+        tasks.push(uploadBanner(bannerAsset));
+      }
+
       await Promise.all(tasks);
 
       // Optimistic update then refresh from backend
@@ -140,6 +187,7 @@ export default function EditProfileScreen() {
         bio: bio.trim(),
         websiteUrl: website.trim(),
         ...(avatarAsset ? { avatarUrl: avatarAsset.uri } : {}),
+        ...(bannerAsset ? { bannerUrl: bannerAsset.uri } : {}),
       });
       await refreshUser();
 
@@ -223,6 +271,28 @@ export default function EditProfileScreen() {
           keyboardDismissMode="on-drag"
           automaticallyAdjustKeyboardInsets
         >
+          <View style={styles.bannerRow}>
+            <TouchableOpacity
+              onPress={pickBanner}
+              disabled={saving}
+              style={[styles.banner, { backgroundColor: colors.bg.elevated, borderColor: colors.border }]}
+            >
+              {bannerPreviewUri ? (
+                <Image source={{ uri: bannerPreviewUri }} style={styles.bannerImage} />
+              ) : (
+                <View style={{ alignItems: 'center', gap: 6 }}>
+                  <Ionicons name="image-outline" size={26} color={colors.text.muted} />
+                  <Text style={{ fontSize: fontSizes.xs, color: colors.text.muted }}>
+                    Add profile banner
+                  </Text>
+                </View>
+              )}
+              <View style={[styles.avatarEditBadge, { backgroundColor: colors.primary, top: 10, bottom: undefined, right: 10 }]}>
+                <Ionicons name="camera" size={16} color="#fff" />
+              </View>
+            </TouchableOpacity>
+          </View>
+
           <View style={styles.avatarRow}>
             <TouchableOpacity
               onPress={pickAvatar}
@@ -267,6 +337,9 @@ const styles = StyleSheet.create({
   saveBtn:     { paddingHorizontal: 18, paddingVertical: 8, borderRadius: radii.full },
   saveBtnText: { fontWeight: '700', fontSize: fontSizes.sm },
   body:        { padding: spacing.lg, gap: spacing.md },
+  bannerRow:   { marginBottom: spacing.sm },
+  banner:      { width: '100%', height: 120, borderRadius: radii.lg, borderWidth: 1, alignItems: 'center', justifyContent: 'center', overflow: 'hidden' },
+  bannerImage: { width: '100%', height: '100%' },
   avatarRow:   { alignItems: 'center', marginBottom: spacing.md },
   avatar:      { width: 80, height: 80, borderRadius: 40, borderWidth: 2, alignItems: 'center', justifyContent: 'center' },
   avatarImage: { width: '100%', height: '100%', borderRadius: 40 },

@@ -658,8 +658,8 @@ export default function CommunityScreen() {
                             communitySlug: c.slug,
                           })
                         }
-                        onToggleJoin={(id, isCurrentlyMember) =>
-                          toggleJoin({ communityId: id, isCurrentlyMember })
+                        onToggleJoin={(id, isCurrentlyMember, isPending) =>
+                          toggleJoin({ communityId: id, isCurrentlyMember, isPending })
                         }
                       />
                     </View>
@@ -695,8 +695,8 @@ export default function CommunityScreen() {
                         communitySlug: c.slug,
                       })
                     }
-                    onToggleJoin={(id, isCurrentlyMember) =>
-                      toggleJoin({ communityId: id, isCurrentlyMember })
+                    onToggleJoin={(id, isCurrentlyMember, isPending) =>
+                      toggleJoin({ communityId: id, isCurrentlyMember, isPending })
                     }
                     isOwner={true}
                   />
@@ -731,8 +731,8 @@ export default function CommunityScreen() {
                         communitySlug: c.slug,
                       })
                     }
-                    onToggleJoin={(id, isCurrentlyMember) =>
-                      toggleJoin({ communityId: id, isCurrentlyMember })
+                    onToggleJoin={(id, isCurrentlyMember, isPending) =>
+                      toggleJoin({ communityId: id, isCurrentlyMember, isPending })
                     }
                     isOwner={false}
                   />
@@ -756,8 +756,8 @@ export default function CommunityScreen() {
                         communitySlug: c.slug,
                       })
                     }
-                    onToggleJoin={(id, isCurrentlyMember) =>
-                      toggleJoin({ communityId: id, isCurrentlyMember })
+                    onToggleJoin={(id, isCurrentlyMember, isPending) =>
+                      toggleJoin({ communityId: id, isCurrentlyMember, isPending })
                     }
                   />
                 ))}
@@ -826,8 +826,8 @@ export default function CommunityScreen() {
                       communitySlug: c.slug,
                     })
                   }
-                  onToggleJoin={(id, isCurrentlyMember) =>
-                    toggleJoin({ communityId: id, isCurrentlyMember })
+                  onToggleJoin={(id, isCurrentlyMember, isPending) =>
+                    toggleJoin({ communityId: id, isCurrentlyMember, isPending })
                   }
                 />
               ))
@@ -856,7 +856,7 @@ function FeaturedCommunityCard({
 }: {
   community: Community;
   onPress: () => void;
-  onToggleJoin: (communityId: string, isCurrentlyMember: boolean) => void;
+  onToggleJoin: (communityId: string, isCurrentlyMember: boolean, isPending?: boolean) => void;
   styles: ReturnType<typeof makeStyles>;
 }) {
   const gradient = BANNER_COLORS[c.category?.[0]] ?? BANNER_COLORS.All;
@@ -875,11 +875,7 @@ function FeaturedCommunityCard({
             source={{ uri: c.bannerUrl }}
             style={StyleSheet.absoluteFillObject}
           />
-        ) : (
-          <Text style={{ fontSize: 36, opacity: 0.8 }}>
-            {c.bannerMediaId || "🔥"}
-          </Text>
-        )}
+        ) : null}
         <View style={styles.featOverlay}>
           {c.privacy === "private" && (
             <View style={styles.privateBadge}>
@@ -926,17 +922,25 @@ function FeaturedCommunityCard({
           </View>
 
           <TouchableOpacity
-            style={[styles.joinBtn, isJoined && styles.joinBtnJoined]}
-            onPress={() => onToggleJoin(c.id, isJoined || false)}
+            style={[
+              styles.joinBtn,
+              (isJoined || c.isPending) && styles.joinBtnJoined,
+            ]}
+            onPress={() => onToggleJoin(c.id, isJoined || false, c.isPending)}
           >
             <Text
-              style={[styles.joinBtnText, isJoined && styles.joinBtnTextJoined]}
+              style={[
+                styles.joinBtnText,
+                (isJoined || c.isPending) && styles.joinBtnTextJoined,
+              ]}
             >
               {isJoined
                 ? "Leave"
-                : c.privacy === "private"
-                  ? "Request to Join"
-                  : "Join"}
+                : c.isPending
+                  ? "Requested ✓"
+                  : c.privacy === "private"
+                    ? "Request to Join"
+                    : "Join"}
             </Text>
           </TouchableOpacity>
         </View>
@@ -956,7 +960,7 @@ function CompactCommunityCard({
 }: {
   community: Community;
   onPress: () => void;
-  onToggleJoin: (communityId: string, isCurrentlyMember: boolean) => void;
+  onToggleJoin: (communityId: string, isCurrentlyMember: boolean, isPending?: boolean) => void;
   styles: ReturnType<typeof makeStyles>;
   colors: ColorPalette;
   isOwner?: boolean;
@@ -1016,20 +1020,28 @@ function CompactCommunityCard({
         </TouchableOpacity>
       ) : (
         <TouchableOpacity
-          style={[styles.joinBtn, isJoined && styles.joinBtnJoined]}
+          style={[
+            styles.joinBtn,
+            (isJoined || c.isPending) && styles.joinBtnJoined,
+          ]}
           onPress={(e) => {
             e.stopPropagation();
-            onToggleJoin(c.id, isJoined || false);
+            onToggleJoin(c.id, isJoined || false, c.isPending);
           }}
         >
           <Text
-            style={[styles.joinBtnText, isJoined && styles.joinBtnTextJoined]}
+            style={[
+              styles.joinBtnText,
+              (isJoined || c.isPending) && styles.joinBtnTextJoined,
+            ]}
           >
             {isJoined
               ? "Leave"
-              : c.privacy === "private"
-                ? "Request to Join"
-                : "Join"}
+              : c.isPending
+                ? "Requested ✓"
+                : c.privacy === "private"
+                  ? "Request to Join"
+                  : "Join"}
           </Text>
         </TouchableOpacity>
       )}

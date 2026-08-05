@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useState } from 'react';
 import { View, Text, TouchableOpacity, StyleSheet, Image } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useNavigation, useRoute } from '@react-navigation/native';
@@ -14,15 +14,12 @@ export default function MainHeader() {
   const route = useRoute();
   const [isDrawerOpen, setDrawerOpen] = useState(false);
 
-  // Live unread badge — updated in real-time by the socket, synced to backend
-  // on mount and whenever the app regains focus.
-  const { unreadCount, refreshUnread } = useNotifications();
-
-  useEffect(() => {
-    refreshUnread();
-    const sub = navigation.addListener('focus', refreshUnread);
-    return sub;
-  }, [navigation, refreshUnread]);
+  // Live unread badge — kept fresh by NotificationContext: it syncs on login,
+  // socket (re)connect, and increments in real-time on incoming notifications.
+  // NOTE: do NOT add a per-focus refreshUnread() here — MainHeader mounts on
+  // every tab screen (lazy:false), so a focus listener fires the notifications
+  // API on EVERY tab click (Community/Events/…), spamming the backend.
+  const { unreadCount } = useNotifications();
 
   return (
     <View style={[styles.header, { borderBottomColor: colors.border }]}>

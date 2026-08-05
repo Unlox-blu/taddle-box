@@ -19,6 +19,7 @@ import type { GameTournament } from "../../services/games.service";
 import { useNavigation } from "@react-navigation/native";
 import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
 import type { HomeStackParamList } from "../../types";
+import { useAuth } from "../../context/AuthContext";
 
 type Props = {
   visible: boolean;
@@ -39,9 +40,16 @@ export default function TournamentLeaderboardModal({ visible, tournament, onClos
   const insets = useSafeAreaInsets();
   const styles = useMemo(() => makeStyles(colors, insets), [colors, insets]);
   const navigation = useNavigation<NativeStackNavigationProp<HomeStackParamList>>();
+  const { user } = useAuth();
 
   const [loading, setLoading] = useState(false);
   const [leaderboard, setLeaderboard] = useState<LeaderboardEntry[]>([]);
+
+  // True when the current user is NOT inside the fetched top-10 slice but has
+  // played — their rank is still surfaced via a footer card.
+  const meInTop = leaderboard.some((e) => e.userId === user?.id);
+  const showMyRankFooter =
+    !meInTop && tournament?.myRank != null && user?.id != null;
 
   useEffect(() => {
     if (visible && tournament) {
@@ -56,7 +64,7 @@ export default function TournamentLeaderboardModal({ visible, tournament, onClos
   const renderItem = ({ item, index }: { item: LeaderboardEntry; index: number }) => {
     return (
       <TouchableOpacity 
-        style={styles.playerRow} 
+        style={[styles.playerRow, item.userId === user?.id && styles.playerRowMine]} 
         activeOpacity={0.7}
         onPress={() => {
           onClose();
@@ -115,12 +123,29 @@ export default function TournamentLeaderboardModal({ visible, tournament, onClos
               <Text style={styles.emptyText}>No players have completed a match yet.</Text>
             </View>
           ) : (
-            <FlatList
-              data={leaderboard}
-              keyExtractor={(item) => item.userId}
-              renderItem={renderItem}
-              contentContainerStyle={styles.listContent}
-            />
+            <>
+              <FlatList
+                data={leaderboard}
+                keyExtractor={(item) => item.userId}
+                renderItem={renderItem}
+                contentContainerStyle={styles.listContent}
+              />
+              {showMyRankFooter && (
+                <View style={styles.myRankFooter}>
+                  <Ionicons name="podium-outline" size={20} color={colors.xpGold} />
+                  <View style={{ flex: 1 }}>
+                    <Text style={styles.myRankTitle}>
+                      You're #{tournament?.myRank}
+                    </Text>
+                    <Text style={styles.myRankSub}>
+                      {tournament?.myScore || 0}{" "}
+                      {(tournament?.myScore || 0) === 1 ? "win" : "wins"}{" "}
+                      · keep playing to climb!
+                    </Text>
+                  </View>
+                </View>
+              )}
+            </>
           )}
         </View>
       </View>
@@ -190,6 +215,33 @@ const makeStyles = (c: any, insets: any) =>
       marginBottom: spacing.sm,
       borderWidth: 1,
       borderColor: c.border,
+    },
+    playerRowMine: {
+      borderColor: c.primaryLight,
+      borderWidth: 1.5,
+      backgroundColor: c.primary + "14",
+    },
+    myRankFooter: {
+      flexDirection: "row",
+      alignItems: "center",
+      gap: spacing.sm,
+      marginHorizontal: spacing.md,
+      marginBottom: spacing.md,
+      padding: spacing.md,
+      borderRadius: radii.lg,
+      backgroundColor: "rgba(251,191,36,0.1)",
+      borderWidth: 1,
+      borderColor: "rgba(251,191,36,0.3)",
+    },
+    myRankTitle: {
+      fontSize: fontSizes.md,
+      fontWeight: "900",
+      color: c.text.primary,
+    },
+    myRankSub: {
+      marginTop: 2,
+      fontSize: fontSizes.xs,
+      color: c.text.muted,
     },
     rankText: {
       width: 36,

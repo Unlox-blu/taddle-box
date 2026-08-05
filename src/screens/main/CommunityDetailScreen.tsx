@@ -1,7 +1,7 @@
 import React, { useMemo, useState, useEffect, useRef } from 'react';
 import {
   View, Text, ScrollView, TouchableOpacity,
-  StyleSheet, Share, FlatList, Image, Alert
+  StyleSheet, Share, FlatList, Image, Alert, ActivityIndicator
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useNavigation, useRoute, type RouteProp } from '@react-navigation/native';
@@ -70,7 +70,6 @@ function makeStyles(c: ColorPalette) {
       alignItems: 'center', justifyContent: 'center',
     },
     bannerImage: { ...StyleSheet.absoluteFillObject },
-    bannerEmoji: { fontSize: 52 },
     privateBadge: {
       position: 'absolute', bottom: 28, right: 14,
       flexDirection: 'row', alignItems: 'center', gap: 4,
@@ -206,11 +205,16 @@ export default function CommunityDetailScreen() {
   const { communities, toggleJoin } = useCommunities();
   // Removed usePosts since we'll handle likes/saves locally for community posts
 
-  const [community, setCommunity] = useState<Community | null>(
-    communities.find(c => c.slug === communitySlug) || null
-  );
+  // Initial state comes from the context ONLY if it's populated (the community
+  // list screen uses react-query, so the context may be empty) — otherwise we
+  // show a proper loading state instead of a blank screen.
+  const initialCommunity =
+    communities.find(c => c.slug === communitySlug) || null;
+  const [community, setCommunity] = useState<Community | null>(initialCommunity);
   const [communityPosts, setCommunityPosts] = useState<Post[]>([]);
   const [loadingPosts, setLoadingPosts] = useState(true);
+  const [loadingDetail, setLoadingDetail] = useState(!initialCommunity);
+  const [detailError, setDetailError] = useState<string | null>(null);
 
   const [filter, setFilter]         = useState<FeedFilter>('All');
   const [showCreate, setShowCreate]  = useState(false);
@@ -221,30 +225,46 @@ export default function CommunityDetailScreen() {
   const isAdmin = community?.memberRole === 'admin' || community?.memberRole === 'moderator';
   const isOwner = community?.ownerId === authUser?.id;
 
-  // Fetch full details and posts on mount
-  useEffect(() => {
-    let active = true;
-    const loadData = async () => {
+  const loadData = useMemo(
+    () => async () => {
+      setLoadingDetail(true);
+      setDetailError(null);
       try {
         const detailRes = await communityService.getCommunityDetail(communitySlug);
-        if (detailRes.data && active) {
+        if (detailRes.data) {
           setCommunity(detailRes.data);
-          
           setLoadingPosts(true);
-          const postsRes = await communityService.getCommunityPosts(detailRes.data.id);
-          console.log("FETCHED POSTS:", JSON.stringify(postsRes).substring(0, 200));
-          if (postsRes.data && active) {
-            setCommunityPosts(postsRes.data);
+          try {
+            const postsRes = await communityService.getCommunityPosts(detailRes.data.id);
+            if (postsRes.data) {
+              setCommunityPosts(postsRes.data);
+            }
+          } catch (e) {
+            // Private communities: non-members get 403 on posts — that's fine,
+            // the empty state explains they must join first.
+            setCommunityPosts([]);
+          } finally {
+            setLoadingPosts(false);
           }
+        } else {
+          setDetailError("Community not found.");
         }
-      } catch (e) {
+      } catch (e: any) {
         console.log("Failed to load community details", e);
+        setDetailError(
+          e?.response?.data?.message || "Could not load this community.",
+        );
       } finally {
-        if (active) setLoadingPosts(false);
+        setLoadingDetail(false);
       }
-    };
-    loadData();
-    return () => { active = false; };
+    },
+    [communitySlug],
+  );
+
+  // Fetch full details and posts on mount
+  useEffect(() => {
+    if (!initialCommunity) loadData();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [communitySlug]);
 
   const handleDeletePost = async (post: Post) => {
@@ -256,17 +276,68 @@ export default function CommunityDetailScreen() {
     }
   };
 
-  // Sync isJoined status from global context to reflect toggleJoin instantly
+  // Sync isJoined/isPending status from global context to reflect toggleJoin instantly
   useEffect(() => {
     if (community) {
       const contextComm = communities.find(c => c.id === community.id);
-      if (contextComm && (contextComm.isJoined !== community.isJoined || contextComm.memberCount !== community.memberCount)) {
-        setCommunity(prev => prev ? { ...prev, isJoined: contextComm.isJoined, memberCount: contextComm.memberCount } : prev);
+      if (
+        contextComm &&
+        (contextComm.isJoined !== community.isJoined ||
+          contextComm.memberCount !== community.memberCount ||
+          contextComm.isPending !== community.isPending)
+      ) {
+        setCommunity(prev =>
+          prev
+            ? {
+                ...prev,
+                isJoined: contextComm.isJoined,
+                isPending: contextComm.isPending,
+                memberCount: contextComm.memberCount,
+              }
+            : prev,
+        );
       }
     }
   }, [communities, community?.id]);
 
-  if (!community) return null;
+  // Loading / error states — never render a silent blank screen.
+  if (loadingDetail && !community) {
+    return (
+      <View style={[styles.container, { paddingTop: insets.top }]}>
+        <StatusBar style={isDark ? 'light' : 'dark'} />
+        <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', gap: 12 }}>
+          <ActivityIndicator size="large" color={colors.primaryLight} />
+          <Text style={{ color: colors.text.muted }}>Loading community…</Text>
+        </View>
+      </View>
+    );
+  }
+
+  if (!community) {
+    return (
+      <View style={[styles.container, { paddingTop: insets.top }]}>
+        <StatusBar style={isDark ? 'light' : 'dark'} />
+        <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 32, gap: 10 }}>
+          <Ionicons name="alert-circle-outline" size={48} color={colors.text.muted} />
+          <Text style={{ color: colors.text.primary, fontSize: fontSizes.lg, fontWeight: '800' }}>
+            Couldn't load community
+          </Text>
+          <Text style={{ color: colors.text.muted, textAlign: 'center' }}>
+            {detailError || 'Something went wrong.'}
+          </Text>
+          <TouchableOpacity
+            style={[styles.emptyBtn, { marginTop: 12 }]}
+            onPress={loadData}
+          >
+            <Text style={styles.emptyBtnText}>Retry</Text>
+          </TouchableOpacity>
+          <TouchableOpacity style={{ marginTop: 12 }} onPress={() => navigation.goBack()}>
+            <Text style={{ color: colors.text.secondary, fontWeight: '600' }}>Go Back</Text>
+          </TouchableOpacity>
+        </View>
+      </View>
+    );
+  }
 
   const bannerGradient = BANNER_COLORS[community.category?.[0]] ?? ['#1a0a3e', '#0a1a3e'];
   const avatarGradient = AVATAR_COLORS_MAP[community.category?.[0]] ?? ['#7C3AED', '#4C1D95'];
@@ -282,11 +353,7 @@ export default function CommunityDetailScreen() {
       <LinearGradient colors={bannerGradient} style={styles.banner}>
         {community.bannerUrl ? (
           <Image source={{ uri: community.bannerUrl }} style={styles.bannerImage} />
-        ) : (
-          <View style={[styles.bannerImage, { backgroundColor: colors.bg.elevated, alignItems: 'center', justifyContent: 'center' }]}>
-            <Ionicons name="image-outline" size={48} color={colors.text.muted} />
-          </View>
-        )}
+        ) : null}
         {community.privacy === 'private' && (
           <View style={styles.privateBadge}>
             <Ionicons name="lock-closed" size={11} color="#fff" />
@@ -311,6 +378,23 @@ export default function CommunityDetailScreen() {
                 <Text style={styles.joinBtnTextJoined}>Owner</Text>
               </View>
             </View>
+          ) : community.isPending ? (
+            // Pending join request → "Requested ✓"; tapping cancels the request.
+            <TouchableOpacity
+              style={[styles.joinBtn, styles.joinBtnJoined]}
+              onPress={() => toggleJoin(community.id)}
+              activeOpacity={0.8}
+            >
+              <LinearGradient
+                colors={['rgba(251,191,36,0.12)', 'rgba(251,191,36,0.12)']}
+                style={styles.joinBtnInner}
+              >
+                <Ionicons name="time" size={14} color="#FBBF24" />
+                <Text style={[styles.joinBtnTextJoined, { color: '#FBBF24' }]}>
+                  Requested ✓
+                </Text>
+              </LinearGradient>
+            </TouchableOpacity>
           ) : (
             <TouchableOpacity
               style={[styles.joinBtn, community.isJoined && styles.joinBtnJoined]}
@@ -341,6 +425,12 @@ export default function CommunityDetailScreen() {
 
         <Text style={styles.commName}>{community.name}</Text>
         <Text style={styles.commDesc}>{community.description}</Text>
+
+        {community.isPending && (
+          <Text style={{ fontSize: fontSizes.xs, color: '#FBBF24', fontWeight: '600', marginBottom: spacing.sm }}>
+            Request sent — an admin will review it. Tap "Requested ✓" to cancel.
+          </Text>
+        )}
 
         <View style={styles.statsRow}>
           <View style={styles.statItem}>

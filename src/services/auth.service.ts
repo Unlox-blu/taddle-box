@@ -89,6 +89,11 @@ export const authService = {
     return response.data;
   },
 
+  updateBanner: async (bannerMediaId: string) => {
+    const response = await apiClient.patch('/users/update-banner', { bannerMediaId });
+    return response.data;
+  },
+
   changePassword: async (data: { currentPassword?: string; email?: string; countryCode?: string; phone?: string }) => {
     const response = await apiClient.post('/auth/change-password', data);
     return response.data;

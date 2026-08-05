@@ -13,6 +13,10 @@ export type GameTournament = {
   maxPlayers: number;
   playerCount: number;
   isJoined: boolean;
+  /** Current user's wins inside this tournament (null when not joined). */
+  myScore?: number | null;
+  /** Current user's rank inside this tournament (null when not joined). */
+  myRank?: number | null;
   startsAt: string;
   endsAt: string;
   status: 'UPCOMING' | 'ACTIVE' | 'COMPLETED' | 'CANCELLED';

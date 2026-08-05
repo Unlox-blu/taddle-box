@@ -16,7 +16,10 @@ export default function MainNavigator() {
   return (
     <Tab.Navigator
       tabBar={props => <CustomTabBar {...props} />}
-      screenOptions={{ headerShown: false, lazy: false }}
+      // Lazy tabs: each screen mounts on FIRST focus only, so the startup burst
+      // (events/discover, communities/discover, game/trending, posts/user, …)
+      // no longer fires for tabs the user never opened.
+      screenOptions={{ headerShown: false, lazy: true }}
     >
       <Tab.Screen name="Home"      component={HomeStackNavigator}      />
       <Tab.Screen name="Community" component={CommunityStackNavigator} />

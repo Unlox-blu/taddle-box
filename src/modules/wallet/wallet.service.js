@@ -4,6 +4,8 @@ const pool = require('../../config/database');
 const { createError } = require('../../utils/error.util');
 const WalletModel = require('./wallet.model');
 const crypto = require('crypto');
+const config = require('../../config/app.config');
+const { buildPaymentForm, newTxnId, verifyResponseHash } = require('../../integrations/payment/payu.service');
 const { emitWalletUpdate, emitXPUpdate } = require('../../sockets/notification.socket');
 
 class WalletService {
@@ -114,6 +116,192 @@ class WalletService {
     }
   }
 
+  /**
+   * Recharge the cash wallet via PayU. Creates a pending topup transaction and
+   * returns the auto-submitting PayU HTML form for the app's WebView.
+   */
+  async initiateRecharge({ userId, amountCents }) {
+    const client = await pool.connect();
+    try {
+      if (!amountCents || amountCents < 10000) {
+        // Min ₹100
+        throw createError('Minimum recharge amount is ₹100', 400);
+      }
+
+      let wallet = await this.walletRepo.findByUserId(userId);
+      if (!wallet) wallet = await this.walletRepo.create(userId);
+
+      const txnid = newTxnId('TDL');
+
+      await this.walletRepo.createTransaction({
+        walletId: wallet.id,
+        type: 'credit',
+        amountCents,
+        balanceAfterCents: wallet.balanceCents,
+        description: `Wallet recharge of ₹${(amountCents / 100).toFixed(2)}`,
+        category: 'topup',
+        razorpayOrderId: txnid,
+        status: 'pending',
+      }, client);
+
+      await client.query('COMMIT');
+
+      const user = await pool.query(`SELECT name, email, phone_number FROM users WHERE id = $1`, [userId]);
+      const firstName = user.rows[0]?.name?.split(' ')[0] || 'TaddleUser';
+      const email = user.rows[0]?.email || 'user@taddlebox.com';
+      const phone = user.rows[0]?.phone_number || '9999999999';
+
+      const returnBase = config.PAYU_RETURN_BASE_URL || config.BASE_URL;
+      const surl = `${returnBase}/api/v1/wallet/recharge/result?txnid=${txnid}`;
+      const furl = `${returnBase}/api/v1/wallet/recharge/result?txnid=${txnid}`;
+
+      const { html, hash } = buildPaymentForm({
+        txnid,
+        amount: amountCents / 100, // PayU expects rupees
+        productinfo: 'Taddlebox Wallet Recharge',
+        firstname: firstName,
+        email,
+        phone,
+        surl,
+        furl,
+        udf1: userId,
+      });
+
+      return { html, hash, txnid, amountCents };
+    } catch (error) {
+      await client.query('ROLLBACK');
+      throw error;
+    } finally {
+      client.release();
+    }
+  }
+
+  /**
+   * Called by PayU's redirect (GET) after checkout. Verifies the response hash,
+   * credits the pending recharge and returns an HTML page for the WebView.
+   */
+  async completeRecharge({ txnid, params }) {
+    const client = await pool.connect();
+    try {
+      const valid = verifyResponseHash({ ...params, txnid: params.txnid || txnid });
+      // PayU signs failure redirects too, so the hash being valid does NOT mean
+      // the payment succeeded — status must be 'success' before crediting.
+      const success = valid && String(params.status).toLowerCase() === 'success';
+
+      if (!valid) {
+        return { ok: false, html: rechargeResultHtml(false, 'Payment verification failed. Please contact support.') };
+      }
+
+      const txn = await this.walletRepo.findTransactionByRazorpayOrderId(txnid);
+      if (!txn) {
+        return { ok: false, html: rechargeResultHtml(false, 'Transaction not found.') };
+      }
+
+      await client.query('BEGIN');
+
+      // Row-lock the transaction so a re-delivered redirect can't double-credit.
+      const locked = await client.query(
+        `SELECT status FROM ${WalletModel.TRANSACTIONS_TABLE} WHERE id = $1 FOR UPDATE`,
+        [txn.id]
+      );
+      if (locked.rows[0]?.status !== 'pending') {
+        await client.query('COMMIT');
+        return { ok: true, html: rechargeResultHtml(true, 'Payment already processed.') };
+      }
+
+      const wallet = await this.walletRepo.findById(txn.walletId);
+      if (!wallet) throw createError('Wallet not found', 404);
+
+      if (!success) {
+        // Failed/cancelled checkout — never credit, just mark the txn failed.
+        await client.query(
+          `UPDATE ${WalletModel.TRANSACTIONS_TABLE} SET status = 'failed' WHERE id = $1`,
+          [txn.id]
+        );
+        await client.query('COMMIT');
+        return { ok: false, html: rechargeResultHtml(false, 'Payment failed or was cancelled.') };
+      }
+
+      const updatedWallet = await this.walletRepo.creditBalance(wallet.id, txn.amountCents, client);
+
+      await client.query(
+        `UPDATE ${WalletModel.TRANSACTIONS_TABLE}
+         SET status = 'completed', balance_after_cents = $2, razorpay_payment_id = $3
+         WHERE id = $1`,
+        [txn.id, updatedWallet.balanceCents, params.mihpayid || params.payuMoneyId || null]
+      );
+
+      await client.query('COMMIT');
+
+      emitWalletUpdate(wallet.userId, updatedWallet.balanceCents);
+      return { ok: true, html: rechargeResultHtml(true, 'Payment successful!') };
+    } catch (error) {
+      await client.query('ROLLBACK');
+      throw error;
+    } finally {
+      client.release();
+    }
+  }
+
+  /**
+   * Buy XP using cash wallet balance (e.g. to enter XP-only games/events).
+   * Conversion rate comes from XP_PER_RUPEE env (default 100 XP = ₹1).
+   */
+  async convertCashToXp({ userId, amountCents }) {
+    const client = await pool.connect();
+    try {
+      if (!amountCents || amountCents <= 0) throw createError('Invalid amount', 400);
+
+      await client.query('BEGIN');
+
+      const wallet = await this.walletRepo.findByUserId(userId);
+      if (!wallet) throw createError('Cash wallet not found', 404);
+      if (wallet.balanceCents < amountCents) throw createError('Insufficient cash balance', 400);
+
+      const xpWallet = await this.xpRepo.findByUserId(userId);
+      if (!xpWallet) throw createError('XP wallet not found', 404);
+
+      const xpAmount = Math.round((amountCents / 100) * config.XP_PER_RUPEE);
+
+      const updatedWallet = await this.walletRepo.debitBalance(wallet.id, amountCents, client);
+
+      await this.walletRepo.createTransaction({
+        walletId: wallet.id,
+        type: 'debit',
+        amountCents,
+        balanceAfterCents: updatedWallet.balanceCents,
+        description: `Purchased ${xpAmount.toLocaleString('en-IN')} XP`,
+        category: 'system',
+        status: 'completed',
+      }, client);
+
+      const balanceBeforeXp = xpWallet.Xp;
+      const updatedXp = await this.xpRepo.incrementXp(userId, xpAmount, client);
+
+      await this.xpRepo.createTransaction({
+        xpId: xpWallet.id,
+        xp: xpAmount,
+        transactionType: 'earned',
+        sourceType: 'cash_to_xp',
+        balanceBefore: balanceBeforeXp,
+        balanceAfter: updatedXp.Xp,
+        status: 'completed',
+      }, client);
+
+      await client.query('COMMIT');
+
+      emitWalletUpdate(userId, updatedWallet.balanceCents);
+      emitXPUpdate(userId, updatedXp.Xp);
+
+      return { wallet: updatedWallet, xp: updatedXp, xpAmount, rate: config.XP_PER_RUPEE };
+    } catch (error) {
+      await client.query('ROLLBACK');
+      throw error;
+    } finally {
+      client.release();
+    }
+  }
+
   async initiateWithdrawal({ userId, amountCents }) {
     const client = await pool.connect();
     try {
@@ -165,7 +353,7 @@ class WalletService {
 
       const updatedWallet = await this.walletRepo.releaseHoldBalance(wallet.id, txn.amountCents, client);
 
-      await client.query(`UPDATE ${WalletModel.TRANSACTIONS_TABLE} SET status = 'completed', description = 'Withdrawal payout successful', updated_at = NOW() WHERE id = $1`, [txn.id]);
+      await client.query(`UPDATE ${WalletModel.TRANSACTIONS_TABLE} SET status = 'completed', description = 'Withdrawal payout successful' WHERE id = $1`, [txn.id]);
 
       await client.query('COMMIT');
       emitWalletUpdate(userId, updatedWallet.balanceCents);
@@ -195,7 +383,7 @@ class WalletService {
       // Restore balance
       const updatedWallet = await this.walletRepo.creditBalance(wallet.id, txn.amountCents, client);
 
-      await client.query(`UPDATE ${WalletModel.TRANSACTIONS_TABLE} SET status = 'failed', description = 'Withdrawal payout failed (refunded)', updated_at = NOW(), balance_after_cents = $2 WHERE id = $1`, [txn.id, updatedWallet.balanceCents]);
+      await client.query(`UPDATE ${WalletModel.TRANSACTIONS_TABLE} SET status = 'failed', description = 'Withdrawal payout failed (refunded)', balance_after_cents = $2 WHERE id = $1`, [txn.id, updatedWallet.balanceCents]);
 
       await client.query('COMMIT');
       emitWalletUpdate(userId, updatedWallet.balanceCents);
@@ -208,5 +396,30 @@ class WalletService {
     }
   }
 }
+
+// Minimal success/failure page rendered inside the app's WebView after PayU
+// redirects back to our backend. The app detects this URL and closes the
+// modal, then refetches the wallet.
+const rechargeResultHtml = (ok, message) => `
+  <!DOCTYPE html>
+  <html>
+    <head>
+      <meta name="viewport" content="width=device-width, initial-scale=1.0">
+      <style>
+        body { display: flex; justify-content: center; align-items: center; height: 100vh; margin: 0; background: ${ok ? '#064e3b' : '#450a0a'}; color: #fff; font-family: sans-serif; text-align: center; padding: 24px; }
+        .emoji { font-size: 56px; }
+        h2 { margin: 12px 0 4px; }
+        p { opacity: 0.85; margin: 0; }
+      </style>
+    </head>
+    <body>
+      <div>
+        <div class="emoji">${ok ? '✅' : '❌'}</div>
+        <h2>${ok ? 'Payment Successful' : 'Payment Failed'}</h2>
+        <p>${message} You can close this page.</p>
+      </div>
+    </body>
+  </html>
+`;
 
 module.exports = WalletService;

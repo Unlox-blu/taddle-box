@@ -35,11 +35,13 @@ const formatTransaction = (row) => {
   if (!row) return null;
   return {
     id: row.id,
+    walletId: row.wallet_id,
     type: row.type,
     amountCents: row.amount_cents,
     balanceAfterCents: row.balance_after_cents,
     description: row.description,
     category: row.category,
+    razorpayOrderId: row.razorpay_order_id,
     status: row.status,
     createdAt: row.created_at,
   };

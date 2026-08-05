@@ -72,6 +72,19 @@ module.exports = {
   RAZORPAY_KEY_SECRET: optional('RAZORPAY_KEY_SECRET'),
   RAZORPAY_WEBHOOK_SECRET: optional('RAZORPAY_WEBHOOK_SECRET'),
 
+  // PayU
+  PAYU_KEY: optional('PAYU_KEY', 'gtKFFx'),
+  PAYU_SALT: optional('PAYU_SALT', 'eCwWELxi'),
+  PAYU_URL: optional('PAYU_URL', 'https://test.payu.in/_payment'),
+  // Where PayU redirects the WebView after checkout. Defaults to BASE_URL but
+  // can be overridden with the public tunnel/domain when testing on a device
+  // (the phone's WebView can't reach a localhost backend).
+  PAYU_RETURN_BASE_URL: optional('PAYU_RETURN_BASE_URL'),
+
+  // Economy — XP conversion rate: how many XP are worth 1 Rupee. Used by
+  // wallet conversions (XP <-> cash) and paid-event ticket pricing.
+  XP_PER_RUPEE: parseInt(optional('XP_PER_RUPEE', '100'), 10),
+
   // Google OAuth
   GOOGLE_CLIENT_ID: optional('GOOGLE_CLIENT_ID'),
   

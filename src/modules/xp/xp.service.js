@@ -113,13 +113,12 @@ class XpService {
         
         // Emit Notification
         const { notificationService } = require('../notification/notification.container');
-        if (notificationService) {
-          notificationService.createNotification({
-            userId,
+        if (notificationService && typeof notificationService.create === 'function') {
+          notificationService.create({
+            recipientId: userId,
+            type: 'level_up',
             title: `Level Up! 🎉`,
             message: `Congratulations! You've reached Level ${levelAfter} and earned ${bonusAmount} bonus XP.`,
-            type: 'level_up',
-            metadata: { newLevel: levelAfter, bonus: bonusAmount }
           }).catch(err => console.error("Failed to emit level up notification", err));
         }
 

@@ -42,6 +42,39 @@ class WalletController {
     }
   };
 
+  initiateRecharge = async (req, res, next) => {
+    try {
+      const userId = req.userId;
+      const { amountCents } = req.body;
+      const data = await this.walletSvc.initiateRecharge({ userId, amountCents });
+      res.json(apiResponse(data, 'Recharge initiated.'));
+    } catch (error) {
+      next(error);
+    }
+  };
+
+  // Public route hit by PayU's redirect — renders an HTML page for the WebView.
+  completeRecharge = async (req, res, next) => {
+    try {
+      const { txnid } = req.query;
+      const data = await this.walletSvc.completeRecharge({ txnid, params: req.query });
+      res.type('html').send(data.html);
+    } catch (error) {
+      next(error);
+    }
+  };
+
+  convertCashToXp = async (req, res, next) => {
+    try {
+      const userId = req.userId;
+      const { amountCents } = req.body;
+      const data = await this.walletSvc.convertCashToXp({ userId, amountCents });
+      res.json(apiResponse(data, 'Cash converted to XP successfully.'));
+    } catch (error) {
+      next(error);
+    }
+  };
+
   linkUPI = async (req, res, next) => {
     try {
       const userId = req.userId;

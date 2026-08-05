@@ -10,7 +10,13 @@ router.get('/me/transactions',   verifyToken,  walletController.getTransactions)
 // Core Redemption Flows
 router.post('/upi',              verifyToken,  walletController.linkUPI);
 router.post('/convert-xp',       verifyToken,  walletController.convertXpToCash);
+router.post('/convert-cash-xp',  verifyToken,  walletController.convertCashToXp);
 router.post('/withdraw/initiate',verifyToken,  walletController.initiateWithdrawal);
+
+// Recharge (PayU) — init returns the auto-submit HTML form; result is the
+// public redirect target PayU bounces the WebView to.
+router.post('/recharge/init',    verifyToken,  walletController.initiateRecharge);
+router.get('/recharge/result',                 walletController.completeRecharge);
 
 // Webhook for External Backend
 router.post('/withdraw/webhook',               walletController.confirmWithdrawalWebhook);

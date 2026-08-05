@@ -2,6 +2,7 @@
 
 const { createError } = require('../../utils/error.util');
 const { notificationService } = require('../notification/notification.container');
+const { emitFollowRequestCancelled, emitFollowStateChanged } = require('../../sockets/notification.socket');
 const appleUtil = require('../../utils/apple.util');
 
 const bcrypt = require('bcryptjs');
@@ -321,6 +322,15 @@ class UserService {
         message: `${follower.name} (@${follower.username}) started following you`,
       })
 
+      // Real-time follow-state sync: the caller's own open notification rows for
+      // this target now show "Following", and if the target already followed the
+      // caller (mutual), the target's "Follow Back" button flips instantly too.
+      emitFollowStateChanged(followerId, { otherUserId: followingId, isFollowing: true });
+      const mutual = await this.followersRepo.findByFollowerIdAndFollowingId(followingId, followerId);
+      if (mutual?.status === 'active') {
+        emitFollowStateChanged(followingId, { otherUserId: followerId, isFollowing: true });
+      }
+
       return {message: 'Follow successfully'}
     } catch (error) {
       throw error;
@@ -340,6 +350,9 @@ class UserService {
       await this.followersRepo.approvefollower(followerId, followingId)
       await this.userRepo.incrementFollowingCount(followerId);
       await this.userRepo.incrementFollowerCount(followingId);
+
+      // Resolve the approver's own "requested to follow" notification row.
+      emitFollowRequestCancelled(followingId, { followerId });
 
       const following = await this.userRepo.findById(followingId)
       const jobdata = {
@@ -384,6 +397,13 @@ class UserService {
       if (isFollow.status === 'active') {
         await this.userRepo.decrementFollowingCount(followerId);
         await this.userRepo.decrementFollowerCount(followingId);
+        // The caller's open "<target> started following you" rows must show the
+        // Follow Back button again.
+        emitFollowStateChanged(followerId, { otherUserId: followingId, isFollowing: false });
+      } else if (isFollow.status === 'pending') {
+        // Cancelling a pending request — tell the recipient so their stale
+        // Approve/Decline buttons disappear in real time.
+        emitFollowRequestCancelled(followingId, { followerId });
       }
     } catch (error) {
       throw error;

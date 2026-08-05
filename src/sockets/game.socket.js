@@ -43,6 +43,11 @@ const CHAT_MAX_LEN = 200;
 // their turn. 12s gives the client's visible 5s idle-grace + 5s countdown a
 // 2s buffer before the server forces the roll itself.
 const SNAKE_LADDER_TURN_TIMEOUT_MS = 12 * 1000;
+// Ludo: idle players are auto-rolled by the client (~10s) and auto-moved
+// (~13.5s); the server skips the turn shortly after as a backstop so a
+// backgrounded client can't stall a 4-player match. 15s > 13.5s avoids a
+// race between the client's auto-move and the server's skip.
+const LUDO_TURN_TIMEOUT_MS = 15 * 1000;
 
 const setupGameSocket = (io) => {
   const gameNs = io.of('/game-engine');
@@ -139,11 +144,18 @@ const setupGameSocket = (io) => {
               return;
             }
           } else {
+            const nextIndex =
+              ((latestState.pluginState.currentTurnIndex || 0) + 1) %
+              (latestState.pluginState.turnOrder?.length || 1);
             latestState.pluginState = {
               ...latestState.pluginState,
-              currentTurnIndex:
-                ((latestState.pluginState.currentTurnIndex || 0) + 1) %
-                (latestState.pluginState.turnOrder?.length || 1),
+              currentTurnIndex: nextIndex,
+              // A skipped ludo turn must not carry the previous player's dice
+              // into the next player's turn (the plugin normally clears it in
+              // MOVE_TOKEN; a server-side skip never goes through applyMove).
+              ...(gameSlug === 'ludo'
+                ? { dice: null, movableTokens: [] }
+                : {}),
             };
           }
           await EventStore.saveMatchSnapshot(matchId, latestState);
@@ -794,6 +806,10 @@ const setupGameSocket = (io) => {
       } else if (gameSlug === 'snake-ladder') {
         // Idle players get auto-rolled shortly after the client countdown ends.
         timerDuration = SNAKE_LADDER_TURN_TIMEOUT_MS;
+      } else if (gameSlug === 'ludo') {
+        // The client auto-rolls at ~10s and auto-moves the first movable token
+        // at ~13.5s; the server skips the turn as a backstop.
+        timerDuration = LUDO_TURN_TIMEOUT_MS;
       }
 
       await TimerEngine.startTimer(matchId, 'turn', timerDuration, {

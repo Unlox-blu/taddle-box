@@ -3,7 +3,8 @@
 const GamePlugin = require('../GamePlugin');
 
 const ROUND_DURATION_MS = 80 * 1000;
-const ROUNDS_PER_GAME = 4;
+// One drawing turn per player (a "round" = everyone draws once).
+const ROUNDS_PER_GAME = 1;
 
 /**
  * Scribble Plugin
@@ -47,6 +48,9 @@ class ScribblePlugin extends GamePlugin {
       totalRounds: ROUNDS_PER_GAME,
       roundStartedAt: Date.now(),
       correctGuessers: [],
+      // Live guess feed (wrong + correct) broadcast to every player so the
+      // guessers get instant feedback instead of a dead chat.
+      guesses: [],
       status: 'active',
       winner: null,
     };
@@ -91,7 +95,18 @@ class ScribblePlugin extends GamePlugin {
 
     if (moveData.type === 'GUESS') {
       const isCorrect = moveData.word.toUpperCase() === currentState.secretWord.toUpperCase();
-      if (!isCorrect) return currentState;
+      // Every guess is broadcast (correct OR wrong) so the chat feed reacts
+      // live — a wrong guess must not silently vanish.
+      const guesses = [
+        ...(currentState.guesses || []),
+        {
+          userId,
+          text: String(moveData.word || '').trim().slice(0, 60),
+          correct: isCorrect,
+          ts: Date.now(),
+        },
+      ];
+      if (!isCorrect) return { ...currentState, guesses };
 
       // Score: earlier guesses get more points
       const pointsForGuesser = Math.max(10, 100 - (currentState.correctGuessers.length * 20));
@@ -106,6 +121,7 @@ class ScribblePlugin extends GamePlugin {
         ...currentState,
         scores: newScores,
         correctGuessers: [...currentState.correctGuessers, userId],
+        guesses,
       };
     }
 
@@ -132,6 +148,7 @@ class ScribblePlugin extends GamePlugin {
       usedWords: [...currentState.usedWords, nextWord],
       currentRound: nextDrawerIndex === 0 ? currentState.currentRound + 1 : currentState.currentRound,
       correctGuessers: [],
+      guesses: [],
       roundStartedAt: Date.now(),
     };
   }

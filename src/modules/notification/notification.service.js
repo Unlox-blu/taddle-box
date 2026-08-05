@@ -60,12 +60,31 @@ class NotificationService {
     // Enrich follow notifications with the *live* follow state so the app never
     // shows a stale Approve/Follow-Back button:
     //  - FOLLOW            → isMutual:      does the recipient already follow the sender?
+    //  - FOLLOW            → senderPrivacy: sender's account privacy (private
+    //                         accounts make follow-back a REQUEST, not a follow)
     //  - REQUEST_TO_FOLLOW → requestActive: is the pending request still in the DB?
+    const senderIds = notifications
+      .filter((n) => (n.type === 'FOLLOW' || n.type === 'APPROVED_TO_FOLLOW') && n.senderId)
+      .map((n) => n.senderId);
+    const senderPrivacyMap = {};
+    if (senderIds.length > 0) {
+      try {
+        const pool = require('../../config/database');
+        const { rows } = await pool.query(
+          'SELECT id, privacy FROM users WHERE id = ANY($1::uuid[])',
+          [senderIds]
+        );
+        rows.forEach((r) => { senderPrivacyMap[r.id] = r.privacy; });
+      } catch (e) {
+        // Enrichment failure must not break the notifications list.
+      }
+    }
     for (const n of notifications) {
       if (!n.senderId) continue;
       if (n.type === 'FOLLOW' || n.type === 'APPROVED_TO_FOLLOW') {
         const rel = await followersRepository.findByFollowerIdAndFollowingId(userId, n.senderId);
         n.isMutual = !!(rel && rel.status === 'active');
+        n.senderPrivacy = senderPrivacyMap[n.senderId] || 'public';
       } else if (n.type === 'REQUEST_TO_FOLLOW') {
         const rel = await followersRepository.findByFollowerIdAndFollowingId(n.senderId, userId);
         n.requestActive = !!(rel && rel.status === 'pending');

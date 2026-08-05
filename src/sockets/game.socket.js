@@ -829,10 +829,16 @@ const setupGameSocket = (io) => {
         const wordMask = ps.secretWord ? ps.secretWord.replace(/./g, '_') : null;
         return { ...fullState, pluginState: { ...ps, word: ps.secretWord, wordMask, drawerId: drawer } };
       } else {
-        const wordMask = ps.secretWord ? ps.secretWord.split('').map((c, i) => {
-          // Reveal letters as hints after 30s
-          return '_';
-        }).join(' ') : null;
+        // Guessers see a masked word; reveal one letter every 15s after the
+        // first 30s so a slow round doesn't dead-end (progressive hints).
+        const elapsed = Date.now() - (ps.roundStartedAt || Date.now());
+        const revealCount =
+          elapsed > 30000
+            ? 1 + Math.floor((elapsed - 30000) / 15000)
+            : 0;
+        const wordMask = ps.secretWord
+          ? ps.secretWord.split('').map((c, i) => (i < revealCount ? c : '_')).join(' ')
+          : null;
         const { secretWord, ...safe } = ps;
         return { ...fullState, pluginState: { ...safe, wordMask, drawerId: drawer } };
       }

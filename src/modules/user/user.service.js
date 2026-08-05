@@ -49,7 +49,7 @@ class UserService {
           try {
             const pool = require('../../config/database');
             const mutualRes = await pool.query(
-              `SELECT u.name, u.username
+              `SELECT u.name, u.username, u.avatar_url
                FROM followers f1
                JOIN followers f2 ON f2.follower_id = f1.following_id AND f2.following_id = $2 AND f2.status = 'active'
                JOIN users u ON u.id = f1.following_id
@@ -66,7 +66,7 @@ class UserService {
             );
             finalUser.mutuals = {
               count: countRes.rows[0]?.count || 0,
-              users: mutualRes.rows.map(r => ({ name: r.name, username: r.username })),
+              users: mutualRes.rows.map(r => ({ name: r.name, username: r.username, avatar: r.avatar_url })),
             };
           } catch (err) {
             finalUser.mutuals = { count: 0, users: [] };

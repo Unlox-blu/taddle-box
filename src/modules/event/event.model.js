@@ -46,8 +46,11 @@ const format = (row) => {
     maxAttendees: row.max_attendees,
     tags: row.tags || [],
     isFeatured: row.is_featured,
-    xpReward: row.xp_reward,
-    cashPrizeCents: row.cash_prize_cents,
+    // xp_reward / cash_prize_cents are optional DB fields — keep them as
+    // numbers (never null) so the app can simply check `> 0` before showing
+    // reward pills. 0 means "not configured for this event".
+    xpReward: row.xp_reward ?? 0,
+    cashPrizeCents: row.cash_prize_cents ?? 0,
     registrationDeadline: row.registration_deadline,
     // Paid events are payable in XP — same XP_PER_RUPEE rate as the wallet.
     xpPrice: row.is_free

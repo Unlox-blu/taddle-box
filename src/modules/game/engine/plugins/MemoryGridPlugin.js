@@ -16,7 +16,7 @@ const GamePlugin = require('../GamePlugin');
 
 const GRID_SIZE = 9;
 const STARTING_PATTERN_LENGTH = 2;
-const MAX_ROUNDS = 5;
+const MAX_ROUNDS = 1;
 const MAX_PLAUSIBLE_SCORE = MAX_ROUNDS;
 
 class MemoryGridPlugin extends GamePlugin {

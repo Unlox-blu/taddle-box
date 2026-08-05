@@ -39,50 +39,72 @@ function makeStyles(c: ColorPalette) {
     container: { flex: 1, backgroundColor: c.bg.base },
     bannerWrap: {
       width: "100%",
-      height: 150,
+      height: 180,
       backgroundColor: c.bg.elevated,
+      position: "relative",
+      overflow: "hidden",
     },
     bannerImage: { width: "100%", height: "100%" },
+    bannerShade: {
+      position: "absolute",
+      top: 0, bottom: 0, left: 0, right: 0,
+    },
+    bannerEditBtn: {
+      position: "absolute",
+      top: 12, right: 12,
+      flexDirection: "row", alignItems: "center", gap: 5,
+      backgroundColor: "rgba(0,0,0,0.45)",
+      paddingVertical: 6, paddingHorizontal: 12,
+      borderRadius: radii.full,
+    },
+    bannerEditText: { fontSize: fontSizes.xs, fontWeight: "700", color: "#fff" },
     heroGrad: { paddingBottom: 4 },
     profileRow: {
       flexDirection: "row",
       gap: 16,
       alignItems: "flex-end",
+      marginTop: -48,
       paddingHorizontal: spacing.xl,
       paddingBottom: 14,
     },
     avatarWrap: { position: "relative" },
     avatar: {
-      width: 80,
-      height: 80,
-      borderRadius: 40,
+      width: 92,
+      height: 92,
+      borderRadius: 46,
       alignItems: "center",
       justifyContent: "center",
-      borderWidth: 3,
+      borderWidth: 4,
       borderColor: c.bg.base,
       overflow: "hidden",
+      shadowColor: "#000",
+      shadowOffset: { width: 0, height: 2 },
+      shadowOpacity: 0.2,
+      shadowRadius: 6,
+      elevation: 4,
     },
     avatarImage: { width: "100%", height: "100%" },
     avatarEmoji: { fontSize: 36 },
     levelBadge: {
       position: "absolute",
-      bottom: -4,
-      right: -4,
-      width: 26,
-      height: 26,
-      borderRadius: 13,
+      bottom: -2,
+      right: -2,
+      width: 28,
+      height: 28,
+      borderRadius: 14,
       alignItems: "center",
       justifyContent: "center",
-      borderWidth: 2,
+      borderWidth: 3,
       borderColor: c.bg.base,
     },
     levelText: { fontSize: fontSizes.xs, fontWeight: "800", color: "#1A0A00" },
-    profileInfo: { flex: 1 },
-    name: { fontSize: fontSizes.xxl, fontWeight: "800", color: c.text.primary },
+    profileInfo: { flex: 1, paddingBottom: 2 },
+    name: { fontSize: fontSizes.xxl, fontWeight: "800", color: c.text.primary, marginBottom: 2 },
+    handleRow: { flexDirection: "row", alignItems: "center", gap: 6, marginBottom: 6 },
     handleRank: {
       fontSize: fontSizes.sm,
       color: c.text.muted,
-      marginBottom: 4,
+      fontWeight: "600",
     },
     bio: { fontSize: fontSizes.sm, color: c.text.secondary, lineHeight: 18 },
     linkRow: {
@@ -389,41 +411,40 @@ export default function SharedProfile({
     }
   }, [initialUser?.username]);
 
-  // Refetch profile whenever the screen regains focus so follower/post/XP
-  // counts stay fresh (e.g. new followers while away).
+  const loadPosts = useCallback(async () => {
+    try {
+      if (!user?.id) return;
+      // Private accounts: don't even ask the API for posts the viewer can't see.
+      if (!isOwnProfile && user?.privacy === "private" && !followed) {
+        setPosts([]);
+        setLoadingPosts(false);
+        return;
+      }
+      setLoadingPosts(true);
+      const postsRes = await postsService.getUserPosts(user.id);
+      if (postsRes?.data) {
+        setPosts(postsRes.data);
+      }
+    } catch (e) {
+      console.warn("Failed to load user posts", e);
+    } finally {
+      setLoadingPosts(false);
+    }
+  }, [user?.id, user?.privacy, followed, isOwnProfile]);
+
+  useEffect(() => {
+    if (user?.id) loadPosts();
+  }, [user?.id, user?.privacy, followed, isOwnProfile, loadPosts]);
+
+  // Refetch profile + posts whenever the screen regains focus so follower/post/
+  // XP counts stay fresh (e.g. new followers or posts while away) without a
+  // manual pull-to-refresh.
   useFocusEffect(
     useCallback(() => {
       loadProfile();
-    }, [loadProfile])
+      if (user?.id) loadPosts();
+    }, [loadProfile, loadPosts, user?.id])
   );
-
-  useEffect(() => {
-    let active = true;
-    const loadPosts = async () => {
-      try {
-        if (!user?.id) return;
-        // Private accounts: don't even ask the API for posts the viewer can't see.
-        if (!isOwnProfile && user?.privacy === "private" && !followed) {
-          setPosts([]);
-          setLoadingPosts(false);
-          return;
-        }
-        setLoadingPosts(true);
-        const postsRes = await postsService.getUserPosts(user.id);
-        if (active && postsRes?.data) {
-          setPosts(postsRes.data);
-        }
-      } catch (e) {
-        console.warn("Failed to load user posts", e);
-      } finally {
-        if (active) setLoadingPosts(false);
-      }
-    };
-    if (user?.id) loadPosts();
-    return () => {
-      active = false;
-    };
-  }, [user?.id, user?.privacy, followed, isOwnProfile]);
 
   // Private accounts hide their posts until the viewer is an approved follower.
   const isLocked =
@@ -490,69 +511,92 @@ export default function SharedProfile({
 
   const profileHeader = (
     <View>
-      {/* Profile banner (user-set cover image) */}
-      {user?.bannerUrl ? (
-        <View style={styles.bannerWrap}>
+      {/* Cover banner — always shown (gradient fallback), Facebook style */}
+      <View style={styles.bannerWrap}>
+        {user?.bannerUrl ? (
           <Image source={{ uri: user.bannerUrl }} style={styles.bannerImage} />
-        </View>
-      ) : null}
-      <LinearGradient
-        colors={["rgba(124,58,237,0.28)", "transparent"]}
-        style={styles.heroGrad}
-      >
-        <View style={styles.profileRow}>
-          <View style={styles.avatarWrap}>
-            <LinearGradient
-              colors={[colors.primary, colors.cyanDark]}
-              style={styles.avatar}
-            >
-              {user?.avatarUrl ? (
-                <Image
-                  source={{ uri: user.avatarUrl }}
-                  style={styles.avatarImage}
-                />
-              ) : (
-                <Text style={styles.avatarEmoji}>👾</Text>
-              )}
-            </LinearGradient>
-            <LinearGradient
-              colors={[colors.xpGold, colors.xpOrange]}
-              style={styles.levelBadge}
-            >
-              <Text style={styles.levelText}>{user?.level || 1}</Text>
-            </LinearGradient>
-          </View>
-          <View style={styles.profileInfo}>
-            <Text style={styles.name}>{user?.name || "Taddle User"}</Text>
-            <Text style={styles.handleRank}>
-              @{user?.username || "user"} · 🏅 {user?.rank || "Beginner"}
-              {user?.privacy === "private" ? " · 🔒 Private" : ""}
-            </Text>
-            {user?.bio ? (
-              <BioText text={user.bio} style={styles.bio} colors={colors} />
-            ) : (
-              <Text style={styles.bio}>No bio yet.</Text>
-            )}
-            {!!user?.websiteUrl && (
-              <TouchableOpacity
-                style={styles.linkRow}
-                activeOpacity={0.7}
-                onPress={() => Linking.openURL(normalizeUrl(user.websiteUrl))}
-              >
-                <Ionicons
-                  name="link-outline"
-                  size={13}
-                  color={colors.primaryLight}
-                />
-                <Text style={styles.linkText} numberOfLines={1}>
-                  {user.websiteUrl.replace(/^https?:\/\//, "")}
-                </Text>
-              </TouchableOpacity>
-            )}
-          </View>
-        </View>
+        ) : (
+          <LinearGradient
+            colors={["rgba(124,58,237,0.55)", "rgba(6,182,212,0.35)"]}
+            start={{ x: 0, y: 0 }}
+            end={{ x: 1, y: 1 }}
+            style={styles.bannerImage}
+          />
+        )}
+        <LinearGradient
+          colors={["transparent", "rgba(0,0,0,0.5)"]}
+          style={styles.bannerShade}
+        />
+        {isOwnProfile && (
+          <TouchableOpacity
+            style={styles.bannerEditBtn}
+            activeOpacity={0.8}
+            onPress={() => navigation.navigate("EditProfile")}
+          >
+            <Ionicons name="camera-outline" size={13} color="#fff" />
+            <Text style={styles.bannerEditText}>Edit Cover</Text>
+          </TouchableOpacity>
+        )}
+      </View>
 
-        <View style={styles.statsRow}>
+      {/* Identity row — avatar overlaps the banner */}
+      <View style={styles.profileRow}>
+        <View style={styles.avatarWrap}>
+          <LinearGradient
+            colors={[colors.primary, colors.cyanDark]}
+            style={styles.avatar}
+          >
+            {user?.avatarUrl ? (
+              <Image
+                source={{ uri: user.avatarUrl }}
+                style={styles.avatarImage}
+              />
+            ) : (
+              <Text style={styles.avatarEmoji}>👾</Text>
+            )}
+          </LinearGradient>
+          <LinearGradient
+            colors={[colors.xpGold, colors.xpOrange]}
+            style={styles.levelBadge}
+          >
+            <Text style={styles.levelText}>{user?.level || 1}</Text>
+          </LinearGradient>
+        </View>
+        <View style={styles.profileInfo}>
+          <Text style={styles.name}>{user?.name || "Taddle User"}</Text>
+          <View style={styles.handleRow}>
+            <Text style={styles.handleRank}>
+              @{user?.username || "user"}
+            </Text>
+            {user?.privacy === "private" && (
+              <Ionicons name="lock-closed" size={12} color={colors.text.muted} />
+            )}
+          </View>
+          {user?.bio ? (
+            <BioText text={user.bio} style={styles.bio} colors={colors} />
+          ) : (
+            <Text style={styles.bio}>No bio yet.</Text>
+          )}
+          {!!user?.websiteUrl && (
+            <TouchableOpacity
+              style={styles.linkRow}
+              activeOpacity={0.7}
+              onPress={() => Linking.openURL(normalizeUrl(user.websiteUrl))}
+            >
+              <Ionicons
+                name="link-outline"
+                size={13}
+                color={colors.primaryLight}
+              />
+              <Text style={styles.linkText} numberOfLines={1}>
+                {user.websiteUrl.replace(/^https?:\/\//, "")}
+              </Text>
+            </TouchableOpacity>
+          )}
+        </View>
+      </View>
+
+      <View style={styles.statsRow}>
           <View style={styles.statItem}>
             <Text style={styles.statVal}>
               {(user?.postCount || 0).toLocaleString()}
@@ -671,7 +715,6 @@ export default function SharedProfile({
             />
           </TouchableOpacity>
         </View>
-      </LinearGradient>
 
       {isOwnProfile && (user?.pendingRequestsCount || 0) > 0 && (
         <TouchableOpacity

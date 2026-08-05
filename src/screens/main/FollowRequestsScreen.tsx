@@ -17,6 +17,7 @@ import { useTheme, useThemeColors } from "../../context/ThemeContext";
 import { StatusBar } from "expo-status-bar";
 import { fontSizes, spacing, radii, type ColorPalette } from "../../theme";
 import { userService } from "../../services/user.service";
+import { socketClient } from "../../services/socketClient";
 import { useAuth } from "../../context/AuthContext";
 
 function makeStyles(c: ColorPalette) {
@@ -116,6 +117,20 @@ export default function FollowRequestsScreen() {
   useEffect(() => {
     loadRequests();
   }, [loadRequests]);
+
+  // If a requester cancels while this screen is open, drop their row live so
+  // no stale request lingers next to the approve/reject buttons.
+  useEffect(() => {
+    const onReqCancelled = (data: any) => {
+      const followerId = data?.followerId;
+      if (!followerId) return;
+      setRequests((prev) => prev.filter((r) => r.id !== followerId));
+    };
+    socketClient.events.on("follow:requestCancelled", onReqCancelled);
+    return () => {
+      socketClient.events.off("follow:requestCancelled", onReqCancelled);
+    };
+  }, []);
 
   const onRefresh = async () => {
     setRefreshing(true);

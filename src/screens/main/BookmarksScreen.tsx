@@ -5,7 +5,7 @@ import {
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
-import { useNavigation } from '@react-navigation/native';
+import { useNavigation, useFocusEffect } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { fontSizes, spacing, radii, type ColorPalette } from '../../theme';
 import { useThemeColors } from '../../context/ThemeContext';
@@ -77,6 +77,14 @@ export default function BookmarksScreen() {
   const { mutate: toggleSave } = useToggleSave();
 
   const saved = data?.pages.flat() || [];
+
+  // Auto-refresh on every visit so newly bookmarked/unbookmarked posts show up
+  // without a manual pull-to-refresh.
+  useFocusEffect(
+    React.useCallback(() => {
+      refetch();
+    }, [refetch])
+  );
 
   return (
     <View style={[styles.container, { paddingTop: insets.top }]}>

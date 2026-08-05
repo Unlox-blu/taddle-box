@@ -1,14 +1,13 @@
 import React, { useMemo, useState, useEffect } from 'react';
 import {
-  View, Text, ScrollView, TouchableOpacity, FlatList, Modal, Alert, ActivityIndicator,
+  View, Text, ScrollView, TouchableOpacity, FlatList, Alert,
   StyleSheet,
   RefreshControl,
   Image,
   ImageBackground,
 } from 'react-native';
-import { WebView } from 'react-native-webview';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { useNavigation } from '@react-navigation/native';
+import { useNavigation, useFocusEffect } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
@@ -18,7 +17,6 @@ import { useTheme, useThemeColors } from '../../context/ThemeContext';
 import Button from '../../components/common/Button';
 import MainHeader from '../../components/common/MainHeader';
 // removed mockData import
-import { eventService } from '../../services/event.service';
 import type { Event } from '../../types';
 import { useEvents } from '../../queries/events';
 import { useToggleEventRegister } from '../../mutations/events';
@@ -241,23 +239,27 @@ export default function EventsScreen() {
   const [filter, setFilter] = useState('All');
   const [showCalendar, setShowCalendar] = useState(false);
   const [selectedDate, setSelectedDate] = useState<string | null>(null);
-  
-  const [payuHtml, setPayuHtml] = useState<string | null>(null);
-  const [paymentEventId, setPaymentEventId] = useState<string | null>(null);
-  const [processingPayment, setProcessingPayment] = useState(false);
 
-  const { data: events = [], isLoading: loading, refetch, isRefetching } = useEvents();
+  const { data: events = [], refetch, isRefetching } = useEvents();
   const { mutate: toggleEventRegister } = useToggleEventRegister();
+
+  // Refresh whenever the tab regains focus so live status, registrations and
+  // XP prices stay current without a manual pull-to-refresh.
+  useFocusEffect(
+    React.useCallback(() => {
+      refetch();
+    }, [refetch])
+  );
 
   const displayEvents = events.filter((e: any) => {
     if (selectedDate) {
       if (!e.rawDate || !e.rawDate.startsWith(selectedDate)) return false;
     }
     if (filter === 'All') return true;
-    if (filter === '🔴 Live') return e.isLive;
-    if (filter === '💻 Online') return e.location === 'Online';
-    if (filter === '📍 Offline') return e.location !== 'Online';
-    if (filter === '🏆 Contest') return e.type === 'hackathon' || e.type === 'competition';
+    if (filter === 'Live') return e.isLive;
+    if (filter === 'Online') return e.location === 'Online';
+    if (filter === 'Offline') return e.location !== 'Online';
+    if (filter === 'Contest') return e.type === 'hackathon' || e.type === 'competition';
     return true;
   });
 
@@ -269,20 +271,21 @@ export default function EventsScreen() {
     const ev = events.find((e: any) => e.id === id);
     if (!ev) return;
     const isReg = ev.isRegistered;
-    
-    if (!isReg && !ev.isFree && ev.priceCents) {
-      setProcessingPayment(true);
-      try {
-        const payData = await eventService.initPayment(id, ev.priceCents);
-        setPayuHtml(payData.html);
-        setPaymentEventId(id);
-      } catch (e) {
-        console.error('Failed to init payment:', e);
-        Alert.alert('Payment Error', 'Could not initialize payment flow.');
-      } finally {
-        setProcessingPayment(false);
-      }
-      return; // Stop here, wait for webview success
+
+    // Paid events are paid in XP (never real money) — confirm the XP spend.
+    if (!isReg && !ev.isFree && ev.xpPrice) {
+      Alert.alert(
+        'Join with XP',
+        `This event costs ${ev.xpPrice.toLocaleString()} XP. Continue?`,
+        [
+          { text: 'Cancel', style: 'cancel' },
+          {
+            text: `Pay ${ev.xpPrice.toLocaleString()} XP`,
+            onPress: () => toggleEventRegister({ eventId: id, isCurrentlyRegistered: false }),
+          },
+        ]
+      );
+      return;
     }
 
     if (isReg) {
@@ -414,7 +417,7 @@ export default function EventsScreen() {
                 ) : null}
               </View>
               <Button
-                label={featured.isRegistered ? '✓ Participated' : (featured.isFree || !featured.priceCents ? 'Join Free' : `Join • ₹${featured.priceCents / 100}`)}
+                label={featured.isRegistered ? '✓ Participated' : (featured.isFree || !featured.xpPrice ? 'Join Free' : `Join • ${featured.xpPrice.toLocaleString()} XP`)}
                 onPress={() => toggleRegister(featured.id)}
                 variant={featured.isRegistered ? 'ghost' : 'primary'}
                 fullWidth
@@ -457,56 +460,6 @@ export default function EventsScreen() {
 
         <View style={{ height: 100 }} />
       </ScrollView>
-
-      {/* Payment Processing Indicator */}
-      {processingPayment && (
-        <View style={[StyleSheet.absoluteFill, { backgroundColor: 'rgba(0,0,0,0.6)', justifyContent: 'center', alignItems: 'center' }]}>
-          <ActivityIndicator size="large" color={colors.primary} />
-        </View>
-      )}
-
-      {/* PayU Webview Modal */}
-      <Modal visible={!!payuHtml} animationType="slide" onRequestClose={() => setPayuHtml(null)}>
-        <View style={{ flex: 1, backgroundColor: colors.bg.base, paddingTop: insets.top }}>
-          <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: spacing.md, paddingVertical: 10, borderBottomWidth: 1, borderBottomColor: colors.border }}>
-            <Text style={{ fontSize: fontSizes.lg, fontWeight: '700', color: colors.text.primary }}>Complete Payment</Text>
-            <TouchableOpacity onPress={() => setPayuHtml(null)}>
-              <Ionicons name="close" size={24} color={colors.text.primary} />
-            </TouchableOpacity>
-          </View>
-          {payuHtml && (
-            <WebView 
-              source={{ html: payuHtml }}
-              onNavigationStateChange={async (navState) => {
-                if (navState.url.includes('payu/success')) {
-                  // Payment Success
-                  setPayuHtml(null);
-                  if (paymentEventId) {
-                    try {
-                      // Call backend to actually register now
-                      const ev = events.find((e: any) => e.id === paymentEventId);
-                      if (ev) {
-                        refetch();
-                      }
-                      await eventService.register(paymentEventId);
-                      setPaymentEventId(null);
-                    } catch (e) {
-                      console.error('Failed to register after payment:', e);
-                      Alert.alert('Registration Error', 'Payment succeeded but registration failed. Please contact support.');
-                    }
-                  }
-                } else if (navState.url.includes('payu/failure')) {
-                  // Payment Failure
-                  setPayuHtml(null);
-                  setPaymentEventId(null);
-                  Alert.alert('Payment Failed', 'Your transaction could not be completed.');
-                }
-              }}
-              style={{ flex: 1 }}
-            />
-          )}
-        </View>
-      </Modal>
 
     </View>
   );
@@ -562,7 +515,7 @@ function EventCard({
         style={[styles.evCtaBtn, e.isRegistered && styles.evCtaBtnDone]}
       >
         <Text style={[styles.evCtaBtnText, e.isRegistered && styles.evCtaBtnTextDone]}>
-          {e.isRegistered ? '✓ Participated' : (e.isFree || !e.priceCents ? 'Join Free' : `Join • ₹${e.priceCents / 100}`)}
+          {e.isRegistered ? '✓ Participated' : (e.isFree || !e.xpPrice ? 'Join Free' : `Join • ${e.xpPrice.toLocaleString()} XP`)}
         </Text>
       </TouchableOpacity>
     </View>

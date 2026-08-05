@@ -1,3 +1,4 @@
+import { Alert } from 'react-native';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { queryKeys } from '../lib/queryKeys';
 import { eventService } from '../services/event.service';
@@ -16,6 +17,11 @@ export function useToggleEventRegister() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: queryKeys.events });
+    },
+    onError: (err: any) => {
+      // e.g. insufficient XP for a paid event — surface it so the user knows
+      // why registration didn't go through.
+      Alert.alert('Registration Failed', err?.response?.data?.message || err?.message || 'Could not register for this event.');
     },
   });
 }

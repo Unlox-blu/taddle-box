@@ -155,6 +155,8 @@ export interface Event {
   isRegistered: boolean;
   isFree: boolean;
   priceCents?: number;
+  /** Paid-event ticket price expressed in XP (server-computed). */
+  xpPrice?: number;
 }
 
 export interface Game {
@@ -180,7 +182,7 @@ export interface Transaction {
   date: string;
   amount: number;
   currency: 'INR' | 'XP';
-  type: 'earn' | 'spend' | 'convert' | 'withdraw';
+  type: 'earn' | 'spend' | 'convert' | 'withdraw' | 'topup';
   status?: string;
 }
 

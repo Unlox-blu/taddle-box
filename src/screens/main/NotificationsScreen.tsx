@@ -15,6 +15,7 @@ import { userService } from '../../services/user.service';
 import { postsService } from '../../services/posts.service';
 import { useNotifications } from '../../context/NotificationContext';
 import { notificationBus, NOTIF_EVENTS } from '../../lib/notificationBus';
+import { socketClient } from '../../services/socketClient';
 
 const FOLLOWED_BACK_KEY = '@taddle_followed_back_usernames';
 // CUSTOM private lobbies stay open for 30 minutes before the invite expires.
@@ -160,6 +161,10 @@ function makeStyles(c: ColorPalette) {
       borderRadius: radii.full,
       backgroundColor: c.primary,
     },
+    reqBannerBtnGhost: {
+      backgroundColor: 'transparent',
+      borderWidth: 1, borderColor: 'rgba(124,58,237,0.4)',
+    },
     reqBannerBtnText: { color: '#fff', fontSize: fontSizes.xs, fontWeight: '800' },
   });
 }
@@ -182,10 +187,15 @@ export default function NotificationsScreen({ navigation }: Props) {
   const [followBusy, setFollowBusy] = useState<string | null>(null);
   // Tracks the response for incoming follow-request notifications.
   const [followReqState, setFollowReqState] = useState<
-    Record<string, 'approved' | 'declined'>
+    Record<string, 'approved' | 'declined' | 'withdrawn'>
   >({});
   const [reqBusyId, setReqBusyId] = useState<string | null>(null);
   const { clearUnread } = useNotifications();
+
+  // Latest notifications list — kept in a ref so socket listeners can update
+  // matching rows without re-subscribing on every fetch.
+  const notifsRef = React.useRef(notifs);
+  notifsRef.current = notifs;
 
   // Load persisted followed-back usernames so the button stays correct across
   // screen visits.
@@ -211,14 +221,56 @@ export default function NotificationsScreen({ navigation }: Props) {
     });
   };
 
-  const fetchNotifs = async () => {
+  const fetchNotifs = React.useCallback(async () => {
     try {
       const res = await notificationService.getNotifications();
       setNotifs(res.data);
     } catch (e) {
       console.error('Failed to fetch notifications:', e);
     }
-  };
+  }, []);
+
+  // Real-time follow-state sync: when a follow request is cancelled by the
+  // requester, or a mutual follow happens, update the affected rows instantly
+  // so stale Approve / Follow Back buttons never linger.
+  useEffect(() => {
+    const onReqCancelled = (data: any) => {
+      const followerId = data?.followerId;
+      if (!followerId) return;
+      setFollowReqState((prev) => {
+        const next = { ...prev };
+        notifsRef.current.forEach((n) => {
+          if (n.type === 'follow' && n.payload?.isFollowRequest && n.payload?.userId === followerId && !next[n.id]) {
+            next[n.id] = 'withdrawn';
+          }
+        });
+        return next;
+      });
+      fetchNotifs(); // reconcile with server (requestActive → false)
+    };
+    const onStateChanged = (data: any) => {
+      const otherUserId = data?.otherUserId;
+      if (otherUserId === undefined) return;
+      if (data?.isFollowing) {
+        setFollowedBack((prev) => {
+          const next = { ...prev };
+          notifsRef.current.forEach((n) => {
+            if (n.type === 'follow' && !n.payload?.isFollowRequest && n.payload?.userId === otherUserId) {
+              next[n.id] = true;
+            }
+          });
+          return next;
+        });
+      }
+      fetchNotifs();
+    };
+    socketClient.events.on('follow:requestCancelled', onReqCancelled);
+    socketClient.events.on('follow:stateChanged', onStateChanged);
+    return () => {
+      socketClient.events.off('follow:requestCancelled', onReqCancelled);
+      socketClient.events.off('follow:stateChanged', onStateChanged);
+    };
+  }, [fetchNotifs]);
 
   // Refetch in real-time when a new notification arrives over the socket, and
   // when the user lands here from a system-tray tap or banner.
@@ -235,7 +287,7 @@ export default function NotificationsScreen({ navigation }: Props) {
       offOpen();
       sub();
     };
-  }, []);
+  }, [fetchNotifs]);
 
   // Navigate to the specific content a notification refers to.
   const openNotification = async (notif: Notification) => {
@@ -364,7 +416,7 @@ export default function NotificationsScreen({ navigation }: Props) {
   // Approve every pending follow-request notification in one tap.
   const [acceptingAll, setAcceptingAll] = useState(false);
   const pendingRequestNotifs = notifs.filter(
-    (n) => n.type === 'follow' && n.payload?.isFollowRequest && !followReqState[n.id],
+    (n) => n.type === 'follow' && n.payload?.isFollowRequest && n.payload?.requestActive !== false && !followReqState[n.id],
   );
   const handleAcceptAllRequests = async () => {
     if (pendingRequestNotifs.length === 0 || acceptingAll) return;
@@ -448,17 +500,25 @@ export default function NotificationsScreen({ navigation }: Props) {
                 </Text>
                 <Text style={styles.reqBannerSub}>Tap a request to review it</Text>
               </View>
-              <TouchableOpacity
-                style={styles.reqBannerBtn}
-                disabled={acceptingAll}
-                onPress={handleAcceptAllRequests}
-              >
-                {acceptingAll ? (
-                  <ActivityIndicator size="small" color="#fff" />
-                ) : (
-                  <Text style={styles.reqBannerBtnText}>Accept All</Text>
-                )}
-              </TouchableOpacity>
+              <View style={{ flexDirection: 'row', gap: 8 }}>
+                <TouchableOpacity
+                  style={[styles.reqBannerBtn, styles.reqBannerBtnGhost]}
+                  onPress={() => navigation.navigate('FollowRequests')}
+                >
+                  <Text style={[styles.reqBannerBtnText, { color: colors.primaryLight }]}>View Requests</Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={styles.reqBannerBtn}
+                  disabled={acceptingAll}
+                  onPress={handleAcceptAllRequests}
+                >
+                  {acceptingAll ? (
+                    <ActivityIndicator size="small" color="#fff" />
+                  ) : (
+                    <Text style={styles.reqBannerBtnText}>Accept All</Text>
+                  )}
+                </TouchableOpacity>
+              </View>
             </View>
           )}
 
@@ -538,6 +598,21 @@ export default function NotificationsScreen({ navigation }: Props) {
                         notif.payload?.userId &&
                         (() => {
                           const state = followReqState[notif.id];
+                          const withdrawn =
+                            state === 'withdrawn' ||
+                            notif.payload?.requestActive === false;
+                          if (withdrawn) {
+                            return (
+                              <Text
+                                style={[
+                                  styles.reqStateText,
+                                  styles.reqStateDeclined,
+                                ]}
+                              >
+                                Request withdrawn
+                              </Text>
+                            );
+                          }
                           if (state === 'approved' || state === 'declined') {
                             return (
                               <Text
@@ -593,7 +668,10 @@ export default function NotificationsScreen({ navigation }: Props) {
 
                       {notif.type === 'follow' && !notif.payload?.isFollowRequest && notif.payload?.username && (() => {
                         const username = notif.payload.username;
-                        const isDone = followedBack[notif.id] || followedUsernames.has(username);
+                        // Server truth (isMutual) wins; the persisted set is only
+                        // a fallback for data that predates the enrichment.
+                        const isDone = followedBack[notif.id] || !!notif.payload?.isMutual ||
+                          (notif.payload?.isMutual === undefined && followedUsernames.has(username));
                         return (
                           <TouchableOpacity
                             style={[

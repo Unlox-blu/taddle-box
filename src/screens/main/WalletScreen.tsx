@@ -2,7 +2,7 @@ import React, { useState, useRef, useMemo, useEffect } from 'react';
 import {
   View, Text, ScrollView, TouchableOpacity, StyleSheet,
   Modal, TextInput, KeyboardAvoidingView, Platform,
-  Alert, Share, Switch, Animated, SafeAreaView,
+  Alert, Share, Switch, Animated, SafeAreaView, ActivityIndicator,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { WebView } from 'react-native-webview';
@@ -24,16 +24,18 @@ import type { Transaction } from '../../types';
 // ─── Types ────────────────────────────────────────────────────────────────────
 
 type TxnFilter = 'All' | 'Earned' | 'Spent' | 'XP' | 'Cash';
-type ActiveModal = 'none' | 'withdraw' | 'linkUPI' | 'convert' | 'history' | 'settings';
+type ActiveModal = 'none' | 'withdraw' | 'linkUPI' | 'convert' | 'buyXP' | 'recharge' | 'history' | 'settings';
 
 const TXN_META: Record<string, { icon: string; bg: string; label: string; iconColor: string }> = {
   earn:     { icon: 'arrow-up', bg: 'rgba(16,185,129,0.13)',  label: 'Earned',    iconColor: '#10B981' },
   spend:    { icon: 'pricetag', bg: 'rgba(239,68,68,0.11)',   label: 'Spent',     iconColor: '#EF4444' },
   convert:  { icon: 'flash',    bg: 'rgba(251,191,36,0.11)',  label: 'Converted', iconColor: '#F59E0B' },
   withdraw: { icon: 'cash',     bg: 'rgba(6,182,212,0.11)',   label: 'Withdrawn', iconColor: '#06B6D4' },
+  topup:    { icon: 'add-circle', bg: 'rgba(124,58,237,0.13)', label: 'Recharged', iconColor: '#8B5CF6' },
 };
 
 const QUICK_AMOUNTS = [100, 250, 500, 1000];
+const QUICK_RECHARGE = [100, 250, 500, 1000, 2000];
 const QUICK_XP      = [500, 1000, 5000];
 
 // ─── Main Screen ──────────────────────────────────────────────────────────────
@@ -41,7 +43,7 @@ const QUICK_XP      = [500, 1000, 5000];
 export default function WalletScreen() {
   const insets     = useSafeAreaInsets();
   const navigation = useNavigation();
-  const { wallet, withdraw, convertXP, linkUPI, toggleSetting, fetchWalletData } = useWallet();
+  const { wallet, withdraw, convertXP, recharge, convertCashToXP, linkUPI, toggleSetting, fetchWalletData } = useWallet();
   const { user } = useAuth();
   const colors = useThemeColors();
   const styles = useMemo(() => makeStyles(colors), [colors]);
@@ -49,6 +51,8 @@ export default function WalletScreen() {
   const [txnFilter,       setTxnFilter]       = useState<TxnFilter>('All');
   const [activeModal,     setActiveModal]      = useState<ActiveModal>('none');
   const [handoffUrl,      setHandoffUrl]       = useState<string | null>(null);
+  const [payuHtml,        setPayuHtml]         = useState<string | null>(null);
+  const [payuBusy,        setPayuBusy]         = useState(false);
   const [unlockError,     setUnlockError]      = useState('');
   const [isUnlocking,     setIsUnlocking]      = useState(false);
   const [walletUnlocked,  setWalletUnlocked]   = useState(false);
@@ -222,15 +226,15 @@ export default function WalletScreen() {
 
           <View style={styles.heroActions}>
             {[
-              { icon: 'arrow-up-circle-outline', label: 'Withdraw', modal: 'withdraw' as ActiveModal },
-              { icon: 'link-outline',            label: 'Link UPI', modal: 'linkUPI'  as ActiveModal },
-              { icon: 'time-outline',            label: 'History',  modal: 'history'  as ActiveModal },
-              { icon: 'share-outline',           label: 'Share',    modal: 'none'     as ActiveModal },
+              { icon: 'add-circle-outline',     label: 'Add Money', onPress: () => openModal('recharge') },
+              { icon: 'arrow-up-circle-outline', label: 'Withdraw',  onPress: () => openModal('withdraw') },
+              { icon: 'time-outline',            label: 'History',   onPress: () => openModal('history') },
+              { icon: 'share-outline',           label: 'Share',     onPress: handleShareWallet },
             ].map(a => (
               <TouchableOpacity
                 key={a.label}
                 style={styles.heroAction}
-                onPress={() => a.label === 'Share' ? handleShareWallet() : openModal(a.modal)}
+                onPress={a.onPress}
                 activeOpacity={0.75}
               >
                 <Ionicons name={a.icon as any} size={20} color="rgba(255,255,255,0.9)" />
@@ -249,13 +253,22 @@ export default function WalletScreen() {
             <Text style={styles.xpAmount}>{wallet.xpBalance.toLocaleString()} XP</Text>
             <Text style={styles.xpSub}>≈ ₹{(wallet.xpBalance / 100).toFixed(2)} convertible</Text>
           </View>
-          <TouchableOpacity
-            style={[styles.convertBtn, wallet.xpBalance < 500 && styles.convertBtnDisabled]}
-            onPress={() => wallet.xpBalance >= 500 ? openModal('convert') : Alert.alert('Not enough XP', 'You need at least 500 XP to convert.')}
-            activeOpacity={0.8}
-          >
-            <Text style={styles.convertBtnText}>Convert →</Text>
-          </TouchableOpacity>
+          <View style={styles.xpBtnCol}>
+            <TouchableOpacity
+              style={styles.buyXpBtn}
+              onPress={() => openModal('buyXP')}
+              activeOpacity={0.8}
+            >
+              <Text style={styles.buyXpBtnText}>Buy XP +</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={[styles.convertBtn, wallet.xpBalance < 500 && styles.convertBtnDisabled]}
+              onPress={() => wallet.xpBalance >= 500 ? openModal('convert') : Alert.alert('Not enough XP', 'You need at least 500 XP to convert.')}
+              activeOpacity={0.8}
+            >
+              <Text style={styles.convertBtnText}>Convert →</Text>
+            </TouchableOpacity>
+          </View>
         </View>
 
         {/* ── Quick Stats Row ── */}
@@ -303,10 +316,10 @@ export default function WalletScreen() {
           >
             <View style={styles.rateLeft}>
               <Text style={styles.rateTitle}>100 XP = ₹1.00</Text>
-              <Text style={styles.rateSub}>Min. 500 XP to convert · Instant credit</Text>
+              <Text style={styles.rateSub}>Buy XP with cash · Convert XP to cash · Instant</Text>
             </View>
-            <TouchableOpacity style={styles.rateBtn} onPress={() => openModal('convert')}>
-              <Text style={styles.rateBtnText}>Convert Now</Text>
+            <TouchableOpacity style={styles.rateBtn} onPress={() => openModal('buyXP')}>
+              <Text style={styles.rateBtnText}>Buy XP</Text>
             </TouchableOpacity>
           </LinearGradient>
         </TouchableOpacity>
@@ -388,6 +401,31 @@ export default function WalletScreen() {
         onConvert={convertXP}
         onClose={closeModal}
       />
+      <BuyXPModal
+        visible={activeModal === 'buyXP'}
+        cashBalance={wallet.cashBalance}
+        onBuy={convertCashToXP}
+        onClose={closeModal}
+      />
+      <RechargeModal
+        visible={activeModal === 'recharge'}
+        onRecharge={async (amount) => {
+          try {
+            setPayuBusy(true);
+            const res = await recharge(amount);
+            if (res?.html) {
+              setPayuHtml(res.html);
+              closeModal();
+            }
+          } catch (e: any) {
+            Alert.alert('Recharge Error', e?.response?.data?.message || e?.message || 'Could not start recharge.');
+          } finally {
+            setPayuBusy(false);
+          }
+        }}
+        busy={payuBusy}
+        onClose={closeModal}
+      />
       <HistoryModal
         visible={activeModal === 'history'}
         transactions={wallet.transactions}
@@ -417,6 +455,31 @@ export default function WalletScreen() {
                 // If it hits a success/failure URL, close it
                 if (state.url.includes('success') || state.url.includes('failure')) {
                   setTimeout(() => setHandoffUrl(null), 2000);
+                }
+              }}
+            />
+          </View>
+        </Modal>
+      )}
+
+      {payuHtml && (
+        <Modal visible={true} animationType="slide" onRequestClose={() => setPayuHtml(null)}>
+          <View style={{ flex: 1, paddingTop: insets.top, backgroundColor: colors.bg.base }}>
+            <View style={{ flexDirection: 'row', justifyContent: 'space-between', padding: 16, backgroundColor: colors.bg.base }}>
+              <Text style={{ color: colors.text.primary, fontSize: 18, fontWeight: 'bold' }}>Add Money · PayU</Text>
+              <TouchableOpacity onPress={() => setPayuHtml(null)}>
+                <Text style={{ color: colors.primary }}>Close</Text>
+              </TouchableOpacity>
+            </View>
+            <WebView 
+              source={{ html: payuHtml }} 
+              style={{ flex: 1 }} 
+              originWhitelist={['*']}
+              onNavigationStateChange={(state) => {
+                // Backend redirect target after PayU checkout
+                if (state.url.includes('/wallet/recharge/result')) {
+                  setPayuHtml(null);
+                  fetchWalletData();
                 }
               }}
             />
@@ -919,6 +982,259 @@ function ConvertModal({
   );
 }
 
+// ─── RechargeModal (Add Money via PayU) ─────────────────────────────────────
+
+function RechargeModal({
+  visible, onRecharge, onClose, busy,
+}: {
+  visible:   boolean;
+  onRecharge: (amount: number) => void;
+  onClose:   () => void;
+  busy?:     boolean;
+}) {
+  const insets = useSafeAreaInsets();
+  const colors = useThemeColors();
+  const styles = useMemo(() => makeStyles(colors), [colors]);
+  const [amountStr, setAmountStr] = useState('');
+  const amount = parseInt(amountStr, 10) || 0;
+
+  const error = amount > 0 && amount < 100 ? 'Minimum recharge is ₹100' : null;
+  const canSubmit = !error && amount >= 100;
+
+  const reset = () => setAmountStr('');
+
+  const handleRecharge = () => {
+    if (!canSubmit || busy) return;
+    Alert.alert(
+      'Add Money',
+      `You'll be redirected to PayU to add ₹${amount.toLocaleString('en-IN')} to your wallet.`,
+      [
+        { text: 'Cancel', style: 'cancel' },
+        { text: 'Proceed', onPress: () => { onRecharge(amount); reset(); onClose(); } },
+      ]
+    );
+  };
+
+  return (
+    <Modal visible={visible} animationType="slide" presentationStyle="pageSheet" onRequestClose={() => { reset(); onClose(); }}>
+      <KeyboardAvoidingView
+        style={[styles.modalShell, { paddingTop: insets.top || 16 }]}
+        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+      >
+        <View style={styles.modalHeader}>
+          <TouchableOpacity onPress={() => { reset(); onClose(); }}>
+            <Ionicons name="close" size={24} color={colors.text.secondary} />
+          </TouchableOpacity>
+          <Text style={styles.modalTitle}>Add Money</Text>
+          <TouchableOpacity onPress={handleRecharge} disabled={!canSubmit || busy}>
+            <LinearGradient
+              colors={canSubmit ? [colors.primary, colors.cyanDark] : [colors.bg.elevated, colors.bg.elevated]}
+              start={{ x: 0, y: 0 }} end={{ x: 1, y: 0 }}
+              style={styles.modalActionBtn}
+            >
+              {busy ? (
+                <ActivityIndicator size="small" color="#fff" />
+              ) : (
+                <Text style={[styles.modalActionText, !canSubmit && { color: colors.text.muted }]}>Next</Text>
+              )}
+            </LinearGradient>
+          </TouchableOpacity>
+        </View>
+
+        <ScrollView contentContainerStyle={styles.modalBody} keyboardShouldPersistTaps="handled">
+          <View style={styles.balanceChip}>
+            <Ionicons name="wallet-outline" size={14} color={colors.primaryLight} />
+            <Text style={styles.balanceChipText}>Add money to your wallet balance</Text>
+          </View>
+
+          <Text style={styles.fieldLabel}>Amount</Text>
+          <View style={[styles.amountInput, error ? styles.amountInputError : null]}>
+            <Text style={styles.rupeePre}>₹</Text>
+            <TextInput
+              style={styles.amountField}
+              placeholder="0"
+              placeholderTextColor={colors.text.muted}
+              keyboardType="numeric"
+              value={amountStr}
+              onChangeText={v => setAmountStr(v.replace(/[^0-9]/g, ''))}
+              maxLength={6}
+            />
+          </View>
+          {error ? <Text style={styles.errorText}>{error}</Text> : null}
+
+          <View style={styles.quickRow}>
+            {QUICK_RECHARGE.map(q => (
+              <TouchableOpacity
+                key={q}
+                style={[styles.quickChip, amount === q && styles.quickChipActive]}
+                onPress={() => setAmountStr(String(q))}
+              >
+                <Text style={[styles.quickChipText, amount === q && styles.quickChipTextActive]}>₹{q}</Text>
+              </TouchableOpacity>
+            ))}
+          </View>
+
+          {amount >= 100 && (
+            <LinearGradient
+              colors={['rgba(124,58,237,0.12)', 'rgba(6,182,212,0.08)']}
+              style={styles.convertPreview}
+            >
+              <View style={styles.convertPreviewRow}>
+                <View style={styles.convertPreviewSide}>
+                  <Text style={styles.convertPreviewLabel}>You pay</Text>
+                  <Text style={styles.convertPreviewCash}>₹ {amount.toLocaleString('en-IN')}</Text>
+                </View>
+                <Ionicons name="arrow-forward" size={20} color={colors.text.muted} />
+                <View style={styles.convertPreviewSide}>
+                  <Text style={styles.convertPreviewLabel}>You get</Text>
+                  <Text style={styles.convertPreviewCash}>₹ {amount.toLocaleString('en-IN')} wallet balance</Text>
+                </View>
+              </View>
+            </LinearGradient>
+          )}
+
+          <View style={styles.infoRow}>
+            <Ionicons name="shield-checkmark-outline" size={14} color={colors.text.muted} />
+            <Text style={styles.infoText}>Secured by PayU. Money is added to your wallet instantly and can be converted to XP or withdrawn.</Text>
+          </View>
+        </ScrollView>
+      </KeyboardAvoidingView>
+    </Modal>
+  );
+}
+
+// ─── BuyXPModal (Cash → XP) ──────────────────────────────────────────────────
+
+function BuyXPModal({
+  visible, cashBalance, onBuy, onClose,
+}: {
+  visible:     boolean;
+  cashBalance: number;
+  onBuy:       (amount: number) => void;
+  onClose:     () => void;
+}) {
+  const insets = useSafeAreaInsets();
+  const colors = useThemeColors();
+  const styles = useMemo(() => makeStyles(colors), [colors]);
+  const [cashStr, setCashStr] = useState('');
+  const cashAmount = parseInt(cashStr, 10) || 0;
+  const xpResult = Math.floor(cashAmount * 100); // 100 XP = ₹1
+
+  const error = cashAmount > 0 && cashAmount < 10   ? 'Minimum purchase is ₹10'
+              : cashAmount > cashBalance             ? `Insufficient balance (₹${cashBalance.toLocaleString()})`
+              : null;
+
+  const canBuy = cashAmount >= 10 && cashAmount <= cashBalance;
+
+  const reset = () => setCashStr('');
+
+  const handleBuy = () => {
+    if (!canBuy || error) return;
+    Alert.alert(
+      'Buy XP',
+      `Convert ₹${cashAmount.toLocaleString('en-IN')} → ${xpResult.toLocaleString()} XP?`,
+      [
+        { text: 'Cancel', style: 'cancel' },
+        { text: 'Buy', onPress: () => { onBuy(cashAmount); reset(); onClose(); } },
+      ]
+    );
+  };
+
+  return (
+    <Modal visible={visible} animationType="slide" presentationStyle="pageSheet" onRequestClose={() => { reset(); onClose(); }}>
+      <KeyboardAvoidingView
+        style={[styles.modalShell, { paddingTop: insets.top || 16 }]}
+        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+      >
+        <View style={styles.modalHeader}>
+          <TouchableOpacity onPress={() => { reset(); onClose(); }}>
+            <Ionicons name="close" size={24} color={colors.text.secondary} />
+          </TouchableOpacity>
+          <Text style={styles.modalTitle}>Buy XP</Text>
+          <TouchableOpacity onPress={handleBuy} disabled={!canBuy}>
+            <LinearGradient
+              colors={canBuy ? [colors.xpGold, colors.xpOrange] : [colors.bg.elevated, colors.bg.elevated]}
+              start={{ x: 0, y: 0 }} end={{ x: 1, y: 0 }}
+              style={styles.modalActionBtn}
+            >
+              <Text style={[styles.modalActionText, !canBuy && { color: colors.text.muted }]}>Buy</Text>
+            </LinearGradient>
+          </TouchableOpacity>
+        </View>
+
+        <ScrollView contentContainerStyle={styles.modalBody} keyboardShouldPersistTaps="handled">
+          <View style={styles.balanceChip}>
+            <Ionicons name="wallet-outline" size={14} color={colors.primaryLight} />
+            <Text style={styles.balanceChipText}>Available: ₹{cashBalance.toLocaleString()}</Text>
+          </View>
+
+          <View style={styles.rateBanner}>
+            <Text style={styles.rateBannerText}>₹1.00 = 100 XP</Text>
+            <Text style={styles.rateBannerSub}>Instant credit to your XP balance</Text>
+          </View>
+
+          <Text style={styles.fieldLabel}>Cash to spend</Text>
+          <View style={[styles.amountInput, error ? styles.amountInputError : null]}>
+            <Text style={styles.rupeePre}>₹</Text>
+            <TextInput
+              style={styles.amountField}
+              placeholder="0"
+              placeholderTextColor={colors.text.muted}
+              keyboardType="numeric"
+              value={cashStr}
+              onChangeText={v => setCashStr(v.replace(/[^0-9]/g, ''))}
+              maxLength={6}
+            />
+          </View>
+          {error ? <Text style={styles.errorText}>{error}</Text> : null}
+
+          <View style={styles.quickRow}>
+            {[50, 100, 250, 500].map(q => (
+              <TouchableOpacity
+                key={q}
+                style={[styles.quickChip, cashAmount === q && styles.quickChipActive]}
+                onPress={() => setCashStr(String(q))}
+              >
+                <Text style={[styles.quickChipText, cashAmount === q && styles.quickChipTextActive]}>₹{q}</Text>
+              </TouchableOpacity>
+            ))}
+            <TouchableOpacity
+              style={[styles.quickChip, cashAmount === cashBalance && styles.quickChipActive]}
+              onPress={() => setCashStr(String(Math.floor(cashBalance)))}
+            >
+              <Text style={[styles.quickChipText, cashAmount === cashBalance && styles.quickChipTextActive]}>Max</Text>
+            </TouchableOpacity>
+          </View>
+
+          {canBuy && (
+            <LinearGradient
+              colors={['rgba(251,191,36,0.12)', 'rgba(249,115,22,0.08)']}
+              style={styles.convertPreview}
+            >
+              <View style={styles.convertPreviewRow}>
+                <View style={styles.convertPreviewSide}>
+                  <Text style={styles.convertPreviewLabel}>You give</Text>
+                  <Text style={styles.convertPreviewCash}>₹ {cashAmount.toLocaleString('en-IN')}</Text>
+                </View>
+                <Ionicons name="arrow-forward" size={20} color={colors.text.muted} />
+                <View style={styles.convertPreviewSide}>
+                  <Text style={styles.convertPreviewLabel}>You get</Text>
+                  <Text style={styles.convertPreviewXP}>⚡ {xpResult.toLocaleString()} XP</Text>
+                </View>
+              </View>
+            </LinearGradient>
+          )}
+
+          <View style={styles.infoRow}>
+            <Ionicons name="information-circle-outline" size={14} color={colors.text.muted} />
+            <Text style={styles.infoText}>Use your wallet balance to buy XP for paid events, games and more.</Text>
+          </View>
+        </ScrollView>
+      </KeyboardAvoidingView>
+    </Modal>
+  );
+}
+
 // ─── HistoryModal ─────────────────────────────────────────────────────────────
 
 type HistFilter = 'All' | 'Earned' | 'Spent' | 'XP' | 'Cash';
@@ -1310,6 +1626,12 @@ function makeStyles(c: ColorPalette) {
   },
   convertBtnDisabled: { opacity: 0.4 },
   convertBtnText: { fontSize: fontSizes.xs, fontWeight: '700', color: c.xpGold },
+  xpBtnCol: { gap: 6, alignItems: 'flex-end' },
+  buyXpBtn: {
+    backgroundColor: c.primary,
+    borderRadius: radii.full, paddingVertical: 8, paddingHorizontal: 16,
+  },
+  buyXpBtnText: { fontSize: fontSizes.xs, fontWeight: '700', color: '#fff' },
 
   // Stats row
   statsRow: {

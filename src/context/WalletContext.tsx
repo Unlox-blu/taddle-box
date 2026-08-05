@@ -103,6 +103,8 @@ type WalletContextType = {
   fetchWalletData: () => Promise<void>;
   withdraw:        (amount: number) => Promise<string>;
   convertXP:       (xpAmount: number) => Promise<void>;
+  recharge:        (amount: number) => Promise<{ html: string; txnid: string }>;
+  convertCashToXP: (amount: number) => Promise<void>;
   linkUPI:         (upiId: string) => void;
   linkBank:        (bank: string) => void;
   toggleSetting:   (key: 'pinEnabled' | 'biometricEnabled' | 'notifXP' | 'notifWithdraw' | 'notifPromos') => void;
@@ -115,6 +117,8 @@ const WalletContext = createContext<WalletContextType>({
   fetchWalletData: async () => {},
   withdraw:      async () => '',
   convertXP:     async () => {},
+  recharge:      async () => ({ html: '', txnid: '' }),
+  convertCashToXP: async () => {},
   linkUPI:       () => {},
   linkBank:      () => {},
   toggleSetting: () => {},
@@ -179,7 +183,9 @@ export function WalletProvider({ children }: { children: React.ReactNode }) {
         date: t.createdAt || new Date().toISOString(),
         amount: (t.amountCents || 0) / 100,
         currency: 'INR',
-        type: t.category === 'withdrawal' ? 'withdraw' : (t.type === 'credit' ? 'earn' : 'spend'),
+        type: t.category === 'withdrawal' ? 'withdraw'
+          : t.category === 'topup' ? 'topup'
+          : (t.type === 'credit' ? 'earn' : 'spend'),
         status: t.status
       }));
 
@@ -233,6 +239,19 @@ export function WalletProvider({ children }: { children: React.ReactNode }) {
         await fetchWalletData();
       } catch (e) {
         console.error('Convert XP failed', e);
+        throw e;
+      }
+    },
+    recharge: async (amountRupees) => {
+      const res = await walletService.initiateRecharge(amountRupees * 100);
+      return { html: res.data?.html, txnid: res.data?.txnid };
+    },
+    convertCashToXP: async (amountRupees) => {
+      try {
+        await walletService.convertCashToXp(amountRupees * 100);
+        await fetchWalletData();
+      } catch (e) {
+        console.error('Buy XP failed', e);
         throw e;
       }
     },

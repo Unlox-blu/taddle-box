@@ -73,6 +73,11 @@ export const notificationService = {
           username,
           // REQUEST_TO_FOLLOW needs Approve/Reject actions instead of Follow Back.
           isFollowRequest: rawType === 'REQUEST_TO_FOLLOW',
+          // Server-resolved live state (see notification.service getAll):
+          //  - isMutual: recipient already follows the sender → hide Follow Back
+          //  - requestActive: the pending request still exists → hide Approve/Decline
+          isMutual: n.isMutual === true,
+          requestActive: n.requestActive !== false,
         };
       } else if (mappedType === 'achievement' && rawType === 'REFERRAL_REWARD') {
         payload = { kind: 'referral_reward', userId: n.senderId };

@@ -66,6 +66,8 @@ class SocketService {
       this.socket.on('matchmaking:lobbyUpdated', (data) => this.events.emit('matchmaking:lobbyUpdated', data));
       this.socket.on('matchmaking:timedOut', (data) => this.events.emit('matchmaking:timedOut', data));
       this.socket.on('notification:new', (data) => this.events.emit('notification:new', data));
+      this.socket.on('follow:requestCancelled', (data) => this.events.emit('follow:requestCancelled', data));
+      this.socket.on('follow:stateChanged', (data) => this.events.emit('follow:stateChanged', data));
       this.socket.on('SESSION_EXPIRED', (data) => this.events.emit('SESSION_EXPIRED', data));
 
       this.socket.on('connect_error', (error) => {

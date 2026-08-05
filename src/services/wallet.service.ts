@@ -25,5 +25,17 @@ export const walletService = {
   linkUPI: async (upiId: string) => {
     const response = await apiClient.post('/wallet/upi', { upiId });
     return response.data;
+  },
+
+  /** Start a PayU wallet recharge — returns an auto-submitting HTML form. */
+  initiateRecharge: async (amountCents: number) => {
+    const response = await apiClient.post('/wallet/recharge/init', { amountCents });
+    return response.data;
+  },
+
+  /** Buy XP with cash wallet balance. */
+  convertCashToXp: async (amountCents: number) => {
+    const response = await apiClient.post('/wallet/convert-cash-xp', { amountCents });
+    return response.data;
   }
 };

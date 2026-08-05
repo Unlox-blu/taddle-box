@@ -18,7 +18,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { StatusBar } from "expo-status-bar";
-import { useNavigation, useIsFocused } from "@react-navigation/native";
+import { useNavigation, useIsFocused, useFocusEffect } from "@react-navigation/native";
 import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
 import { fontSizes, spacing, radii } from "../../theme";
 import { useTheme, useThemeColors } from "../../context/ThemeContext";
@@ -88,6 +88,14 @@ export default function HomeScreen() {
   } = useFeed(activeTrend);
   const { mutate: toggleLike } = useToggleLike();
   const { mutate: toggleSave } = useToggleSave();
+
+  // Refresh the feed whenever the Home tab regains focus so new posts and XP
+  // from other tabs show up without a manual pull-to-refresh.
+  useFocusEffect(
+    useCallback(() => {
+      refetchFeed();
+    }, [refetchFeed])
+  );
 
   const posts = feedData?.pages.flat() || [];
 

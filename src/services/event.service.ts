@@ -30,6 +30,8 @@ export const eventService = {
       isRegistered: ev.isRegistered,
       isFree: ev.isFree,
       priceCents: ev.ticketPriceCents,
+      // Paid events are payable in XP (server-computed from XP_PER_RUPEE).
+      xpPrice: ev.xpPrice || (ev.isFree ? 0 : Math.round(((ev.ticketPriceCents || 0) / 100) * 100)),
     }));
     
     return { ...data, data: mappedEvents };
@@ -47,11 +49,6 @@ export const eventService = {
 
   async cancelRegistration(id: string) {
     const { data } = await apiClient.delete(`/events/${id}/register`);
-    return data;
-  },
-
-  async initPayment(id: string, amount: number) {
-    const { data } = await apiClient.post(`/payments/payu/init`, { eventId: id, amount });
     return data;
   },
 

@@ -50,6 +50,8 @@ const format = (row) => {
     createdAt: row.created_at,
     updatedAt: row.updated_at,
     isJoined: Boolean(row.is_joined),
+    // True when the current user has a PENDING join request (private communities).
+    isPending: row.member_status === 'pending',
     memberRole: row.member_role || null,
   };
 };

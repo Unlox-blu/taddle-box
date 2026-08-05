@@ -96,8 +96,10 @@ const getGamesLeaderboard = async ({limit}) => {
       u.name AS title,
       '@' || u.username AS subtitle,
       avatar_media.cloudfront_url AS avatar_url,
-      COALESCE(SUM(gm.xp_earned + gm.score), 0)::INT AS score,
-      'Game score' AS metric_label
+      -- Ranked by TOTAL WINS this week (a win is a WON finished match),
+      -- not by cumulative score/xp — a player who wins more ranks higher.
+      COALESCE(COUNT(gm.id) FILTER (WHERE gm.result = 'WIN'), 0)::INT AS score,
+      'Wins this week' AS metric_label
     FROM users u
     JOIN game_match gm ON gm.user_id = u.id
     LEFT JOIN media AS avatar_media ON avatar_media.id = u.avatar_url
@@ -107,6 +109,7 @@ const getGamesLeaderboard = async ({limit}) => {
       -- Private accounts don't appear on public leaderboards
       AND u.privacy = 'public'
     GROUP BY u.id, u.name, u.username, avatar_media.cloudfront_url
+    HAVING COUNT(gm.id) FILTER (WHERE gm.result = 'WIN') > 0
     ORDER BY score DESC, u.name ASC
     LIMIT $1`,
     [limit]

@@ -58,36 +58,6 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_game_matchmaking_one_waiting_user
   ON game_matchmaking_ticket (user_id, game_id, mode, COALESCE(tournament_id, '00000000-0000-0000-0000-000000000000'::uuid))
   WHERE status = 'WAITING';
 
-INSERT INTO game_tournament (
-  id, game_id, title, description, entry_fee_xp, prize_xp, max_players, starts_at, ends_at, status, metadata
-)
-SELECT
-  '33333333-3333-4333-8333-333333333333',
-  '11111111-1111-4111-8111-111111111111',
-  'Tap Rush Sprint',
-  'Score attack bracket for Tap Rush players.',
-  0,
-  250,
-  128,
-  NOW() - INTERVAL '1 hour',
-  NOW() + INTERVAL '7 days',
-  'ACTIVE',
-  '{"runtime":"html5_webview"}'::jsonb
-WHERE NOT EXISTS (SELECT 1 FROM game_tournament WHERE id = '33333333-3333-4333-8333-333333333333');
-
-INSERT INTO game_tournament (
-  id, game_id, title, description, entry_fee_xp, prize_xp, max_players, starts_at, ends_at, status, metadata
-)
-SELECT
-  '44444444-4444-4444-8444-444444444444',
-  '22222222-2222-4222-8222-222222222222',
-  'Memory Grid Ladder',
-  'Pattern replay challenge for Memory Grid players.',
-  0,
-  350,
-  128,
-  NOW() - INTERVAL '1 hour',
-  NOW() + INTERVAL '7 days',
-  'ACTIVE',
-  '{"runtime":"html5_webview"}'::jsonb
-WHERE NOT EXISTS (SELECT 1 FROM game_tournament WHERE id = '44444444-4444-4444-8444-444444444444');
+-- Tournament seeds live in ONE place only: 047_create_tournament_seed_ssot.sql
+-- (one recurring daily tournament per active game). Anything inserted here
+-- would duplicate those rows, so none are created in this migration.

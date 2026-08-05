@@ -124,6 +124,9 @@ const formatTournament = (row) => {
     maxPlayers: row.max_players,
     playerCount: Number(row.player_count || 0),
     isJoined: Boolean(row.is_joined),
+    // Current user's own stats inside this tournament (null when not joined).
+    myScore: row.my_score != null ? Number(row.my_score) : null,
+    myRank: row.my_rank != null ? Number(row.my_rank) : null,
     startsAt: row.starts_at,
     endsAt: row.ends_at,
     status: row.status,

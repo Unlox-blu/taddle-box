@@ -116,7 +116,12 @@ class CommunityService {
       if (!community) throw createError('Community not found', 404);
       
       const alreadyMember = await this.communityRepo.isMember(communityId, userId);
-      if (alreadyMember) throw createError("You are already a member of this community", 409);
+      // Idempotent: re-tapping "Request to Join" while a request is pending
+      // should not error — it just confirms the request is already in flight.
+      if (alreadyMember && alreadyMember.status === 'active')
+        throw createError("You are already a member of this community", 409);
+      if (alreadyMember && alreadyMember.status === 'pending')
+        return { status: 'pending' };
       
       const isPending = community.privacy === 'private';
       const status = isPending ? 'pending' : 'active';
@@ -179,11 +184,15 @@ class CommunityService {
       if (community?.ownerId === userId)
         throw createError('Owner cannot leave the community', 400);
 
-      const isMember = await this.communityRepo.isMember(communityId, userId);
-      if (!isMember) throw createError("You are not a member of this community", 404);
+      const member = await this.communityRepo.isMember(communityId, userId);
+      if (!member) throw createError("You are not a member of this community", 404);
 
       await this.communityRepo.removeMember(communityId, userId);
-      await this.communityRepo.decrementMemberCount(communityId);
+      // Only ACTIVE members counted toward member_count — a pending request
+      // was never counted, so cancelling it must not decrement.
+      if (member.status === 'active') {
+        await this.communityRepo.decrementMemberCount(communityId);
+      }
     } catch (error) {
       throw error;
     }

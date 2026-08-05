@@ -273,8 +273,19 @@ class GameService {
 	      const tournament = await this.gameRepo.findTournamentById({tournamentId, userId})
 	      if(!tournament)
 	        throw createError("Tournament not found", 404)
-	      if (!['ACTIVE', 'UPCOMING'].includes(tournament.status) || new Date(tournament.endsAt) <= new Date())
-	        throw createError("Tournament is not open", 400)
+	      // Respect the start/end window: UPCOMING and expired tournaments are
+	      // not joinable, even if already registered for a previous cycle.
+	      const now = new Date()
+	      const isActive = tournament.status === 'ACTIVE'
+	        && new Date(tournament.startsAt) <= now
+	        && new Date(tournament.endsAt) > now
+	      if (!isActive)
+	        throw createError(
+	          tournament.status === 'UPCOMING' || new Date(tournament.startsAt) > now
+	            ? "Tournament hasn't started yet"
+	            : "Tournament has ended",
+	          400
+	        )
 	      if (tournament.playerCount >= tournament.maxPlayers && !tournament.isJoined)
 	        throw createError("Tournament is full", 409)
 
@@ -304,6 +315,10 @@ class GameService {
 	        throw createError("Game not found", 404)
 
 	      let tournamentId = matchData.tournamentId || null
+	      // Tournament lobby TTL: opponents can be rare, so the queue must not
+	      // die after the 30s AUTO window. Stay open until the tournament ends
+	      // (clamped 30 min – 6 h); the client keeps searching indefinitely.
+	      let lobbyTtlSeconds = null
 	      if (mode === 'TOURNAMENT') {
 	        if (!tournamentId)
 	          throw createError("Tournament ID is required", 400)
@@ -313,11 +328,13 @@ class GameService {
 	        if (tournament.gameId !== game.id)
 	          throw createError("Tournament does not belong to this game", 400)
 	        await this.joinTournament({userId, tournamentId})
+	        const endMs = new Date(tournament.endsAt).getTime()
+	        lobbyTtlSeconds = Math.max(30 * 60, Math.min(6 * 60 * 60, Math.floor((endMs - Date.now()) / 1000)))
 	      } else {
 	        tournamentId = null
 	      }
 
-	      const result = await this.gameRepo.joinMatchmaking({userId, game, mode, tournamentId, targetPlayers: matchData.targetPlayers, visibility: matchData.visibility});
+	      const result = await this.gameRepo.joinMatchmaking({userId, game, mode, tournamentId, targetPlayers: matchData.targetPlayers, visibility: matchData.visibility, lobbyTtlSeconds});
         try {
           const { getIO } = require('../../sockets/index');
           const io = getIO();
@@ -695,6 +712,12 @@ class GameService {
           }
         });
 
+        // Tournament scoring (bot matches): +1 win on the player's entry when
+        // this match group belongs to a tournament (no-op otherwise).
+        await this.gameRepo.recordTournamentEntryResult({
+          matchGroupId, userId, isWin: myResult === 'WIN', xpEarned: myXp
+        });
+
         return {
           result: myResult, score: calculated.score,
           xpEarned: myXp, ledgerId: ledgerEntry.id
@@ -776,6 +799,17 @@ class GameService {
           title: 'Match Resolved',
           message: opResult === 'WIN' ? 'You won!' : 'You lost.',
           payload: { matchId: matchGroupId, result: opResult, score: opScore, xpEarned: opXp }
+        });
+
+        // Tournament scoring (PVP): +1 win on BOTH players' entries when this
+        // match group belongs to a tournament (no-op otherwise). This closes the
+        // gap where tournament leaderboards stayed empty — the old completeGameMatch
+        // path updated entries, but the live session flow never did.
+        await this.gameRepo.recordTournamentEntryResult({
+          matchGroupId, userId, isWin: myResult === 'WIN', xpEarned: myXp
+        });
+        await this.gameRepo.recordTournamentEntryResult({
+          matchGroupId, userId: opponentSession.user_id, isWin: opResult === 'WIN', xpEarned: opXp
         });
 
         return {

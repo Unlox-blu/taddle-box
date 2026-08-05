@@ -4,6 +4,7 @@ import {
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
+import { LinearGradient } from 'expo-linear-gradient';
 import { StatusBar } from 'expo-status-bar';
 import { NativeStackScreenProps } from '@react-navigation/native-stack';
 import AsyncStorage from '@react-native-async-storage/async-storage';
@@ -551,7 +552,17 @@ export default function NotificationsScreen({ navigation }: Props) {
                             style={{ width: 48, height: 48, borderRadius: 24 }}
                           />
                         ) : (
-                          <Text style={styles.avatarEmoji}>{notif.avatar}</Text>
+                          // Person placeholder — the sender's avatar is missing
+                          // (system events, legacy rows), so show a clean profile
+                          // icon instead of a bare letter.
+                          <LinearGradient
+                            colors={[colors.primary, colors.cyanDark]}
+                            start={{ x: 0, y: 0 }}
+                            end={{ x: 1, y: 1 }}
+                            style={{ width: 48, height: 48, borderRadius: 24, alignItems: 'center', justifyContent: 'center' }}
+                          >
+                            <Ionicons name="person" size={20} color="#fff" />
+                          </LinearGradient>
                         )}
                       </View>
                       <View style={[styles.typeDot, { backgroundColor: notifColor[notif.type] }]}>

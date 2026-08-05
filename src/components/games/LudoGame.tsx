@@ -429,6 +429,70 @@ export default function LudoGame({
     gameSound.playTap();
   }, [isMyTurn, gameState, socket]);
 
+  // ── Idle safeguard ────────────────────────────────────────────────────────
+  // My turn, nothing pressed: 5s silent grace → 5s visible countdown →
+  // auto-roll. If the roll lands but no token is tapped within ~3.5s, auto-move
+  // the first movable token. The server skips the turn at 15s as a backstop,
+  // so an idle or backgrounded player can never stall the match.
+  const [idleLeft, setIdleLeft] = useState<number | null>(null);
+  const idleTickRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const idleMoveRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const rollDiceRef = useRef<() => void>(() => {});
+  const moveTokenRef = useRef<(tokenId: number) => void>(() => {});
+  // True only when the CURRENT dice was produced by the idle auto-roll. A
+  // player who rolls manually is actively engaged — their token must never be
+  // auto-moved out from under them.
+  const autoRolledTurnRef = useRef(false);
+  rollDiceRef.current = rollDice;
+  moveTokenRef.current = moveToken;
+
+  useEffect(() => {
+    if (status !== 'active' || !isMyTurn) {
+      setIdleLeft(null);
+      autoRolledTurnRef.current = false;
+      if (idleTickRef.current) { clearInterval(idleTickRef.current); idleTickRef.current = null; }
+      if (idleMoveRef.current) { clearTimeout(idleMoveRef.current); idleMoveRef.current = null; }
+      return;
+    }
+    if (gameState?.dice != null) {
+      // Rolled but nothing tapped. Only auto-move when the roll itself was the
+      // idle auto-roll (the player has stepped away); a manual roll means the
+      // player is engaged and keeps control. The server's 15s skip backstop
+      // still clears an abandoned rolled-token turn.
+      setIdleLeft(null);
+      if (!autoRolledTurnRef.current) return;
+      if (idleMoveRef.current) clearTimeout(idleMoveRef.current);
+      idleMoveRef.current = setTimeout(() => {
+        const st = gameStateRef.current;
+        const movable = st?.movableTokens;
+        if (movable && movable.length > 0 &&
+            (st?.currentTurnIndex ?? 0) === myPlayerIdx &&
+            st?.dice != null) {
+          moveTokenRef.current(movable[0]);
+        }
+      }, 3500);
+      return () => {
+        if (idleMoveRef.current) { clearTimeout(idleMoveRef.current); idleMoveRef.current = null; }
+      };
+    }
+    // Waiting for a roll — 5s grace, then a visible 5s countdown, then auto-roll.
+    let seconds = 0;
+    setIdleLeft(null);
+    if (idleTickRef.current) clearInterval(idleTickRef.current);
+    idleTickRef.current = setInterval(() => {
+      seconds += 1;
+      if (seconds >= 5 && seconds < 10) setIdleLeft(10 - seconds);
+      if (seconds >= 10) {
+        if (idleTickRef.current) { clearInterval(idleTickRef.current); idleTickRef.current = null; }
+        autoRolledTurnRef.current = true;
+        rollDiceRef.current();
+      }
+    }, 1000);
+    return () => {
+      if (idleTickRef.current) { clearInterval(idleTickRef.current); idleTickRef.current = null; }
+    };
+  }, [status, isMyTurn, gameState?.dice, myPlayerIdx]);
+
   // ── Real multiplayer chat (server broadcasts to the match room) ──────────
   const sendChat = useCallback((text: string) => {
     const t = text.trim();
@@ -813,6 +877,14 @@ export default function LudoGame({
         </Text>
       </View>
 
+      {/* Idle countdown — visible only during my turn's 5s auto-roll window */}
+      {idleLeft !== null && (
+        <View style={styles.autoRollPill}>
+          <Ionicons name="time-outline" size={12} color="#FDE68A" />
+          <Text style={styles.autoRollText}>Auto-roll in {idleLeft}s</Text>
+        </View>
+      )}
+
       {/* ─ Board ─ */}
       <View style={styles.boardWrap}>
         <LinearGradient
@@ -1101,6 +1173,15 @@ const styles = StyleSheet.create({
   },
   turnDot:  { width: 8, height: 8, borderRadius: 4 },
   turnText: { fontSize: 13, fontWeight: '800', maxWidth: 260 },
+  autoRollPill: {
+    flexDirection: 'row', alignItems: 'center', gap: 5,
+    paddingHorizontal: 12, paddingVertical: 4,
+    borderRadius: 12,
+    backgroundColor: 'rgba(253,230,138,0.14)',
+    borderWidth: 1, borderColor: 'rgba(253,230,138,0.4)',
+    alignSelf: 'center', marginBottom: 6,
+  },
+  autoRollText: { fontSize: 11, fontWeight: '800', color: '#FDE68A' },
 
   // Player strip
   playerStrip: {

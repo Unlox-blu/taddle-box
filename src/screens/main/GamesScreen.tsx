@@ -751,27 +751,32 @@ function GameCard({
     if (rejoinWindowMs != null) {
       setTimeLeft(Math.floor(rejoinWindowMs / 1000));
     } else {
-      setTimeLeft(null);
+      // Server didn't report a window (match still ACTIVE, or Redis snapshot
+      // missing after a restart). Fall back to the standard 60s reconnect
+      // window so a rejoin button ALWAYS shows a countdown and self-expires
+      // instead of sitting on "REJOIN MATCH" with no seconds for a long time.
+      // Non-rejoin cards keep timeLeft null so they never tick.
+      setTimeLeft(isRejoin ? 60 : null);
     }
-  }, [rejoinWindowMs]);
+  }, [rejoinWindowMs, isRejoin]);
 
   useEffect(() => {
-    if (timeLeft === null || timeLeft <= 0) return;
+    if (!isRejoin || timeLeft === null || timeLeft <= 0) return;
     const timer = setInterval(() => {
       setTimeLeft((prev) => (prev && prev > 0 ? prev - 1 : 0));
     }, 1000);
     return () => clearInterval(timer);
-  }, [timeLeft]);
+  }, [timeLeft, isRejoin]);
 
   // When the reconnect window expires the match is forfeited server-side, so
   // the REJOIN button must revert to a normal PLAY card instead of showing
   // "REJOIN MATCH" forever (stale session left in state).
   useEffect(() => {
-    if (isRejoin && rejoinWindowMs != null && timeLeft === 0) {
+    if (isRejoin && timeLeft === 0) {
       const t = setTimeout(() => onRejoinExpired?.(), 1200);
       return () => clearTimeout(t);
     }
-  }, [isRejoin, rejoinWindowMs, timeLeft, onRejoinExpired]);
+  }, [isRejoin, timeLeft, onRejoinExpired]);
 
   const colors = useThemeColors();
   const styles = useMemo(() => makeStyles(colors), [colors]);

@@ -143,8 +143,16 @@ export default function EditProfileScreen() {
     await authService.updateBanner(res.data.mediaId);
   };
 
+  // EditProfile lives on the Home tab's stack, so a plain goBack() lands on
+  // the HOME screen. Pop it and switch to the Profile tab instead — SharedProfile
+  // refetches on focus, so the saved changes are visible immediately.
+  const returnToProfile = () => {
+    navigation.getParent()?.navigate('Profile' as never);
+    if (navigation.canGoBack()) navigation.goBack();
+  };
+
   const handleSave = async () => {
-    if (!hasChanges) { navigation.goBack(); return; }
+    if (!hasChanges) { returnToProfile(); return; }
     if (!name.trim()) { Alert.alert('Validation', 'Name cannot be empty.'); return; }
 
     setSaving(true);
@@ -192,7 +200,7 @@ export default function EditProfileScreen() {
       await refreshUser();
 
       Alert.alert('Saved!', 'Your profile has been updated.', [
-        { text: 'OK', onPress: () => navigation.goBack() },
+        { text: 'OK', onPress: returnToProfile },
       ]);
     } catch (e: any) {
       Alert.alert('Error', e.response?.data?.message || 'Failed to save profile. Please try again.');

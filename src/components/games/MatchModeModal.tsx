@@ -737,17 +737,33 @@ export default function MatchModeModal({
     }
   };
 
+  // Fully stop the queue: mark cancelled, kill every timer/poll so no late
+  // matchmaking:matched socket event or READY lobby poll can start the match
+  // in the background, cancel the server ticket (or unqueue a custom lobby),
+  // then close. Used by the header X, the Android back button and Cancel.
+  // Previously the X only cancelled the ticket — cancelledRef stayed false and
+  // the poll kept running, so a match that resolved moments later dragged the
+  // user into a game they had just closed.
+  const hardCancelQueue = useCallback(async () => {
+    cancelledRef.current = true;
+    if (fallbackTimerRef.current) { clearInterval(fallbackTimerRef.current); fallbackTimerRef.current = null; }
+    if (lobbyPollRef.current) { clearInterval(lobbyPollRef.current); lobbyPollRef.current = null; }
+    if (matchBeatRef.current) { clearTimeout(matchBeatRef.current); matchBeatRef.current = null; }
+    const id = lobbyIdRef.current;
+    if (mode === "CUSTOM" && id) {
+      apiClient.post(`/game/lobbies/${id}/queue`, { active: false }).catch(() => {});
+    } else {
+      try { await gamesService.cancelMatchmakingTicket(); } catch { /* ok */ }
+    }
+    onClose();
+  }, [mode, onClose]);
+
   // Close (X) from the queue screen: unqueue a custom lobby so bots stop
   // joining (or cancel the AUTO/tournament ticket), then close the modal.
   // Otherwise the lobby would keep filling and start a match without the host.
   const handleHeaderClose = async () => {
     if (step !== "queue") { onClose(); return; }
-    if (mode === "CUSTOM" && lobbyIdRef.current) {
-      apiClient.post(`/game/lobbies/${lobbyIdRef.current}/queue`, { active: false }).catch(() => {});
-    } else {
-      try { await gamesService.cancelMatchmakingTicket(); } catch { /* ok */ }
-    }
-    onClose();
+    await hardCancelQueue();
   };
 
   const cancelQueue = async () => {
@@ -757,7 +773,11 @@ export default function MatchModeModal({
     try {
       if (mode === "CUSTOM" && id) {
         // Return to the manual lobby screen — unqueue only, do NOT cancel the
-        // host's ticket (that would kick them out of their own lobby).
+        // host's ticket (that would kick them out of their own lobby). Also
+        // stop the READY poll, or a lobby that filled between ticks could
+        // still resolve and drag the host into a match while on the lobby.
+        if (lobbyPollRef.current) { clearInterval(lobbyPollRef.current); lobbyPollRef.current = null; }
+        if (matchBeatRef.current) { clearTimeout(matchBeatRef.current); matchBeatRef.current = null; }
         await apiClient.post(`/game/lobbies/${id}/queue`, { active: false });
         cancelledRef.current = false;
         setCancelling(false);
@@ -823,7 +843,7 @@ export default function MatchModeModal({
 
   // ── render ────────────────────────────────────────────────────────────────
   return (
-    <Modal visible={visible} animationType="slide" presentationStyle="pageSheet" onRequestClose={onClose}>
+    <Modal visible={visible} animationType="slide" presentationStyle="pageSheet" onRequestClose={handleHeaderClose}>
       <View style={[styles.root, { paddingTop: insets.top || 16 }]}>
         {/* ── header ── */}
         <View style={styles.header}>

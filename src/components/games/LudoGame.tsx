@@ -151,6 +151,9 @@ type Props = {
   players?: PlayerContext[];
   myName?: string;
   myAvatar?: string | null;
+  /** Mirrors the GamePlayModal phase — the engine only STARTs once this is
+      "playing" (READY is sent after the 3-2-1, never on connect). */
+  externalPhase?: "playing" | "waiting";
   onComplete: (result: HtmlGameResult) => void;
 };
 
@@ -170,7 +173,7 @@ const DOT_POS: Record<number, [number, number][]> = {
 };
 
 export default function LudoGame({
-  matchId, userId, wsToken, players, myName: myNameProp, myAvatar: myAvatarProp, onComplete
+  matchId, userId, wsToken, players, myName: myNameProp, myAvatar: myAvatarProp, externalPhase = "waiting", onComplete
 }: Props) {
   const [socket, setSocket] = useState<any>(null);
   
@@ -207,6 +210,14 @@ export default function LudoGame({
   const chatInputRef = useRef<TextInput>(null);
   const gameStateRef = useRef(gameState);
   gameStateRef.current = gameState;
+  // The engine fires START only after every player's board is visible — READY
+  // is sent once the 3-2-1 countdown finishes, never on connect, so bot turns
+  // never play out behind the countdown.
+  const readySentRef = useRef(false);
+  // Bumped on every CONNECT_ACK so a reconnect during the waiting phase
+  // re-arms READY (the server drops the player from readyPlayers on
+  // disconnect — without re-sending, the match would never start).
+  const [readyTick, setReadyTick] = useState(0);
 
   // Per-token spring animations
   const tokenAnims = useRef<Record<string, { x: Animated.Value; y: Animated.Value }>>({}).current;
@@ -261,7 +272,9 @@ export default function LudoGame({
       }
       if (ps) setGameState(ps);
       setStatus(data.state?.status === 'ACTIVE' ? 'active' : 'waiting');
-      s.emit(EVENTS.READY);
+      // Reconnect (or fresh join) — re-arm the READY gate.
+      readySentRef.current = false;
+      setReadyTick((t) => t + 1);
     });
 
     s.on(EVENTS.START, (data: any) => {
@@ -344,6 +357,13 @@ export default function LudoGame({
       s.disconnect();
     };
   }, [matchId, userId, wsToken]);
+
+  // Send READY the moment the board is actually visible (after the 3-2-1).
+  useEffect(() => {
+    if (externalPhase !== "playing" || readySentRef.current || !socket) return;
+    readySentRef.current = true;
+    socket.emit(EVENTS.READY);
+  }, [externalPhase, socket, readyTick]);
 
   useEffect(() => {
     if (gameState) setIsMyTurn((gameState.currentTurnIndex ?? 0) === myPlayerIdx);

@@ -479,10 +479,30 @@ export default function WalletScreen() {
                 <Text style={{ color: colors.primary }}>Close</Text>
               </TouchableOpacity>
             </View>
-            <WebView 
-              source={{ html: payuHtml }} 
-              style={{ flex: 1 }} 
+            <WebView
+              source={{ html: payuHtml }}
+              style={{ flex: 1 }}
               originWhitelist={['*']}
+              // PayU's checkout needs DOM storage + third-party cookies (OTP
+              // screens, saved cards). Without these the page can render blank.
+              javaScriptEnabled
+              domStorageEnabled
+              thirdPartyCookiesEnabled
+              sharedCookiesEnabled
+              startInLoadingState
+              renderLoading={() => (
+                <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', backgroundColor: colors.bg.base }}>
+                  <ActivityIndicator size="large" color={colors.primary} />
+                  <Text style={{ color: colors.text.muted, marginTop: 12, fontSize: 13 }}>
+                    Opening secure PayU checkout...
+                  </Text>
+                </View>
+              )}
+              onError={(syntheticEvent) => {
+                console.warn('PayU WebView error', syntheticEvent.nativeEvent);
+                Alert.alert('Checkout Error', 'Could not load the payment page. Please try again.');
+                setPayuHtml(null);
+              }}
               onNavigationStateChange={(state) => {
                 // Backend redirect target after PayU checkout
                 if (state.url.includes('/wallet/recharge/result')) {
@@ -1286,18 +1306,28 @@ function HistoryModal({
           <View style={{ width: 24 }} />
         </View>
 
-        {/* Filter */}
-        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.txnFilters}>
-          {(['All', 'Earned', 'Spent', 'XP', 'Cash'] as HistFilter[]).map(f => (
-            <TouchableOpacity
-              key={f}
-              style={[styles.txnChip, filter === f && styles.txnChipActive]}
-              onPress={() => setFilter(f)}
-            >
-              <Text style={[styles.txnChipText, filter === f && styles.txnChipTextActive]}>{f}</Text>
-            </TouchableOpacity>
-          ))}
-        </ScrollView>
+        {/* Filter pills + live filtered count */}
+        <View style={styles.histFiltersWrap}>
+          <ScrollView
+            horizontal
+            showsHorizontalScrollIndicator={false}
+            contentContainerStyle={styles.histFilters}
+            style={{ flex: 1 }}
+          >
+            {(['All', 'Earned', 'Spent', 'XP', 'Cash'] as HistFilter[]).map(f => (
+              <TouchableOpacity
+                key={f}
+                style={[styles.histChip, filter === f && styles.histChipActive]}
+                onPress={() => setFilter(f)}
+              >
+                <Text style={[styles.histChipText, filter === f && styles.histChipTextActive]}>{f}</Text>
+              </TouchableOpacity>
+            ))}
+          </ScrollView>
+          <Text style={styles.histFilterCount}>
+            {filtered.length} txn
+          </Text>
+        </View>
 
         <ScrollView showsVerticalScrollIndicator={false}>
           {Object.keys(groups).length === 0 ? (
@@ -1838,6 +1868,29 @@ function makeStyles(c: ColorPalette) {
     textTransform: 'uppercase', paddingHorizontal: spacing.lg,
     marginTop: spacing.md, marginBottom: 6,
   },
+  // Dedicated filter pills for the full-page history modal (the main-page
+  // txnChip styles are tuned for a card layout, not a full screen).
+  histFiltersWrap: {
+    flexDirection: 'row', alignItems: 'center',
+    paddingHorizontal: spacing.lg, marginBottom: spacing.sm,
+    gap: 10,
+  },
+  histFilters: { gap: 8, paddingVertical: 2 },
+  histFilterCount: {
+    fontSize: fontSizes.xs, color: c.text.muted, fontWeight: '700',
+    paddingHorizontal: 10, paddingVertical: 6,
+    backgroundColor: c.bg.card, borderRadius: radii.full,
+    borderWidth: 1, borderColor: c.border, overflow: 'hidden',
+  },
+  histChip: {
+    paddingVertical: 7, paddingHorizontal: 16,
+    borderRadius: radii.full, borderWidth: 1, borderColor: c.border,
+    backgroundColor: c.bg.elevated,
+    flexShrink: 0,
+  },
+  histChipActive: { backgroundColor: c.primary, borderColor: c.primary },
+  histChipText: { fontSize: fontSizes.xs, color: c.text.muted, fontWeight: '600' },
+  histChipTextActive: { color: '#fff', fontWeight: '800' },
 
   // Settings modal
   settingsSection: {

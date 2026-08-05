@@ -76,8 +76,10 @@ export const notificationService = {
           // Server-resolved live state (see notification.service getAll):
           //  - isMutual: recipient already follows the sender → hide Follow Back
           //  - requestActive: the pending request still exists → hide Approve/Decline
+          //  - senderPrivacy: private senders make follow-back a REQUEST
           isMutual: n.isMutual === true,
           requestActive: n.requestActive !== false,
+          senderPrivacy: n.senderPrivacy || 'public',
         };
       } else if (mappedType === 'achievement' && rawType === 'REFERRAL_REWARD') {
         payload = { kind: 'referral_reward', userId: n.senderId };

@@ -230,6 +230,9 @@ type Props = {
   players?: PlayerContext[];
   myName?: string;
   myAvatar?: string | null;
+  /** Mirrors the GamePlayModal phase — the engine only STARTs once this is
+      "playing" (READY is sent after the 3-2-1, never on connect). */
+  externalPhase?: "playing" | "waiting";
   onComplete: (result: HtmlGameResult) => void;
 };
 
@@ -269,7 +272,7 @@ function buildPlayerInfo(players: any[]): Record<string, { name: string; usernam
 
 type ChatMsg = { id: number; uid?: string; name: string; color: string; text: string; time: string };
 
-export default function SnakeLadderGame({ matchId, userId, wsToken, players, myName, myAvatar, onComplete }: Props) {
+export default function SnakeLadderGame({ matchId, userId, wsToken, players, myName, myAvatar, externalPhase = "waiting", onComplete }: Props) {
   const [socket, setSocket] = useState<any>(null);
   const [status, setStatus] = useState<'connecting' | 'waiting' | 'active' | 'finished'>('connecting');
   const [state, setState] = useState<any>(null);
@@ -321,6 +324,14 @@ export default function SnakeLadderGame({ matchId, userId, wsToken, players, myN
   // Dice-roll buffering bookkeeping
   const rollingRef = useRef(false);
   const pendingSyncRef = useRef<{ ps: any; reason?: string } | null>(null);
+  // The engine fires START only after every player's board is visible — READY
+  // is sent once the 3-2-1 countdown finishes, never on connect, so bot turns
+  // never play out behind the countdown.
+  const readySentRef = useRef(false);
+  // Bumped on every CONNECT_ACK so a reconnect during the waiting phase
+  // re-arms READY (the server drops the player from readyPlayers on
+  // disconnect — without re-sending, the match would never start).
+  const [readyTick, setReadyTick] = useState(0);
 
   // Per-player animated positions
   const tokenAnims = useRef<Record<string, { x: Animated.Value; y: Animated.Value }>>({}).current;
@@ -427,7 +438,8 @@ export default function SnakeLadderGame({ matchId, userId, wsToken, players, myN
   /**
    * Apply a freshly synced plugin state (dice result + token movement).
    * Extracted so a ~2s dice-roll animation can buffer the incoming sync and
-   * only settle on the result after the tumble finishes.
+   * only settle on the result after the tumble finishes. Returns the total
+   * animation duration so the caller can pace the next sync.
    */
   const applySync = useCallback((ps: any, reason?: string) => {
     const { totalMs, moverId, overshoot, lastEvent } = applyStateDelta(ps, reason);
@@ -479,7 +491,44 @@ export default function SnakeLadderGame({ matchId, userId, wsToken, players, myN
       setRemoteRolling(null);
     }
     setIsMyTurn(nowMyTurn);
+    return totalMs;
   }, [applyStateDelta, pName, showToast, userId]);
+
+  // ── Sequential sync queue ─────────────────────────────────────────────────
+  // Bot turns resolve server-side in milliseconds, but each move's dice +
+  // token animation needs 1-3s to be readable. Without buffering, back-to-back
+  // SYNCs land while tokens are still animating — the whole round of bot turns
+  // appears to "complete instantly". The queue settles one sync, waits for its
+  // animation, then settles the next.
+  const applySyncRef = useRef(applySync);
+  applySyncRef.current = applySync;
+  const syncQueueRef = useRef<Array<{ ps: any; reason?: string }>>([]);
+  const processingSyncRef = useRef(false);
+  const drainTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // Set on GAME_OVER so a queued sync can never re-apply after the match ends.
+  const matchEndedRef = useRef(false);
+
+  const drainSyncQueue = useCallback(() => {
+    if (processingSyncRef.current || matchEndedRef.current) return;
+    const next = syncQueueRef.current.shift();
+    if (!next) return;
+    processingSyncRef.current = true;
+    const totalMs = applySyncRef.current(next.ps, next.reason) || 0;
+    const settle = Math.max(700, Math.min(3200, totalMs + 650));
+    drainTimerRef.current = setTimeout(() => {
+      drainTimerRef.current = null;
+      processingSyncRef.current = false;
+      drainSyncQueue();
+    }, settle);
+  }, []);
+
+  const enqueueSync = useCallback((ps: any, reason?: string) => {
+    syncQueueRef.current.push({ ps, reason });
+    drainSyncQueue();
+  }, [drainSyncQueue]);
+
+  const enqueueSyncRef = useRef(enqueueSync);
+  enqueueSyncRef.current = enqueueSync;
 
   useEffect(() => {
     const s = createGameEngineSocket(matchId, userId, wsToken);
@@ -501,7 +550,9 @@ export default function SnakeLadderGame({ matchId, userId, wsToken, players, myN
         setIsMyTurn((ps.turnOrder || []).indexOf(userId) === ps.currentTurnIndex);
       }
       setStatus(data.state?.status === 'ACTIVE' ? 'active' : 'waiting');
-      s.emit(E.READY);
+      // Reconnect (or fresh join) — re-arm the READY gate.
+      readySentRef.current = false;
+      setReadyTick((t) => t + 1);
     });
 
     s.on(E.START, (data: any) => {
@@ -528,10 +579,20 @@ export default function SnakeLadderGame({ matchId, userId, wsToken, players, myN
         pendingSyncRef.current = { ps: data.state, reason: data.reason };
         return;
       }
-      applySync(data.state, data.reason);
+      // Queue remote/bot moves so each turn's animation plays out before the
+      // next lands — otherwise bot turns appear to complete instantly.
+      enqueueSyncRef.current(data.state, data.reason);
     });
 
     s.on(E.GAME_OVER, (data: any) => {
+      // Stop the sync pipeline — no queued move may re-apply after the end.
+      matchEndedRef.current = true;
+      syncQueueRef.current = [];
+      processingSyncRef.current = false;
+      if (drainTimerRef.current) {
+        clearTimeout(drainTimerRef.current);
+        drainTimerRef.current = null;
+      }
       const full = data.state || {};
       const ps = full.pluginState || {};
       const winner = data.winner || ps.winner || null;
@@ -582,9 +643,19 @@ export default function SnakeLadderGame({ matchId, userId, wsToken, players, myN
     return () => {
       if (landedTimer.current) clearTimeout(landedTimer.current);
       if (remoteRollTimer.current) clearTimeout(remoteRollTimer.current);
+      if (drainTimerRef.current) clearTimeout(drainTimerRef.current);
+      matchEndedRef.current = true;
+      syncQueueRef.current = [];
       s.disconnect();
     };
   }, [matchId, userId, wsToken, applySync, pName, showToast]);
+
+  // Send READY the moment the board is actually visible (after the 3-2-1).
+  useEffect(() => {
+    if (externalPhase !== "playing" || readySentRef.current || !socket) return;
+    readySentRef.current = true;
+    socket.emit(E.READY);
+  }, [externalPhase, socket, readyTick]);
 
   useEffect(() => {
     if (state) setIsMyTurn((state.turnOrder || []).indexOf(userId) === state.currentTurnIndex);

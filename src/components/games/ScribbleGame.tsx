@@ -82,6 +82,18 @@ export default function ScribbleGame({ matchId, userId, wsToken, players, extern
   penColorRef.current = penColor;
   const penWidthRef = useRef(penWidth);
   penWidthRef.current = penWidth;
+  // The engine fires START only after every player's board is visible — READY
+  // is sent once the 3-2-1 countdown finishes, never on connect, so the round
+  // clock + draw time never start behind the countdown.
+  const readySentRef = useRef(false);
+  // Bumped on every CONNECT_ACK so a reconnect during the waiting phase
+  // re-arms READY (the server drops the player from readyPlayers on
+  // disconnect — without re-sending, the match would never start).
+  const [readyTick, setReadyTick] = useState(0);
+  // Mirrors `guess` so submitGuess can read the freshest draft synchronously
+  // (a fast Enter + state race used to submit a stale/empty value).
+  const guessRef = useRef('');
+  guessRef.current = guess;
 
   // Show role announcement card — cue the player their turn/role changed
   const announceRole = (drawing: boolean) => {
@@ -108,7 +120,9 @@ export default function ScribbleGame({ matchId, userId, wsToken, players, extern
       } else {
         setStatus('waiting');
       }
-      s.emit(E.READY);
+      // Reconnect (or fresh join) — re-arm the READY gate.
+      readySentRef.current = false;
+      setReadyTick((t) => t + 1);
     });
 
     s.on(E.START, (data: any) => {
@@ -175,6 +189,13 @@ export default function ScribbleGame({ matchId, userId, wsToken, players, extern
 
     return () => { s.disconnect(); clearInterval(timerRef.current); };
   }, [matchId, userId, wsToken]);
+
+  // Send READY the moment the board is actually visible (after the 3-2-1).
+  useEffect(() => {
+    if (externalPhase !== 'playing' || readySentRef.current || !socket) return;
+    readySentRef.current = true;
+    socket.emit(E.READY);
+  }, [externalPhase, socket, readyTick]);
 
   const applyState = (ps: any, announce: boolean) => {
     lastPsRef.current = ps;
@@ -308,11 +329,16 @@ export default function ScribbleGame({ matchId, userId, wsToken, players, extern
   }, []);
 
   const submitGuess = useCallback(() => {
-    if (!guess.trim() || isDrawer) return;
-    socket?.emit(E.MOVE, { type: 'GUESS', text: guess.trim() });
+    if (isDrawer) return;
+    const draft = guessRef.current.trim();
+    if (!draft || !socket) return;
+    socket.emit(E.MOVE, { type: 'GUESS', text: draft });
+    // Optimistic echo — the server SYNCs the authoritative feed back.
+    setChat(prev => [...prev, { userId, text: draft, correct: false, ts: Date.now() }]);
     setGuess('');
+    guessRef.current = '';
     gameSound.playTap();
-  }, [guess, isDrawer, socket]);
+  }, [isDrawer, socket, userId]);
 
   // ── Canvas stroke rendering ──────────────────────────────────────────────
   const renderStrokes = (strokeList: Stroke[], liveStroke: { x: number; y: number }[]) => {
@@ -505,8 +531,11 @@ export default function ScribbleGame({ matchId, userId, wsToken, players, extern
             placeholderTextColor="#475569"
             returnKeyType="send"
             onSubmitEditing={submitGuess}
+            blurOnSubmit={false}
             autoCorrect={false}
             autoCapitalize="none"
+            maxLength={40}
+            enablesReturnKeyAutomatically
           />
           <TouchableOpacity onPress={submitGuess} disabled={!guess.trim()}>
             <LinearGradient

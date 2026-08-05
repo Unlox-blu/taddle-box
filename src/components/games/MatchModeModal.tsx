@@ -146,6 +146,14 @@ export default function MatchModeModal({
   // Always points at the latest _handleMatched so the poll interval (created
   // once) never calls a stale closure with an outdated mode/game.
   const handleMatchedRef = useRef<(r: any) => void>(() => {});
+  // Radar beat: when a match resolves instantly (join response already MATCHED,
+  // or the poll finds READY with bots that filled between ticks), the players
+  // are shown spawning on the radar for a short beat before the game starts.
+  const matchBeatRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const presentMatchedRadarRef = useRef<(r: any) => void>(() => {});
+  // Latest user, readable from the once-created poll closure.
+  const userRef = useRef(user);
+  userRef.current = user;
   // Rematch: auto-queue fired exactly once per modal open (guarded so the
   // socket-listeners effect + remounts can never double-join matchmaking).
   const autoQueuedRef = useRef(false);
@@ -173,6 +181,8 @@ export default function MatchModeModal({
     fallbackTimerRef.current = null;
     if (lobbyPollRef.current) clearInterval(lobbyPollRef.current);
     lobbyPollRef.current = null;
+    if (matchBeatRef.current) clearTimeout(matchBeatRef.current);
+    matchBeatRef.current = null;
   }
 
   // ── load mutual followers ─────────────────────────────────────────────────
@@ -314,7 +324,7 @@ export default function MatchModeModal({
             seat: p.seat !== undefined ? p.seat : 0,
             status: "JOINED",
           }));
-          handleMatchedRef.current({
+          presentMatchedRadarRef.current({
             status: "MATCHED",
             lobbyId,
             players,
@@ -363,6 +373,29 @@ export default function MatchModeModal({
   // thing that can resolve the queue (otherwise the ref is still the initial
   // noop and the user sits on "Searching..." forever).
   handleMatchedRef.current = _handleMatched;
+
+  // Instant-match radar beat. Practice lobbies fill with bots in a single
+  // server sweep, so the join response / poll can already see READY — without
+  // this the radar only ever shows "You" and then jumps straight into the
+  // match. Populate the pins (host excluded so displayPlayers adds "You"),
+  // stagger them via spawnBaseline=1, and only hand off after a short beat.
+  const presentMatchedRadar = (response: any) => {
+    const userId = userRef.current?.id;
+    const raw = Array.isArray(response?.players) ? response.players : [];
+    const others = raw.filter((p: any) => pid(p) !== userId);
+    setLobbyPlayers(others);
+    setLobbyMaxPlayers(response?.maxPlayers || others.length + 1 || 2);
+    setSpawnBaseline(1); // host only pre-spawns; bots animate in one-by-one
+    setQueuePhase("filling");
+    setStatusText("Match found! Spawning players...");
+    if (matchBeatRef.current) clearTimeout(matchBeatRef.current);
+    matchBeatRef.current = setTimeout(() => {
+      if (!cancelledRef.current && !matchedRef.current) {
+        handleMatchedRef.current(response);
+      }
+    }, 1600);
+  };
+  presentMatchedRadarRef.current = presentMatchedRadar;
 
   // ── navigation ────────────────────────────────────────────────────────────
   const pickMode = (m: MatchMode) => {
@@ -461,7 +494,7 @@ export default function MatchModeModal({
       .then((res) => {
         if (cancelledRef.current) return;
         const d = res.data as any;
-        if (d.status === "MATCHED" || d.ticket?.status === "MATCHED") { _handleMatched(d); return; }
+        if (d.status === "MATCHED" || d.ticket?.status === "MATCHED") { presentMatchedRadarRef.current(d); return; }
         const id = d.lobbyId || d.ticket?.lobbyId;
         if (id) {
           lobbyIdRef.current = id;

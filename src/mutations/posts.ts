@@ -62,6 +62,21 @@ export function useToggleLike() {
   });
 }
 
+const BOOKMARKS_KEY = ['bookmarks'];
+
+// Flip the isSaved flag on a post inside a react-query infinite-query cache.
+function flipSavedInCache(queryClient: any, queryKey: any, id: string, nextSaved: boolean) {
+  queryClient.setQueryData(queryKey, (old: any) => {
+    if (!old) return old;
+    return {
+      ...old,
+      pages: old.pages.map((page: Post[]) =>
+        page.map((post) => post.id === id ? { ...post, isSaved: nextSaved } : post)
+      ),
+    };
+  });
+}
+
 export function useToggleSave() {
   const queryClient = useQueryClient();
 
@@ -71,27 +86,31 @@ export function useToggleSave() {
     },
     onMutate: async ({ id, isCurrentlySaved }) => {
       await queryClient.cancelQueries({ queryKey: queryKeys.feed });
+      await queryClient.cancelQueries({ queryKey: BOOKMARKS_KEY });
       const previousFeed = queryClient.getQueryData(queryKeys.feed);
+      const previousBookmarks = queryClient.getQueryData(BOOKMARKS_KEY);
+      const nextSaved = !isCurrentlySaved;
+
+      // The feed (and hashtag variants, via partial-key matching) plus the
+      // bookmarks page both render the bookmark icon — update them all so the
+      // icon flips instantly instead of waiting for a refetch.
+      queryClient.getQueryCache().findAll({ queryKey: queryKeys.feed })
+        .forEach((query) => flipSavedInCache(queryClient, query.queryKey, id, nextSaved));
+      flipSavedInCache(queryClient, BOOKMARKS_KEY, id, nextSaved);
       
-      queryClient.setQueryData(queryKeys.feed, (old: any) => {
-        if (!old) return old;
-        return {
-          ...old,
-          pages: old.pages.map((page: Post[]) =>
-            page.map((post) => post.id === id ? { ...post, isSaved: !isCurrentlySaved } : post)
-          ),
-        };
-      });
-      
-      return { previousFeed };
+      return { previousFeed, previousBookmarks };
     },
     onError: (err, variables, context: any) => {
       if (context?.previousFeed) {
         queryClient.setQueryData(queryKeys.feed, context.previousFeed);
       }
+      if (context?.previousBookmarks) {
+        queryClient.setQueryData(BOOKMARKS_KEY, context.previousBookmarks);
+      }
     },
     onSettled: () => {
       queryClient.invalidateQueries({ queryKey: queryKeys.feed });
+      queryClient.invalidateQueries({ queryKey: BOOKMARKS_KEY });
     },
   });
 }

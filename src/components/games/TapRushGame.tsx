@@ -86,6 +86,14 @@ export default function TapRushGame({
   const roundStartRef = useRef<number | null>(null);
   const externalPhaseRef = useRef(externalPhase);
   useEffect(() => { externalPhaseRef.current = externalPhase; }, [externalPhase]);
+  // The engine fires START only after every player's board is visible — READY
+  // is sent once the 3-2-1 countdown finishes, never on connect, so the round
+  // clock + bot taps never start behind the countdown.
+  const readySentRef = useRef(false);
+  // Bumped on every CONNECT_ACK so a reconnect during the waiting phase
+  // re-arms READY (the server drops the player from readyPlayers on
+  // disconnect — without re-sending, the match would never start).
+  const [readyTick, setReadyTick] = useState(0);
 
   // Keep the local scoreboard in sync with whatever the server broadcasts
   // (SYNC after a tap, STATE room broadcasts, CONNECT_ACK on rejoin).
@@ -119,7 +127,9 @@ export default function TapRushGame({
       if (matchStatus === "ACTIVE") {
         roundStartRef.current = Date.now();
       }
-      s.emit(EVENTS.READY);
+      // Reconnect (or fresh join) — re-arm the READY gate.
+      readySentRef.current = false;
+      setReadyTick((t) => t + 1);
     });
 
     // Fresh match: the engine fires START once every real player has readied.
@@ -182,6 +192,13 @@ export default function TapRushGame({
       s.disconnect();
     };
   }, [matchId, userId, wsToken]);
+
+  // Send READY the moment the board is actually visible (after the 3-2-1).
+  useEffect(() => {
+    if (externalPhase !== "playing" || readySentRef.current || !socket) return;
+    readySentRef.current = true;
+    socket.emit(EVENTS.READY);
+  }, [externalPhase, socket, readyTick]);
 
   // Round clock: only ticks while the board is actually visible (externalPhase
   // "playing"). Starts at the remaining round time — anchored to roundStartRef

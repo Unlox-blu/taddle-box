@@ -11,7 +11,6 @@ import {
   Image,
   Alert,
   RefreshControl,
-  Linking,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
@@ -22,6 +21,7 @@ import { userService } from "../../services/user.service";
 import { useAuth } from "../../context/AuthContext";
 import XPProgressBar from "../home/XPProgressBar";
 import { useNavigation, useFocusEffect } from "@react-navigation/native";
+import { WebView } from "react-native-webview";
 import SharedFeed from "../common/SharedFeed";
 import { postsService } from "../../services/posts.service";
 
@@ -66,7 +66,25 @@ function makeStyles(c: ColorPalette) {
       marginTop: -48,
       paddingHorizontal: spacing.xl,
       paddingBottom: 14,
+      // Solid page background behind the identity block — the avatar still
+      // overlaps the banner (Facebook style) but the name/bio/links sit on a
+      // solid surface so the banner image never covers or hides them.
+      backgroundColor: c.bg.base,
     },
+    mutualAvatars: { flexDirection: "row", alignItems: "center" },
+    mutualAvatar: {
+      width: 22,
+      height: 22,
+      borderRadius: 11,
+      borderWidth: 1.5,
+      borderColor: c.bg.base,
+      backgroundColor: c.bg.elevated,
+      alignItems: "center",
+      justifyContent: "center",
+      overflow: "hidden",
+    },
+    mutualAvatarImg: { width: "100%", height: "100%" },
+    mutualAvatarText: { fontSize: 9, fontWeight: "800", color: c.text.muted },
     avatarWrap: { position: "relative" },
     avatar: {
       width: 92,
@@ -386,6 +404,8 @@ export default function SharedProfile({
   const [followListType, setFollowListType] = useState<
     "followers" | "following"
   >("followers");
+  // In-app browser — profile/bio links open here instead of the system browser.
+  const [browserUrl, setBrowserUrl] = useState<string | null>(null);
 
   const { user: currentUser } = useAuth();
   const [posts, setPosts] = useState<any[]>([]);
@@ -602,7 +622,12 @@ export default function SharedProfile({
             )}
           </View>
           {user?.bio ? (
-            <BioText text={user.bio} style={styles.bio} colors={colors} />
+            <BioText
+              text={user.bio}
+              style={styles.bio}
+              colors={colors}
+              onLinkPress={setBrowserUrl}
+            />
           ) : (
             <Text style={styles.bio}>No bio yet.</Text>
           )}
@@ -610,7 +635,7 @@ export default function SharedProfile({
             <TouchableOpacity
               style={styles.linkRow}
               activeOpacity={0.7}
-              onPress={() => Linking.openURL(normalizeUrl(user.websiteUrl))}
+              onPress={() => setBrowserUrl(normalizeUrl(user.websiteUrl))}
             >
               <Ionicons
                 name="link-outline"
@@ -624,20 +649,42 @@ export default function SharedProfile({
           )}
           {!isOwnProfile && !isLocked && mutualUsers.length > 0 && (
             <View style={styles.mutualRow}>
-              <Text style={styles.mutualText}>
+              <View style={styles.mutualAvatars}>
+                {mutualUsers.map((u: any, i: number) => (
+                  <View
+                    key={i}
+                    style={[
+                      styles.mutualAvatar,
+                      { marginLeft: i === 0 ? 0 : -8, zIndex: mutualUsers.length - i },
+                    ]}
+                  >
+                    {u.avatar ? (
+                      <Image source={{ uri: u.avatar }} style={styles.mutualAvatarImg} />
+                    ) : (
+                      <Text style={styles.mutualAvatarText}>
+                        {(u.name || u.username || "?")[0].toUpperCase()}
+                      </Text>
+                    )}
+                  </View>
+                ))}
+              </View>
+              <Text style={styles.mutualText} numberOfLines={1}>
                 Followed by{" "}
                 <Text style={styles.mutualName}>
                   {mutualUsers.map((u: any) => u.name || u.username).join(", ")}
                 </Text>
-                {mutualCount > mutualUsers.length ? (
-                  <>
+                {mutualCount > mutualUsers.length && (
+                  // Nested <Text> (NOT a fragment) — fragments carrying raw
+                  // text nodes inside <Text> trigger RN's "Text strings must be
+                  // rendered within a <Text> component" error.
+                  <Text style={styles.mutualText}>
                     {" "}and{" "}
                     <Text style={styles.mutualName}>
                       {mutualCount - mutualUsers.length}{" "}
                       {mutualCount - mutualUsers.length === 1 ? "other" : "others"}
                     </Text>
-                  </>
-                ) : null}
+                  </Text>
+                )}
               </Text>
             </View>
           )}
@@ -1044,6 +1091,52 @@ export default function SharedProfile({
           colors={colors}
         />
       )}
+
+      {/* In-app browser for profile/bio links — stays inside the app */}
+      {browserUrl && (
+        <View style={[StyleSheet.absoluteFill, { zIndex: 1000, backgroundColor: colors.bg.base }]}>
+          <View
+            style={{
+              flexDirection: "row",
+              alignItems: "center",
+              justifyContent: "space-between",
+              paddingHorizontal: spacing.lg,
+              paddingVertical: 12,
+              borderBottomWidth: 1,
+              borderBottomColor: colors.border,
+            }}
+          >
+            <Text
+              style={{
+                flex: 1,
+                fontSize: fontSizes.md,
+                fontWeight: "700",
+                color: colors.text.primary,
+                marginRight: 12,
+              }}
+              numberOfLines={1}
+            >
+              {browserUrl.replace(/^https?:\/\//, "")}
+            </Text>
+            <TouchableOpacity onPress={() => setBrowserUrl(null)} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
+              <Ionicons name="close" size={22} color={colors.text.secondary} />
+            </TouchableOpacity>
+          </View>
+          <WebView
+            source={{ uri: browserUrl }}
+            style={{ flex: 1 }}
+            javaScriptEnabled
+            domStorageEnabled
+            originWhitelist={['*']}
+            startInLoadingState
+            renderLoading={() => (
+              <View style={{ flex: 1, alignItems: "center", justifyContent: "center" }}>
+                <ActivityIndicator size="large" color={colors.primary} />
+              </View>
+            )}
+          />
+        </View>
+      )}
     </View>
   );
 }
@@ -1186,10 +1279,12 @@ function BioText({
   text,
   style,
   colors,
+  onLinkPress,
 }: {
   text: string;
   style: any;
   colors: any;
+  onLinkPress: (url: string) => void;
 }) {
   const parts = text.split(/(https?:\/\/[^\s]+)/g);
   return (
@@ -1199,7 +1294,7 @@ function BioText({
           <Text
             key={i}
             style={{ color: colors.primaryLight, fontWeight: "600" }}
-            onPress={() => Linking.openURL(normalizeUrl(part))}
+            onPress={() => onLinkPress(normalizeUrl(part))}
           >
             {part}
           </Text>

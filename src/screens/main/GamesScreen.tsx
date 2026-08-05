@@ -1002,9 +1002,6 @@ function GamePlayModal({
   >(
     session.isRejoin ? "playing" : "prestart",
   );
-  // True once the engine fires START — transitions GameStartScreen from
-  // "waiting" state into the 3-2-1 countdown.
-  const [matchStarted, setMatchStarted] = useState(false);
   const [score, setScore] = useState(0);
   const [result, setResult] = useState<"win" | "loss" | "draw" | "pending">("pending");
   const [xpEarned, setXpEarned] = useState(0);
@@ -1047,14 +1044,6 @@ function GamePlayModal({
       }
     };
 
-    // The engine STARTs only when every real player has connected + readied.
-    // Flip matchStarted → GameStartScreen transitions from "waiting" to 3-2-1.
-    const onStart = (event: any) => {
-      if (event.matchId === session.matchId) {
-        setMatchStarted(true);
-      }
-    };
-
     // Rejoining an already-ACTIVE match — skip straight to the game.
     const onActive = (event: any) => {
       if (event.matchId === session.matchId) {
@@ -1065,15 +1054,13 @@ function GamePlayModal({
     const sub1 = DeviceEventEmitter.addListener('GAME_ENGINE_PAUSE', onPause);
     const sub2 = DeviceEventEmitter.addListener('GAME_ENGINE_RESUME', onResume);
     const sub3 = DeviceEventEmitter.addListener('GAME_ENGINE_OVER', onResume);
-    const sub4 = DeviceEventEmitter.addListener('GAME_ENGINE_START', onStart);
-    const sub5 = DeviceEventEmitter.addListener('GAME_ENGINE_ACTIVE', onActive);
+    const sub4 = DeviceEventEmitter.addListener('GAME_ENGINE_ACTIVE', onActive);
 
     return () => {
       sub1.remove();
       sub2.remove();
       sub3.remove();
       sub4.remove();
-      sub5.remove();
     };
   }, [session.matchId]);
 
@@ -1088,7 +1075,6 @@ function GamePlayModal({
   useEffect(() => {
     completingRef.current = false;
     resultSoundPlayedRef.current = false;
-    setMatchStarted(false);
     setPhase(session.isRejoin ? "playing" : "prestart");
     setScore(0);
     setXpEarned(0);
@@ -1285,7 +1271,6 @@ function GamePlayModal({
                   : session.mode === "custom" ? "CUSTOM LOBBY"
                   : "AUTO MATCH"
                 }
-                matchStarted={matchStarted}
                 onDone={() => setPhase("playing")}
                 onExit={onClose}
               />

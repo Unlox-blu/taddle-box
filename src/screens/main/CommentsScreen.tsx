@@ -14,6 +14,7 @@ import { useAuth } from '../../context/AuthContext';
 import SmartInput from '../../components/common/SmartInput';
 import { commentService, Comment } from '../../services/comment.service';
 import { usePosts } from '../../context/PostsContext';
+import { useQueryClient } from '@tanstack/react-query';
 
 type Props = NativeStackScreenProps<HomeStackParamList, 'Comments'>;
 
@@ -136,7 +137,33 @@ const formatRelativeTime = (dateString: string) => {
 export default function CommentsScreen({ navigation, route }: Props) {
   const { user: CURRENT_USER } = useAuth();
   const { updateCommentCount } = usePosts();
+  const queryClient = useQueryClient();
   const { post } = route.params;
+
+  // The Home feed / bookmarks / profile posts render comment counts from the
+  // react-query cache (PostsContext's array isn't what those screens show), so
+  // bump every matching cache entry when a comment is added or removed.
+  const bumpCachedCommentCount = React.useCallback((postId: string, delta: number) => {
+    queryClient.getQueryCache().findAll().forEach((query) => {
+      const key = query.queryKey;
+      if (!Array.isArray(key) || key.length === 0) return;
+      if (key[0] !== 'feed' && key[0] !== 'bookmarks' && key[0] !== 'profile') return;
+      queryClient.setQueryData(key, (old: any) => {
+        if (!old || !Array.isArray(old.pages)) return old;
+        return {
+          ...old,
+          pages: old.pages.map((page: any[]) =>
+            page.map((p: any) => {
+              if (p.id !== postId) return p;
+              const current = p.comments ?? (p as any).commentsCount ?? 0;
+              const next = Math.max(0, current + delta);
+              return { ...p, comments: next, commentsCount: next };
+            })
+          ),
+        };
+      });
+    });
+  }, [queryClient]);
   const insets   = useSafeAreaInsets();
   const { isDark } = useTheme();
   const colors = useThemeColors();
@@ -169,6 +196,7 @@ export default function CommentsScreen({ navigation, route }: Props) {
     if (!trimmed) return;
     setText('');
     updateCommentCount(post.id, 1);
+    bumpCachedCommentCount(post.id, 1);
     try {
       const res = await commentService.createComment(post.id, trimmed);
       if (res?.data) {
@@ -179,6 +207,7 @@ export default function CommentsScreen({ navigation, route }: Props) {
     } catch (e) {
       console.error('Failed to post comment', e);
       updateCommentCount(post.id, -1);
+      bumpCachedCommentCount(post.id, -1);
       fetchComments();
     }
   };
@@ -219,7 +248,10 @@ export default function CommentsScreen({ navigation, route }: Props) {
           onPress: async () => {
             try {
               await commentService.deleteComment(comment.id);
-              if (!comment.parentId) updateCommentCount(post.id, -1);
+              if (!comment.parentId) {
+                updateCommentCount(post.id, -1);
+                bumpCachedCommentCount(post.id, -1);
+              }
             } catch (e) {
               console.error('Failed to delete comment', e);
             }

@@ -139,8 +139,13 @@ function makeStyles(c: ColorPalette) {
       backgroundColor: 'rgba(16,185,129,0.12)',
       borderColor: 'rgba(16,185,129,0.35)',
     },
+    followBackRequested: {
+      backgroundColor: 'rgba(251,191,36,0.12)',
+      borderColor: 'rgba(251,191,36,0.4)',
+    },
     followBackText: { fontSize: fontSizes.xs, fontWeight: '800', color: c.primaryLight },
     followBackDoneText: { color: c.success },
+    followBackReqText: { color: c.xpGold },
 
     reqStateText: { fontSize: fontSizes.xs, fontWeight: '700', marginTop: 10, alignSelf: 'flex-start' },
     reqStateApproved: { color: c.success },
@@ -181,6 +186,9 @@ export default function NotificationsScreen({ navigation }: Props) {
   const [refreshing, setRefreshing] = useState(false);
   // Tracks which follow notifications the user already followed back (session)
   const [followedBack, setFollowedBack] = useState<Record<string, boolean>>({});
+  // Follow-backs to PRIVATE accounts create a pending request, not an active
+  // follow — these rows show "Requested" instead of "Following".
+  const [followReqSent, setFollowReqSent] = useState<Record<string, boolean>>({});
   // Usernames the user has followed back — persisted so re-entering the page
   // doesn't keep showing "Follow Back" when they already follow that user.
   const [followedUsernames, setFollowedUsernames] = useState<Set<string>>(new Set());
@@ -668,15 +676,24 @@ export default function NotificationsScreen({ navigation }: Props) {
 
                       {notif.type === 'follow' && !notif.payload?.isFollowRequest && notif.payload?.username && (() => {
                         const username = notif.payload.username;
-                        // Server truth (isMutual) wins; the persisted set is only
-                        // a fallback for data that predates the enrichment.
-                        const isDone = followedBack[notif.id] || !!notif.payload?.isMutual ||
-                          (notif.payload?.isMutual === undefined && followedUsernames.has(username));
+                        // Private senders can't be followed directly — follow-back
+                        // sends a request instead, so the button reads differently
+                        // and lands in a "Requested" state, not "Following".
+                        const isPrivate = notif.payload?.senderPrivacy === 'private';
+                        const isReq = !!followReqSent[notif.id];
+                        // Server truth (isMutual) wins — if the request was later
+                        // approved, isMutual flips the row back to "Following" even
+                        // though followReqSent is still set locally. The persisted
+                        // set is only a fallback for data that predates enrichment.
+                        const isMutual = !!notif.payload?.isMutual;
+                        const isDone = isMutual || followedBack[notif.id] || isReq ||
+                          (!isMutual && notif.payload?.isMutual === undefined && followedUsernames.has(username));
                         return (
                           <TouchableOpacity
                             style={[
                               styles.followBackBtn,
-                              isDone && styles.followBackDone,
+                              isReq && !isMutual && styles.followBackRequested,
+                              isDone && !isReq && styles.followBackDone,
                             ]}
                             disabled={isDone || followBusy === notif.id}
                             onPress={async (e) => {
@@ -688,14 +705,25 @@ export default function NotificationsScreen({ navigation }: Props) {
                               setFollowBusy(notif.id);
                               try {
                                 await userService.followUser(followUsername);
-                                setFollowedBack(prev => ({ ...prev, [notif.id]: true }));
-                                await persistFollowedUsername(followUsername);
-                              } catch (err: any) {
-                                // "already following" is a success for the follow-back flow
-                                const msg = err?.response?.data?.message || err?.message || '';
-                                if (/already following|request/i.test(msg)) {
+                                if (isPrivate) {
+                                  // Private account → the API creates a pending
+                                  // request, so surface that state.
+                                  setFollowReqSent(prev => ({ ...prev, [notif.id]: true }));
+                                } else {
                                   setFollowedBack(prev => ({ ...prev, [notif.id]: true }));
                                   await persistFollowedUsername(followUsername);
+                                }
+                              } catch (err: any) {
+                                // "already following"/"request already sent" are
+                                // successes for the follow-back flow.
+                                const msg = err?.response?.data?.message || err?.message || '';
+                                if (/already following|request/i.test(msg)) {
+                                  if (isPrivate) {
+                                    setFollowReqSent(prev => ({ ...prev, [notif.id]: true }));
+                                  } else {
+                                    setFollowedBack(prev => ({ ...prev, [notif.id]: true }));
+                                    await persistFollowedUsername(followUsername);
+                                  }
                                 }
                               } finally {
                                 setFollowBusy(null);
@@ -703,21 +731,26 @@ export default function NotificationsScreen({ navigation }: Props) {
                             }}
                           >
                             <Ionicons
-                              name={isDone ? 'checkmark' : 'person-add'}
+                              name={isReq && !isMutual ? 'time' : isDone ? 'checkmark' : 'person-add'}
                               size={13}
-                              color={isDone ? colors.success : colors.primaryLight}
+                              color={isReq && !isMutual ? colors.xpGold : isDone ? colors.success : colors.primaryLight}
                             />
                             <Text
                               style={[
                                 styles.followBackText,
-                                isDone && styles.followBackDoneText,
+                                isDone && !isReq && styles.followBackDoneText,
+                                isReq && !isMutual && styles.followBackReqText,
                               ]}
                             >
                               {followBusy === notif.id
-                                ? 'Following…'
-                                : isDone
-                                  ? 'Following'
-                                  : 'Follow Back'}
+                                ? (isPrivate ? 'Sending…' : 'Following…')
+                                : isReq && !isMutual
+                                  ? 'Requested'
+                                  : isDone
+                                    ? 'Following'
+                                    : isPrivate
+                                      ? 'Request to Follow Back'
+                                      : 'Follow Back'}
                             </Text>
                           </TouchableOpacity>
                         );

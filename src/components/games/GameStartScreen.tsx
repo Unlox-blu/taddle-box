@@ -37,8 +37,6 @@ type Props = {
   opponents: StartPlayer[];
   modeLabel?: string;
   teamsLocked?: boolean;
-  /** True once the engine fires START — kicks off the 3-2-1 from the waiting state. */
-  matchStarted?: boolean;
   onDone: () => void;
   onExit?: () => void;
 };
@@ -107,7 +105,6 @@ export default function GameStartScreen({
   opponents,
   modeLabel,
   teamsLocked,
-  matchStarted = false,
   onDone,
   onExit,
 }: Props) {
@@ -117,15 +114,18 @@ export default function GameStartScreen({
   const onDoneRef = useRef(onDone);
   useEffect(() => { onDoneRef.current = onDone; }, [onDone]);
 
-  // "counting" only starts when matchStarted flips true
+  // "counting" runs client-side on mount — the engine only fires START after
+  // every player's board is visible (each game sends READY once its 3-2-1
+  // finishes), so gating the countdown on the engine's START would deadlock.
   const [counting, setCounting] = useState(false);
   const [tick, setTick] = useState(TOTAL_TICKS);
 
   useEffect(() => {
-    if (matchStarted && !counting) {
-      setCounting(true);
-    }
-  }, [matchStarted]);
+    if (counting) return;
+    // Small beat so the roster flashes before the countdown begins.
+    const t = setTimeout(() => setCounting(true), 500);
+    return () => clearTimeout(t);
+  }, [counting]);
 
   // Sound per tick
   useEffect(() => {

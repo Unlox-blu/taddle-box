@@ -50,7 +50,7 @@ export default function WordRushGame({ matchId, userId, wsToken, externalPhase =
   const [scores, setScores] = useState<Record<string, number>>({});
   const [timeLeft, setTimeLeft] = useState(90);
   const [round, setRound] = useState(1);
-  const [totalRounds, setTotalRounds] = useState(5);
+  const [totalRounds, setTotalRounds] = useState(1);
   const [lastResult, setLastResult] = useState<'valid' | 'invalid' | 'duplicate' | null>(null);
   const [lastError, setLastError] = useState<string>('');
   // The exact word that was accepted — captured before the selection is cleared
@@ -65,6 +65,14 @@ export default function WordRushGame({ matchId, userId, wsToken, externalPhase =
   const roundRef = useRef(0);
   const externalPhaseRef = useRef(externalPhase);
   useEffect(() => { externalPhaseRef.current = externalPhase; }, [externalPhase]);
+  // The engine fires START only after every player's board is visible — READY
+  // is sent once the 3-2-1 countdown finishes, never on connect, so the 90s
+  // round clock and the countdown never overlap.
+  const readySentRef = useRef(false);
+  // Bumped on every CONNECT_ACK so a reconnect during the waiting phase
+  // re-arms READY (the server drops the player from readyPlayers on
+  // disconnect — without re-sending, the match would never start).
+  const [readyTick, setReadyTick] = useState(0);
 
   useEffect(() => {
     const s = createGameEngineSocket(matchId, userId, wsToken);
@@ -74,7 +82,9 @@ export default function WordRushGame({ matchId, userId, wsToken, externalPhase =
       const ps = data.state?.pluginState;
       if (ps) applyState(ps);
       setStatus(data.state?.status === 'ACTIVE' ? 'active' : 'waiting');
-      s.emit(E.READY);
+      // Reconnect (or fresh join) — re-arm the READY gate.
+      readySentRef.current = false;
+      setReadyTick((t) => t + 1);
     });
 
     s.on(E.START, (data: any) => {
@@ -154,6 +164,13 @@ export default function WordRushGame({ matchId, userId, wsToken, externalPhase =
 
     return () => { s.disconnect(); clearInterval(timerRef.current); };
   }, [matchId, userId, wsToken]);
+
+  // Send READY the moment the board is actually visible (after the 3-2-1).
+  useEffect(() => {
+    if (externalPhase !== 'playing' || readySentRef.current || !socket) return;
+    readySentRef.current = true;
+    socket.emit(E.READY);
+  }, [externalPhase, socket, readyTick]);
 
   const applyState = (ps: any) => {
     if (ps.grid && Array.isArray(ps.grid)) setGrid(ps.grid);

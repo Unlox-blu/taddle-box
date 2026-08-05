@@ -54,7 +54,8 @@ export default function MemoryGridGame({
   const [pattern, setPattern] = useState<number[]>([]);
   const [activeCell, setActiveCell] = useState<number | null>(null);
   const [playerInputs, setPlayerInputs] = useState<number[]>([]);
-  const [totalRounds, setTotalRounds] = useState(5);
+  const [totalRounds, setTotalRounds] = useState(1);
+  const totalRoundsRef = useRef(1);
   // Refs keep tap handling race-free (rapid taps must not lose taps) and
   // prevent duplicate INPUT/READY_INPUT submissions across re-renders.
   const inputsRef = useRef<number[]>([]);
@@ -63,6 +64,15 @@ export default function MemoryGridGame({
   const prevPhaseRef = useRef("SHOW");
   const patternKeyRef = useRef("");
   const wrongAnim = useRef(new Animated.Value(0)).current;
+  // The engine only fires START after every player's board is visible — READY
+  // is sent once the 3-2-1 countdown finishes (externalPhase "playing"), never
+  // on connect, or the pattern reveal would run behind the countdown and bots
+  // would play before the player can see the board.
+  const readySentRef = useRef(false);
+  // Bumped on every CONNECT_ACK so a reconnect during the waiting phase
+  // re-arms READY (the server drops the player from readyPlayers on
+  // disconnect — without re-sending, the match would never start).
+  const [readyTick, setReadyTick] = useState(0);
 
   useEffect(() => {
     const s = createGameEngineSocket(matchId, userId, wsToken);
@@ -77,7 +87,9 @@ export default function MemoryGridGame({
       if (payload.state?.pluginState) {
         syncState(payload.state.pluginState);
       }
-      s.emit(EVENTS.READY);
+      // Reconnect (or fresh join) — re-arm the READY gate.
+      readySentRef.current = false;
+      setReadyTick((t) => t + 1);
     });
 
     s.on(EVENTS.STATE, (payload: any) => {
@@ -129,13 +141,14 @@ export default function MemoryGridGame({
       setStatus("finished");
       if (payload.reward) {
         const finalScore = payload.reward.score || 0;
+        const maxRounds = totalRoundsRef.current || 1;
         onComplete({
           score: finalScore,
           won: payload.reward.result === "WIN",
           xpEarned: payload.reward.xpEarned || 0,
           durationSeconds: payload.reward.duration || 30,
-          // Score = rounds memorized correctly out of 5 max rounds
-          accuracy: Math.min(100, Math.round((finalScore / 5) * 100)),
+          // Score = rounds memorized correctly out of the total rounds
+          accuracy: Math.min(100, Math.round((finalScore / maxRounds) * 100)),
           longestStreak: finalScore,
         });
       } else {
@@ -146,7 +159,7 @@ export default function MemoryGridGame({
           won: pState.winner === userId || (finalScore >= 1 && pState.winner === null),
           xpEarned: 0,
           durationSeconds: 30,
-          accuracy: Math.min(100, Math.round((finalScore / 5) * 100)),
+          accuracy: Math.min(100, Math.round((finalScore / (totalRoundsRef.current || 1)) * 100)),
           longestStreak: finalScore,
         });
       }
@@ -206,8 +219,18 @@ export default function MemoryGridGame({
         setPattern(ps.currentPattern);
       }
     }
-    if (ps.totalRounds) setTotalRounds(ps.totalRounds);
+    if (ps.totalRounds) {
+      setTotalRounds(ps.totalRounds);
+      totalRoundsRef.current = ps.totalRounds;
+    }
   };
+
+  // Send READY the moment the board is actually visible (after the 3-2-1).
+  useEffect(() => {
+    if (externalPhase !== "playing" || readySentRef.current || !socket) return;
+    readySentRef.current = true;
+    socket.emit(EVENTS.READY);
+  }, [externalPhase, socket, readyTick]);
 
   // Wrong-answer / rejected-move feedback: shake the board horizontally.
   const triggerWrongShake = () => {

@@ -90,6 +90,14 @@ export default function ChessGame({
   useEffect(() => {
     externalPhaseRef.current = externalPhase;
   }, [externalPhase]);
+  // The engine fires START only after every player's board is visible — READY
+  // is sent once the 3-2-1 countdown finishes, never on connect, so the bot's
+  // opening move never lands behind the countdown.
+  const readySentRef = useRef(false);
+  // Bumped on every CONNECT_ACK so a reconnect during the waiting phase
+  // re-arms READY (the server drops the player from readyPlayers on
+  // disconnect — without re-sending, the match would never start).
+  const [readyTick, setReadyTick] = useState(0);
   const [moves, setMoves] = useState<{ w: string | null; b: string | null }>({
     w: null,
     b: null,
@@ -222,7 +230,9 @@ export default function ChessGame({
       if (state.pluginState?.timers) setTimers(state.pluginState.timers);
       if (state.pluginState?.moveHistory)
         updateCaptures(state.pluginState.moveHistory);
-      s.emit(EVENTS.READY);
+      // Reconnect (or fresh join) — re-arm the READY gate.
+      readySentRef.current = false;
+      setReadyTick((t) => t + 1);
     });
 
     s.on(EVENTS.START, (data: any) => {
@@ -315,6 +325,13 @@ export default function ChessGame({
       s.disconnect();
     };
   }, [matchId, userId, wsToken]);
+
+  // Send READY the moment the board is actually visible (after the 3-2-1).
+  useEffect(() => {
+    if (externalPhase !== "playing" || readySentRef.current || !socket) return;
+    readySentRef.current = true;
+    socket.emit(EVENTS.READY);
+  }, [externalPhase, socket, readyTick]);
 
   // When the 3-2-1 countdown finishes (externalPhase flips to "playing"),
   // apply any pending START payload and activate the game clock.

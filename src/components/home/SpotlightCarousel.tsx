@@ -171,8 +171,11 @@ export default function SpotlightCarousel() {
       
       const backendHighlights = hlRes.data || [];
       
+      // Only FEATURED events belong in the spotlight — the discover endpoint
+      // returns the nearest upcoming event (start_time ASC), which may not be
+      // featured, so gate the card on isFeatured.
       const nextEvent = eventsRes.data?.[0];
-      const eventHighlight: Highlight[] = nextEvent ? [{
+      const eventHighlight: Highlight[] = nextEvent?.isFeatured ? [{
         id: `event-${nextEvent.id}`,
         title: nextEvent.title,
         subtitle: nextEvent.description || 'Upcoming Event',

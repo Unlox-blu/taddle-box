@@ -445,9 +445,11 @@ export default function EventsScreen() {
                   <View style={styles.featFeaturedPill}>
                     <Text style={styles.featFeaturedText}>★ FEATURED</Text>
                   </View>
-                  <View style={styles.xpPill}>
-                    <Text style={styles.xpPillText}>⚡ {featured.xpReward} XP</Text>
-                  </View>
+                  {featured.xpReward > 0 && (
+                    <View style={styles.xpPill}>
+                      <Text style={styles.xpPillText}>⚡ {featured.xpReward} XP</Text>
+                    </View>
+                  )}
                 </View>
               </ImageBackground>
             ) : (
@@ -467,9 +469,11 @@ export default function EventsScreen() {
                   <View style={styles.featFeaturedPill}>
                     <Text style={styles.featFeaturedText}>★ FEATURED</Text>
                   </View>
-                  <View style={styles.xpPill}>
-                    <Text style={styles.xpPillText}>⚡ {featured.xpReward} XP</Text>
-                  </View>
+                  {featured.xpReward > 0 && (
+                    <View style={styles.xpPill}>
+                      <Text style={styles.xpPillText}>⚡ {featured.xpReward} XP</Text>
+                    </View>
+                  )}
                 </View>
               </LinearGradient>
             )}
@@ -577,9 +581,11 @@ function EventCard({
             <View style={[styles.evTag, { backgroundColor: 'rgba(124,58,237,0.18)' }]}>
               <Text style={[styles.evTagText, { color: meta.tagColor }]}>{meta.label}</Text>
             </View>
-            <View style={[styles.evTag, { backgroundColor: 'rgba(251,191,36,0.14)' }]}>
-              <Text style={[styles.evTagText, { color: colors.xpGold }]}>⚡ {e.xpReward} XP</Text>
-            </View>
+            {e.xpReward > 0 && (
+              <View style={[styles.evTag, { backgroundColor: 'rgba(251,191,36,0.14)' }]}>
+                <Text style={[styles.evTagText, { color: colors.xpGold }]}>⚡ {e.xpReward} XP</Text>
+              </View>
+            )}
             {e.cashPrize ? (
               <View style={[styles.evTag, { backgroundColor: 'rgba(16,185,129,0.14)' }]}>
                 <Text style={[styles.evTagText, { color: '#34D399' }]}>₹{(e.cashPrize/1000).toFixed(0)}k</Text>

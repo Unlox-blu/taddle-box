@@ -37,6 +37,41 @@ class UserService {
         const isFollow = await this.followersRepo.findByFollowerIdAndFollowingId(userId, user.id);
         finalUser.isFollowing = isFollow?.status === 'active';
         finalUser.followStatus = isFollow?.status || null;
+
+        // Instagram-style mutuals: people the viewer follows who also follow
+        // this profile. Only exposed to logged-in viewers (own profile handled
+        // above). Hidden from the API when the account is private AND the
+        // viewer isn't an approved follower — same privacy rule as the
+        // followers/following lists.
+        if (!finalUser.isFollowing && user.privacy === 'private') {
+          finalUser.mutuals = { count: 0, users: [] };
+        } else {
+          try {
+            const pool = require('../../config/database');
+            const mutualRes = await pool.query(
+              `SELECT u.name, u.username
+               FROM followers f1
+               JOIN followers f2 ON f2.follower_id = f1.following_id AND f2.following_id = $2 AND f2.status = 'active'
+               JOIN users u ON u.id = f1.following_id
+               WHERE f1.follower_id = $1 AND f1.status = 'active'
+               LIMIT 4`,
+              [userId, user.id]
+            );
+            const countRes = await pool.query(
+              `SELECT COUNT(*)::int AS count
+               FROM followers f1
+               JOIN followers f2 ON f2.follower_id = f1.following_id AND f2.following_id = $2 AND f2.status = 'active'
+               WHERE f1.follower_id = $1 AND f1.status = 'active'`,
+              [userId, user.id]
+            );
+            finalUser.mutuals = {
+              count: countRes.rows[0]?.count || 0,
+              users: mutualRes.rows.map(r => ({ name: r.name, username: r.username })),
+            };
+          } catch (err) {
+            finalUser.mutuals = { count: 0, users: [] };
+          }
+        }
       }
 
       // Aggregate XP, Level, Rank

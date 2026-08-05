@@ -184,6 +184,8 @@ export interface Transaction {
   currency: 'INR' | 'XP';
   type: 'earn' | 'spend' | 'convert' | 'withdraw' | 'topup';
   status?: string;
+  /** epoch ms of createdAt — used for sorting and month grouping */
+  ts?: number;
 }
 
 export interface Notification {

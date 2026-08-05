@@ -562,6 +562,7 @@ export default function CommunityDetailScreen() {
         onClose={() => setShowMembers(false)}
         communityId={community.id}
         isAdmin={isAdmin}
+        currentUserId={authUser?.id}
         styles={styles}
         colors={colors}
       />
@@ -671,7 +672,7 @@ function ManageRequestsModal({ visible, onClose, communityId, styles, colors }: 
   );
 }
 
-function ManageMembersModal({ visible, onClose, communityId, isAdmin, styles, colors }: any) {
+function ManageMembersModal({ visible, onClose, communityId, isAdmin, currentUserId, styles, colors }: any) {
   const navigation = useNavigation<any>();
   const [members, setMembers] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
@@ -751,7 +752,7 @@ function ManageMembersModal({ visible, onClose, communityId, isAdmin, styles, co
                       <Text style={styles.requestUsername}>@{item.username}</Text>
                     </View>
                   </TouchableOpacity>
-                  {isAdmin && item.role !== 'owner' && (
+                  {isAdmin && item.role !== 'owner' && item.user_id !== currentUserId && (
                     <TouchableOpacity style={[styles.actionBtn, styles.rejectBtn]} onPress={() => handleKick(item.user_id, item.name)}>
                       <Ionicons name="trash-outline" size={18} color="#EF4444" />
                     </TouchableOpacity>

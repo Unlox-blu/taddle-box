@@ -132,7 +132,9 @@ function makeStyles(c: ColorPalette) {
       paddingHorizontal: 20,
       borderRadius: radii.full,
 
-      backgroundColor: "rgba(70, 55, 55, 0.1)",
+      backgroundColor: c.bg.card,
+      borderWidth: 1,
+      borderColor: c.border,
       flexDirection: "row",
       alignItems: "center",
     },
@@ -214,7 +216,7 @@ function makeStyles(c: ColorPalette) {
       borderRadius: radii.xl || 24,
       overflow: "hidden",
       borderWidth: 1,
-      borderColor: "rgba(255,255,255,0.08)",
+      borderColor: c.border,
       shadowColor: c.primary,
       shadowOffset: { width: 0, height: 12 },
       shadowOpacity: 0.25,
@@ -266,7 +268,7 @@ function makeStyles(c: ColorPalette) {
       alignItems: "center",
       justifyContent: "space-between",
       borderTopWidth: 1,
-      borderTopColor: "rgba(255,255,255,0.05)",
+      borderTopColor: c.border,
       paddingTop: 16,
     },
     featStats: { flexDirection: "row", alignItems: "center", gap: 16 },
@@ -285,11 +287,11 @@ function makeStyles(c: ColorPalette) {
       alignItems: "center",
       marginHorizontal: spacing.xl,
       marginBottom: 16,
-      backgroundColor: "rgba(255,255,255,0.03)",
+      backgroundColor: c.bg.card,
       borderRadius: radii.xl || 20,
       padding: 16,
       borderWidth: 1,
-      borderColor: "rgba(255,255,255,0.06)",
+      borderColor: c.border,
       shadowColor: "#000",
       shadowOffset: { width: 0, height: 4 },
       shadowOpacity: 0.1,
@@ -306,7 +308,7 @@ function makeStyles(c: ColorPalette) {
       justifyContent: "center",
       marginRight: 16,
       borderWidth: 1,
-      borderColor: "rgba(255,255,255,0.1)",
+      borderColor: c.border,
     },
     compInfo: { flex: 1, justifyContent: "center" },
     compName: {
@@ -839,7 +841,15 @@ export default function CommunityScreen() {
       <CreateCommunityModal
         visible={showCreate}
         onClose={() => setShowCreate(false)}
-        onCreate={(formData) => createCommunityAsync(formData)}
+        onCreate={async (formData) => {
+          const res = await createCommunityAsync(formData);
+          const created = res?.data?.community || res?.data || res?.community;
+          const slug = created?.slug || created?.id;
+          // Jump straight into the freshly created community.
+          if (slug) {
+            navigation.navigate("CommunityDetail", { communitySlug: slug });
+          }
+        }}
         styles={styles}
         colors={colors}
       />
@@ -1086,7 +1096,7 @@ function CreateCommunityModal({
 }: {
   visible: boolean;
   onClose: () => void;
-  onCreate: (c: any) => void;
+  onCreate: (c: any) => Promise<any> | void;
   styles: ReturnType<typeof makeStyles>;
   colors: ColorPalette;
 }) {
@@ -1189,7 +1199,7 @@ function CreateCommunityModal({
         payload.avatarMediaId = await uploadMedia(avatarAsset, "avatar");
       if (bannerAsset)
         payload.bannerMediaId = await uploadMedia(bannerAsset, "banner");
-      onCreate(payload);
+      await onCreate(payload);
       reset();
       onClose();
     } catch (e: any) {

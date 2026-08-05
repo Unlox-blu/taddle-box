@@ -286,6 +286,20 @@ export default function MatchModeModal({
       try {
         const res = await apiClient.get(`/game/lobbies/${lobbyId}`);
         const d = (res as any).data?.data ?? (res as any).data;
+        // Sync the radar pins with the live player list on every tick. The
+        // matchmaking:lobbyUpdated socket event usually drives bots appearing
+        // one-by-one, but after a socket reconnect mid-queue those events can
+        // be missed — without this, the radar would sit at the spawn baseline
+        // even though bots are joining server-side. Only re-render when the
+        // list actually changed so pins don't remount/flicker.
+        if (Array.isArray(d?.players) && d.players.length > 0) {
+          setLobbyPlayers((prev) => {
+            const prevKey = prev.map((p: any) => pid(p)).sort().join(",");
+            const nextKey = d.players.map((p: any) => pid(p)).sort().join(",");
+            return prevKey === nextKey ? prev : d.players;
+          });
+        }
+        if (d?.settings?.targetPlayers) setLobbyMaxPlayers(d.settings.targetPlayers);
         if (d?.state?.status === "READY") {
           if (lobbyPollRef.current) { clearInterval(lobbyPollRef.current); lobbyPollRef.current = null; }
           // Build a MATCHED-shaped response from the lobby DTO so the flow is

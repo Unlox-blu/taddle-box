@@ -119,6 +119,21 @@ function makeStyles(c: ColorPalette) {
       color: c.primaryLight,
       flexShrink: 1,
     },
+    mutualRow: {
+      flexDirection: "row",
+      alignItems: "center",
+      gap: 4,
+      marginTop: 8,
+    },
+    mutualText: {
+      fontSize: fontSizes.xs,
+      color: c.text.secondary,
+      lineHeight: 16,
+    },
+    mutualName: {
+      fontWeight: "700",
+      color: c.text.primary,
+    },
 
     requestsBanner: {
       flexDirection: "row",
@@ -505,9 +520,23 @@ export default function SharedProfile({
   );
 
   const openFollowList = (type: "followers" | "following") => {
+    // Private account + not an approved follower: counts stay visible but the
+    // list itself is gated (same rule the backend enforces with a 403).
+    if (isLocked) {
+      Alert.alert(
+        "Private Account",
+        `Follow @${user?.username || "user"} to see their ${type === "followers" ? "followers" : "following"}.`
+      );
+      return;
+    }
     setFollowListType(type);
     setShowFollowList(true);
   };
+
+  // Instagram-style "Followed by x, y and N others" — backend computes the
+  // mutuals for the logged-in viewer (hidden for locked private accounts).
+  const mutualUsers = (user?.mutuals?.users || []).slice(0, 2);
+  const mutualCount = user?.mutuals?.count || mutualUsers.length;
 
   const profileHeader = (
     <View>
@@ -593,34 +622,70 @@ export default function SharedProfile({
               </Text>
             </TouchableOpacity>
           )}
+          {!isOwnProfile && !isLocked && mutualUsers.length > 0 && (
+            <View style={styles.mutualRow}>
+              <Text style={styles.mutualText}>
+                Followed by{" "}
+                <Text style={styles.mutualName}>
+                  {mutualUsers.map((u: any) => u.name || u.username).join(", ")}
+                </Text>
+                {mutualCount > mutualUsers.length ? (
+                  <>
+                    {" "}and{" "}
+                    <Text style={styles.mutualName}>
+                      {mutualCount - mutualUsers.length}{" "}
+                      {mutualCount - mutualUsers.length === 1 ? "other" : "others"}
+                    </Text>
+                  </>
+                ) : null}
+              </Text>
+            </View>
+          )}
         </View>
-      </View>
-
-      <View style={styles.statsRow}>
+      </View>          <View style={styles.statsRow}>
           <View style={styles.statItem}>
             <Text style={styles.statVal}>
               {(user?.postCount || 0).toLocaleString()}
             </Text>
             <Text style={styles.statLabel}>Posts</Text>
           </View>
-          <TouchableOpacity
-            style={styles.statItem}
-            onPress={() => openFollowList("followers")}
-          >
-            <Text style={styles.statVal}>
-              {(user?.followerCount || 0).toLocaleString()}
-            </Text>
-            <Text style={styles.statLabel}>Followers</Text>
-          </TouchableOpacity>
-          <TouchableOpacity
-            style={styles.statItem}
-            onPress={() => openFollowList("following")}
-          >
-            <Text style={styles.statVal}>
-              {(user?.followingCount || 0).toLocaleString()}
-            </Text>
-            <Text style={styles.statLabel}>Following</Text>
-          </TouchableOpacity>
+          {isLocked ? (
+            // Private + not approved — count only, no tappable list.
+            <View style={styles.statItem}>
+              <Text style={styles.statVal}>
+                {(user?.followerCount || 0).toLocaleString()}
+              </Text>
+              <Text style={styles.statLabel}>Followers</Text>
+            </View>
+          ) : (
+            <TouchableOpacity
+              style={styles.statItem}
+              onPress={() => openFollowList("followers")}
+            >
+              <Text style={styles.statVal}>
+                {(user?.followerCount || 0).toLocaleString()}
+              </Text>
+              <Text style={styles.statLabel}>Followers</Text>
+            </TouchableOpacity>
+          )}
+          {isLocked ? (
+            <View style={styles.statItem}>
+              <Text style={styles.statVal}>
+                {(user?.followingCount || 0).toLocaleString()}
+              </Text>
+              <Text style={styles.statLabel}>Following</Text>
+            </View>
+          ) : (
+            <TouchableOpacity
+              style={styles.statItem}
+              onPress={() => openFollowList("following")}
+            >
+              <Text style={styles.statVal}>
+                {(user?.followingCount || 0).toLocaleString()}
+              </Text>
+              <Text style={styles.statLabel}>Following</Text>
+            </TouchableOpacity>
+          )}
           <View style={styles.statItem}>
             <Text style={[styles.statVal, { color: colors.xpGold }]}>
               {(user?.xp || 0).toLocaleString()}
@@ -697,7 +762,9 @@ export default function SharedProfile({
                       ? "Following"
                       : followStatus === "pending"
                         ? "Requested"
-                        : "Follow"}
+                        : user?.privacy === "private"
+                          ? "Request to Follow"
+                          : "Follow"}
                   </Text>
                 </>
               )}

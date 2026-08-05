@@ -77,9 +77,17 @@ export default function WalletScreen() {
   );
 
   // ── Computed stats ──
+  // Earned this month = INR 'earn'/'topup' credits within the current calendar
+  // month (uses the raw ts added by WalletContext — the friendly date label is
+  // not machine-comparable).
+  const now = new Date();
   const thisMonthEarned = wallet.transactions
-    .filter(t => t.type === 'earn' && t.date.includes('Today') || t.date.includes('Yesterday') || t.date.startsWith('Jun'))
-    .reduce((s, t) => s + (t.currency === 'INR' && t.amount > 0 ? t.amount : 0), 0);
+    .filter(t => {
+      if (t.type !== 'earn' || t.currency !== 'INR' || t.amount <= 0 || !t.ts) return false;
+      const d = new Date(t.ts);
+      return d.getMonth() === now.getMonth() && d.getFullYear() === now.getFullYear();
+    })
+    .reduce((s, t) => s + t.amount, 0);
 
   const filteredTxns = wallet.transactions.filter(t => {
     if (txnFilter === 'Earned') return t.type === 'earn';
@@ -1626,7 +1634,7 @@ function makeStyles(c: ColorPalette) {
   },
   convertBtnDisabled: { opacity: 0.4 },
   convertBtnText: { fontSize: fontSizes.xs, fontWeight: '700', color: c.xpGold },
-  xpBtnCol: { gap: 6, alignItems: 'flex-end' },
+  xpBtnCol: { flexDirection: 'row', gap: 6, alignItems: 'center', justifyContent: 'flex-end' },
   buyXpBtn: {
     backgroundColor: c.primary,
     borderRadius: radii.full, paddingVertical: 8, paddingHorizontal: 16,
@@ -1691,9 +1699,9 @@ function makeStyles(c: ColorPalette) {
     borderRadius: radii.full, borderWidth: 1, borderColor: c.border,
     backgroundColor: c.bg.elevated,
   },
-  txnChipActive:    { backgroundColor: 'rgba(124,58,237,0.18)', borderColor: c.primary },
+  txnChipActive:    { backgroundColor: c.primary, borderColor: c.primary },
   txnChipText:      { fontSize: fontSizes.xs, color: c.text.muted, fontWeight: '600' },
-  txnChipTextActive: { color: c.primaryLight },
+  txnChipTextActive: { color: '#fff', fontWeight: '800' },
   txnList: {
     marginHorizontal: spacing.lg,
     backgroundColor: c.bg.card,

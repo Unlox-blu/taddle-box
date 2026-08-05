@@ -1,6 +1,6 @@
 import React, { useMemo, useState, useEffect } from 'react';
 import {
-  View, Text, ScrollView, TouchableOpacity, FlatList, Alert,
+  View, Text, ScrollView, TouchableOpacity, Alert,
   StyleSheet,
   RefreshControl,
   Image,
@@ -79,12 +79,21 @@ function makeStyles(c: ColorPalette) {
     liveDot: { width: 5, height: 5, borderRadius: 3, backgroundColor: '#fff' },
     livePillText: { fontSize: fontSizes.xs, fontWeight: '800', color: '#fff', letterSpacing: 0.5 },
     xpPill: {
-      position: 'absolute', top: 12, right: 12,
       backgroundColor: 'rgba(251,191,36,0.92)',
       paddingVertical: 3, paddingHorizontal: 10,
       borderRadius: radii.full,
     },
     xpPillText: { fontSize: fontSizes.xs, fontWeight: '800', color: '#1A0A00' },
+    featTopRight: {
+      position: 'absolute', top: 12, right: 12,
+      flexDirection: 'row', alignItems: 'center', gap: 6,
+    },
+    featFeaturedPill: {
+      backgroundColor: 'rgba(124,58,237,0.92)',
+      paddingVertical: 3, paddingHorizontal: 10,
+      borderRadius: radii.full,
+    },
+    featFeaturedText: { fontSize: fontSizes.xs, fontWeight: '800', color: '#fff', letterSpacing: 0.5 },
     featBody: { padding: spacing.lg },
     featType: {
       fontSize: fontSizes.xs, fontWeight: '800',
@@ -145,21 +154,56 @@ function makeStyles(c: ColorPalette) {
       borderRadius: radii.xl, padding: spacing.md,
       borderWidth: 1, borderColor: c.border,
     },
-    calMonthHeader: { fontSize: fontSizes.lg, fontWeight: '800', color: c.text.primary, marginBottom: 12, marginLeft: 4 },
-    calHeader: { flexDirection: 'row', justifyContent: 'space-around', marginBottom: 8 },
-    calWeekDay: { width: 36, textAlign: 'center', fontSize: fontSizes.xs, color: c.text.muted, fontWeight: '700' },
-    calDay: { 
-      width: 36, height: 36, marginHorizontal: 4, marginVertical: 4,
-      alignItems: 'center', justifyContent: 'center', borderRadius: 18,
+    calMonthRow: {
+      flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
+      marginBottom: 12, marginLeft: 4, marginRight: 4,
     },
-    calDayEmpty: { width: 36, height: 36, marginHorizontal: 4, marginVertical: 4 },
+    calMonthHeader: { fontSize: fontSizes.lg, fontWeight: '800', color: c.text.primary },
+    calLegend: { flexDirection: 'row', alignItems: 'center', gap: 5 },
+    calLegendDot: { width: 6, height: 6, borderRadius: 3, backgroundColor: c.primaryLight },
+    calLegendText: { fontSize: fontSizes.xs, color: c.text.muted },
+    calHeader: { flexDirection: 'row', marginBottom: 4 },
+    calWeekDay: { width: '14.28%', textAlign: 'center', fontSize: fontSizes.xs, color: c.text.muted, fontWeight: '700' },
+    calGrid: { flexDirection: 'row', flexWrap: 'wrap' },
+    calDay: {
+      width: '14.28%', aspectRatio: 1,
+      alignItems: 'center', justifyContent: 'center', borderRadius: 20,
+    },
+    calDayEmpty: { width: '14.28%', aspectRatio: 1 },
     calDayText: { fontSize: fontSizes.sm, color: c.text.primary, fontWeight: '500' },
     calDaySelected: { backgroundColor: c.primary },
     calDayTextSelected: { color: '#fff', fontWeight: '800' },
     calDayTextToday: { color: c.primary, fontWeight: '800' },
-    calEventDot: { width: 4, height: 4, borderRadius: 2, backgroundColor: c.primaryLight, marginTop: 2, position: 'absolute', bottom: 4 },
+    calEventDot: {
+      width: 5, height: 5, borderRadius: 3, backgroundColor: c.primaryLight,
+      position: 'absolute', bottom: 6, left: '50%', marginLeft: -2.5,
+    },
     calEventDotSelected: { backgroundColor: '#fff' },
+    dateBar: {
+      flexDirection: 'row', alignItems: 'center', gap: 8,
+      marginHorizontal: spacing.lg, marginBottom: 16,
+      backgroundColor: 'rgba(124,58,237,0.14)',
+      borderWidth: 1, borderColor: 'rgba(124,58,237,0.4)',
+      borderRadius: radii.full,
+      paddingVertical: 8, paddingHorizontal: 14,
+      alignSelf: 'flex-start',
+    },
+    dateBarText: { fontSize: fontSizes.sm, fontWeight: '700', color: c.primaryLight },
+    dateBarClear: {
+      width: 18, height: 18, borderRadius: 9,
+      backgroundColor: c.primary, alignItems: 'center', justifyContent: 'center',
+    },
   });
+}
+
+const MONTHS = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
+const MONTHS_SHORT = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+
+// "2026-08-12" → "12 Aug 2026"
+function formatSelDate(isoDate: string): string {
+  const [y, m, d] = isoDate.split('-').map(Number);
+  if (!y || !m || !d) return isoDate;
+  return `${d} ${MONTHS_SHORT[m - 1]} ${y}`;
 }
 
 const CalendarView = ({ selectedDate, onSelectDate, events, styles }: any) => {
@@ -170,60 +214,68 @@ const CalendarView = ({ selectedDate, onSelectDate, events, styles }: any) => {
   const daysInMonth = new Date(year, month + 1, 0).getDate();
   const firstDay = new Date(year, month, 1).getDay(); // 0 is Sunday
 
-  const days = [];
-  for (let i = 0; i < firstDay; i++) {
-    days.push(null);
-  }
-  for (let i = 1; i <= daysInMonth; i++) {
-    days.push(i);
-  }
+  // Plain flex-wrap grid — a nested FlatList (numColumns=7) inside the outer
+  // ScrollView triggered the "VirtualizedLists should never be nested" crash
+  // and mis-aligned rows. Cells are width 14.28% (100/7) so all 7 columns
+  // fit the card exactly.
+  const cells: (number | null)[] = [
+    ...Array.from({ length: firstDay }, () => null),
+    ...Array.from({ length: daysInMonth }, (_, i) => i + 1),
+  ];
+
+  const getDayStr = (day: number) =>
+    `${year}-${String(month + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
 
   const hasEventOnDate = (day: number) => {
-    const dStr = `${year}-${String(month + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+    const dStr = getDayStr(day);
     return events.some((e: any) => e.rawDate && e.rawDate.startsWith(dStr));
   };
 
-  const getDayStr = (day: number) => `${year}-${String(month + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
-
-  const renderDay = ({ item }: any) => {
-    if (item === null) return <View style={styles.calDayEmpty} />;
-    
-    const dateStr = getDayStr(item);
-    const isSelected = selectedDate === dateStr;
-    const isToday = item === today.getDate() && month === new Date().getMonth();
-    const hasEvent = hasEventOnDate(item);
-
-    return (
-      <TouchableOpacity 
-        style={[styles.calDay, isSelected && styles.calDaySelected]} 
-        onPress={() => onSelectDate(isSelected ? null : dateStr)}
-      >
-        <Text style={[styles.calDayText, isSelected && styles.calDayTextSelected, isToday && !isSelected && styles.calDayTextToday]}>
-          {item}
-        </Text>
-        {hasEvent && <View style={[styles.calEventDot, isSelected && styles.calEventDotSelected]} />}
-      </TouchableOpacity>
-    );
-  };
-
-  const WEEKDAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
-  const MONTHS = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
+  const WEEKDAYS = ['S', 'M', 'T', 'W', 'T', 'F', 'S'];
   const monthName = `${MONTHS[month]} ${year}`;
 
   return (
     <View style={styles.calendarContainer}>
-      <Text style={styles.calMonthHeader}>{monthName}</Text>
+      <View style={styles.calMonthRow}>
+        <Text style={styles.calMonthHeader}>{monthName}</Text>
+        <View style={styles.calLegend}>
+          <View style={styles.calLegendDot} />
+          <Text style={styles.calLegendText}>Events</Text>
+        </View>
+      </View>
       <View style={styles.calHeader}>
         {WEEKDAYS.map((d, i) => <Text key={i} style={styles.calWeekDay}>{d}</Text>)}
       </View>
-      <FlatList
-        data={days}
-        numColumns={7}
-        keyExtractor={(item, index) => index.toString()}
-        renderItem={renderDay}
-        scrollEnabled={false}
-        columnWrapperStyle={{ justifyContent: 'space-around' }}
-      />
+      <View style={styles.calGrid}>
+        {cells.map((day, i) => {
+          if (day === null) return <View key={`e${i}`} style={styles.calDayEmpty} />;
+          const dateStr = getDayStr(day);
+          const isSelected = selectedDate === dateStr;
+          const isToday = day === today.getDate();
+          const hasEvent = hasEventOnDate(day);
+          return (
+            <TouchableOpacity
+              key={dateStr}
+              style={[styles.calDay, isSelected && styles.calDaySelected]}
+              onPress={() => onSelectDate(isSelected ? null : dateStr)}
+              activeOpacity={0.7}
+            >
+              <Text
+                style={[
+                  styles.calDayText,
+                  isSelected && styles.calDayTextSelected,
+                  isToday && !isSelected && styles.calDayTextToday,
+                ]}
+              >
+                {day}
+              </Text>
+              {hasEvent && (
+                <View style={[styles.calEventDot, isSelected && styles.calEventDotSelected]} />
+              )}
+            </TouchableOpacity>
+          );
+        })}
+      </View>
     </View>
   );
 };
@@ -354,6 +406,23 @@ export default function EventsScreen() {
           />
         )}
 
+        {/* Active date filter — clearable chip under the calendar */}
+        {selectedDate && (
+          <View style={styles.dateBar}>
+            <Ionicons name="calendar" size={14} color={colors.primaryLight} />
+            <Text style={styles.dateBarText}>
+              {formatSelDate(selectedDate)}
+            </Text>
+            <TouchableOpacity
+              style={styles.dateBarClear}
+              onPress={() => setSelectedDate(null)}
+              hitSlop={{ top: 6, bottom: 6, left: 6, right: 6 }}
+            >
+              <Ionicons name="close" size={12} color="#fff" />
+            </TouchableOpacity>
+          </View>
+        )}
+
         {featured && (
           <View style={styles.featCard}>
             {featured.banner ? (
@@ -372,8 +441,13 @@ export default function EventsScreen() {
                     <Text style={styles.livePillText}>LIVE</Text>
                   </View>
                 )}
-                <View style={styles.xpPill}>
-                  <Text style={styles.xpPillText}>⚡ {featured.xpReward} XP</Text>
+                <View style={styles.featTopRight}>
+                  <View style={styles.featFeaturedPill}>
+                    <Text style={styles.featFeaturedText}>★ FEATURED</Text>
+                  </View>
+                  <View style={styles.xpPill}>
+                    <Text style={styles.xpPillText}>⚡ {featured.xpReward} XP</Text>
+                  </View>
                 </View>
               </ImageBackground>
             ) : (
@@ -389,8 +463,13 @@ export default function EventsScreen() {
                     <Text style={styles.livePillText}>LIVE</Text>
                   </View>
                 )}
-                <View style={styles.xpPill}>
-                  <Text style={styles.xpPillText}>⚡ {featured.xpReward} XP</Text>
+                <View style={styles.featTopRight}>
+                  <View style={styles.featFeaturedPill}>
+                    <Text style={styles.featFeaturedText}>★ FEATURED</Text>
+                  </View>
+                  <View style={styles.xpPill}>
+                    <Text style={styles.xpPillText}>⚡ {featured.xpReward} XP</Text>
+                  </View>
                 </View>
               </LinearGradient>
             )}

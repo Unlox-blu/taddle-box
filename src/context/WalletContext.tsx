@@ -8,6 +8,30 @@ import { socketClient } from '../services/socketClient';
 import * as SecureStore from 'expo-secure-store';
 import { Alert } from 'react-native';
 
+// ─── Helpers ───────────────────────────────────────────────────────────────────
+
+// Turns a raw ISO timestamp into a friendly wallet-history label:
+// "Today · 2:30 PM", "Yesterday · 10:15 AM", or "5 Aug · 3:45 PM".
+function formatTxnDate(iso?: string): string {
+  if (!iso) return "";
+  const d = new Date(iso);
+  if (isNaN(d.getTime())) return iso;
+  const now = new Date();
+  const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
+  const startOfDay = new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime();
+  const diffDays = Math.round((startOfToday - startOfDay) / 86400000);
+  // Manual formatting — avoids relying on Hermes Intl (toLocaleTimeString with
+  // options can fall back to the raw locale format on some Android builds).
+  const MONTHS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+  let h = d.getHours();
+  const ampm = h >= 12 ? 'PM' : 'AM';
+  h = h % 12 || 12;
+  const time = `${h}:${String(d.getMinutes()).padStart(2, '0')} ${ampm}`;
+  if (diffDays === 0) return `Today · ${time}`;
+  if (diffDays === 1) return `Yesterday · ${time}`;
+  return `${d.getDate()} ${MONTHS[d.getMonth()]} · ${time}`;
+}
+
 // ─── State & Actions ──────────────────────────────────────────────────────────
 
 export type WalletState = {
@@ -180,7 +204,8 @@ export function WalletProvider({ children }: { children: React.ReactNode }) {
       const cashTxns = (cashTxnsRes.data || []).map((t: any) => ({
         id: t.id,
         title: t.description || (t.type === 'credit' ? 'Cash Added' : 'Cash Deducted'),
-        date: t.createdAt || new Date().toISOString(),
+        date: formatTxnDate(t.createdAt),
+        ts: new Date(t.createdAt || new Date()).getTime(),
         amount: (t.amountCents || 0) / 100,
         currency: 'INR',
         type: t.category === 'withdrawal' ? 'withdraw'
@@ -192,7 +217,8 @@ export function WalletProvider({ children }: { children: React.ReactNode }) {
       const xpTxns = (xpTxnsRes.data || []).map((t: any) => ({
         id: t.id,
         title: t.sourceType || (t.transactionType === 'spent' ? 'XP Spent' : 'XP Earned'),
-        date: t.createdAt || new Date().toISOString(),
+        date: formatTxnDate(t.createdAt),
+        ts: new Date(t.createdAt || new Date()).getTime(),
         amount: t.xp || 0,
         currency: 'XP',
         // 'earned' and 'bonus' (daily login / weekly streak) are earnings;
@@ -202,8 +228,8 @@ export function WalletProvider({ children }: { children: React.ReactNode }) {
         status: t.status || 'completed'
       }));
 
-      const combinedTxns = [...cashTxns, ...xpTxns].sort((a, b) => 
-        new Date(b.date).getTime() - new Date(a.date).getTime()
+      const combinedTxns = [...cashTxns, ...xpTxns].sort((a, b) =>
+        (b.ts || 0) - (a.ts || 0)
       );
 
       dispatch({ type: 'SET_DATA', payload: {

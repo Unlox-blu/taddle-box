@@ -453,6 +453,16 @@ const setupGameSocket = (io) => {
           });
           botHandler.handleMatchEnd(matchId, gameSlug, updatedState);
           await _archiveMatch(matchId, updatedState);
+
+          // The normal (move-driven) finish path never told the clients their
+          // session was over, so a stale "REJOIN MATCH" button could stick on
+          // the Games screen forever. Broadcast SESSION_EXPIRED to every player
+          // so the app clears the reconnect banner.
+          const matchPlayers = updatedState.metadata?.players || updatedState.players || [];
+          for (const p of matchPlayers) {
+            const pid = p?.userId || p?.id;
+            if (pid) io.to(`user:${pid}`).emit('SESSION_EXPIRED', { matchId });
+          }
         } else {
           // Send player-specific states (e.g. scribble drawer sees word)
           const sockets = await gameNs.in(matchRoom).fetchSockets();
@@ -465,7 +475,13 @@ const setupGameSocket = (io) => {
               userId,
             });
           }
-          _startTurnTimer(gameNs, matchId, gameSlug, updatedState);
+          // Round-based games (word-rush / scribble) run on a fixed-length round
+          // clock that the round timer drives at round boundaries — a move must
+          // never reset it (that used to extend rounds forever and never fire
+          // GAME_OVER), so don't restart any timer on the move path for them.
+          if (gameSlug !== 'scribble' && gameSlug !== 'word-rush') {
+            _startTurnTimer(gameNs, matchId, gameSlug, updatedState);
+          }
           
           if (updatedState.isBotMatch) {
             const turnBasedSlugs = ['chess', 'ludo', 'snake-ladder'];
@@ -754,7 +770,11 @@ const setupGameSocket = (io) => {
           state.pluginState?.turnOrder?.[state.pluginState?.currentTurnIndex];
         if (!currentPlayerId) return;
 
-      await TimerEngine.clearAllTimers(matchId);
+      // Only replace the turn clock. Clearing ALL timers here used to wipe a
+      // disconnected player's pending reconnect timer on every move/resume,
+      // cancelling their forfeit window. Round timers never exist for these
+      // games, so clearing just the turn timer is correct.
+      await TimerEngine.clearTimer(matchId, 'turn');
 
       if (currentPlayerId.startsWith('bot_')) {
         botHandler.handleTurn(matchId, gameSlug, state, currentPlayerId);
@@ -780,18 +800,12 @@ const setupGameSocket = (io) => {
         type: 'turn',
         gameSlug,
       });
-    } else if (gameSlug === 'scribble') {
-      const ROUND_TIMEOUT_MS = 80000;
-      botHandler.handleTurn(matchId, gameSlug, state);
-
-      await TimerEngine.startTimer(matchId, 'round', ROUND_TIMEOUT_MS, {
-        type: 'round',
-        gameSlug,
-      });
-    } else if (gameSlug === 'word-rush') {
-      // Word Rush runs 5 × 90s rounds — the server advances each round via the
-      // round timer (advanceRound) and finishes the match after round 5.
-      const ROUND_TIMEOUT_MS = 90000;
+    } else if (gameSlug === 'scribble' || gameSlug === 'word-rush') {
+      // Round-based games: drive bots and (re)start the round clock. The round
+      // timer is fixed-length and only (re)started at match start, resume and
+      // round boundaries — the move path (MOVE handler / bot moves) skips this
+      // function entirely so a move can never extend the round.
+      const ROUND_TIMEOUT_MS = gameSlug === 'scribble' ? 80000 : 90000;
       botHandler.handleTurn(matchId, gameSlug, state);
 
       await TimerEngine.startTimer(matchId, 'round', ROUND_TIMEOUT_MS, {

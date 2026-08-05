@@ -44,6 +44,26 @@ class XpService {
     }
   }
 
+  // Lightweight check so the Home tab doesn't have to fetch the whole
+  // transaction history just to know whether today's login reward is claimed.
+  // The client sends its local date so the check is timezone-safe (the credit
+  // call uses the same `Daily Login - YYYY-MM-DD` source string).
+  async getDailyLoginStatus({ userId, date }) {
+    try {
+      let xpWallet = await this.xpRepo.findByUserId(userId);
+      if (!xpWallet) {
+        xpWallet = await this.xpRepo.create(userId);
+      }
+      const sourceType = date ? `Daily Login - ${date}` : null;
+      const claimed = sourceType
+        ? await this.xpRepo.checkDailyTransactionBySource(xpWallet.id, sourceType)
+        : false;
+      return { claimed, date: date || null };
+    } catch (error) {
+      throw error;
+    }
+  }
+
   async creditXP({ userId, xp, transactionType, sourceType }) {
     try {
       let xpWallet = await this.xpRepo.findByUserId(userId);

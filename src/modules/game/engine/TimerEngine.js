@@ -14,6 +14,14 @@ class TimerEngine {
 
   /**
    * Start or overwrite a timer for a specific match.
+   *
+   * IMPORTANT: every timer gets a UNIQUE job id. Timers are sometimes restarted
+   * from inside a worker callback while the previous job of the same type is
+   * still ACTIVE (locked by that worker). BullMQ refuses to remove locked jobs,
+   * and re-adding a job with the SAME id while the old one is processing
+   * silently destroys the new job when the old completes (removeOnComplete). A
+   * unique suffix avoids the collision entirely — the old job self-cleans once
+   * its processor returns, and clearTimer only removes pending (removable) jobs.
    * @param {string} matchId 
    * @param {string} type e.g., 'turn', 'round', 'reconnect'
    * @param {number} ms 
@@ -21,7 +29,7 @@ class TimerEngine {
    */
   async startTimer(matchId, type, ms, jobData) {
     // BullMQ >= 5 does not allow colons in custom job IDs
-    const jobId = `${matchId}_${type.replace(/:/g, '_')}`;
+    const jobId = `${matchId}_${type.replace(/:/g, '_')}_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
     await this.clearTimer(matchId, type);
     
     await this.queue.add(type, { matchId, type, ...jobData }, { 
@@ -35,17 +43,25 @@ class TimerEngine {
   }
 
   /**
-   * Clear a specific timer for a match.
+   * Clear pending timers of a given type for a match. Timers currently being
+   * processed (active/locked) can't be removed — they are consumed by the
+   * worker and self-clean on completion, so they are only dropped from the
+   * tracking set.
    * @param {string} matchId 
    * @param {string} type 
    */
   async clearTimer(matchId, type) {
-    const jobId = `${matchId}_${type.replace(/:/g, '_')}`;
-    const job = await this.queue.getJob(jobId);
-    if (job) {
-      await job.remove().catch(() => {});
+    const key = `match:${matchId}:timers`;
+    const prefix = `${matchId}_${type.replace(/:/g, '_')}_`;
+    const jobIds = await redis.smembers(key);
+    for (const jobId of jobIds) {
+      if (!jobId.startsWith(prefix)) continue;
+      const job = await this.queue.getJob(jobId);
+      if (job) {
+        await job.remove().catch(() => {});
+      }
+      await redis.srem(key, jobId);
     }
-    await redis.srem(`match:${matchId}:timers`, jobId);
   }
 
   /**

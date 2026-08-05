@@ -24,11 +24,14 @@ router.post('/pin/remove',                  verifyToken,                        
 router.post('/pin/toggle-global',           verifyToken,                                                    userController.toggleAppLock);
 
 // follow/unfollow routes
+router.get('/follow-requests',              verifyToken,                                                    userController.getFollowRequests);
+router.post('/follow-requests/accept-all', verifyToken,                                                    userController.acceptAllFollowRequests);
 router.get('/:username',                    optionalAuth,    validateRequest({params: usernameSchema}),     userController.getProfile);
 router.get('/:username/followers',          verifyToken,     validateRequest({params: usernameSchema}),     userController.getFollowers);
 router.get('/:username/following',          verifyToken,     validateRequest({params: usernameSchema}),     userController.getFollowing);
 router.post('/:username/follow',            verifyToken,     validateRequest({params: usernameSchema}),     userController.followUser);
 router.patch('/:followerId/approve-follower',verifyToken,    validateRequest({params: followerIdSchema}),   userController.approveTofollow);
+router.delete('/:followerId/reject-follower',verifyToken,    validateRequest({params: followerIdSchema}),   userController.rejectFollowRequest);
 router.delete('/:username/unfollow',        verifyToken,     validateRequest({params: usernameSchema}),     userController.unfollowUser);
 router.delete('/:username/remove-follower', verifyToken,     validateRequest({params: usernameSchema}),     userController.removeFollower);
 

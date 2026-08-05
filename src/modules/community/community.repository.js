@@ -9,7 +9,11 @@ const findById = async (communityId, userId = null) => {
       `SELECT ${CommunityModel.DETAIL_FIELDS},
       avatar_media.cloudfront_url AS avatar_media_url,
       banner_media.cloudfront_url AS banner_media_url,
-      (SELECT EXISTS(SELECT 1 FROM ${CommunityModel.MEMBERS_TABLE} cm WHERE cm.community_id = c.id AND cm.user_id = $2)) AS is_joined,
+      -- is_joined means an ACTIVE membership (pending requests do NOT count)
+      (SELECT EXISTS(SELECT 1 FROM ${CommunityModel.MEMBERS_TABLE} cm
+        WHERE cm.community_id = c.id AND cm.user_id = $2 AND cm.status = 'active')) AS is_joined,
+      (SELECT status FROM ${CommunityModel.MEMBERS_TABLE} cm
+        WHERE cm.community_id = c.id AND cm.user_id = $2 LIMIT 1) AS member_status,
       (SELECT role FROM ${CommunityModel.MEMBERS_TABLE} cm WHERE cm.community_id = c.id AND cm.user_id = $2 LIMIT 1) AS member_role
       FROM ${CommunityModel.TABLE} c
       LEFT JOIN media AS avatar_media ON avatar_media.id = avatar_url
@@ -29,7 +33,10 @@ const findBySlug = async (slug, userId = null) => {
       `SELECT ${CommunityModel.DETAIL_FIELDS},
       avatar_media.cloudfront_url AS avatar_media_url,
       banner_media.cloudfront_url AS banner_media_url,
-      (SELECT EXISTS(SELECT 1 FROM ${CommunityModel.MEMBERS_TABLE} cm WHERE cm.community_id = c.id AND cm.user_id = $2)) AS is_joined,
+      (SELECT EXISTS(SELECT 1 FROM ${CommunityModel.MEMBERS_TABLE} cm
+        WHERE cm.community_id = c.id AND cm.user_id = $2 AND cm.status = 'active')) AS is_joined,
+      (SELECT status FROM ${CommunityModel.MEMBERS_TABLE} cm
+        WHERE cm.community_id = c.id AND cm.user_id = $2 LIMIT 1) AS member_status,
       (SELECT role FROM ${CommunityModel.MEMBERS_TABLE} cm WHERE cm.community_id = c.id AND cm.user_id = $2 LIMIT 1) AS member_role
       FROM ${CommunityModel.TABLE} c
       LEFT JOIN media AS avatar_media ON avatar_media.id = avatar_url
@@ -48,12 +55,20 @@ const findManyCommunity = async ({limit, offset, userId = null}) => {
     const {rows} = await pool.query(
       `SELECT ${CommunityModel.LIST_FIELDS},
       avatar_media.cloudfront_url AS avatar_media_url,
-      (SELECT EXISTS(SELECT 1 FROM ${CommunityModel.MEMBERS_TABLE} cm WHERE cm.community_id = c.id AND cm.user_id = $3)) AS is_joined,
+      banner_media.cloudfront_url AS banner_media_url,
+      (SELECT EXISTS(SELECT 1 FROM ${CommunityModel.MEMBERS_TABLE} cm
+        WHERE cm.community_id = c.id AND cm.user_id = $3 AND cm.status = 'active')) AS is_joined,
+      (SELECT status FROM ${CommunityModel.MEMBERS_TABLE} cm
+        WHERE cm.community_id = c.id AND cm.user_id = $3 LIMIT 1) AS member_status,
       (SELECT role FROM ${CommunityModel.MEMBERS_TABLE} cm WHERE cm.community_id = c.id AND cm.user_id = $3 LIMIT 1) AS member_role,
       COUNT(*) OVER() AS total 
       FROM ${CommunityModel.TABLE} c
       LEFT JOIN media AS avatar_media ON avatar_media.id = avatar_url
-      WHERE c.deleted_at != NULL AND (c.privacy = 'public' OR EXISTS (SELECT 1 FROM ${CommunityModel.MEMBERS_TABLE} cm WHERE cm.community_id = c.id AND cm.user_id = $3 AND cm.status = 'active'))
+      LEFT JOIN media AS banner_media ON banner_media.id = banner_url
+      -- Soft-deleted/inactive communities must not appear in the list (clicking
+      -- them 404s on the detail screen). Membership alone can't resurrect one.
+      WHERE c.deleted_at IS NULL AND c.is_active = TRUE
+        AND (privacy = 'public' OR EXISTS (SELECT 1 FROM ${CommunityModel.MEMBERS_TABLE} cm WHERE cm.community_id = c.id AND cm.user_id = $3 AND cm.status = 'active'))
       ORDER BY member_count DESC
       LIMIT $1 OFFSET $2`,
       [limit, offset, userId]
@@ -71,7 +86,8 @@ const findManyCommunity = async ({limit, offset, userId = null}) => {
 const create = async (data) => {
   try {
     const { rows } = await pool.query(
-      `INSERT INTO ${CommunityModel.TABLE} (name, slug, description, privacy, category, rules, owner_id, avatar_url, banner_url)
+      `INSERT INTO ${CommunityModel.TABLE}
+        (name, slug, description, privacy, category, rules, avatar_url, banner_url, owner_id)
      VALUES ($1, $2, $3, $4, $5::text[], $6::jsonb, $7, $8, $9)
      RETURNING *`,
       [
@@ -81,6 +97,8 @@ const create = async (data) => {
         data.privacy || 'public',
         data.category || [],
         JSON.stringify(data.rules || []),
+        data.avatarMediaId || null,
+        data.bannerMediaId || null,
         data.ownerId,
         data.avatarMediaId,
         data.bannerMediaId,
@@ -157,7 +175,7 @@ const updateBanner = async (communityId, fileUrl) => {
   try {
     const { rows } = await pool.query(
       `UPDATE ${CommunityModel.TABLE} SET banner_url = $1, updated_at = NOW()
-     WHERE id = $2 RETURNING avatar_url`,
+     WHERE id = $2 RETURNING banner_url`,
       [fileUrl, communityId]
     );
     return rows[0] ?  CommunityModel.format(rows[0]) : null;

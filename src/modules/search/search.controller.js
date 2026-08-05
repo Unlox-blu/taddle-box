@@ -16,7 +16,7 @@ class SearchController {
       const filter = req.query.filter || ''
       const { limit, offset, page } = getPaginationParams(req.query);
 
-      const {dataType, data, total} = await this.searchSvc.search({type, query, filter, limit, offset});
+      const {dataType, data, total} = await this.searchSvc.search({type, query, filter, limit, offset, userId});
 
       res.json(apiResponse({dataType, data,}, `${dataType} fetched`, paginationMeta(total, page, limit)));
     } catch (error) {
@@ -28,11 +28,12 @@ class SearchController {
   // people, communities, events, games, posts and hashtags at once.
   searchAll = async (req, res, next) => {
     try {
+      const userId = req.userId;
       const query = req.query.q || ''
       const filter = req.query.filter || ''
       const { limit, offset, page } = getPaginationParams(req.query);
 
-      const {dataType, data, total} = await this.searchSvc.search({type: 'all', query, filter, limit, offset});
+      const {dataType, data, total} = await this.searchSvc.search({type: 'all', query, filter, limit, offset, userId});
 
       res.json(apiResponse({dataType, data,}, `${dataType} fetched`, paginationMeta(total, page, limit)));
     } catch (error) {

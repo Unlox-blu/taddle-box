@@ -69,6 +69,22 @@ class BotMatchHandler {
         });
         BotManager.onMatchEnd(matchId, gameSlug, updatedState);
         await this.archiveMatch(matchId, updatedState);
+
+        // Tell every real player their session is over so stale "REJOIN MATCH"
+        // buttons don't stick around after a bot-driven finish.
+        try {
+          const { getIO } = require('../../sockets/index');
+          const io = getIO();
+          const matchPlayers = updatedState.metadata?.players || updatedState.players || [];
+          for (const p of matchPlayers) {
+            const pid = p?.userId || p?.id;
+            if (pid && !String(pid).startsWith('bot_')) {
+              io.to(`user:${pid}`).emit('SESSION_EXPIRED', { matchId });
+            }
+          }
+        } catch (e) {
+          console.error('[BotEngine] Failed to emit SESSION_EXPIRED:', e.message);
+        }
       } else {
         if (botMove.type === 'STROKE_CHUNK') {
           this.ns
@@ -78,7 +94,11 @@ class BotMatchHandler {
           this.ns
             .to(`match:${matchId}`)
             .emit(this.EVENTS.SYNC, { state: updatedState.pluginState, botMove: true });
-          this.startTurnTimer(this.ns, matchId, gameSlug, updatedState);
+          // Round-based games (word-rush / scribble) keep a fixed-length round
+          // clock driven by the round timer — bot moves must not reset it.
+          if (gameSlug !== 'scribble' && gameSlug !== 'word-rush') {
+            this.startTurnTimer(this.ns, matchId, gameSlug, updatedState);
+          }
           
           if (updatedState.isBotMatch) {
             const turnBasedSlugs = ['chess', 'ludo', 'snake-ladder'];

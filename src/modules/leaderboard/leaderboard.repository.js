@@ -33,6 +33,8 @@ const getFeedLeaderboard = async ({limit}) => {
       AND p.deleted_at IS NULL
       AND p.created_at >= date_trunc('week', NOW())
       AND u.deleted_at IS NULL
+      -- Private accounts' posts stay private — their engagement must not rank publicly
+      AND u.privacy = 'public'
     GROUP BY u.id, u.name, u.username, avatar_media.cloudfront_url
     ORDER BY score DESC, u.name ASC
     LIMIT $1`,
@@ -71,6 +73,8 @@ const getCommunityLeaderboard = async ({limit}) => {
       AND l.created_at >= date_trunc('week', NOW())
     LEFT JOIN media AS avatar_media ON avatar_media.id = u.avatar_url
     WHERE u.deleted_at IS NULL
+      -- Private accounts don't appear on public leaderboards
+      AND u.privacy = 'public'
     GROUP BY u.id, u.name, u.username, avatar_media.cloudfront_url
     HAVING (
       COALESCE(COUNT(DISTINCT p.id) FILTER (WHERE p.community_id IS NOT NULL), 0) +
@@ -92,15 +96,20 @@ const getGamesLeaderboard = async ({limit}) => {
       u.name AS title,
       '@' || u.username AS subtitle,
       avatar_media.cloudfront_url AS avatar_url,
-      COALESCE(SUM(gm.xp_earned + gm.score), 0)::INT AS score,
-      'Game score' AS metric_label
+      -- Ranked by TOTAL WINS this week (a win is a WON finished match),
+      -- not by cumulative score/xp — a player who wins more ranks higher.
+      COALESCE(COUNT(gm.id) FILTER (WHERE gm.result = 'WIN'), 0)::INT AS score,
+      'Wins this week' AS metric_label
     FROM users u
     JOIN game_match gm ON gm.user_id = u.id
     LEFT JOIN media AS avatar_media ON avatar_media.id = u.avatar_url
     WHERE gm.result IS NOT NULL
       AND gm.created_at >= date_trunc('week', NOW())
       AND u.deleted_at IS NULL
+      -- Private accounts don't appear on public leaderboards
+      AND u.privacy = 'public'
     GROUP BY u.id, u.name, u.username, avatar_media.cloudfront_url
+    HAVING COUNT(gm.id) FILTER (WHERE gm.result = 'WIN') > 0
     ORDER BY score DESC, u.name ASC
     LIMIT $1`,
     [limit]
@@ -128,6 +137,8 @@ const getEventsLeaderboard = async ({limit}) => {
       AND ea.registered_at >= date_trunc('week', NOW())
     LEFT JOIN media AS avatar_media ON avatar_media.id = u.avatar_url
     WHERE u.deleted_at IS NULL
+      -- Private accounts don't appear on public leaderboards
+      AND u.privacy = 'public'
     GROUP BY u.id, u.name, u.username, avatar_media.cloudfront_url
     ORDER BY score DESC, u.name ASC
     LIMIT $1`,

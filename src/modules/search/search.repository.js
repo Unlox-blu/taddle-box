@@ -68,7 +68,7 @@ const searchEvent = async (query, filter, limit, offset) => {
   }
 };
 
-const searchPost = async (query, limit, offset) => {
+const searchPost = async (query, limit, offset, userId = null) => {
   try {
     const q = query || '';
     const { rows } = await pool.query(
@@ -97,10 +97,15 @@ const searchPost = async (query, limit, offset) => {
             p.deleted_at IS NULL AND p.status = 'published' 
             AND (p.visibility = 'public' OR (p.visibility = 'community' AND c.privacy != 'private'))
             AND ($1 = '' OR p.title ILIKE $1 OR p.content ILIKE $1)
+            -- Private accounts: posts only surface to the author or approved followers
+            AND (u.privacy = 'public' OR p.author_id = $4 OR EXISTS (
+              SELECT 1 FROM followers f
+              WHERE f.follower_id = $4 AND f.following_id = p.author_id AND f.status = 'active'
+            ))
           GROUP BY p.id, u.id, ua.id, c.id, ca.id
           ORDER BY CASE WHEN $1 = '' THEN (p.likes_count + p.comments_count) END DESC NULLS LAST, p.created_at DESC
            LIMIT $2 OFFSET $3`,
-      [`%${q}%`, limit, offset]
+      [`%${q}%`, limit, offset, userId]
     );
     const total = rows[0]?.total || 0;
     return { rows, total: parseInt(total, 10) };
@@ -132,10 +137,13 @@ const getHashtags = async (q = '') => {
   try {
     const { rows } = await pool.query(
       `SELECT LOWER(t.tag) AS hashtag, COUNT(*) AS count
-       FROM ${SearchModel.POST_TABLE} p, unnest(p.tags) AS t(tag)
+       FROM ${SearchModel.POST_TABLE} p
+       JOIN users u ON u.id = p.author_id
+       CROSS JOIN LATERAL unnest(p.tags) AS t(tag)
        WHERE p.deleted_at IS NULL 
          AND p.status = 'published' 
          AND p.visibility = 'public' 
+         AND u.privacy = 'public'
          AND p.tags IS NOT NULL
          AND LOWER(t.tag) ILIKE $1
        GROUP BY LOWER(t.tag)

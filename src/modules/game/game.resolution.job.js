@@ -77,7 +77,7 @@ async function resolveAbandonedMatches() {
             xpEarned: myXp,
             matchGroupId
           });
-          
+
           // Optionally emit WebSocket event to the winning user
           const { emitNotification } = require('../../sockets/notification.socket');
           emitNotification(session.user_id, {
@@ -98,6 +98,13 @@ async function resolveAbandonedMatches() {
         `, [matchGroupId, session.user_id]);
 
         await client.query('COMMIT');
+
+        // Tournament scoring: a forfeit win counts as a win on the entry.
+        // Runs AFTER the transaction commits (separate connection) so a
+        // rollback can never leave an orphaned entry update.
+        await gameRepository.recordTournamentEntryResult({
+          matchGroupId, userId: session.user_id, isWin: true, xpEarned: myXp
+        });
       } catch (err) {
         await client.query('ROLLBACK');
         console.error('Failed to resolve abandoned match', err);
@@ -298,6 +305,24 @@ async function resolveBotFillingLobbies() {
           if (freshInvite) continue;
         }
 
+        // PRACTICE lobbies: no trickle — the user is solo vs bots, so fill
+        // every open seat at once and start the match immediately. Waiting for
+        // one bot per 2.5–5s sweep would look like a broken/stuck queue.
+        if (mode === 'PRACTICE') {
+          const result = await gameRepository.fillMatchmakingLobby({
+            userId: lobby.host_user_id,
+            ticketId: null,
+            overrideLobbyId: lobby.id,
+            fillBots: true,
+          });
+          if (result && result.status === 'MATCHED') {
+            for (const p of (result.players || []).filter(x => !x.isBot)) {
+              io.to(`user:${p.id}`).emit('matchmaking:matched', result);
+            }
+          }
+          continue;
+        }
+
         // Pacing gate (addOneBotToLobby re-checks inside its transaction too)
         const pacing = Number(lobby.settings?.botFillNextAt) || 0;
         if (pacing > nowMs) continue;
@@ -353,6 +378,14 @@ async function resolveTournaments() {
       WHERE status = 'ACTIVE' AND ends_at <= NOW()
     `);
     
+    // Roll UPCOMING tournaments into ACTIVE the moment their start window opens
+    // (respect starts_at). Runs on the same client before resolving ended ones.
+    await client.query(`
+      UPDATE ${gameModel.GAME_TOURNAMENT_TABLE}
+      SET status = 'ACTIVE', updated_at = NOW()
+      WHERE status = 'UPCOMING' AND starts_at <= NOW()
+    `);
+
     if (!endedTournaments.length) return;
 
     for (const t of endedTournaments) {
@@ -364,28 +397,38 @@ async function resolveTournaments() {
           SELECT user_id, score AS best_score
           FROM ${gameModel.GAME_TOURNAMENT_ENTRY_TABLE}
           WHERE tournament_id = $1 AND status <> 'CANCELLED'
-          ORDER BY score DESC NULLS LAST
+          ORDER BY score DESC NULLS LAST, updated_at ASC, user_id ASC
           LIMIT 3
         `, [t.id]);
         
         if (entries.length > 0 && t.prize_xp > 0) {
-          const reward = t.prize_xp;
-          // source_type is VARCHAR(50) — use short UUID prefix (8 chars) to stay within limit
+          // Payout split: 1st = 100% of the prize, 2nd = 50%, 3rd = 25%.
+          // Only players who actually scored (won at least one match) are paid.
+          const placements = [
+            { entry: entries[0], ratio: 1,    place: '1st', icon: '🏆', title: 'Tournament Winner!' },
+            { entry: entries[1], ratio: 0.5,  place: '2nd', icon: '🥈', title: 'Tournament Runner-Up!' },
+            { entry: entries[2], ratio: 0.25, place: '3rd', icon: '🥉', title: 'Tournament 3rd Place!' },
+          ];
+          // source_type is VARCHAR(50) — use short UUID prefix to stay within limit
           const shortId = t.id.replace(/-/g, '').slice(0, 12);
-          await xpService.creditXP({
-            userId: entries[0].user_id,
-            xp: reward,
-            transactionType: 'earned',
-            sourceType: `tourney_win_${shortId}`   // 12 + 12 = 24 chars, well within 50
-          });
-          
           const { emitNotification } = require('../../sockets/notification.socket');
-          emitNotification(entries[0].user_id, {
-            type: 'TOURNAMENT_WIN',
-            title: 'Tournament Winner! 🏆',
-            message: `You won 1st place in ${t.title} and earned ${reward} XP!`,
-            payload: { tournamentId: t.id, reward }
-          });
+          for (const { entry, ratio, place, icon, title } of placements) {
+            if (!entry || !entry.user_id || !entry.best_score || entry.best_score <= 0) continue;
+            const reward = Math.floor(t.prize_xp * ratio);
+            if (reward <= 0) continue;
+            await xpService.creditXP({
+              userId: entry.user_id,
+              xp: reward,
+              transactionType: 'earned',
+              sourceType: `tourney_win_${shortId}`   // 12 + 12 = 24 chars, well within 50
+            });
+            emitNotification(entry.user_id, {
+              type: 'TOURNAMENT_WIN',
+              title: `${title} ${icon}`,
+              message: `You finished ${place} in ${t.title} and earned ${reward} XP!`,
+              payload: { tournamentId: t.id, reward, place }
+            });
+          }
         }
         
         // Auto-reset recurring tournaments

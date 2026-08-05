@@ -289,7 +289,8 @@ const findTournamentLeaderboard = async ({ tournamentId, limit, offset }) => {
       JOIN users u ON u.id = gte.user_id
       LEFT JOIN media AS avatar_media ON avatar_media.id = u.avatar_url
       WHERE gte.tournament_id = $1 AND gte.status <> 'CANCELLED'
-      ORDER BY gte.score DESC NULLS LAST
+      -- Deterministic tie-break: same wins sort by earliest updated first.
+      ORDER BY gte.score DESC NULLS LAST, gte.updated_at ASC, gte.user_id ASC
       LIMIT $2 OFFSET $3`,
       [tournamentId, limit, offset]
     );
@@ -360,6 +361,12 @@ const findTournaments = async ({ userId, limit, offset }) => {
         g.name AS game_name,
         g.slug AS game_slug,
         COUNT(gte.id)::INT AS player_count,
+        my.score AS my_score,
+        CASE WHEN my.score IS NOT NULL THEN
+          (SELECT COUNT(*)::INT FROM ${gameModel.GAME_TOURNAMENT_ENTRY_TABLE} ahead
+           WHERE ahead.tournament_id = gt.id AND ahead.status <> 'CANCELLED'
+             AND ahead.score > my.score) + 1
+        END AS my_rank,
         EXISTS (
           SELECT 1 FROM ${gameModel.GAME_TOURNAMENT_ENTRY_TABLE} mine
           WHERE mine.tournament_id = gt.id AND mine.user_id = $1 AND mine.status <> 'CANCELLED'
@@ -369,8 +376,13 @@ const findTournaments = async ({ userId, limit, offset }) => {
       JOIN ${gameModel.GAME_TABLE} g ON g.id = gt.game_id
       LEFT JOIN ${gameModel.GAME_TOURNAMENT_ENTRY_TABLE} gte
         ON gte.tournament_id = gt.id AND gte.status <> 'CANCELLED'
+      LEFT JOIN LATERAL (
+        SELECT score FROM ${gameModel.GAME_TOURNAMENT_ENTRY_TABLE} m
+        WHERE m.tournament_id = gt.id AND m.user_id = $1 AND m.status <> 'CANCELLED'
+        LIMIT 1
+      ) my ON TRUE
       WHERE gt.status IN ('ACTIVE', 'UPCOMING') AND gt.ends_at > NOW()
-      GROUP BY gt.id, g.name, g.slug
+      GROUP BY gt.id, g.name, g.slug, my.score
       ORDER BY gt.status = 'ACTIVE' DESC, gt.ends_at ASC
       LIMIT $2 OFFSET $3`,
       [userId, limit, offset]
@@ -394,6 +406,12 @@ const findTournamentById = async ({ tournamentId, userId }) => {
         g.name AS game_name,
         g.slug AS game_slug,
         COUNT(gte.id)::INT AS player_count,
+        my.score AS my_score,
+        CASE WHEN my.score IS NOT NULL THEN
+          (SELECT COUNT(*)::INT FROM ${gameModel.GAME_TOURNAMENT_ENTRY_TABLE} ahead
+           WHERE ahead.tournament_id = gt.id AND ahead.status <> 'CANCELLED'
+             AND ahead.score > my.score) + 1
+        END AS my_rank,
         EXISTS (
           SELECT 1 FROM ${gameModel.GAME_TOURNAMENT_ENTRY_TABLE} mine
           WHERE mine.tournament_id = gt.id AND mine.user_id = $2 AND mine.status <> 'CANCELLED'
@@ -402,8 +420,13 @@ const findTournamentById = async ({ tournamentId, userId }) => {
       JOIN ${gameModel.GAME_TABLE} g ON g.id = gt.game_id
       LEFT JOIN ${gameModel.GAME_TOURNAMENT_ENTRY_TABLE} gte
         ON gte.tournament_id = gt.id AND gte.status <> 'CANCELLED'
+      LEFT JOIN LATERAL (
+        SELECT score FROM ${gameModel.GAME_TOURNAMENT_ENTRY_TABLE} m
+        WHERE m.tournament_id = gt.id AND m.user_id = $2 AND m.status <> 'CANCELLED'
+        LIMIT 1
+      ) my ON TRUE
       WHERE gt.id = $1
-      GROUP BY gt.id, g.name, g.slug`,
+      GROUP BY gt.id, g.name, g.slug, my.score`,
       [tournamentId, userId]
     );
 
@@ -444,6 +467,55 @@ const hasTournamentEntry = async ({ userId, tournamentId }) => {
     return rows.length > 0;
   } catch (error) {
     throw error;
+  }
+};
+
+/**
+ * Records a finished match's result on the player's tournament entry (if the
+ * match belongs to a tournament). This is the PVP/bot-session scoring path —
+ * the legacy completeGameMatch path already updates entries, but the live
+ * completeGameSession flow resolves matches via recordMatchHistory and never
+ * touched game_tournament_entry, so tournament leaderboards stayed empty.
+ *
+ * Leaderboard score = number of wins (1 per WIN). No-op when the match group
+ * has no tournamentId or the user isn't registered.
+ */
+const recordTournamentEntryResult = async ({ matchGroupId, userId, isWin, xpEarned = 0 }) => {
+  try {
+    // The finished match row is pinned with ORDER BY ... LIMIT 1 so match_id is
+    // deterministic even if multiple game_match rows exist for the group
+    // (placeholder + fallback insert). Score/xp increments are correct either
+    // way — all rows for the group share the tournamentId.
+    await pool.query(
+      `UPDATE ${gameModel.GAME_TOURNAMENT_ENTRY_TABLE} gte
+       SET status = 'PLAYED',
+           match_id = (
+             SELECT gm2.id FROM ${gameModel.GAME_MATCH_TABLE} gm2
+             WHERE gm2.user_id = $1
+               AND gm2.metadata->>'matchGroupId' = $2
+               AND gm2.metadata->>'tournamentId' IS NOT NULL
+               AND gm2.result IS NOT NULL
+             ORDER BY gm2.updated_at DESC LIMIT 1
+           ),
+           score = gte.score + $3,
+           xp_earned = gte.xp_earned + $4,
+           updated_at = NOW()
+       WHERE gte.tournament_id = (
+             SELECT (gm3.metadata->>'tournamentId')::uuid FROM ${gameModel.GAME_MATCH_TABLE} gm3
+             WHERE gm3.user_id = $1
+               AND gm3.metadata->>'matchGroupId' = $2
+               AND gm3.metadata->>'tournamentId' IS NOT NULL
+               AND gm3.result IS NOT NULL
+             ORDER BY gm3.updated_at DESC LIMIT 1
+           )
+         AND gte.user_id = $1
+         AND gte.status <> 'CANCELLED'`,
+      [userId, matchGroupId, isWin ? 1 : 0, xpEarned]
+    );
+  } catch (error) {
+    // Non-fatal: the match is already resolved; a tournament entry failure
+    // must never break the main completion flow.
+    console.error('Failed to record tournament entry result:', error.message);
   }
 };
 
@@ -497,7 +569,7 @@ const cancelWaitingMatchmakingTickets = async ({ userId, gameId, mode, tournamen
   }
 };
 
-const joinMatchmaking = async ({ userId, game, mode, tournamentId, targetPlayers, visibility = "PUBLIC" }) => {
+const joinMatchmaking = async ({ userId, game, mode, tournamentId, targetPlayers, visibility = "PUBLIC", lobbyTtlSeconds = null }) => {
   const client = await pool.connect();
   try {
     await client.query('BEGIN');
@@ -562,8 +634,13 @@ const joinMatchmaking = async ({ userId, game, mode, tournamentId, targetPlayers
       // autoSize: true marks lobbies created without an explicit targetPlayers so the
       // bot-fill path can size the match to the game's natural player count (e.g. 4 for ludo).
       const settings = JSON.stringify({ mode: normalizedMode, targetPlayers: maxPlayers, autoSize: isAutoAny, teamsLocked: false, autoBalance: true });
-      // CUSTOM lobbies stay open 30 minutes; AUTO/PRACTICE lobbies 30 seconds (bot fallback kicks in at 15s)
-      const expirySeconds = normalizedMode === 'CUSTOM' ? 1800 : 30;
+      // CUSTOM lobbies stay open 30 minutes; AUTO/PRACTICE lobbies 30 seconds
+      // (bot fallback kicks in at 15s). TOURNAMENT lobbies must survive much
+      // longer — opponents can be rare, so they stay open until the server-
+      // provided TTL (min 30 min, capped at 6h) instead of timing out at 30s.
+      let expirySeconds = 30;
+      if (normalizedMode === 'CUSTOM') expirySeconds = 1800;
+      else if (normalizedMode === 'TOURNAMENT') expirySeconds = lobbyTtlSeconds || 3600;
       // Generate a short invite code for CUSTOM lobbies
       const inviteCode = normalizedMode === 'CUSTOM'
         ? require('crypto').randomBytes(4).toString('hex').toUpperCase()
@@ -1061,7 +1138,13 @@ const setupMatchSession = async ({ matchId, gameId, userId, wsToken, mode, gameS
 
     let playerColor = 'blue';
     if (gameSlug === 'chess') {
-      playerColor = existingColors.includes('b') ? 'w' : 'b';
+      // First player to join gets a RANDOM color; the second gets the other
+      // one. (Previously the first player was always black.)
+      if (existingColors.length === 0) {
+        playerColor = Math.random() < 0.5 ? 'w' : 'b';
+      } else {
+        playerColor = existingColors.includes('b') ? 'w' : 'b';
+      }
     } else if (gameSlug === 'ludo') {
       const colors = ['red', 'green', 'yellow', 'blue'];
       playerColor = colors.find((c) => !existingColors.includes(c)) || 'red';
@@ -2032,6 +2115,7 @@ module.exports = {
   findTournamentById,
   joinTournament,
   hasTournamentEntry,
+  recordTournamentEntryResult,
   findMatchmakingTicketById,
   cancelMatchmakingTicket, fillMatchmakingLobby,
   getTrendingGames,

@@ -101,7 +101,7 @@ class CommentService {
         }
       } else if (author.privacy !== 'public') {
         const isFollow = await this.followerRepo.findByFollowerIdAndFollowingId(userId, authorId);
-        if (!isFollow || isFollow !== 'active')
+        if (!isFollow || isFollow.status !== 'active')
           throw createError("You must follow the post author to access this post comment", 403);
       }
 

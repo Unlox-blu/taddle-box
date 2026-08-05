@@ -15,6 +15,7 @@ export type HomeStackParamList = {
   ChangePassword: undefined;
   ChangePhone:    undefined;
   ChangeEmail:    undefined;
+  FollowRequests: undefined;
   Search:         { query?: string; tab?: 'all' | 'posts' | 'people' | 'communities' | 'events' | 'games' | 'hashtags' } | undefined;
 };
 

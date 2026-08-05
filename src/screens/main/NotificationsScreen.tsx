@@ -1,6 +1,6 @@
 import React, { useMemo, useState, useEffect } from 'react';
 import {
-  View, Text, ScrollView, TouchableOpacity, StyleSheet, ActivityIndicator, RefreshControl, Image,
+  View, Text, ScrollView, TouchableOpacity, StyleSheet, ActivityIndicator, RefreshControl, Image, Alert,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
@@ -140,6 +140,27 @@ function makeStyles(c: ColorPalette) {
     },
     followBackText: { fontSize: fontSizes.xs, fontWeight: '800', color: c.primaryLight },
     followBackDoneText: { color: c.success },
+
+    reqStateText: { fontSize: fontSizes.xs, fontWeight: '700', marginTop: 10, alignSelf: 'flex-start' },
+    reqStateApproved: { color: c.success },
+    reqStateDeclined: { color: c.danger },
+
+    reqBanner: {
+      flexDirection: 'row', alignItems: 'center', gap: 12,
+      marginHorizontal: spacing.lg, marginBottom: 10,
+      paddingHorizontal: spacing.md, paddingVertical: 12,
+      borderRadius: radii.lg,
+      backgroundColor: 'rgba(124,58,237,0.12)',
+      borderWidth: 1, borderColor: 'rgba(124,58,237,0.35)',
+    },
+    reqBannerTitle: { fontSize: fontSizes.sm, fontWeight: '800', color: c.text.primary },
+    reqBannerSub: { fontSize: fontSizes.xs, color: c.text.muted, marginTop: 2 },
+    reqBannerBtn: {
+      paddingHorizontal: 14, paddingVertical: 8,
+      borderRadius: radii.full,
+      backgroundColor: c.primary,
+    },
+    reqBannerBtnText: { color: '#fff', fontSize: fontSizes.xs, fontWeight: '800' },
   });
 }
 
@@ -159,6 +180,11 @@ export default function NotificationsScreen({ navigation }: Props) {
   // doesn't keep showing "Follow Back" when they already follow that user.
   const [followedUsernames, setFollowedUsernames] = useState<Set<string>>(new Set());
   const [followBusy, setFollowBusy] = useState<string | null>(null);
+  // Tracks the response for incoming follow-request notifications.
+  const [followReqState, setFollowReqState] = useState<
+    Record<string, 'approved' | 'declined'>
+  >({});
+  const [reqBusyId, setReqBusyId] = useState<string | null>(null);
   const { clearUnread } = useNotifications();
 
   // Load persisted followed-back usernames so the button stays correct across
@@ -217,6 +243,13 @@ export default function NotificationsScreen({ navigation }: Props) {
     const { type, payload, resourceId } = notif;
 
     try {
+      // A follow REQUEST opens the full requests screen (approve/reject/accept
+      // all) instead of the requester's profile.
+      if (type === 'follow' && payload?.isFollowRequest) {
+        navigation.navigate('FollowRequests');
+        return;
+      }
+
       if (type === 'follow' && payload?.username) {
         navigation.navigate('UserProfile', {
           user: {
@@ -287,6 +320,82 @@ export default function NotificationsScreen({ navigation }: Props) {
     }
   };
 
+  const handleApproveRequest = async (notif: Notification) => {
+    const followerId = notif.payload?.userId;
+    if (!followerId) return;
+    setReqBusyId(notif.id);
+    try {
+      await userService.approveFollowRequest(followerId);
+      setFollowReqState((prev) => ({ ...prev, [notif.id]: 'approved' }));
+      markRead(notif.id);
+    } catch (e: any) {
+      const msg = e?.response?.data?.message || e?.message || '';
+      if (/already following|no follow request/i.test(msg)) {
+        setFollowReqState((prev) => ({ ...prev, [notif.id]: 'approved' }));
+        markRead(notif.id);
+      }
+    } finally {
+      setReqBusyId(null);
+    }
+  };
+
+  const handleDeclineRequest = async (notif: Notification) => {
+    const followerId = notif.payload?.userId;
+    if (!followerId) return;
+    setReqBusyId(notif.id);
+    try {
+      await userService.rejectFollowRequest(followerId);
+      setFollowReqState((prev) => ({ ...prev, [notif.id]: 'declined' }));
+      markRead(notif.id);
+    } catch (e: any) {
+      // The request is already gone (e.g. approved elsewhere / timed out) —
+      // that's effectively declined. Any other error leaves the buttons in
+      // place so the user can retry.
+      const msg = e?.response?.data?.message || e?.message || '';
+      if (/no follow request|already following/i.test(msg)) {
+        setFollowReqState((prev) => ({ ...prev, [notif.id]: 'declined' }));
+        markRead(notif.id);
+      }
+    } finally {
+      setReqBusyId(null);
+    }
+  };
+
+  // Approve every pending follow-request notification in one tap.
+  const [acceptingAll, setAcceptingAll] = useState(false);
+  const pendingRequestNotifs = notifs.filter(
+    (n) => n.type === 'follow' && n.payload?.isFollowRequest && !followReqState[n.id],
+  );
+  const handleAcceptAllRequests = async () => {
+    if (pendingRequestNotifs.length === 0 || acceptingAll) return;
+    setAcceptingAll(true);
+    try {
+      await userService.acceptAllFollowRequests();
+      const ids = pendingRequestNotifs.map((n) => n.id);
+      setFollowReqState((prev) => {
+        const next = { ...prev };
+        ids.forEach((id) => { next[id] = 'approved'; });
+        return next;
+      });
+      ids.forEach((id) => markRead(id));
+      fetchNotifs();
+    } catch (e: any) {
+      const msg = e?.response?.data?.message || e?.message || '';
+      if (/no pending/i.test(msg)) {
+        const ids = pendingRequestNotifs.map((n) => n.id);
+        setFollowReqState((prev) => {
+          const next = { ...prev };
+          ids.forEach((id) => { next[id] = 'approved'; });
+          return next;
+        });
+      } else {
+        Alert.alert('Error', msg || 'Failed to accept requests.');
+      }
+    } finally {
+      setAcceptingAll(false);
+    }
+  };
+
   const unreadCount = notifs.filter(n => !n.isRead).length;
 
   return (
@@ -331,6 +440,28 @@ export default function NotificationsScreen({ navigation }: Props) {
             <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={colors.primary} />
           }
         >
+          {pendingRequestNotifs.length > 0 && (
+            <View style={styles.reqBanner}>
+              <View style={{ flex: 1 }}>
+                <Text style={styles.reqBannerTitle}>
+                  {pendingRequestNotifs.length} follow request{pendingRequestNotifs.length === 1 ? '' : 's'} pending
+                </Text>
+                <Text style={styles.reqBannerSub}>Tap a request to review it</Text>
+              </View>
+              <TouchableOpacity
+                style={styles.reqBannerBtn}
+                disabled={acceptingAll}
+                onPress={handleAcceptAllRequests}
+              >
+                {acceptingAll ? (
+                  <ActivityIndicator size="small" color="#fff" />
+                ) : (
+                  <Text style={styles.reqBannerBtnText}>Accept All</Text>
+                )}
+              </TouchableOpacity>
+            </View>
+          )}
+
           {GROUPS.map(group => {
             const items = notifs.filter(n => n.group === group.key);
             if (!items.length) return null;
@@ -402,7 +533,65 @@ export default function NotificationsScreen({ navigation }: Props) {
                         </View>
                       )}
 
-                      {notif.type === 'follow' && notif.payload?.username && (() => {
+                      {notif.type === 'follow' &&
+                        notif.payload?.isFollowRequest &&
+                        notif.payload?.userId &&
+                        (() => {
+                          const state = followReqState[notif.id];
+                          if (state === 'approved' || state === 'declined') {
+                            return (
+                              <Text
+                                style={[
+                                  styles.reqStateText,
+                                  state === 'approved'
+                                    ? styles.reqStateApproved
+                                    : styles.reqStateDeclined,
+                                ]}
+                              >
+                                {state === 'approved'
+                                  ? '✓ Request approved'
+                                  : '✕ Request declined'}
+                              </Text>
+                            );
+                          }
+                          return (
+                            <View style={styles.inviteActions}>
+                              <TouchableOpacity
+                                style={styles.btnDeny}
+                                disabled={reqBusyId !== null}
+                                onPress={(e) => {
+                                  e.stopPropagation();
+                                  handleDeclineRequest(notif);
+                                }}
+                              >
+                                {reqBusyId === notif.id ? (
+                                  <ActivityIndicator
+                                    size="small"
+                                    color={colors.text.secondary}
+                                  />
+                                ) : (
+                                  <Text style={styles.btnDenyText}>Decline</Text>
+                                )}
+                              </TouchableOpacity>
+                              <TouchableOpacity
+                                style={styles.btnJoin}
+                                disabled={reqBusyId !== null}
+                                onPress={(e) => {
+                                  e.stopPropagation();
+                                  handleApproveRequest(notif);
+                                }}
+                              >
+                                {reqBusyId === notif.id ? (
+                                  <ActivityIndicator size="small" color="#fff" />
+                                ) : (
+                                  <Text style={styles.btnJoinText}>Approve</Text>
+                                )}
+                              </TouchableOpacity>
+                            </View>
+                          );
+                        })()}
+
+                      {notif.type === 'follow' && !notif.payload?.isFollowRequest && notif.payload?.username && (() => {
                         const username = notif.payload.username;
                         const isDone = followedBack[notif.id] || followedUsernames.has(username);
                         return (

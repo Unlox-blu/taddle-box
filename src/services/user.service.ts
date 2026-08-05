@@ -17,6 +17,31 @@ export const userService = {
     return res.data;
   },
 
+  updatePrivacy: async (privacy: 'public' | 'private') => {
+    const res = await apiClient.patch(`/users/update-privacy`, { privacy });
+    return res.data;
+  },
+
+  getFollowRequests: async () => {
+    const res = await apiClient.get(`/users/follow-requests`);
+    return res.data;
+  },
+
+  acceptAllFollowRequests: async () => {
+    const res = await apiClient.post(`/users/follow-requests/accept-all`);
+    return res.data;
+  },
+
+  approveFollowRequest: async (followerId: string) => {
+    const res = await apiClient.patch(`/users/${followerId}/approve-follower`);
+    return res.data;
+  },
+
+  rejectFollowRequest: async (followerId: string) => {
+    const res = await apiClient.delete(`/users/${followerId}/reject-follower`);
+    return res.data;
+  },
+
   followUser: async (username: string) => {
     const res = await apiClient.post(`/users/${username}/follow`);
     return res.data;

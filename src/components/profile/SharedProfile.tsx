@@ -11,6 +11,7 @@ import {
   Image,
   Alert,
   RefreshControl,
+  Linking,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
@@ -78,6 +79,52 @@ function makeStyles(c: ColorPalette) {
       marginBottom: 4,
     },
     bio: { fontSize: fontSizes.sm, color: c.text.secondary, lineHeight: 18 },
+    linkRow: {
+      flexDirection: "row",
+      alignItems: "center",
+      gap: 5,
+      marginTop: 8,
+    },
+    linkText: {
+      fontSize: fontSizes.sm,
+      fontWeight: "700",
+      color: c.primaryLight,
+      flexShrink: 1,
+    },
+
+    requestsBanner: {
+      flexDirection: "row",
+      alignItems: "center",
+      gap: 12,
+      marginHorizontal: spacing.lg,
+      marginTop: spacing.md,
+      padding: spacing.md,
+      borderRadius: radii.lg,
+      borderWidth: 1,
+    },
+    requestsBannerIcon: {
+      width: 34,
+      height: 34,
+      borderRadius: 17,
+      alignItems: "center",
+      justifyContent: "center",
+      backgroundColor: "rgba(124,58,237,0.18)",
+    },
+    requestsBannerTitle: { fontSize: fontSizes.md, fontWeight: "700" },
+    requestsBannerSub: { fontSize: fontSizes.xs, marginTop: 2 },
+
+    lockCircle: {
+      width: 72,
+      height: 72,
+      borderRadius: 36,
+      backgroundColor: c.bg.card,
+      borderWidth: 1,
+      borderColor: c.border,
+      alignItems: "center",
+      justifyContent: "center",
+    },
+    lockTitle: { fontSize: fontSizes.lg, fontWeight: "800" },
+    lockSub: { fontSize: fontSizes.sm, textAlign: "center", lineHeight: 20 },
 
     statsRow: {
       flexDirection: "row",
@@ -285,6 +332,9 @@ export default function SharedProfile({
 
   const [user, setUser] = useState<any>(initialUser);
   const [followed, setFollowed] = useState(!!initialUser?.isFollowing);
+  const [followStatus, setFollowStatus] = useState<string | null>(
+    initialUser?.followStatus || null
+  );
   const [loadingProfile, setLoadingProfile] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [qrModalVisible, setQrModalVisible] = useState(false);
@@ -324,6 +374,7 @@ export default function SharedProfile({
       if (profileRes?.data) {
         setUser(profileRes.data);
         setFollowed(!!profileRes.data.isFollowing);
+        setFollowStatus(profileRes.data.followStatus || null);
       }
     } catch (e) {
       console.warn("Failed to load profile", e);
@@ -345,6 +396,12 @@ export default function SharedProfile({
     const loadPosts = async () => {
       try {
         if (!user?.id) return;
+        // Private accounts: don't even ask the API for posts the viewer can't see.
+        if (!isOwnProfile && user?.privacy === "private" && !followed) {
+          setPosts([]);
+          setLoadingPosts(false);
+          return;
+        }
         setLoadingPosts(true);
         const postsRes = await postsService.getUserPosts(user.id);
         if (active && postsRes?.data) {
@@ -360,24 +417,38 @@ export default function SharedProfile({
     return () => {
       active = false;
     };
-  }, [user?.id]);
+  }, [user?.id, user?.privacy, followed, isOwnProfile]);
+
+  // Private accounts hide their posts until the viewer is an approved follower.
+  const isLocked =
+    !isOwnProfile && user?.privacy === "private" && !followed;
 
   const handleFollowToggle = async () => {
     try {
       if (followed) {
         await userService.unfollowUser(user.username);
         setFollowed(false);
+        setFollowStatus(null);
         setUser((prev: any) => ({
           ...prev,
           followerCount: Math.max(0, (prev.followerCount || 0) - 1),
         }));
+      } else if (followStatus === "pending") {
+        // Cancel a pending follow request.
+        await userService.unfollowUser(user.username);
+        setFollowStatus(null);
       } else {
         await userService.followUser(user.username);
-        setFollowed(true);
-        setUser((prev: any) => ({
-          ...prev,
-          followerCount: (prev.followerCount || 0) + 1,
-        }));
+        if (user?.privacy === "private") {
+          // Private account → a follow request is created, not an active follow.
+          setFollowStatus("pending");
+        } else {
+          setFollowed(true);
+          setUser((prev: any) => ({
+            ...prev,
+            followerCount: (prev.followerCount || 0) + 1,
+          }));
+        }
       }
     } catch (e) {
       console.warn("Failed to toggle follow", e);
@@ -388,7 +459,10 @@ export default function SharedProfile({
     setRefreshing(true);
     try {
       await loadProfile();
-      if (user?.id) {
+      if (
+        user?.id &&
+        !(!isOwnProfile && user?.privacy === "private" && !followed)
+      ) {
         const postsRes = await postsService.getUserPosts(user.id);
         if (postsRes?.data) setPosts(postsRes.data);
       }
@@ -397,7 +471,7 @@ export default function SharedProfile({
     } finally {
       setRefreshing(false);
     }
-  }, [loadProfile, user?.id]);
+  }, [loadProfile, user?.id, isOwnProfile, followed]);
 
   const refreshControl = (
     <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={colors.primary} />
@@ -440,8 +514,29 @@ export default function SharedProfile({
             <Text style={styles.name}>{user?.name || "Taddle User"}</Text>
             <Text style={styles.handleRank}>
               @{user?.username || "user"} · 🏅 {user?.rank || "Beginner"}
+              {user?.privacy === "private" ? " · 🔒 Private" : ""}
             </Text>
-            <Text style={styles.bio}>{user?.bio || "No bio yet."}</Text>
+            {user?.bio ? (
+              <BioText text={user.bio} style={styles.bio} colors={colors} />
+            ) : (
+              <Text style={styles.bio}>No bio yet.</Text>
+            )}
+            {!!user?.websiteUrl && (
+              <TouchableOpacity
+                style={styles.linkRow}
+                activeOpacity={0.7}
+                onPress={() => Linking.openURL(normalizeUrl(user.websiteUrl))}
+              >
+                <Ionicons
+                  name="link-outline"
+                  size={13}
+                  color={colors.primaryLight}
+                />
+                <Text style={styles.linkText} numberOfLines={1}>
+                  {user.websiteUrl.replace(/^https?:\/\//, "")}
+                </Text>
+              </TouchableOpacity>
+            )}
           </View>
         </View>
 
@@ -497,20 +592,32 @@ export default function SharedProfile({
               onPress={handleFollowToggle}
               style={[
                 styles.primaryBtn,
-                followed && styles.primaryBtnActive,
+                (followed || followStatus === "pending") &&
+                  styles.primaryBtnActive,
                 loadingProfile && { opacity: 0.5 },
               ]}
             >
               {loadingProfile ? (
                 <ActivityIndicator
                   size="small"
-                  color={followed ? colors.primary : "#fff"}
+                  color={
+                    followed || followStatus === "pending"
+                      ? colors.primary
+                      : "#fff"
+                  }
                 />
               ) : (
                 <>
                   {followed ? (
                     <Ionicons
                       name="checkmark"
+                      size={16}
+                      color={colors.text.primary}
+                      style={{ marginRight: 6 }}
+                    />
+                  ) : followStatus === "pending" ? (
+                    <Ionicons
+                      name="time-outline"
                       size={16}
                       color={colors.text.primary}
                       style={{ marginRight: 6 }}
@@ -526,10 +633,15 @@ export default function SharedProfile({
                   <Text
                     style={[
                       styles.primaryBtnText,
-                      followed && styles.primaryBtnTextActive,
+                      (followed || followStatus === "pending") &&
+                        styles.primaryBtnTextActive,
                     ]}
                   >
-                    {followed ? "Following" : "Follow"}
+                    {followed
+                      ? "Following"
+                      : followStatus === "pending"
+                        ? "Requested"
+                        : "Follow"}
                   </Text>
                 </>
               )}
@@ -548,6 +660,46 @@ export default function SharedProfile({
           </TouchableOpacity>
         </View>
       </LinearGradient>
+
+      {isOwnProfile && (user?.pendingRequestsCount || 0) > 0 && (
+        <TouchableOpacity
+          style={[
+            styles.requestsBanner,
+            {
+              backgroundColor: "rgba(124,58,237,0.12)",
+              borderColor: "rgba(124,58,237,0.35)",
+            },
+          ]}
+          activeOpacity={0.8}
+          onPress={() => navigation.navigate("FollowRequests")}
+        >
+          <View style={styles.requestsBannerIcon}>
+            <Ionicons name="person-add" size={16} color={colors.primaryLight} />
+          </View>
+          <View style={{ flex: 1 }}>
+            <Text
+              style={[styles.requestsBannerTitle, { color: colors.text.primary }]}
+            >
+              Pending follow requests
+            </Text>
+            <Text
+              style={[
+                styles.requestsBannerSub,
+                { color: colors.text.secondary },
+              ]}
+            >
+              {user.pendingRequestsCount}{" "}
+              {user.pendingRequestsCount === 1 ? "person" : "people"} want to
+              follow you
+            </Text>
+          </View>
+          <Ionicons
+            name="chevron-forward"
+            size={18}
+            color={colors.text.muted}
+          />
+        </TouchableOpacity>
+      )}
 
       <XPProgressBar
         level={user?.level || 1}
@@ -631,7 +783,27 @@ export default function SharedProfile({
     <View style={{ flex: 1 }}>
       {headerComponent}
 
-      {loadingPosts ? (
+      {isLocked ? (
+        <ScrollView
+          showsVerticalScrollIndicator={false}
+          refreshControl={refreshControl}
+        >
+          {profileHeader}
+          <View style={{ padding: 48, alignItems: "center", gap: 12 }}>
+            <View style={styles.lockCircle}>
+              <Ionicons name="lock-closed" size={32} color={colors.text.muted} />
+            </View>
+            <Text style={[styles.lockTitle, { color: colors.text.primary }]}>
+              This account is private
+            </Text>
+            <Text style={[styles.lockSub, { color: colors.text.muted }]}>
+              {followStatus === "pending"
+                ? "Your follow request is waiting for approval."
+                : `Follow @${user?.username || "user"} to see their posts.`}
+            </Text>
+          </View>
+        </ScrollView>
+      ) : loadingPosts ? (
         <ScrollView showsVerticalScrollIndicator={false} refreshControl={refreshControl}>
           {profileHeader}
           <View style={{ padding: 40, alignItems: "center" }}>
@@ -879,5 +1051,40 @@ function FollowListModal({
         </View>
       </View>
     </View>
+  );
+}
+
+// ─── Bio with tappable links ─────────────────────────────────────────────────
+const normalizeUrl = (url: string) => {
+  const trimmed = (url || "").trim();
+  return /^https?:\/\//i.test(trimmed) ? trimmed : `https://${trimmed}`;
+};
+
+function BioText({
+  text,
+  style,
+  colors,
+}: {
+  text: string;
+  style: any;
+  colors: any;
+}) {
+  const parts = text.split(/(https?:\/\/[^\s]+)/g);
+  return (
+    <Text style={style}>
+      {parts.map((part, i) =>
+        part.startsWith("http") ? (
+          <Text
+            key={i}
+            style={{ color: colors.primaryLight, fontWeight: "600" }}
+            onPress={() => Linking.openURL(normalizeUrl(part))}
+          >
+            {part}
+          </Text>
+        ) : (
+          <Text key={i}>{part}</Text>
+        ),
+      )}
+    </Text>
   );
 }

@@ -68,7 +68,12 @@ export const notificationService = {
         // Carry the follower's identity so the NotificationsScreen can render a
         // Follow Back action without another API call.
         const username = n.message?.match(/\(@([^)]+)\)/)?.[1];
-        payload = { userId: n.senderId, username };
+        payload = {
+          userId: n.senderId,
+          username,
+          // REQUEST_TO_FOLLOW needs Approve/Reject actions instead of Follow Back.
+          isFollowRequest: rawType === 'REQUEST_TO_FOLLOW',
+        };
       } else if (mappedType === 'achievement' && rawType === 'REFERRAL_REWARD') {
         payload = { kind: 'referral_reward', userId: n.senderId };
       }

@@ -170,6 +170,18 @@ export default function ForgotPasswordScreen({ navigation }: Props) {
       setErrorMsg('Password must be at least 8 characters');
       return;
     }
+    if (!/[a-z]/.test(newPassword)) {
+      setErrorMsg('Password must contain at least one lowercase letter');
+      return;
+    }
+    if (!/[A-Z]/.test(newPassword)) {
+      setErrorMsg('Password must contain at least one uppercase letter');
+      return;
+    }
+    if (!/[0-9]/.test(newPassword)) {
+      setErrorMsg('Password must contain at least one number');
+      return;
+    }
     if (newPassword !== confirmPassword) {
       setErrorMsg('Passwords do not match');
       return;

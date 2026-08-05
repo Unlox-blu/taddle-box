@@ -370,6 +370,12 @@ function makeStyles(c: ColorPalette) {
       color: c.text.secondary,
     },
     required: { color: c.danger },
+    nameHint: {
+      fontSize: 11,
+      color: "#64748B",
+      marginTop: 4,
+      marginBottom: 10,
+    },
     fieldInput: {
       backgroundColor: c.bg.card,
       borderWidth: 1,
@@ -426,49 +432,40 @@ function makeStyles(c: ColorPalette) {
       fontWeight: "600",
     },
     catChipTextActive: { color: c.primaryLight, fontWeight: "700" },
-    privacyRow: {
-      flexDirection: "row",
-      alignItems: "center",
-      gap: spacing.md,
-      backgroundColor: c.bg.elevated,
-      borderRadius: radii.md,
-      padding: 16,
+    privacyOptions: { flexDirection: "row", gap: 10 },
+    privacyOption: {
+      flex: 1,
       borderWidth: 1,
       borderColor: c.border,
+      borderRadius: radii.lg,
+      backgroundColor: c.bg.elevated,
+      padding: 14,
+      gap: 6,
     },
-    privacyLeft: {
-      flex: 1,
-      flexDirection: "row",
-      alignItems: "flex-start",
-      gap: 14,
+    privacyOptionActive: {
+      borderColor: c.primary,
+      backgroundColor: "rgba(124,58,237,0.08)",
     },
-    privacyLabel: {
+    privacyOptionCheck: { position: "absolute", top: 10, right: 10 },
+    privacyOptionIcon: {
+      width: 36,
+      height: 36,
+      borderRadius: 18,
+      alignItems: "center",
+      justifyContent: "center",
+      backgroundColor: "rgba(255,255,255,0.06)",
+    },
+    privacyOptionTitle: {
       fontSize: fontSizes.md,
-      fontWeight: "700",
+      fontWeight: "800",
       color: c.text.primary,
+      marginTop: 2,
     },
-    privacyDesc: {
+    privacyOptionDesc: {
       fontSize: fontSizes.xs,
       color: c.text.muted,
-      marginTop: 4,
-      lineHeight: 18,
+      lineHeight: 16,
     },
-    toggle: {
-      width: 48,
-      height: 26,
-      borderRadius: 13,
-      backgroundColor: c.borderHover,
-      justifyContent: "center",
-      paddingHorizontal: 2,
-    },
-    toggleOn: { backgroundColor: c.primary },
-    toggleThumb: {
-      width: 22,
-      height: 22,
-      borderRadius: 11,
-      backgroundColor: "#fff",
-    },
-    toggleThumbOn: { alignSelf: "flex-end" },
   });
 }
 
@@ -1152,8 +1149,16 @@ function CreateCommunityModal({
   };
 
   const handleCreate = async () => {
-    if (!name.trim()) {
+    const cleanName = name.trim();
+    if (!cleanName) {
       Alert.alert("Name required", "Please enter a community name.");
+      return;
+    }
+    if (/[^a-zA-Z0-9_-]/.test(cleanName)) {
+      Alert.alert(
+        "Invalid name",
+        "Community names can only contain letters, numbers, underscores and hyphens (no spaces).",
+      );
       return;
     }
     if (!desc.trim()) {
@@ -1163,7 +1168,7 @@ function CreateCommunityModal({
     setCreating(true);
     try {
       const payload: any = {
-        name: name.trim(),
+        name: cleanName,
         description: desc.trim(),
         privacy: isPrivate ? "private" : "public",
         category: [category],
@@ -1301,12 +1306,19 @@ function CreateCommunityModal({
           </Text>
           <TextInput
             style={styles.fieldInput}
-            placeholder="e.g. Campus Coders"
+            placeholder="e.g. CampusCoders"
             placeholderTextColor={colors.text.muted}
             value={name}
-            onChangeText={setName}
+            // Community names are username-style — no spaces (spaces get
+            // stripped as you type, matching the server's slug rule).
+            onChangeText={(t) => setName(t.replace(/\s+/g, ""))}
             maxLength={40}
+            autoCapitalize="none"
+            autoCorrect={false}
           />
+          <Text style={styles.nameHint}>
+            No spaces — use letters, numbers, _ or -
+          </Text>
 
           <Text style={styles.fieldLabel}>
             Description <Text style={styles.required}>*</Text>
@@ -1345,34 +1357,66 @@ function CreateCommunityModal({
             ))}
           </View>
 
-          <TouchableOpacity
-            style={styles.privacyRow}
-            onPress={() => setIsPrivate((v) => !v)}
-            activeOpacity={0.8}
-          >
-            <View style={styles.privacyLeft}>
-              <Ionicons
-                name={isPrivate ? "lock-closed" : "globe-outline"}
-                size={22}
-                color={isPrivate ? colors.primary : colors.text.muted}
-              />
-              <View style={{ flex: 1 }}>
-                <Text style={styles.privacyLabel}>
-                  {isPrivate ? "Private Community" : "Public Community"}
-                </Text>
-                <Text style={styles.privacyDesc}>
-                  {isPrivate
-                    ? "Only approved members can join and post."
-                    : "Anyone can find and join this community."}
-                </Text>
-              </View>
-            </View>
-            <View style={[styles.toggle, isPrivate && styles.toggleOn]}>
-              <View
-                style={[styles.toggleThumb, isPrivate && styles.toggleThumbOn]}
-              />
-            </View>
-          </TouchableOpacity>
+          <Text style={styles.fieldLabel}>Community Visibility</Text>
+          <View style={styles.privacyOptions}>
+            {[
+              {
+                key: "public",
+                icon: "globe-outline",
+                title: "Public",
+                desc: "Anyone can find, view and join this community.",
+              },
+              {
+                key: "private",
+                icon: "lock-closed-outline",
+                title: "Private",
+                desc: "Members must request to join and be approved.",
+              },
+            ].map((opt) => {
+              const active = isPrivate === (opt.key === "private");
+              return (
+                <TouchableOpacity
+                  key={opt.key}
+                  style={[
+                    styles.privacyOption,
+                    active && styles.privacyOptionActive,
+                  ]}
+                  activeOpacity={0.8}
+                  onPress={() => setIsPrivate(opt.key === "private")}
+                >
+                  {active && (
+                    <Ionicons
+                      name="checkmark-circle"
+                      size={18}
+                      color={colors.primary}
+                      style={styles.privacyOptionCheck}
+                    />
+                  )}
+                  <View
+                    style={[
+                      styles.privacyOptionIcon,
+                      active && { backgroundColor: "rgba(124,58,237,0.15)" },
+                    ]}
+                  >
+                    <Ionicons
+                      name={opt.icon as any}
+                      size={20}
+                      color={active ? colors.primaryLight : colors.text.muted}
+                    />
+                  </View>
+                  <Text
+                    style={[
+                      styles.privacyOptionTitle,
+                      active && { color: colors.primaryLight },
+                    ]}
+                  >
+                    {opt.title}
+                  </Text>
+                  <Text style={styles.privacyOptionDesc}>{opt.desc}</Text>
+                </TouchableOpacity>
+              );
+            })}
+          </View>
         </ScrollView>
       </KeyboardAvoidingView>
     </Modal>

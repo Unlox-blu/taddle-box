@@ -11,7 +11,8 @@ import { createGameEngineSocket } from '../../services/socketClient';
 import { gameSound, useTurnSound } from '../../services/gameSound';
 
 // Dice tumble duration — everyone (not just the roller) sees the roll.
-const DICE_ROLL_MS = 1000;
+// Slowed from 1s → ~1.6s so the bounce sequence reads as a real roll.
+const DICE_ROLL_MS = 1600;
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 const { width: SCREEN_W, height: SCREEN_H } = Dimensions.get('window');
@@ -39,19 +40,6 @@ function seededStars(count: number, seed = 42) {
   return Array.from({ length: count }, () => ({
     x: rnd() * 100, y: rnd() * 100, r: 0.8 + rnd() * 1.6, o: 0.25 + rnd() * 0.5,
   }));
-}
-
-// Player progress % — sum of token path positions vs a full 4-token journey
-function playerProgress(tokens: any[] | undefined): number {
-  const tks = Array.isArray(tokens) ? tokens : [];
-  if (tks.length === 0) return 0;
-  let total = 0;
-  tks.forEach((t: any) => {
-    const p = Number(t?.pos ?? -1);
-    if (p < 0) return;
-    total += Math.min(1, (p + 1) / 57);
-  });
-  return Math.round((total / 4) * 100);
 }
 
 const PLAYER_COLORS   = ['#E32636', '#009E60', '#FFC000', '#007FFF'] as const;
@@ -112,6 +100,40 @@ const EVENTS = {
   READY: 'READY', MOVE: 'MOVE', CONNECT_ACK: 'CONNECT',
   START: 'START', SYNC: 'SYNC', GAME_OVER: 'GAME_OVER', ERROR: 'ERROR', CHAT: 'CHAT',
 };
+
+/**
+ * Pull the richest player-snapshot list out of the engine payload. The engine
+ * stores the lobby snapshots (which carry displayName + avatar) nested under
+ * metadata.matchMetadata.playerSnapshots — the flat metadata.players /
+ * state.players fallbacks only hold { userId, color }.
+ */
+function extractEnginePlayers(data: any): any[] {
+  const md = data?.state?.metadata || {};
+  const nested = md.matchMetadata || {};
+  return (
+    nested.playerSnapshots ||
+    md.playerSnapshots ||
+    nested.players ||
+    md.players ||
+    data?.state?.players ||
+    []
+  );
+}
+
+function buildPlayerInfo(players: any[]): Record<string, { name: string; username?: string; avatar?: string }> {
+  const info: Record<string, { name: string; username?: string; avatar?: string }> = {};
+  players.forEach((p: any) => {
+    const uid = p.id || p.userId;
+    if (uid) {
+      info[uid] = {
+        name: p.displayName || p.name || p.username || 'Player',
+        username: p.username,
+        avatar: p.avatar || p.avatarUrl,
+      };
+    }
+  });
+  return info;
+}
 
 export type PlayerContext = {
   id: string;
@@ -221,15 +243,14 @@ export default function LudoGame({
 
     s.on(EVENTS.CONNECT_ACK, (data: any) => {
       const ps = data.state?.pluginState;
-      const players: any[] = data.state?.players || data.state?.metadata?.players || [];
-      const idx = players.findIndex((p: any) => p.userId === userId);
+      // Pull the rich lobby snapshots (displayName + avatar) the same way the
+      // other games do — the flat players array only carries { userId, color }.
+      const players: any[] = extractEnginePlayers(data);
+      const idx = players.findIndex((p: any) => p.userId === userId || p.id === userId);
       setMyPlayerIdx(idx >= 0 ? idx : 0);
 
       // Collect player info (name / avatar)
-      const info: Record<string, { name: string; avatar?: string }> = {};
-      players.forEach((p: any) => {
-        info[p.userId] = { name: p.name || p.username || 'Player', avatar: p.avatarUrl || p.avatar };
-      });
+      const info = buildPlayerInfo(players);
       // Inject self
       info[userId] = { name: myName || 'You', avatar: myAvatar || undefined };
       setPlayerInfo(info);
@@ -338,30 +359,35 @@ export default function LudoGame({
     socket?.emit(EVENTS.MOVE, { type: 'ROLL' });
     gameSound.playTap();
 
-    // ~1s tumble — cycles random faces, then the real result lands via SYNC.
+    // ~1.6s slow tumble — a series of relaxed bounces that reads as a real
+    // dice roll, with the result landing via SYNC.
     diceRotate.setValue(0);
     Animated.sequence([
       Animated.parallel([
-        Animated.spring(diceScale, { toValue: 1.35, useNativeDriver: true, speed: 60 }),
-        Animated.timing(diceRotate, { toValue: 1, duration: 150, useNativeDriver: true }),
+        Animated.spring(diceScale, { toValue: 1.4, useNativeDriver: true, speed: 28, bounciness: 14 }),
+        Animated.timing(diceRotate, { toValue: 1, duration: 260, useNativeDriver: true }),
       ]),
       Animated.parallel([
-        Animated.spring(diceScale, { toValue: 0.82, useNativeDriver: true, speed: 40 }),
-        Animated.timing(diceRotate, { toValue: -0.6, duration: 150, useNativeDriver: true }),
+        Animated.spring(diceScale, { toValue: 0.78, useNativeDriver: true, speed: 22, bounciness: 10 }),
+        Animated.timing(diceRotate, { toValue: -0.8, duration: 280, useNativeDriver: true }),
       ]),
       Animated.parallel([
-        Animated.spring(diceScale, { toValue: 1.18, useNativeDriver: true, speed: 40 }),
-        Animated.timing(diceRotate, { toValue: 1, duration: 150, useNativeDriver: true }),
+        Animated.spring(diceScale, { toValue: 1.22, useNativeDriver: true, speed: 18, bounciness: 10 }),
+        Animated.timing(diceRotate, { toValue: 1, duration: 300, useNativeDriver: true }),
       ]),
       Animated.parallel([
-        Animated.spring(diceScale, { toValue: 0.9, useNativeDriver: true, speed: 30 }),
-        Animated.timing(diceRotate, { toValue: -0.35, duration: 150, useNativeDriver: true }),
+        Animated.spring(diceScale, { toValue: 0.88, useNativeDriver: true, speed: 14, bounciness: 8 }),
+        Animated.timing(diceRotate, { toValue: -0.5, duration: 320, useNativeDriver: true }),
       ]),
       Animated.parallel([
-        Animated.spring(diceScale, { toValue: 1, useNativeDriver: true, speed: 20 }),
-        Animated.timing(diceRotate, { toValue: 0, duration: 150, useNativeDriver: true }),
+        Animated.spring(diceScale, { toValue: 1.06, useNativeDriver: true, speed: 12, bounciness: 6 }),
+        Animated.timing(diceRotate, { toValue: 0.2, duration: 300, useNativeDriver: true }),
       ]),
-      Animated.delay(Math.max(0, DICE_ROLL_MS - 750)),
+      Animated.parallel([
+        Animated.spring(diceScale, { toValue: 1, useNativeDriver: true, speed: 10, bounciness: 4 }),
+        Animated.timing(diceRotate, { toValue: 0, duration: 240, useNativeDriver: true }),
+      ]),
+      Animated.delay(Math.max(0, DICE_ROLL_MS - 1700)),
     ]).start(() => {
       rollingRef.current = false;
       setRolling(false);
@@ -697,7 +723,6 @@ export default function LudoGame({
           const avatarUri = isMe ? (myAvatar || null) : (info?.avatar || null);
           const label = isMe ? (myName || 'You') : (info?.name || `P${i + 1}`);
           const isActive = (gameState.currentTurnIndex ?? 0) === i;
-          const pct = playerProgress(gameState.tokens[uid]);
           return (
             <View
               key={uid}
@@ -721,7 +746,6 @@ export default function LudoGame({
               <Text style={[styles.cornerName, { color: isActive ? '#FFF' : '#B9CBF8' }]} numberOfLines={1}>
                 {isMe ? 'You' : label}
               </Text>
-              <Text style={[styles.cornerPct, { color }]}>{pct}%</Text>
             </View>
           );
         })}
@@ -826,11 +850,8 @@ export default function LudoGame({
         </Text>
       </View>
 
-      {/* ─ Chat button near my corner card (reference-style orange bubble) ─ */}
-      <View pointerEvents="box-none" style={[styles.chatBtnPos, {
-        [CORNER_POS[myCornerIdx >= 0 ? myCornerIdx : 0]?.align ?? 'left']: 14,
-        [CORNER_POS[myCornerIdx >= 0 ? myCornerIdx : 0]?.vert === 'top' ? 'top' : 'bottom']: 104,
-      }]}>
+      {/* ─ Chat button — fixed bottom-centre, reference-style orange bubble ─ */}
+      <View pointerEvents="box-none" style={styles.chatBtnPos}>
         <TouchableOpacity style={styles.chatBtn} onPress={() => setChatOpen(true)} activeOpacity={0.85}>
           <Ionicons name="chatbubble" size={20} color="#FFF" />
         </TouchableOpacity>
@@ -960,6 +981,10 @@ function ChatSheet({
     onSend(draft);
     inputRef.current?.focus();
   };
+
+  // Quick-send emoji bar for fast replies
+  const QUICK_EMOJIS = ['😄', '😂', '🔥', '👍', '🎉', '😮', '💪', '❤️'];
+
   return (
     <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
       <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={styles.chatWrap}>
@@ -999,6 +1024,19 @@ function ChatSheet({
             ))}
           </ScrollView>
 
+          <View style={styles.chatEmojiRow}>
+            {QUICK_EMOJIS.map((e) => (
+              <TouchableOpacity
+                key={e}
+                style={styles.chatEmojiBtn}
+                onPress={() => onSend(e)}
+                activeOpacity={0.7}
+              >
+                <Text style={styles.chatEmojiText}>{e}</Text>
+              </TouchableOpacity>
+            ))}
+          </View>
+
           <View style={styles.chatInputRow}>
             <TextInput
               ref={inputRef}
@@ -1029,7 +1067,7 @@ function ChatSheet({
 
 // ── Styles ────────────────────────────────────────────────────────────────────
 const styles = StyleSheet.create({
-  container: { flex: 1, alignItems: 'center', paddingTop: 8, paddingBottom: 8 },
+  container: { flex: 1, alignItems: 'center', paddingTop: 6, paddingBottom: 6 },
   fullCenter: { flex: 1, justifyContent: 'center', alignItems: 'center' },
   splashEmoji: { fontSize: 64, marginBottom: 10 },
   splashTitle: { fontSize: 26, fontWeight: '900', color: '#F1F5F9', marginBottom: 5 },
@@ -1069,7 +1107,7 @@ const styles = StyleSheet.create({
   activeDot: { width: 5, height: 5, borderRadius: 2.5, marginTop: 2 },
 
   // Board
-  boardWrap: { justifyContent: 'center', alignItems: 'center', borderRadius: 14, padding: 3 },
+  boardWrap: { flex: 1, justifyContent: 'center', alignItems: 'center', borderRadius: 14, padding: 3 },
   board: {
     borderRadius: 10, overflow: 'hidden',
     borderWidth: 1.5, borderColor: 'rgba(124,58,237,0.4)',
@@ -1137,16 +1175,28 @@ const styles = StyleSheet.create({
   diceQ: { fontSize: 26, color: '#0A2472', fontWeight: '900' },
   dieHint: { marginTop: 5, color: '#C7D6FF', fontSize: 11, fontWeight: '700', textAlign: 'center', maxWidth: 120 },
 
-  // Chat button (reference-style orange bubble near my avatar)
-  chatBtnPos: { position: 'absolute', zIndex: 50 },
+  // Chat button (reference-style orange bubble, bottom-centre)
+  chatBtnPos: {
+    position: 'absolute', bottom: 14, alignSelf: 'center', zIndex: 50,
+  },
   chatBtn: {
-    width: 34, height: 34, borderRadius: 17,
+    width: 40, height: 40, borderRadius: 20,
     backgroundColor: '#F97316',
     alignItems: 'center', justifyContent: 'center',
     borderWidth: 2, borderColor: '#FFF',
     elevation: 10, shadowColor: '#F97316',
     shadowOpacity: 0.6, shadowRadius: 6, shadowOffset: { width: 0, height: 2 },
   },
+  chatEmojiRow: {
+    flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginBottom: 8,
+  },
+  chatEmojiBtn: {
+    width: 36, height: 36, borderRadius: 18,
+    backgroundColor: 'rgba(255,255,255,0.07)',
+    alignItems: 'center', justifyContent: 'center',
+    borderWidth: 1, borderColor: 'rgba(255,255,255,0.12)',
+  },
+  chatEmojiText: { fontSize: 17 },
 
   // Chat popup bubble
   bubble: {

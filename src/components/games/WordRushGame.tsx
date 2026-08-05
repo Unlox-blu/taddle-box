@@ -33,12 +33,15 @@ type Props = {
   userId: string;
   wsToken: string;
   players?: PlayerContext[];
+  /** Mirrors the GamePlayModal phase — the 90s round clock only starts once
+      the 3-2-1 countdown finishes, so the countdown never burns round time. */
+  externalPhase?: "playing" | "waiting";
   onComplete: (result: HtmlGameResult) => void;
 };
 
 type FoundWord = { word: string; score: number; userId: string };
 
-export default function WordRushGame({ matchId, userId, wsToken, onComplete }: Props) {
+export default function WordRushGame({ matchId, userId, wsToken, externalPhase = "waiting", onComplete }: Props) {
   const [socket, setSocket] = useState<any>(null);
   const [status, setStatus] = useState<'connecting' | 'waiting' | 'active' | 'finished'>('connecting');
   const [grid, setGrid] = useState<string[]>([]);
@@ -60,6 +63,8 @@ export default function WordRushGame({ matchId, userId, wsToken, onComplete }: P
   const timerRef = useRef<any>(null);
   const timerBarAnim = useRef(new Animated.Value(1)).current;
   const roundRef = useRef(0);
+  const externalPhaseRef = useRef(externalPhase);
+  useEffect(() => { externalPhaseRef.current = externalPhase; }, [externalPhase]);
 
   useEffect(() => {
     const s = createGameEngineSocket(matchId, userId, wsToken);
@@ -77,8 +82,11 @@ export default function WordRushGame({ matchId, userId, wsToken, onComplete }: P
       const ps = data.state?.pluginState ?? data.state;
       if (ps) {
         applyState(ps);
-        const roundDuration = 90;
-        startLocalTimer(roundDuration);
+        // Only kick the 90s clock now if the board is already visible (rejoin
+        // into a live match); fresh matches wait for the countdown effect.
+        if (externalPhaseRef.current === "playing") {
+          startLocalTimer(90);
+        }
       }
       setStatus('active');
     });
@@ -160,12 +168,26 @@ export default function WordRushGame({ matchId, userId, wsToken, onComplete }: P
       if (ps.currentRound !== roundRef.current) {
         roundRef.current = ps.currentRound;
         setSelectedIndices([]);
-        if (ps.status !== 'finished') startLocalTimer(90);
+        // Only (re)start the visible clock when the board is actually on screen.
+        // The initial 0→1 round change arrives on CONNECT_ACK, before the 3-2-1
+        // countdown — starting then would burn round time behind the countdown.
+        if (ps.status !== 'finished' && externalPhaseRef.current === 'playing') {
+          startLocalTimer(90);
+        }
       }
       setRound(ps.currentRound);
     }
     if (ps.totalRounds) setTotalRounds(ps.totalRounds);
   };
+
+  // The 3-2-1 countdown hides the board — start the round clock only when it's
+  // visible so the countdown never burns round time.
+  useEffect(() => {
+    if (status === 'active' && externalPhase === 'playing' && !timerRef.current) {
+      startLocalTimer(90);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [status, externalPhase]);
 
   const startLocalTimer = (total: number) => {
     clearInterval(timerRef.current);

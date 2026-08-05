@@ -214,6 +214,9 @@ export default function ChangePasswordScreen({ navigation }: Props) {
     if (!resolvedEmail) return;
     setError('');
     if (newPassword.length < 8) return setError('New password must be at least 8 characters');
+    if (!/[a-z]/.test(newPassword)) return setError('New password must contain at least one lowercase letter');
+    if (!/[A-Z]/.test(newPassword)) return setError('New password must contain at least one uppercase letter');
+    if (!/[0-9]/.test(newPassword)) return setError('New password must contain at least one number');
     if (newPassword !== confirmPassword) return setError('New passwords do not match');
 
     try {

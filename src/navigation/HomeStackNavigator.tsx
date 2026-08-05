@@ -16,6 +16,7 @@ import EditProfileScreen    from '../screens/main/EditProfileScreen';
 import TermsScreen          from '../screens/main/TermsScreen';
 import PrivacyScreen        from '../screens/main/PrivacyScreen';
 import ChangePasswordScreen from '../screens/main/ChangePasswordScreen';
+import FollowRequestsScreen from '../screens/main/FollowRequestsScreen';
 import ChangePhoneScreen    from '../screens/main/ChangePhoneScreen';
 import ChangeEmailScreen    from '../screens/main/ChangeEmailScreen';
 
@@ -43,6 +44,7 @@ export default function HomeStackNavigator() {
       <Stack.Screen name="ChangePassword" component={ChangePasswordScreen} options={{ animation: 'slide_from_right' }} />
       <Stack.Screen name="ChangePhone"    component={ChangePhoneScreen}    options={{ animation: 'slide_from_right' }} />
       <Stack.Screen name="ChangeEmail"    component={ChangeEmailScreen}    options={{ animation: 'slide_from_right' }} />
+      <Stack.Screen name="FollowRequests" component={FollowRequestsScreen} options={{ animation: 'slide_from_right' }} />
       <Stack.Screen name="Search"         component={SearchScreen}         options={{ animation: 'fade' }} />
     </Stack.Navigator>
   );

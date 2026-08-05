@@ -23,6 +23,9 @@ type Props = {
   userId: string;
   wsToken: string;
   players?: PlayerContext[];
+  /** Mirrors the GamePlayModal phase — the pattern SHOW animation only runs
+      once the 3-2-1 countdown finishes, so reveals never happen off-screen. */
+  externalPhase?: "playing" | "waiting";
   onComplete: (result: HtmlGameResult) => void;
 };
 
@@ -36,7 +39,11 @@ const EVENTS = {
   ERROR: "ERROR",
 };
 
-export default function MemoryGridGame({ matchId, userId, wsToken, players, onComplete }: Props) {
+export default function MemoryGridGame({
+  matchId, userId, wsToken, players,
+  externalPhase = "waiting",
+  onComplete,
+}: Props) {
   const [socket, setSocket] = useState<any>(null);
   const [status, setStatus] = useState<"connecting" | "waiting" | "active" | "finished">("connecting");
   const [roundPhase, setRoundPhase] = useState<"SHOW" | "INPUT">("SHOW");
@@ -62,8 +69,23 @@ export default function MemoryGridGame({ matchId, userId, wsToken, players, onCo
     setSocket(s);
 
     s.on(EVENTS.CONNECT_ACK, (payload: any) => {
-      setStatus("waiting");
+      // Rejoining an already-ACTIVE match must not drop us back into the
+      // "Waiting…" state — the engine skips READY→START for live matches, so
+      // we'd deadlock on the loading screen forever. Adopt the server state.
+      const matchStatus = payload?.status || payload?.state?.status;
+      setStatus(matchStatus === "ACTIVE" ? "active" : "waiting");
+      if (payload.state?.pluginState) {
+        syncState(payload.state.pluginState);
+      }
       s.emit(EVENTS.READY);
+    });
+
+    s.on(EVENTS.STATE, (payload: any) => {
+      // Room-wide STATE broadcasts (e.g. another player joined while waiting)
+      // carry the full match snapshot — keep the board in sync.
+      if (payload.state?.pluginState) {
+        syncState(payload.state.pluginState);
+      }
     });
 
     s.on(EVENTS.START, (payload: any) => {
@@ -200,9 +222,12 @@ export default function MemoryGridGame({ matchId, userId, wsToken, players, onCo
     ]).start();
   };
 
-  // Animate Pattern when in SHOW phase
+  // Animate Pattern when in SHOW phase — but only once the board is actually
+  // visible (externalPhase "playing"). Otherwise the reveal would run behind
+  // the 3-2-1 countdown and the INPUT phase could already be active when the
+  // player first sees the board.
   useEffect(() => {
-    if (status !== "active" || roundPhase !== "SHOW" || pattern.length === 0) return;
+    if (status !== "active" || externalPhase !== "playing" || roundPhase !== "SHOW" || pattern.length === 0) return;
 
     let isCancelled = false;
     let step = 0;
@@ -241,7 +266,7 @@ export default function MemoryGridGame({ matchId, userId, wsToken, players, onCo
     return () => {
       isCancelled = true;
     };
-  }, [status, roundPhase, pattern]);
+  }, [status, externalPhase, roundPhase, pattern]);
 
   const handleCellTap = (index: number) => {
     if (status !== "active" || roundPhase !== "INPUT" || submittedRef.current) return;

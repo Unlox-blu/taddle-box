@@ -277,7 +277,7 @@ export default function ChessGame({
 
     s.on(EVENTS.GAME_OVER, (data: any) => {
       setStatus("finished");
-      const ps = data.state?.pluginState ?? data.state?.pluginState;
+      const ps = data.state?.pluginState ?? data.state;
       const winnerId = ps?.winner || data.winner;
       const isDraw = ps?.drawReason || data.drawReason;
 
@@ -450,21 +450,6 @@ export default function ChessGame({
     );
   }
 
-  if (status === "waiting") {
-    return (
-      <View style={styles.fullCenter}>
-        <View style={styles.connectCard}>
-          <Text style={styles.connectIcon}>⏳</Text>
-          <Text style={styles.connectTitle}>Waiting for Opponent</Text>
-          <Text style={styles.connectSub}>Finding your chess rival…</Text>
-          <View style={styles.colorBadge}>
-            <Text style={styles.colorBadgeText}>You play as {myColorName}</Text>
-          </View>
-        </View>
-      </View>
-    );
-  }
-
   const renderPlayerRow = ({
     isOpponent,
     label,
@@ -576,6 +561,22 @@ export default function ChessGame({
         isTurn: isMyTurn && status === "active",
       })}
 
+      {/* Waiting overlay — the board is rendered underneath so the piece
+          images preload while the 3-2-1 countdown runs. Without this, the
+          board visibly draws itself piece-by-piece right as the match starts. */}
+      {status === "waiting" && (
+        <View style={styles.waitingOverlay}>
+          <View style={styles.connectCard}>
+            <Text style={styles.connectIcon}>⏳</Text>
+            <Text style={styles.connectTitle}>Waiting for Opponent</Text>
+            <Text style={styles.connectSub}>Finding your chess rival…</Text>
+            <View style={styles.colorBadge}>
+              <Text style={styles.colorBadgeText}>You play as {myColorName}</Text>
+            </View>
+          </View>
+        </View>
+      )}
+
       {/* Game over overlay */}
       {status === "finished" && (
         <View style={styles.gameOverOverlay}>
@@ -658,6 +659,13 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     alignItems: "center",
     padding: 24,
+  },
+  waitingOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: "rgba(5,5,15,0.92)",
+    justifyContent: "center",
+    alignItems: "center",
+    zIndex: 40,
   },
   connectCard: {
     backgroundColor: "#0F172A",

@@ -21,7 +21,9 @@ export type SoundName =
   | "loss"
   | "tap"
   | "correct"
-  | "error";
+  | "error"
+  | "snake"
+  | "ladder";
 
 const SOUND_SOURCES: Record<SoundName, number> = {
   tick: require("../../assets/sounds/tick.wav"),
@@ -32,6 +34,8 @@ const SOUND_SOURCES: Record<SoundName, number> = {
   tap: require("../../assets/sounds/tap.wav"),
   correct: require("../../assets/sounds/correct.wav"),
   error: require("../../assets/sounds/error.wav"),
+  snake: require("../../assets/sounds/snake.wav"),
+  ladder: require("../../assets/sounds/ladder.wav"),
 };
 
 const SOUND_KEY = "game_soundEnabled";
@@ -151,6 +155,16 @@ export const gameSound = {
   playError: () => {
     play("error");
     haptic("warning");
+  },
+  /** Snake bite — slithery descending buzz */
+  playSnake: () => {
+    play("snake");
+    haptic("error");
+  },
+  /** Ladder climb — bright ascending chime */
+  playLadder: () => {
+    play("ladder");
+    haptic("success");
   },
 };
 

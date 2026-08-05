@@ -27,6 +27,17 @@ export default function EditProfileScreen() {
   const [avatarAsset, setAvatarAsset] = useState<ImagePicker.ImagePickerAsset | null>(null);
   const [saving,     setSaving]     = useState(false);
 
+  // Keyboard responsiveness: keep the focused field visible above the keyboard.
+  const scrollRef = useRef<ScrollView>(null);
+  const fieldYRef = useRef<Record<string, number>>({});
+
+  const scrollToField = (key: string) => {
+    const y = fieldYRef.current[key];
+    if (typeof y === 'number') {
+      scrollRef.current?.scrollTo({ y: Math.max(0, y - 16), animated: true });
+    }
+  };
+
   // Track what actually changed
   const originalRef = useRef({
     name:     user?.name       ?? '',
@@ -148,11 +159,17 @@ export default function EditProfileScreen() {
     onChange: (v: string) => void,
     opts?: { multiline?: boolean; placeholder?: string; keyboardType?: any; autoCapitalize?: any }
   ) => (
-    <View style={styles.fieldWrap}>
+    <View
+      style={styles.fieldWrap}
+      onLayout={(e) => {
+        fieldYRef.current[label] = e.nativeEvent.layout.y;
+      }}
+    >
       <Text style={[styles.fieldLabel, { color: colors.text.muted }]}>{label}</Text>
       <TextInput
         value={value}
         onChangeText={onChange}
+        onFocus={() => scrollToField(label)}
         style={[
           styles.fieldInput,
           {
@@ -194,8 +211,18 @@ export default function EditProfileScreen() {
         </TouchableOpacity>
       </View>
 
-      <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
-        <ScrollView contentContainerStyle={styles.body} keyboardShouldPersistTaps="handled">
+      <KeyboardAvoidingView
+        style={{ flex: 1 }}
+        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+        keyboardVerticalOffset={Platform.OS === 'ios' ? 64 : 0}
+      >
+        <ScrollView
+          ref={scrollRef}
+          contentContainerStyle={styles.body}
+          keyboardShouldPersistTaps="handled"
+          keyboardDismissMode="on-drag"
+          automaticallyAdjustKeyboardInsets
+        >
           <View style={styles.avatarRow}>
             <TouchableOpacity
               onPress={pickAvatar}

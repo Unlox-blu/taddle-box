@@ -63,6 +63,10 @@ import { gameSound, useGameSoundPrefs } from "../../services/gameSound";
 
 type ActiveTab = "games" | "tournaments" | "history";
 type ScreenModal = "none" | "history";
+
+// Every game shows the cosmetic 3-2-1 countdown. Realtime games gate their
+// own clocks (round timers, pattern reveals) on `externalPhase === "playing"`
+// so the countdown never burns match time before the board is visible.
 export type PlayerContext = {
   id: string;
   name: string;
@@ -529,6 +533,12 @@ export default function GamesScreen() {
                   }}
                   isRejoin={isRejoin}
                   rejoinWindowMs={rejoinWindowMs}
+                  onRejoinExpired={() => {
+                    // Window expired — drop the stale session so the card
+                    // reverts to a normal PLAY button.
+                    setReconnectSession(null);
+                    loadGamesData();
+                  }}
                   onPlayClick={() => {
                     if (isRejoin) {
                       setActiveSession({ ...reconnectSession, isRejoin: true });
@@ -686,11 +696,13 @@ function GameCard({
   isRejoin,
   rejoinWindowMs,
   onPlayClick,
+  onRejoinExpired,
 }: {
   game: Game;
   isRejoin?: boolean;
   rejoinWindowMs?: number | null;
   onPlayClick: () => void;
+  onRejoinExpired?: () => void;
 }) {
   const [timeLeft, setTimeLeft] = useState<number | null>(
     rejoinWindowMs != null ? Math.floor(rejoinWindowMs / 1000) : null
@@ -725,6 +737,16 @@ function GameCard({
     }, 1000);
     return () => clearInterval(timer);
   }, [timeLeft]);
+
+  // When the reconnect window expires the match is forfeited server-side, so
+  // the REJOIN button must revert to a normal PLAY card instead of showing
+  // "REJOIN MATCH" forever (stale session left in state).
+  useEffect(() => {
+    if (isRejoin && rejoinWindowMs != null && timeLeft === 0) {
+      const t = setTimeout(() => onRejoinExpired?.(), 1200);
+      return () => clearTimeout(t);
+    }
+  }, [isRejoin, rejoinWindowMs, timeLeft, onRejoinExpired]);
 
   const colors = useThemeColors();
   const styles = useMemo(() => makeStyles(colors), [colors]);
@@ -962,10 +984,6 @@ function GamePlayModal({
     const onStart = (event: any) => {
       if (event.matchId === session.matchId) {
         setMatchStarted(true);
-        // Real-time games skip the cosmetic countdown entirely.
-        if ((session.game as any)?.slug === "tap-rush") {
-          setPhase("playing");
-        }
       }
     };
 

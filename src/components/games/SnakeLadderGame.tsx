@@ -443,10 +443,10 @@ export default function SnakeLadderGame({ matchId, userId, wsToken, players, myN
 
     if (lastEvent === 'snake' && moverId) {
       showToast(`🐍 ${pName(moverId)} got eaten — slid down to ${ps.positions[moverId]}!`);
-      gameSound.playError();
+      gameSound.playSnake();
     } else if (lastEvent === 'ladder' && moverId) {
       showToast(`🪜 ${pName(moverId)} climbed the ladder to ${ps.positions[moverId]}!`);
-      gameSound.playCorrect();
+      gameSound.playLadder();
     } else if (overshoot) {
       showToast('😅 Too far! You need the exact roll to finish.');
       gameSound.playTap();

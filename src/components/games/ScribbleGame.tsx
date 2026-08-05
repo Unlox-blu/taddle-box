@@ -35,13 +35,16 @@ type Props = {
   userId: string;
   wsToken: string;
   players?: PlayerContext[];
+  /** Mirrors the GamePlayModal phase — the round clock only ticks once the
+      3-2-1 countdown finishes, so the countdown never burns round time. */
+  externalPhase?: "playing" | "waiting";
   onComplete: (result: HtmlGameResult) => void;
 };
 
 const COLORS_PALETTE = ['#FFFFFF', '#EF4444', '#22C55E', '#3B82F6', '#EAB308', '#A855F7', '#EC4899', '#000000'];
 const WIDTHS = [3, 6, 10, 16];
 
-export default function ScribbleGame({ matchId, userId, wsToken, players, onComplete }: Props) {
+export default function ScribbleGame({ matchId, userId, wsToken, players, externalPhase = "waiting", onComplete }: Props) {
   const [socket, setSocket] = useState<any>(null);
   const [status, setStatus] = useState<'connecting' | 'waiting' | 'drawing' | 'guessing' | 'finished'>('connecting');
   const [isDrawer, setIsDrawer] = useState(false);
@@ -60,6 +63,11 @@ export default function ScribbleGame({ matchId, userId, wsToken, players, onComp
 
   const flatRef = useRef<FlatList>(null);
   const timerRef = useRef<any>(null);
+  const externalPhaseRef = useRef(externalPhase);
+  useEffect(() => { externalPhaseRef.current = externalPhase; }, [externalPhase]);
+  // Latest plugin state (for re-syncing the round clock when the board becomes
+  // visible after the 3-2-1 countdown).
+  const lastPsRef = useRef<any>(null);
   const roleAnim = useRef(new Animated.Value(0)).current;
   const timerBarAnim = useRef(new Animated.Value(1)).current;
   // Mirrors `currentStroke` but is updated synchronously inside the PanResponder,
@@ -169,6 +177,7 @@ export default function ScribbleGame({ matchId, userId, wsToken, players, onComp
   }, [matchId, userId, wsToken]);
 
   const applyState = (ps: any, announce: boolean) => {
+    lastPsRef.current = ps;
     // drawerId comes from server _getPlayerState helper
     const drawerId = ps.drawerId;
     const drawing = drawerId === userId;
@@ -201,12 +210,27 @@ export default function ScribbleGame({ matchId, userId, wsToken, players, onComp
       })));
     }
 
-    // Timer
-    if (ps.roundStartedAt) {
+    // Timer — only start it while the board is visible (fresh matches fire
+    // START during the countdown, so the effect below kicks the clock off once
+    // the board is actually shown).
+    if (externalPhaseRef.current === 'playing') {
+      startTimerFromState(ps);
+    }
+  };
+
+  // Start the round clock the moment the 3-2-1 countdown finishes.
+  useEffect(() => {
+    if (externalPhase !== 'playing') return;
+    if (status === 'connecting' || status === 'waiting' || status === 'finished') return;
+    startTimerFromState(lastPsRef.current);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [externalPhase]);
+
+  const startTimerFromState = (ps: any) => {
+    if (ps?.roundStartedAt) {
       const elapsed = Math.floor((Date.now() - ps.roundStartedAt) / 1000);
       const roundDurationSec = ps.roundDurationMs ? Math.floor(ps.roundDurationMs / 1000) : 80;
-      const remaining = Math.max(0, roundDurationSec - elapsed);
-      startTimer(remaining);
+      startTimer(Math.max(0, roundDurationSec - elapsed));
     } else {
       startTimer(80);
     }
@@ -455,6 +479,7 @@ export default function ScribbleGame({ matchId, userId, wsToken, players, onComp
         data={chat}
         keyExtractor={(_, i) => String(i)}
         style={styles.chat}
+        keyboardShouldPersistTaps="handled"
         onContentSizeChange={() => flatRef.current?.scrollToEnd({ animated: true })}
         ListEmptyComponent={
           !isDrawer ? <Text style={styles.chatEmpty}>No guesses yet… be first!</Text> : null

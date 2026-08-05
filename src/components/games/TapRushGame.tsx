@@ -24,6 +24,9 @@ type Props = {
   userId: string;
   wsToken: string;
   players?: PlayerContext[];
+  /** Mirrors the GamePlayModal phase — the 20s round only runs once the
+      3-2-1 countdown finishes, so the countdown never burns match time. */
+  externalPhase?: "playing" | "waiting";
   onComplete: (result: HtmlGameResult) => void;
 };
 
@@ -63,7 +66,11 @@ const readDurationMs = (state: any): number => {
   return Math.max(3000, v < 1000 ? v * 1000 : v);
 };
 
-export default function TapRushGame({ matchId, userId, wsToken, players, onComplete }: Props) {
+export default function TapRushGame({
+  matchId, userId, wsToken, players,
+  externalPhase = "waiting",
+  onComplete,
+}: Props) {
   const [socket, setSocket] = useState<any>(null);
   const [status, setStatus] = useState<"connecting" | "waiting" | "active" | "finished">("connecting");
   const [durationSec, setDurationSec] = useState(20);
@@ -73,21 +80,53 @@ export default function TapRushGame({ matchId, userId, wsToken, players, onCompl
   const [activeTarget, setActiveTarget] = useState<Target | null>(null);
   const [targetSequence, setTargetSequence] = useState<Target[]>([]);
   const lastTapSeqRef = useRef(-1);
+  // When the engine fired START (round began server-side). Used to anchor the
+  // countdown + target reveals to the true round elapsed time instead of
+  // granting a fresh round when the 3-2-1 countdown finishes or on rejoin.
+  const roundStartRef = useRef<number | null>(null);
+  const externalPhaseRef = useRef(externalPhase);
+  useEffect(() => { externalPhaseRef.current = externalPhase; }, [externalPhase]);
+
+  // Keep the local scoreboard in sync with whatever the server broadcasts
+  // (SYNC after a tap, STATE room broadcasts, CONNECT_ACK on rejoin).
+  const applyScores = (scores: Record<string, number>) => {
+    setScore(scores[userId] || 0);
+    const oppId = Object.keys(scores).find(id => id !== userId && !id.startsWith('bot_'));
+    if (oppId) setOpponentScore(scores[oppId]);
+    const botId = Object.keys(scores).find(id => id.startsWith('bot_'));
+    if (botId && !oppId) setOpponentScore(scores[botId]);
+  };
 
   useEffect(() => {
     const s = createGameEngineSocket(matchId, userId, wsToken);
     setSocket(s);
 
     s.on(EVENTS.CONNECT_ACK, (payload: any) => {
-      setStatus("waiting");
+      // Rejoining an already-ACTIVE match must not drop us back into the
+      // "Get Ready..." state — the engine skips READY→START for live matches,
+      // so we'd deadlock on the loading screen forever. Adopt the server state.
+      const matchStatus = payload?.status || payload?.state?.status;
+      setStatus(matchStatus === "ACTIVE" ? "active" : "waiting");
       if (payload.state?.pluginState?.targetSequence) {
         setTargetSequence(payload.state.pluginState.targetSequence);
       }
+      if (payload.state?.pluginState?.scores) {
+        applyScores(payload.state.pluginState.scores);
+      }
       setDurationSec(Math.round(readDurationMs(payload.state) / 1000));
+      // Rejoin mid-round: anchor the clock to now so we show the remaining
+      // time (the server has been running the round) rather than a fresh 20s.
+      if (matchStatus === "ACTIVE") {
+        roundStartRef.current = Date.now();
+      }
       s.emit(EVENTS.READY);
     });
 
+    // Fresh match: the engine fires START once every real player has readied.
+    // (This listener was accidentally dropped, leaving fresh matches stuck on
+    // the "Get Ready..." screen forever.)
     s.on(EVENTS.START, (payload: any) => {
+      roundStartRef.current = Date.now();
       setStatus("active");
       if (payload.state?.pluginState?.targetSequence) {
         setTargetSequence(payload.state.pluginState.targetSequence);
@@ -95,13 +134,20 @@ export default function TapRushGame({ matchId, userId, wsToken, players, onCompl
       setDurationSec(Math.round(readDurationMs(payload.state) / 1000));
     });
 
+    s.on(EVENTS.STATE, (payload: any) => {
+      // Room-wide STATE broadcasts (e.g. another player joined while waiting)
+      // carry the full match snapshot — keep the board in sync.
+      if (payload.state?.pluginState?.targetSequence) {
+        setTargetSequence(payload.state.pluginState.targetSequence);
+      }
+      if (payload.state?.pluginState?.scores) {
+        applyScores(payload.state.pluginState.scores);
+      }
+    });
+
     s.on(EVENTS.SYNC, (payload: any) => {
       if (payload.state?.scores) {
-        setScore(payload.state.scores[userId] || 0);
-        const oppId = Object.keys(payload.state.scores).find(id => id !== userId && !id.startsWith('bot_'));
-        if (oppId) setOpponentScore(payload.state.scores[oppId]);
-        const botId = Object.keys(payload.state.scores).find(id => id.startsWith('bot_'));
-        if (botId && !oppId) setOpponentScore(payload.state.scores[botId]);
+        applyScores(payload.state.scores);
       }
     });
 
@@ -137,17 +183,25 @@ export default function TapRushGame({ matchId, userId, wsToken, players, onCompl
     };
   }, [matchId, userId, wsToken]);
 
+  // Round clock: only ticks while the board is actually visible (externalPhase
+  // "playing"). Starts at the remaining round time — anchored to roundStartRef
+  // so the 3-2-1 countdown and mid-round rejoins don't grant a fresh 20s.
   useEffect(() => {
-    if (status !== "active") return;
-    setTimeLeft(durationSec);
+    if (status !== "active" || externalPhase !== "playing") return;
+    const started = roundStartRef.current;
+    let remaining = durationSec;
+    if (started) {
+      remaining = Math.max(0, durationSec - Math.floor((Date.now() - started) / 1000));
+    }
+    setTimeLeft(remaining);
     const interval = setInterval(() => {
       setTimeLeft((prev) => Math.max(0, prev - 1));
     }, 1000);
     return () => clearInterval(interval);
-  }, [status, durationSec]);
+  }, [status, externalPhase, durationSec]);
 
   useEffect(() => {
-    if (status === "active" && timeLeft === 0) {
+    if (status === "active" && externalPhase === "playing" && timeLeft === 0) {
       setStatus("finished");
       onComplete({
         score,
@@ -157,7 +211,7 @@ export default function TapRushGame({ matchId, userId, wsToken, players, onCompl
         longestStreak: score,
       });
     }
-  }, [timeLeft, status, score, onComplete]);
+  }, [timeLeft, status, externalPhase, score, onComplete]);
 
   // Reveal targets on the server-provided cumulative schedule. Each target's
   // `delay` is its absolute offset from game start, so we schedule every reveal
@@ -165,26 +219,32 @@ export default function TapRushGame({ matchId, userId, wsToken, players, onCompl
   // tap area keeps appearing for the full match instead of stalling/skipping.
   // Each target also auto-hides TARGET_TTL_MS after its reveal if not tapped,
   // so missed targets vanish instead of lingering under the next one.
+  // Reveal targets on the server-provided schedule, offset by the time already
+  // elapsed since the engine STARTed — so the countdown (and a mid-round rejoin)
+  // never desyncs the reveal timing from the server's round clock.
   useEffect(() => {
-    if (status !== "active" || targetSequence.length === 0) return;
+    if (status !== "active" || externalPhase !== "playing" || targetSequence.length === 0) return;
 
+    const started = roundStartRef.current;
+    const elapsed = started ? Math.max(0, Date.now() - started) : 0;
     const timers: NodeJS.Timeout[] = [];
     targetSequence.forEach((t) => {
+      const delay = Math.max(0, t.delay - elapsed);
       timers.push(
-        setTimeout(() => setActiveTarget(t), t.delay)
+        setTimeout(() => setActiveTarget(t), delay)
       );
       timers.push(
         setTimeout(() => {
           setActiveTarget((prev) => (prev?.seq === t.seq ? null : prev));
-        }, t.delay + TARGET_TTL_MS)
+        }, delay + TARGET_TTL_MS)
       );
     });
     // Hide the last target shortly after the final reveal
     const lastDelay = targetSequence[targetSequence.length - 1]?.delay || 0;
-    timers.push(setTimeout(() => setActiveTarget(null), lastDelay + TARGET_TTL_MS + 200));
+    timers.push(setTimeout(() => setActiveTarget(null), Math.max(0, lastDelay - elapsed) + TARGET_TTL_MS + 200));
 
     return () => timers.forEach(clearTimeout);
-  }, [status, targetSequence]);
+  }, [status, externalPhase, targetSequence]);
 
   const handleTap = () => {
     if (!activeTarget || !socket || status !== "active") return;
@@ -246,7 +306,7 @@ export default function TapRushGame({ matchId, userId, wsToken, players, onCompl
 
       <View style={styles.gameAreaWrapper}>
         <LinearGradient colors={["#1E1B4B", "#312E81"]} style={styles.gameArea}>
-          {status === "connecting" || status === "waiting" ? (
+          {status === "connecting" || status === "waiting" || externalPhase !== "playing" ? (
             <Text style={styles.overlayText}>Get Ready...</Text>
           ) : status === "finished" ? (
             <Text style={styles.overlayText}>Game Over!</Text>

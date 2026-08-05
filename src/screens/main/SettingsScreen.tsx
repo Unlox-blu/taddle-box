@@ -20,6 +20,7 @@ import { fontSizes, spacing, radii, type ColorPalette } from "../../theme";
 import { useWallet } from "../../context/WalletContext";
 import { useTheme, useThemeColors } from "../../context/ThemeContext";
 import { useAuth } from "../../context/AuthContext";
+import { userService } from "../../services/user.service";
 import { authService } from "../../services/auth.service";
 import { appConfigService } from "../../services/appConfig.service";
 import { settingsService } from "../../services/settings.service";
@@ -52,7 +53,7 @@ const maskPhone = (phone?: string, countryCode?: string) => {
 };
 
   export default function SettingsScreen() {
-  const { user: CURRENT_USER, signOut } = useAuth();
+  const { user: CURRENT_USER, signOut, updateUser } = useAuth();
   const insets = useSafeAreaInsets();
   const navigation = useNavigation<NavProp>();
   const { wallet, toggleSetting, fetchWalletData } = useWallet();
@@ -67,7 +68,9 @@ const maskPhone = (phone?: string, countryCode?: string) => {
 
   const [checkingVersion, setCheckingVersion] = useState(false);
 
-  const [publicAccount, setPublicAccount] = useState(true);
+  const [publicAccount, setPublicAccount] = useState(
+    CURRENT_USER?.privacy !== "private"
+  );
   const [activityStatus, setActivityStatus] = useState(true);
   const [allowTagging, setAllowTagging] = useState(true);
   const [showOnLeaderboard, setShowOnLeaderboard] = useState(true);
@@ -84,7 +87,6 @@ const maskPhone = (phone?: string, countryCode?: string) => {
         .getSettings()
         .then((res) => {
           if (res?.data) {
-            setPublicAccount(res.data.publicAccount ?? true);
             setActivityStatus(res.data.activityStatus ?? true);
             setAllowTagging(res.data.allowTagging ?? true);
             setShowOnLeaderboard(res.data.showOnLeaderboard ?? true);
@@ -161,6 +163,29 @@ const maskPhone = (phone?: string, countryCode?: string) => {
       })),
       { text: "Cancel", style: "cancel" as const },
     ]);
+  };
+
+  // Applies a privacy change. Going private → public auto-accepts all pending
+  // follow requests server-side; the response reports how many were accepted.
+  const applyPrivacyChange = async (next: boolean, old: boolean) => {
+    setPublicAccount(next);
+    try {
+      const res = await userService.updatePrivacy(next ? "public" : "private");
+      updateUser({ privacy: next ? "public" : "private" });
+      const accepted = res?.data?.accepted;
+      if (next && accepted) {
+        Alert.alert(
+          "Requests accepted",
+          `${accepted} pending follow request${accepted === 1 ? "" : "s"} ${accepted === 1 ? "was" : "were"} accepted automatically.`,
+        );
+      }
+    } catch (e) {
+      setPublicAccount(old);
+      Alert.alert(
+        "Error",
+        "Failed to update privacy settings. Please try again.",
+      );
+    }
   };
 
   const handleLogout = () => {
@@ -442,17 +467,33 @@ const maskPhone = (phone?: string, countryCode?: string) => {
         <SectionHeader title="Privacy" />
         <SettingsGroup>
           <SettingsToggle
-            icon="earth-outline"
-            label="Public Account"
-            description="Anyone can see your posts"
+            icon={publicAccount ? "earth-outline" : "lock-closed-outline"}
+            label={publicAccount ? "Public Account" : "Private Account"}
+            description={
+              publicAccount
+                ? "Anyone can follow you and see your posts"
+                : "People must send a follow request you approve"
+            }
             value={publicAccount}
-            onToggle={async () => {
+            onToggle={() => {
               const old = publicAccount;
-              setPublicAccount(!old);
-              try {
-                await settingsService.togglePublicAccount();
-              } catch (e) {
-                setPublicAccount(old);
+              const next = !old;
+              // Going public auto-accepts every pending follow request — warn
+              // the user before flipping the switch.
+              if (next) {
+                Alert.alert(
+                  "Make account public?",
+                  "Switching to a public account will automatically accept all of your pending follow requests. You can't undo this by going private again.",
+                  [
+                    { text: "Cancel", style: "cancel" },
+                    {
+                      text: "Make Public",
+                      onPress: () => applyPrivacyChange(next, old),
+                    },
+                  ],
+                );
+              } else {
+                applyPrivacyChange(next, old);
               }
             }}
           />

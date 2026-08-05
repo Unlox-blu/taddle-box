@@ -25,6 +25,13 @@ class UserService {
       let finalUser = user;
       if (userId && userId === user.id) {
         finalUser = await this.userRepo.findByIdPrivate(user.id);
+        // Count pending follow requests so the app can surface a review badge.
+        try {
+          const pendingRequestsCount = await this.followersRepo.countPendingByFollowingId(user.id);
+          finalUser.pendingRequestsCount = pendingRequestsCount;
+        } catch (err) {
+          finalUser.pendingRequestsCount = 0;
+        }
       } else if (userId) {
         const isFollow = await this.followersRepo.findByFollowerIdAndFollowingId(userId, user.id);
         finalUser.isFollowing = isFollow?.status === 'active';
@@ -55,7 +62,7 @@ class UserService {
         
         // Badges placeholder (could query from a badges table if it exists)
         finalUser.badges = [];
-        if (xp > 500) finalUser.badges.push({ id: 1, name: 'Active User', emoji: '🔥', color: 'purple' });
+        if (finalUser.xp > 500) finalUser.badges.push({ id: 1, name: 'Active User', emoji: '🔥', color: 'purple' });
         
       } catch (err) {
         console.error('Error fetching aggregated profile stats:', err);
@@ -122,6 +129,71 @@ class UserService {
   async updatePrivacy({userId, privacy}) {
     try {
       await this.userRepo.updatePrivacy(userId, privacy);
+
+      // Going public auto-accepts every pending follow request — the requests
+      // no longer make sense once the account is open, and the requesters
+      // expect to be following immediately (the app warns the user first).
+      let accepted = 0;
+      if (privacy === 'public') {
+        const acceptedIds = await this.followersRepo.approveAllPendingByFollowingId(userId);
+        accepted = acceptedIds.length;
+        if (accepted > 0) {
+          const me = await this.userRepo.findById(userId);
+          for (const followerId of acceptedIds) {
+            await this.userRepo.incrementFollowingCount(followerId);
+            await this.userRepo.incrementFollowerCount(userId);
+            await notificationService.publishNotification({
+              type: 'FOLLOW',
+              recipientId: followerId,
+              senderId: userId,
+              resourceType: 'user',
+              resourceId: userId,
+              title: 'Follow request approved',
+              message: `${me.name} (@${me.username}) made their account public — you are now following them`,
+            });
+          }
+        }
+      }
+      return { accepted };
+    } catch (error) {
+      throw error;
+    }
+  }
+
+  async acceptAllFollowRequests({userId}) {
+    try {
+      const count = await this.followersRepo.countPendingByFollowingId(userId);
+      if (count === 0) return { message: 'No pending follow requests', accepted: 0 };
+
+      const acceptedIds = await this.followersRepo.approveAllPendingByFollowingId(userId);
+      for (const followerId of acceptedIds) {
+        await this.userRepo.incrementFollowingCount(followerId);
+        await this.userRepo.incrementFollowerCount(userId);
+      }
+      return { message: `Accepted ${acceptedIds.length} follow request${acceptedIds.length === 1 ? '' : 's'}`, accepted: acceptedIds.length };
+    } catch (error) {
+      throw error;
+    }
+  }
+
+  async getFollowRequests({userId, limit, offset}) {
+    try {
+      const { requests, total } = await this.followersRepo.findPendingByFollowingId(userId, limit, offset);
+      return { requests, total };
+    } catch (error) {
+      throw error;
+    }
+  }
+
+  async rejectFollowRequest({userId: followingId, followerId}) {
+    try {
+      const isFollow = await this.followersRepo.findByFollowerIdAndFollowingId(followerId, followingId);
+      if (!isFollow) throw createError('No follow request found', 404);
+      if (isFollow.status === 'active')
+        throw createError('This user is already following you. Use remove follower instead.', 409);
+
+      await this.followersRepo.hardDelete(followerId, followingId);
+      return { message: 'Follow request rejected' };
     } catch (error) {
       throw error;
     }
@@ -204,7 +276,11 @@ class UserService {
       if (followerId === followingId) throw createError("You can't follow yourself", 409);
 
       const isFollow = await this.followersRepo.findByFollowerIdAndFollowingId( followerId, followingId );
-      if (isFollow) throw createError("You are already following this user", 409);
+      if (isFollow) {
+        if (isFollow.status === 'pending')
+          throw createError('Follow request already sent', 409);
+        throw createError("You are already following this user", 409);
+      }
 
 
       const follower = await this.userRepo.findById(followerId)
@@ -302,8 +378,13 @@ class UserService {
 
       await this.followersRepo.hardDelete(followerId, followingId);
 
-      await this.userRepo.decrementFollowingCount(followerId);
-      await this.userRepo.decrementFollowerCount(followingId);
+      // Pending requests never incremented the counts (they're only bumped on
+      // approval), so only a cancelled *active* follow should decrement them.
+      // Otherwise cancelling a request would corrupt both counters.
+      if (isFollow.status === 'active') {
+        await this.userRepo.decrementFollowingCount(followerId);
+        await this.userRepo.decrementFollowerCount(followingId);
+      }
     } catch (error) {
       throw error;
     }

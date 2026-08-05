@@ -7,7 +7,7 @@ const findByFollowerIdAndFollowingId = async (followerId, followingId) => {
   try {
     const { rows } = await pool.query(
       `
-            SELECT 1
+            SELECT status
             FROM ${ShareModel.FOLLOWER_TABLE}
             WHERE follower_id = $1 AND following_id = $2 
             `,

@@ -4,6 +4,7 @@ const SnakeLadderBot = require('./snake-ladder/SnakeLadderBot');
 const ScribbleBot = require('./scribble/ScribbleBot');
 const TapRushBot = require('./taprush/TapRushBot');
 const MemoryBot = require('./memory/MemoryBot');
+const WordRushBot = require('./wordrush/WordRushBot');
 
 // Registry of all bot plugins along with metadata
 const BotRegistry = {
@@ -49,6 +50,14 @@ const BotRegistry = {
     },
     'memory-grid': {
         plugin: MemoryBot,
+        metadata: {
+            supportsDifficulty: true,
+            turnBased: false,
+            requiresEngine: false
+        }
+    },
+    'word-rush': {
+        plugin: WordRushBot,
         metadata: {
             supportsDifficulty: true,
             turnBased: false,

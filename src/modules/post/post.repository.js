@@ -128,6 +128,12 @@ const findManyByCommunity = async (communityId, limit, offset, currentUserId = n
     WHERE 
       p.community_id = $1
       AND p.deleted_at IS NULL
+      -- Private accounts: their posts only surface to the author or approved followers,
+      -- even inside communities (the account's privacy is the audience boundary)
+      AND (u.privacy = 'public' OR p.author_id = $4 OR EXISTS (
+        SELECT 1 FROM followers f
+        WHERE f.follower_id = $4 AND f.following_id = p.author_id AND f.status = 'active'
+      ))
     GROUP BY p.id, u.id, ua.id, c.id, ca.id
     ORDER BY p.created_at DESC
      LIMIT $2 OFFSET $3`,
@@ -348,6 +354,11 @@ const search = async (query, limit, offset, currentUserId = null) => {
      FROM ${PostModel.TABLE} p
      JOIN users u ON u.id = p.author_id
      WHERE p.deleted_at IS NULL AND p.status = 'published' AND p.visibility = 'public'
+       -- Private accounts: posts only surface to the author or approved followers
+       AND (u.privacy = 'public' OR p.author_id = $4 OR EXISTS (
+         SELECT 1 FROM followers f
+         WHERE f.follower_id = $4 AND f.following_id = p.author_id AND f.status = 'active'
+       ))
        AND ($1 = '' OR p.title ILIKE $1 OR p.content ILIKE $1)
      ORDER BY p.created_at DESC
      LIMIT $2 OFFSET $3`,

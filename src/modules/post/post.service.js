@@ -110,7 +110,7 @@ class PostService {
       }
       else if(author.privacy !== 'public') {
         const isFollow = await this.followerRepo.findByFollowerIdAndFollowingId(userId, authorId)
-        if(!isFollow || isFollow !== 'active')
+        if(!isFollow || isFollow.status !== 'active')
           throw createError("You don't have permission to view posts from this private account", 403);
       }
       return PostModel.format(post);
@@ -131,7 +131,7 @@ class PostService {
       
       if(author.privacy !== 'public') {
         const isFollow = await this.followerRepo.findByFollowerIdAndFollowingId(userId, authorId)
-        if(!isFollow || isFollow !== 'active')
+        if(!isFollow || isFollow.status !== 'active')
           throw createError("You don't have permission to view posts from this private account", 403);
       }
 
@@ -186,7 +186,7 @@ class PostService {
       const author = await this.userRepo.findById(authorId)
       if(authorId !== userId && author.privacy !== 'public') {
         const isFollow = await this.followerRepo.findByFollowerIdAndFollowingId(userId, authorId)
-        if(!isFollow || isFollow !== 'active')
+        if(!isFollow || isFollow.status !== 'active')
           throw createError("You don't have permission to like posts", 403);
       }  
 
@@ -242,7 +242,7 @@ class PostService {
       const author = await this.userRepo.findById(authorId)
       if(author.privacy !== 'public') {
         const isFollow = await this.followerRepo.findByFollowerIdAndFollowingId(userId, authorId)
-        if(!isFollow || isFollow !== 'active')
+        if(!isFollow || isFollow.status !== 'active')
           throw createError("You don't have permission to view posts from this private account", 403);
       }
 
@@ -262,7 +262,7 @@ class PostService {
       const author = await this.userRepo.findById(authorId)
       if(authorId !== userId && author.privacy !== 'public') {
         const isFollow = await this.followerRepo.findByFollowerIdAndFollowingId(userId, authorId)
-        if(!isFollow || isFollow !== 'active')
+        if(!isFollow || isFollow.status !== 'active')
           throw createError("You don't have permission to bookmark posts of this private account", 403);
       }
 

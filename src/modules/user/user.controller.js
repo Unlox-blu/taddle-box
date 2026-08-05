@@ -67,8 +67,8 @@ class UserController {
     try {
       const userId = req.userId
       const {privacy} = req.body
-      await this.userSvc.updatePrivacy({userId, privacy});
-      res.json(apiResponse(null, 'Privacy updated successfully'));
+      const result = await this.userSvc.updatePrivacy({userId, privacy});
+      res.json(apiResponse(result, 'Privacy updated successfully'));
     } catch (error) {
       next(error)
     }
@@ -119,6 +119,38 @@ class UserController {
       next(error);
     }
   }
+
+  getFollowRequests = async (req, res, next) => {
+    try {
+      const { limit, offset, page } = getPaginationParams(req.query);
+      const userId = req.userId;
+      const { requests, total } = await this.userSvc.getFollowRequests({userId, limit, offset});
+      res.json(apiResponse(requests, 'Follow requests fetched successfully', paginationMeta(total, page, limit)));
+    } catch (error) {
+      next(error);
+    }
+  };
+
+  rejectFollowRequest = async (req, res, next) => {
+    try {
+      const userId = req.userId;
+      const { followerId } = req.params;
+      const { message } = await this.userSvc.rejectFollowRequest({userId, followerId});
+      res.json(apiResponse(null, message));
+    } catch (error) {
+      next(error);
+    }
+  };
+
+  acceptAllFollowRequests = async (req, res, next) => {
+    try {
+      const userId = req.userId;
+      const { message, accepted } = await this.userSvc.acceptAllFollowRequests({userId});
+      res.json(apiResponse({ accepted }, message));
+    } catch (error) {
+      next(error);
+    }
+  };
 
   followUser = async (req, res, next) => {
     try {

@@ -33,6 +33,8 @@ const getFeedLeaderboard = async ({limit}) => {
       AND p.deleted_at IS NULL
       AND p.created_at >= date_trunc('week', NOW())
       AND u.deleted_at IS NULL
+      -- Private accounts' posts stay private — their engagement must not rank publicly
+      AND u.privacy = 'public'
     GROUP BY u.id, u.name, u.username, avatar_media.cloudfront_url
     ORDER BY score DESC, u.name ASC
     LIMIT $1`,
@@ -71,6 +73,8 @@ const getCommunityLeaderboard = async ({limit}) => {
       AND l.created_at >= date_trunc('week', NOW())
     LEFT JOIN media AS avatar_media ON avatar_media.id = u.avatar_url
     WHERE u.deleted_at IS NULL
+      -- Private accounts don't appear on public leaderboards
+      AND u.privacy = 'public'
     GROUP BY u.id, u.name, u.username, avatar_media.cloudfront_url
     HAVING (
       COALESCE(COUNT(DISTINCT p.id) FILTER (WHERE p.community_id IS NOT NULL), 0) +
@@ -100,6 +104,8 @@ const getGamesLeaderboard = async ({limit}) => {
     WHERE gm.result IS NOT NULL
       AND gm.created_at >= date_trunc('week', NOW())
       AND u.deleted_at IS NULL
+      -- Private accounts don't appear on public leaderboards
+      AND u.privacy = 'public'
     GROUP BY u.id, u.name, u.username, avatar_media.cloudfront_url
     ORDER BY score DESC, u.name ASC
     LIMIT $1`,
@@ -128,6 +134,8 @@ const getEventsLeaderboard = async ({limit}) => {
       AND ea.registered_at >= date_trunc('week', NOW())
     LEFT JOIN media AS avatar_media ON avatar_media.id = u.avatar_url
     WHERE u.deleted_at IS NULL
+      -- Private accounts don't appear on public leaderboards
+      AND u.privacy = 'public'
     GROUP BY u.id, u.name, u.username, avatar_media.cloudfront_url
     ORDER BY score DESC, u.name ASC
     LIMIT $1`,

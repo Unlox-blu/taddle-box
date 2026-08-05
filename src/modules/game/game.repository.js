@@ -1061,7 +1061,13 @@ const setupMatchSession = async ({ matchId, gameId, userId, wsToken, mode, gameS
 
     let playerColor = 'blue';
     if (gameSlug === 'chess') {
-      playerColor = existingColors.includes('b') ? 'w' : 'b';
+      // First player to join gets a RANDOM color; the second gets the other
+      // one. (Previously the first player was always black.)
+      if (existingColors.length === 0) {
+        playerColor = Math.random() < 0.5 ? 'w' : 'b';
+      } else {
+        playerColor = existingColors.includes('b') ? 'w' : 'b';
+      }
     } else if (gameSlug === 'ludo') {
       const colors = ['red', 'green', 'yellow', 'blue'];
       playerColor = colors.find((c) => !existingColors.includes(c)) || 'red';

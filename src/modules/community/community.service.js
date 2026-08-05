@@ -286,6 +286,12 @@ class CommunityService {
       const community = await this.communityRepo.findById(communityId);
       if (!community) throw createError('Community not found', 404);
 
+      // Admins must not be able to kick themselves — that left the community
+      // with a dead-end state (removed member who still owns the community).
+      // Use the Leave action instead (owner cannot leave either).
+      if (targetUserId === approvalId)
+        throw createError('You cannot remove yourself from the community', 400);
+
       const member = await this.communityRepo.getMember(communityId, approvalId);
       const canApprove =
         member?.role === 'admin' ||

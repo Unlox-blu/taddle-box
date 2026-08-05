@@ -33,10 +33,24 @@ const emitWalletUpdate = (userId, newBalanceCents) => {
   _io.to(`user:${userId}`).emit('wallet:updated', { balanceCents: newBalanceCents });
 };
 
+// Emits a follow-request lifecycle update so the recipient's notification UI
+// can clear a stale Approve/Decline state the moment the requester cancels.
+const emitFollowRequestCancelled = (userId, { followerId }) => {
+  if (!_io) return;
+  _io.to(`user:${userId}`).emit('follow:requestCancelled', { followerId });
+};
+
+// Emits a follow-state update (mutual follow / unfollow) so the sender's
+// notification "Follow Back" button stays in sync in real time.
+const emitFollowStateChanged = (userId, { otherUserId, isFollowing }) => {
+  if (!_io) return;
+  _io.to(`user:${userId}`).emit('follow:stateChanged', { otherUserId, isFollowing });
+};
+
 // Emits an XP balance update to a specific user.
 const emitXPUpdate = (userId, newXP) => {
   if (!_io) return;
   _io.to(`user:${userId}`).emit('xp:updated', { xp: newXP });
 };
 
-module.exports = { setupNotificationSocket, emitNotification, emitWalletUpdate, emitXPUpdate };
+module.exports = { setupNotificationSocket, emitNotification, emitWalletUpdate, emitXPUpdate, emitFollowRequestCancelled, emitFollowStateChanged };

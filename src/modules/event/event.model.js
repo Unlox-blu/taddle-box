@@ -1,5 +1,7 @@
 'use strict';
 
+const config = require('../../config/app.config');
+
 const TABLE = 'events';
 const ATTENDEES_TABLE = 'event_attendees';
 
@@ -47,6 +49,10 @@ const format = (row) => {
     xpReward: row.xp_reward,
     cashPrizeCents: row.cash_prize_cents,
     registrationDeadline: row.registration_deadline,
+    // Paid events are payable in XP — same XP_PER_RUPEE rate as the wallet.
+    xpPrice: row.is_free
+      ? 0
+      : Math.round(((row.ticket_price_cents || 0) / 100) * config.XP_PER_RUPEE),
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   };

@@ -5,6 +5,7 @@ const NotificationModel = require('./notification.model');
 const NotificationBatchService = require('./notification.batch');
 const NotificationSchedulerService = require('./notification.scheduler');
 const notificationRepository = require('./notification.repository');
+const followersRepository = require('../user/followers.repository');
 const {
   DEFAULT_NOTIFICATION_DEFINITIONS,
   PRIORITY,
@@ -55,6 +56,22 @@ class NotificationService {
       unreadOnly
     );
     const unreadCount = await this.notifRepo.getUnreadCount(userId);
+
+    // Enrich follow notifications with the *live* follow state so the app never
+    // shows a stale Approve/Follow-Back button:
+    //  - FOLLOW            → isMutual:      does the recipient already follow the sender?
+    //  - REQUEST_TO_FOLLOW → requestActive: is the pending request still in the DB?
+    for (const n of notifications) {
+      if (!n.senderId) continue;
+      if (n.type === 'FOLLOW' || n.type === 'APPROVED_TO_FOLLOW') {
+        const rel = await followersRepository.findByFollowerIdAndFollowingId(userId, n.senderId);
+        n.isMutual = !!(rel && rel.status === 'active');
+      } else if (n.type === 'REQUEST_TO_FOLLOW') {
+        const rel = await followersRepository.findByFollowerIdAndFollowingId(n.senderId, userId);
+        n.requestActive = !!(rel && rel.status === 'pending');
+      }
+    }
+
     return { notifications, total, unreadCount };
   }
 

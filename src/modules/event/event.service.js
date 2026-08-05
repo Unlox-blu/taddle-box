@@ -50,10 +50,21 @@ class EventService {
         await this.eventRepo.addAttendee(eventId, userId, { status: status });
         await this.eventRepo.incrementAttendeeCount(eventId);
       } else {
-        // const receipt = `evt_${eventId}_${userId}`.slice(0, 40);
-        // const order = await this.paymentSvc.createOrder(event.ticket_price_cents, event.currency, receipt);
-  
-        // await this.eventRepo.addAttendee(eventId, userId, { status: status, razorpayOrderId: order.id });
+        // Paid events are paid with XP (never real money). The ticket price is
+        // stored in rupees (ticket_price_cents) and converted to XP using the
+        // same XP_PER_RUPEE rate the wallet uses.
+        const xpPrice = Math.round(((event.ticketPriceCents || 0) / 100) * config.XP_PER_RUPEE);
+        if (!this.xpSvc) throw createError('XP payments unavailable', 500);
+
+        await this.xpSvc.debitXP({
+          userId,
+          xp: xpPrice,
+          transactionType: 'spent',
+          sourceType: `event_ticket_${eventId}`,
+        });
+
+        await this.eventRepo.addAttendee(eventId, userId, { status: status, razorpayOrderId: `xp:${xpPrice}` });
+        await this.eventRepo.incrementAttendeeCount(eventId);
       }
       
       const timestamp = new Date(event.startTime);
@@ -137,8 +148,18 @@ class EventService {
       if (!isAttendee || isAttendee.status === 'cancelled')
         throw createError("You have already cancelled your registration", 409);
 
-      if(isAttendee.razorpay_payment_id || isAttendee.razorpay_order_id) {
-        // Payment refund process
+      // Paid events were charged in XP (stored as "xp:<amount>" in the order
+      // column) — refund the XP on cancellation so users aren't penalized.
+      if (isAttendee.razorpay_order_id && String(isAttendee.razorpay_order_id).startsWith('xp:')) {
+        const xpPrice = parseInt(String(isAttendee.razorpay_order_id).slice(3), 10);
+        if (xpPrice > 0 && this.xpSvc) {
+          this.xpSvc.creditXP({
+            userId,
+            xp: xpPrice,
+            transactionType: 'earned',
+            sourceType: `event_refund_${eventId}`,
+          }).catch(e => console.error('Failed to refund event XP:', e));
+        }
       }
 
       await this.eventRepo.updateAttendeeStatus(eventId, userId, 'cancelled');

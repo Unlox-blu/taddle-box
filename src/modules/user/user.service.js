@@ -2,6 +2,7 @@
 
 const { createError } = require('../../utils/error.util');
 const { notificationService } = require('../notification/notification.container');
+const { emitFollowRequestCancelled, emitFollowStateChanged } = require('../../sockets/notification.socket');
 const appleUtil = require('../../utils/apple.util');
 
 const bcrypt = require('bcryptjs');
@@ -36,6 +37,41 @@ class UserService {
         const isFollow = await this.followersRepo.findByFollowerIdAndFollowingId(userId, user.id);
         finalUser.isFollowing = isFollow?.status === 'active';
         finalUser.followStatus = isFollow?.status || null;
+
+        // Instagram-style mutuals: people the viewer follows who also follow
+        // this profile. Only exposed to logged-in viewers (own profile handled
+        // above). Hidden from the API when the account is private AND the
+        // viewer isn't an approved follower — same privacy rule as the
+        // followers/following lists.
+        if (!finalUser.isFollowing && user.privacy === 'private') {
+          finalUser.mutuals = { count: 0, users: [] };
+        } else {
+          try {
+            const pool = require('../../config/database');
+            const mutualRes = await pool.query(
+              `SELECT u.name, u.username
+               FROM followers f1
+               JOIN followers f2 ON f2.follower_id = f1.following_id AND f2.following_id = $2 AND f2.status = 'active'
+               JOIN users u ON u.id = f1.following_id
+               WHERE f1.follower_id = $1 AND f1.status = 'active'
+               LIMIT 4`,
+              [userId, user.id]
+            );
+            const countRes = await pool.query(
+              `SELECT COUNT(*)::int AS count
+               FROM followers f1
+               JOIN followers f2 ON f2.follower_id = f1.following_id AND f2.following_id = $2 AND f2.status = 'active'
+               WHERE f1.follower_id = $1 AND f1.status = 'active'`,
+              [userId, user.id]
+            );
+            finalUser.mutuals = {
+              count: countRes.rows[0]?.count || 0,
+              users: mutualRes.rows.map(r => ({ name: r.name, username: r.username })),
+            };
+          } catch (err) {
+            finalUser.mutuals = { count: 0, users: [] };
+          }
+        }
       }
 
       // Aggregate XP, Level, Rank
@@ -321,6 +357,15 @@ class UserService {
         message: `${follower.name} (@${follower.username}) started following you`,
       })
 
+      // Real-time follow-state sync: the caller's own open notification rows for
+      // this target now show "Following", and if the target already followed the
+      // caller (mutual), the target's "Follow Back" button flips instantly too.
+      emitFollowStateChanged(followerId, { otherUserId: followingId, isFollowing: true });
+      const mutual = await this.followersRepo.findByFollowerIdAndFollowingId(followingId, followerId);
+      if (mutual?.status === 'active') {
+        emitFollowStateChanged(followingId, { otherUserId: followerId, isFollowing: true });
+      }
+
       return {message: 'Follow successfully'}
     } catch (error) {
       throw error;
@@ -340,6 +385,9 @@ class UserService {
       await this.followersRepo.approvefollower(followerId, followingId)
       await this.userRepo.incrementFollowingCount(followerId);
       await this.userRepo.incrementFollowerCount(followingId);
+
+      // Resolve the approver's own "requested to follow" notification row.
+      emitFollowRequestCancelled(followingId, { followerId });
 
       const following = await this.userRepo.findById(followingId)
       const jobdata = {
@@ -384,6 +432,13 @@ class UserService {
       if (isFollow.status === 'active') {
         await this.userRepo.decrementFollowingCount(followerId);
         await this.userRepo.decrementFollowerCount(followingId);
+        // The caller's open "<target> started following you" rows must show the
+        // Follow Back button again.
+        emitFollowStateChanged(followerId, { otherUserId: followingId, isFollowing: false });
+      } else if (isFollow.status === 'pending') {
+        // Cancelling a pending request — tell the recipient so their stale
+        // Approve/Decline buttons disappear in real time.
+        emitFollowRequestCancelled(followingId, { followerId });
       }
     } catch (error) {
       throw error;

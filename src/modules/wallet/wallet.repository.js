@@ -17,6 +17,20 @@ const findByUserId = async (userId) => {
   }
 };
 
+const findById = async (walletId) => {
+  try {
+    const { rows } = await pool.query(
+      `SELECT ${WalletModel.WALLET_FIELDS}, user_id
+      FROM ${WalletModel.TABLE}
+      WHERE id = $1`,
+      [walletId]
+    );
+    return rows[0] ? WalletModel.formatWallet(rows[0]) : null;
+  } catch (error) {
+    throw error;
+  }
+};
+
 const create = async (userId) => {
   try {
     const { rows } = await pool.query(
@@ -173,6 +187,7 @@ const findTransactionByRazorpayOrderId = async (orderId) => {
 
 module.exports = {
   findByUserId,
+  findById,
   create,
   updateUPI,
   lockForUpdate,

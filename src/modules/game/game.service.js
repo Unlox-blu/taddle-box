@@ -81,6 +81,36 @@ class GameService {
       // Lowercase so it matches the frontend's session mode convention
       // ('auto' | 'custom' | 'tournament' | 'practice') used for labels/rematch.
       const normalizedMode = String(active.mode || 'AUTO').toLowerCase();
+
+      // Rejoin needs the FULL player roster (names + avatars) so in-game
+      // boards show real profiles instead of generic "P1/P2" labels — the
+      // fresh-match flow gets these from the matchmaking response, but a
+      // rejoin path only has this endpoint. The snapshots live in
+      // game_matches.metadata.playerSnapshots (written by the lobby fill).
+      const matchMeta = active.match_metadata || {};
+      const snapshots = Array.isArray(matchMeta.playerSnapshots)
+        ? matchMeta.playerSnapshots
+        : [];
+      const mySnap = snapshots.find(
+        (p) => String(p.id || p.userId) === String(userId)
+      );
+      const players = snapshots
+        .filter((p) => String(p.id || p.userId) !== String(userId))
+        .map((p) => ({
+          id: p.id || p.userId,
+          name: p.displayName || p.username || 'Opponent',
+          username: p.username,
+          avatar: p.avatar || p.avatarUrl,
+          team: p.team,
+          seat: p.seat,
+        }));
+
+      // Legacy matches created before playerSnapshots existed have no roster —
+      // fall back to the opponent name so a rejoin never shows a bare board.
+      if (players.length === 0 && active.opponent_name) {
+        players.push({ id: 'opponent', name: active.opponent_name });
+      }
+
       return {
         sessionId: active.session_id,
         matchId: active.match_id,
@@ -88,6 +118,9 @@ class GameService {
         wsToken: active.ws_token,
         mode: normalizedMode,
         opponentName: active.opponent_name,
+        players,
+        myTeam: mySnap?.team,
+        teamsLocked: !!matchMeta.teamsLocked,
         ticket: { userMatchId: active.match_id, token: active.ws_token },
         reconnectWindowMs,
         game: {

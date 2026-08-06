@@ -6,7 +6,7 @@ const WORDS = require('./wordList.json'); // A curated word list (loaded server-
 const WORD_SET = new Set(WORDS);
 
 const ROUND_DURATION_MS = 90 * 1000; // 90 seconds per round
-const ROUNDS_PER_GAME = 5;
+const ROUNDS_PER_GAME = 1;
 
 /**
  * Word Rush Plugin

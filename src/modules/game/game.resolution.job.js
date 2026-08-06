@@ -305,23 +305,13 @@ async function resolveBotFillingLobbies() {
           if (freshInvite) continue;
         }
 
-        // PRACTICE lobbies: no trickle — the user is solo vs bots, so fill
-        // every open seat at once and start the match immediately. Waiting for
-        // one bot per 2.5–5s sweep would look like a broken/stuck queue.
-        if (mode === 'PRACTICE') {
-          const result = await gameRepository.fillMatchmakingLobby({
-            userId: lobby.host_user_id,
-            ticketId: null,
-            overrideLobbyId: lobby.id,
-            fillBots: true,
-          });
-          if (result && result.status === 'MATCHED') {
-            for (const p of (result.players || []).filter(x => !x.isBot)) {
-              io.to(`user:${p.id}`).emit('matchmaking:matched', result);
-            }
-          }
-          continue;
-        }
+        // NOTE: PRACTICE lobbies used to fill every seat in ONE sweep here.
+        // That made bots appear "suddenly all at once" on the matchmaking radar.
+        // PRACTICE now flows through the same paced addOneBotToLobby path as
+        // AUTO (one bot per botFillNextAt tick, with matchmaking:lobbyUpdated
+        // emitted between fills) so the radar shows bots joining gradually for
+        // every mode. The 30s resolveExpiredLobbies backstop still instantly
+        // fills a practice lobby that never completed, so no queue can stick.
 
         // Pacing gate (addOneBotToLobby re-checks inside its transaction too)
         const pacing = Number(lobby.settings?.botFillNextAt) || 0;

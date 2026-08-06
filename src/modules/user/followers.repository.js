@@ -32,6 +32,25 @@ const findByFollowingId = async (userId, limit, offset) => {
   }
 };
 
+const findFollowers = async (userId, limit, offset) => {
+  try {
+    const {rows} = await pool.query(
+      `
+      SELECT following_id AS followingId, COUNT(*) OVER() AS total 
+      FROM ${FollowersModel.TABLE} 
+      WHERE status = 'active' AND follower_id = $1
+      LIMIT $2 OFFSET $3
+      `,
+      [userId, limit, offset]
+    )
+    const total = rows[0]?.total || 0;
+    const followings = rows.length > 0 ? rows : [];
+    return {total, followings}
+  } catch (error) {
+    throw error
+  }
+}
+
 const findByFollowerId = async (userId, limit, offset) => {
   try {
     const { rows } = await pool.query(
@@ -200,6 +219,7 @@ module.exports = {
   findByFollowingId,
   findByFollowerId,
   findByFollowerIdAndFollowingId,
+  findFollowers,
   createFolow,
   createPendingFolow,
   approvefollower,

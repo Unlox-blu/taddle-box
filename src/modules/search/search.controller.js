@@ -24,22 +24,6 @@ class SearchController {
     }
   };
 
-  discover = async (req, res, next) => {
-    try {
-      const userId = req.userId;
-      const type = req.query.type || 'posts'
-      const query = req.query.q || ''
-      const filter = req.query.filter || ''
-      const { limit, offset, page } = getPaginationParams(req.query);
-
-      const {dataType, data, total} = await this.searchSvc.discover({type, query, filter, limit, offset, userId});
-
-      res.json(apiResponse({dataType, data,}, `${dataType} fetched`, paginationMeta(total, page, limit)));
-    } catch (error) {
-      next(error);
-    }
-  };
-
   // Dedicated combined search for the app's "All" tab — one request returns
   // people, communities, events, games, posts and hashtags at once.
   searchAll = async (req, res, next) => {

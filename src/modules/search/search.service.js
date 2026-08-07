@@ -1,5 +1,7 @@
 'use strict';
 
+const { createError } = require("../../utils/error.util");
+
 class SearchService {
   constructor({searchRepository}) {
     this.searchRepo = searchRepository;
@@ -10,24 +12,36 @@ class SearchService {
       switch(type){
         case 'people' : 
           {
+            if(!query)
+              return await this.discoverPeople({userId, limit, offset})
+
             const {rows, total} = await this.searchRepo.searchUser(query, limit, offset)
             return {dataType: type, data: rows, total };
           }
 
         case 'communities' : 
           {
-              const { rows, total } = await this.searchRepo.searchCommunity(query, filter, limit, offset);
-              return { dataType: type, data: rows, total };
+            if(!query && !filter)
+              return await this.discoverCommunity({userId, limit, offset});
+            
+            const { rows, total } = await this.searchRepo.searchCommunity(query, filter, limit, offset);
+            return { dataType: type, data: rows, total };
           }
 
         case 'events' :
           {
+            if(!query && !filter)
+              return await this.discoverEvents ({limit, offset});
+
             const { rows, total } = await this.searchRepo.searchEvent(query, filter, limit, offset);
             return { dataType: type, data: rows, total };
           }
 
         case 'games' :
           {
+            if(!query)
+              return await this.discoverGames ({limit, offset});
+
             const { rows, total } = await this.searchRepo.searchGame(query, limit, offset);
             return { dataType: type, data: rows, total };
           }
@@ -36,49 +50,19 @@ class SearchService {
           {
             return this.searchAll(query, filter, limit, offset, userId);
           }
-
-        default:
+        
+        case 'posts' :
           {
+            if(!query)
+              return this.discoverPost ({userId, limit, offset});
+
             const { rows, total } = await this.searchRepo.searchPost(query, limit, offset, userId);
             return { dataType: 'posts', data: rows, total };
           }
-      }
-    } catch (error) {
-      throw error;
-    }
-  }
 
-  async discover({type, query, filter, limit, offset, userId = null}) {
-    try {
-      switch(type){
-        case 'people' : 
-          {
-            return await this.discoverPeople({userId, limit, offset})
-          }
-
-        case 'communities' : 
-          {
-              return await this.discoverCommunity({userId, limit, offset});
-          }
-
-        case 'events' :
-          {
-            return await this.discoverEvents ({limit, offset});
-          }
-
-        case 'games' :
-          {
-            return await this.discoverGames ({limit, offset});
-          }
-
-        case 'posts' :
-          {
-            return this.discoverPost ({userId, limit, offset});
-          }
-          
         default:
           {
-              return this.searchAll(query, filter, limit, offset, userId);
+            throw createError("Search type not found", 404)
           }
       }
     } catch (error) {

@@ -47,27 +47,6 @@ const searchCommunity = async (query, filter, limit, offset) => {
   }
 };
 
-const searchEvent = async (query, filter, limit, offset) => {
-  try {
-    const q = query || '';
-    const eventType = filter || null;
-    const { rows } = await pool.query(
-      `SELECT ${SearchModel.EVENT_FIELDS}, COUNT(*) OVER() AS total
-     FROM ${SearchModel.EVENT_TABLE}
-     WHERE deleted_at IS NULL AND status IN ('upcoming', 'ongoing')
-       AND ($1 = '' OR title ILIKE $1 OR description ILIKE $1)
-       AND ($2::text IS NULL OR event_type = $2)
-     ORDER BY start_time ASC
-     LIMIT $3 OFFSET $4`,
-      [`%${q}%`, eventType, limit, offset]
-    );
-    const total = rows[0]?.total || 0;
-    return { rows, total: parseInt(total, 10) };
-  } catch (error) {
-    throw error;
-  }
-};
-
 const searchPost = async (query, limit, offset, userId = null) => {
   try {
     const q = query || '';
@@ -114,6 +93,27 @@ const searchPost = async (query, limit, offset, userId = null) => {
   }
 };
 
+const searchEvent = async (query, filter, limit, offset) => {
+  try {
+    const q = query || '';
+    const eventType = filter || null;
+    const { rows } = await pool.query(
+      `SELECT ${SearchModel.EVENT_FIELDS}, COUNT(*) OVER() AS total
+     FROM ${SearchModel.EVENT_TABLE}
+     WHERE deleted_at IS NULL AND status IN ('upcoming', 'ongoing')
+       AND ($1 = '' OR title ILIKE $1 OR description ILIKE $1)
+       AND ($2::text IS NULL OR event_type = $2)
+     ORDER BY start_time ASC
+     LIMIT $3 OFFSET $4`,
+      [`%${q}%`, eventType, limit, offset]
+    );
+    const total = rows[0]?.total || 0;
+    return { rows, total: parseInt(total, 10) };
+  } catch (error) {
+    throw error;
+  }
+};
+
 const searchGame = async (query, limit, offset) => {
   try {
     const q = query || '';
@@ -132,6 +132,226 @@ const searchGame = async (query, limit, offset) => {
     throw error;
   }
 };
+
+
+const discoverPost = async ({userId, interests, limit, offset}) => {
+  try {
+    const {rows} = await pool.query(
+      `WITH ranked_posts AS (
+              SELECT
+                  ${SearchModel.POST_FIELDS},
+      
+                  EXISTS(
+                        SELECT 1 FROM post_likes pl 
+                        WHERE pl.post_id = p.id AND pl.user_id = $1
+                  ) AS is_liked,
+      
+                  EXISTS(
+                        SELECT 1 FROM bookmark bm 
+                        WHERE bm.post_id = p.id AND bm.user_id = $1
+                  ) AS is_bookmarked,
+      
+                  EXISTS(
+                        SELECT 1 FROM xp_transactions xt 
+                        WHERE xt.xp_id = (SELECT id FROM xp WHERE user_id = $1 LIMIT 1) AND xt.source_type = 'view_post_' || p.id
+                  ) AS is_xp_claimed,
+      
+              -- Trending
+                      (
+                          p.likes_count
+                          + p.comments_count * 3
+                          + p.shares_count * 5
+                          + p.views_count * 0.05
+                      ) /
+                      POWER(
+                          EXTRACT(EPOCH FROM (NOW() - p.published_at))/3600 + 2,
+                          1.4
+                      ) AS trending_score,
+      
+              -- Interests
+                      CASE
+                          WHEN EXISTS (
+                              SELECT 1
+                              FROM unnest($2::text[]) i
+                              WHERE
+                                  LOWER(COALESCE(p.title,'')) LIKE '%' || LOWER(i) || '%'
+                                  OR LOWER(COALESCE(p.content,'')) LIKE '%' || LOWER(i) || '%'
+                                  OR LOWER(i) = ANY(
+                                      ARRAY(
+                                          SELECT LOWER(x)
+                                          FROM unnest(p.tags) x
+                                      )
+                                  )
+                                  OR LOWER(i) = ANY(
+                                      ARRAY(
+                                          SELECT LOWER(x)
+                                          FROM unnest(p.category) x
+                                      )
+                                  )
+                          )
+                          THEN 350
+                          ELSE 0
+                      END AS interest_score,
+      
+              -- Freshness
+                      CASE
+                          WHEN NOW() - p.published_at < interval '6 hour' THEN 250
+                          WHEN NOW() - p.published_at < interval '1 day' THEN 150
+                          WHEN NOW() - p.published_at < interval '2 day' THEN 75
+                          ELSE 0
+                      END AS freshness_score,
+                
+              COALESCE(
+              json_agg(
+                  json_build_object(
+                      'id', m.id,
+                      'media_type', m.media_type,
+                      'cloudfront_url', m.cloudfront_url,
+                      'width', m.width,
+                      'height', m.height,
+                      's3_key', m.s3_key,
+                      'processing_status', m.processing_status
+                    ) ORDER BY m.created_at ASC 
+                  ) FILTER (WHERE m.id IS NOT NULL AND m.deleted_at IS NULL), 
+                  '[]'::json
+                ) AS media
+      
+              FROM posts p
+              JOIN users u
+                  ON u.id = p.author_id
+      
+              LEFT JOIN communities c
+                  ON p.community_id = c.id
+      
+              LEFT JOIN media AS ua 
+                  ON u.avatar_url = ua.id
+      
+              LEFT JOIN media AS ca 
+                  ON c.avatar_url = ca.id
+      
+              LEFT JOIN media m 
+                  ON p.id = m.post_id
+      
+              WHERE
+      
+                p.deleted_at IS NULL
+      
+                AND p.status = 'published'
+      
+                AND (
+      
+                    p.community_id IS NULL
+      
+                    OR c.privacy = 'public'
+
+                )
+      
+                AND (
+      
+                    u.privacy='public'
+      
+                )
+
+              GROUP BY p.id, u.id, ua.id, c.id, ca.id
+      
+            )
+      
+            SELECT ranked_posts.*, COUNT(*) OVER() AS total
+            FROM ranked_posts
+            ORDER BY
+            (
+            trending_score
+            +
+            interest_score
+            +
+            freshness_score
+            ) DESC,
+            published_at DESC
+            LIMIT $3
+            OFFSET $4;`,
+            [userId, interests, limit, offset]
+    )
+    const total = rows[0]?.total || 0;
+    return { rows, total: parseInt(total, 10) };
+  } catch (error) {
+    throw error
+  }
+}
+
+const discoverCommunity = async ({interests, limit, offset}) => {
+  try {
+        const { rows } = await pool.query(
+          `
+          SELECT
+              ${SearchModel.COMMUNITY_FIELDS},
+              COUNT(*) OVER() AS total
+          FROM ${SearchModel.COMMUNITY_TABLE} c
+          LEFT JOIN media AS ca
+              ON c.avatar_url = ca.id
+          WHERE
+              c.deleted_at IS NULL
+              AND c.is_active = TRUE
+              AND (
+                  cardinality($1::text[]) = 0
+                  OR EXISTS (
+                      SELECT 1
+                      FROM unnest($1::text[]) AS interest
+                      WHERE
+                          LOWER(c.name) LIKE '%' || LOWER(interest) || '%'
+                          OR LOWER(c.slug) LIKE '%' || LOWER(interest) || '%'
+                          OR LOWER(COALESCE(c.description, '')) LIKE '%' || LOWER(interest) || '%'
+                          OR EXISTS (
+                              SELECT 1
+                              FROM unnest(COALESCE(c.category, ARRAY[]::text[])) AS category
+                              WHERE LOWER(category) LIKE '%' || LOWER(interest) || '%'
+                          )
+                  )
+              )
+          ORDER BY c.member_count DESC
+          LIMIT $2
+          OFFSET $3
+          `,
+          [interests, limit, offset]
+        );
+    const total = rows[0]?.total || 0;
+    return { rows, total: parseInt(total, 10) };  
+  } catch (error) {
+    throw error
+  }
+}
+
+const discoverPeople = async ({interests, limit, offset}) => {
+  try {
+    const {rows} = await pool.query(
+      `
+      SELECT ${SearchModel.USER_FIELDS}, COUNT(*) OVER() AS total
+      FROM ${SearchModel.USER_TABLE} u
+      LEFT JOIN media AS ua ON u.avatar_url = ua.id
+      WHERE
+          u.deleted_at IS NULL
+          AND u.is_active = TRUE
+          AND u.is_banned = FALSE
+          AND EXISTS (
+              SELECT 1
+              FROM unnest($1::text[]) AS interest
+              WHERE EXISTS (
+                  SELECT 1
+                  FROM jsonb_array_elements_text(COALESCE(u.interests, '[]'::jsonb)) AS user_interest
+                  WHERE LOWER(user_interest) LIKE '%' || LOWER(interest) || '%'
+              )
+          )
+      LIMIT $2
+      OFFSET $3;
+      `,
+      [interests, limit, offset]
+    )
+    const total = rows[0]?.total || 0;
+    return { rows, total: parseInt(total, 10) };
+  } catch (error) {
+    throw error
+  }
+}
+
 
 const getHashtags = async (q = '') => {
   try {
@@ -157,6 +377,23 @@ const getHashtags = async (q = '') => {
   }
 };
 
+const getUserInterests = async (userId) => {
+  try {
+    const {rows} = await pool.query(
+      `
+      SELECT interests
+      FROM users
+      WHERE id = $1
+      `,
+      [userId]
+    )
+    const interests = rows[0]?.interests ?? [];
+    return interests
+  } catch (error) {
+    throw error
+  }
+}
+
 module.exports = {
-    searchUser, searchCommunity, searchEvent, searchPost, searchGame, getHashtags
+    searchUser, searchCommunity, searchEvent, searchPost, searchGame, getHashtags, discoverPost, getUserInterests, discoverCommunity, discoverPeople
 }

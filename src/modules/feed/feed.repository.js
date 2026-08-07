@@ -231,7 +231,7 @@ const getPersonalizedPosts = async ({userId, followingId, communityId, prefCateg
 
       )
 
-      SELECT *
+      SELECT ranked_posts.*, COUNT(*) OVER() AS total
       FROM ranked_posts
       ORDER BY
       (

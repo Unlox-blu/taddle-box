@@ -16,7 +16,7 @@ class SearchController {
       const filter = req.query.filter || ''
       const { limit, offset, page } = getPaginationParams(req.query);
 
-      const {dataType, data, total} = await this.searchSvc.search({type, query, filter, limit, offset, userId});
+      const {dataType, data, total} = await this.searchSvc.search({type, query, filter, limit, offset, page, userId});
 
       res.json(apiResponse({dataType, data,}, `${dataType} fetched`, paginationMeta(total, page, limit)));
     } catch (error) {

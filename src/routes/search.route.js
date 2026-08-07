@@ -8,8 +8,8 @@ const { validateRequest } = require('../middlewares/validator.middleware');
 const { searchQuerySchema } = require('../modules/search/search.validator');
 
 
-router.get('/all', optionalAuth, validateRequest({query: searchQuerySchema}),   searchController.searchAll);
-router.get('/hashtags', searchController.getHashtags);
-router.get('/', optionalAuth,   validateRequest({query: searchQuerySchema}),   searchController.search);
+router.get('/all',      verifyToken,    validateRequest({query: searchQuerySchema}),    searchController.searchAll);
+router.get('/hashtags', verifyToken,                                                    searchController.getHashtags);
+router.get('/',         verifyToken,    validateRequest({query: searchQuerySchema}),    searchController.search);
 
 module.exports = router;

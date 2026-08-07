@@ -1,19 +1,20 @@
 'use strict';
 
 const { createError } = require("../../utils/error.util");
+const { getPaginationParams } = require("../../utils/pagination.util");
 
 class SearchService {
   constructor({searchRepository}) {
     this.searchRepo = searchRepository;
   }
 
-  async search({type, query, filter, limit, offset, userId = null}) {
+  async search({type, query, filter, limit, offset, page, userId = null}) {
     try {
       switch(type){
         case 'people' : 
           {
             if(!query)
-              return await this.discoverPeople({userId, limit, offset})
+              return await this.discoverPeople({userId, page, limit, offset})
 
             const {rows, total} = await this.searchRepo.searchUser(query, limit, offset)
             return {dataType: type, data: rows, total };
@@ -22,7 +23,7 @@ class SearchService {
         case 'communities' : 
           {
             if(!query && !filter)
-              return await this.discoverCommunity({userId, limit, offset});
+              return await this.discoverCommunity({userId, page, limit, offset});
             
             const { rows, total } = await this.searchRepo.searchCommunity(query, filter, limit, offset);
             return { dataType: type, data: rows, total };
@@ -48,6 +49,9 @@ class SearchService {
 
         case 'all' :
           {
+            if(!query && !filter)
+              return this.discoverAll(limit = 10, offset = 0, page = 1, userId)
+            
             return this.searchAll(query, filter, limit, offset, userId);
           }
         
@@ -104,6 +108,35 @@ class SearchService {
     }
   }
 
+  async discoverAll(limit = 10, offset = 0, page = 1, userId) {
+    try {
+      const perTypeLimit = Math.min(Math.max(limit, 3), 8);
+      const [people, communities, events, games, posts, hashtags] = await Promise.all([
+        this.discoverPeople ({userId, page, perTypeLimit, offset}),
+        this.discoverCommunity ({userId, page, perTypeLimit, offset}),
+        this.discoverEvents ({perTypeLimit, offset}),
+        this.discoverGames ({perTypeLimit, offset}),
+        this.discoverPost ({userId, perTypeLimit, offset}),
+        this.getHashtags(),
+      ]);
+
+      return {
+        dataType: 'all',
+        data: {
+          people: people.data,
+          communities: communities.data,
+          events: events.data,
+          games: games.data,
+          posts: posts.data,
+          hashtags: hashtags,
+        },
+        total: people.total + communities.total + events.total + games.total + posts.total,
+      };
+    } catch (error) {
+      throw error;
+    }
+  }
+
   async discoverPost ({userId, limit, offset}) {
     try {
       const userInterests = await this.searchRepo.getUserInterests(userId)
@@ -116,24 +149,26 @@ class SearchService {
     }
   }
 
-  async discoverCommunity ({userId, limit, offset}) {
+  async discoverCommunity ({userId, page, limit, offset}) {
     try {
       const userInterests = await this.searchRepo.getUserInterests(userId)
       const interests = userInterests.map(item =>  item.replace(/^\p{Extended_Pictographic}\s*/u, ''));
+      const communityId = await this.getFollowingCommunityIds({userId, page})
 
-      const { rows, total } = await this.searchRepo.discoverCommunity({ interests, limit, offset})
+      const { rows, total } = await this.searchRepo.discoverCommunity({ interests, communityId, limit, offset})
       return { dataType: 'communities', data: rows, total };
     } catch (error) {
       throw error
     }
   }
 
-  async discoverPeople ({userId, limit, offset}) {
+  async discoverPeople ({userId, page, limit, offset}) {
     try {
       const userInterests = await this.searchRepo.getUserInterests(userId)
       const interests = userInterests.map(item =>  item.replace(/^\p{Extended_Pictographic}\s*/u, ''));
+      const followingId = await this.getFollowingUserIds({userId, page})
 
-      const { rows, total } = await this.searchRepo.discoverPeople({ interests, limit, offset})
+      const { rows, total } = await this.searchRepo.discoverPeople({ interests, userId, followingId, limit, offset})
       return { dataType: 'people', data: rows, total };
     } catch (error) {
       throw error
@@ -152,7 +187,7 @@ class SearchService {
   async discoverGames ({limit, offset}) {
     try {
         const { rows, total } = await this.searchRepo.searchGame('', limit, offset);
-        return { dataType: type, data: rows, total };
+        return { dataType: 'games', data: rows, total };
     } catch (error) {
       throw error
     }
@@ -163,6 +198,30 @@ class SearchService {
       return await this.searchRepo.getHashtags(q);
     } catch (error) {
       throw error;
+    }
+  }
+
+  
+  async getFollowingUserIds({userId, page}) {
+    try {
+      const { limit, offset } = getPaginationParams({page})
+      const {total, followings} = await this.searchRepo.findFollowers(userId, limit, offset)
+      const followingId = followings.map(ele => ele.followingid)
+      return followingId
+    } catch (error) {
+      throw error
+    }
+  }
+
+  
+  async getFollowingCommunityIds({userId, page}) {
+    try {
+      const { limit, offset } = getPaginationParams({page})
+      const {total, communities} = await this.searchRepo.findFollowingCommunity(userId, limit, offset)
+      const communityId = communities.map(ele => ele.communityid)
+      return communityId
+    } catch (error) {
+      throw error
     }
   }
 }

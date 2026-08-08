@@ -43,12 +43,15 @@ const findByIdPrivate = async (id) => {
 
 const updateProfile = async (userId, fields) => {
   try {
-    const allowedFields = ['name', 'bio', 'website_url'];
+    const allowedFields = ['name', 'bio', 'website_url', 'location', 'organization', 'interests', 'latitude', 'longitude'];
     const updates = [];
     const values = [];
     Object.entries(fields).forEach(([k, v]) => {
       const col = k.replace(/([A-Z])/g, '_$1').toLowerCase();
       if (allowedFields.includes(col)) {
+        
+        if(col === 'interests') v = JSON.stringify(v)
+
         values.push(v);
         updates.push(`${col} = $${values.length}`);
       }

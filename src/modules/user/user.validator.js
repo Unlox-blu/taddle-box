@@ -10,10 +10,31 @@ const usernameRules = z
 
 const transformToLowerCase = (val) => typeof val === 'string' ? val.trim().toLowerCase() : val
 
+const typeCheck = (val) => {
+  if (typeof val === 'string') {
+    try {
+      return JSON.parse(val);
+    } catch {
+      return val;
+    }
+  }
+  if (val && typeof val === "object" && !Array.isArray(val)) {
+      return Object.values(val);
+    }
+    return val;
+  }
+
+
 const updateProfileSchema = z.object({
   name: z.string().min(2).max(100).optional(),
   bio: z.string().max(500, 'Bio cannot exceed 500 characters').optional(),
   websiteUrl: z.string().url('Invalid URL').optional().or(z.literal('')),
+  location: z.string().min(1, "Location is required").optional(),
+  latitude: z.coerce.number({ required_error: 'Latitude is required' }).optional(),
+  longitude: z.coerce.number({ required_error: 'Longitude is required' }).optional(),
+  occupation: z.enum(['Student', 'Working Professional', 'Self-employed / Freelancer', 'Other'], { required_error: 'Occupation Type is required' }).optional(),
+  organization: z.string().optional(),
+  interests: z.preprocess(typeCheck, z.array(z.string()).min(3, "Please select at least 3 interests").default([])).optional(),
 }).strict();
 
 const updateUsernameSchema = z.object({

@@ -29,6 +29,41 @@ const createNotification = async (data) => {
   }
 };
 
+// Bulk fan-out insert (e.g. "X posted" → followers): ONE multi-row INSERT
+// instead of N single-row inserts. Each item: {recipientId, senderId, type,
+// title, message, resourceType, resourceId}. Returns the inserted row count.
+const createNotificationsBatch = async (items) => {
+  if (!Array.isArray(items) || items.length === 0) return 0;
+  try {
+    const values = [];
+    const params = [];
+    items.forEach((d, i) => {
+      const base = i * 7;
+      params.push(
+        d.recipientId,
+        d.senderId || null,
+        d.type,
+        d.title || null,
+        d.message || null,
+        d.resourceType || null,
+        d.resourceId || null
+      );
+      values.push(`($${base + 1},$${base + 2},$${base + 3},$${base + 4},$${base + 5},$${base + 6},$${base + 7})`);
+    });
+    const { rowCount } = await pool.query(
+      `INSERT INTO ${NotificationModel.NOTIFICATION_TABLE}
+       (recipient_id, sender_id, type, title, message, resource_type, resource_id)
+       VALUES ${values.join(', ')}`,
+      params
+    );
+    return rowCount || 0;
+  } catch (error) {
+    // A single bad row (e.g. deleted sender) shouldn't drop the whole fan-out.
+    if (isMissingRelation(error)) return 0;
+    throw error;
+  }
+};
+
 const createBatchNotification = async (data) => {
   try {
     const { rows } = await pool.query(
@@ -198,4 +233,4 @@ const upsertPreferences = async (userId, updates) => {
 };
 
 
-module.exports = { createNotification, createBatchNotification, addToBatchNotification, findByUser, markOneRead, markAllRead, getUnreadCount, createDefaultPreferences, findPreferenceByUserId, upsertPreferences };
+module.exports = { createNotification, createNotificationsBatch, createBatchNotification, addToBatchNotification, findByUser, markOneRead, markAllRead, getUnreadCount, createDefaultPreferences, findPreferenceByUserId, upsertPreferences };

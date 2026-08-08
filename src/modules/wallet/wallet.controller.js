@@ -99,11 +99,23 @@ class WalletController {
 
   confirmWithdrawalWebhook = async (req, res, next) => {
     try {
-      // In production, this route should be authenticated via API KEY or Webhook Signature
-      // For now, assuming the external backend securely passed userId
+      // Auth: the route-level middleware compares X-Webhook-Secret to the
+      // env-configured shared secret, and the service re-verifies it too.
+      const webhookSecret = req.headers['x-webhook-secret'];
       const { userId, amountCents, externalTxId } = req.body;
-      const data = await this.walletSvc.confirmWithdrawalWebhook({ userId, amountCents, externalTxId });
+      const data = await this.walletSvc.confirmWithdrawalWebhook({ userId, amountCents, externalTxId, webhookSecret });
       res.json(apiResponse(data, 'Withdrawal confirmed and deducted.'));
+    } catch (error) {
+      next(error);
+    }
+  };
+
+  rejectWithdrawalWebhook = async (req, res, next) => {
+    try {
+      const webhookSecret = req.headers['x-webhook-secret'];
+      const { userId, externalTxId } = req.body;
+      const data = await this.walletSvc.rejectWithdrawalWebhook({ userId, externalTxId, webhookSecret });
+      res.json(apiResponse(data, 'Withdrawal rejected and refunded.'));
     } catch (error) {
       next(error);
     }

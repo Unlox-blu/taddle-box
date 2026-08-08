@@ -305,13 +305,24 @@ class WalletService {
   async initiateWithdrawal({ userId, amountCents }) {
     const client = await pool.connect();
     try {
+      // Minimum ₹50 — below that the payout isn't worth the rails cost.
+      if (!amountCents || amountCents < 5000) {
+        throw createError('Minimum withdrawal amount is ₹50', 400);
+      }
       await client.query('BEGIN');
       const wallet = await this.walletRepo.findByUserId(userId);
       if (!wallet) throw createError('Cash wallet not found', 404);
       if (wallet.balanceCents < amountCents) throw createError('Insufficient cash balance', 400);
+      // Payouts go to the linked UPI — refuse withdrawals without a payout rail.
+      if (!wallet.linkedUpi) throw createError('Link a UPI ID before withdrawing', 400);
 
+      // One-time bearer token the admin panel exchanges to see the payout
+      // request. Stored hashed in the DB so a DB leak can't be used to
+      // authorize payouts; only the raw token (shipped to the admin URL) works.
       const token = crypto.randomBytes(32).toString('hex');
-      const handoffUrl = `https://admin.yourdomain.com/redeem?token=${token}&amount=${amountCents}`;
+      const tokenHash = crypto.createHash('sha256').update(token).digest('hex');
+      const adminBase = config.WITHDRAWAL_ADMIN_BASE_URL;
+      const handoffUrl = `${adminBase}/redeem?token=${token}&amount=${amountCents}`;
 
       const updatedWallet = await this.walletRepo.holdBalance(wallet.id, amountCents, client);
       
@@ -320,9 +331,9 @@ class WalletService {
         type: 'debit',
         amountCents: amountCents,
         balanceAfterCents: updatedWallet.balanceCents,
-        description: `Withdrawal initiated`,
+        description: `Withdrawal requested`,
         category: 'withdrawal',
-        razorpayOrderId: token,
+        razorpayOrderId: tokenHash,
         status: 'pending'
       }, client);
 
@@ -338,7 +349,12 @@ class WalletService {
     }
   }
 
-  async confirmWithdrawalWebhook({ userId, amountCents, externalTxId }) {
+  /**
+   * Confirm a withdrawal payout. Only callable by the admin backend — the
+   * route requires the shared webhook secret; this method re-verifies it.
+   */
+  async confirmWithdrawalWebhook({ userId, amountCents, externalTxId, webhookSecret }) {
+    this._assertWebhookSecret(webhookSecret);
     const client = await pool.connect();
     try {
       await client.query('BEGIN');
@@ -346,10 +362,15 @@ class WalletService {
       const wallet = await this.walletRepo.findByUserId(userId);
       if (!wallet) throw createError('Cash wallet not found', 404);
 
-      // We assume orderId is passed in externalTxId
-      const txn = await this.walletRepo.findTransactionByRazorpayOrderId(externalTxId);
+      // externalTxId is the raw one-time token — hash it to match the stored
+      // razorpay_order_id (stored hashed for security).
+      const tokenHash = crypto.createHash('sha256').update(String(externalTxId || '')).digest('hex');
+      const txn = await this.walletRepo.findTransactionByRazorpayOrderId(tokenHash);
       if (!txn) throw createError('Transaction not found', 404);
       if (txn.status !== 'pending') throw createError('Transaction is not pending', 400);
+      // Cross-check: the token must belong to THIS user's wallet — a stolen
+      // token can't confirm someone else's withdrawal.
+      if (txn.walletId !== wallet.id) throw createError('Transaction not found', 404);
 
       const updatedWallet = await this.walletRepo.releaseHoldBalance(wallet.id, txn.amountCents, client);
 
@@ -366,7 +387,12 @@ class WalletService {
     }
   }
 
-  async rejectWithdrawalWebhook({ userId, externalTxId }) {
+  /**
+   * Reject a withdrawal (payout failed) — releases the hold and refunds the
+   * balance. Only callable by the admin backend (webhook secret required).
+   */
+  async rejectWithdrawalWebhook({ userId, externalTxId, webhookSecret }) {
+    this._assertWebhookSecret(webhookSecret);
     const client = await pool.connect();
     try {
       await client.query('BEGIN');
@@ -374,7 +400,8 @@ class WalletService {
       const wallet = await this.walletRepo.findByUserId(userId);
       if (!wallet) throw createError('Cash wallet not found', 404);
 
-      const txn = await this.walletRepo.findTransactionByRazorpayOrderId(externalTxId);
+      const tokenHash = crypto.createHash('sha256').update(String(externalTxId || '')).digest('hex');
+      const txn = await this.walletRepo.findTransactionByRazorpayOrderId(tokenHash);
       if (!txn) throw createError('Transaction not found', 404);
       if (txn.status !== 'pending') throw createError('Transaction is not pending', 400);
 
@@ -395,6 +422,19 @@ class WalletService {
       client.release();
     }
   }
+
+  _assertWebhookSecret(secret) {
+    const expected = config.WITHDRAWAL_WEBHOOK_SECRET;
+    if (!expected || typeof secret !== 'string') {
+      throw createError('Unauthorized webhook', 401);
+    }
+    const a = Buffer.from(secret, 'utf8');
+    const b = Buffer.from(expected, 'utf8');
+    if (a.length !== b.length || !crypto.timingSafeEqual(a, b)) {
+      throw createError('Unauthorized webhook', 401);
+    }
+  }
+
 }
 
 // Minimal success/failure page rendered inside the app's WebView after PayU

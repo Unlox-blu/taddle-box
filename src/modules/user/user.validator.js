@@ -44,4 +44,17 @@ const followerIdSchema = z.object({
   followerId: z.string().uuid({ message: 'Invalid follower ID format' })
 }).strict()
 
-module.exports = { updateProfileSchema, updateUsernameSchema, updatePrivacySchema, updateBannerSchema, updateAvatarSchema, usernameSchema, userIdSchema, followerIdSchema };
+// GEO location capture body — lat/lng are required, place is an optional
+// free-text reverse-geocoded place name (e.g. "Bengaluru, Karnataka").
+const locationBodySchema = z.object({
+  lat: z.number().min(-90).max(90, 'Invalid latitude'),
+  lng: z.number().min(-180).max(180, 'Invalid longitude'),
+  accuracy: z.number().nonnegative().optional(),
+  place: z.string().max(255, 'Place name too long').optional(),
+}).strict()
+
+const presenceBodySchema = z.object({
+  userIds: z.array(z.string().uuid({ message: 'Invalid user ID format' })).max(50, 'Too many users').optional(),
+}).strict()
+
+module.exports = { updateProfileSchema, updateUsernameSchema, updatePrivacySchema, updateBannerSchema, updateAvatarSchema, usernameSchema, userIdSchema, followerIdSchema, locationBodySchema, presenceBodySchema };

@@ -15,7 +15,8 @@ class CommunityService {
 
   async create({userId: ownerId, body: data}) {
     try {
-      const slug = data.name.toLowerCase().replace(/\s+/g, '-').replace(/[^a-z0-9-]/g, '');
+      // Keep underscores (names are username-style now: letters/numbers/_ only).
+      const slug = data.name.toLowerCase().replace(/\s+/g, '-').replace(/[^a-z0-9_-]/g, '');
 
       const existing = await this.communityRepo.findBySlug(slug);
       if (existing) throw createError("A community with this name already exists", 409);

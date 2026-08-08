@@ -15,6 +15,7 @@ const {feedService} = require('../feed/feed.container')
 const {taskService} = require('../task/task.container')
 const {notificationService} = require('../notification/notification.container')
 const {xpService} = require('../xp/xp.container')
+const {settingsRepository} = require('../settings/settings.container')
 
 
 // Instantiate Service
@@ -28,6 +29,7 @@ const postService = new PostService({
   bookmarkRepository,
   notificationService,
   xpService,
+  settingsRepository,
 })
 // Instantiate Controller
 const postController = new PostController({ postService })

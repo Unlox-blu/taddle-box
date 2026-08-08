@@ -2,7 +2,7 @@
 
 const { createError } = require('../../utils/error.util');
 const { notificationService } = require('../notification/notification.container');
-const { emitFollowRequestCancelled, emitFollowStateChanged } = require('../../sockets/notification.socket');
+const { emitFollowRequestCancelled, emitFollowRequestResolved, emitFollowStateChanged } = require('../../sockets/notification.socket');
 const appleUtil = require('../../utils/apple.util');
 
 const bcrypt = require('bcryptjs');
@@ -37,41 +37,84 @@ class UserService {
         const isFollow = await this.followersRepo.findByFollowerIdAndFollowingId(userId, user.id);
         finalUser.isFollowing = isFollow?.status === 'active';
         finalUser.followStatus = isFollow?.status || null;
+      }
 
-        // Instagram-style mutuals: people the viewer follows who also follow
-        // this profile. Only exposed to logged-in viewers (own profile handled
-        // above). Hidden from the API when the account is private AND the
-        // viewer isn't an approved follower — same privacy rule as the
-        // followers/following lists.
-        if (!finalUser.isFollowing && user.privacy === 'private') {
+      // Mutuals are GLOBAL — Instagram-style "Followed by": people the VIEWER
+      // follows who also follow this profile. Computed for every account
+      // (public or private, followed or not, even the viewer's own) because
+      // the row describes the viewer's own connections, never the target's
+      // private follower list — so no approval/privacy gate applies.
+      if (userId) {
+        try {
+          // Single query — COUNT(*) OVER() returns the full count alongside
+          // the first 4 avatars (same pattern as the getMutuals list endpoint).
+          const pool = require('../../config/database');
+          const mutualRes = await pool.query(
+            // NOTE: users.avatar_url is a UUID (media id) — never COALESCE it
+            // against the TEXT cloudfront_url or Postgres throws 42804 and the
+            // whole mutuals block silently falls back to empty.
+            `SELECT u.id, u.name, u.username, am.cloudfront_url AS avatar, COUNT(*) OVER() AS total
+             FROM followers f1
+             JOIN followers f2 ON f2.follower_id = f1.following_id AND f2.following_id = $2 AND f2.status = 'active'
+             JOIN users u ON u.id = f1.following_id AND u.deleted_at IS NULL
+             LEFT JOIN media am ON am.id = u.avatar_url AND am.deleted_at IS NULL
+             WHERE f1.follower_id = $1 AND f1.status = 'active'
+             ORDER BY u.name ASC
+             LIMIT 4`,
+            [userId, finalUser.id]
+          );
+          finalUser.mutuals = {
+            count: mutualRes.rows[0]?.total || 0,
+            users: mutualRes.rows,
+          };
+        } catch (err) {
           finalUser.mutuals = { count: 0, users: [] };
-        } else {
-          try {
-            const pool = require('../../config/database');
-            const mutualRes = await pool.query(
-              `SELECT u.name, u.username, u.avatar_url
-               FROM followers f1
-               JOIN followers f2 ON f2.follower_id = f1.following_id AND f2.following_id = $2 AND f2.status = 'active'
-               JOIN users u ON u.id = f1.following_id
-               WHERE f1.follower_id = $1 AND f1.status = 'active'
-               LIMIT 4`,
-              [userId, user.id]
-            );
-            const countRes = await pool.query(
-              `SELECT COUNT(*)::int AS count
-               FROM followers f1
-               JOIN followers f2 ON f2.follower_id = f1.following_id AND f2.following_id = $2 AND f2.status = 'active'
-               WHERE f1.follower_id = $1 AND f1.status = 'active'`,
-              [userId, user.id]
-            );
-            finalUser.mutuals = {
-              count: countRes.rows[0]?.count || 0,
-              users: mutualRes.rows.map(r => ({ name: r.name, username: r.username, avatar: r.avatar_url })),
-            };
-          } catch (err) {
-            finalUser.mutuals = { count: 0, users: [] };
-          }
         }
+      }
+
+      // Followers / following lists shipped inline with the profile so the app
+      // can open the follow lists without extra API round-trips. Gated by the
+      // same privacy rule as the dedicated endpoints: visible for the account
+      // owner, public accounts, and approved followers of private accounts.
+      try {
+        const canSeeLists =
+          (!!userId && userId === finalUser.id) ||
+          user.privacy === 'public' ||
+          !!finalUser.isFollowing;
+        if (canSeeLists) {
+          const [followersRes, followingRes] = await Promise.all([
+            this.followersRepo.findByFollowingId(finalUser.id, 50, 0),
+            this.followersRepo.findByFollowerId(finalUser.id, 50, 0),
+          ]);
+          finalUser.followers = followersRes.followers || [];
+          finalUser.following = followingRes.followings || [];
+        } else {
+          finalUser.followers = [];
+          finalUser.following = [];
+        }
+      } catch (err) {
+        finalUser.followers = [];
+        finalUser.following = [];
+      }
+
+      // Presence (online / last-seen) — Instagram-style: only surfaced to the
+      // account owner and approved followers, and only when the target has the
+      // Activity Status setting enabled (missing settings row → default ON).
+      try {
+        const pool = require('../../config/database');
+        const settingsRes = await pool.query(
+          `SELECT activity_status FROM settings WHERE user_id = $1`,
+          [finalUser.id]
+        );
+        const showStatus = settingsRes.rows[0]?.activity_status !== false;
+        const isSelf = !!userId && userId === finalUser.id;
+        if (isSelf || (showStatus && !!finalUser.isFollowing)) {
+          finalUser.presence = await this._resolvePresence(finalUser.id);
+        } else {
+          finalUser.presence = null;
+        }
+      } catch (err) {
+        finalUser.presence = null;
       }
 
       // Aggregate XP, Level, Rank
@@ -110,9 +153,109 @@ class UserService {
     }
   }
 
+  // Resolve a user's presence from the hot Redis key first (set on socket
+  // connect / heartbeat / disconnect), falling back to the active_status row.
+  async _resolvePresence(userId) {
+    const redis = require('../../config/redis');
+    const pool = require('../../config/database');
+    const statusKey = `user:status:${userId}`;
+    const cached = await redis.get(statusKey).catch(() => null);
+    if (cached === 'online') return { online: true, lastSeen: null };
+    if (cached) return { online: false, lastSeen: cached };
+    const { rows } = await pool.query(
+      `SELECT is_active, last_seen FROM active_status WHERE user_id = $1`,
+      [userId]
+    );
+    const st = rows[0];
+    if (!st) return null;
+    return st.is_active === 'online'
+      ? { online: true, lastSeen: null }
+      : { online: false, lastSeen: st.last_seen };
+  }
+
+  // Bulk presence for feed avatars — restricted to self + people the viewer
+  // actively follows, and gated by each target's Activity Status setting.
+  async getPresenceBatch({ userId: viewerId, userIds }) {
+    const ids = [...new Set((userIds || []).filter(Boolean))].slice(0, 50);
+    const result = {};
+    if (!ids.length) return result;
+    const pool = require('../../config/database');
+
+    const { rows: followRows } = await pool.query(
+      `SELECT following_id FROM followers
+       WHERE follower_id = $1 AND following_id = ANY($2::uuid[]) AND status = 'active'`,
+      [viewerId, ids]
+    );
+    const allowed = new Set(ids.filter((id) => id === viewerId));
+    followRows.forEach((r) => allowed.add(r.following_id));
+
+    const { rows: settingsRows } = await pool.query(
+      `SELECT user_id, activity_status FROM settings WHERE user_id = ANY($1::uuid[])`,
+      [ids]
+    );
+    const settings = new Map(
+      settingsRows.map((r) => [r.user_id, r.activity_status !== false])
+    );
+
+    for (const id of ids) {
+      if (!allowed.has(id) || settings.get(id) === false) {
+        result[id] = null;
+        continue;
+      }
+      result[id] = await this._resolvePresence(id);
+    }
+    return result;
+  }
+
+  // GEO location telemetry — appends a history row (lat/lng + optional free-text
+  // place). Never writes into the user's PROFILE location (users.location).
+  async recordLocation({ userId, body }) {
+    await this.userRepo.insertLocationCapture(userId, body);
+    return { message: 'Location captured' };
+  }
+
+  // Privacy: delete all captured geo location history for the user.
+  async clearLocationHistory({ userId }) {
+    const cleared = await this.userRepo.clearLocationHistory(userId);
+    return { message: `Location data cleared`, cleared };
+  }
+
   async updateProfile({userId, body}) {
     try {
+      // Mention notifications: @handles in the profile bio notify the mentioned
+      // users that their profile was linked (Instagram-style "mentioned you in
+      // their bio"). Only NEW mentions fire — re-saving the same bio must not
+      // re-notify everyone.
+      const newBio = typeof body?.bio === 'string' ? body.bio : null;
+      let newMentionUsernames = [];
+      if (newBio !== null && body.bio !== undefined) {
+        const before = await this.userRepo.findById(userId).catch(() => null);
+        const oldBio = before?.bio || '';
+        const newUsernames = new Set((newBio.match(/@(\w+)/g) || []).map(m => m.slice(1)));
+        const oldUsernames = new Set((String(oldBio).match(/@(\w+)/g) || []).map(m => m.slice(1)));
+        newMentionUsernames = [...newUsernames].filter(u => !oldUsernames.has(u));
+      }
+
       const updated = await this.userRepo.updateProfile(userId, body);
+
+      if (newMentionUsernames.length > 0) {
+        const actor = await this.userRepo.findById(userId).catch(() => null);
+        const actorName = actor?.name || 'Someone';
+        for (const username of newMentionUsernames) {
+          this.userRepo.findByUsername(username).then(mentioned => {
+            if (mentioned && mentioned.id !== userId) {
+              notificationService.create({
+                type: 'MENTION',
+                recipientId: mentioned.id,
+                senderId: userId,
+                title: 'New mention',
+                message: `${actorName} mentioned you in their bio`,
+              }).catch(e => console.error(`Failed to notify mentioned user ${username}`, e));
+            }
+          }).catch(e => console.error(`Failed to find user ${username}`, e));
+        }
+      }
+
       return updated;
     } catch (error) {
       throw error;
@@ -230,6 +373,45 @@ class UserService {
 
       await this.followersRepo.hardDelete(followerId, followingId);
       return { message: 'Follow request rejected' };
+    } catch (error) {
+      throw error;
+    }
+  }
+
+  // Instagram-style mutuals list: users the VIEWER follows who also follow this
+  // profile (same query the profile header uses for the "Followed by x" row).
+  async getMutuals({viewerId, username, limit, offset}) {
+    try {
+      const user = await this.userRepo.findByUsername(username);
+      if (!user) throw createError('User not found', 404);
+
+      // Mutuals are GLOBAL (see getProfile): the list describes the viewer's
+      // own mutual connections, not the target's private follower list, so no
+      // follow/approval gate applies — public or private account alike.
+      const pool = require('../../config/database');
+      const { rows } = await pool.query(
+        // users.avatar_url is a UUID (media id) — same fix as getProfile.
+        `SELECT u.id, u.name, u.username, am.cloudfront_url AS avatar_url, COUNT(*) OVER() AS total
+         FROM followers f1
+         JOIN followers f2
+           ON f2.follower_id = f1.following_id
+          AND f2.following_id = $2
+          AND f2.status = 'active'
+         JOIN users u ON u.id = f1.following_id AND u.deleted_at IS NULL
+         LEFT JOIN media am ON am.id = u.avatar_url AND am.deleted_at IS NULL
+         WHERE f1.follower_id = $1 AND f1.status = 'active'
+         ORDER BY u.name ASC
+         LIMIT $3 OFFSET $4`,
+        [viewerId, user.id, limit, offset]
+      );
+      const total = rows[0]?.total || 0;
+      const users = rows.map((r) => ({
+        id: r.id,
+        name: r.name,
+        username: r.username,
+        avatarUrl: r.avatar_url,
+      }));
+      return { users, total: parseInt(total, 10) };
     } catch (error) {
       throw error;
     }
@@ -387,7 +569,9 @@ class UserService {
       await this.userRepo.incrementFollowerCount(followingId);
 
       // Resolve the approver's own "requested to follow" notification row.
-      emitFollowRequestCancelled(followingId, { followerId });
+      // Distinct event — a resolved request is NOT a withdrawal, so the app
+      // must not flip the just-approved row to "Request withdrawn".
+      emitFollowRequestResolved(followingId, { followerId });
 
       const following = await this.userRepo.findById(followingId)
       const jobdata = {

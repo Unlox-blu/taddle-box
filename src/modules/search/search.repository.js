@@ -31,7 +31,62 @@ const searchCommunity = async (query, filter, limit, offset) => {
 const searchPost = async (query, limit, offset, userId = null) => {
   try {
     const q = query || '';
+<<<<<<< HEAD
     const { rows } = await pool.query(SearchAlgo.SEARCH_POSt_ALGORITHM, [`%${q}%`, limit, offset, userId, q.trim() ] );
+=======
+    const { rows } = await pool.query(
+      `SELECT 
+              ${SearchModel.POST_FIELDS},
+              -- Per-viewer like / bookmark state (same shape as discoverPost) so
+              -- the heart + bookmark icons render correctly in search results.
+              EXISTS(
+                  SELECT 1 FROM post_likes pl
+                  WHERE pl.post_id = p.id AND pl.user_id = $4
+              ) AS is_liked,
+              EXISTS(
+                  SELECT 1 FROM bookmark bm
+                  WHERE bm.post_id = p.id AND bm.user_id = $4
+              ) AS is_bookmarked,
+              EXISTS(
+                  SELECT 1 FROM posts rp
+                  WHERE rp.repost_of_id = p.id AND rp.author_id = $4 AND rp.deleted_at IS NULL
+              ) AS is_reposted,
+              COALESCE(s.allow_reposts, TRUE) AS author_reposts_enabled,
+              COALESCE(
+                  json_agg(
+                      json_build_object(
+                          'id', m.id,
+                          'media_type', m.media_type,
+                          'cloudfront_url', m.cloudfront_url,
+                          'width', m.width,
+                          'height', m.height,
+                          'processing_status', m.processing_status
+                      ) ORDER BY m.created_at ASC
+                  ) FILTER (WHERE m.id IS NOT NULL AND m.deleted_at IS NULL), 
+                  '[]'::json
+              ) AS media, COUNT(*) OVER() AS total
+          FROM posts p
+          JOIN users u ON p.author_id = u.id
+          LEFT JOIN media AS ua ON u.avatar_url = ua.id
+          LEFT JOIN settings s ON s.user_id = u.id
+          LEFT JOIN communities AS c ON p.community_id = c.id
+          LEFT JOIN media AS ca ON c.avatar_url = ca.id
+          LEFT JOIN media m ON p.id = m.post_id
+          WHERE 
+            p.deleted_at IS NULL AND p.status = 'published' 
+            AND (p.visibility = 'public' OR (p.visibility = 'community' AND c.privacy != 'private'))
+            AND ($1 = '' OR p.title ILIKE $1 OR p.content ILIKE $1)
+            -- Private accounts: posts only surface to the author or approved followers
+            AND (u.privacy = 'public' OR p.author_id = $4 OR EXISTS (
+              SELECT 1 FROM followers f
+              WHERE f.follower_id = $4 AND f.following_id = p.author_id AND f.status = 'active'
+            ))
+          GROUP BY p.id, u.id, ua.id, c.id, ca.id, s.user_id
+          ORDER BY CASE WHEN $1 = '' THEN (p.likes_count + p.comments_count) END DESC NULLS LAST, p.created_at DESC
+           LIMIT $2 OFFSET $3`,
+      [`%${q}%`, limit, offset, userId]
+    );
+>>>>>>> 1ff14170fc46c7b2bd64020bd43092273a384ba3
     const total = rows[0]?.total || 0;
     return { rows, total: parseInt(total, 10) };
   } catch (error) {

@@ -26,6 +26,20 @@ router.get(
   validateRequest({ params: postIdParamsSchema }),
   postController.getPost
 );
+// Paginated list of users who liked a post (with viewer follow state).
+router.get(
+  '/:postId/likes',
+  optionalAuth,
+  validateRequest({ params: postIdParamsSchema, query: paginationQuerySchema }),
+  postController.getLikers
+);
+// Paginated list of users who reposted a post (with viewer follow state).
+router.get(
+  '/:postId/reposts',
+  optionalAuth,
+  validateRequest({ params: postIdParamsSchema, query: paginationQuerySchema }),
+  postController.getReposters
+);
 router.get(
     '/user/:authorId', 
     optionalAuth, 
@@ -62,6 +76,18 @@ router.post(
   verifyToken,
   validateRequest({ params: postIdParamsSchema }),
   postController.sharePost
+);
+router.post(
+  '/:postId/repost',
+  verifyToken,
+  validateRequest({ params: postIdParamsSchema }),
+  postController.repostPost
+);
+router.delete(
+  '/:postId/repost',
+  verifyToken,
+  validateRequest({ params: postIdParamsSchema }),
+  postController.unrepostPost
 );
 router.post(
   '/:postId/bookmark',

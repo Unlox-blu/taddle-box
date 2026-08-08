@@ -178,6 +178,36 @@ const approvefollower = async (followerId, followingId) => {
   }
 }
 
+// Active (approved) follower ids of a user — used to fan out "new post /
+// repost" notifications to everyone who follows them.
+// opts.limit caps the fan-out so huge accounts don't generate thousands of
+// notification rows per post. opts.prefColumn (a FIXED literal from the
+// notification_preferences table, never user input) excludes followers who
+// turned that notification category off; a missing prefs row counts as ON.
+const getActiveFollowerIds = async (followingId, opts = {}) => {
+  try {
+    const { limit = 1000, prefColumn = null } = opts;
+    const prefJoin = prefColumn
+      ? `LEFT JOIN notification_preferences np ON np.user_id = f.follower_id`
+      : '';
+    const prefFilter = prefColumn
+      ? `AND (np.${prefColumn} IS NULL OR np.${prefColumn} = TRUE)`
+      : '';
+    const { rows } = await pool.query(
+      `SELECT f.follower_id
+       FROM ${FollowersModel.TABLE} f
+       ${prefJoin}
+       WHERE f.following_id = $1 AND f.status = 'active'${prefFilter}
+       ORDER BY f.created_at DESC
+       LIMIT $2`,
+      [followingId, limit]
+    );
+    return rows.map((r) => r.follower_id);
+  } catch (error) {
+    throw error;
+  }
+};
+
 const hardDelete = async (followerId, followingId) => {
   try {
     await pool.query(
@@ -226,5 +256,6 @@ module.exports = {
   approveAllPendingByFollowingId,
   findPendingByFollowingId,
   countPendingByFollowingId,
+  getActiveFollowerIds,
   hardDelete,
 };

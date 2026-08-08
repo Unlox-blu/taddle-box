@@ -48,6 +48,26 @@ class NotificationService {
     });
   }
 
+  // Bulk fan-out (e.g. "X posted a new post" → the author's followers).
+  // Inserts every row in ONE multi-row INSERT per chunk instead of N
+  // publishNotification calls (which would be N inserts + N redis status
+  // checks + N push-job checks). Push/socket delivery is intentionally skipped
+  // for fan-outs — the row lands in the in-app notifications list only, which
+  // is the point of a low-priority "new post" ping. Callers are expected to
+  // have already capped + filtered the recipient list (see
+  // followersRepository.getActiveFollowerIds prefColumn/limit opts).
+  async createMany(items) {
+    if (!Array.isArray(items) || items.length === 0) return 0;
+    const CHUNK = 500; // stays well under Postgres' parameter limit
+    let total = 0;
+    for (let i = 0; i < items.length; i += CHUNK) {
+      total += await this.notifRepo.createNotificationsBatch(
+        items.slice(i, i + CHUNK)
+      );
+    }
+    return total;
+  }
+
   async getAll({ userId, limit, offset, unreadOnly }) {
     const { notifications, total } = await this.notifRepo.findByUser(
       userId,

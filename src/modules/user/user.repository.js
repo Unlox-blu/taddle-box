@@ -555,6 +555,36 @@ const updatePassword = async (userId, passwordHash) => {
   }
 };
 
+// Last-known device location (only ever sent when the user granted permission).
+// GEO location telemetry — append a row to the history table (one row per
+// capture). Distinct from the user's declared PROFILE location (users.location).
+// `place` is an optional free-text reverse-geocoded place name.
+const insertLocationCapture = async (userId, { lat, lng, accuracy, place }) => {
+  try {
+    await pool.query(
+      `INSERT INTO location_history (user_id, lat, lng, accuracy, place)
+       VALUES ($1, $2, $3, $4, $5)`,
+      [userId, lat, lng, accuracy || null, place || null]
+    );
+  } catch (error) {
+    throw error;
+  }
+};
+
+// Privacy: wipe every captured location row for the user (Settings → Clear
+// location data). Does NOT touch the declared profile location.
+const clearLocationHistory = async (userId) => {
+  try {
+    const { rowCount } = await pool.query(
+      `DELETE FROM location_history WHERE user_id = $1`,
+      [userId]
+    );
+    return rowCount || 0;
+  } catch (error) {
+    throw error;
+  }
+};
+
 module.exports = {
   findById,
   findByIdPrivate,
@@ -597,4 +627,6 @@ module.exports = {
   search,
   isEmailExist,
   isUsernameExist,
+  insertLocationCapture,
+  clearLocationHistory,
 };

@@ -16,7 +16,13 @@ const typeCheck = (val) => {
   }
 
 const createCommunitySchema = z.object({
-  name: z.string().min(1, 'Name must have at least 1 characters').max(100),
+  // Username-style names: letters, numbers, underscores only (no spaces or
+  // hyphens) — matches the frontend rule so names and slugs stay consistent.
+  name: z
+    .string()
+    .min(1, 'Name must have at least 1 characters')
+    .max(100)
+    .regex(/^[a-zA-Z0-9_]+$/, 'Community names can only contain letters, numbers and underscores (no spaces or hyphens)'),
   description: z.string().max(1000).optional(),
   privacy: z.enum(PRIVACY_TYPES).default('public'),
   category: z.preprocess(typeCheck ,z.array(z.string().max(50)).max(5).default([])),

@@ -45,4 +45,17 @@ const uploadRateLimiter = rateLimit({
   message: { success: false, message: 'Upload limit reached. Please try again in an hour.' },
 });
 
-module.exports = { globalRateLimiter, authRateLimiter, otpRateLimiter, uploadRateLimiter };
+// 1 capture per 60s — applied on POST /users/location. The client already
+// throttles to 5 min; this server-side guard keeps the append-only
+// location_history table from being flooded by a misbehaving client.
+const locationCaptureLimiter = rateLimit({
+  windowMs: 60 * 1000,
+  max: 1,
+  standardHeaders: true,
+  legacyHeaders: false,
+  store: makeStore('rl:loc:'),
+  skipFailedRequests: true,
+  message: { success: false, message: 'Location capture rate limited. Try again shortly.' },
+});
+
+module.exports = { globalRateLimiter, authRateLimiter, otpRateLimiter, uploadRateLimiter, locationCaptureLimiter };

@@ -4,7 +4,7 @@ const TABLE = 'users';
 
 const PUBLIC_FIELDS = [
   'u.id', 'u.name', 'u.username', 'u.avatar_url', 'u.banner_url', 
-  'u.bio', 'u.website_url', 'u.follower_count', 'u.following_count',
+  'u.bio', 'u.website_url', 'u.location', 'u.follower_count', 'u.following_count',
   'u.post_count', 'u.created_at', 'u.privacy',
 ].join(', ');
 

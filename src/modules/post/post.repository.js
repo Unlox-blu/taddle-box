@@ -4,6 +4,79 @@ const pool = require('../../config/database');
 const PostModel = require('./post.model');
 
 
+// Paginated list of users who liked a post, with the viewer's follow state
+// on each liker (so the app can render Follow/Unfollow buttons in the list).
+// Returns { rows, total } where rows are raw liker rows.
+const findLikers = async (postId, currentUserId, limit, offset) => {
+  try {
+    const { rows } = await pool.query(
+      `SELECT
+          u.id,
+          u.name,
+          u.username,
+          avatar_media.cloudfront_url AS avatar_url,
+          EXISTS(
+            SELECT 1 FROM followers f
+            WHERE f.follower_id = $2 AND f.following_id = u.id AND f.status = 'active'
+          ) AS is_following,
+          EXISTS(
+            SELECT 1 FROM followers f
+            WHERE f.follower_id = u.id AND f.following_id = $2 AND f.status = 'active'
+          ) AS is_follower,
+          COUNT(*) OVER() AS total
+       FROM ${PostModel.LIKES_TABLE} pl
+       JOIN users u ON u.id = pl.user_id
+       LEFT JOIN media AS avatar_media ON avatar_media.id = u.avatar_url
+       WHERE pl.post_id = $1
+         AND u.deleted_at IS NULL
+       ORDER BY pl.created_at DESC
+       LIMIT $3 OFFSET $4`,
+      [postId, currentUserId, limit, offset]
+    );
+    const total = rows[0]?.total || 0;
+    return { rows, total: parseInt(total, 10) };
+  } catch (error) {
+    throw error;
+  }
+};
+
+// Paginated list of users who reposted a post (a repost is a post row whose
+// repost_of_id points at the original). Same response shape as findLikers so
+// the app can reuse the same users-list modal for both.
+const findReposters = async (postId, currentUserId, limit, offset) => {
+  try {
+    const { rows } = await pool.query(
+      `SELECT
+          u.id,
+          u.name,
+          u.username,
+          avatar_media.cloudfront_url AS avatar_url,
+          EXISTS(
+            SELECT 1 FROM followers f
+            WHERE f.follower_id = $2 AND f.following_id = u.id AND f.status = 'active'
+          ) AS is_following,
+          EXISTS(
+            SELECT 1 FROM followers f
+            WHERE f.follower_id = u.id AND f.following_id = $2 AND f.status = 'active'
+          ) AS is_follower,
+          COUNT(*) OVER() AS total
+       FROM ${PostModel.TABLE} rp
+       JOIN users u ON u.id = rp.author_id
+       LEFT JOIN media AS avatar_media ON avatar_media.id = u.avatar_url
+       WHERE rp.repost_of_id = $1
+         AND rp.deleted_at IS NULL
+         AND u.deleted_at IS NULL
+       ORDER BY rp.created_at DESC
+       LIMIT $3 OFFSET $4`,
+      [postId, currentUserId, limit, offset]
+    );
+    const total = rows[0]?.total || 0;
+    return { rows, total: parseInt(total, 10) };
+  } catch (error) {
+    throw error;
+  }
+};
+
 const findById = async (postId, currentUserId = null) => {
   try {
     const { rows } = await pool.query(
@@ -16,6 +89,11 @@ const findById = async (postId, currentUserId = null) => {
           WHERE xt.xp_id = (SELECT id FROM xp WHERE user_id = $2 LIMIT 1)
           AND xt.source_type = 'view_post_' || p.id
         ) AS is_xp_claimed,
+        EXISTS(
+          SELECT 1 FROM posts rp
+          WHERE rp.repost_of_id = p.id AND rp.author_id = $2 AND rp.deleted_at IS NULL
+        ) AS is_reposted,
+        COALESCE(s.allow_reposts, TRUE) AS author_reposts_enabled,
         COALESCE(
             json_agg(
                 json_build_object(
@@ -33,13 +111,14 @@ const findById = async (postId, currentUserId = null) => {
         FROM posts p
         JOIN users u ON p.author_id = u.id
         LEFT JOIN media AS ua ON u.avatar_url = ua.id
+        LEFT JOIN settings AS s ON s.user_id = u.id
         LEFT JOIN communities AS c ON p.community_id = c.id
         LEFT JOIN media AS ca ON c.avatar_url = ca.id
         LEFT JOIN media m ON p.id = m.post_id
         WHERE 
             p.id = $1
             AND p.deleted_at IS NULL
-        GROUP BY p.id, u.id, ua.id, c.id, ca.id`,
+        GROUP BY p.id, u.id, ua.id, c.id, ca.id, s.user_id`,
       [postId, currentUserId]
     );
     return rows[0] || null;
@@ -49,8 +128,13 @@ const findById = async (postId, currentUserId = null) => {
 };
 
 
-const findManyByUser = async (authorId, limit, offset, currentUserId = null) => {
+// type: 'all' (default) | 'posts' (originals only) | 'reposts' (repost rows only)
+const findManyByUser = async (authorId, limit, offset, currentUserId = null, type = 'all') => {
   try {
+    const repostClause =
+      type === 'reposts' ? `AND p.repost_of_id IS NOT NULL`
+      : type === 'posts' ? `AND p.repost_of_id IS NULL`
+      : '';
     const { rows } = await pool.query(
       `SELECT 
         ${PostModel.LIST_FIELDS},
@@ -61,6 +145,11 @@ const findManyByUser = async (authorId, limit, offset, currentUserId = null) => 
           WHERE xt.xp_id = (SELECT id FROM xp WHERE user_id = $4 LIMIT 1)
           AND xt.source_type = 'view_post_' || p.id
         ) AS is_xp_claimed,
+        EXISTS(
+          SELECT 1 FROM posts rp
+          WHERE rp.repost_of_id = p.id AND rp.author_id = $4 AND rp.deleted_at IS NULL
+        ) AS is_reposted,
+        COALESCE(s.allow_reposts, TRUE) AS author_reposts_enabled,
         COALESCE(
             json_agg(
                 json_build_object(
@@ -77,13 +166,15 @@ const findManyByUser = async (authorId, limit, offset, currentUserId = null) => 
     FROM posts p
     JOIN users u ON p.author_id = u.id
     LEFT JOIN media AS ua ON u.avatar_url = ua.id
+    LEFT JOIN settings AS s ON s.user_id = u.id
     LEFT JOIN communities AS c ON p.community_id = c.id
     LEFT JOIN media AS ca ON c.avatar_url = ca.id
     LEFT JOIN media m ON p.id = m.post_id
     WHERE 
       p.author_id = $1
       AND p.deleted_at IS NULL
-    GROUP BY p.id, u.id, ua.id, c.id, ca.id
+      ${repostClause}
+    GROUP BY p.id, u.id, ua.id, c.id, ca.id, s.user_id
     ORDER BY p.created_at DESC
      LIMIT $2 OFFSET $3`,
       [authorId, limit, offset, currentUserId]
@@ -106,6 +197,11 @@ const findManyByCommunity = async (communityId, limit, offset, currentUserId = n
           WHERE xt.xp_id = (SELECT id FROM xp WHERE user_id = $4 LIMIT 1)
           AND xt.source_type = 'view_post_' || p.id
         ) AS is_xp_claimed,
+        EXISTS(
+          SELECT 1 FROM posts rp
+          WHERE rp.repost_of_id = p.id AND rp.author_id = $4 AND rp.deleted_at IS NULL
+        ) AS is_reposted,
+        COALESCE(s.allow_reposts, TRUE) AS author_reposts_enabled,
       COALESCE(
             json_agg(
                 json_build_object(
@@ -122,6 +218,7 @@ const findManyByCommunity = async (communityId, limit, offset, currentUserId = n
     FROM posts p
     JOIN users u ON p.author_id = u.id
     LEFT JOIN media AS ua ON u.avatar_url = ua.id
+    LEFT JOIN settings AS s ON s.user_id = u.id
     LEFT JOIN communities AS c ON p.community_id = c.id
     LEFT JOIN media AS ca ON c.avatar_url = ca.id
     LEFT JOIN media m ON p.id = m.post_id
@@ -134,7 +231,7 @@ const findManyByCommunity = async (communityId, limit, offset, currentUserId = n
         SELECT 1 FROM followers f
         WHERE f.follower_id = $4 AND f.following_id = p.author_id AND f.status = 'active'
       ))
-    GROUP BY p.id, u.id, ua.id, c.id, ca.id
+    GROUP BY p.id, u.id, ua.id, c.id, ca.id, s.user_id
     ORDER BY p.created_at DESC
      LIMIT $2 OFFSET $3`,
       [communityId, limit, offset, currentUserId]
@@ -153,12 +250,13 @@ const create = async (data) => {
     
     const { rows } = await client.query(
       `INSERT INTO ${PostModel.TABLE}
-       (author_id, community_id, title, content, media, tags, category, visibility, status, poll_data, link_data, published_at)
-     VALUES ($1, $2, $3, $4, $5, $6::text[], $7::text[], $8, $9::varchar, $10, $11, CASE WHEN $9::varchar = 'published' THEN NOW() ELSE NULL END)
+       (author_id, community_id, repost_of_id, title, content, media, tags, category, visibility, status, poll_data, link_data, published_at)
+     VALUES ($1, $2, $3, $4, $5, $6, $7::text[], $8::text[], $9, $10::varchar, $11, $12, CASE WHEN $10::varchar = 'published' THEN NOW() ELSE NULL END)
      RETURNING *`,
       [
         data.authorId,
         data.communityId || null,
+        data.repostOfId || null,
         data.title || null,
         data.content || null,
         data.media ? JSON.stringify(data.media) : '[]',
@@ -229,7 +327,23 @@ const update = async (postId, fields) => {
 
 const softDelete = async (postId) => {
   try {
-    pool.query(`UPDATE ${PostModel.TABLE} SET deleted_at = NOW() WHERE id = $1`, [postId]);
+    await pool.query(`UPDATE ${PostModel.TABLE} SET deleted_at = NOW() WHERE id = $1`, [postId]);
+  } catch (error) {
+    throw error;
+  }
+};
+
+// The repost row the current user created for a given original post (used for
+// unrepost and to make reposting idempotent).
+const findMyRepost = async (originalPostId, userId) => {
+  try {
+    const { rows } = await pool.query(
+      `SELECT id, community_id FROM ${PostModel.TABLE}
+       WHERE repost_of_id = $1 AND author_id = $2 AND deleted_at IS NULL
+       ORDER BY created_at DESC LIMIT 1`,
+      [originalPostId, userId]
+    );
+    return rows[0] || null;
   } catch (error) {
     throw error;
   }
@@ -321,9 +435,20 @@ const decrementCommentCount = async (id) => {
 
 const incrementShareCount = async (id) => {
   try {
-    pool.query(`UPDATE ${PostModel.TABLE} SET shares_count   = shares_count   + 1 WHERE id = $1`, [
+    await pool.query(`UPDATE ${PostModel.TABLE} SET shares_count   = shares_count   + 1 WHERE id = $1`, [
       id,
     ]);
+  } catch (error) {
+    throw error;
+  }
+};
+
+const decrementShareCount = async (id) => {
+  try {
+    await pool.query(
+      `UPDATE ${PostModel.TABLE} SET shares_count = GREATEST(0, shares_count - 1) WHERE id = $1`,
+      [id]
+    );
   } catch (error) {
     throw error;
   }
@@ -350,9 +475,18 @@ const search = async (query, limit, offset, currentUserId = null) => {
           SELECT 1 FROM xp_transactions xt
           WHERE xt.xp_id = (SELECT id FROM xp WHERE user_id = $4 LIMIT 1)
           AND xt.source_type = 'view_post_' || p.id
-        ) AS is_xp_claimed
+        ) AS is_xp_claimed,
+        EXISTS(
+          SELECT 1 FROM posts rp
+          WHERE rp.repost_of_id = p.id AND rp.author_id = $4 AND rp.deleted_at IS NULL
+        ) AS is_reposted,
+        COALESCE(s.allow_reposts, TRUE) AS author_reposts_enabled
      FROM ${PostModel.TABLE} p
      JOIN users u ON u.id = p.author_id
+     LEFT JOIN media AS ua ON u.avatar_url = ua.id
+     LEFT JOIN settings AS s ON s.user_id = u.id
+     LEFT JOIN communities AS c ON p.community_id = c.id
+     LEFT JOIN media AS ca ON c.avatar_url = ca.id
      WHERE p.deleted_at IS NULL AND p.status = 'published' AND p.visibility = 'public'
        -- Private accounts: posts only surface to the author or approved followers
        AND (u.privacy = 'public' OR p.author_id = $4 OR EXISTS (
@@ -379,6 +513,7 @@ module.exports = {
   update,
   softDelete,
   hardDelete,
+  findMyRepost,
   addLike,
   removeLike,
   isLikedByUser,
@@ -387,6 +522,9 @@ module.exports = {
   incrementCommentCount,
   decrementCommentCount,
   incrementShareCount,
+  decrementShareCount,
   incrementViewCount,
   search,
+  findLikers,
+  findReposters,
 };

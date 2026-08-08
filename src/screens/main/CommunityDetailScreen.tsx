@@ -225,6 +225,37 @@ export default function CommunityDetailScreen() {
   const isAdmin = community?.memberRole === 'admin' || community?.memberRole === 'moderator';
   const isOwner = community?.ownerId === authUser?.id;
 
+  // Join/Leave on this screen. Always works: updates this screen's local state
+  // immediately, then asks the context to sync the API (the context also works
+  // when the community isn't in its loaded list — it uses the object passed
+  // here as the source of truth).
+  const handleToggleJoin = async () => {
+    if (!community) return;
+    const target = community;
+    const wasJoined = target.isJoined || false;
+    const wasPending = target.isPending || false;
+    const isPrivate = target.privacy === 'private';
+    const delta = wasJoined ? -1 : 1;
+    // Local optimistic flip — instant UI, regardless of context state.
+    setCommunity(prev => prev ? {
+      ...prev,
+      isJoined: wasPending ? false : (isPrivate ? prev.isJoined : !prev.isJoined),
+      isPending: wasPending ? false : isPrivate,
+      memberCount: wasPending ? prev.memberCount : Math.max(0, (prev.memberCount || 0) + delta),
+    } : prev);
+    try {
+      await toggleJoin(target);
+    } catch (e) {
+      // Roll back on failure.
+      setCommunity(prev => prev ? {
+        ...prev,
+        isJoined: wasJoined,
+        isPending: wasPending,
+        memberCount: wasPending ? prev.memberCount : Math.max(0, (prev.memberCount || 0) - delta),
+      } : prev);
+    }
+  };
+
   const loadData = useMemo(
     () => async () => {
       setLoadingDetail(true);
@@ -382,7 +413,7 @@ export default function CommunityDetailScreen() {
             // Pending join request → "Requested ✓"; tapping cancels the request.
             <TouchableOpacity
               style={[styles.joinBtn, styles.joinBtnJoined]}
-              onPress={() => toggleJoin(community.id)}
+              onPress={handleToggleJoin}
               activeOpacity={0.8}
             >
               <LinearGradient
@@ -398,7 +429,7 @@ export default function CommunityDetailScreen() {
           ) : (
             <TouchableOpacity
               style={[styles.joinBtn, community.isJoined && styles.joinBtnJoined]}
-              onPress={() => toggleJoin(community.id)}
+              onPress={handleToggleJoin}
               activeOpacity={0.8}
             >
               {community.isJoined ? (
@@ -563,6 +594,7 @@ export default function CommunityDetailScreen() {
         onClose={() => setShowMembers(false)}
         communityId={community.id}
         isAdmin={isAdmin}
+        isOwner={isOwner}
         currentUserId={authUser?.id}
         styles={styles}
         colors={colors}
@@ -673,7 +705,7 @@ function ManageRequestsModal({ visible, onClose, communityId, styles, colors }: 
   );
 }
 
-function ManageMembersModal({ visible, onClose, communityId, isAdmin, currentUserId, styles, colors }: any) {
+function ManageMembersModal({ visible, onClose, communityId, isAdmin, isOwner, currentUserId, styles, colors }: any) {
   const navigation = useNavigation<any>();
   const [members, setMembers] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
@@ -748,8 +780,19 @@ function ManageMembersModal({ visible, onClose, communityId, isAdmin, currentUse
                         <Text style={{ fontSize: 20 }}>👾</Text>
                       )}
                     </View>
-                    <View>
-                      <Text style={styles.requestName}>{item.name}</Text>
+                    <View style={{ flex: 1 }}>
+                      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                        <Text style={styles.requestName} numberOfLines={1}>{item.name}</Text>
+                        {item.role === 'owner' ? (
+                          <View style={{ backgroundColor: 'rgba(251,191,36,0.14)', borderRadius: 6, paddingHorizontal: 6, paddingVertical: 1, borderWidth: 1, borderColor: 'rgba(251,191,36,0.35)' }}>
+                            <Text style={{ fontSize: 10, fontWeight: '800', color: '#FBBF24' }}>OWNER</Text>
+                          </View>
+                        ) : (item.role === 'admin' || item.role === 'moderator') ? (
+                          <View style={{ backgroundColor: 'rgba(124,58,237,0.14)', borderRadius: 6, paddingHorizontal: 6, paddingVertical: 1, borderWidth: 1, borderColor: 'rgba(124,58,237,0.35)' }}>
+                            <Text style={{ fontSize: 10, fontWeight: '800', color: '#A78BFA' }}>ADMIN</Text>
+                          </View>
+                        ) : null}
+                      </View>
                       <Text style={styles.requestUsername}>@{item.username}</Text>
                     </View>
                   </TouchableOpacity>

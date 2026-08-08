@@ -297,6 +297,20 @@ export default function PostCard({
 
   const [currentMediaPage, setCurrentMediaPage] = React.useState(0);
   const postId = String(post?.id || "");
+  // Tapping a repost (the preview OR its comment action) opens the ORIGINAL
+  // post's thread — never the repost's own (empty) comments. The root is
+  // resolved on demand via the cache-aware resolveRootPost (which also walks
+  // repost-of-repost chains), so a cold tap before the preview's fetch lands
+  // still lands on the true original.
+  const openPostThread = useCallback(
+    async (target: Post) => {
+      const targetId = String((target as any)?.repostOfId || "");
+      const root = targetId ? await resolveRootPost(targetId) : null;
+      const dest = root && !root?.repostOfId ? root : target;
+      navigation.navigate("Comments", { post: dest as Post } as any);
+    },
+    [navigation],
+  );
   const author = useMemo(() => {
     const raw = (post as any)?.author || {};
     return {
@@ -341,6 +355,13 @@ export default function PostCard({
   const [repostCommunityId, setRepostCommunityId] = React.useState<string | null>(null);
   const [likersVisible, setLikersVisible] = React.useState(false);
   const [repostersVisible, setRepostersVisible] = React.useState(false);
+  // For reposts, the action bar shows the ORIGINAL post's engagement counts
+  // (what the user sees on the thread), not the repost's own numbers.
+  // RepostedPostCard reports them here once its root fetch lands.
+  const [origCounts, setOrigCounts] = React.useState<{ likes: number; comments: number } | null>(null);
+  const isRepost = !!(post as any).repostOfId;
+  const displayLikes = isRepost && origCounts ? origCounts.likes : (post.likes ?? (post as any).likesCount ?? 0);
+  const displayComments = isRepost && origCounts ? origCounts.comments : (post.comments ?? (post as any).commentsCount ?? 0);
   const [quoteVisible, setQuoteVisible] = React.useState(false);
   const [quoteText, setQuoteText] = React.useState("");
   const [repostBusy, setRepostBusy] = React.useState(false);
@@ -988,11 +1009,19 @@ export default function PostCard({
 
           {/* Reposted original preview (verbatim + quote reposts) */}
           {(post as any).repostOfId ? (
-            <RepostedPostCard
-              postId={(post as any).repostOfId}
-              isActive={isActive ?? true}
-              onOpen={(orig) => onComment?.(orig as Post)}
-            />
+          <RepostedPostCard
+            postId={(post as any).repostOfId}
+            isActive={isActive ?? true}
+            onOpen={(orig) => openPostThread(orig as Post)}
+            onOrigCounts={(likes, comments) =>
+              setOrigCounts(prev => {
+                const next = { likes, comments };
+                // Avoid re-render churn on repeated reports with identical values.
+                if (prev && prev.likes === likes && prev.comments === comments) return prev;
+                return next;
+              })
+            }
+          />
           ) : null}
         </View>
       </TouchableWithoutFeedback>
@@ -1199,14 +1228,22 @@ export default function PostCard({
                 post.isLiked && { color: colors.primaryLight },
               ]}
             >
-              {(post.likes ?? (post as any).likesCount ?? 0).toLocaleString()}
+              {displayLikes.toLocaleString()}
             </Text>
           </TouchableOpacity>
         </View>
 
         <TouchableOpacity
           style={styles.action}
-          onPress={() => onComment?.(post)}
+          onPress={() => {
+            // A repost's comment action opens the ORIGINAL post's thread — the
+            // repost itself has no comment thread of its own.
+            if (isRepost) {
+              openPostThread(post);
+            } else {
+              onComment?.(post);
+            }
+          }}
         >
           <Ionicons
             name="chatbubble-outline"
@@ -1214,11 +1251,7 @@ export default function PostCard({
             color={colors.text.muted}
           />
           <Text style={styles.actionText}>
-            {(
-              post.comments ??
-              (post as any).commentsCount ??
-              0
-            ).toLocaleString()}
+            {displayComments.toLocaleString()}
           </Text>
         </TouchableOpacity>
         {/* Repost — hidden on your own posts, and on posts whose author
@@ -1606,10 +1639,14 @@ function RepostedPostCard({
   postId,
   isActive,
   onOpen,
+  onOrigCounts,
 }: {
   postId: string;
   isActive?: boolean;
   onOpen?: (orig: any) => void;
+  /** Report the ORIGINAL post's engagement counts once the root loads, so the
+      outer card's action bar can show them instead of the repost's own. */
+  onOrigCounts?: (likes: number, comments: number) => void;
 }) {
   const colors = useThemeColors();
   const [orig, setOrig] = React.useState<any>(() => {
@@ -1627,6 +1664,12 @@ function RepostedPostCard({
         if (cancelled) return;
         setOrig(root);
         setLoaded(true);
+        if (root) {
+          onOrigCounts?.(
+            root.likesCount ?? root.likes ?? 0,
+            root.commentsCount ?? root.comments ?? 0,
+          );
+        }
       })
       .catch(() => {
         if (cancelled) return;

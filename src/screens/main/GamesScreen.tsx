@@ -75,6 +75,7 @@ export type PlayerContext = {
   avatar?: string;
   team?: number;
   seat?: number;
+  level?: number;
 };
 
 type ActiveSession = {
@@ -354,6 +355,7 @@ export default function GamesScreen() {
               avatar: p.avatar,
               team: p.team,
               seat: p.seat,
+              level: p.level,
             });
           });
 
@@ -1266,6 +1268,10 @@ function GamePlayModal({
                         externalPhase={phase === "playing" ? "playing" : "waiting"}
                         myName={user?.username || user?.name || 'You'}
                         myAvatar={user?.avatarUrl || user?.avatar || null}
+                        myLevel={
+                          user?.level ??
+                          (user?.totalXpEarned != null ? Math.floor(user.totalXpEarned / 1000) + 1 : undefined)
+                        }
                         opponentName={session.players?.[0]?.name || "Opponent"}
                         onComplete={handleComplete}
                       />

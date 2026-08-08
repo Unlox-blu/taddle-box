@@ -68,7 +68,10 @@ type CommunityContextType = {
   isLoading:     boolean;
   hasMore:       boolean;
   fetchCommunities: (refresh?: boolean) => Promise<void>;
-  toggleJoin:    (id: string) => Promise<void>;
+  /** Join/leave (or send/cancel a join request). Accepts the community itself
+      so screens that hold a Community object work even when the context list
+      isn't loaded yet (e.g. the community detail screen opened from search). */
+  toggleJoin:    (id: string | Community) => Promise<void>;
   addCommunity:  (communityData: any) => Promise<void>; // Or replace with specific service if needed
 };
 
@@ -107,9 +110,13 @@ export function CommunityProvider({ children }: { children: React.ReactNode }) {
     }
   }, [state.isLoading, state.hasMore, state.page]);
 
-  const toggleJoin = async (id: string) => {
-    const community = state.communities.find(c => c.id === id);
+  const toggleJoin = async (idOrCommunity: string | Community) => {
+    const community =
+      typeof idOrCommunity === 'string'
+        ? state.communities.find(c => c.id === idOrCommunity)
+        : idOrCommunity;
     if (!community) return;
+    const id = community.id;
 
     // Private communities: not-joined → send a join REQUEST (pending), and a
     // pending request can be cancelled. Active membership joins/leaves as before.

@@ -1,24 +1,55 @@
 import React, { useEffect, useState, useCallback, useRef, useMemo } from 'react';
 import {
   View, Text, TouchableOpacity, StyleSheet, Animated, Dimensions, Image,
-  TextInput, Modal, ScrollView, Platform, KeyboardAvoidingView,
+  TextInput, ScrollView, Platform, Keyboard, Easing,
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
-import Svg, { Polygon, Circle, Defs, LinearGradient as SvgGrad, Stop, Rect } from 'react-native-svg';
+import Svg, { Polygon, Circle, Defs, LinearGradient as SvgGrad, Stop, Rect, Path } from 'react-native-svg';
 import type { HtmlGameResult } from '../../games/types';
 import { createGameEngineSocket } from '../../services/socketClient';
 import { gameSound, useTurnSound } from '../../services/gameSound';
 
-// Dice tumble duration — everyone (not just the roller) sees the roll.
-// Slowed from 1s → ~1.6s so the bounce sequence reads as a real roll.
+// Backstop hold for remote rolls: the tumble (~1.2s) clears the rolling state
+// itself when the die settles; this timer only catches rolls that arrived
+// while another tumble was already running.
 const DICE_ROLL_MS = 1600;
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 const { width: SCREEN_W, height: SCREEN_H } = Dimensions.get('window');
-// Board fills width minus margins, but leave room for corner avatars + dice
-const BOARD_SIZE = Math.min(Math.floor(SCREEN_W - 88), Math.floor(SCREEN_H * 0.5), 330);
+// Initial board size — the live size is measured from layout so the board
+// always fills the available space (production responsiveness). No small cap:
+// the board grows with the screen and shrinks only when the chat panel opens.
+const BOARD_SIZE = Math.min(Math.floor(SCREEN_W - 20), Math.floor(SCREEN_H * 0.66));
 const CELL = BOARD_SIZE / 15;
+// The chat panel is a compact bottom bar (~20–26% of the screen, with a
+// usability floor). It never swallows the board: the message list scrolls
+// inside it, so even with the keyboard open (~40%) the board stays visible.
+const CHAT_MAX_H = Math.max(196, Math.floor(SCREEN_H * 0.26));
+// How long a roll that can't move stays on screen before the turn passes,
+// so players see what was rolled and why the die moves to the next player.
+const NO_MOVE_HOLD_MS = 1400;
+// Vertical gutters reserved around the board for the corner profile cards and
+// the die, so they never cover the play area on any screen size. The board is
+// sized to fit between these strips (top cards + die, bottom cards + die or
+// the open chat panel).
+const CORNER_STRIP = 84;
+
+// Token movement pacing — coins walk the track cell by cell with a tick per
+// hop; captured coins run fast backwards along the track to their yard.
+const STEP_MS = 210;           // forward hop per cell (leisurely walk)
+const ENTRY_MS = 250;          // pop from the yard onto the start cell
+const CAPTURE_BUDGET_MS = 1900; // total reverse-run budget when captured
+// Post-roll window to tap a token — shown as a live countdown under the die
+// for every roll (manual or auto-rolled). The client auto-moves just before
+// the window ends so it always beats the server's 30s turn-timeout backstop.
+const MOVE_WINDOW_MS = 30 * 1000;
+// Ceiling for revealing a pending turn change. Normally the turn is revealed
+// the moment the last coin walk finishes; this backstop forces the reveal if a
+// walk was cancelled mid-flight (e.g. a board re-layout) and its completion
+// never fired. Covers the longest possible move (capture retreat ~1.9s) with
+// margin.
+const TURN_REVEAL_MAX_MS = 2600;
 
 // Reference-style backdrop
 const BG_TOP = '#0A2472';
@@ -44,9 +75,13 @@ function seededStars(count: number, seed = 42) {
 
 const PLAYER_COLORS   = ['#E32636', '#009E60', '#FFC000', '#007FFF'] as const;
 const PLAYER_COLORS_D = ['#9D1313', '#006B40', '#CC9900', '#0055AA'] as const;
-const PLAYER_NAMES    = ['Red', 'Green', 'Yellow', 'Blue'] as const;
 
 // ── Board path (15×15 grid) ───────────────────────────────────────────────────
+// The SHARED loop is 52 cells (13 per player — starts at 0/13/26/39). The four
+// home columns are NOT part of the loop: each player's coins turn into their
+// own colored column (positions 52–56) and finish in their center triangle
+// (position 57). This keeps every player's coins off the other colors' home
+// columns.
 const LUDO_PATH: [number, number][] = [
   [1,6],[2,6],[3,6],[4,6],[5,6],
   [6,5],[6,4],[6,3],[6,2],[6,1],[6,0],
@@ -60,7 +95,6 @@ const LUDO_PATH: [number, number][] = [
   [6,13],[6,12],[6,11],[6,10],[6,9],
   [5,8],[4,8],[3,8],[2,8],[1,8],[0,8],
   [0,7],[0,6],
-  [1,7],[2,7],[3,7],[4,7],[5,7],
 ];
 
 // Starts + Stars
@@ -74,17 +108,46 @@ const HOME_SLOTS: [number, number][][] = [
   [[2,11],[4,11],[2,13],[4,13]],      // Blue BL
 ];
 
+// Each player's exclusive home column (positions 52→56), moving toward the
+// center. Coins of other colors never render on these cells.
+const HOME_COLS: [number, number][][] = [
+  [[1,7],[2,7],[3,7],[4,7],[5,7]],       // red → right
+  [[7,1],[7,2],[7,3],[7,4],[7,5]],       // green → down
+  [[13,7],[12,7],[11,7],[10,7],[9,7]],   // yellow → left
+  [[7,13],[7,12],[7,11],[7,10],[7,9]],   // blue → up
+];
+
+// Finished coins (pos 57) rest inside their color's center triangle.
+const HOME_SPOTS: [number, number][] = [
+  [7.0, 7.5],  // red (left triangle)
+  [7.5, 7.0],  // green (top triangle)
+  [8.0, 7.5],  // yellow (right triangle)
+  [7.5, 8.0],  // blue (bottom triangle)
+];
+
 const PLAYER_PATH_OFFSET = [0, 13, 26, 39];
 
-function getTokenPos(pi: number, tokenId: number, pos: number): { x: number; y: number } {
+function getTokenPos(pi: number, tokenId: number, pos: number, cell: number): { x: number; y: number } {
   if (pos === -1) {
     const [col, row] = HOME_SLOTS[pi % 4][tokenId % 4];
-    return { x: col * CELL, y: row * CELL };
+    return { x: col * cell, y: row * cell };
   }
-  if (pos >= 56) return { x: 7.5 * CELL, y: 7.5 * CELL };
+  if (pos === 57) {
+    // Finished — a small fan so several finished coins don't stack exactly.
+    const [hx, hy] = HOME_SPOTS[pi % 4];
+    const ox = tokenId % 2 === 0 ? -0.28 : 0.28;
+    const oy = tokenId < 2 ? -0.28 : 0.28;
+    return { x: (hx + ox) * cell, y: (hy + oy) * cell };
+  }
+  if (pos >= 52) {
+    // Guarded (engine clamps at 57) so an unexpected pos can never index
+    // past the 5 home-column cells.
+    const [col, row] = HOME_COLS[pi % 4][Math.min(56, pos) - 52];
+    return { x: (col + 0.5) * cell, y: (row + 0.5) * cell };
+  }
   const idx = (PLAYER_PATH_OFFSET[pi % 4] + pos) % LUDO_PATH.length;
   const [col, row] = LUDO_PATH[idx];
-  return { x: (col + 0.5) * CELL, y: (row + 0.5) * CELL };
+  return { x: (col + 0.5) * cell, y: (row + 0.5) * cell };
 }
 
 // Star polygon helper
@@ -120,8 +183,8 @@ function extractEnginePlayers(data: any): any[] {
   );
 }
 
-function buildPlayerInfo(players: any[]): Record<string, { name: string; username?: string; avatar?: string }> {
-  const info: Record<string, { name: string; username?: string; avatar?: string }> = {};
+function buildPlayerInfo(players: any[]): Record<string, { name: string; username?: string; avatar?: string; level?: number }> {
+  const info: Record<string, { name: string; username?: string; avatar?: string; level?: number }> = {};
   players.forEach((p: any) => {
     const uid = p.id || p.userId;
     if (uid) {
@@ -129,6 +192,9 @@ function buildPlayerInfo(players: any[]): Record<string, { name: string; usernam
         name: p.displayName || p.name || p.username || 'Player',
         username: p.username,
         avatar: p.avatar || p.avatarUrl,
+        // Server snapshots carry level directly (bots may omit it); fall back
+        // to the app-wide formula from XP if only xp was provided.
+        level: p.level ?? (typeof p.xp === 'number' ? Math.floor(p.xp / 1000) + 1 : undefined),
       };
     }
   });
@@ -142,6 +208,7 @@ export type PlayerContext = {
   avatar?: string;
   team?: number;
   seat?: number;
+  level?: number;
 };
 
 type Props = {
@@ -151,6 +218,9 @@ type Props = {
   players?: PlayerContext[];
   myName?: string;
   myAvatar?: string | null;
+  /** My level badge — the snapshot path supplies it on modern matches, but a
+      legacy rejoin roster excludes me, so GamesScreen passes it explicitly. */
+  myLevel?: number;
   /** Mirrors the GamePlayModal phase — the engine only STARTs once this is
       "playing" (READY is sent after the 3-2-1, never on connect). */
   externalPhase?: "playing" | "waiting";
@@ -173,38 +243,186 @@ const DOT_POS: Record<number, [number, number][]> = {
 };
 
 export default function LudoGame({
-  matchId, userId, wsToken, players, myName: myNameProp, myAvatar: myAvatarProp, externalPhase = "waiting", onComplete
+  matchId, userId, wsToken, players, myName: myNameProp, myAvatar: myAvatarProp, myLevel, externalPhase = "waiting", onComplete
 }: Props) {
   const [socket, setSocket] = useState<any>(null);
-  
+
+  // Responsive board: measured from the available space so the board always
+  // fits above the chat panel (and shrinks when the chat opens).
+  const [boardSize, setBoardSize] = useState(BOARD_SIZE);
+  const cell = boardSize / 15;
+  // Chat panel height (measured) — bottom-anchored UI lifts above it.
+  const [chatPanelH, setChatPanelH] = useState(0);
+  const cellRef = useRef(cell);
+  cellRef.current = cell;
+  // Measured width of every corner card (measured on mount) — the die anchors
+  // beside the active card's measured edge (with a gap), so a long name can
+  // never collide with it, even after the turn changes players.
+  const cardWidthsRef = useRef<Record<string, number>>({});
+  // Keyboard height (both platforms) — the game Modal doesn't resize with the
+  // keyboard (app.json sets 'resize', but full-screen Modals often ignore it),
+  // so the game content is lifted explicitly. If a device DOES resize, the
+  // lift simply leaves a small gap — never a hidden input.
+  const [kbH, setKbH] = useState(0);
+
   const me = players?.find(p => p.id === userId);
   const myName = myNameProp || me?.name || 'You';
   const myAvatar = myAvatarProp || me?.avatar || null;
   const [status, setStatus] = useState<'connecting' | 'waiting' | 'active' | 'finished'>('connecting');
   const [gameState, setGameState] = useState<any>(null);
   const [myPlayerIdx, setMyPlayerIdx] = useState(0);
-  const [isMyTurn, setIsMyTurn] = useState(false);
+  // ── Turn-reveal gate ───────────────────────────────────────────────────────
+  // The engine advances turns the instant a move is processed, but the token
+  // walk animation takes a visible beat. The VISIBLE turn (active glow, die
+  // anchor, my-turn interactivity) only advances once every in-flight coin
+  // animation has settled — the next player never gets their turn while the
+  // previous move is still playing out on screen.
+  const [displayTurn, setDisplayTurn] = useState(0);
+  const activeWalksRef = useRef(0);                 // in-flight token walks
+  // Token keys with a walk currently registered. Drives the walk counter with
+  // exact accounting: a walk replaced or cancelled (new SYNC for the same
+  // token, board re-seat) is decremented via clearTokenPath, so the counter
+  // always returns to 0 instead of leaking.
+  const pendingKeysRef = useRef<Set<string>>(new Set());
+  const pendingTurnRef = useRef<number | null>(null); // engine turn awaiting reveal
+  const revealTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const isMyTurn = displayTurn === myPlayerIdx;
   const [toast, setToast] = useState<string | null>(null);
   // Dice roll animation — visible to every player, not just the roller.
   const [rolling, setRolling] = useState(false);
   const [remoteRolling, setRemoteRolling] = useState<string | null>(null);
   const [dicePreview, setDicePreview] = useState<number | null>(null);
+  // A roll that produced no legal move is held on screen so everyone can see
+  // what was rolled and why the turn passes before the die moves on. This is
+  // what makes no-move turns (bot matches especially) read as human play.
+  const [noMoveHold, setNoMoveHold] = useState<{ playerIdx: number; face: number } | null>(null);
   // Chat
   const [chatOpen, setChatOpen] = useState(false);
   const [messages, setMessages] = useState<ChatMsg[]>([]);
   const [draft, setDraft] = useState('');
   const [chatPopups, setChatPopups] = useState<Array<{ id: number; uid: string; name: string; text: string; color: string; cornerIdx: number }>>([]);
+  // How much the open chat panel lifts bottom-anchored UI (corner cards, die,
+  // toast, bubbles) so nothing hides behind the panel. Uses the measured panel
+  // height once known; falls back to a reasonable estimate on the first frame.
+  const chatInset = chatOpen ? (chatPanelH > 0 ? chatPanelH : Math.min(280, CHAT_MAX_H)) : 0;
 
-  // Player info from socket (name + avatar for opponents)
-  const [playerInfo, setPlayerInfo] = useState<Record<string, { name: string; avatar?: string }>>({});
+  // Player info from socket (name + avatar + level for opponents)
+  const [playerInfo, setPlayerInfo] = useState<Record<string, { name: string; avatar?: string; level?: number }>>({});
 
-  const diceScale  = useRef(new Animated.Value(1)).current;
+  // Single merged map of player identity (name + avatar + level) so the corner
+  // cards always show the real profile pic, name and level badge. Sources,
+  // richest first:
+  //   1. the matchmaking `players` prop (GamesScreen resolves displayName/avatar
+  //      from matchMetadata.playerSnapshots),
+  //   2. the engine CONNECT_ACK player snapshots,
+  //   3. myName/myAvatar props for the current user.
+  const playerMeta = useMemo(() => {
+    const map: Record<string, { name: string; avatar?: string | null; level?: number }> = {};
+    Object.entries(playerInfo || {}).forEach(([uid, info]: [string, any]) => {
+      map[uid] = { name: info?.name || info?.username || 'Player', avatar: info?.avatar || null, level: info?.level };
+    });
+    (players || []).forEach((p) => {
+      map[p.id] = {
+        name: p.name || p.username || map[p.id]?.name || 'Player',
+        avatar: p.avatar || map[p.id]?.avatar || null,
+        level: p.level ?? map[p.id]?.level,
+      };
+    });
+    map[userId] = {
+      name: myName || 'You',
+      avatar: myAvatar || null,
+      level: map[userId]?.level ?? myLevel,
+    };
+    return map;
+  }, [playerInfo, players, userId, myName, myAvatar, myLevel]);
+
+  // Live mirror for the socket listeners (which capture the first-render
+  // closure) so chat can resolve real sender names from the corner roster.
+  const playerMetaRef = useRef<Record<string, { name?: string; avatar?: string | null; level?: number }>>({});
+  playerMetaRef.current = playerMeta;
+
+  // Dice tumble axes. rotate = spin, lift = bob up/down, shake = horizontal
+  // jitter, squash = landing flatten (scaleX widens / scaleY compresses).
   const diceRotate = useRef(new Animated.Value(0)).current;
+  const diceLift   = useRef(new Animated.Value(0)).current;
+  const diceShake  = useRef(new Animated.Value(0)).current;
+  const diceSquash = useRef(new Animated.Value(0)).current;
+  // True while a tumble is running — used to skip starting a second tumble
+  // over the same axes if a remote roll lands mid-animation.
+  const tumbleBusyRef = useRef(false);
+
+  // ── Dice tumble choreography ─────────────────────────────────────────────
+  // A standard 5-phase roll: pick-up → shake → throw → impact-squash → settle.
+  //   own    — full choreography after I press roll (~1.3s)
+  //   remote — same but a touch quicker, plays when any opponent's roll SYNCs
+  //   pulse  — short squash-pop for a no-move pass (result "drops in")
+  const runDiceTumble = useCallback((opts: { mode: 'own' | 'remote' | 'pulse'; onDone?: () => void }) => {
+    const { mode, onDone } = opts;
+    // Reset every axis so a stale animation can't bleed into the new one.
+    diceLift.setValue(0);
+    diceRotate.setValue(0);
+    diceShake.setValue(0);
+    diceSquash.setValue(0);
+
+    if (mode === 'pulse') {
+      Animated.sequence([
+        Animated.parallel([
+          Animated.timing(diceSquash, { toValue: 1, duration: 90, useNativeDriver: true }),
+          Animated.timing(diceLift, { toValue: 0.55, duration: 90, easing: Easing.out(Easing.quad), useNativeDriver: true }),
+        ]),
+        Animated.parallel([
+          Animated.spring(diceSquash, { toValue: 0, speed: 14, bounciness: 12, useNativeDriver: true }),
+          Animated.spring(diceLift, { toValue: 0, speed: 14, bounciness: 12, useNativeDriver: true }),
+        ]),
+      ]).start(() => onDone?.());
+      return;
+    }
+
+    const remote = mode === 'remote';
+    tumbleBusyRef.current = true;
+    Animated.sequence([
+      // 1. Pick-up — the die eases up off the table with a gentle tilt.
+      Animated.parallel([
+        Animated.timing(diceLift, { toValue: 1, duration: remote ? 120 : 160, easing: Easing.out(Easing.cubic), useNativeDriver: true }),
+        Animated.timing(diceRotate, { toValue: 0.35, duration: remote ? 120 : 160, easing: Easing.out(Easing.quad), useNativeDriver: true }),
+      ]),
+      // 2. Smooth continuous roll — a SINGLE 360° spin (no direction reversals,
+      // so it never jumps) with ease-in-out: it starts slowly, rolls fast in
+      // the middle, and glides to a stop. The die sinks back down as it rolls
+      // and a tiny rattle fades out during the first part.
+      Animated.parallel([
+        Animated.timing(diceRotate, { toValue: 6, duration: remote ? 900 : 1050, easing: Easing.inOut(Easing.cubic), useNativeDriver: true }),
+        Animated.timing(diceLift, { toValue: 0.15, duration: remote ? 900 : 1050, easing: Easing.inOut(Easing.quad), useNativeDriver: true }),
+        Animated.sequence([
+          Animated.timing(diceShake, { toValue: 1, duration: 150, useNativeDriver: true }),
+          Animated.timing(diceShake, { toValue: -0.7, duration: 150, useNativeDriver: true }),
+          Animated.timing(diceShake, { toValue: 0.4, duration: 150, useNativeDriver: true }),
+          Animated.timing(diceShake, { toValue: 0, duration: 350, useNativeDriver: true }),
+        ]),
+      ]),
+      // 3. Impact — the die lands and flattens on the table.
+      Animated.parallel([
+        Animated.timing(diceSquash, { toValue: 1, duration: 80, useNativeDriver: true }),
+        Animated.timing(diceLift, { toValue: 0, duration: 80, easing: Easing.out(Easing.quad), useNativeDriver: true }),
+      ]),
+      // 4. Settle — bounce back with a small overshoot.
+      Animated.spring(diceSquash, { toValue: 0, speed: 15, bounciness: 10, useNativeDriver: true }),
+    ]).start(() => {
+      tumbleBusyRef.current = false;
+      onDone?.();
+    });
+  }, [diceLift, diceRotate, diceShake, diceSquash]);
   const toastAnim  = useRef(new Animated.Value(0)).current;
   // Dice-roll bookkeeping
   const rollingRef = useRef(false);
   const lastDiceRef = useRef<number | null>(null);
   const remoteRollTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // No-move hold: the engine advances the turn with dice=null and the value
+  // only in lastDice, so we detect the pass by roundCount staying flat while
+  // currentTurnIndex moves on. Refs survive across renders and SYNC storms.
+  const noMoveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const prevRoundRef = useRef<number | null>(null);
+  const prevTurnIdxRef = useRef<number | null>(null);
   const msgIdRef = useRef(0);
   const chatScroll = useRef<ScrollView>(null);
   const chatInputRef = useRef<TextInput>(null);
@@ -229,14 +447,106 @@ export default function LudoGame({
     return tokenAnims[key];
   }, []);
 
+  // Last-known position of every token — the previous pos drives the
+  // step-by-step walk (and capture reverse-run) on the next SYNC.
+  const lastPosRef = useRef<Record<string, number>>({});
+  // In-flight per-token path timers (canceled when a new move overrides).
+  const pathTimers = useRef<Record<string, ReturnType<typeof setTimeout>[]>>({}).current;
+
+  const pathPoint = useCallback((pi: number, tokenId: number, pos: number) =>
+    getTokenPos(pi, tokenId, pos, cellRef.current), []);
+
+  const clearTokenPath = useCallback((key: string) => {
+    (pathTimers[key] || []).forEach(clearTimeout);
+    delete pathTimers[key];
+    // A pending walk for this key is being cancelled (replaced or re-seated) —
+    // its completion will never fire, so release it from the walk gate now.
+    if (pendingKeysRef.current.delete(key)) {
+      activeWalksRef.current = Math.max(0, activeWalksRef.current - 1);
+    }
+  }, [pathTimers]);
+
+  // Walk a token through a list of cell-center points, one hop per stepMs,
+  // with a sound played in sync at the start of each hop. The first hop can
+  // take its own duration (e.g. the pop out of the yard). Consecutive
+  // identical points are collapsed so a home-stretch token doesn't double-hop
+  // onto the same spot.
+  // ── Turn-reveal helpers ───────────────────────────────────────────────────
+  // Reveal a pending engine turn once every coin walk has finished.
+  const revealPendingTurn = useCallback(() => {
+    if (revealTimerRef.current) { clearTimeout(revealTimerRef.current); revealTimerRef.current = null; }
+    if (pendingTurnRef.current != null) {
+      setDisplayTurn(pendingTurnRef.current);
+      pendingTurnRef.current = null;
+    }
+  }, []);
+  const maybeRevealTurn = useCallback(() => {
+    if (activeWalksRef.current <= 0) revealPendingTurn();
+  }, [revealPendingTurn]);
+  // Safety net: a walk cancelled mid-flight (board re-layout, re-seat) never
+  // fires its completion, so force the reveal after a fixed ceiling.
+  const armTurnRevealFallback = useCallback(() => {
+    if (revealTimerRef.current) clearTimeout(revealTimerRef.current);
+    revealTimerRef.current = setTimeout(() => {
+      revealTimerRef.current = null;
+      revealPendingTurn();
+    }, TURN_REVEAL_MAX_MS);
+  }, [revealPendingTurn]);
+
+  const runTokenPath = useCallback((
+    key: string,
+    points: { x: number; y: number }[],
+    stepMs: number,
+    sound: () => void,
+    firstMs = stepMs,
+  ) => {
+    const a = tokenAnims[key];
+    if (!a || points.length < 2) return;
+    clearTokenPath(key);
+    a.x.stopAnimation();
+    a.y.stopAnimation();    const pts = points.filter((p, i) => i === 0 || p.x !== points[i - 1].x || p.y !== points[i - 1].y);
+    if (pts.length < 2) return;
+    // Register the walk so the visible turn waits for it. clearTokenPath above
+    // already released any previous walk on this key, so this is a fresh count.
+    if (!pendingKeysRef.current.has(key)) {
+      pendingKeysRef.current.add(key);
+      activeWalksRef.current += 1;
+    }
+    const timers: ReturnType<typeof setTimeout>[] = [];
+    for (let i = 1; i < pts.length; i++) {
+      const p = pts[i];
+      const dur = i === 1 ? firstMs : stepMs;
+      // Hops start after the previous hop actually finishes, so a longer first
+      // hop (entry pop) never gets cut short by the second hop's timer.
+      const delay = i === 1 ? 0 : firstMs + (i - 2) * stepMs;
+      timers.push(setTimeout(() => {
+        Animated.parallel([
+          Animated.timing(a.x, { toValue: p.x, duration: dur, easing: Easing.linear, useNativeDriver: false }),
+          Animated.timing(a.y, { toValue: p.y, duration: dur, easing: Easing.linear, useNativeDriver: false }),
+        ]).start(() => {
+          // The last hop completes the walk — free the turn gate.
+          if (i === pts.length - 1 && pendingKeysRef.current.delete(key)) {
+            activeWalksRef.current = Math.max(0, activeWalksRef.current - 1);
+            maybeRevealTurn();
+          }
+        });
+        sound();
+      }, delay));
+    }
+    pathTimers[key] = timers;
+  }, [clearTokenPath, pathTimers, tokenAnims, maybeRevealTurn]);
+
+  // Reseat a token with a spring (board resize / re-layout). Also cancels any
+  // in-flight step-by-step walk for that token.
   const springToken = useCallback((key: string, x: number, y: number) => {
+    clearTokenPath(key);
     const a = tokenAnims[key];
     if (!a) return;
     Animated.parallel([
       Animated.spring(a.x, { toValue: x, useNativeDriver: false, speed: 16, bounciness: 8 }),
       Animated.spring(a.y, { toValue: y, useNativeDriver: false, speed: 16, bounciness: 8 }),
     ]).start();
-  }, []);
+  }, [clearTokenPath]);
 
   const showToast = (msg: string) => {
     setToast(msg);
@@ -258,19 +568,45 @@ export default function LudoGame({
       // other games do — the flat players array only carries { userId, color }.
       const players: any[] = extractEnginePlayers(data);
       const idx = players.findIndex((p: any) => p.userId === userId || p.id === userId);
-      setMyPlayerIdx(idx >= 0 ? idx : 0);
+      // Fallback: legacy matches whose metadata predates playerSnapshots won't
+      // include me in the roster — derive my seat from the turn order instead,
+      // so my-turn detection and colors stay correct on rejoin.
+      const seatFallback = ps?.turnOrder?.indexOf(userId) ?? -1;
+      setMyPlayerIdx(idx >= 0 ? idx : (seatFallback >= 0 ? seatFallback : 0));
 
       // Collect player info (name / avatar)
       const info = buildPlayerInfo(players);
-      // Inject self
-      info[userId] = { name: myName || 'You', avatar: myAvatar || undefined };
+      // Inject self — keep the snapshot's level (or the explicit myLevel prop
+      // for legacy matches), override name/avatar
+      info[userId] = {
+        name: myName || 'You',
+        avatar: myAvatar || undefined,
+        level: info[userId]?.level ?? myLevel,
+      };
       setPlayerInfo(info);
 
       // Seed dice bookkeeping so a reconnect mid-turn doesn't fake a remote roll
       if (ps?.dice != null) {
         lastDiceRef.current = ps.dice;
       }
+      prevRoundRef.current = ps?.roundCount ?? null;
+      prevTurnIdxRef.current = ps?.currentTurnIndex ?? null;
+      // Seed last-known token positions so a reconnect never replays moves.
+      if (ps?.tokens) {
+        Object.entries(ps.tokens).forEach(([uid, tks]: [string, any]) => {
+          (tks || []).forEach((t: any) => {
+            lastPosRef.current[`${uid}-${t.id}`] = t.pos ?? -1;
+          });
+        });
+      }
       if (ps) setGameState(ps);
+      // Fresh connection — show the engine's current turn immediately and
+      // reset the walk gate (no animations are running yet).
+      setDisplayTurn(ps?.currentTurnIndex ?? 0);
+      activeWalksRef.current = 0;
+      pendingKeysRef.current.clear();
+      pendingTurnRef.current = null;
+      if (revealTimerRef.current) { clearTimeout(revealTimerRef.current); revealTimerRef.current = null; }
       setStatus(data.state?.status === 'ACTIVE' ? 'active' : 'waiting');
       // Reconnect (or fresh join) — re-arm the READY gate.
       readySentRef.current = false;
@@ -286,21 +622,74 @@ export default function LudoGame({
     s.on(EVENTS.SYNC, (data: any) => {
       if (!data.state) return;
       const ns = data.state;
-      // Animate all tokens
+      // Animate all tokens — coins walk the track cell by cell with a tick
+      // per hop; a captured coin runs fast backwards along the track home.
       if (ns.tokens) {
         Object.entries(ns.tokens).forEach(([uid, tks]: [string, any]) => {
           const pi = ns.turnOrder?.indexOf(uid) ?? 0;
           (tks || []).forEach((t: any) => {
             const key = `${uid}-${t.id}`;
-            const { x, y } = getTokenPos(pi, t.id, t.pos ?? -1);
-            if (tokenAnims[key]) springToken(key, x, y);
+            const newPos = t.pos ?? -1;
+            const oldPos = lastPosRef.current[key];
+            if (oldPos != null && oldPos !== newPos) {
+              if (newPos === -1 && oldPos >= 0) {
+                // Captured — fast reverse run back to the yard (pos -1).
+                const pts: { x: number; y: number }[] = [];
+                for (let p = oldPos; p >= 0; p--) pts.push(pathPoint(pi, t.id, p));
+                pts.push(pathPoint(pi, t.id, -1));
+                const steps = Math.max(1, pts.length - 1);
+                const stepMs = Math.max(55, Math.min(110, Math.floor(CAPTURE_BUDGET_MS / steps)));
+                gameSound.playSnake();
+                // Long retreats tick sparsely so the sound never rattles.
+                const tickEvery = steps > 25 ? 5 : 3;
+                let n = 0;
+                runTokenPath(key, pts, stepMs, () => {
+                  if (n++ % tickEvery === 0) gameSound.playTick();
+                });
+              } else if (newPos > oldPos || oldPos === -1) {
+                // Normal move — walk from the previous cell to the destination.
+                const pts: { x: number; y: number }[] = [];
+                if (oldPos === -1) pts.push(pathPoint(pi, t.id, -1)); // pop out of the yard
+                for (let p = Math.max(0, oldPos); p <= newPos; p++) pts.push(pathPoint(pi, t.id, p));
+                runTokenPath(key, pts, STEP_MS, () => gameSound.playTick(), ENTRY_MS);
+              } else {
+                // Unexpected backward move (engine can't produce one today) —
+                // never leave the token silently snapped; spring it into place.
+                const { x, y } = pathPoint(pi, t.id, newPos);
+                springToken(key, x, y);
+              }
+            }
+            lastPosRef.current[key] = newPos;
           });
         });
+      }
+
+      // A roll that couldn't move: the engine advances the turn with dice=null
+      // (the value only in lastDice). Surface it — hold the result on the
+      // roller's corner so players see what was rolled before the turn passes.
+      const noMovePass =
+        ns.dice === null && ns.lastDice != null &&
+        prevRoundRef.current != null &&
+        ns.roundCount === prevRoundRef.current &&
+        ns.currentTurnIndex !== prevTurnIdxRef.current;
+      if (noMovePass) {
+        const prevIdx = prevTurnIdxRef.current ?? 0;
+        if (noMoveTimer.current) clearTimeout(noMoveTimer.current);
+        setNoMoveHold({ playerIdx: prevIdx, face: ns.lastDice });
+        noMoveTimer.current = setTimeout(() => setNoMoveHold(null), NO_MOVE_HOLD_MS);
+        // A short squash-pop so the result "drops in" and reads as a real
+        // roll. Skipped when it's my own roll or a tumble is already running —
+        // two concurrent sequences over the same axes would fight and stutter.
+        if (!rollingRef.current && !tumbleBusyRef.current) {
+          runDiceTumble({ mode: 'pulse' });
+        }
       }
 
       // Detect a fresh roll so EVERY player sees the tumble + result.
       const newDice = ns.dice ?? null;
       if (newDice !== null && newDice !== lastDiceRef.current) {
+        // The next roll supersedes any held no-move result.
+        setNoMoveHold(null);
         // Who just rolled? The current turn player is the roller.
         const order = ns.turnOrder || [];
         const rollerId = order[ns.currentTurnIndex ?? 0];
@@ -310,13 +699,37 @@ export default function LudoGame({
           setDicePreview(null);
           if (remoteRollTimer.current) clearTimeout(remoteRollTimer.current);
           remoteRollTimer.current = setTimeout(() => setRemoteRolling(null), DICE_ROLL_MS);
+          // Kick off the tumble right away so remote rolls animate too
+          // (previously the face only flickered in place). When the die
+          // settles, surface the real result immediately — the timer above
+          // stays as a backstop for rolls that arrive mid-tumble.
+          if (!tumbleBusyRef.current) {
+            runDiceTumble({
+              mode: 'remote',
+              onDone: () => {
+                if (remoteRollTimer.current) clearTimeout(remoteRollTimer.current);
+                setRemoteRolling(null);
+              },
+            });
+          }
         }
         // My own roll: rolling stays true until the tumble animation finishes,
         // so the preview keeps cycling and the result lands with the final face.
       }
       lastDiceRef.current = newDice;
+      prevRoundRef.current = ns.roundCount ?? null;
+      prevTurnIdxRef.current = ns.currentTurnIndex ?? null;
       setGameState(ns);
-      setIsMyTurn((ns.currentTurnIndex ?? 0) === myPlayerIdx);
+      // Hold the visible turn until every coin animation from this (and any
+      // still-running) move has settled — the next player only gets their turn
+      // once the previous move has fully played out on screen.
+      const newTurn = ns.currentTurnIndex ?? 0;
+      if (activeWalksRef.current > 0) {
+        pendingTurnRef.current = newTurn;
+        armTurnRevealFallback();
+      } else {
+        setDisplayTurn(newTurn);
+      }
     });
 
     s.on(EVENTS.GAME_OVER, (data: any) => {
@@ -338,7 +751,11 @@ export default function LudoGame({
       const order = gameStateRef.current?.turnOrder || [];
       const idx = order.indexOf(uid);
       const color = PLAYER_COLORS[(idx >= 0 ? idx : 0) % 4];
-      const name = data?.name || (uid === userId ? myName : `Player ${idx + 1}`) || 'Player';
+      // Real sender name: the server resolves it from the match roster; fall
+      // back to the corner-card identity so chat never shows the bare string
+      // "Player".
+      const rosterName = playerMetaRef.current[uid]?.name;
+      const name = data?.name || rosterName || (uid === userId ? myName : `Player ${idx + 1}`) || 'Player';
       const id = ++msgIdRef.current;
       setMessages(m => [...m, {
         id,
@@ -354,9 +771,24 @@ export default function LudoGame({
 
     return () => {
       if (remoteRollTimer.current) clearTimeout(remoteRollTimer.current);
+      if (noMoveTimer.current) clearTimeout(noMoveTimer.current);
+      if (revealTimerRef.current) clearTimeout(revealTimerRef.current);
+      Object.values(pathTimers).forEach((tl) => tl.forEach(clearTimeout));
       s.disconnect();
     };
   }, [matchId, userId, wsToken]);
+
+  // Keyboard lift — the full-screen game Modal doesn't resize with the
+  // keyboard (especially on Android), so the whole game is padded up by the
+  // keyboard height. This keeps the chat input visible while typing and lets
+  // the board compress above it — deterministic on every platform.
+  useEffect(() => {
+    const showEvt = Platform.OS === 'ios' ? 'keyboardWillShow' : 'keyboardDidShow';
+    const hideEvt = Platform.OS === 'ios' ? 'keyboardWillHide' : 'keyboardDidHide';
+    const show = Keyboard.addListener(showEvt, (e: any) => setKbH(e?.endCoordinates?.height ?? 0));
+    const hide = Keyboard.addListener(hideEvt, () => setKbH(0));
+    return () => { show.remove(); hide.remove(); };
+  }, []);
 
   // Send READY the moment the board is actually visible (after the 3-2-1).
   useEffect(() => {
@@ -365,9 +797,20 @@ export default function LudoGame({
     socket.emit(EVENTS.READY);
   }, [externalPhase, socket, readyTick]);
 
+  // When the board is resized (e.g. chat opens and the board compresses),
+  // re-seat every token animation so tokens don't sit at stale positions.
   useEffect(() => {
-    if (gameState) setIsMyTurn((gameState.currentTurnIndex ?? 0) === myPlayerIdx);
-  }, [gameState, myPlayerIdx]);
+    if (!gameState?.tokens) return;
+    Object.entries(gameState.tokens).forEach(([uid, tks]: [string, any]) => {
+      const pi = gameState.turnOrder?.indexOf(uid) ?? 0;
+      (tks || []).forEach((t: any) => {
+        const key = `${uid}-${t.id}`;
+        const { x, y } = getTokenPos(pi, t.id, t.pos ?? -1, cell);
+        if (tokenAnims[key]) springToken(key, x, y);
+      });
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [cell]);
 
   // Turn-change sound + haptic when it becomes your turn
   useTurnSound(isMyTurn, status === 'active');
@@ -379,40 +822,17 @@ export default function LudoGame({
     socket?.emit(EVENTS.MOVE, { type: 'ROLL' });
     gameSound.playTap();
 
-    // ~1.6s slow tumble — a series of relaxed bounces that reads as a real
-    // dice roll, with the result landing via SYNC.
-    diceRotate.setValue(0);
-    Animated.sequence([
-      Animated.parallel([
-        Animated.spring(diceScale, { toValue: 1.4, useNativeDriver: true, speed: 28, bounciness: 14 }),
-        Animated.timing(diceRotate, { toValue: 1, duration: 260, useNativeDriver: true }),
-      ]),
-      Animated.parallel([
-        Animated.spring(diceScale, { toValue: 0.78, useNativeDriver: true, speed: 22, bounciness: 10 }),
-        Animated.timing(diceRotate, { toValue: -0.8, duration: 280, useNativeDriver: true }),
-      ]),
-      Animated.parallel([
-        Animated.spring(diceScale, { toValue: 1.22, useNativeDriver: true, speed: 18, bounciness: 10 }),
-        Animated.timing(diceRotate, { toValue: 1, duration: 300, useNativeDriver: true }),
-      ]),
-      Animated.parallel([
-        Animated.spring(diceScale, { toValue: 0.88, useNativeDriver: true, speed: 14, bounciness: 8 }),
-        Animated.timing(diceRotate, { toValue: -0.5, duration: 320, useNativeDriver: true }),
-      ]),
-      Animated.parallel([
-        Animated.spring(diceScale, { toValue: 1.06, useNativeDriver: true, speed: 12, bounciness: 6 }),
-        Animated.timing(diceRotate, { toValue: 0.2, duration: 300, useNativeDriver: true }),
-      ]),
-      Animated.parallel([
-        Animated.spring(diceScale, { toValue: 1, useNativeDriver: true, speed: 10, bounciness: 4 }),
-        Animated.timing(diceRotate, { toValue: 0, duration: 240, useNativeDriver: true }),
-      ]),
-      Animated.delay(Math.max(0, DICE_ROLL_MS - 1700)),
-    ]).start(() => {
-      rollingRef.current = false;
-      setRolling(false);
+    // Full 5-phase tumble: pick-up → shake → throw → impact → settle. The
+    // preview face cycles beneath it and the real result lands via SYNC just
+    // as the die settles.
+    runDiceTumble({
+      mode: 'own',
+      onDone: () => {
+        rollingRef.current = false;
+        setRolling(false);
+      },
     });
-  }, [isMyTurn, gameState, socket, rolling, diceScale, diceRotate]);
+  }, [isMyTurn, gameState, socket, rolling, runDiceTumble]);
 
   // Cycle the dice preview face while anyone is mid-roll (my roll or remote).
   useEffect(() => {
@@ -424,58 +844,77 @@ export default function LudoGame({
   }, [rolling, remoteRolling]);
 
   const moveToken = useCallback((tokenId: number) => {
-    if (!isMyTurn || gameState?.dice === null) return;
+    // Moves are only legal once the die has rolled AND settled so the player
+    // can see the result — never while the tumble is still running.
+    if (!isMyTurn || gameState?.dice === null || rolling) return;
     socket?.emit(EVENTS.MOVE, { type: 'MOVE_TOKEN', tokenId });
     gameSound.playTap();
-  }, [isMyTurn, gameState, socket]);
+  }, [isMyTurn, gameState, rolling, socket]);
 
   // ── Idle safeguard ────────────────────────────────────────────────────────
   // My turn, nothing pressed: 5s silent grace → 5s visible countdown →
-  // auto-roll. If the roll lands but no token is tapped within ~3.5s, auto-move
-  // the first movable token. The server skips the turn at 15s as a backstop,
-  // so an idle or backgrounded player can never stall the match.
+  // auto-roll. Once the die settles, every roll (manual OR auto-rolled) gets a
+  // 30s move window — the live countdown is shown under the die itself, and
+  // the first movable token is auto-moved just before the window ends. The
+  // server's own 30s timeout AUTO-MOVES as a backstop (never skips), so an
+  // idle or backgrounded player can never stall the match.
   const [idleLeft, setIdleLeft] = useState<number | null>(null);
+  const [moveLeft, setMoveLeft] = useState<number | null>(null);
   const idleTickRef = useRef<ReturnType<typeof setInterval> | null>(null);
-  const idleMoveRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const idleMoveRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const rollDiceRef = useRef<() => void>(() => {});
   const moveTokenRef = useRef<(tokenId: number) => void>(() => {});
-  // True only when the CURRENT dice was produced by the idle auto-roll. A
-  // player who rolls manually is actively engaged — their token must never be
-  // auto-moved out from under them.
-  const autoRolledTurnRef = useRef(false);
   rollDiceRef.current = rollDice;
   moveTokenRef.current = moveToken;
 
   useEffect(() => {
-    if (status !== 'active' || !isMyTurn) {
+    const clearMove = () => {
+      setMoveLeft(null);
+      if (idleMoveRef.current) { clearInterval(idleMoveRef.current); idleMoveRef.current = null; }
+    };
+    const clearIdle = () => {
       setIdleLeft(null);
-      autoRolledTurnRef.current = false;
       if (idleTickRef.current) { clearInterval(idleTickRef.current); idleTickRef.current = null; }
-      if (idleMoveRef.current) { clearTimeout(idleMoveRef.current); idleMoveRef.current = null; }
+    };
+
+    if (status !== 'active' || !isMyTurn) {
+      clearIdle(); clearMove();
       return;
     }
+
     if (gameState?.dice != null) {
-      // Rolled but nothing tapped. Only auto-move when the roll itself was the
-      // idle auto-roll (the player has stepped away); a manual roll means the
-      // player is engaged and keeps control. The server's 15s skip backstop
-      // still clears an abandoned rolled-token turn.
-      setIdleLeft(null);
-      if (!autoRolledTurnRef.current) return;
-      if (idleMoveRef.current) clearTimeout(idleMoveRef.current);
-      idleMoveRef.current = setTimeout(() => {
-        const st = gameStateRef.current;
-        const movable = st?.movableTokens;
-        if (movable && movable.length > 0 &&
-            (st?.currentTurnIndex ?? 0) === myPlayerIdx &&
-            st?.dice != null) {
-          moveTokenRef.current(movable[0]);
-        }
-      }, 3500);
-      return () => {
-        if (idleMoveRef.current) { clearTimeout(idleMoveRef.current); idleMoveRef.current = null; }
-      };
+      // Rolled but nothing tapped. The clock starts the moment the dice SYNC
+      // lands — the server restarts its 15s skip on the ROLL, so measuring
+      // from the die-settle (tumble ~1.3s later) would auto-move too late and
+      // the server skip would win. Auto-move fires at 14s (left hits 1) so the
+      // MOVE event reliably beats the 15s server skip. The chip is hidden
+      // while the die is mid-tumble (render gate) but the clock never pauses.
+      clearIdle();
+      if (!idleMoveRef.current) {
+        let left = MOVE_WINDOW_MS / 1000; // 15
+        setMoveLeft(left);
+        idleMoveRef.current = setInterval(() => {
+          left -= 1;
+          if (left <= 1) {
+            if (idleMoveRef.current) { clearInterval(idleMoveRef.current); idleMoveRef.current = null; }
+            const st = gameStateRef.current;
+            const movable = st?.movableTokens;
+            if (movable && movable.length > 0 &&
+                (st?.currentTurnIndex ?? 0) === myPlayerIdx &&
+                st?.dice != null) {
+              moveTokenRef.current(movable[0]);
+            }
+            setMoveLeft(null);
+            return;
+          }
+          setMoveLeft(left);
+        }, 1000);
+      }
+      return clearMove;
     }
+
     // Waiting for a roll — 5s grace, then a visible 5s countdown, then auto-roll.
+    clearMove();
     let seconds = 0;
     setIdleLeft(null);
     if (idleTickRef.current) clearInterval(idleTickRef.current);
@@ -484,13 +923,10 @@ export default function LudoGame({
       if (seconds >= 5 && seconds < 10) setIdleLeft(10 - seconds);
       if (seconds >= 10) {
         if (idleTickRef.current) { clearInterval(idleTickRef.current); idleTickRef.current = null; }
-        autoRolledTurnRef.current = true;
         rollDiceRef.current();
       }
     }, 1000);
-    return () => {
-      if (idleTickRef.current) { clearInterval(idleTickRef.current); idleTickRef.current = null; }
-    };
+    return () => { clearIdle(); };
   }, [status, isMyTurn, gameState?.dice, myPlayerIdx]);
 
   // ── Real multiplayer chat (server broadcasts to the match room) ──────────
@@ -504,16 +940,17 @@ export default function LudoGame({
     gameSound.playTap();
   }, [socket]);
 
-  // ── Static SVG board (memoized) ───────────────────────────────────────────
+  // ── Static SVG board (memoized; rebuilds when the board is resized) ──────
   const boardSvg = useMemo(() => {
-    const C = CELL;
-    const S = BOARD_SIZE;
+    const C = cell;
+    const S = boardSize;
+    const R = Math.max(10, C * 0.55); // outer corner radius
     const elements: React.ReactElement[] = [];
 
-    // Background for path (white grid)
-    elements.push(<Rect key="bg" width={S} height={S} fill="#FFFFFF" />);
+    // Soft white frame
+    elements.push(<Rect key="frame" x={0} y={0} width={S} height={S} rx={R} fill="#FFFFFF" />);
 
-    // 1. Draw the 15x15 grid for the path
+    // 1. The 15×15 path grid — rounded cells, hairline separators
     for (let row = 0; row < 15; row++) {
       for (let col = 0; col < 15; col++) {
         const key = `${col},${row}`;
@@ -543,74 +980,86 @@ export default function LudoGame({
           else if (isBlueLane || isBlueStart) fill = PLAYER_COLORS[3];
 
           elements.push(
-            <Rect key={key} x={col*C} y={row*C} width={C} height={C}
-              fill={fill} stroke="#D1D5DB" strokeWidth={0.8} />
+            <Rect key={key} x={col * C + 0.5} y={row * C + 0.5} width={C - 1} height={C - 1}
+              rx={C * 0.16} fill={fill} stroke="#D8DEE9" strokeWidth={0.6} />
           );
 
           // Stars for safe squares that are not starts
           if (SAFE_CELLS.has(key) && !isRedStart && !isGreenStart && !isYellStart && !isBlueStart) {
             elements.push(
               <Polygon key={`s${key}`}
-                points={starPts(col*C + C/2, row*C + C/2, C*0.35, C*0.15, 5)}
-                fill="none" stroke="#9CA3AF" strokeWidth={1.5} strokeLinejoin="round"
-              />
+                points={starPts(col * C + C / 2, row * C + C / 2, C * 0.34, C * 0.14, 5)}
+                fill="none" stroke="#94A3B8" strokeWidth={1.4} strokeLinejoin="round" />
             );
           }
 
           // Arrows for start cells
           if (isRedStart || isGreenStart || isYellStart || isBlueStart) {
-            const cx = col*C + C/2;
-            const cy = row*C + C/2;
+            const cx = col * C + C / 2;
+            const cy = row * C + C / 2;
             let pts = "";
-            if (isRedStart)   pts = `${cx-C*0.2},${cy-C*0.2} ${cx+C*0.2},${cy} ${cx-C*0.2},${cy+C*0.2}`; // Right arrow
-            if (isGreenStart) pts = `${cx-C*0.2},${cy-C*0.2} ${cx+C*0.2},${cy-C*0.2} ${cx},${cy+C*0.2}`; // Down arrow
-            if (isYellStart)  pts = `${cx+C*0.2},${cy-C*0.2} ${cx-C*0.2},${cy} ${cx+C*0.2},${cy+C*0.2}`; // Left arrow
-            if (isBlueStart)  pts = `${cx-C*0.2},${cy+C*0.2} ${cx+C*0.2},${cy+C*0.2} ${cx},${cy-C*0.2}`; // Up arrow
+            if (isRedStart)   pts = `${cx - C * 0.2},${cy - C * 0.2} ${cx + C * 0.2},${cy} ${cx - C * 0.2},${cy + C * 0.2}`; // Right arrow
+            if (isGreenStart) pts = `${cx - C * 0.2},${cy - C * 0.2} ${cx + C * 0.2},${cy - C * 0.2} ${cx},${cy + C * 0.2}`; // Down arrow
+            if (isYellStart)  pts = `${cx + C * 0.2},${cy - C * 0.2} ${cx - C * 0.2},${cy} ${cx + C * 0.2},${cy + C * 0.2}`; // Left arrow
+            if (isBlueStart)  pts = `${cx - C * 0.2},${cy + C * 0.2} ${cx + C * 0.2},${cy + C * 0.2} ${cx},${cy - C * 0.2}`; // Up arrow
             elements.push(<Polygon key={`arr${key}`} points={pts} fill="#FFFFFF" />);
           }
         }
       }
     }
 
-    // 2. Draw the 4 Corner Yards
+    // 2. The four corner yards — rounded color block, white panel, ring slots
     const yards = [
       { x: 0, y: 0, color: PLAYER_COLORS[0] }, // TL Red
-      { x: 9*C, y: 0, color: PLAYER_COLORS[1] }, // TR Green
-      { x: 9*C, y: 9*C, color: PLAYER_COLORS[2] }, // BR Yellow
-      { x: 0, y: 9*C, color: PLAYER_COLORS[3] }, // BL Blue
+      { x: 9 * C, y: 0, color: PLAYER_COLORS[1] }, // TR Green
+      { x: 9 * C, y: 9 * C, color: PLAYER_COLORS[2] }, // BR Yellow
+      { x: 0, y: 9 * C, color: PLAYER_COLORS[3] }, // BL Blue
     ];
 
     yards.forEach((yard, i) => {
-      // Large colored square
-      elements.push(<Rect key={`yBg${i}`} x={yard.x} y={yard.y} width={6*C} height={6*C} fill={yard.color} />);
-      // Inner white square
-      elements.push(<Rect key={`yWh${i}`} x={yard.x + C} y={yard.y + C} width={4*C} height={4*C} fill="#FFFFFF" />);
-      
-      // 4 circular home slots for tokens
+      // Rounded colored square
+      elements.push(
+        <Rect key={`yBg${i}`} x={yard.x} y={yard.y} width={6 * C} height={6 * C}
+          rx={C * 0.4} fill={yard.color} />
+      );
+      // Inner white panel with a hairline separation
+      elements.push(
+        <Rect key={`yWh${i}`} x={yard.x + C} y={yard.y + C} width={4 * C} height={4 * C}
+          rx={C * 0.3} fill="#FFFFFF" stroke="rgba(15,23,42,0.08)" strokeWidth={0.8} />
+      );
+
+      // 4 circular home slots for tokens — classic ring + soft center dot
       const slotCenters = [
-        { cx: yard.x + 2*C, cy: yard.y + 2*C },
-        { cx: yard.x + 4*C, cy: yard.y + 2*C },
-        { cx: yard.x + 2*C, cy: yard.y + 4*C },
-        { cx: yard.x + 4*C, cy: yard.y + 4*C },
+        { cx: yard.x + 2 * C, cy: yard.y + 2 * C },
+        { cx: yard.x + 4 * C, cy: yard.y + 2 * C },
+        { cx: yard.x + 2 * C, cy: yard.y + 4 * C },
+        { cx: yard.x + 4 * C, cy: yard.y + 4 * C },
       ];
       slotCenters.forEach((pos, j) => {
         elements.push(
-          <Circle key={`slot${i}-${j}`} cx={pos.cx} cy={pos.cy} r={C*0.7}
-            fill="none" stroke={yard.color} strokeWidth={C*0.3} />
+          <Circle key={`slot${i}-${j}`} cx={pos.cx} cy={pos.cy} r={C * 0.74}
+            fill="#F1F5F9" stroke={yard.color} strokeWidth={C * 0.22} />
+        );
+        elements.push(
+          <Circle key={`dot${i}-${j}`} cx={pos.cx} cy={pos.cy} r={C * 0.26}
+            fill={yard.color} opacity={0.35} />
         );
       });
     });
 
-    // 3. Center Triangles
-    const cx = 7.5*C, cy = 7.5*C, r = 1.5*C;
+    // 3. Center Triangles with a crisp white seam
+    const cx = 7.5 * C, cy = 7.5 * C, r = 1.5 * C;
     const triangles = [
-      { pts: `${cx},${cy} ${cx-r},${cy+r} ${cx-r},${cy-r}`, color: PLAYER_COLORS[0] }, // Left (Red)
-      { pts: `${cx},${cy} ${cx-r},${cy-r} ${cx+r},${cy-r}`, color: PLAYER_COLORS[1] }, // Top (Green)
-      { pts: `${cx},${cy} ${cx+r},${cy-r} ${cx+r},${cy+r}`, color: PLAYER_COLORS[2] }, // Right (Yellow)
-      { pts: `${cx},${cy} ${cx-r},${cy+r} ${cx+r},${cy+r}`, color: PLAYER_COLORS[3] }, // Bottom (Blue)
+      { pts: `${cx},${cy} ${cx - r},${cy + r} ${cx - r},${cy - r}`, color: PLAYER_COLORS[0] }, // Left (Red)
+      { pts: `${cx},${cy} ${cx - r},${cy - r} ${cx + r},${cy - r}`, color: PLAYER_COLORS[1] }, // Top (Green)
+      { pts: `${cx},${cy} ${cx + r},${cy - r} ${cx + r},${cy + r}`, color: PLAYER_COLORS[2] }, // Right (Yellow)
+      { pts: `${cx},${cy} ${cx - r},${cy + r} ${cx + r},${cy + r}`, color: PLAYER_COLORS[3] }, // Bottom (Blue)
     ];
     triangles.forEach((t, i) => {
-      elements.push(<Polygon key={`tri${i}`} points={t.pts} fill={t.color} />);
+      elements.push(
+        <Polygon key={`tri${i}`} points={t.pts} fill={t.color}
+          stroke="#FFFFFF" strokeWidth={C * 0.12} strokeLinejoin="round" />
+      );
     });
 
     return (
@@ -618,7 +1067,7 @@ export default function LudoGame({
         {elements}
       </Svg>
     );
-  }, []);
+  }, [cell, boardSize]);
 
   // ── Token renderer ────────────────────────────────────────────────────────
   const renderTokens = () => {
@@ -630,99 +1079,93 @@ export default function LudoGame({
       const color   = PLAYER_COLORS[pi % 4];
       const colorD  = PLAYER_COLORS_D[pi % 4];
       const isMe    = uid === userId;
-      const canMovePl = isMyTurn && isMe && gameState.dice !== null;
-      const info    = playerInfo[uid];
-      const pData = players?.find(p => p.id === uid) || info;
-          const avatarUri = isMe ? (myAvatar || null) : (pData?.avatar || null);
+      // Tappable only after the die settles — the pulse ring appears exactly
+      // when the move becomes legal, so there's no hidden race with the tumble.
+      const canMovePl = isMyTurn && isMe && gameState.dice !== null && !rolling;
+      // Avatar/name resolve from the merged playerMeta (socket snapshots +
+      // matchmaking players prop + self), so coins always carry the real face.
+      const meta    = playerMeta[uid] || {};
+          const avatarUri = isMe ? (myAvatar || null) : (meta.avatar || null);
 
       (tks || []).forEach((token: any, tidx: number) => {
         const tKey = `${uid}-${token.id}`;
-        const { x, y } = getTokenPos(pi, token.id, token.pos ?? -1);
+        const { x, y } = getTokenPos(pi, token.id, token.pos ?? -1, cell);
         const anim   = getAnim(tKey, x, y);
         const canMove = canMovePl && (gameState.movableTokens?.includes(token.id) ?? true);
-        // Location-pin token: circular head (profile pic inside) + pointy tail
-        const HEAD  = CELL * 0.72;
-        const TAIL_W = HEAD * 0.66;
-        const TAIL_H = HEAD * 0.5;
-        const TOKEN_H = HEAD + TAIL_H;
+        // Reference-style map-pin token: a white gradient pin body (#111 outline)
+        // with the player-color head circle and the real profile pic inside.
+        // The pin's tip is anchored at the cell center; the head rides above it.
+        // Sized so the head circle stays INSIDE its own cell on the track —
+        // the head center sits ~0.31·cell above the tip, so a neighboring
+        // coin on the cell above is never overlapped (reviewer-flagged).
+        const PIN_W = Math.max(14, cell * 0.68);
+        const PIN_H = PIN_W * 1.35;
+        const HEAD_CENTER = PIN_H / 3;      // 45/135 of the pin height
+        const HEAD_R = PIN_W * 0.22;         // 22/100 of the pin width
+        const AV = Math.max(7, PIN_W * 0.42); // 40/100 — fills the head circle
+        const AV_TOP = HEAD_CENTER - AV / 2;
 
         elements.push(
           <Animated.View key={tKey} style={{
             position: 'absolute',
-            width: HEAD, height: TOKEN_H,
-            left: Animated.add(anim.x, new Animated.Value(-HEAD / 2)),
-            top:  Animated.add(anim.y, new Animated.Value(-HEAD / 2)),
+            width: PIN_W, height: PIN_H,
+            // Tip sits exactly on the cell center — the head (with the avatar)
+            // is centered above it, so tokens read as pins planted on the cell.
+            left: Animated.add(anim.x, new Animated.Value(-PIN_W / 2)),
+            top:  Animated.add(anim.y, new Animated.Value(-PIN_H + HEAD_CENTER)),
             zIndex: canMove ? 30 : isMe ? 20 : 10,
             alignItems: 'center',
           }}>
             <TouchableOpacity
               onPress={() => canMove && moveToken(token.id)}
               activeOpacity={canMove ? 0.7 : 1}
-              style={{ width: HEAD, height: TOKEN_H, alignItems: 'center' }}
+              style={{ width: PIN_W, height: PIN_H, alignItems: 'center' }}
             >
-              {/* Pulsing highlight ring */}
-              {canMove && <PulseRing size={HEAD} color={color} />}
+              {/* Pulsing highlight ring — around the head circle */}
+              {canMove && <PulseRing size={HEAD_R * 2.2} color={color} />}
 
-              {/* Head — circle with profile pic */}
-              <View style={{
-                width: HEAD, height: HEAD, borderRadius: HEAD / 2,
-                backgroundColor: color,
-                borderColor: canMove ? '#FFFFFF' : 'rgba(255,255,255,0.6)',
-                borderWidth: canMove ? 2.5 : 2,
-                shadowColor: color,
-                shadowOpacity: canMove ? 1 : 0.55,
-                shadowRadius: canMove ? 9 : 4,
-                elevation: canMove ? 13 : 6,
-                alignItems: 'center', justifyContent: 'center',
-                overflow: 'hidden',
-              }}>
-                {avatarUri ? (
-                  <Image
-                    source={{ uri: avatarUri }}
-                    style={{
-                      width: HEAD - 6, height: HEAD - 6,
-                      borderRadius: (HEAD - 6) / 2,
-                      borderWidth: 1.5, borderColor: colorD,
-                    }}
-                  />
-                ) : (
-                  <View style={{
-                    width: HEAD - 6, height: HEAD - 6,
-                    borderRadius: (HEAD - 6) / 2,
-                    backgroundColor: colorD,
-                    alignItems: 'center', justifyContent: 'center',
-                  }}>
-                    <Text style={{ fontSize: HEAD * 0.3, fontWeight: '900', color: '#FFF' }}>
-                      {isMe ? (myName?.[0] || 'Y') : (info?.name?.[0] || (pi + 1).toString())}
-                    </Text>
-                  </View>
-                )}
-              </View>
+              {/* White-gradient pin body with #111 outline (reference) */}
+              <Svg width={PIN_W} height={PIN_H} viewBox="0 0 100 135" style={{ position: 'absolute', top: 0, left: 0 }}>
+                <Defs>
+                  <SvgGrad id={`pinGrad${uid}${token.id}`} x1="0" y1="0" x2="0" y2="1">
+                    <Stop offset="0" stopColor="#FFFFFF" />
+                    <Stop offset="1" stopColor="#E5E5E5" />
+                  </SvgGrad>
+                </Defs>
+                <Path
+                  d="M50 3 C23 3 5 23 5 49 C5 76 26 105 50 132 C74 105 95 76 95 49 C95 23 77 3 50 3 Z"
+                  fill={`url(#pinGrad${uid}${token.id})`}
+                  stroke="#111"
+                  strokeWidth="3"
+                />
+                <Circle cx="50" cy="45" r="22" fill={color} stroke="#111" strokeWidth="2" />
+              </Svg>
 
-              {/* Pin point tail — dark outline + colored fill, like the reference */}
-              <View style={{
-                width: TAIL_W + 4, height: TAIL_H + 4, marginTop: -2,
-                alignItems: 'center', justifyContent: 'flex-start',
-              }}>
+              {/* Profile image — centered in the pin head (reference layout) */}
+              {avatarUri ? (
+                <Image
+                  source={{ uri: avatarUri }}
+                  style={{
+                    position: 'absolute',
+                    top: AV_TOP,
+                    width: AV, height: AV,
+                    borderRadius: AV / 2,
+                    borderWidth: 1.2, borderColor: colorD,
+                  }}
+                />
+              ) : (
                 <View style={{
-                  width: 0, height: 0,
-                  borderLeftWidth: (TAIL_W + 4) / 2,
-                  borderRightWidth: (TAIL_W + 4) / 2,
-                  borderBottomWidth: TAIL_H + 4,
-                  borderLeftColor: 'transparent',
-                  borderRightColor: 'transparent',
-                  borderBottomColor: '#1E293B',
-                }} />
-                <View style={{
-                  width: 0, height: 0, marginTop: -(TAIL_H + 2),
-                  borderLeftWidth: TAIL_W / 2,
-                  borderRightWidth: TAIL_W / 2,
-                  borderBottomWidth: TAIL_H,
-                  borderLeftColor: 'transparent',
-                  borderRightColor: 'transparent',
-                  borderBottomColor: color,
-                }} />
-              </View>
+                  position: 'absolute', top: AV_TOP,
+                  width: AV, height: AV,
+                  borderRadius: AV / 2,
+                  backgroundColor: colorD,
+                  alignItems: 'center', justifyContent: 'center',
+                }}>
+                  <Text style={{ fontSize: Math.max(4, AV * 0.42), fontWeight: '900', color: '#FFF' }}>
+                    {isMe ? (myName?.[0] || 'Y') : (meta.name?.[0] || (pi + 1).toString())}
+                  </Text>
+                </View>
+              )}
             </TouchableOpacity>
           </Animated.View>
         );
@@ -731,66 +1174,33 @@ export default function LudoGame({
     return elements;
   };
 
-  // ── Player info strip ─────────────────────────────────────────────────────
-  const renderPlayerStrip = () => {
-    if (!gameState?.tokens) return null;
-    const playerIds = Object.keys(gameState.tokens);
-    return (
-      <View style={styles.playerStrip}>
-        {playerIds.map((uid, i) => {
-          const isMe    = uid === userId;
-          const color   = PLAYER_COLORS[i % 4];
-          const info    = playerInfo[uid];
-          const avatarUri = isMe ? (myAvatar || null) : (info?.avatar || null);
-          const label = isMe ? (myName || 'You') : ((playerInfo[uid] as any)?.name || `P${i+1}`);
-          const isActive = (gameState.currentTurnIndex ?? 0) === i;
-
-          return (
-            <View key={uid} style={[styles.playerChip, isActive && { borderColor: color + 'CC' }]}>
-              {/* Tiny avatar coin */}
-              {avatarUri ? (
-                <Image source={{ uri: avatarUri }} style={[styles.chipAvatar, { borderColor: color }]} />
-              ) : (
-                <View style={[styles.chipAvatarFallback, { backgroundColor: color }]}>
-                  <Text style={styles.chipAvatarText}>{label[0]}</Text>
-                </View>
-              )}
-              <View>
-                <Text style={[styles.chipName, { color: isMe ? color : '#94A3B8' }]} numberOfLines={1}>
-                  {isMe ? 'You' : label}
-                </Text>
-                {isActive && (
-                  <View style={[styles.activeDot, { backgroundColor: color }]} />
-                )}
-              </View>
-            </View>
-          );
-        })}
-      </View>
-    );
-  };
-
   // ── State helpers ─────────────────────────────────────────────────────────
   const face    = gameState?.dice ?? null;
   const hasDice = face !== null;
-  const curIdx  = gameState?.currentTurnIndex ?? 0;
-  const curColor = PLAYER_COLORS[curIdx % 4];
-  // Die face shown on everyone's screen: preview while tumbling, else the result
-  const diceFace = (rolling || remoteRolling) ? dicePreview : (hasDice ? face : null);
-  // Corner-anchored die position — pushed toward the board center so it never
-  // collides with the corner avatar card or the chat button at the screen corner.
+  // Die face shown on everyone's screen: the held no-move result wins, then a
+  // tumble preview, then the settled result, then a neutral idle face.
+  const diceFace = noMoveHold
+    ? noMoveHold.face
+    : (rolling || remoteRolling) ? dicePreview : (hasDice ? face : null);
+  // While a no-move result is held, the die stays beside the roller (the
+  // previous player); once released it rides to the VISIBLE turn — which lags
+  // the engine's turn until the previous player's coins finish walking.
+  const dieAnchorIdx = noMoveHold ? noMoveHold.playerIdx : displayTurn;
+  // The die rides with whoever's VISIBLE turn it is — anchored BESIDE that
+  // player's corner profile card (left/right of it, never above/below). It
+  // stays on the previous player while their coins are still walking. The
+  // offset follows the card's MEASURED width + a gap, so a long name can never
+  // push the card into the die (fully responsive).
+  const anchorUid = (gameState?.turnOrder || [])[dieAnchorIdx] as string | undefined;
+  const dieCardW = Math.min(96, cardWidthsRef.current[anchorUid ?? ''] || 76);
   const DIE_ANCHOR: Record<number, any> = {
-    0: { top: 96, left: 96 },
-    1: { top: 96, right: 96 },
-    2: { bottom: 96, right: 96 },
-    3: { bottom: 96, left: 96 },
+    0: { top: 14, left: 10 + dieCardW + 10 },   // TL — die to the right of the card
+    1: { top: 14, right: 10 + dieCardW + 10 },  // TR — die to the left of the card
+    // Bottom corners lift above the open chat panel so the die stays visible
+    2: { bottom: 14 + chatInset, right: 10 + dieCardW + 10 },  // BR
+    3: { bottom: 14 + chatInset, left: 10 + dieCardW + 10 },   // BL
   };
-  const dieAnchor = DIE_ANCHOR[curIdx % 4] || DIE_ANCHOR[0];
-  // My corner index — computed from the SAME source the corner cards use
-  // (turnOrder order), so the chat button + popups always land on my corner.
-  const myCornerIdx = (gameState?.turnOrder || []).indexOf(userId);
-  const remoteUid = remoteRolling;
-  const remoteIdx = remoteUid ? (gameState?.turnOrder || []).indexOf(remoteUid) : -1;
+  const dieAnchor = DIE_ANCHOR[dieAnchorIdx % 4] || DIE_ANCHOR[0];
 
   // ── Corner avatar cards (reference-style) ─────────────────────────────────
   const renderCornerCards = () => {
@@ -803,17 +1213,17 @@ export default function LudoGame({
           if (!pos) return null;
           const isMe    = uid === userId;
           const color   = PLAYER_COLORS[i % 4];
-          const info    = playerInfo[uid];
-          const avatarUri = isMe ? (myAvatar || null) : (info?.avatar || null);
-          const label = isMe ? (myName || 'You') : (info?.name || `P${i + 1}`);
-          const isActive = (gameState.currentTurnIndex ?? 0) === i;
-          return (
+          const meta    = playerMeta[uid] || {};
+          const avatarUri = meta.avatar || null;
+          // Own card shows the real name with "(You)" so you can spot yourself
+          const label = isMe
+            ? `${meta.name || myName || 'You'} (You)`
+            : (meta.name || `P${i + 1}`);
+          const isActive = displayTurn === i;
+          const cardBody = (
             <View
-              key={uid}
               pointerEvents="none"
               style={[styles.cornerCard, {
-                [pos.align]: 10,
-                [pos.vert]: 10,
                 borderColor: isActive ? '#FDE68A' : 'rgba(124,168,255,0.45)',
                 backgroundColor: isActive ? 'rgba(6,20,90,0.85)' : 'rgba(4,12,56,0.6)',
               }]}
@@ -826,10 +1236,39 @@ export default function LudoGame({
                     <Text style={styles.cornerAvatarInitial}>{(label || '?')[0].toUpperCase()}</Text>
                   </View>
                 )}
+                {/* Level badge on the avatar corner — same gold badge as the
+                    profile pages, sized for the in-game card. */}
+                {meta.level != null && meta.level > 0 && (
+                  <LinearGradient colors={['#FFD75E', '#F59E0B']} style={styles.cornerLevelBadge}>
+                    <Text style={styles.cornerLevelText}>{meta.level}</Text>
+                  </LinearGradient>
+                )}
               </View>
               <Text style={[styles.cornerName, { color: isActive ? '#FFF' : '#B9CBF8' }]} numberOfLines={1}>
-                {isMe ? 'You' : label}
+                {label}
               </Text>
+            </View>
+          );
+          return (
+            <View
+              key={uid}
+              style={{
+                // The wrapper does ALL the positioning (horizontal + vertical).
+                // Cards live in the reserved corner strips, so they never sit
+                // over the board; bottom cards lift above the open chat panel.
+                position: 'absolute',
+                [pos.align]: 10,
+                [pos.vert]: pos.vert === 'bottom' ? 12 + chatInset : 12,
+                zIndex: 70,
+                // Sibling-level elevation keeps Android paint order above the
+                // board (elevation 20) regardless of zIndex quirks.
+                elevation: 30,
+              }}
+              onLayout={(e: any) => {
+                cardWidthsRef.current[uid] = e.nativeEvent.layout.width;
+              }}
+            >
+              {isActive ? <ActiveCardGlow color={color}>{cardBody}</ActiveCardGlow> : cardBody}
             </View>
           );
         })}
@@ -849,10 +1288,15 @@ export default function LudoGame({
     );
   }
 
-  const spin = diceRotate.interpolate({ inputRange: [-1, 1], outputRange: ['-14deg', '14deg'] });
+  // Full tumble range: ±6 units ≈ ±360° so the die completes one smooth
+  // rotation (toValue 6 = exactly one full spin back to upright).
+  const spin = diceRotate.interpolate({ inputRange: [-6, 6], outputRange: ['-360deg', '360deg'] });
 
   return (
-    <LinearGradient colors={[BG_TOP, BG_BOTTOM]} style={styles.container}>
+    <LinearGradient
+      colors={[BG_TOP, BG_BOTTOM]}
+      style={[styles.gameFill, { paddingBottom: 6 + kbH }]}
+    >
 
       {/* ─ Stars backdrop ─ */}
       <View pointerEvents="none" style={StyleSheet.absoluteFill}>
@@ -865,34 +1309,29 @@ export default function LudoGame({
         ))}
       </View>
 
-      {/* ─ Turn banner ─ */}
-      <View style={[styles.turnBanner, { borderColor: curColor + '88', backgroundColor: 'rgba(5,13,58,0.65)' }]}>
-        <View style={[styles.turnDot, { backgroundColor: curColor }]} />
-        <Text style={[styles.turnText, { color: '#F8FAFC' }]} numberOfLines={1}>
-          {remoteRolling
-            ? `🎲 ${PLAYER_NAMES[remoteIdx % 4]} is rolling…`
-            : isMyTurn
-              ? hasDice ? `🎯 Rolled ${face} — Tap a token!` : '🎲 Your Turn — Tap the die!'
-              : `${PLAYER_NAMES[curIdx % 4]}'s Turn`}
-        </Text>
-      </View>
-
-      {/* Idle countdown — visible only during my turn's 5s auto-roll window */}
-      {idleLeft !== null && (
-        <View style={styles.autoRollPill}>
-          <Ionicons name="time-outline" size={12} color="#FDE68A" />
-          <Text style={styles.autoRollText}>Auto-roll in {idleLeft}s</Text>
-        </View>
-      )}
-
-      {/* ─ Board ─ */}
-      <View style={styles.boardWrap}>
-        <LinearGradient
-          colors={[curColor + '66', 'transparent']}
-          style={[StyleSheet.absoluteFill, { borderRadius: 14 }]}
-          pointerEvents="none"
-        />
-        <View style={[styles.board, { width: BOARD_SIZE, height: BOARD_SIZE }]}>
+      {/* ─ Board — responsive: fills the space between the reserved corner
+          strips (profile cards + die) so they never cover the play area ─ */}
+      <View
+        style={[styles.boardWrap, {
+          // Top strip: TL/TR cards + die. Bottom strip: BL/BR cards + die.
+          // The margins CONTAIN the board, so cards can never cover it — the
+          // chat panel pushes the board up via normal flow. While the keyboard
+          // is up the bottom strip is behind it, so only a slim gap remains.
+          marginTop: CORNER_STRIP - 6,
+          marginBottom: kbH > 0 ? 8 : CORNER_STRIP - 6,
+        }]}
+        onLayout={(e) => {
+          const { width: w, height: h } = e.nativeEvent.layout;
+          // Square board = the smaller dimension of the available space minus a
+          // comfortable margin. No small cap — the board fills the space and
+          // only compresses when the chat panel (or keyboard) opens. The floor
+          // only engages below ~110px of free space (e.g. a legacy 568px-tall
+          // phone while typing), so it can never overflow into other UI.
+          const next = Math.max(100, Math.min(w - 10, h - 10));
+          if (Math.abs(next - boardSize) > 1) setBoardSize(Math.floor(next));
+        }}
+      >
+        <View style={[styles.board, { width: boardSize, height: boardSize }]}>
           {boardSvg}
           {renderTokens()}
         </View>
@@ -907,20 +1346,36 @@ export default function LudoGame({
           key={pop.id}
           pop={pop}
           cornerIdx={pop.cornerIdx}
+          chatInset={chatInset}
           onDone={(id) => setChatPopups(p => p.filter(x => x.id !== id))}
         />
       ))}
 
-      {/* ─ Die — anchored to the active player's corner, tap to roll ─ */}
+      {/* ─ Die — anchored beside the active player's profile card ─ */}
       <View style={[styles.dieArea, dieAnchor]}>
         <TouchableOpacity onPress={rollDice} disabled={!isMyTurn || hasDice || rolling} activeOpacity={0.85}>
           <Animated.View style={[
             styles.dieGlowWrap,
             diceFace !== null && styles.dieGlowWrapRolled,
-            { transform: [{ scale: diceScale }, { rotate: spin }] },
+            (idleLeft !== null || (moveLeft !== null && moveLeft <= 25 && !rolling)) && styles.dieGlowWrapCountdown,
+            { transform: [
+              // Lift: the die pops up in the hand / off the table.
+              { translateY: diceLift.interpolate({ inputRange: [0, 1], outputRange: [0, -14] }) },
+              // Shake: a subtle horizontal rattle during the roll (kept small
+              // so the motion stays smooth — the spin carries the roll).
+              { translateX: diceShake.interpolate({ inputRange: [-1, 1], outputRange: [-2, 2] }) },
+              { rotate: spin },
+              // Squash: flattens on impact, springs back with an overshoot.
+              { scaleX: diceSquash.interpolate({ inputRange: [0, 1], outputRange: [1, 1.22] }) },
+              { scaleY: diceSquash.interpolate({ inputRange: [0, 1], outputRange: [1, 0.72] }) },
+            ] },
           ]}>
             <LinearGradient
-              colors={diceFace !== null ? ['#FDE68A', '#F8FAFC'] : ['#FFFFFF', '#DBE4F6']}
+              colors={
+                (idleLeft !== null || diceFace !== null)
+                  ? ['#FFFFFF', '#F1F5F9']
+                  : ['#FFFFFF', '#E2E8F0']
+              }
               style={styles.dieBody}
             >
               {diceFace !== null ? (
@@ -928,30 +1383,54 @@ export default function LudoGame({
                   <View key={i} style={[styles.dot, styles.dotDark, { left: `${dx}%` as any, top: `${dy}%` as any }]} />
                 ))
               ) : (
-                <Text style={styles.diceQ}>?</Text>
+                /* Idle die — a neutral face (never a '?'). A single centred pip
+                   reads as "ready to roll" without implying a result. */
+                <View style={styles.diceIdle}>
+                  <View style={styles.diceIdlePip} />
+                </View>
               )}
             </LinearGradient>
+            {/* Post-roll move timer — a live countdown pill centered UNDER the
+                die (not on its corner). Hidden while the die is mid-tumble and
+                during the first 5s of the window — it appears at 25s left so
+                the rolled result gets an uncluttered look first. The clock
+                itself runs the full 30s from the roll so it stays
+                server-accurate; the first movable token auto-moves on expiry. */}
+            {moveLeft !== null && moveLeft <= 25 && !rolling && (
+              <View style={styles.dieMoveChip} pointerEvents="none">
+                <View style={styles.dieMoveChipPill}>
+                  <Ionicons name="footsteps" size={9} color="#FFF" />
+                  <Text style={styles.dieMoveChipText}>{moveLeft}</Text>
+                </View>
+              </View>
+            )}
+            {/* Pre-roll auto-roll countdown — same pill under the die as the
+                move timer (clock icon instead of footsteps), so both timers
+                read consistently. */}
+            {idleLeft !== null && (
+              <View style={styles.dieMoveChip} pointerEvents="none">
+                <View style={styles.dieMoveChipPill}>
+                  <Ionicons name="time-outline" size={9} color="#FFF" />
+                  <Text style={styles.dieMoveChipText}>{idleLeft}</Text>
+                </View>
+              </View>
+            )}
           </Animated.View>
         </TouchableOpacity>
-        <Text style={styles.dieHint}>
-          {rolling || remoteRolling
-            ? 'Rolling…'
-            : diceFace !== null
-              ? isMyTurn ? 'Tap a token' : `${PLAYER_NAMES[curIdx % 4]} rolled ${diceFace}`
-              : isMyTurn ? 'Tap to roll' : `${PLAYER_NAMES[curIdx % 4]} to roll…`}
-        </Text>
       </View>
 
-      {/* ─ Chat button — fixed bottom-centre, reference-style orange bubble ─ */}
-      <View pointerEvents="box-none" style={styles.chatBtnPos}>
-        <TouchableOpacity style={styles.chatBtn} onPress={() => setChatOpen(true)} activeOpacity={0.85}>
-          <Ionicons name="chatbubble" size={20} color="#FFF" />
-        </TouchableOpacity>
-      </View>
+      {/* ─ Chat button — hidden while the chat panel is open ─ */}
+      {!chatOpen && (
+        <View pointerEvents="box-none" style={styles.chatBtnPos}>
+          <TouchableOpacity style={styles.chatBtn} onPress={() => setChatOpen(true)} activeOpacity={0.85}>
+            <Ionicons name="chatbubble" size={20} color="#FFF" />
+          </TouchableOpacity>
+        </View>
+      )}
 
-      {/* ─ Toast ─ */}
+      {/* ─ Toast — lifted above the chat panel when it's open ─ */}
       {toast && (
-        <Animated.View style={[styles.toast, {
+        <Animated.View style={[styles.toast, { bottom: 96 + chatInset }, {
           opacity: toastAnim,
           transform: [{ translateY: toastAnim.interpolate({ inputRange: [0, 1], outputRange: [24, 0] }) }],
         }]}>
@@ -961,18 +1440,55 @@ export default function LudoGame({
         </Animated.View>
       )}
 
-      {/* ─ Chat sheet ─ */}
-      <ChatSheet
-        visible={chatOpen}
-        messages={messages}
-        draft={draft}
-        onDraftChange={setDraft}
-        onSend={(t) => sendChat(t)}
-        onClose={() => setChatOpen(false)}
-        scrollRef={chatScroll}
-        inputRef={chatInputRef}
-      />
+      {/* ─ Chat panel — inline bottom sheet, board compresses above it ─ */}
+      {chatOpen && (
+        <ChatSheet
+          messages={messages}
+          draft={draft}
+          onDraftChange={setDraft}
+          onSend={(t) => sendChat(t)}
+          onClose={() => setChatOpen(false)}
+          onPanelLayout={(h) => setChatPanelH(h)}
+          scrollRef={chatScroll}
+          inputRef={chatInputRef}
+          kbH={kbH}
+        />
+      )}
     </LinearGradient>
+  );
+}
+
+// ── Glow around the ACTIVE player's corner card ───────────────────────────────
+// A soft pulsing halo so whose turn it is is obvious at a glance.
+function ActiveCardGlow({ color, children }: { color: string; children: React.ReactNode }) {
+  const a = useRef(new Animated.Value(0)).current;
+  useEffect(() => {
+    const loop = Animated.loop(
+      Animated.sequence([
+        Animated.timing(a, { toValue: 1, duration: 850, useNativeDriver: true }),
+        Animated.timing(a, { toValue: 0, duration: 850, useNativeDriver: true }),
+      ])
+    );
+    loop.start();
+    return () => loop.stop();
+  }, []);
+  return (
+    <View style={{ position: 'relative' }}>
+      <Animated.View
+        pointerEvents="none"
+        style={{
+          position: 'absolute', top: -4, left: -4, right: -4, bottom: -4,
+          borderRadius: 20,
+          borderWidth: 2.5,
+          borderColor: '#FDE68A',
+          opacity: a.interpolate({ inputRange: [0, 1], outputRange: [0.3, 1] }),
+          shadowColor: color,
+          shadowOpacity: 0.9, shadowRadius: 12, shadowOffset: { width: 0, height: 0 },
+          elevation: 8,
+        }}
+      />
+      {children}
+    </View>
   );
 }
 
@@ -1019,9 +1535,10 @@ function Dot({ delay }: { delay: number }) {
 }
 
 // ── Chat bubble floating over a player's corner card ──────────────────────────
-function CornerBubble({ pop, cornerIdx, onDone }: {
+function CornerBubble({ pop, cornerIdx, chatInset = 0, onDone }: {
   pop: { id: number; uid: string; name: string; text: string; color: string };
   cornerIdx: number;
+  chatInset?: number;
   onDone: (id: number) => void;
 }) {
   const anim = useRef(new Animated.Value(0)).current;
@@ -1035,7 +1552,7 @@ function CornerBubble({ pop, cornerIdx, onDone }: {
   }, []);
   const pos = CORNER_POS[cornerIdx % 4];
   const vertKey = pos?.vert === 'bottom' ? 'bottom' : 'top';
-  const vertVal = pos?.vert === 'bottom' ? 118 : 88;
+  const vertVal = pos?.vert === 'bottom' ? 118 + chatInset : 88;
   return (
     <Animated.View pointerEvents="none" style={{
       position: 'absolute',
@@ -1048,75 +1565,93 @@ function CornerBubble({ pop, cornerIdx, onDone }: {
       }],
       zIndex: 60,
     }}>
+      {/* Message-only bubble — the sender is already identified by the corner
+          card the bubble pops over, so no name is shown. */}
       <View style={[styles.bubble, { borderLeftColor: pop.color }]}>
-        <Text style={[styles.bubbleName, { color: pop.color }]} numberOfLines={1}>{pop.name}</Text>
         <Text style={styles.bubbleText} numberOfLines={2}>{pop.text}</Text>
       </View>
     </Animated.View>
   );
 }
 
-// ── Chat sheet modal ──────────────────────────────────────────────────────────
+// ── Chat panel (inline bottom sheet) ─────────────────────────────────────────
+// Sits in normal flow at the bottom of the game: the board (flex:1) compresses
+// upward so chat + full board are visible simultaneously. Capped at ~10–16% of
+// the screen height (CHAT_MAX_H) with a scrollable list, so the board stays
+// visible even while the keyboard is up.
 function ChatSheet({
-  visible, messages, draft, onDraftChange, onSend, onClose, scrollRef, inputRef,
+  messages, draft, onDraftChange, onSend, onClose, onPanelLayout, scrollRef, inputRef, kbH = 0,
 }: {
-  visible: boolean;
   messages: ChatMsg[];
   draft: string;
   onDraftChange: (t: string) => void;
   onSend: (t: string) => void;
   onClose: () => void;
+  onPanelLayout: (h: number) => void;
   scrollRef: React.RefObject<ScrollView | null>;
   inputRef: React.RefObject<TextInput | null>;
+  kbH?: number;
 }) {
   const submit = () => {
     onSend(draft);
     inputRef.current?.focus();
   };
 
-  // Quick-send emoji bar for fast replies
+  // Quick-send emoji bar — a single horizontal scrolling row so it stays
+  // compact and never stacks the panel taller.
   const QUICK_EMOJIS = ['😄', '😂', '🔥', '👍', '🎉', '😮', '💪', '❤️'];
 
+  // While the keyboard is up the panel switches to a compact input bar
+  // (header + emoji + input, list hidden) so the board keeps the most space.
+  const sheetMaxH = kbH > 0 ? 142 : CHAT_MAX_H;
+
   return (
-    <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
-      <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={styles.chatWrap}>
-        <TouchableOpacity style={styles.chatDismiss} activeOpacity={1} onPress={onClose} />
-        <View style={styles.chatSheet}>
-          <View style={styles.chatHeader}>
-            <Text style={styles.chatTitle}>💬 Match Chat</Text>
-            <View style={styles.chatLiveTag}>
-              <View style={styles.chatLiveDot} />
-              <Text style={styles.chatLiveText}>live</Text>
-            </View>
-            <TouchableOpacity onPress={onClose} hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}>
-              <Ionicons name="close" size={22} color="#C4B5FD" />
-            </TouchableOpacity>
+    <View style={styles.chatWrap}>
+      <View
+        style={[styles.chatSheet, { maxHeight: sheetMaxH }]}
+        onLayout={(e) => onPanelLayout(e.nativeEvent.layout.height)}
+      >
+        <View style={styles.chatHeader}>
+          <Text style={styles.chatTitle}>💬 Match Chat</Text>
+          <View style={styles.chatLiveTag}>
+            <View style={styles.chatLiveDot} />
+            <Text style={styles.chatLiveText}>live</Text>
           </View>
+          <TouchableOpacity onPress={onClose} hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}>
+            <Ionicons name="close" size={22} color="#C4B5FD" />
+          </TouchableOpacity>
+        </View>
 
-          <ScrollView
-            ref={scrollRef}
-            style={styles.chatList}
-            contentContainerStyle={styles.chatListContent}
-            onContentSizeChange={() => scrollRef.current?.scrollToEnd({ animated: true })}
-            keyboardShouldPersistTaps="handled"
-          >
-            {messages.length === 0 && (
-              <Text style={styles.chatEmpty}>No messages yet — say hi! 👋</Text>
-            )}
-            {messages.map(m => (
-              <View key={m.id} style={styles.chatMsg}>
-                <View style={styles.chatMsgMeta}>
-                  <Text style={[styles.chatMsgName, { color: m.color }]}>{m.name}</Text>
-                  <Text style={styles.chatMsgTime}>{m.time}</Text>
-                </View>
-                <View style={[styles.chatBubbleRow, { borderLeftColor: m.color }]}>
-                  <Text style={styles.chatMsgText}>{m.text}</Text>
-                </View>
+        <ScrollView
+          ref={scrollRef}
+          style={styles.chatList}
+          contentContainerStyle={styles.chatListContent}
+          onContentSizeChange={() => scrollRef.current?.scrollToEnd({ animated: true })}
+          keyboardShouldPersistTaps="handled"
+        >
+          {messages.length === 0 && (
+            <Text style={styles.chatEmpty}>No messages yet — say hi! 👋</Text>
+          )}
+          {messages.map(m => (
+            <View key={m.id} style={styles.chatMsg}>
+              <View style={styles.chatMsgMeta}>
+                <Text style={[styles.chatMsgName, { color: m.color }]}>{m.name}</Text>
+                <Text style={styles.chatMsgTime}>{m.time}</Text>
               </View>
-            ))}
-          </ScrollView>
+              <View style={[styles.chatBubbleRow, { borderLeftColor: m.color }]}>
+                <Text style={styles.chatMsgText}>{m.text}</Text>
+              </View>
+            </View>
+          ))}
+        </ScrollView>
 
-          <View style={styles.chatEmojiRow}>
+        <View style={styles.chatEmojiRow}>
+          <ScrollView
+            horizontal
+            showsHorizontalScrollIndicator={false}
+            keyboardShouldPersistTaps="handled"
+            contentContainerStyle={styles.chatEmojiRowInner}
+          >
             {QUICK_EMOJIS.map((e) => (
               <TouchableOpacity
                 key={e}
@@ -1127,88 +1662,51 @@ function ChatSheet({
                 <Text style={styles.chatEmojiText}>{e}</Text>
               </TouchableOpacity>
             ))}
-          </View>
-
-          <View style={styles.chatInputRow}>
-            <TextInput
-              ref={inputRef}
-              style={styles.chatInput}
-              value={draft}
-              onChangeText={onDraftChange}
-              placeholder="Type a message…"
-              placeholderTextColor="#6B7280"
-              multiline
-              maxLength={140}
-              onSubmitEditing={submit}
-              returnKeyType="send"
-            />
-            <TouchableOpacity
-              style={[styles.chatSend, !draft.trim() && { opacity: 0.45 }]}
-              onPress={submit}
-              disabled={!draft.trim()}
-              activeOpacity={0.8}
-            >
-              <Ionicons name="send" size={18} color="#FFF" />
-            </TouchableOpacity>
-          </View>
+          </ScrollView>
         </View>
-      </KeyboardAvoidingView>
-    </Modal>
+
+        <View style={styles.chatInputRow}>
+          <TextInput
+            ref={inputRef}
+            style={styles.chatInput}
+            value={draft}
+            onChangeText={onDraftChange}
+            placeholder="Type a message…"
+            placeholderTextColor="#6B7280"
+            multiline
+            maxLength={140}
+            onSubmitEditing={submit}
+            returnKeyType="send"
+          />
+          <TouchableOpacity
+            style={[styles.chatSend, !draft.trim() && { opacity: 0.45 }]}
+            onPress={submit}
+            disabled={!draft.trim()}
+            activeOpacity={0.8}
+          >
+            <Ionicons name="send" size={18} color="#FFF" />
+          </TouchableOpacity>
+        </View>
+      </View>
+    </View>
   );
 }
 
 // ── Styles ────────────────────────────────────────────────────────────────────
 const styles = StyleSheet.create({
-  container: { flex: 1, alignItems: 'center', paddingTop: 6, paddingBottom: 6 },
+  gameFill: { flex: 1, alignItems: 'center', paddingTop: 6, paddingBottom: 6 },
   fullCenter: { flex: 1, justifyContent: 'center', alignItems: 'center' },
   splashEmoji: { fontSize: 64, marginBottom: 10 },
   splashTitle: { fontSize: 26, fontWeight: '900', color: '#F1F5F9', marginBottom: 5 },
   splashSub:   { fontSize: 14, color: '#64748B' },
 
-  turnBanner: {
-    flexDirection: 'row', alignItems: 'center', gap: 8,
-    paddingHorizontal: 18, paddingVertical: 8,
-    borderRadius: 24, borderWidth: 1.5,
-    marginBottom: 8, alignSelf: 'center',
-  },
-  turnDot:  { width: 8, height: 8, borderRadius: 4 },
-  turnText: { fontSize: 13, fontWeight: '800', maxWidth: 260 },
-  autoRollPill: {
-    flexDirection: 'row', alignItems: 'center', gap: 5,
-    paddingHorizontal: 12, paddingVertical: 4,
-    borderRadius: 12,
-    backgroundColor: 'rgba(253,230,138,0.14)',
-    borderWidth: 1, borderColor: 'rgba(253,230,138,0.4)',
-    alignSelf: 'center', marginBottom: 6,
-  },
-  autoRollText: { fontSize: 11, fontWeight: '800', color: '#FDE68A' },
-
-  // Player strip
-  playerStrip: {
-    flexDirection: 'row', gap: 8, marginBottom: 8,
-    paddingHorizontal: 12, flexWrap: 'wrap', justifyContent: 'center',
-  },
-  playerChip: {
-    flexDirection: 'row', alignItems: 'center', gap: 6,
-    paddingHorizontal: 10, paddingVertical: 5,
-    borderRadius: 20, borderWidth: 1.5,
-    borderColor: 'rgba(255,255,255,0.07)',
-    backgroundColor: 'rgba(255,255,255,0.04)',
-  },
-  chipAvatar: {
-    width: 26, height: 26, borderRadius: 13,
-    borderWidth: 2,
-  },
-  chipAvatarFallback: {
-    width: 26, height: 26, borderRadius: 13,
-    justifyContent: 'center', alignItems: 'center',
-  },
-  chipAvatarText: { fontSize: 11, fontWeight: '900', color: '#FFF' },
-  chipName: { fontSize: 11, fontWeight: '700', maxWidth: 70 },
-  activeDot: { width: 5, height: 5, borderRadius: 2.5, marginTop: 2 },
+  // Auto-roll countdown rendered inside the die itself (no separate pill)
+  dieGlowWrapCountdown: { borderColor: '#0F172A', shadowColor: '#FFFFFF' },
 
   // Board
-  boardWrap: { flex: 1, justifyContent: 'center', alignItems: 'center', borderRadius: 14, padding: 3 },
+  // width: '100%' is what stops the shrink loop — the measured width must not
+  // depend on the board size itself, or onLayout keeps shrinking the board.
+  boardWrap: { flex: 1, width: '100%', justifyContent: 'center', alignItems: 'center', borderRadius: 14, padding: 3 },
   board: {
     borderRadius: 10, overflow: 'hidden',
     borderWidth: 1.5, borderColor: 'rgba(124,58,237,0.4)',
@@ -1229,18 +1727,21 @@ const styles = StyleSheet.create({
   tokenInner: { justifyContent: 'center', alignItems: 'center' },
   tokenLabel: { fontWeight: '900', color: '#FFF' },
 
-  // Corner avatar cards
+  // Corner avatar cards — in-flow inside their positioned wrapper (the wrapper
+  // does all the absolute positioning); maxWidth clamps the name so the card
+  // can never grow into the die (the die anchors beside the card's measured
+  // width).
   cornerCard: {
-    position: 'absolute',
+    position: 'relative',
     alignItems: 'center', paddingVertical: 6, paddingHorizontal: 8,
     borderRadius: 16, borderWidth: 1.5,
     shadowColor: '#6FA0FF', shadowOpacity: 0.45, shadowRadius: 8,
-    shadowOffset: { width: 0, height: 2 }, elevation: 10,
-    minWidth: 66,
+    shadowOffset: { width: 0, height: 2 },
+    minWidth: 66, maxWidth: 84,
   },
   cornerAvatarFrame: {
     width: 42, height: 42, borderRadius: 12,
-    borderWidth: 2, padding: 2,
+    borderWidth: 2, padding: 2, position: 'relative',
     backgroundColor: 'rgba(8,26,100,0.85)',
     alignItems: 'center', justifyContent: 'center',
   },
@@ -1250,19 +1751,44 @@ const styles = StyleSheet.create({
     alignItems: 'center', justifyContent: 'center',
   },
   cornerAvatarInitial: { color: '#FFF', fontWeight: '900', fontSize: 15 },
-  cornerName: { fontSize: 10, fontWeight: '800', marginTop: 4, maxWidth: 70, textAlign: 'center' },
+  cornerLevelBadge: {
+    position: 'absolute', bottom: -3, right: -3,
+    minWidth: 15, height: 15, borderRadius: 8,
+    alignItems: 'center', justifyContent: 'center',
+    paddingHorizontal: 3,
+    borderWidth: 1.5, borderColor: '#0A1B4D',
+  },
+  cornerLevelText: { fontSize: 8, fontWeight: '900', color: '#1A0A00', lineHeight: 9 },
+  cornerName: { fontSize: 10, fontWeight: '800', marginTop: 4, maxWidth: 64, textAlign: 'center' },
   cornerPct: { fontSize: 11, fontWeight: '900', marginTop: 1 },
 
-  // Die — absolutely anchored near the active player's corner card
+  // Die — anchored beside the active player's corner profile card (DIE_ANCHOR)
   dieArea: { position: 'absolute', alignItems: 'center', zIndex: 40 },
   dieGlowWrap: {
     width: 56, height: 56, borderRadius: 15,
-    borderWidth: 2.5, borderColor: '#7FA6FF',
+    borderWidth: 2.5, borderColor: '#CBD5E1',
     backgroundColor: '#FFFFFF',
-    elevation: 14, shadowColor: '#6FA0FF',
+    elevation: 14, shadowColor: '#64748B',
     shadowOpacity: 0.8, shadowRadius: 12, shadowOffset: { width: 0, height: 0 },
   },
-  dieGlowWrapRolled: { borderColor: '#FDE68A', shadowColor: '#FDE68A' },
+  dieGlowWrapRolled: { borderColor: '#0F172A', shadowColor: '#FFFFFF' },
+  // Post-roll move-timer pill centered UNDER the die (result dots stay
+  // visible on the die face above it).
+  dieMoveChip: {
+    position: 'absolute', bottom: -18, left: 0, right: 0,
+    alignItems: 'center',
+  },
+  dieMoveChipPill: {
+    minWidth: 34, height: 21, borderRadius: 11,
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'center',
+    gap: 2, paddingHorizontal: 8,
+    backgroundColor: '#0F172A',
+    borderWidth: 1.5, borderColor: '#FFFFFF',
+    elevation: 8,
+    shadowColor: '#000', shadowOpacity: 0.35, shadowRadius: 3,
+    shadowOffset: { width: 0, height: 1 },
+  },
+  dieMoveChipText: { fontSize: 10, fontWeight: '900', color: '#FFFFFF' },
   dieBody: {
     width: 56, height: 56, borderRadius: 13,
     justifyContent: 'center', alignItems: 'center', position: 'relative',
@@ -1272,9 +1798,16 @@ const styles = StyleSheet.create({
     backgroundColor: '#F8FAFC',
     transform: [{ translateX: -5 }, { translateY: -5 }],
   },
-  dotDark: { backgroundColor: '#0A2472' },
-  diceQ: { fontSize: 26, color: '#0A2472', fontWeight: '900' },
-  dieHint: { marginTop: 5, color: '#C7D6FF', fontSize: 11, fontWeight: '700', textAlign: 'center', maxWidth: 120 },
+  dotDark: { backgroundColor: '#0F172A' },
+  // Idle die face — a soft centred pip instead of a question mark
+  diceIdle: {
+    width: 26, height: 26, borderRadius: 13,
+    backgroundColor: 'rgba(15,23,42,0.06)',
+    alignItems: 'center', justifyContent: 'center',
+    borderWidth: 1.5, borderColor: 'rgba(15,23,42,0.2)',
+  },
+  diceIdlePip: { width: 9, height: 9, borderRadius: 4.5, backgroundColor: 'rgba(15,23,42,0.4)' },
+
 
   // Chat button (reference-style orange bubble, bottom-centre)
   chatBtnPos: {
@@ -1288,17 +1821,6 @@ const styles = StyleSheet.create({
     elevation: 10, shadowColor: '#F97316',
     shadowOpacity: 0.6, shadowRadius: 6, shadowOffset: { width: 0, height: 2 },
   },
-  chatEmojiRow: {
-    flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginBottom: 8,
-  },
-  chatEmojiBtn: {
-    width: 36, height: 36, borderRadius: 18,
-    backgroundColor: 'rgba(255,255,255,0.07)',
-    alignItems: 'center', justifyContent: 'center',
-    borderWidth: 1, borderColor: 'rgba(255,255,255,0.12)',
-  },
-  chatEmojiText: { fontSize: 17 },
-
   // Chat popup bubble
   bubble: {
     backgroundColor: 'rgba(8,16,64,0.95)',
@@ -1308,49 +1830,64 @@ const styles = StyleSheet.create({
     paddingHorizontal: 10, paddingVertical: 6,
     elevation: 8,
   },
-  bubbleName: { fontSize: 10, fontWeight: '900', marginBottom: 1 },
   bubbleText: { color: '#E2E8F0', fontSize: 12, fontWeight: '600' },
 
-  // Chat sheet
-  chatWrap: { flex: 1, justifyContent: 'flex-end' },
-  chatDismiss: { flex: 1, backgroundColor: 'rgba(2,6,23,0.5)' },
-  chatSheet: {
-    backgroundColor: '#0B1026',
-    borderTopLeftRadius: 24, borderTopRightRadius: 24,
-    borderWidth: 1.5, borderColor: 'rgba(124,58,237,0.35)',
-    paddingHorizontal: 14, paddingTop: 12, paddingBottom: 20,
-    maxHeight: '62%',
+  // Chat panel — inline bottom sheet (board compresses above it)
+  chatWrap: {
+    width: '100%',
+    justifyContent: 'flex-end',
   },
-  chatHeader: { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 10, paddingHorizontal: 4 },
-  chatTitle: { color: '#F1F5F9', fontSize: 16, fontWeight: '900', flex: 1 },
+  // Quick-send emoji bar — one compact horizontal scrolling row
+  chatEmojiRow: { marginBottom: 6 },
+  chatEmojiRowInner: { gap: 8, paddingVertical: 2, paddingHorizontal: 2 },
+  chatEmojiBtn: {
+    width: 34, height: 34, borderRadius: 17,
+    backgroundColor: 'rgba(255,255,255,0.07)',
+    alignItems: 'center', justifyContent: 'center',
+    borderWidth: 1, borderColor: 'rgba(255,255,255,0.12)',
+  },
+  chatEmojiText: { fontSize: 16 },
+  chatSheet: {
+    width: '100%',
+    maxHeight: CHAT_MAX_H,
+    backgroundColor: '#0B1026',
+    borderTopLeftRadius: 20, borderTopRightRadius: 20,
+    borderWidth: 1.5, borderColor: 'rgba(124,58,237,0.35)',
+    paddingHorizontal: 12, paddingTop: 8, paddingBottom: 10,
+    elevation: 24, shadowColor: '#000',
+    shadowOpacity: 0.5, shadowRadius: 18, shadowOffset: { width: 0, height: -4 },
+  },
+  chatHeader: { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 6, paddingHorizontal: 2 },
+  chatTitle: { color: '#F1F5F9', fontSize: 14, fontWeight: '900', flex: 1 },
   chatLiveTag: {
     flexDirection: 'row', alignItems: 'center', gap: 5,
     backgroundColor: 'rgba(34,197,94,0.16)',
-    borderRadius: 10, paddingHorizontal: 8, paddingVertical: 3,
+    borderRadius: 10, paddingHorizontal: 7, paddingVertical: 2,
   },
-  chatLiveDot: { width: 6, height: 6, borderRadius: 3, backgroundColor: '#22C55E' },
-  chatLiveText: { color: '#4ADE80', fontSize: 10, fontWeight: '800' },
-  chatList: { maxHeight: 320, flexGrow: 0 },
-  chatListContent: { paddingBottom: 8 },
-  chatEmpty: { color: '#64748B', fontSize: 13, textAlign: 'center', paddingVertical: 16, fontStyle: 'italic' },
-  chatMsg: { marginBottom: 8 },
-  chatMsgMeta: { flexDirection: 'row', alignItems: 'baseline', gap: 6, marginBottom: 2 },
-  chatMsgName: { fontSize: 11, fontWeight: '900' },
-  chatMsgTime: { fontSize: 9, color: '#64748B' },
+  chatLiveDot: { width: 5, height: 5, borderRadius: 2.5, backgroundColor: '#22C55E' },
+  chatLiveText: { color: '#4ADE80', fontSize: 9, fontWeight: '800' },
+  // The list shrinks and scrolls inside the compact panel; the input stays pinned.
+  chatList: { flexShrink: 1, flexGrow: 0 },
+  chatListContent: { paddingBottom: 4 },
+  chatEmpty: { color: '#64748B', fontSize: 12, textAlign: 'center', paddingVertical: 10, fontStyle: 'italic' },
+  chatMsg: { marginBottom: 6 },
+  chatMsgMeta: { flexDirection: 'row', alignItems: 'baseline', gap: 6, marginBottom: 1 },
+  chatMsgName: { fontSize: 10, fontWeight: '900' },
+  chatMsgTime: { fontSize: 8, color: '#64748B' },
   chatBubbleRow: {
     backgroundColor: 'rgba(255,255,255,0.05)',
-    borderRadius: 10, borderLeftWidth: 3,
-    paddingHorizontal: 10, paddingVertical: 6,
+    borderRadius: 9, borderLeftWidth: 3,
+    paddingHorizontal: 9, paddingVertical: 5,
   },
-  chatMsgText: { color: '#E2E8F0', fontSize: 14, lineHeight: 19 },
-  chatInputRow: { flexDirection: 'row', alignItems: 'flex-end', gap: 8, marginTop: 6 },
+  chatMsgText: { color: '#E2E8F0', fontSize: 13, lineHeight: 18 },
+  chatInputRow: { flexDirection: 'row', alignItems: 'flex-end', gap: 8, marginTop: 5 },
   chatInput: {
     flex: 1,
     backgroundColor: 'rgba(255,255,255,0.06)',
-    borderRadius: 14,
+    borderRadius: 13,
     color: '#F1F5F9',
-    paddingHorizontal: 12, paddingVertical: 8,
-    maxHeight: 90, fontSize: 14,
+    paddingHorizontal: 11, paddingVertical: 7,
+    maxHeight: 44, fontSize: 13,
     borderWidth: 1, borderColor: 'rgba(255,255,255,0.1)',
   },
   chatSend: {

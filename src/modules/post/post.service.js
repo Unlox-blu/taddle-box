@@ -189,11 +189,13 @@ class PostService {
       const isOwner = post.author_id === userId;
       const isMod = ['admin', 'moderator', 'superadmin'].includes(userRole);
       if (!isOwner && !isMod) throw createError('Not authorized to delete this post', 403);
+      await this.postRepo.setRepostNull(postId);
       await this.postRepo.softDelete(postId);
       this.userRepo.decrementPostCount(post.author_id).catch(err => console.error('User post decrement failed:', err));
       if (post.community_id) {
         this.communityRepo.decrementPostCount(post.community_id).catch(err => console.error('Community post decrement failed:', err));
       }
+
     } catch (error) {
       throw error;
     }

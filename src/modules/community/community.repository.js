@@ -101,8 +101,6 @@ const create = async (data) => {
         data.avatarMediaId || null,
         data.bannerMediaId || null,
         data.ownerId,
-        data.avatarMediaId,
-        data.bannerMediaId,
       ]
     );
     return rows[0] ? CommunityModel.format(rows[0]) : null;

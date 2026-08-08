@@ -3,7 +3,9 @@ export type HomeStackParamList = {
   HomeMain:       undefined;
   Notifications:  undefined;
   Comments:       { post: Post };
-  UserProfile:    { user: User };
+  /** openPostId deep-links a post (e.g. from a notification) into the profile. */
+  /** openPost ships the full post so the deep-link opens without re-fetching. */
+  UserProfile:    { user: User; openPostId?: string; openPost?: any };
   StoryViewer:    { stories: Story[]; initialIndex: number };
   Bookmarks:      undefined;
   Leaderboards:   { initialTab?: 'Global' | 'Friends' | 'Games' | 'Feed' | 'Community' | 'Events' } | undefined;
@@ -100,6 +102,9 @@ export interface Post {
   isLiked: boolean;
   isSaved?: boolean;
   isXpClaimed?: boolean;
+  /** Whether the current user already reposted this post. */
+  repostedByMe?: boolean;
+  repostOfId?: string | null;
   type: 'text' | 'image' | 'video' | 'poll';
 }
 
@@ -190,7 +195,9 @@ export interface Transaction {
 
 export interface Notification {
   id: string;
-  type: 'like' | 'comment' | 'follow' | 'mention' | 'event' | 'achievement' | 'game_invite';
+  type: 'like' | 'comment' | 'follow' | 'mention' | 'event' | 'achievement' | 'game_invite' | 'post';
+  /** Actor (sender) id — used for presence dots on the avatar. */
+  senderId?: string;
   avatar: string;
   avatarUrl?: string;
   actor: string;

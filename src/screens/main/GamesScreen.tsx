@@ -41,6 +41,7 @@ import {
   type MatchmakingResponse,
 } from "../../services/games.service";
 import MainHeader from "../../components/common/MainHeader";
+import PresenceDot from "../../components/common/PresenceDot";
 import ChessGame from "../../components/games/ChessGame";
 import LudoGame from "../../components/games/LudoGame";
 import SnakeLadderGame from "../../components/games/SnakeLadderGame";
@@ -488,9 +489,29 @@ export default function GamesScreen() {
 
       {incomingInvite && (
         <View style={styles.inviteBanner}>
-          <Text style={styles.inviteBannerText}>
-            {(incomingInvite.message || "You have a new game invite!").split('|')[0].trim()}
-          </Text>
+          <View style={styles.inviteBannerRow}>
+            {/* Sender avatar + live presence dot on the custom-match invite */}
+            <View style={{ position: "relative", width: 36, height: 36 }}>
+              <View style={styles.inviteAvatar}>
+                {incomingInvite.senderAvatarUrl ? (
+                  <Image
+                    source={{ uri: incomingInvite.senderAvatarUrl }}
+                    style={{ width: 36, height: 36, borderRadius: 18 }}
+                  />
+                ) : (
+                  <Ionicons name="person" size={16} color="#fff" />
+                )}
+              </View>
+              <PresenceDot
+                userId={incomingInvite.senderId}
+                size={11}
+                style={{ bottom: -1, right: -1 }}
+              />
+            </View>
+            <Text style={styles.inviteBannerText}>
+              {(incomingInvite.message || "You have a new game invite!").split('|')[0].trim()}
+            </Text>
+          </View>
           <View style={styles.inviteBannerActions}>
             <TouchableOpacity
               style={styles.inviteJoinBtn}
@@ -2036,11 +2057,26 @@ function makeStyles(c: ColorPalette) {
       shadowOpacity: 0.3,
       shadowRadius: 8,
     },
+    inviteBannerRow: {
+      flexDirection: "row",
+      alignItems: "center",
+      gap: 10,
+      marginBottom: 12,
+    },
+    inviteAvatar: {
+      width: 36,
+      height: 36,
+      borderRadius: 18,
+      backgroundColor: "rgba(255,255,255,0.25)",
+      alignItems: "center",
+      justifyContent: "center",
+      overflow: "hidden",
+    },
     inviteBannerText: {
       color: "#fff",
       fontSize: fontSizes.md,
       fontWeight: "700",
-      marginBottom: 12,
+      flex: 1,
     },
     inviteBannerActions: {
       flexDirection: "row",

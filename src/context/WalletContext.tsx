@@ -36,6 +36,8 @@ function formatTxnDate(iso?: string): string {
 
 export type WalletState = {
   cashBalance:  number;
+  /** Cash locked for in-flight withdrawal requests — not withdrawable. */
+  heldBalance:  number;
   xpBalance:    number;
   totalEarned:  number;   // cumulative cash earned (for stats)
   totalWithdrawn: number; // cumulative withdrawals
@@ -63,6 +65,7 @@ type Action =
 
 const INITIAL: WalletState = {
   cashBalance:     0,
+  heldBalance:     0,
   xpBalance:       0,
   totalEarned:     0,
   totalWithdrawn:  0,
@@ -88,10 +91,12 @@ function reducer(state: WalletState, action: Action): WalletState {
       return { ...state, isLoading: action.isLoading };
     
     case 'WITHDRAW': {
-      // Handled by refetching or simple optimistic approach
+      // Money leaves the available balance and moves into hold until the
+      // admin backend processes the payout (or rejects and refunds it).
       return {
         ...state,
-        cashBalance: state.cashBalance - action.amount,
+        cashBalance: Math.max(0, state.cashBalance - action.amount),
+        heldBalance: state.heldBalance + action.amount,
         totalWithdrawn: state.totalWithdrawn + action.amount,
       };
     }
@@ -166,7 +171,10 @@ export function WalletProvider({ children }: { children: React.ReactNode }) {
     const handleWalletUpdated = (data: any) => {
       // balanceCents arrives in paise — convert to rupees so the hero balance
       // doesn't flash 100x the real amount after an XP conversion.
-      dispatch({ type: 'SET_DATA', payload: { cashBalance: (data.balanceCents || 0) / 100 } });
+      dispatch({ type: 'SET_DATA', payload: {
+        cashBalance: (data.balanceCents || 0) / 100,
+        heldBalance: (data.heldBalanceCents ?? 0) / 100,
+      } });
     };
     const handleXPUpdated = (data: any) => {
       dispatch({ type: 'SET_DATA', payload: { xpBalance: data.xp } });
@@ -234,6 +242,7 @@ export function WalletProvider({ children }: { children: React.ReactNode }) {
 
       dispatch({ type: 'SET_DATA', payload: {
         cashBalance: (walletRes.data?.balanceCents || 0) / 100,
+        heldBalance: (walletRes.data?.heldBalanceCents || 0) / 100,
         linkedUPI: walletRes.data?.linkedUpi || null,
         notifXP: settingsRes.data?.notifXP ?? true,
         notifWithdraw: settingsRes.data?.notifWithdraw ?? true,
@@ -252,7 +261,10 @@ export function WalletProvider({ children }: { children: React.ReactNode }) {
     withdraw: async (amountRupees) => {
       try {
         const res = await walletService.initiateWithdrawal(amountRupees * 100);
-        await fetchWalletData(); // optional, balance won't deduct till webhook 
+        // Balance moves to hold immediately server-side; reflect it locally so
+        // the hero shows the hold without waiting for a full refetch.
+        dispatch({ type: 'WITHDRAW', amount: amountRupees });
+        await fetchWalletData();
         return res.data?.handoffUrl;
       } catch (e) {
         console.error('Withdraw failed', e);

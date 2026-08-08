@@ -54,8 +54,10 @@ const normalizePostResult = (item: any): Post => {
     likes: item.likes ?? item.likesCount ?? item.likes_count ?? 0,
     comments: item.comments ?? item.commentsCount ?? item.comments_count ?? 0,
     shares: item.shares ?? item.sharesCount ?? item.shares_count ?? 0,
+    // Backend returns is_liked / is_bookmarked (snake_case) — accept all
+    // spellings so search results render the heart + bookmark icons correctly.
     isLiked: !!(item.isLiked ?? item.is_liked),
-    isSaved: !!(item.isSaved ?? item.is_saved),
+    isSaved: !!(item.isSaved ?? item.is_saved ?? item.isBookmarked ?? item.is_bookmarked),
     createdAt: item.createdAt || item.created_at,
     publishedAt: item.publishedAt || item.published_at,
     type: item.type || (item.media?.length ? "image" : "text"),
@@ -174,17 +176,34 @@ export default function SearchScreen({ navigation, route }: Props) {
 
     if (type === "posts") {
       const post = normalizePostResult(data);
+      // Patch the row in local state so the icon flips instantly and stays
+      // consistent across re-renders (search results aren't react-query
+      // cached, so the useToggleSave/useToggleLike cache updates miss them).
+      const patchPost = (patch: Partial<Post>) => {
+        setRows((prev) =>
+          prev.map((row) =>
+            row.isHeader || row.type !== "posts" || (row.item as any)?.id !== post.id
+              ? row
+              : { ...row, item: { ...(row.item as any), ...patch } },
+          ),
+        );
+      };
       return (
         <PostCard
           post={post}
-          onLike={() =>
-            toggleLike({ id: post.id, isCurrentlyLiked: post.isLiked || false })
+          onLike={() => {
+            toggleLike({ id: post.id, isCurrentlyLiked: post.isLiked || false });
+            patchPost({ isLiked: !post.isLiked });
+          }}
+          onSave={() => {
+            toggleSave({ id: post.id, isCurrentlySaved: post.isSaved || false });
+            patchPost({ isSaved: !post.isSaved });
+          }}
+          onComment={(p: any) =>
+            navigation.navigate("Comments", { post: p ?? post })
           }
-          onSave={() =>
-            toggleSave({ id: post.id, isCurrentlySaved: post.isSaved || false })
-          }
-          onComment={() => navigation.navigate("Comments", { post })}
           onShare={() => {}}
+          onReposted={() => fetchResults(query, activeTab)}
         />
       );
     }

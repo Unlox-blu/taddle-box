@@ -1,4 +1,4 @@
-import React, { useMemo, useState, useEffect, useCallback } from "react";
+import React, { useMemo, useState, useEffect, useCallback, useRef } from "react";
 import {
   View,
   Text,
@@ -24,6 +24,9 @@ import { useNavigation, useFocusEffect } from "@react-navigation/native";
 import { WebView } from "react-native-webview";
 import SharedFeed from "../common/SharedFeed";
 import { postsService } from "../../services/posts.service";
+import { presenceIndicator } from "../../context/PresenceContext";
+import CommentsModal from "../home/CommentsModal";
+import PresenceDot from "../common/PresenceDot";
 
 const { width } = Dimensions.get("window");
 
@@ -49,6 +52,17 @@ function makeStyles(c: ColorPalette) {
       position: "absolute",
       top: 0, bottom: 0, left: 0, right: 0,
     },
+    // Melts the banner into the page background. Tall + dark-at-top so the
+    // overlapping avatar/name sit on a soft scrim that becomes the exact page
+    // color at the banner's bottom edge — no hard seam, and the name stays
+    // readable even over a busy banner photo.
+    bannerFade: {
+      position: "absolute",
+      bottom: 0,
+      left: 0,
+      right: 0,
+      height: 150,
+    },
     bannerEditBtn: {
       position: "absolute",
       top: 12, right: 12,
@@ -59,6 +73,10 @@ function makeStyles(c: ColorPalette) {
     },
     bannerEditText: { fontSize: fontSizes.xs, fontWeight: "700", color: "#fff" },
     heroGrad: { paddingBottom: 4 },
+    // NO solid background — the row floats over the banner's fade gradient so
+    // the avatar and identity block visually melt into the cover instead of
+    // sitting on a hard-edged solid slab (the fade's dark scrim keeps the name
+    // legible; the fade ends exactly at the page background color).
     profileRow: {
       flexDirection: "row",
       gap: 16,
@@ -66,10 +84,6 @@ function makeStyles(c: ColorPalette) {
       marginTop: -48,
       paddingHorizontal: spacing.xl,
       paddingBottom: 14,
-      // Solid page background behind the identity block — the avatar still
-      // overlaps the banner (Facebook style) but the name/bio/links sit on a
-      // solid surface so the banner image never covers or hides them.
-      backgroundColor: c.bg.base,
     },
     mutualAvatars: { flexDirection: "row", alignItems: "center" },
     mutualAvatar: {
@@ -124,7 +138,24 @@ function makeStyles(c: ColorPalette) {
       color: c.text.muted,
       fontWeight: "600",
     },
-    bio: { fontSize: fontSizes.sm, color: c.text.secondary, lineHeight: 18 },
+    bio: { fontSize: fontSizes.sm, color: c.text.secondary, lineHeight: 20 },
+    bioSection: {
+      paddingHorizontal: spacing.xl,
+      paddingTop: 10,
+      paddingBottom: 4,
+    },
+    locationRow: {
+      flexDirection: "row",
+      alignItems: "center",
+      gap: 5,
+      marginTop: 8,
+    },
+    locationText: {
+      fontSize: fontSizes.sm,
+      color: c.text.muted,
+      fontWeight: "500",
+      flexShrink: 1,
+    },
     linkRow: {
       flexDirection: "row",
       alignItems: "center",
@@ -259,26 +290,6 @@ function makeStyles(c: ColorPalette) {
       justifyContent: "center",
     },
 
-    infoCard: {
-      marginHorizontal: spacing.lg,
-      marginVertical: spacing.md,
-      backgroundColor: c.bg.card,
-      borderRadius: radii.lg,
-      borderWidth: 1,
-      borderColor: c.border,
-      paddingHorizontal: spacing.md,
-      paddingVertical: spacing.sm,
-      gap: 10,
-    },
-    infoRow: { flexDirection: "row", alignItems: "center", gap: 10 },
-    infoLabel: { fontSize: fontSizes.xs, color: c.text.muted, width: 90 },
-    infoValue: {
-      flex: 1,
-      fontSize: fontSizes.sm,
-      fontWeight: "600",
-      color: c.text.primary,
-    },
-
     sectionLabel: {
       fontSize: fontSizes.xs,
       fontWeight: "700",
@@ -288,6 +299,49 @@ function makeStyles(c: ColorPalette) {
       paddingHorizontal: spacing.xl,
       marginBottom: 10,
       marginTop: 4,
+    },
+    postTabs: {
+      flexDirection: "row",
+      marginHorizontal: spacing.xl,
+      marginTop: 6,
+      borderBottomWidth: 1,
+      borderBottomColor: c.border,
+    },
+    postTab: {
+      flex: 1,
+      alignItems: "center",
+      paddingVertical: 10,
+      position: "relative",
+    },
+    postTabText: {
+      fontSize: fontSizes.md,
+      fontWeight: "700",
+      color: c.text.muted,
+    },
+    postTabTextActive: {
+      color: c.primaryLight,
+    },
+    postTabActiveBar: {
+      position: "absolute",
+      bottom: -1,
+      left: 0,
+      right: 0,
+      height: 2.5,
+      borderTopLeftRadius: radii.full,
+      borderTopRightRadius: radii.full,
+      backgroundColor: c.primaryLight,
+    },
+    achievementsCard: {
+      marginHorizontal: spacing.lg,
+      marginTop: spacing.md,
+      marginBottom: spacing.md,
+      backgroundColor: c.bg.card,
+      borderRadius: radii.lg,
+      borderWidth: 1,
+      borderColor: c.border,
+      paddingTop: spacing.sm,
+      paddingBottom: spacing.md,
+      overflow: "hidden",
     },
 
     badgeScroll: {
@@ -379,12 +433,20 @@ interface SharedProfileProps {
   isOwnProfile: boolean;
   onRefresh?: () => void;
   headerComponent?: React.ReactNode;
+  /** Post id to auto-open (comments) once the profile + posts load — used for
+   *  notification deep links that land on the post inside the profile page. */
+  openPostId?: string;
+  /** Full post shipped with the navigation — opens the comments immediately
+   *  without waiting on the profile's own posts fetch. */
+  openPost?: any;
 }
 
 export default function SharedProfile({
   initialUser,
   isOwnProfile,
   headerComponent,
+  openPostId,
+  openPost,
 }: SharedProfileProps) {
   const { isDark } = useTheme();
   const colors = useThemeColors();
@@ -402,7 +464,7 @@ export default function SharedProfile({
 
   const [showFollowList, setShowFollowList] = useState(false);
   const [followListType, setFollowListType] = useState<
-    "followers" | "following"
+    "followers" | "following" | "mutuals"
   >("followers");
   // In-app browser — profile/bio links open here instead of the system browser.
   const [browserUrl, setBrowserUrl] = useState<string | null>(null);
@@ -410,6 +472,15 @@ export default function SharedProfile({
   const { user: currentUser } = useAuth();
   const [posts, setPosts] = useState<any[]>([]);
   const [loadingPosts, setLoadingPosts] = useState(true);
+  // Profile feed filter: "Posts" (originals) vs "Reposts" (Twitter-style).
+  const [profileTab, setProfileTab] = useState<"posts" | "reposts">("posts");
+  // Guards against out-of-order responses when switching tabs fast — only the
+  // latest request may commit its posts.
+  const postsReqRef = useRef(0);
+  // Deep-link: a notification tapped through to a post inside this profile.
+  const [openCommentPost, setOpenCommentPost] = useState<any>(null);
+  const [openCommentVisible, setOpenCommentVisible] = useState(false);
+  const openPostHandledRef = useRef<string | null>(null);
 
   const handleDeletePost = async (post: any) => {
     Alert.alert("Delete Post", "Are you sure you want to delete this post?", [
@@ -447,6 +518,7 @@ export default function SharedProfile({
   }, [initialUser?.username]);
 
   const loadPosts = useCallback(async () => {
+    const reqId = ++postsReqRef.current;
     try {
       if (!user?.id) return;
       // Private accounts: don't even ask the API for posts the viewer can't see.
@@ -456,16 +528,18 @@ export default function SharedProfile({
         return;
       }
       setLoadingPosts(true);
-      const postsRes = await postsService.getUserPosts(user.id);
+      const postsRes = await postsService.getUserPosts(user.id, 1, 20, profileTab);
+      // A newer request (e.g. tab switch) started after this one — drop this.
+      if (postsReqRef.current !== reqId) return;
       if (postsRes?.data) {
         setPosts(postsRes.data);
       }
     } catch (e) {
       console.warn("Failed to load user posts", e);
     } finally {
-      setLoadingPosts(false);
+      if (postsReqRef.current === reqId) setLoadingPosts(false);
     }
-  }, [user?.id, user?.privacy, followed, isOwnProfile]);
+  }, [user?.id, user?.privacy, followed, isOwnProfile, profileTab]);
 
   useEffect(() => {
     if (user?.id) loadPosts();
@@ -484,6 +558,48 @@ export default function SharedProfile({
   // Private accounts hide their posts until the viewer is an approved follower.
   const isLocked =
     !isOwnProfile && user?.privacy === "private" && !followed;
+
+  // Notification deep links: open the post's comments right inside this page.
+  // A full post shipped via `openPost` opens instantly; otherwise wait until
+  // the profile's posts load (or fetch the post by id) and open it then.
+  // Private accounts the viewer can't access are skipped entirely — fetching
+  // the post would only 403 (a useless request), so we never fire it.
+  useEffect(() => {
+    const key = openPost?.id || openPostId;
+    if (!key || openPostHandledRef.current === key) return;
+    // Wait for the profile fetch so privacy/follow state is known before
+    // deciding whether the deep-linked post is even viewable (initialUser
+    // from navigation doesn't carry `privacy`).
+    if (loadingProfile) return;
+    // Locked private account → skip: no post fetch, no comments modal.
+    if (isLocked) {
+      openPostHandledRef.current = key;
+      return;
+    }
+    if (openPost) {
+      openPostHandledRef.current = key;
+      setOpenCommentPost(openPost);
+      setOpenCommentVisible(true);
+      return;
+    }
+    if (!user?.id) return;
+    openPostHandledRef.current = key;
+    const target = posts.find((p: any) => String(p.id) === String(key));
+    if (target) {
+      setOpenCommentPost(target);
+      setOpenCommentVisible(true);
+    } else {
+      postsService
+        .getPost(key)
+        .then((res) => {
+          if (res?.data) {
+            setOpenCommentPost(res.data);
+            setOpenCommentVisible(true);
+          }
+        })
+        .catch(() => {});
+    }
+  }, [openPost, openPostId, user?.id, posts, isLocked, loadingProfile]);
 
   const handleFollowToggle = async () => {
     try {
@@ -525,7 +641,7 @@ export default function SharedProfile({
         user?.id &&
         !(!isOwnProfile && user?.privacy === "private" && !followed)
       ) {
-        const postsRes = await postsService.getUserPosts(user.id);
+        const postsRes = await postsService.getUserPosts(user.id, 1, 20, profileTab);
         if (postsRes?.data) setPosts(postsRes.data);
       }
     } catch (e) {
@@ -533,7 +649,7 @@ export default function SharedProfile({
     } finally {
       setRefreshing(false);
     }
-  }, [loadProfile, user?.id, isOwnProfile, followed]);
+  }, [loadProfile, user?.id, isOwnProfile, followed, profileTab]);
 
   const refreshControl = (
     <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={colors.primary} />
@@ -554,7 +670,8 @@ export default function SharedProfile({
   };
 
   // Instagram-style "Followed by x, y and N others" — backend computes the
-  // mutuals for the logged-in viewer (hidden for locked private accounts).
+  // mutuals for the logged-in viewer; mutuals are GLOBAL (shown even on
+  // private accounts without a follow request, and on the viewer's own page).
   const mutualUsers = (user?.mutuals?.users || []).slice(0, 2);
   const mutualCount = user?.mutuals?.count || mutualUsers.length;
 
@@ -576,16 +693,17 @@ export default function SharedProfile({
           colors={["transparent", "rgba(0,0,0,0.5)"]}
           style={styles.bannerShade}
         />
-        {isOwnProfile && (
-          <TouchableOpacity
-            style={styles.bannerEditBtn}
-            activeOpacity={0.8}
-            onPress={() => navigation.navigate("EditProfile")}
-          >
-            <Ionicons name="camera-outline" size={13} color="#fff" />
-            <Text style={styles.bannerEditText}>Edit Cover</Text>
-          </TouchableOpacity>
-        )}
+        {/* Fade the banner into the page background. Starts FULLY transparent
+            (no visible band mid-banner — a semi-transparent top edge is what
+            created the "broken gradient" line) and ends at the exact page
+            color so the merge is seamless. The bannerShade beneath supplies
+            the text scrim. */}
+        <LinearGradient
+          colors={["transparent", colors.bg.base]}
+          start={{ x: 0, y: 0 }}
+          end={{ x: 0, y: 1 }}
+          style={styles.bannerFade}
+        />
       </View>
 
       {/* Identity row — avatar overlaps the banner */}
@@ -610,6 +728,42 @@ export default function SharedProfile({
           >
             <Text style={styles.levelText}>{user?.level || 1}</Text>
           </LinearGradient>
+          {(() => {
+            const indicator = presenceIndicator(user?.presence);
+            if (!indicator) return null;
+            return (
+              <View
+                style={{
+                  position: "absolute",
+                  top: 4,
+                  right: 4,
+                  width: 18,
+                  height: 18,
+                  borderRadius: 9,
+                  alignItems: "center",
+                  justifyContent: "center",
+                  // Border kept thin so the icon fills the circle instead of
+                  // drowning in a fat ring (the "awkward" look before).
+                  borderWidth: 2,
+                  borderColor: colors.bg.base,
+                  backgroundColor:
+                    indicator === "online"
+                      ? colors.primary
+                      : "rgba(124,58,237,0.18)",
+                }}
+              >
+                {indicator === "recent" ? (
+                  // Clock glyph sized to fill the bubble (Ionicons "time" has
+                  // generous internal padding, so size ~12 inside an 18px ring).
+                  <Ionicons
+                    name="time"
+                    size={12}
+                    color="rgba(124,58,237,0.9)"
+                  />
+                ) : null}
+              </View>
+            );
+          })()}
         </View>
         <View style={styles.profileInfo}>
           <Text style={styles.name}>{user?.name || "Taddle User"}</Text>
@@ -621,75 +775,134 @@ export default function SharedProfile({
               <Ionicons name="lock-closed" size={12} color={colors.text.muted} />
             )}
           </View>
-          {user?.bio ? (
-            <BioText
-              text={user.bio}
-              style={styles.bio}
-              colors={colors}
-              onLinkPress={setBrowserUrl}
-            />
-          ) : (
-            <Text style={styles.bio}>No bio yet.</Text>
-          )}
-          {!!user?.websiteUrl && (
-            <TouchableOpacity
-              style={styles.linkRow}
-              activeOpacity={0.7}
-              onPress={() => setBrowserUrl(normalizeUrl(user.websiteUrl))}
-            >
+        </View>
+      </View>
+
+      {/* Bio + location + links — Instagram-style, below the identity row */}
+      <View style={styles.bioSection}>
+        {/* No placeholder when the bio is empty — nothing renders (Instagram-style). */}
+        {user?.bio ? (
+          <BioText
+            text={user.bio}
+            style={styles.bio}
+            colors={colors}
+            onLinkPress={setBrowserUrl}
+          />
+        ) : null}
+        {!!user?.location && (
+          <View style={styles.locationRow}>
+            <Ionicons name="location-outline" size={13} color={colors.text.muted} />
+            <Text style={styles.locationText} numberOfLines={1}>
+              {user.location}
+            </Text>
+          </View>
+        )}
+        {/* Organization / college — sits right next to the location, with an
+            icon that matches the account's occupation (college for students,
+            briefcase for professionals, generic org otherwise). */}
+        {(() => {
+          const orgName =
+            typeof user?.organization === "string"
+              ? user.organization
+              : user?.organization?.name ||
+                user?.organization?.type ||
+                "";
+          if (!orgName || orgName === "None") return null;
+          return (
+            <View style={styles.locationRow}>
               <Ionicons
-                name="link-outline"
+                name={
+                  user?.occupation === "Student"
+                    ? "school-outline"
+                    : user?.occupation === "Working Professional"
+                      ? "briefcase-outline"
+                      : "business-outline"
+                }
                 size={13}
-                color={colors.primaryLight}
+                color={colors.text.muted}
               />
-              <Text style={styles.linkText} numberOfLines={1}>
-                {user.websiteUrl.replace(/^https?:\/\//, "")}
-              </Text>
-            </TouchableOpacity>
-          )}
-          {!isOwnProfile && !isLocked && mutualUsers.length > 0 && (
-            <View style={styles.mutualRow}>
-              <View style={styles.mutualAvatars}>
-                {mutualUsers.map((u: any, i: number) => (
-                  <View
-                    key={i}
-                    style={[
-                      styles.mutualAvatar,
-                      { marginLeft: i === 0 ? 0 : -8, zIndex: mutualUsers.length - i },
-                    ]}
-                  >
-                    {u.avatar ? (
-                      <Image source={{ uri: u.avatar }} style={styles.mutualAvatarImg} />
-                    ) : (
-                      <Text style={styles.mutualAvatarText}>
-                        {(u.name || u.username || "?")[0].toUpperCase()}
-                      </Text>
-                    )}
-                  </View>
-                ))}
-              </View>
-              <Text style={styles.mutualText} numberOfLines={1}>
-                Followed by{" "}
-                <Text style={styles.mutualName}>
-                  {mutualUsers.map((u: any) => u.name || u.username).join(", ")}
-                </Text>
-                {mutualCount > mutualUsers.length && (
-                  // Nested <Text> (NOT a fragment) — fragments carrying raw
-                  // text nodes inside <Text> trigger RN's "Text strings must be
-                  // rendered within a <Text> component" error.
-                  <Text style={styles.mutualText}>
-                    {" "}and{" "}
-                    <Text style={styles.mutualName}>
-                      {mutualCount - mutualUsers.length}{" "}
-                      {mutualCount - mutualUsers.length === 1 ? "other" : "others"}
-                    </Text>
-                  </Text>
-                )}
+              <Text style={styles.locationText} numberOfLines={1}>
+                {orgName}
               </Text>
             </View>
-          )}
-        </View>
-      </View>          <View style={styles.statsRow}>
+          );
+        })()}
+        {!!user?.websiteUrl && (
+          <TouchableOpacity
+            style={styles.linkRow}
+            activeOpacity={0.7}
+            onPress={() => setBrowserUrl(normalizeUrl(user.websiteUrl))}
+          >
+            <Ionicons
+              name="link-outline"
+              size={13}
+              color={colors.primaryLight}
+            />
+            <Text style={styles.linkText} numberOfLines={1}>
+              {user.websiteUrl.replace(/^https?:\/\//, "")}
+            </Text>
+          </TouchableOpacity>
+        )}
+        {/* Instagram-style "Followed by…" — under the bio, shown on every
+            account (private or not, even the viewer's own) because mutuals
+            are the viewer's own connections, not the target's follower list. */}
+        {mutualUsers.length > 0 && (
+          <TouchableOpacity
+            style={styles.mutualRow}
+            activeOpacity={0.7}
+            onPress={() => {
+              setFollowListType("mutuals");
+              setShowFollowList(true);
+            }}
+          >
+            <View style={styles.mutualAvatars}>
+              {mutualUsers.map((u: any, i: number) => (
+                <View
+                  key={i}
+                  style={[
+                    styles.mutualAvatar,
+                    { marginLeft: i === 0 ? 0 : -8, zIndex: mutualUsers.length - i },
+                  ]}
+                >
+                  {u.avatar ? (
+                    <Image source={{ uri: u.avatar }} style={styles.mutualAvatarImg} />
+                  ) : (
+                    <Text style={styles.mutualAvatarText}>
+                      {(u.name || u.username || "?")[0].toUpperCase()}
+                    </Text>
+                  )}
+                </View>
+              ))}
+            </View>
+            <Text style={styles.mutualText} numberOfLines={1}>
+              Followed by{" "}
+              <Text style={styles.mutualName}>
+                {mutualUsers.map((u: any) => u.name || u.username).join(", ")}
+              </Text>
+              {mutualCount > mutualUsers.length && (
+                // Nested <Text> (NOT a fragment) — fragments carrying raw
+                // text nodes inside <Text> trigger RN's "Text strings must be
+                // rendered within a <Text> component" error.
+                <Text style={styles.mutualText}>
+                  {" "}and{" "}
+                  <Text style={styles.mutualName}>
+                    {mutualCount - mutualUsers.length}{" "}
+                    {mutualCount - mutualUsers.length === 1 ? "other" : "others"}
+                  </Text>
+                </Text>
+              )}
+            </Text>
+            <Ionicons
+              name="chevron-forward"
+              size={14}
+              color={colors.text.muted}
+              style={{ marginLeft: 2 }}
+            />
+          </TouchableOpacity>
+        )}
+      </View>
+
+      <View style={styles.statsRow}>
           <View style={styles.statItem}>
             <Text style={styles.statVal}>
               {(user?.postCount || 0).toLocaleString()}
@@ -734,10 +947,16 @@ export default function SharedProfile({
             </TouchableOpacity>
           )}
           <View style={styles.statItem}>
-            <Text style={[styles.statVal, { color: colors.xpGold }]}>
-              {(user?.xp || 0).toLocaleString()}
+            <Text
+              numberOfLines={1}
+              adjustsFontSizeToFit
+              style={[styles.statVal, { color: colors.xpGold }]}
+            >
+              {user?.rank || "Beginner"}
             </Text>
-            <Text style={styles.statLabel}>Total XP</Text>
+            {/* Rank icon replaces the old "Rank" label text — the rank name
+                (Beginner/Pro/...) stays as the value, the icon sits below it. */}
+            <Ionicons name="ribbon" size={14} color={colors.xpGold} style={{ marginTop: 3 }} />
           </View>
         </View>
 
@@ -870,50 +1089,19 @@ export default function SharedProfile({
         </TouchableOpacity>
       )}
 
-      <XPProgressBar
-        level={user?.level || 1}
-        rank={user?.rank || "Beginner"}
-        currentXP={user?.totalXpEarned || user?.xp || 0}
-        targetXP={user?.xpToNext || 1000}
-      />
+      {isOwnProfile && (
+        <XPProgressBar
+          level={user?.level || 1}
+          rank={user?.rank || "Beginner"}
+          currentXP={user?.totalXpEarned || user?.xp || 0}
+          targetXP={user?.xpToNext || 1000}
+        />
+      )}
 
-      <View style={styles.infoCard}>
-        {[
-          {
-            icon: "school-outline",
-            label: "Organization",
-            value:
-              typeof user?.organization === "string"
-                ? user.organization
-                : user?.organization?.name ||
-                  user?.organization?.type ||
-                  "None",
-          },
-          {
-            icon: "people-outline",
-            label: "Communities",
-            value: `${user?.communitiesJoinedCount || 0} joined`,
-          },
-          {
-            icon: "game-controller-outline",
-            label: "Games",
-            value: `${user?.gamesPlayedCount || 0} played`,
-          },
-        ].map((item) => (
-          <View key={item.label} style={styles.infoRow}>
-            <Ionicons
-              name={item.icon as any}
-              size={16}
-              color={colors.primaryLight}
-            />
-            <Text style={styles.infoLabel}>{item.label}</Text>
-            <Text style={styles.infoValue}>{item.value}</Text>
-          </View>
-        ))}
-      </View>
-
-      {(user?.badges || []).length > 0 && (
-        <>
+      {/* Achievements are hidden on private accounts the viewer doesn't
+          follow yet — they're part of the gated profile content. */}
+      {!isLocked && (user?.badges || []).length > 0 && (
+        <View style={styles.achievementsCard}>
           <Text style={styles.sectionLabel}>Achievements 🏆</Text>
           <ScrollView
             horizontal
@@ -941,10 +1129,33 @@ export default function SharedProfile({
               );
             })}
           </ScrollView>
-        </>
+        </View>
       )}
 
-      <Text style={styles.sectionLabel}>Posts</Text>
+      {/* Posts / Reposts — segmented tab bar (Twitter-style underline). Hidden
+          on locked private accounts along with the feed itself. */}
+      {!isLocked && (
+        <View style={styles.postTabs}>
+          {(["posts", "reposts"] as const).map((tab) => (
+            <TouchableOpacity
+              key={tab}
+              style={styles.postTab}
+              activeOpacity={0.7}
+              onPress={() => setProfileTab(tab)}
+            >
+              <Text
+                style={[
+                  styles.postTabText,
+                  profileTab === tab && styles.postTabTextActive,
+                ]}
+              >
+                {tab === "posts" ? "Posts" : "Reposts"}
+              </Text>
+              {profileTab === tab && <View style={styles.postTabActiveBar} />}
+            </TouchableOpacity>
+          ))}
+        </View>
+      )}
     </View>
   );
 
@@ -968,11 +1179,14 @@ export default function SharedProfile({
             <Text style={[styles.lockSub, { color: colors.text.muted }]}>
               {followStatus === "pending"
                 ? "Your follow request is waiting for approval."
-                : `Follow @${user?.username || "user"} to see their posts.`}
+                : `Follow @${user?.username || "user"} to see their posts and achievements.`}
             </Text>
           </View>
         </ScrollView>
-      ) : loadingPosts ? (
+      // Keep the feed list mounted during tab switches (only show the
+      // full-screen spinner on the very first load) so switching Posts ↔
+      // Reposts never resets the scroll position to the top of the page.
+      ) : loadingPosts && posts.length === 0 ? (
         <ScrollView showsVerticalScrollIndicator={false} refreshControl={refreshControl}>
           {profileHeader}
           <View style={{ padding: 40, alignItems: "center" }}>
@@ -983,7 +1197,11 @@ export default function SharedProfile({
         <ScrollView showsVerticalScrollIndicator={false} refreshControl={refreshControl}>
           {profileHeader}
           <View style={{ padding: 40, alignItems: "center" }}>
-            <Text style={{ color: colors.text.muted }}>No posts yet — pull down to refresh.</Text>
+            <Text style={{ color: colors.text.muted }}>
+              {profileTab === "reposts"
+                ? "No reposts yet."
+                : "No posts yet — pull down to refresh."}
+            </Text>
           </View>
         </ScrollView>
       ) : (
@@ -991,13 +1209,24 @@ export default function SharedProfile({
           posts={posts}
           setPosts={setPosts}
           onDelete={handleDeletePost}
+          onReposted={loadPosts}
           refreshing={refreshing}
           onRefresh={onRefresh}
           ListHeaderComponent={profileHeader}
           ListFooterComponent={<View style={{ height: 100 }} />}
           contentContainerStyle={{ gap: 12 }}
+          // View counts are shown ONLY on the profile page, never in the
+          // main feed / community feeds.
+          showViews
         />
       )}
+
+      {/* Deep-linked post (from a notification) opens inside this profile page */}
+      <CommentsModal
+        visible={openCommentVisible}
+        onClose={() => setOpenCommentVisible(false)}
+        post={openCommentPost}
+      />
 
       {/* QR Code Modal */}
       {qrModalVisible && (
@@ -1079,16 +1308,23 @@ export default function SharedProfile({
         </View>
       )}
 
-      {/* Follow List Modal */}
+      {/* Follow List Modal — data ships inline with the profile response so no
+          extra followers/following/mutuals API round-trips are needed. */}
       {showFollowList && (
         <FollowListModal
           visible={showFollowList}
           onClose={() => setShowFollowList(false)}
           type={followListType}
-          username={user?.username}
+          user={user}
           isOwnProfile={isOwnProfile}
           styles={styles}
           colors={colors}
+          onFollowerRemoved={() =>
+            setUser((prev: any) => ({
+              ...prev,
+              followerCount: Math.max(0, (prev.followerCount || 0) - 1),
+            }))
+          }
         />
       )}
 
@@ -1145,37 +1381,27 @@ function FollowListModal({
   visible,
   onClose,
   type,
-  username,
+  user,
   isOwnProfile,
   styles,
   colors,
+  onFollowerRemoved,
 }: any) {
   const navigation = useNavigation<any>();
-  const [users, setUsers] = useState<any[]>([]);
-  const [loading, setLoading] = useState(true);
+  // Lists are shipped inside the profile response (see getProfile), so the
+  // modal renders instantly without hitting /users/:username/followers etc.
+  // A local copy keeps the Unfollow action working without mutating the prop.
+  const source = React.useMemo(() => {
+    if (type === "followers") return user?.followers || [];
+    if (type === "following") return user?.following || [];
+    return user?.mutuals?.users || [];
+  }, [type, user]);
+  const [users, setUsers] = useState<any[]>(source);
+  const [loading, setLoading] = useState(false);
 
-  useEffect(() => {
-    if (visible && username) {
-      loadData();
-    }
-  }, [visible, username, type]);
-
-  const loadData = async () => {
-    setLoading(true);
-    try {
-      if (type === "followers") {
-        const res = await userService.getFollowers(username);
-        setUsers(res.data || []);
-      } else {
-        const res = await userService.getFollowing(username);
-        setUsers(res.data || []);
-      }
-    } catch (e) {
-      console.log("Failed to load list", e);
-    } finally {
-      setLoading(false);
-    }
-  };
+  React.useEffect(() => {
+    setUsers(source);
+  }, [source]);
 
   const handleUnfollow = async (targetUsername: string) => {
     try {
@@ -1183,6 +1409,19 @@ function FollowListModal({
       setUsers((prev) => prev.filter((u) => u.username !== targetUsername));
     } catch (e) {
       console.log("Failed to unfollow", e);
+    }
+  };
+
+  // Own profile, followers tab: remove a follower (not a block — they can
+  // re-follow). Reflects instantly in the list + the follower count chip.
+  const handleRemoveFollower = async (targetUsername: string) => {
+    try {
+      await userService.removeFollower(targetUsername);
+      setUsers((prev) => prev.filter((u) => u.username !== targetUsername));
+      onFollowerRemoved?.();
+    } catch (e) {
+      console.warn("Failed to remove follower", e);
+      Alert.alert("Error", "Failed to remove follower. Please try again.");
     }
   };
 
@@ -1194,7 +1433,11 @@ function FollowListModal({
         <View style={styles.modalContent}>
           <View style={styles.modalHeader}>
             <Text style={styles.modalTitle}>
-              {type === "followers" ? "Followers" : "Following"}
+              {type === "followers"
+                ? "Followers"
+                : type === "mutuals"
+                  ? "Mutuals"
+                  : "Following"}
             </Text>
             <TouchableOpacity onPress={onClose}>
               <Ionicons name="close" size={24} color={colors.text.secondary} />
@@ -1234,15 +1477,18 @@ function FollowListModal({
                   }}
                 >
                   <View style={styles.userInfo}>
-                    <View style={styles.userAvatar}>
-                      {item.avatarUrl || item.avatar_url ? (
-                        <Image
-                          source={{ uri: item.avatarUrl || item.avatar_url }}
-                          style={{ width: "100%", height: "100%" }}
-                        />
-                      ) : (
-                        <Text style={{ fontSize: 20 }}>👾</Text>
-                      )}
+                    <View style={{ position: "relative" }}>
+                      <View style={styles.userAvatar}>
+                        {item.avatarUrl || item.avatar_url || item.avatar ? (
+                          <Image
+                            source={{ uri: item.avatarUrl || item.avatar_url || item.avatar }}
+                            style={{ width: "100%", height: "100%" }}
+                          />
+                        ) : (
+                          <Text style={{ fontSize: 20 }}>👾</Text>
+                        )}
+                      </View>
+                      <PresenceDot userId={item.id || item.user_id} size={13} />
                     </View>
                     <View>
                       <Text style={styles.userName}>
@@ -1251,12 +1497,22 @@ function FollowListModal({
                       <Text style={styles.userHandle}>@{item.username}</Text>
                     </View>
                   </View>
-                  {isOwnProfile && type === "following" && (
+                  {(type === "following" || type === "mutuals") && (
+                    // Mutuals are, by definition, people the viewer already
+                    // follows — offer Unfollow right from the list.
                     <TouchableOpacity
                       style={styles.unfollowBtn}
                       onPress={() => handleUnfollow(item.username)}
                     >
                       <Text style={styles.unfollowBtnText}>Unfollow</Text>
+                    </TouchableOpacity>
+                  )}
+                  {isOwnProfile && type === "followers" && (
+                    <TouchableOpacity
+                      style={styles.unfollowBtn}
+                      onPress={() => handleRemoveFollower(item.username)}
+                    >
+                      <Text style={styles.unfollowBtnText}>Remove</Text>
                     </TouchableOpacity>
                   )}
                 </TouchableOpacity>
@@ -1286,22 +1542,78 @@ function BioText({
   colors: any;
   onLinkPress: (url: string) => void;
 }) {
-  const parts = text.split(/(https?:\/\/[^\s]+)/g);
+  const navigation = useNavigation<any>();
+  // URLs, @username mentions and c/community-slug references render as
+  // tappable links — Instagram-style bio. @mentions resolve to a user first
+  // and fall back to a community with that slug.
+  const parts = text.split(
+    /(https?:\/\/[^\s]+|@[A-Za-z0-9_]+|c\/[A-Za-z0-9_]+)/g,
+  );
+
+  const openMention = async (handle: string) => {
+    try {
+      const res = await userService.getProfile(handle);
+      navigation.navigate("UserProfile", {
+        user: {
+          username: handle,
+          name: handle,
+          avatarUrl: res?.data?.avatarUrl || "",
+        } as any,
+      });
+    } catch (e) {
+      // Not a user account — treat it as a community slug.
+      navigation.navigate("Community" as any, {
+        screen: "CommunityDetail",
+        params: { communitySlug: handle },
+      } as any);
+    }
+  };
+
   return (
     <Text style={style}>
-      {parts.map((part, i) =>
-        part.startsWith("http") ? (
-          <Text
-            key={i}
-            style={{ color: colors.primaryLight, fontWeight: "600" }}
-            onPress={() => onLinkPress(normalizeUrl(part))}
-          >
-            {part}
-          </Text>
-        ) : (
-          <Text key={i}>{part}</Text>
-        ),
-      )}
+      {parts.map((part, i) => {
+        if (part.startsWith("http")) {
+          return (
+            <Text
+              key={i}
+              style={{ color: colors.primaryLight, fontWeight: "600" }}
+              onPress={() => onLinkPress(normalizeUrl(part))}
+            >
+              {part}
+            </Text>
+          );
+        }
+        if (part.startsWith("@")) {
+          const handle = part.slice(1);
+          return (
+            <Text
+              key={i}
+              style={{ color: colors.primaryLight, fontWeight: "700" }}
+              onPress={() => openMention(handle)}
+            >
+              {part}
+            </Text>
+          );
+        }
+        if (part.startsWith("c/")) {
+          const slug = part.slice(2);
+          return (
+            <Text
+              key={i}
+              style={{ color: colors.cyanLight, fontWeight: "700" }}
+              onPress={() =>
+                navigation.navigate("Community" as any, {
+                  screen: "CommunityDetail",
+                  params: { communitySlug: slug },
+                } as any)
+              }
+            >
+              {part}
+            </Text>
+          );
+        }
+        return <Text key={i}>{part}</Text>;
+      })}
     </Text>
   );
 }

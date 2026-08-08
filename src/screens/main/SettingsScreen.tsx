@@ -73,6 +73,7 @@ const maskPhone = (phone?: string, countryCode?: string) => {
   );
   const [activityStatus, setActivityStatus] = useState(true);
   const [allowTagging, setAllowTagging] = useState(true);
+  const [allowReposts, setAllowReposts] = useState(true);
   const [showOnLeaderboard, setShowOnLeaderboard] = useState(true);
   const [appBiometric, setAppBiometric] = useState(false);
 
@@ -89,6 +90,7 @@ const maskPhone = (phone?: string, countryCode?: string) => {
           if (res?.data) {
             setActivityStatus(res.data.activityStatus ?? true);
             setAllowTagging(res.data.allowTagging ?? true);
+            setAllowReposts(res.data.allowReposts ?? true);
             setShowOnLeaderboard(res.data.showOnLeaderboard ?? true);
           }
         })
@@ -528,6 +530,21 @@ const maskPhone = (phone?: string, countryCode?: string) => {
             }}
           />
           <SettingsToggle
+            icon="repeat-outline"
+            label="Allow Reposting"
+            description="Let others repost your posts"
+            value={allowReposts}
+            onToggle={async () => {
+              const old = allowReposts;
+              setAllowReposts(!old);
+              try {
+                await settingsService.toggleAllowReposts();
+              } catch (e) {
+                setAllowReposts(old);
+              }
+            }}
+          />
+          <SettingsToggle
             icon="trophy-outline"
             label="Show on Leaderboard"
             description="Appear in public rankings"
@@ -540,6 +557,38 @@ const maskPhone = (phone?: string, countryCode?: string) => {
               } catch (e) {
                 setShowOnLeaderboard(old);
               }
+            }}
+          />
+          <SettingsRow
+            icon="location-outline"
+            label="Clear Location Data"
+            description="Delete your captured location history"
+            onPress={() => {
+              Alert.alert(
+                "Clear Location Data",
+                "This deletes your captured device location history. Your declared profile location is not affected.",
+                [
+                  { text: "Cancel", style: "cancel" },
+                  {
+                    text: "Clear",
+                    style: "destructive",
+                    onPress: async () => {
+                      try {
+                        await userService.clearLocationData();
+                        Alert.alert(
+                          "Cleared",
+                          "Your captured location history has been deleted.",
+                        );
+                      } catch (e) {
+                        Alert.alert(
+                          "Error",
+                          "Failed to clear location data. Please try again.",
+                        );
+                      }
+                    },
+                  },
+                ],
+              );
             }}
             last
           />
@@ -671,11 +720,12 @@ type RowProps = {
   icon: keyof typeof Ionicons.glyphMap;
   label: string;
   value?: string;
+  description?: string;
   onPress: () => void;
   last?: boolean;
 };
 
-function SettingsRow({ icon, label, value, onPress, last }: RowProps) {
+function SettingsRow({ icon, label, value, description, onPress, last }: RowProps) {
   const colors = useThemeColors();
   return (
     <>
@@ -687,9 +737,16 @@ function SettingsRow({ icon, label, value, onPress, last }: RowProps) {
         <View style={shared.rowIcon}>
           <Ionicons name={icon} size={19} color={colors.primaryLight} />
         </View>
-        <Text style={[shared.rowLabel, { color: colors.text.primary }]}>
-          {label}
-        </Text>
+        <View style={{ flex: 1 }}>
+          <Text style={[shared.rowLabel, { color: colors.text.primary }]}>
+            {label}
+          </Text>
+          {description ? (
+            <Text style={[shared.rowDesc, { color: colors.text.muted }]}>
+              {description}
+            </Text>
+          ) : null}
+        </View>
         <View style={shared.rowRight}>
           {value !== undefined && (
             <Text style={[shared.rowValue, { color: colors.text.muted }]}>

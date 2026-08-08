@@ -36,6 +36,11 @@ export const settingsService = {
     return response.data;
   },
 
+  toggleAllowReposts: async () => {
+    const response = await apiClient.patch('/settings/allowreposts');
+    return response.data;
+  },
+
   toggleShowOnLeaderboard: async () => {
     const response = await apiClient.patch('/settings/showonleaderboard');
     return response.data;

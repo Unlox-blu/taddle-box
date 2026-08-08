@@ -136,7 +136,7 @@ function makeStyles(c: ColorPalette) {
 }
 
 export default function UserProfileScreen({ navigation, route }: Props) {
-  const { user: initialUser }   = route.params;
+  const { user: initialUser, openPostId, openPost } = route.params;
   const insets     = useSafeAreaInsets();
   const { isDark } = useTheme();
   const colors     = useThemeColors();
@@ -161,6 +161,8 @@ export default function UserProfileScreen({ navigation, route }: Props) {
         initialUser={initialUser} 
         isOwnProfile={authUser?.username === initialUser.username}
         headerComponent={headerComponent}
+        openPostId={openPostId}
+        openPost={openPost}
       />
     </View>
   );

@@ -1,5 +1,6 @@
-import React, { createContext, useContext, useState, useEffect } from 'react';
+import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
 import * as SecureStore from 'expo-secure-store';
+import Constants from 'expo-constants';
 import { authService } from '../services/auth.service';
 import { socketClient } from '../services/socketClient';
 
@@ -12,6 +13,9 @@ type AuthContextType = {
   refreshUser: () => Promise<void>;
   updateUser:  (partial: Partial<any>) => void;
   needsForceUpdate: boolean;
+  /** A newer version exists but this one is still usable — soft update popup. */
+  updateAvailable: boolean;
+  dismissUpdate: () => void;
   storeUrl:    string | null;
 };
 
@@ -24,18 +28,57 @@ const AuthContext = createContext<AuthContextType>({
   refreshUser: async () => {},
   updateUser:  () => {},
   needsForceUpdate: false,
+  updateAvailable: false,
+  dismissUpdate: () => {},
   storeUrl:    null,
 });
 
 import { appConfigService } from '../services/appConfig.service';
-const APP_VERSION = '1.0.0'; // Hardcoded for now, could use expo-application
+
+// Real installed version comes from the Expo build config (app.json version).
+const getAppVersion = (): string =>
+  Constants.expoConfig?.version || '1.0.0';
+
+// Numeric semver-ish compare: '1.10.0' > '1.9.2'. Returns 1 / -1 / 0.
+const compareVersions = (a: string, b: string): number => {
+  const pa = String(a).split('.').map((n) => parseInt(n, 10) || 0);
+  const pb = String(b).split('.').map((n) => parseInt(n, 10) || 0);
+  const len = Math.max(pa.length, pb.length);
+  for (let i = 0; i < len; i++) {
+    const x = pa[i] || 0;
+    const y = pb[i] || 0;
+    if (x !== y) return x > y ? 1 : -1;
+  }
+  return 0;
+};
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [isLoggedIn, setIsLoggedIn] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
   const [user, setUser] = useState<any>(undefined);
   const [needsForceUpdate, setNeedsForceUpdate] = useState(false);
+  const [updateAvailable, setUpdateAvailable] = useState(false);
   const [storeUrl, setStoreUrl] = useState<string | null>(null);
+
+  // Compare installed version against app_config: below minimum → force
+  // update (app is unusable); below latest → soft update popup.
+  const checkAppConfig = useCallback(async () => {
+    try {
+      const configRes = await appConfigService.getAppConfig();
+      const config = configRes.data;
+      const current = getAppVersion();
+      if (!config || (!config.minimumVersion && !config.latestVersion)) return;
+      if (config.minimumVersion && compareVersions(current, config.minimumVersion) < 0) {
+        setNeedsForceUpdate(true);
+        setStoreUrl(config.storeUrl || 'https://play.google.com/store');
+      } else if (config.latestVersion && compareVersions(current, config.latestVersion) < 0) {
+        setUpdateAvailable(true);
+        setStoreUrl(config.storeUrl || 'https://play.google.com/store');
+      }
+    } catch (err) {
+      console.warn('Failed to fetch app config', err);
+    }
+  }, []);
 
   useEffect(() => {
     checkToken();
@@ -54,17 +97,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const checkToken = async () => {
     try {
-      // First check for forced updates
-      try {
-        const configRes = await appConfigService.getAppConfig();
-        const config = configRes.data;
-        if (config && config.minimumVersion && config.minimumVersion > APP_VERSION) {
-          setNeedsForceUpdate(true);
-          setStoreUrl(config.storeUrl || 'https://play.google.com/store');
-        }
-      } catch (err) {
-        console.warn('Failed to fetch app config', err);
-      }
+      // First check for updates
+      await checkAppConfig();
 
       const token = await SecureStore.getItemAsync('accessToken');
       if (token) {
@@ -112,16 +146,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     // Fetch user after signing in
     try {
       // Also check app config on fresh login
-      try {
-        const configRes = await appConfigService.getAppConfig();
-        const config = configRes.data;
-        if (config && config.minimumVersion && config.minimumVersion > APP_VERSION) {
-          setNeedsForceUpdate(true);
-          setStoreUrl(config.storeUrl || 'https://play.google.com/store');
-        }
-      } catch (err) {
-        console.warn('Failed to fetch app config on login', err);
-      }
+      await checkAppConfig();
 
       const res = await authService.getMe();
       setUser(res.data.user);
@@ -135,6 +160,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       throw e; // Throw so LoginScreen can show an alert instead of silently failing
     }
   };
+
+  const dismissUpdate = () => setUpdateAvailable(false);
 
   const signOut = async () => {
     try {
@@ -162,6 +189,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         refreshUser,
         updateUser,
         needsForceUpdate,
+        updateAvailable,
+        dismissUpdate,
         storeUrl,
       }}
     >

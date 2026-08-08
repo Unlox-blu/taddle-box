@@ -204,11 +204,28 @@ export default function SpotlightCarousel() {
           emoji: localGame.emoji,
           gradient: localGame.gradient as [string, string],
           meta: localGame.averageDurationLabel,
-          imageUrl: localGame.imageUrl,
+          // Native game artwork from the DB (game.thumbnail) beats the generic
+          // placeholder; the local asset is only a fallback when it's empty.
+          imageUrl: (bg as any).thumbnail || localGame.imageUrl,
         };
       });
 
-      setSpotlights([...backendHighlights, ...eventHighlight, ...trendingGames]);
+      // Backend spotlight rows now carry native artwork too (event cover /
+      // community banner) — prefer it over the gradient+emoji fallback.
+      const nativeHighlights: Highlight[] = (backendHighlights || []).map(h => ({
+        id: h.id,
+        title: h.title,
+        subtitle: h.description || '',
+        type: h.type,
+        sourceId: h.sourceId,
+        tag: h.type === 'event' ? 'Featured Event' : 'Spotlight',
+        tagColor: h.type === 'event' ? '#F59E0B' : '#8B5CF6',
+        emoji: h.type === 'event' ? '🎉' : '✨',
+        gradient: ['#1E1B4B', '#4C1D95'],
+        imageUrl: h.imageUrl,
+      }));
+
+      setSpotlights([...nativeHighlights, ...eventHighlight, ...trendingGames]);
     } catch (e) {
       console.error("Failed to fetch highlights", e);
     } finally {
@@ -337,18 +354,23 @@ export default function SpotlightCarousel() {
     ];
     const style = fallbacks[index % fallbacks.length];
 
-    const handlePress = (item: Highlight) => {
-      if (!item.type) return;
-      if (item.type === "game") {
-        navigation.navigate("Games");
-      } else if (item.type === "event") {
-        navigation.navigate("Events");
-      } else if (item.type === "post") {
-        // If there's a specific post, it would be ideal to go to Comments/Details,
-        // but since we only have sourceId, navigating to Community tab is a good fallback
-        navigation.navigate("Community");
-      }
-    };
+  const handlePress = (item: Highlight) => {
+    if (!item.type) return;
+    if (item.type === "game") {
+      navigation.navigate("Games");
+    } else if (item.type === "event") {
+      navigation.navigate("Events");
+    } else if (item.type === "community") {
+      navigation.navigate("Community", {
+        screen: "CommunityDetail",
+        params: { communitySlug: item.sourceId },
+      });
+    } else if (item.type === "post") {
+      // If there's a specific post, it would be ideal to go to Comments/Details,
+      // but since we only have sourceId, navigating to Community tab is a good fallback
+      navigation.navigate("Community");
+    }
+  };
 
     return (
       <TouchableOpacity

@@ -1,6 +1,13 @@
 import 'react-native-gesture-handler';
 import React, { useEffect } from 'react';
-import { StatusBar as RNStatusBar } from 'react-native';
+import {
+  StatusBar as RNStatusBar,
+  AppState,
+  View,
+  Text,
+  ScrollView,
+  TouchableOpacity,
+} from 'react-native';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import * as SplashScreen from 'expo-splash-screen';
@@ -16,6 +23,9 @@ import { QueryClientProvider } from '@tanstack/react-query';
 import { queryClient } from './src/lib/react-query';
 import AppLockOverlay       from './src/components/common/AppLockOverlay';
 import NotificationBanner   from './src/components/common/NotificationBanner';
+import { PresenceProvider } from './src/context/PresenceContext';
+import { useAuth } from './src/context/AuthContext';
+import { locationService } from './src/services/location.service';
 import { initGameSound }     from './src/services/gameSound';
 
 SplashScreen.preventAutoHideAsync();
@@ -38,12 +48,29 @@ function AppShell() {
           barStyle={isDark ? 'light-content' : 'dark-content'}
           backgroundColor={colors.bg.base}
         />
+        <LocationTracker />
         <AppNavigator />
         <NotificationBanner />
         <AppLockOverlay />
       </SafeAreaProvider>
     </GestureHandlerRootView>
   );
+}
+
+// Captures the user's last location whenever the app comes to the foreground,
+// but only if they already granted location permission (no prompt, throttled).
+function LocationTracker() {
+  const { isLoggedIn } = useAuth();
+
+  useEffect(() => {
+    if (isLoggedIn) locationService.captureIfPermitted();
+    const sub = AppState.addEventListener('change', (s) => {
+      if (s === 'active' && isLoggedIn) locationService.captureIfPermitted();
+    });
+    return () => sub.remove();
+  }, [isLoggedIn]);
+
+  return null;
 }
 
 export default function App() {
@@ -56,7 +83,9 @@ export default function App() {
               <CommunityProvider>
                 <PostsProvider>
                   <NotificationProvider>
-                    <AppShell />
+                    <PresenceProvider>
+                      <AppShell />
+                    </PresenceProvider>
                   </NotificationProvider>
                 </PostsProvider>
               </CommunityProvider>

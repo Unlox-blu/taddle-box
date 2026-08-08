@@ -31,6 +31,11 @@ export default function EditProfileScreen() {
   // Keyboard responsiveness: keep the focused field visible above the keyboard.
   const scrollRef = useRef<ScrollView>(null);
   const fieldYRef = useRef<Record<string, number>>({});
+  // Media rows created during the current save that are NOT yet attached to the
+  // profile (upload succeeded, updateAvatar/updateBanner not done). If the save
+  // fails they're orphaned S3 objects — delete them; attached ones are removed
+  // from this list so they're never cleaned up.
+  const pendingMediaRef = useRef<string[]>([]);
 
   const scrollToField = (key: string) => {
     const y = fieldYRef.current[key];
@@ -100,7 +105,12 @@ export default function EditProfileScreen() {
 
     await mediaService.uploadFileDirect(res.data.signedUrl!, asset.uri, mimeType);
     await mediaService.confirmUpload(res.data.mediaId, res.data.s3Key!);
+    // Pending until updateAvatar succeeds — handleSave's cleanup cancels
+    // anything left in this list (attach failed) and nothing else.
+    pendingMediaRef.current.push(res.data.mediaId);
     await authService.updateAvatar(res.data.mediaId);
+    // Only reached when the attach succeeded — the media is now in use.
+    pendingMediaRef.current = pendingMediaRef.current.filter((id) => id !== res.data.mediaId);
   };
 
   const pickBanner = async () => {
@@ -140,7 +150,9 @@ export default function EditProfileScreen() {
 
     await mediaService.uploadFileDirect(res.data.signedUrl!, asset.uri, mimeType);
     await mediaService.confirmUpload(res.data.mediaId, res.data.s3Key!);
+    pendingMediaRef.current.push(res.data.mediaId);
     await authService.updateBanner(res.data.mediaId);
+    pendingMediaRef.current = pendingMediaRef.current.filter((id) => id !== res.data.mediaId);
   };
 
   // EditProfile lives on the Home tab's stack, so a plain goBack() lands on
@@ -156,6 +168,7 @@ export default function EditProfileScreen() {
     if (!name.trim()) { Alert.alert('Validation', 'Name cannot be empty.'); return; }
 
     setSaving(true);
+    pendingMediaRef.current = [];
     try {
       const tasks: Promise<any>[] = [];
 
@@ -186,7 +199,13 @@ export default function EditProfileScreen() {
         tasks.push(uploadBanner(bannerAsset));
       }
 
-      await Promise.all(tasks);
+      // allSettled (not all): every task runs to completion before we decide,
+      // so cleanup below never races an in-flight avatar/banner attach.
+      const results = await Promise.allSettled(tasks);
+      const failed = results.find((r) => r.status === 'rejected');
+      if (failed) {
+        throw (failed as PromiseRejectedResult).reason;
+      }
 
       // Optimistic update then refresh from backend
       updateUser({
@@ -203,6 +222,12 @@ export default function EditProfileScreen() {
         { text: 'OK', onPress: returnToProfile },
       ]);
     } catch (e: any) {
+      // Roll back media whose attach step failed — the S3 objects + media rows
+      // would otherwise be junked forever.
+      pendingMediaRef.current.forEach((mediaId) => {
+        mediaService.cancleUpload(mediaId).catch(() => {});
+      });
+      pendingMediaRef.current = [];
       Alert.alert('Error', e.response?.data?.message || 'Failed to save profile. Please try again.');
     } finally {
       setSaving(false);

@@ -31,6 +31,8 @@ import { useWallet } from "../../context/WalletContext";
 import SharedFeed from "../../components/common/SharedFeed";
 import { useFeed } from "../../queries/feed";
 import { useToggleLike, useToggleSave } from "../../mutations/posts";
+import { useQueryClient } from "@tanstack/react-query";
+import { queryKeys } from "../../lib/queryKeys";
 import type { Post, HomeStackParamList } from "../../types";
 
 import { streakService } from "../../services/streak.service";
@@ -319,6 +321,13 @@ export default function HomeScreen() {
           return normalizedTags.includes(activeTrend);
         });
 
+  const queryClient = useQueryClient();
+
+  // After a repost lands, refresh the feed so the new repost shows up at the top.
+  const handleReposted = useCallback(() => {
+    queryClient.invalidateQueries({ queryKey: queryKeys.feed });
+  }, [queryClient]);
+
   const onRefresh = async () => {
     setRefreshing(true);
     // Pull the latest user profile so XP (and streak) values refresh server-side
@@ -352,6 +361,7 @@ export default function HomeScreen() {
           })
         }
         onDelete={handleDeletePost}
+        onReposted={handleReposted}
         onEndReached={() => {
           if (hasNextPage) fetchNextPage();
         }}

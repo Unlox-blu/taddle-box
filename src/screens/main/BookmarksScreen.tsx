@@ -117,6 +117,7 @@ export default function BookmarksScreen() {
           onRefresh={refetch}
           onLike={(id) => toggleLike({ id, isCurrentlyLiked: saved.find((p: any) => p.id === id)?.isLiked || false })}
           onSave={(id) => toggleSave({ id, isCurrentlySaved: saved.find((p: any) => p.id === id)?.isSaved || false })}
+          onReposted={refetch}
           onEndReached={() => {
             if (hasNextPage) fetchNextPage();
           }}

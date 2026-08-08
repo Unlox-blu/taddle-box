@@ -1,7 +1,6 @@
 import React, { useState, useEffect, useRef } from "react";
 import {
   StyleSheet,
-  SafeAreaView,
   AppState,
   AppStateStatus,
   Alert,
@@ -10,6 +9,7 @@ import {
   Modal,
   View,
 } from "react-native";
+import { SafeAreaView } from "react-native-safe-area-context";
 import * as LocalAuthentication from "expo-local-authentication";
 import * as SecureStore from "expo-secure-store";
 import { useThemeColors } from "../../context/ThemeContext";

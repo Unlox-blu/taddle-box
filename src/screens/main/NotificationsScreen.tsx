@@ -17,6 +17,7 @@ import { postsService } from '../../services/posts.service';
 import { useNotifications } from '../../context/NotificationContext';
 import { notificationBus, NOTIF_EVENTS } from '../../lib/notificationBus';
 import { socketClient } from '../../services/socketClient';
+import PresenceDot from '../../components/common/PresenceDot';
 
 const FOLLOWED_BACK_KEY = '@taddle_followed_back_usernames';
 // CUSTOM private lobbies stay open for 30 minutes before the invite expires.
@@ -26,7 +27,8 @@ type Props = NativeStackScreenProps<HomeStackParamList, 'Notifications'>;
 
 const NOTIF_ICON: Record<Notification['type'], string> = {
   like: 'heart', comment: 'chatbubble', follow: 'person-add',
-  mention: 'at', event: 'calendar', achievement: 'trophy', game_invite: 'game-controller'
+  mention: 'at', event: 'calendar', achievement: 'trophy', game_invite: 'game-controller',
+  post: 'create'
 };
 
 const GROUPS: { key: Notification['group']; label: string }[] = [
@@ -38,7 +40,8 @@ const GROUPS: { key: Notification['group']; label: string }[] = [
 function getNotifColor(c: ColorPalette): Record<Notification['type'], string> {
   return {
     like: c.pink, comment: c.primaryLight, follow: c.cyan,
-    mention: c.cyanLight, event: c.xpGold, achievement: c.xpGold, game_invite: c.primaryLight
+    mention: c.cyanLight, event: c.xpGold, achievement: c.xpGold, game_invite: c.primaryLight,
+    post: c.primary
   };
 }
 
@@ -257,6 +260,22 @@ export default function NotificationsScreen({ navigation }: Props) {
       });
       fetchNotifs(); // reconcile with server (requestActive → false)
     };
+    // The recipient APPROVED the request (this device, or another one) — flip
+    // the row to "approved" so it never reads "Request withdrawn".
+    const onReqResolved = (data: any) => {
+      const followerId = data?.followerId;
+      if (!followerId) return;
+      setFollowReqState((prev) => {
+        const next = { ...prev };
+        notifsRef.current.forEach((n) => {
+          if (n.type === 'follow' && n.payload?.isFollowRequest && n.payload?.userId === followerId) {
+            next[n.id] = 'approved';
+          }
+        });
+        return next;
+      });
+      fetchNotifs();
+    };
     const onStateChanged = (data: any) => {
       const otherUserId = data?.otherUserId;
       if (otherUserId === undefined) return;
@@ -274,9 +293,11 @@ export default function NotificationsScreen({ navigation }: Props) {
       fetchNotifs();
     };
     socketClient.events.on('follow:requestCancelled', onReqCancelled);
+    socketClient.events.on('follow:requestResolved', onReqResolved);
     socketClient.events.on('follow:stateChanged', onStateChanged);
     return () => {
       socketClient.events.off('follow:requestCancelled', onReqCancelled);
+      socketClient.events.off('follow:requestResolved', onReqResolved);
       socketClient.events.off('follow:stateChanged', onStateChanged);
     };
   }, [fetchNotifs]);
@@ -337,13 +358,42 @@ export default function NotificationsScreen({ navigation }: Props) {
         return;
       }
 
-      // like / comment / mention → open the comments for that post
-      if (resourceId) {
-        const res = await postsService.getPost(resourceId);
-        const post: Post | null = res?.data || null;
-        if (post) {
-          navigation.navigate('Comments', { post });
+      // like / comment / mention / new post / repost → open that post INSIDE
+      // the author's profile page (comments pop open over it), like other
+      // social platforms. The tap ALWAYS lands somewhere: if the post can't be
+      // fetched (deleted / private), we still open the author's profile with
+      // whatever identity the notification carries.
+      if (type === 'post' || type === 'like' || type === 'comment' || type === 'mention') {
+        let post: Post | null = null;
+        if (resourceId) {
+          try {
+            const res = await postsService.getPost(resourceId);
+            post = res?.data || null;
+          } catch (e) {
+            post = null;
+          }
         }
+        const author: any = (post as any)?.author || {};
+        // Only navigate when we have a real handle — a guessed fallback would
+        // open a broken profile page.
+        const username = author.username || notif.payload?.username;
+        if (!username) return;
+        navigation.navigate('UserProfile', {
+          user: {
+            id: author.id || notif.senderId,
+            name: author.name || notif.actor,
+            username,
+            avatarUrl: author.avatarUrl || notif.avatarUrl,
+            handle: username,
+            avatar: '👾',
+            level: 1,
+            xp: 0,
+            xpToNext: 100,
+          } as any,
+          // Only pass the post when it was actually fetched — otherwise the
+          // profile would refetch it and 403 again (private account / deleted).
+          ...(post ? { openPostId: post.id, openPost: post } : {}),
+        });
       }
     } catch (e) {
       console.warn('Failed to open notification content', e);
@@ -568,6 +618,12 @@ export default function NotificationsScreen({ navigation }: Props) {
                       <View style={[styles.typeDot, { backgroundColor: notifColor[notif.type] }]}>
                         <Ionicons name={NOTIF_ICON[notif.type] as any} size={10} color="#fff" />
                       </View>
+                      {/* Online / recently-active dot on the sender avatar */}
+                      <PresenceDot
+                        userId={notif.senderId || notif.payload?.userId}
+                        size={13}
+                        style={{ top: -3, right: 4, bottom: undefined }}
+                      />
                     </View>
 
                     <View style={styles.content}>
@@ -617,9 +673,12 @@ export default function NotificationsScreen({ navigation }: Props) {
                         notif.payload?.userId &&
                         (() => {
                           const state = followReqState[notif.id];
-                          const withdrawn =
-                            state === 'withdrawn' ||
-                            notif.payload?.requestActive === false;
+                          // "Withdrawn" only ever comes from the requester actively
+                          // cancelling (socket event). requestActive === false just
+                          // means the request is no longer pending — which also
+                          // happens after an approval, so it must NOT read as
+                          // "Request withdrawn".
+                          const withdrawn = state === 'withdrawn';
                           if (withdrawn) {
                             return (
                               <Text
@@ -645,6 +704,20 @@ export default function NotificationsScreen({ navigation }: Props) {
                                 {state === 'approved'
                                   ? '✓ Request approved'
                                   : '✕ Request declined'}
+                              </Text>
+                            );
+                          }
+                          if (notif.payload?.requestActive === false) {
+                            // Resolved elsewhere (another device, private→public
+                            // auto-accept, account switch) — no buttons, neutral copy.
+                            return (
+                              <Text
+                                style={[
+                                  styles.reqStateText,
+                                  styles.reqStateApproved,
+                                ]}
+                              >
+                                Request resolved
                               </Text>
                             );
                           }

@@ -36,6 +36,15 @@ export const mediaService = {
   },
 
   /**
+   * Delete a media row + its S3 object — used to clean up orphaned uploads
+   * when a create flow (community/post/profile) fails after uploading.
+   */
+  cancleUpload: async (mediaId: string): Promise<any> => {
+    const response = await apiClient.delete(`/media/${mediaId}/cancle-upload`);
+    return response.data;
+  },
+
+  /**
    * Request an upload URL for videos (via Vimeo)
    */
   getVideoUploadUrl: async (fileSize: number, title: string, width?: number, height?: number): Promise<{ data: MediaUploadResponse }> => {

@@ -1,5 +1,5 @@
 import React, { useState, useRef, useCallback } from 'react';
-import { FlatList, View, Share, Image, RefreshControl, DeviceEventEmitter, Alert } from 'react-native';
+import { FlatList, View, Text, Share, Image, RefreshControl, DeviceEventEmitter, Alert } from 'react-native';
 import { useNavigation, useScrollToTop } from '@react-navigation/native';
 import PostCard from '../home/PostCard';
 import CommentsModal from '../home/CommentsModal';
@@ -18,7 +18,11 @@ interface SharedFeedProps {
   onEndReachedThreshold?: number;
   onDelete?: (post: Post) => void;
   onReport?: (post: Post) => void;
+  /** Called after a repost so the screen can refresh its feed. */
+  onReposted?: (post: any) => void;
   isAdmin?: boolean;
+  /** Show the view count on each post (profile page only). */
+  showViews?: boolean;
   ListHeaderComponent?: React.ReactElement | null;
   ListEmptyComponent?: React.ReactElement | null;
   ListFooterComponent?: React.ReactElement | null;
@@ -37,13 +41,25 @@ export default function SharedFeed({
   onEndReachedThreshold,
   onDelete,
   onReport,
+  onReposted,
   isAdmin,
+  showViews,
   ListHeaderComponent,
   ListEmptyComponent,
   ListFooterComponent,
   scrollEnabled = true,
   contentContainerStyle
 }: SharedFeedProps) {
+  // A string slipped into a List*Component (a caller passing "No posts" as a
+  // literal instead of a <View>) would be rendered directly inside a host View
+  // and trigger RN's "Text strings must be rendered within a <Text> component"
+  // error. Wrapping raw values makes the whole feed class immune.
+  const safeNode = (node: React.ReactNode): React.ReactElement | null =>
+    typeof node === 'string' || typeof node === 'number' ? (
+      <Text>{node}</Text>
+    ) : (
+      (node as React.ReactElement | null)
+    );
   const navigation = useNavigation<any>();
   const { user: currentUser } = useAuth();
   const [activePostId, setActivePostId] = useState<string | null>(null);
@@ -137,16 +153,21 @@ export default function SharedFeed({
   if (!scrollEnabled) {
     return (
       <View style={contentContainerStyle}>
-        {ListHeaderComponent}
-        {posts.length === 0 ? ListEmptyComponent : posts.map((item, index) => (
+        {safeNode(ListHeaderComponent)}
+        {posts.length === 0 ? safeNode(ListEmptyComponent) : posts.map((item, index) => (
           <PostCard
             key={item.id}
             post={item}
             index={index}
             isActive={item.id === activePostId}
+            showViews={showViews}
             onAuthorPress={() => handleAuthorPress(item)}
-            onComment={() => handleComment(item)}
+            // Pass the tapped post through — a repost card's embedded original
+            // preview calls onComment with the ORIGINAL post so tapping it opens
+            // that post's thread, not the repost's.
+            onComment={(p) => handleComment((p as Post) ?? item)}
             onShare={() => handleShare(item)}
+            onReposted={onReposted}
             onLike={() => handleLikeInternal(item.id)}
             onSave={() => handleSaveInternal(item.id)}
             onDelete={onDelete}
@@ -154,7 +175,7 @@ export default function SharedFeed({
             showDelete={currentUser?.id === (item as any)?.author?.id || currentUser?.id === (item as any)?.author_id || currentUser?.id === (item as any)?.authorId || isAdmin}
           />
         ))}
-        {ListFooterComponent}
+        {safeNode(ListFooterComponent)}
         <CommentsModal
           visible={commentsVisible}
           onClose={() => setCommentsVisible(false)}
@@ -172,7 +193,7 @@ export default function SharedFeed({
           style={{ width: 40, height: 40, borderRadius: 12, opacity: refreshing ? 1 : 0.6 }} 
         />
       </View>
-      {ListHeaderComponent}
+      {safeNode(ListHeaderComponent)}
     </View>
   );
 
@@ -195,8 +216,8 @@ export default function SharedFeed({
         onEndReached={onEndReached}
         onEndReachedThreshold={onEndReachedThreshold || 0.5}
         ListHeaderComponent={enhancedHeader}
-        ListEmptyComponent={ListEmptyComponent}
-        ListFooterComponent={ListFooterComponent}
+        ListEmptyComponent={safeNode(ListEmptyComponent)}
+        ListFooterComponent={safeNode(ListFooterComponent)}
         onViewableItemsChanged={onViewableItemsChanged}
         viewabilityConfig={viewabilityConfig}
         renderItem={({ item, index }) => (
@@ -204,9 +225,14 @@ export default function SharedFeed({
             post={item}
             index={index}
             isActive={item.id === activePostId}
+            showViews={showViews}
             onAuthorPress={() => handleAuthorPress(item)}
-            onComment={() => handleComment(item)}
+            // Pass the tapped post through — a repost card's embedded original
+            // preview calls onComment with the ORIGINAL post so tapping it opens
+            // that post's thread, not the repost's.
+            onComment={(p) => handleComment((p as Post) ?? item)}
             onShare={() => handleShare(item)}
+            onReposted={onReposted}
             onLike={() => handleLikeInternal(item.id)}
             onSave={() => handleSaveInternal(item.id)}
             onDelete={onDelete}

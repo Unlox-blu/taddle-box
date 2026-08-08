@@ -35,6 +35,7 @@ class SocketService {
   public socket: Socket | null = null;
   public events = new SimpleEventEmitter();
   private isConnecting = false;
+  private heartbeatTimer: any = null;
 
   async connect() {
     if (this.socket?.connected || this.isConnecting) return;
@@ -54,10 +55,19 @@ class SocketService {
       this.socket.on('connect', () => {
         this.isConnecting = false;
         console.log('WebSocket Connected:', this.socket?.id);
+        // Keep the server-side presence key alive (30s TTL, beat every 20s).
+        if (this.heartbeatTimer) clearInterval(this.heartbeatTimer);
+        this.heartbeatTimer = setInterval(() => {
+          this.socket?.emit('heartbeat');
+        }, 20000);
       });
 
       this.socket.on('disconnect', () => {
         console.log('WebSocket Disconnected');
+        if (this.heartbeatTimer) {
+          clearInterval(this.heartbeatTimer);
+          this.heartbeatTimer = null;
+        }
       });
 
       this.socket.on('xp:updated', (data) => this.events.emit('xp:updated', data));
@@ -68,6 +78,7 @@ class SocketService {
       this.socket.on('notification:new', (data) => this.events.emit('notification:new', data));
       this.socket.on('follow:requestCancelled', (data) => this.events.emit('follow:requestCancelled', data));
       this.socket.on('follow:stateChanged', (data) => this.events.emit('follow:stateChanged', data));
+      this.socket.on('presence:changed', (data) => this.events.emit('presence:changed', data));
       this.socket.on('SESSION_EXPIRED', (data) => this.events.emit('SESSION_EXPIRED', data));
 
       this.socket.on('connect_error', (error) => {
@@ -81,6 +92,10 @@ class SocketService {
 
   disconnect() {
     this.isConnecting = false;
+    if (this.heartbeatTimer) {
+      clearInterval(this.heartbeatTimer);
+      this.heartbeatTimer = null;
+    }
     if (this.socket) {
       this.socket.disconnect();
       this.socket = null;

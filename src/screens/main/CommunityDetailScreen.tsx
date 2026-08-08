@@ -516,6 +516,7 @@ export default function CommunityDetailScreen() {
         posts={displayPosts}
         setPosts={setCommunityPosts}
         onDelete={handleDeletePost}
+        onReposted={loadData}
         isAdmin={isAdmin}
         ListHeaderComponent={renderHeader()}
         ListEmptyComponent={

@@ -224,6 +224,16 @@ export default function WalletScreen() {
           <Text style={styles.heroAmount}>₹ {wallet.cashBalance.toLocaleString()}</Text>
           <Text style={styles.heroSub}>Available for withdrawal</Text>
 
+          {/* On-hold amount — money locked in an in-flight withdrawal request */}
+          {wallet.heldBalance > 0 && (
+            <View style={styles.holdBadge}>
+              <Ionicons name="lock-closed" size={12} color="rgba(255,255,255,0.85)" />
+              <Text style={styles.holdText}>
+                ₹{wallet.heldBalance.toLocaleString()} on hold · pending withdrawal
+              </Text>
+            </View>
+          )}
+
           {/* UPI linked badge */}
           {wallet.linkedUPI && (
             <View style={styles.upiLinkedBadge}>
@@ -552,7 +562,11 @@ function TxnRow({ txn: t, isLast }: { txn: Transaction; isLast: boolean }) {
           :         `+₹${displayAmount.toLocaleString()}`}
         </Text>
         <Text style={styles.txnTypeBadge}>
-          {t.status === 'pending' ? 'Pending' : t.status === 'failed' ? 'Failed' : meta.label}
+          {t.status === 'pending' && t.type === 'withdraw'
+            ? 'Withdrawal requested'
+            : t.status === 'pending' ? 'Pending'
+            : t.status === 'failed' ? 'Failed'
+            : meta.label}
         </Text>
       </View>
     </View>
@@ -1633,9 +1647,17 @@ function makeStyles(c: ColorPalette) {
     backgroundColor: 'rgba(16,185,129,0.15)',
     borderWidth: 1, borderColor: 'rgba(16,185,129,0.3)',
     borderRadius: radii.full, paddingHorizontal: 10, paddingVertical: 4,
-    alignSelf: 'flex-start', marginBottom: 14,
+    alignSelf: 'flex-start', marginBottom: 8,
   },
   upiLinkedText: { fontSize: fontSizes.xs, color: c.success, fontWeight: '600' },
+  holdBadge: {
+    flexDirection: 'row', alignItems: 'center', gap: 5,
+    backgroundColor: 'rgba(245,158,11,0.14)',
+    borderWidth: 1, borderColor: 'rgba(245,158,11,0.32)',
+    borderRadius: radii.full, paddingHorizontal: 10, paddingVertical: 4,
+    alignSelf: 'flex-start', marginBottom: 10,
+  },
+  holdText: { fontSize: fontSizes.xs, color: '#FBBF24', fontWeight: '600' },
   heroActions:   { flexDirection: 'row', gap: 8, marginTop: 6 },
   heroAction: {
     flex: 1, backgroundColor: 'rgba(255,255,255,0.1)',

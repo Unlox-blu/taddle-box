@@ -52,13 +52,50 @@ export const userService = {
     return res.data;
   },
 
+  // Own profile only — removes `username` from YOUR followers list.
+  removeFollower: async (username: string) => {
+    const res = await apiClient.delete(`/users/${username}/remove-follower`);
+    return res.data;
+  },
+
   getFollowers: async (username: string) => {
     const res = await apiClient.get(`/users/${username}/followers`);
     return res.data;
   },
 
+  // Users the viewer follows who also follow this profile (Instagram-style).
+  getMutuals: async (username: string) => {
+    const res = await apiClient.get(`/users/${username}/mutuals`);
+    return res.data;
+  },
+
   getFollowing: async (username: string) => {
     const res = await apiClient.get(`/users/${username}/following`);
+    return res.data;
+  },
+
+  // Bulk presence for avatars — server only returns self + followed users.
+  getPresenceBatch: async (userIds: string[]) => {
+    const res = await apiClient.post(`/users/presence`, { userIds });
+    return res.data;
+  },
+
+  // GEO location capture (permission-gated). Appends a history row server-side
+  // with optional free-text place; distinct from the PROFILE location
+  // (users.location) declared at signup.
+  recordLocation: async (loc: {
+    lat: number;
+    lng: number;
+    accuracy?: number;
+    place?: string;
+  }) => {
+    const res = await apiClient.post(`/users/location`, loc);
+    return res.data;
+  },
+
+  // Privacy: wipe all captured location history for this user.
+  clearLocationData: async () => {
+    const res = await apiClient.delete(`/users/location`);
     return res.data;
   },
 };

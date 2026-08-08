@@ -35,7 +35,11 @@ export const notificationService = {
       // (publishNotification/normalizeType) stored types map correctly.
       const rawType = String(n.type || '').toUpperCase();
       let mappedType: Notification['type'] = 'mention';
+
+      // Carry the sender id for presence dots on avatars.
+      (n as any).senderId = n.senderId || undefined;
       if (rawType === 'FOLLOW' || rawType === 'REQUEST_TO_FOLLOW' || rawType === 'APPROVED_TO_FOLLOW') mappedType = 'follow';
+      else if (rawType === 'NEW_POST') mappedType = 'post';
       else if (rawType.includes('LIKE')) mappedType = 'like';
       else if (rawType.includes('COMMENT')) mappedType = 'comment';
       else if (rawType.includes('EVENT')) mappedType = 'event';
@@ -88,6 +92,7 @@ export const notificationService = {
       return {
         id: n.id,
         type: mappedType,
+        senderId: n.senderId || undefined,
         avatar: firstWord.charAt(0).toUpperCase(),
         avatarUrl: n.senderAvatarUrl || undefined,
         actor: n.senderName || n.title || 'Notification',
@@ -104,6 +109,13 @@ export const notificationService = {
           ...(mappedType === 'follow' && n.senderUsername
             ? { userId: n.senderId, username: n.senderUsername, name: n.senderName }
             : {}),
+          // Generic sender id — available for every row (presence dots etc.).
+          senderId: n.senderId || undefined,
+          // Every row carries the sender's username so tapping a post/like/
+          // comment/mention notification can still land on a profile even when
+          // the post can't be fetched (deleted / private / legacy NULL
+          // resource_id rows).
+          username: n.senderUsername || undefined,
         },
       };
     });

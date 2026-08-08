@@ -79,6 +79,7 @@ const CATEGORY_TABS = [
   { label: "Startups", key: "Startup", icon: "rocket-outline" },
   { label: "Creative", key: "Creative", icon: "color-palette-outline" },
   { label: "Study", key: "Study", icon: "book-outline" },
+  { label: "Others", key: "Others", icon: "ellipsis-horizontal-outline" },
 ];
 
 function makeStyles(c: ColorPalette) {
@@ -1067,6 +1068,7 @@ const COMMUNITY_CATEGORIES = [
   "Startup",
   "Creative",
   "Study",
+  "Others",
 ];
 const EMOJI_OPTIONS = [
   "🚀",
@@ -1176,10 +1178,10 @@ function CreateCommunityModal({
       Alert.alert("Name required", "Please enter a community name.");
       return;
     }
-    if (/[^a-zA-Z0-9_-]/.test(cleanName)) {
+    if (/[^a-zA-Z0-9_]/.test(cleanName)) {
       Alert.alert(
         "Invalid name",
-        "Community names can only contain letters, numbers, underscores and hyphens (no spaces).",
+        "Community names can only contain letters, numbers and underscores (no spaces or hyphens).",
       );
       return;
     }
@@ -1195,18 +1197,33 @@ function CreateCommunityModal({
         privacy: isPrivate ? "private" : "public",
         category: [category],
       };
-      if (avatarAsset)
-        payload.avatarMediaId = await uploadMedia(avatarAsset, "avatar");
-      if (bannerAsset)
-        payload.bannerMediaId = await uploadMedia(bannerAsset, "banner");
-      await onCreate(payload);
-      reset();
-      onClose();
-    } catch (e: any) {
-      Alert.alert(
-        "Error",
-        e.response?.data?.message || "Failed to create community.",
-      );
+      // Track uploads so a failure AFTER an upload (e.g. the second asset or
+      // the create API) rolls back the orphaned S3 objects instead of junking
+      // the bucket.
+      const uploadedMediaIds: string[] = [];
+      try {
+        if (avatarAsset) {
+          const id = await uploadMedia(avatarAsset, "avatar");
+          uploadedMediaIds.push(id);
+          payload.avatarMediaId = id;
+        }
+        if (bannerAsset) {
+          const id = await uploadMedia(bannerAsset, "banner");
+          uploadedMediaIds.push(id);
+          payload.bannerMediaId = id;
+        }
+        await onCreate(payload);
+        reset();
+        onClose();
+      } catch (e: any) {
+        uploadedMediaIds.forEach((mediaId) => {
+          mediaService.cancleUpload(mediaId).catch(() => {});
+        });
+        Alert.alert(
+          "Error",
+          e.response?.data?.message || "Failed to create community.",
+        );
+      }
     } finally {
       setCreating(false);
     }
@@ -1331,15 +1348,16 @@ function CreateCommunityModal({
             placeholder="e.g. CampusCoders"
             placeholderTextColor={colors.text.muted}
             value={name}
-            // Community names are username-style — no spaces (spaces get
-            // stripped as you type, matching the server's slug rule).
-            onChangeText={(t) => setName(t.replace(/\s+/g, ""))}
+            // Community names are username-style — letters, numbers and _ only.
+            // Invalid characters are stripped as you type so the Create button
+            // can never submit a bad name.
+            onChangeText={(t) => setName(t.replace(/[^a-zA-Z0-9_]/g, ""))}
             maxLength={40}
             autoCapitalize="none"
             autoCorrect={false}
           />
           <Text style={styles.nameHint}>
-            No spaces — use letters, numbers, _ or -
+            Letters, numbers and _ only — no spaces or hyphens
           </Text>
 
           <Text style={styles.fieldLabel}>

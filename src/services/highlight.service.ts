@@ -4,7 +4,7 @@ export interface Highlight {
   id: string;
   title: string;
   subtitle: string;
-  meta: string;
+  meta?: string;
   tag: string;
   tagColor: string;
   emoji: string;
@@ -12,6 +12,8 @@ export interface Highlight {
   type?: string;
   sourceId?: string;
   imageUrl?: string;
+  /** Native artwork from the backend (event cover / community banner). */
+  description?: string;
 }
 
 export const highlightService = {

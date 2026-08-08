@@ -1,4 +1,4 @@
-import React, { useMemo, useRef } from "react";
+import React, { useCallback, useMemo, useRef, useState } from "react";
 import {
   View,
   Text,
@@ -10,16 +10,29 @@ import {
   Dimensions,
   ScrollView,
   Alert,
+  Modal,
+  KeyboardAvoidingView,
+  Platform,
+  ActivityIndicator,
+  FlatList,
 } from "react-native";
 import { Video, ResizeMode } from "expo-av";
 import PostMenuSheet from './PostMenuSheet';
 import { Ionicons } from "@expo/vector-icons";
 import { useNavigation } from "@react-navigation/native";
 import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
+import { useQueryClient } from "@tanstack/react-query";
 import { radii, fontSizes, spacing, type ColorPalette } from "../../theme";
 import { useThemeColors } from "../../context/ThemeContext";
+import { useAuth } from "../../context/AuthContext";
 import type { Post, HomeStackParamList } from "../../types";
 import { xpService } from "../../services/xp.service";
+import { postsService } from "../../services/posts.service";
+import { userService } from "../../services/user.service";
+import { queryKeys } from "../../lib/queryKeys";
+import PresenceDot from "../common/PresenceDot";
+import SmartInput from "../common/SmartInput";
+import { useCommunities } from "../../context/CommunityContext";
 
 const CARD_W = Dimensions.get("window").width - spacing.lg * 2;
 const claimedPosts = new Set<string>();
@@ -32,8 +45,12 @@ interface PostCardProps {
   onComment?: (post: Post) => void;
   onShare?: (post: Post) => void;
   onAuthorPress?: (post: Post) => void;
+  /** Called with the created repost so the feed can refresh. */
+  onReposted?: (post: any) => void;
   isActive?: boolean;
   index?: number;
+  /** Show the view count (profile page only — never in feed/community). */
+  showViews?: boolean;
   onDelete?: (post: Post) => void;
   onReport?: (post: Post) => void;
   showDelete?: boolean;
@@ -196,10 +213,44 @@ const RollingText = ({ items, isActive = true }: { items: React.ReactNode[]; isA
     return () => clearInterval(interval);
   }, [items.length, isActive]);
 
+  // Items are ReactNodes — a raw string or number child would be rendered
+  // directly inside a View and trigger RN's "Text strings must be rendered
+  // within a <Text> component" error. Wrap only raw values in <Text>;
+  // element items (e.g. the audio row) pass through untouched.
+  const wrap = (node: React.ReactNode, key: React.Key) => {
+    if (typeof node === "string" || typeof node === "number") {
+      return (
+        <Text key={key} style={{ lineHeight: 16 }}>
+          {node}
+        </Text>
+      );
+    }
+    // An array that carries raw strings would otherwise leak them into the
+    // wrapping View — coerce each entry the same way.
+    if (Array.isArray(node)) {
+      return (
+        <React.Fragment key={key}>
+          {node.map((n, i) =>
+            typeof n === "string" || typeof n === "number" ? (
+              <Text key={i} style={{ lineHeight: 16 }}>
+                {n}
+              </Text>
+            ) : (
+              <React.Fragment key={i}>{n}</React.Fragment>
+            ),
+          )}
+        </React.Fragment>
+      );
+    }
+    return <React.Fragment key={key}>{node}</React.Fragment>;
+  };
+
   if (items.length === 0) return null;
   if (items.length === 1)
     return (
-      <View style={{ height: 16, justifyContent: "center", marginTop: -2 }}>{items[0]}</View>
+      <View style={{ height: 16, justifyContent: "center", marginTop: -2 }}>
+        {wrap(items[0], "single")}
+      </View>
     );
 
   // Append a duplicate of the first item to enable seamless looping
@@ -210,7 +261,7 @@ const RollingText = ({ items, isActive = true }: { items: React.ReactNode[]; isA
       <Animated.View style={{ transform: [{ translateY }] }}>
         {displayItems.map((item, i) => (
           <View key={i} style={{ height: 16, justifyContent: "center" }}>
-            {item}
+            {wrap(item, i)}
           </View>
         ))}
       </Animated.View>
@@ -226,16 +277,23 @@ export default function PostCard({
   onComment,
   onShare,
   onAuthorPress,
+  onReposted,
   index,
   onDelete,
   onReport,
   showDelete,
+  showViews,
 }: PostCardProps) {
   const colors = useThemeColors();
   const styles = useMemo(() => makeStyles(colors), [colors]);
   const scale = useRef(new Animated.Value(1)).current;
   const navigation =
     useNavigation<NativeStackNavigationProp<HomeStackParamList>>();
+  const { user: currentUser } = useAuth();
+  // Repost state must stay in sync across every surface (feed, profile,
+  // community, search) — reposting anywhere invalidates the cached feeds so
+  // returning to them shows the updated state instead of a stale icon.
+  const queryClient = useQueryClient();
 
   const [currentMediaPage, setCurrentMediaPage] = React.useState(0);
   const postId = String(post?.id || "");
@@ -247,8 +305,28 @@ export default function PostCard({
       username: raw.username || (post as any)?.authorUsername || (post as any)?.author_username || "unknown",
       avatarUrl: raw.avatarUrl || raw.avatar_url || (post as any)?.authorAvatar || (post as any)?.author_avatar,
       avatar: raw.avatar || "👾",
+      // False when the author turned "Allow Reposting" off — hides the repost
+      // button. Defaults to true when the payload doesn't carry it.
+      repostsEnabled:
+        (raw.repostsEnabled ??
+          (post as any)?.authorRepostsEnabled ??
+          (post as any)?.author_reposts_enabled) !== false,
     };
   }, [post]);
+
+  // Destination communities for reposts — same list as the create-post
+  // audience picker (joined + owned).
+  const { communities: myCommunities } = useCommunities();
+  const repostCommunities = myCommunities.filter(
+    (c) => c.isJoined || c.ownerId === currentUser?.id,
+  );
+
+  // Private communities show a small lock icon next to the community name so
+  // the viewer knows the post lives in a members-only space.
+  const communityPrivacy =
+    typeof post.community === "object"
+      ? (post.community as any)?.privacy
+      : undefined;
 
   if (post.isXpClaimed) {
     claimedPosts.add(postId);
@@ -259,11 +337,129 @@ export default function PostCard({
   const [extraVideoTime, setExtraVideoTime] = React.useState(0);
   const [isMuted, setIsMuted] = React.useState(globalIsMuted);
   const [isExpanded, setIsExpanded] = React.useState(false);
+  const [repostSheetVisible, setRepostSheetVisible] = React.useState(false);
+  const [repostCommunityId, setRepostCommunityId] = React.useState<string | null>(null);
+  const [likersVisible, setLikersVisible] = React.useState(false);
+  const [repostersVisible, setRepostersVisible] = React.useState(false);
+  const [quoteVisible, setQuoteVisible] = React.useState(false);
+  const [quoteText, setQuoteText] = React.useState("");
+  const [repostBusy, setRepostBusy] = React.useState(false);
+  // Timer that opens the quote composer after the repost sheet closes — cleared
+  // on unmount so it can never fire on a dead component.
+  const quoteTimerRef = useRef<any>(null);
+  React.useEffect(() => () => {
+    if (quoteTimerRef.current) clearTimeout(quoteTimerRef.current);
+  }, []);
   const progressAnim = useRef(new Animated.Value(claimedPosts.has(postId) ? 1 : 0)).current;
   const doubleTapAnim = useRef(new Animated.Value(0)).current;
   const pillOpacity = useRef(new Animated.Value(1)).current;
   const isPillVisible = useRef(true);
   const lastTapTime = useRef(0);
+
+  // Parse confirmed mentions/hashtags out of SmartInput's raw value so the
+  // quote repost supports them exactly like a normal post.
+  const extractQuoteTags = (raw: string): string[] => {
+    const plainText = raw.replace(/\{#\}\[([^\]]+)\]\([^)]+\)/g, "#$1");
+    return Array.from(new Set(
+      Array.from(plainText.matchAll(/(?:^|\s)(#[a-z0-9_]+)/gi)).map(m => m[1].replace("#", "").toLowerCase()),
+    ));
+  };
+  const extractQuoteMentions = (raw: string): string[] => {
+    const matches = Array.from(raw.matchAll(/\{@\}\[([^\]]+)\]\(([^)]+)\)/g));
+    return Array.from(new Set(matches.map(m => m[2])));
+  };
+
+  // Flip repost state + share count on THIS post inside every react-query
+  // cache (feed + hashtag variants, profile, community, search, bookmarks) so
+  // the repost icon updates instantly across all surfaces — not just after a
+  // refetch.
+  const flipRepostInCaches = useCallback(
+    (nextReposted: boolean, deltaShares: number) => {
+      const apply = (query: any) => {
+        queryClient.setQueryData(query.queryKey, (old: any) => {
+          if (!old) return old;
+          return {
+            ...old,
+            pages: old.pages.map((page: any[]) =>
+              page.map((p) => {
+                if (p?.id !== postId) return p;
+                const current =
+                  p.shares ?? p.sharesCount ?? 0;
+                return {
+                  ...p,
+                  repostedByMe: nextReposted,
+                  shares: Math.max(0, current + deltaShares),
+                  sharesCount: Math.max(0, current + deltaShares),
+                };
+              }),
+            ),
+          };
+        });
+      };
+      queryClient.getQueryCache().findAll({ queryKey: queryKeys.feed })
+        .forEach(apply);
+      queryClient.getQueryCache().findAll({ queryKey: ['bookmarks'] })
+        .forEach(apply);
+      queryClient.getQueryCache().findAll({ queryKey: ['profile'] })
+        .forEach(apply);
+      queryClient.getQueryCache().findAll({ queryKey: ['community'] })
+        .forEach(apply);
+    },
+    [queryClient, postId],
+  );
+
+  const doRepost = async (content?: string) => {
+    if (repostBusy) return;
+    setRepostBusy(true);
+    try {
+      const res = await postsService.repostPost(postId, content, {
+        tags: content ? extractQuoteTags(content) : [],
+        mentions: content ? extractQuoteMentions(content) : [],
+        communityId: repostCommunityId || undefined,
+      });
+      setRepostSheetVisible(false);
+      setQuoteVisible(false);
+      setQuoteText("");
+      // Optimistic flip — icon shows reposted state before any refetch.
+      flipRepostInCaches(true, 1);
+      onReposted?.(res?.data || null);
+      queryClient.invalidateQueries({ queryKey: queryKeys.feed });
+    } catch (e) {
+      // Roll back the optimistic flip so the icon doesn't stay desynced.
+      flipRepostInCaches(false, -1);
+      Alert.alert("Error", "Failed to repost. Please try again.");
+      console.warn("Repost failed", e);
+    } finally {
+      setRepostBusy(false);
+    }
+  };
+
+  const doUnrepost = async () => {
+    if (repostBusy) return;
+    setRepostBusy(true);
+    try {
+      await postsService.unrepostPost(postId);
+      // Optimistic flip back.
+      flipRepostInCaches(false, -1);
+      onReposted?.(null);
+      queryClient.invalidateQueries({ queryKey: queryKeys.feed });
+    } catch (e) {
+      // Roll back the optimistic flip so the icon doesn't stay desynced.
+      flipRepostInCaches(true, 1);
+      Alert.alert("Error", "Failed to remove repost. Please try again.");
+      console.warn("Unrepost failed", e);
+    } finally {
+      setRepostBusy(false);
+    }
+  };
+
+  // Always open the repost sheet — it offers Remove (when already reposted),
+  // verbatim Repost, and Quote Post, so quoting is never blocked by an
+  // existing repost.
+  const handleRepostToggle = () => {
+    setRepostCommunityId(null);
+    setRepostSheetVisible(true);
+  };
 
   const handleDoubleTap = () => {
     const now = Date.now();
@@ -555,17 +751,26 @@ export default function PostCard({
           onPress={() => onAuthorPress?.(post)}
           activeOpacity={0.7}
         >
-          <View style={styles.avatar}>
-            {author.avatarUrl ? (
-              <Image
-                source={{ uri: author.avatarUrl }}
-                style={{ width: 44, height: 44, borderRadius: 22 }}
-              />
-            ) : (
-              <Text style={styles.avatarEmoji}>
-                {author.avatar}
-              </Text>
-            )}
+          <View style={{ position: "relative" }}>
+            <View style={styles.avatar}>
+              {author.avatarUrl ? (
+                <Image
+                  source={{ uri: author.avatarUrl }}
+                  style={{ width: 44, height: 44, borderRadius: 22 }}
+                />
+              ) : (
+                <Text style={styles.avatarEmoji}>
+                  {author.avatar}
+                </Text>
+              )}
+            </View>
+            {/* Online / recently-active indicator (followed users only) — small
+                and tucked into the avatar corner so it never crowds the ring */}
+            <PresenceDot
+              userId={author.id || undefined}
+              size={12}
+              style={{ bottom: -2, right: -2 }}
+            />
           </View>
           <View style={styles.meta}>
             {/* Top row: author name + XP pill + three-dot menu */}
@@ -708,6 +913,13 @@ export default function PostCard({
                         }
                       }}
                     >
+                      {communityPrivacy === 'private' && (
+                        <Ionicons
+                          name="lock-closed"
+                          size={11}
+                          color={colors.text.muted}
+                        />
+                      )}
                       {" "}• c/{typeof post.community === 'object' ? ((post.community as any).name || (post.community as any).slug) : post.community}
                     </Text>
                   ) : null}
@@ -768,12 +980,20 @@ export default function PostCard({
             renderParsedText((post as any).title, styles.title, isExpanded ? undefined : 2)}
           {!!post.content && renderParsedText(post.content, styles.content, isExpanded ? undefined : contentLimitLines)}
 
-          {!isExpanded && (((post as any).title && (post as any).title.length > 80) || (post.content && post.content.length > contentCharLimit)) && (
+          {!isExpanded && Boolean(((post as any).title && (post as any).title.length > 80) || (post.content && post.content.length > contentCharLimit)) && (
             <TouchableOpacity onPress={() => setIsExpanded(true)} style={{ marginTop: -4, marginBottom: 8 }} activeOpacity={0.7}>
               <Text style={{ color: colors.text.muted, fontSize: fontSizes.sm, fontWeight: '600' }}>Read more...</Text>
             </TouchableOpacity>
           )}
 
+          {/* Reposted original preview (verbatim + quote reposts) */}
+          {(post as any).repostOfId ? (
+            <RepostedPostCard
+              postId={(post as any).repostOfId}
+              isActive={isActive ?? true}
+              onOpen={(orig) => onComment?.(orig as Post)}
+            />
+          ) : null}
         </View>
       </TouchableWithoutFeedback>
 
@@ -958,20 +1178,31 @@ export default function PostCard({
 
       {/* Actions */}
       <View style={styles.actions}>
-        <TouchableOpacity style={styles.action} onPress={handleLike}>
-          <Animated.View style={{ transform: [{ scale }] }}>
-            <Ionicons
-              name={post.isLiked ? "heart" : "heart-outline"}
-              size={20}
-              color={post.isLiked ? colors.primaryLight : colors.text.muted}
-            />
-          </Animated.View>
-          <Text
-            style={[styles.actionText, post.isLiked && { color: colors.primaryLight }]}
+        <View style={{ flexDirection: "row", alignItems: "center", gap: 4 }}>
+          <TouchableOpacity style={styles.action} onPress={handleLike}>
+            <Animated.View style={{ transform: [{ scale }] }}>
+              <Ionicons
+                name={post.isLiked ? "heart" : "heart-outline"}
+                size={20}
+                color={post.isLiked ? colors.primaryLight : colors.text.muted}
+              />
+            </Animated.View>
+          </TouchableOpacity>
+          {/* Tap the like count to see who liked this post */}
+          <TouchableOpacity
+            style={styles.action}
+            onPress={() => setLikersVisible(true)}
           >
-            {(post.likes ?? (post as any).likesCount ?? 0).toLocaleString()}
-          </Text>
-        </TouchableOpacity>
+            <Text
+              style={[
+                styles.actionText,
+                post.isLiked && { color: colors.primaryLight },
+              ]}
+            >
+              {(post.likes ?? (post as any).likesCount ?? 0).toLocaleString()}
+            </Text>
+          </TouchableOpacity>
+        </View>
 
         <TouchableOpacity
           style={styles.action}
@@ -990,8 +1221,55 @@ export default function PostCard({
             ).toLocaleString()}
           </Text>
         </TouchableOpacity>
+        {/* Repost — hidden on your own posts, and on posts whose author
+            disabled "Allow Reposting" (unless you already reposted it, so
+            you can still take it down). */}
+        {/* Repost action icon — hidden on your own posts, and on posts whose
+            author disabled "Allow Reposting" (unless you already reposted it,
+            so you can still take it down). */}
+        {author.id !== currentUser?.id &&
+          (author.repostsEnabled !== false || post.repostedByMe) && (
+          <TouchableOpacity
+            style={styles.action}
+            onPress={handleRepostToggle}
+            disabled={repostBusy}
+          >
+            {post.repostedByMe ? (
+              <View style={{ flexDirection: "row", alignItems: "center" }}>
+                <Ionicons name="repeat" size={19} color={colors.primaryLight} />
+                <Ionicons
+                  name="checkmark-circle"
+                  size={10}
+                  color={colors.success}
+                  style={{ marginLeft: -6, marginTop: -8 }}
+                />
+              </View>
+            ) : (
+              <Ionicons name="repeat-outline" size={19} color={colors.text.muted} />
+            )}
+          </TouchableOpacity>
+        )}
+        {/* Tap the repost count to see who reposted this post — same popup as
+            the likes count. Always visible (even on your own posts) so authors
+            can see who reposted their content. */}
+        <TouchableOpacity
+          style={styles.action}
+          onPress={() => setRepostersVisible(true)}
+        >
+          <Text
+            style={[
+              styles.actionText,
+              post.repostedByMe && { color: colors.primaryLight, fontWeight: "700" },
+            ]}
+          >
+            {(post.shares ?? (post as any).sharesCount ?? 0).toLocaleString()}
+          </Text>
+        </TouchableOpacity>
 
-        <TouchableOpacity style={styles.action} onPress={() => onShare?.(post)}>
+        <TouchableOpacity
+          style={styles.action}
+          onPress={() => onShare?.(post)}
+        >
           <Ionicons
             name="arrow-redo-outline"
             size={18}
@@ -999,6 +1277,16 @@ export default function PostCard({
           />
           <Text style={styles.actionText}>Share</Text>
         </TouchableOpacity>
+
+        {showViews && (
+          // Read-only view count — only rendered on the profile page.
+          <View style={styles.action}>
+            <Ionicons name="eye-outline" size={17} color={colors.text.muted} />
+            <Text style={styles.actionText}>
+              {(post as any).viewsCount ?? (post as any).views ?? 0}
+            </Text>
+          </View>
+        )}
 
         <View style={styles.spacer} />
 
@@ -1037,6 +1325,917 @@ export default function PostCard({
           shadowRadius: 5,
         }} />
       </Animated.View>
+
+      {/* ── Likers: who liked this post ── */}
+      <UsersModal
+        visible={likersVisible}
+        postId={postId}
+        title="Likes"
+        emptyText="No likes yet."
+        fetchPage={(id, page, limit) => postsService.getLikers(id, page, limit)}
+        onClose={() => setLikersVisible(false)}
+      />
+
+      {/* ── Reposters: who reposted this post ── */}
+      <UsersModal
+        visible={repostersVisible}
+        postId={postId}
+        title="Reposts"
+        emptyText="No reposts yet."
+        fetchPage={(id, page, limit) => postsService.getReposters(id, page, limit)}
+        onClose={() => setRepostersVisible(false)}
+      />
+
+      {/* ── Repost sheet: repost verbatim or quote ── */}
+      <Modal
+        visible={repostSheetVisible}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setRepostSheetVisible(false)}
+      >
+        <View style={sheetStyles.backdrop}>
+          {/* Backdrop tap target — only the area OUTSIDE the sheet closes it */}
+          <TouchableWithoutFeedback onPress={() => setRepostSheetVisible(false)}>
+            <View style={StyleSheet.absoluteFill} />
+          </TouchableWithoutFeedback>
+          <View
+            style={[
+              sheetStyles.sheet,
+              { backgroundColor: colors.bg.card, borderColor: colors.border },
+            ]}
+          >
+              <Text style={[sheetStyles.sheetTitle, { color: colors.text.primary }]}>
+                Repost
+              </Text>
+              {post.repostedByMe ? (
+                <TouchableOpacity
+                  style={sheetStyles.option}
+                  disabled={repostBusy}
+                  onPress={() => {
+                    setRepostSheetVisible(false);
+                    doUnrepost();
+                  }}
+                >
+                  <View style={[sheetStyles.optionIcon, { backgroundColor: "rgba(239,68,68,0.12)" }]}>
+                    <Ionicons name="trash-outline" size={20} color="#ef4444" />
+                  </View>
+                  <View style={{ flex: 1 }}>
+                    <Text style={[sheetStyles.optionLabel, { color: "#ef4444" }]}>
+                      Remove Repost
+                    </Text>
+                    <Text style={[sheetStyles.optionSub, { color: colors.text.muted }]}>
+                      Take this repost down from your feed
+                    </Text>
+                  </View>
+                  {repostBusy && <ActivityIndicator size="small" color={colors.primary} />}
+                </TouchableOpacity>
+              ) : (
+                <TouchableOpacity
+                  style={sheetStyles.option}
+                  disabled={repostBusy}
+                  onPress={() => doRepost(undefined)}
+                >
+                  <View style={[sheetStyles.optionIcon, { backgroundColor: "rgba(124,58,237,0.12)" }]}>
+                    <Ionicons name="repeat" size={20} color={colors.primaryLight} />
+                  </View>
+                  <View style={{ flex: 1 }}>
+                    <Text style={[sheetStyles.optionLabel, { color: colors.text.primary }]}>
+                      Repost
+                    </Text>
+                    <Text style={[sheetStyles.optionSub, { color: colors.text.muted }]}>
+                      Share this post to your feed
+                    </Text>
+                  </View>
+                  {repostBusy && <ActivityIndicator size="small" color={colors.primary} />}
+                </TouchableOpacity>
+              )}
+              {!post.repostedByMe && (
+                <TouchableOpacity
+                  style={sheetStyles.option}
+                  disabled={repostBusy}
+                  onPress={() => {
+                    setRepostSheetVisible(false);
+                    // Opening the quote modal in the same tick the sheet modal
+                    // closes is unreliable on Android (nested RN Modals) — let
+                    // the sheet fully unmount first.
+                    quoteTimerRef.current = setTimeout(() => setQuoteVisible(true), 300);
+                  }}
+                >
+                  <View style={[sheetStyles.optionIcon, { backgroundColor: "rgba(251,191,36,0.12)" }]}>
+                    <Ionicons name="create-outline" size={20} color={colors.xpGold} />
+                  </View>
+                  <View style={{ flex: 1 }}>
+                    <Text style={[sheetStyles.optionLabel, { color: colors.text.primary }]}>
+                      Quote Post
+                    </Text>
+                    <Text style={[sheetStyles.optionSub, { color: colors.text.muted }]}>
+                      Add your thoughts and reshare
+                    </Text>
+                  </View>
+                </TouchableOpacity>
+              )}
+              {/* Destination — Feed or one of the user's communities, same as
+                  a normal post. Applies to verbatim AND quote reposts. */}
+              <View
+                style={{
+                  borderTopWidth: 1,
+                  borderTopColor: colors.border,
+                  paddingTop: 10,
+                  marginTop: 4,
+                }}
+              >
+                <Text style={[sheetStyles.optionSub, { color: colors.text.muted, marginBottom: 8 }]}>
+                  Post to
+                </Text>
+                <ScrollView
+                  horizontal
+                  showsHorizontalScrollIndicator={false}
+                  contentContainerStyle={{ gap: 8 }}
+                >
+                  <TouchableOpacity
+                    onPress={() => setRepostCommunityId(null)}
+                    style={[
+                      sheetStyles.audienceChip,
+                      !repostCommunityId && sheetStyles.audienceChipActive,
+                    ]}
+                  >
+                    <Ionicons
+                      name="globe-outline"
+                      size={13}
+                      color={!repostCommunityId ? colors.primaryLight : colors.text.muted}
+                    />
+                    <Text
+                      style={[
+                        sheetStyles.audienceChipText,
+                        { color: colors.text.muted },
+                        !repostCommunityId && { color: colors.primaryLight },
+                      ]}
+                    >
+                      Feed
+                    </Text>
+                  </TouchableOpacity>
+                  {repostCommunities.map((comm) => {
+                    const active = repostCommunityId === comm.id;
+                    return (
+                      <TouchableOpacity
+                        key={comm.id}
+                        onPress={() => setRepostCommunityId(comm.id)}
+                        style={[
+                          sheetStyles.audienceChip,
+                          active && sheetStyles.audienceChipActive,
+                        ]}
+                      >
+                        <Text
+                          numberOfLines={1}
+                          style={[
+                            sheetStyles.audienceChipText,
+                            { color: colors.text.muted },
+                            active && { color: colors.primaryLight },
+                          ]}
+                        >
+                          {comm.name}
+                        </Text>
+                      </TouchableOpacity>
+                    );
+                  })}
+                </ScrollView>
+              </View>
+              <TouchableOpacity
+                style={[sheetStyles.option, { borderTopWidth: 1, borderTopColor: colors.border }]}
+                onPress={() => setRepostSheetVisible(false)}
+              >
+                <Text style={[sheetStyles.cancel, { color: colors.text.muted }]}>Cancel</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+      </Modal>
+
+      {/* ── Quote repost composer ── */}
+      <Modal
+        visible={quoteVisible}
+        transparent
+        animationType="slide"
+        onRequestClose={() => setQuoteVisible(false)}
+      >
+        <KeyboardAvoidingView
+          style={sheetStyles.composerWrap}
+          behavior={Platform.OS === "ios" ? "padding" : "height"}
+        >
+          <TouchableWithoutFeedback onPress={() => setQuoteVisible(false)}>
+            <View style={sheetStyles.composerBackdrop} />
+          </TouchableWithoutFeedback>
+          <View style={[sheetStyles.composer, { backgroundColor: colors.bg.card, borderColor: colors.border }]}>
+            <View style={sheetStyles.composerHeader}>
+              <Text style={[sheetStyles.composerTitle, { color: colors.text.primary }]}>
+                Quote Post
+              </Text>
+              <TouchableOpacity onPress={() => setQuoteVisible(false)} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
+                <Ionicons name="close" size={22} color={colors.text.secondary} />
+              </TouchableOpacity>
+            </View>
+            <SmartInput
+              style={[sheetStyles.composerInput, { color: colors.text.primary }]}
+              containerStyle={[
+                sheetStyles.composerInputWrap,
+                { backgroundColor: colors.bg.surface },
+              ]}
+              placeholder="Add your thoughts... #tags @mentions"
+              placeholderTextColor={colors.text.muted}
+              multiline
+              value={quoteText}
+              onChange={setQuoteText}
+              maxLength={500}
+              suggestionPosition="top"
+            />
+            <View style={[sheetStyles.composerMeta, { borderLeftColor: "rgba(124,58,237,0.4)" }]}>
+              <Text style={[sheetStyles.composerMetaAuthor, { color: colors.text.primary }]} numberOfLines={1}>
+                @{author.username}
+              </Text>
+              <Text style={[sheetStyles.composerMetaText, { color: colors.text.muted }]} numberOfLines={2}>
+                {(post as any).content || (post as any).title || ""}
+              </Text>
+            </View>
+            <TouchableOpacity
+              style={[sheetStyles.postBtn, { backgroundColor: colors.primary }]}
+              disabled={repostBusy}
+              onPress={() => doRepost(quoteText.trim())}
+            >
+              {repostBusy ? (
+                <ActivityIndicator size="small" color="#fff" />
+              ) : (
+                <Text style={sheetStyles.postBtnText}>
+                  {quoteText.trim() ? "Post" : "Repost"}
+                </Text>
+              )}
+            </TouchableOpacity>
+          </View>
+        </KeyboardAvoidingView>
+      </Modal>
     </View>
   );
 }
+
+// Module-level cache so a long feed of reposts doesn't re-fetch the same
+// originals over and over.
+const repostCache = new Map<string, any>();
+
+// A repost can point at another repost (repost-of-repost). Walk the chain to
+// the ROOT original so the preview shows real content/media. Bounded to avoid
+// pathological chains.
+const resolveRootPost = async (startId: string): Promise<any | null> => {
+  let current = startId;
+  for (let hop = 0; hop < 5; hop++) {
+    if (repostCache.has(current)) {
+      const cached = repostCache.get(current);
+      if (!cached) return null;
+      if (!cached.repostOfId) return cached;
+      current = cached.repostOfId;
+      continue;
+    }
+    const res = await postsService.getPost(current);
+    const data = res?.data || null;
+    repostCache.set(current, data);
+    if (!data) return null;
+    if (!data.repostOfId) return data;
+    current = data.repostOfId;
+  }
+  return repostCache.get(current) || null;
+};
+
+function RepostedPostCard({
+  postId,
+  isActive,
+  onOpen,
+}: {
+  postId: string;
+  isActive?: boolean;
+  onOpen?: (orig: any) => void;
+}) {
+  const colors = useThemeColors();
+  const [orig, setOrig] = React.useState<any>(() => {
+    // Prime from cache only when the cached value is a resolved root.
+    const cached = repostCache.get(postId);
+    return cached && !cached?.repostOfId ? cached : undefined;
+  });
+  const [loaded, setLoaded] = React.useState(!!orig);
+  const [mediaPage, setMediaPage] = React.useState(0);
+
+  React.useEffect(() => {
+    let cancelled = false;
+    resolveRootPost(postId)
+      .then((root) => {
+        if (cancelled) return;
+        setOrig(root);
+        setLoaded(true);
+      })
+      .catch(() => {
+        if (cancelled) return;
+        setOrig(null);
+        setLoaded(true);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [postId]);
+
+  if (!loaded) return null;
+  if (!orig)
+    return (
+      <View
+        style={{
+          borderLeftWidth: 3,
+          borderLeftColor: colors.border,
+          backgroundColor: colors.bg.surface,
+          borderRadius: radii.md,
+          padding: 10,
+          marginTop: 6,
+          marginBottom: 6,
+        }}
+      >
+        <Text style={{ fontSize: 12, color: colors.text.muted, fontStyle: "italic" }}>
+          Original post is unavailable
+        </Text>
+      </View>
+    );
+
+  const author = orig.author || {};
+  const media = (orig as any).media || [];
+  const visual = media.filter(
+    (m: any) => m.media_type !== "audio" && m.type !== "audio"
+  );
+  const previewW = CARD_W - spacing.md * 2;
+  // Aspect-aware height from the first visual item; capped so tall images
+  // don't blow up the card.
+  let mediaH = 220;
+  const first = visual[0];
+  if (first?.width && first?.height) {
+    const ratio = first.width / first.height;
+    mediaH = Math.max(160, Math.min(previewW / ratio, 420));
+  }
+
+  const openOriginal = () => {
+    if (orig?.id) onOpen?.(orig);
+  };
+
+  return (
+    <TouchableOpacity
+      activeOpacity={0.85}
+      onPress={openOriginal}
+      style={{
+        borderLeftWidth: 3,
+        borderLeftColor: "rgba(124,58,237,0.45)",
+        backgroundColor: colors.bg.surface,
+        borderRadius: radii.md,
+        padding: 10,
+        marginTop: 6,
+        marginBottom: 6,
+        gap: 8,
+      }}
+    >
+      <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
+        <View
+          style={{
+            width: 22,
+            height: 22,
+            borderRadius: 11,
+            backgroundColor: colors.bg.elevated,
+            overflow: "hidden",
+          }}
+        >
+          {author.avatarUrl ? (
+            <Image
+              source={{ uri: author.avatarUrl }}
+              style={{ width: 22, height: 22 }}
+            />
+          ) : (
+            <Text style={{ fontSize: 11 }}>👾</Text>
+          )}
+        </View>
+        <Text
+          style={{
+            fontSize: 12,
+            fontWeight: "700",
+            color: colors.text.primary,
+            flexShrink: 1,
+          }}
+          numberOfLines={1}
+        >
+          {author.name || author.username}
+        </Text>
+        <Text
+          style={{
+            fontSize: 11,
+            color: colors.text.muted,
+            flexShrink: 2,
+          }}
+          numberOfLines={1}
+        >
+          @{author.username}
+        </Text>
+      </View>
+
+      {/* Full original content (no truncation) */}
+      {(orig as any).content || (orig as any).title ? (
+        <Text
+          style={{
+            fontSize: fontSizes.md,
+            color: colors.text.primary,
+            lineHeight: 21,
+          }}
+        >
+          {(orig as any).content || (orig as any).title}
+        </Text>
+      ) : null}
+
+      {/* The ORIGINAL post's own engagement counts — a peek at the thread.
+          Tapping the card opens the original; the outer repost card keeps its
+          own like/comment buttons for interacting with the repost itself. */}
+      {((orig as any).likesCount ?? 0) + ((orig as any).commentsCount ?? 0) >
+      0 && (
+        <View style={{ flexDirection: "row", alignItems: "center", gap: 14 }}>
+          <View style={{ flexDirection: "row", alignItems: "center", gap: 4 }}>
+            <Ionicons name="heart-outline" size={13} color={colors.text.muted} />
+            <Text style={{ fontSize: 11, color: colors.text.muted }}>
+              {(orig as any).likesCount ?? 0}
+            </Text>
+          </View>
+          <View style={{ flexDirection: "row", alignItems: "center", gap: 4 }}>
+            <Ionicons
+              name="chatbubble-outline"
+              size={12}
+              color={colors.text.muted}
+            />
+            <Text style={{ fontSize: 11, color: colors.text.muted }}>
+              {(orig as any).commentsCount ?? 0}
+            </Text>
+          </View>
+        </View>
+      )}
+
+      {/* Full-width original media carousel — images + playable videos */}
+      {visual.length > 0 && (
+        <View style={{ position: "relative" }}>
+          <ScrollView
+            horizontal
+            pagingEnabled
+            showsHorizontalScrollIndicator={false}
+            snapToInterval={previewW}
+            decelerationRate="fast"
+            onScroll={(e) => {
+              const x = e.nativeEvent.contentOffset.x;
+              const page = Math.max(
+                0,
+                Math.min(visual.length - 1, Math.round(x / previewW)),
+              );
+              if (page !== mediaPage) setMediaPage(page);
+            }}
+            scrollEventThrottle={16}
+          >
+            {visual.map((m: any, idx: number) => {
+              const url = m.cloudfront_url || m.url || m.uri;
+              const isVid =
+                m.media_type === "video" || m.type === "video";
+              if (!url) return null;
+              return (
+                <View
+                  key={idx}
+                  style={{
+                    width: previewW,
+                    height: mediaH,
+                    borderRadius: radii.sm,
+                    overflow: "hidden",
+                    backgroundColor: "#000",
+                  }}
+                >
+                  {isVid ? (
+                    <Video
+                      source={{ uri: url }}
+                      style={{ width: previewW, height: mediaH }}
+                      resizeMode={ResizeMode.CONTAIN}
+                      shouldPlay={isActive}
+                      isLooping
+                      isMuted
+                    />
+                  ) : (
+                    <Image
+                      source={{ uri: url }}
+                      style={{ width: previewW, height: mediaH }}
+                      resizeMode="cover"
+                    />
+                  )}
+                </View>
+              );
+            })}
+          </ScrollView>
+
+          {/* Pagination dots */}
+          {visual.length > 1 && (
+            <View
+              style={{
+                position: "absolute",
+                bottom: 8,
+                left: 0,
+                right: 0,
+                flexDirection: "row",
+                justifyContent: "center",
+                gap: 5,
+              }}
+            >
+              {visual.map((_: any, i: number) => (
+                <View
+                  key={i}
+                  style={{
+                    width: 6,
+                    height: 6,
+                    borderRadius: 3,
+                    backgroundColor:
+                      i === mediaPage ? "#fff" : "rgba(255,255,255,0.5)",
+                  }}
+                />
+              ))}
+            </View>
+          )}
+        </View>
+      )}
+    </TouchableOpacity>
+  );
+}
+
+// ── Users modal: paginated list of users (likers / reposters) for a post,
+// with Follow/Unfollow buttons synced to the backend state. Uses FlatList
+// onEndReached for infinite scroll so huge lists stay smooth. fetchPage is
+// the service call (getLikers / getReposters) that returns { data: rows }.
+function UsersModal({
+  visible,
+  postId,
+  title,
+  emptyText,
+  fetchPage,
+  onClose,
+}: {
+  visible: boolean;
+  postId: string;
+  title: string;
+  emptyText: string;
+  fetchPage: (postId: string, page: number, limit: number) => Promise<{ data: any[] }>;
+  onClose: () => void;
+}) {
+  const colors = useThemeColors();
+  const navigation = useNavigation<any>();
+  const { user: currentUser } = useAuth();
+  const [users, setUsers] = useState<any[]>([]);
+  const [page, setPage] = useState(1);
+  const [hasMore, setHasMore] = useState(false);
+  const [loading, setLoading] = useState(false);
+  const [refreshing, setRefreshing] = useState(false);
+
+  const load = async (nextPage: number, refresh = false) => {
+    if (loading) return;
+    setLoading(true);
+    try {
+      const res = await fetchPage(postId, nextPage, 20);
+      const rows = res?.data || [];
+      setHasMore(rows.length === 20);
+      setUsers((prev) => (refresh ? rows : [...prev, ...rows]));
+      setPage(nextPage);
+    } catch (e) {
+      console.warn("Failed to load likers", e);
+    } finally {
+      setLoading(false);
+      setRefreshing(false);
+    }
+  };
+
+  React.useEffect(() => {
+    if (visible) {
+      setUsers([]);
+      setPage(1);
+      setHasMore(false);
+      load(1, true);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [visible, postId]);
+
+  // Optimistic toggle so Follow/Following flips instantly and stays synced
+  // with every other surface.
+  const toggleFollow = async (user: any) => {
+    const next = !user.isFollowing;
+    setUsers((prev) =>
+      prev.map((u) =>
+        u.id === user.id ? { ...u, isFollowing: next } : u,
+      ),
+    );
+    try {
+      if (next) {
+        await userService.followUser(user.username);
+      } else {
+        await userService.unfollowUser(user.username);
+      }
+    } catch (e) {
+      console.warn("Follow toggle failed", e);
+      setUsers((prev) =>
+        prev.map((u) =>
+          u.id === user.id ? { ...u, isFollowing: !next } : u,
+        ),
+      );
+    }
+  };
+
+  if (!visible) return null;
+
+  return (
+    <Modal visible transparent animationType="fade" onRequestClose={onClose}>
+      <View style={sheetStyles.likersBackdrop}>
+        <TouchableWithoutFeedback onPress={onClose}>
+          <View style={StyleSheet.absoluteFill} />
+        </TouchableWithoutFeedback>
+        <View
+          style={[
+            sheetStyles.likersSheet,
+            { backgroundColor: colors.bg.card, borderColor: colors.border },
+          ]}
+        >
+          <View style={sheetStyles.likersHeader}>
+            <Text style={[sheetStyles.likersTitle, { color: colors.text.primary }]}>
+              {title}
+            </Text>
+            <TouchableOpacity onPress={onClose} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
+              <Ionicons name="close" size={22} color={colors.text.secondary} />
+            </TouchableOpacity>
+          </View>
+
+          <FlatList
+            data={users}
+            keyExtractor={(item, index) => item.id || String(index)}
+            keyboardShouldPersistTaps="handled"
+            showsVerticalScrollIndicator={false}
+            refreshing={refreshing}
+            onRefresh={() => {
+              setRefreshing(true);
+              load(1, true);
+            }}
+            onEndReached={() => {
+              if (hasMore && !loading) load(page + 1);
+            }}
+            onEndReachedThreshold={0.4}
+            ListEmptyComponent={
+              <Text style={[sheetStyles.likersEmpty, { color: colors.text.muted }]}>
+                {loading ? "Loading..." : emptyText}
+              </Text>
+            }
+            ListFooterComponent={
+              loading && users.length > 0 ? (
+                <ActivityIndicator
+                  size="small"
+                  color={colors.primary}
+                  style={{ paddingVertical: 14 }}
+                />
+              ) : null
+            }
+            renderItem={({ item }) => (
+              <View style={sheetStyles.likersRow}>
+                <TouchableOpacity
+                  style={sheetStyles.likersUserInfo}
+                  onPress={() => {
+                    onClose();
+                    if (currentUser?.id && item.id === currentUser.id) {
+                      navigation.navigate("Profile");
+                    } else {
+                      navigation.navigate("UserProfile", {
+                        user: {
+                          id: item.id,
+                          name: item.name,
+                          username: item.username,
+                          handle: item.username,
+                          avatar: "",
+                          avatarUrl: item.avatarUrl,
+                          level: 1,
+                          xp: 0,
+                          xpToNext: 100,
+                        },
+                      });
+                    }
+                  }}
+                >
+                  <View style={{ position: "relative" }}>
+                    <View style={sheetStyles.likersAvatar}>
+                      {item.avatarUrl ? (
+                        <Image
+                          source={{ uri: item.avatarUrl }}
+                          style={{ width: "100%", height: "100%", borderRadius: 18 }}
+                        />
+                      ) : (
+                        <Text style={{ fontSize: 18 }}>👾</Text>
+                      )}
+                    </View>
+                    <PresenceDot userId={item.id} size={11} style={{ bottom: 0, right: 0 }} />
+                  </View>
+                  <View style={{ flex: 1 }}>
+                    <Text
+                      style={{ fontSize: fontSizes.sm, fontWeight: "700", color: colors.text.primary }}
+                      numberOfLines={1}
+                    >
+                      {item.name}
+                    </Text>
+                    <Text style={{ fontSize: fontSizes.xs, color: colors.text.muted }} numberOfLines={1}>
+                      @{item.username}
+                    </Text>
+                  </View>
+                </TouchableOpacity>
+                {currentUser?.id && item.id !== currentUser.id && (
+                  <TouchableOpacity
+                    onPress={() => toggleFollow(item)}
+                    style={[
+                      sheetStyles.likersFollowBtn,
+                      item.isFollowing && {
+                        backgroundColor: colors.bg.elevated,
+                        borderWidth: 1,
+                        borderColor: colors.border,
+                      },
+                    ]}
+                  >
+                    <Text
+                      style={[
+                        sheetStyles.likersFollowText,
+                        item.isFollowing && { color: colors.text.secondary },
+                      ]}
+                    >
+                      {item.isFollowing ? "Following" : "Follow"}
+                    </Text>
+                  </TouchableOpacity>
+                )}
+              </View>
+            )}
+          />
+        </View>
+      </View>
+    </Modal>
+  );
+}
+
+const sheetStyles = StyleSheet.create({
+  likersBackdrop: {
+    flex: 1,
+    backgroundColor: "rgba(0,0,0,0.55)",
+    justifyContent: "flex-end",
+  },
+  likersSheet: {
+    height: "72%",
+    borderTopLeftRadius: radii.xl,
+    borderTopRightRadius: radii.xl,
+    borderWidth: 1,
+    paddingHorizontal: spacing.lg,
+    paddingTop: spacing.md,
+    paddingBottom: 24,
+  },
+  likersHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    marginBottom: spacing.sm,
+  },
+  likersTitle: {
+    fontSize: fontSizes.lg,
+    fontWeight: "800",
+  },
+  likersEmpty: {
+    textAlign: "center",
+    paddingVertical: 28,
+    fontSize: fontSizes.sm,
+  },
+  likersRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+    paddingVertical: 8,
+  },
+  likersUserInfo: {
+    flex: 1,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+  },
+  likersAvatar: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: "rgba(124,58,237,0.12)",
+    alignItems: "center",
+    justifyContent: "center",
+    overflow: "hidden",
+  },
+  likersFollowBtn: {
+    backgroundColor: "#7C3AED",
+    borderRadius: radii.full,
+    paddingVertical: 6,
+    paddingHorizontal: 16,
+  },
+  likersFollowText: {
+    color: "#fff",
+    fontSize: fontSizes.sm,
+    fontWeight: "700",
+  },
+  backdrop: {
+    flex: 1,
+    backgroundColor: "rgba(0,0,0,0.5)",
+    justifyContent: "flex-end",
+  },
+  sheet: {
+    borderTopLeftRadius: radii.xl,
+    borderTopRightRadius: radii.xl,
+    borderWidth: 1,
+    paddingHorizontal: spacing.lg,
+    paddingTop: spacing.md,
+    paddingBottom: 32,
+  },
+  sheetTitle: {
+    fontSize: fontSizes.sm,
+    fontWeight: "800",
+    textTransform: "uppercase",
+    letterSpacing: 0.6,
+    textAlign: "center",
+    marginBottom: spacing.sm,
+  },
+  option: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+    paddingVertical: 13,
+  },
+  optionIcon: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  optionLabel: { fontSize: fontSizes.md, fontWeight: "700" },
+  optionSub: { fontSize: fontSizes.xs, marginTop: 1 },
+  cancel: { fontSize: fontSizes.md, fontWeight: "700", textAlign: "center", flex: 1, paddingVertical: 10 },
+  audienceChip: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 5,
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: radii.full,
+    borderWidth: 1,
+    borderColor: "transparent",
+    backgroundColor: "rgba(124,58,237,0.08)",
+    maxWidth: 170,
+  },
+  audienceChipActive: {
+    borderColor: "rgba(124,58,237,0.45)",
+    backgroundColor: "rgba(124,58,237,0.15)",
+  },
+  audienceChipText: {
+    fontSize: fontSizes.xs,
+    fontWeight: "600",
+    flexShrink: 1,
+  },
+  composerWrap: { flex: 1, justifyContent: "flex-end" },
+  composerBackdrop: { ...StyleSheet.absoluteFillObject, backgroundColor: "rgba(0,0,0,0.5)" },
+  composer: {
+    borderTopLeftRadius: radii.xl,
+    borderTopRightRadius: radii.xl,
+    borderWidth: 1,
+    padding: spacing.lg,
+    gap: 10,
+  },
+  composerHeader: { flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
+  composerTitle: { fontSize: fontSizes.lg, fontWeight: "800" },
+  composerInputWrap: {
+    minHeight: 90,
+    maxHeight: 160,
+    // Visible text box — a bare input with no border/background reads as
+    // "there is no input box", so give it a real field surface.
+    borderWidth: 1,
+    borderColor: 'rgba(124,58,237,0.35)',
+    borderRadius: radii.lg,
+    padding: spacing.sm,
+    // NOTE: no overflow hidden — the mention/hashtag suggestion popover is
+    // absolutely positioned above the box and must not be clipped.
+  },
+  composerInput: {
+    minHeight: 90,
+    maxHeight: 160,
+    fontSize: fontSizes.md,
+    textAlignVertical: "top",
+    paddingVertical: 0,
+    margin: 0,
+  },
+  composerMeta: {
+    borderLeftWidth: 3,
+    paddingLeft: 10,
+    paddingVertical: 4,
+    gap: 3,
+  },
+  composerMetaAuthor: { fontSize: fontSizes.xs, fontWeight: "700" },
+  composerMetaText: { fontSize: fontSizes.xs, lineHeight: 16 },
+  postBtn: {
+    alignItems: "center",
+    paddingVertical: 12,
+    borderRadius: radii.full,
+  },
+  postBtnText: { color: "#fff", fontSize: fontSizes.md, fontWeight: "800" },
+});

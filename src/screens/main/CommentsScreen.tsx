@@ -15,6 +15,7 @@ import SmartInput from '../../components/common/SmartInput';
 import { commentService, Comment } from '../../services/comment.service';
 import { usePosts } from '../../context/PostsContext';
 import { useQueryClient } from '@tanstack/react-query';
+import PresenceDot from '../../components/common/PresenceDot';
 
 type Props = NativeStackScreenProps<HomeStackParamList, 'Comments'>;
 
@@ -286,12 +287,15 @@ export default function CommentsScreen({ navigation, route }: Props) {
 
         {/* Post preview strip */}
         <View style={styles.postPreview}>
-          <View style={styles.previewAvatar}>
-            {postAvatar ? (
-              <Image source={{ uri: postAvatar }} style={{ width: '100%', height: '100%' }} />
-            ) : (
-              <Text style={styles.previewAvatarEmoji}>👾</Text>
-            )}
+          <View style={{ position: 'relative' }}>
+            <View style={styles.previewAvatar}>
+              {postAvatar ? (
+                <Image source={{ uri: postAvatar }} style={{ width: '100%', height: '100%' }} />
+              ) : (
+                <Text style={styles.previewAvatarEmoji}>👾</Text>
+              )}
+            </View>
+            <PresenceDot userId={postAuthorId} size={12} />
           </View>
           <View style={styles.previewMeta}>
             <Text style={styles.previewAuthor}>{postAuthorName}</Text>
@@ -375,12 +379,15 @@ function CommentRow({
 
   return (
     <View style={styles.commentRow}>
-      <View style={styles.commentAvatar}>
-        {avatarUrl ? (
-          <Image source={{ uri: avatarUrl }} style={{ width: '100%', height: '100%' }} />
-        ) : (
-          <Text style={styles.commentAvatarEmoji}>👾</Text>
-        )}
+      <View style={{ position: 'relative' }}>
+        <View style={styles.commentAvatar}>
+          {avatarUrl ? (
+            <Image source={{ uri: avatarUrl }} style={{ width: '100%', height: '100%' }} />
+          ) : (
+            <Text style={styles.commentAvatarEmoji}>👾</Text>
+          )}
+        </View>
+        <PresenceDot userId={comment.author?.id} size={12} />
       </View>
       <View style={styles.commentBody}>
         <View style={styles.bubble}>

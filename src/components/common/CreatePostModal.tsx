@@ -325,8 +325,18 @@ export default function CreatePostModal({
     };
   }, [audioItem, visible]);
 
-  const joinedCommunities = communities.filter((c) => c.isJoined);
+  // Owned communities always appear in the audience picker — the owner isn't
+  // necessarily an explicit active member row, but the backend lets them post.
+  const joinedCommunities = communities.filter(
+    (c) => c.isJoined || c.ownerId === CURRENT_USER?.id,
+  );
   const selectedComm = joinedCommunities.find((c) => c.id === selectedComId);
+
+  // Audience adapts to the account type: public accounts post to everyone,
+  // private accounts post to their followers only (community posts always use
+  // the community's own privacy).
+  const isPrivateAccount = CURRENT_USER?.privacy === 'private';
+  const feedLabel = isPrivateAccount ? 'Followers' : 'Public';
 
   // ── Validation ────────────────────────────────────────────────
   const hasTitle = title.trim().length > 0;
@@ -640,7 +650,11 @@ export default function CreatePostModal({
       hasValidationError = true;
     } else if (!postType) {
       shake(shakeAudienceAnim);
-      showValidationPop("Choose where to post — Public or a Community");
+      showValidationPop(
+        isPrivateAccount
+          ? "Choose where to post — Followers or a Community"
+          : "Choose where to post — Public or a Community",
+      );
       hasValidationError = true;
     } else if (!hasHashtag) {
       shake(shakeHashtagAnim);
@@ -653,8 +667,11 @@ export default function CreatePostModal({
     }
 
     setUploading(true);
+    // Tracks every media row created this attempt so a failure AFTER upload
+    // (e.g. the post API rejects) deletes the orphaned S3 objects instead of
+    // junking the bucket.
+    const uploadedMedia: { id: string; type?: string }[] = [];
     try {
-      const uploadedMedia = [];
       const allMedia = [...mediaItems];
       if (audioItem) allMedia.push(audioItem);
 
@@ -705,7 +722,12 @@ export default function CreatePostModal({
           t.startsWith("#") ? t.substring(1) : t,
         ),
         mentions: autoMentions.map((m) => m.id),
-        visibility: postType === "community" ? "community_only" : "public",
+        visibility:
+          postType === "community"
+            ? "community_only"
+            : isPrivateAccount
+              ? "followers"
+              : "public",
         status: "published",
         media: uploadedMedia,
       };
@@ -714,6 +736,15 @@ export default function CreatePostModal({
       await createPostAsync(postPayload);
       resetAndClose();
     } catch (err) {
+      // Roll back any media that already made it to S3 so a failed publish
+      // doesn't leave orphaned uploads behind.
+      if (uploadedMedia.length > 0) {
+        uploadedMedia.forEach((m) => {
+          if (m.id) {
+            mediaService.cancleUpload(m.id).catch(() => {});
+          }
+        });
+      }
       Alert.alert("Error", "Failed to upload media or create post. Try again.");
       console.error(err);
     }
@@ -899,7 +930,9 @@ export default function CreatePostModal({
                     <Ionicons
                       name={
                         postType === "feed"
-                          ? "globe-outline"
+                          ? isPrivateAccount
+                            ? "lock-closed-outline"
+                            : "globe-outline"
                           : postType === "community"
                             ? "people-outline"
                             : "earth"
@@ -914,7 +947,7 @@ export default function CreatePostModal({
                       ]}
                     >
                       {postType === "feed"
-                        ? "Public"
+                        ? feedLabel
                         : postType === "community"
                           ? selectedComm
                             ? selectedComm.name
@@ -941,18 +974,21 @@ export default function CreatePostModal({
               transform: [{ translateX: shakeTitleAnim }],
             }}
           >
-            <SmartInput
-              style={[
-                styles.contentInput,
-                { minHeight: 40, fontWeight: "700", fontSize: fontSizes.lg },
-              ]}
-              placeholder="Post Title..."
-              value={title}
-              onChange={handleTitleChange}
-              onFocus={() => setActiveInput("title")}
-              maxLength={100}
-              suggestionPosition="bottom"
-            />
+            <View style={styles.inputField}>
+              <SmartInput
+                style={[
+                  styles.contentInput,
+                  { minHeight: 40, fontWeight: "700", fontSize: fontSizes.lg },
+                ]}
+                placeholder="Post title"
+                placeholderTextColor={colors.text.muted}
+                value={title}
+                onChange={handleTitleChange}
+                onFocus={() => setActiveInput("title")}
+                maxLength={100}
+                suggestionPosition="bottom"
+              />
+            </View>
           </Animated.View>
           <Animated.View
             style={{
@@ -962,17 +998,20 @@ export default function CreatePostModal({
               transform: [{ translateX: shakeContentAnim }],
             }}
           >
-            <SmartInput
-              style={styles.contentInput}
-              placeholder="What's on your mind? Share your thoughts..."
-              multiline
-              value={content}
-              onChange={handleContentChange}
-              onFocus={() => setActiveInput("content")}
-              maxLength={500}
-              suggestionPosition="top"
-              textAlignVertical="top"
-            />
+            <View style={[styles.inputField, styles.inputFieldBody]}>
+              <SmartInput
+                style={styles.contentInput}
+                placeholder="Share your thoughts"
+                placeholderTextColor={colors.text.muted}
+                multiline
+                value={content}
+                onChange={handleContentChange}
+                onFocus={() => setActiveInput("content")}
+                maxLength={500}
+                suggestionPosition="top"
+                textAlignVertical="top"
+              />
+            </View>
           </Animated.View>
           <View
             style={{
@@ -1469,7 +1508,11 @@ export default function CreatePostModal({
                       }}
                     >
                       <Ionicons
-                        name="globe-outline"
+                        name={
+                          isPrivateAccount
+                            ? "lock-closed-outline"
+                            : "globe-outline"
+                        }
                         size={20}
                         color={
                           postType === "feed"
@@ -1485,10 +1528,12 @@ export default function CreatePostModal({
                           postType === "feed" && { color: colors.primaryLight },
                         ]}
                       >
-                        Public (Feed)
+                        {feedLabel} (Feed)
                       </Text>
                       <Text style={styles.communityMeta}>
-                        Anyone on Taddle can see this
+                        {isPrivateAccount
+                          ? "Only your approved followers can see this"
+                          : "Anyone on Taddle can see this"}
                       </Text>
                     </View>
                     {postType === "feed" && (
@@ -1537,20 +1582,36 @@ export default function CreatePostModal({
                           }}
                         >
                           <Text style={styles.communityAvatar}>
-                            {comm.avatar}
-                          </Text>
-                          <View style={styles.communityInfo}>
-                            <Text
-                              style={[
-                                styles.communityName,
-                                active && { color: colors.primaryLight },
-                              ]}
-                            >
-                              {comm.name}
+                              {comm.avatar}
                             </Text>
+                            <View style={styles.communityInfo}>
+                              <View
+                                style={{
+                                  flexDirection: "row",
+                                  alignItems: "center",
+                                  gap: 5,
+                                }}
+                              >
+                                <Text
+                                  style={[
+                                    styles.communityName,
+                                    active && { color: colors.primaryLight },
+                                  ]}
+                                >
+                                  {comm.name}
+                                </Text>
+                                {comm.privacy === "private" && (
+                                  <Ionicons
+                                    name="lock-closed"
+                                    size={11}
+                                    color={colors.text.muted}
+                                  />
+                                )}
+                              </View>
                             <Text style={styles.communityMeta}>
                               {(comm.memberCount || 0).toLocaleString()} members
-                              · {comm.category}
+                              · {comm.privacy === "private" ? "Private" : "Public"}
+                              {comm.category ? ` · ${comm.category}` : ""}
                             </Text>
                           </View>
                           {active && (
@@ -1738,7 +1799,16 @@ function makeStyles(colors: ReturnType<typeof useThemeColors>) {
     },
     typePillTextActive: { color: colors.primaryLight },
 
-    // Content
+    // Content — inputs are borderless with only placeholder hints so the
+    // composer reads like a natural text page (Twitter-style) instead of
+    // boxes around every field.
+    inputField: {
+      marginBottom: spacing.sm,
+      paddingTop: spacing.xs,
+    },
+    inputFieldBody: {
+      minHeight: 130,
+    },
     contentInput: {
       fontSize: fontSizes.md,
       color: colors.text.primary,

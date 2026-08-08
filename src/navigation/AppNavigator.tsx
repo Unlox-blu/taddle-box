@@ -8,6 +8,7 @@ import { useAuth } from '../context/AuthContext';
 import AuthNavigator from './AuthNavigator';
 import MainNavigator from './MainNavigator';
 import ForceUpdateScreen from '../screens/main/ForceUpdateScreen';
+import UpdateAvailableModal from '../components/common/UpdateAvailableModal';
 
 const Stack = createNativeStackNavigator<RootStackParamList>();
 
@@ -44,6 +45,8 @@ export default function AppNavigator() {
           <Stack.Screen name="Auth" component={AuthNavigator} />
         )}
       </Stack.Navigator>
+      {/* Soft update popup sits above everything; force updates block on the screen above. */}
+      <UpdateAvailableModal />
     </NavigationContainer>
   );
 }

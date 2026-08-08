@@ -567,19 +567,22 @@ export default function SharedProfile({
   useEffect(() => {
     const key = openPost?.id || openPostId;
     if (!key || openPostHandledRef.current === key) return;
-    // Wait for the profile fetch so privacy/follow state is known before
-    // deciding whether the deep-linked post is even viewable (initialUser
-    // from navigation doesn't carry `privacy`).
-    if (loadingProfile) return;
-    // Locked private account → skip: no post fetch, no comments modal.
-    if (isLocked) {
-      openPostHandledRef.current = key;
-      return;
-    }
+    // A shipped `openPost` was already fetched successfully (the backend only
+    // lets viewers who can see the post fetch it), so open it instantly — no
+    // need to wait on the profile or re-check privacy.
     if (openPost) {
       openPostHandledRef.current = key;
       setOpenCommentPost(openPost);
       setOpenCommentVisible(true);
+      return;
+    }
+    // Otherwise wait for the profile fetch so privacy/follow state is known
+    // before deciding whether the deep-linked post is even viewable
+    // (initialUser from navigation doesn't carry `privacy`).
+    if (loadingProfile) return;
+    // Locked private account → skip: no post fetch, no comments modal.
+    if (isLocked) {
+      openPostHandledRef.current = key;
       return;
     }
     if (!user?.id) return;

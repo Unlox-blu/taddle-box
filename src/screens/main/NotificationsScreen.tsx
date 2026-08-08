@@ -390,9 +390,12 @@ export default function NotificationsScreen({ navigation }: Props) {
             xp: 0,
             xpToNext: 100,
           } as any,
-          // Only pass the post when it was actually fetched — otherwise the
-          // profile would refetch it and 403 again (private account / deleted).
-          ...(post ? { openPostId: post.id, openPost: post } : {}),
+          openPostId: post?.id || resourceId,
+          // Ship the full post so the comments open instantly over the profile
+          // (no dependency on the profile's own posts fetch or a re-fetch).
+          // If the fetch failed, the profile skips refetching when it's a
+          // locked private account, and recovers via its own posts otherwise.
+          ...(post ? { openPost: post } : {}),
         });
       }
     } catch (e) {

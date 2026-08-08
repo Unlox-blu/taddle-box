@@ -1,11 +1,15 @@
 // src/bot/ludo/LudoBot.js
 module.exports = {
+    // Realistic pacing: EVERY bot action waits a flat 2s first — before
+    // rolling, after rolling (before moving a coin), before the next roll
+    // (after a 6), after moving, etc. Each action is a separate onTurn call,
+    // so this single delay covers all edge cases and the match never
+    // machine-guns between turns.
     onTurn: (session, state) => {
-        const delay = session.difficulty.reactionMs + (session.random() * 1000);
-        
-        session.setTimeout(() => {
-            const ps = state.pluginState;
+        const ps = state.pluginState || {};
+        const delay = 2000;
 
+        session.setTimeout(() => {
             if (ps.dice === null) {
                 // Needs to roll
                 session.submitMove({ type: 'ROLL' });

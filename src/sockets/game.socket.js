@@ -44,10 +44,10 @@ const CHAT_MAX_LEN = 200;
 // 2s buffer before the server forces the roll itself.
 const SNAKE_LADDER_TURN_TIMEOUT_MS = 12 * 1000;
 // Ludo: idle players are auto-rolled by the client (~10s) and auto-moved
-// (~13.5s); the server skips the turn shortly after as a backstop so a
-// backgrounded client can't stall a 4-player match. 15s > 13.5s avoids a
-// race between the client's auto-move and the server's skip.
-const LUDO_TURN_TIMEOUT_MS = 15 * 1000;
+// (~29s within a 30s post-roll window); the server's own timeout AUTO-MOVES
+// server-side (never skips) as a backstop so a backgrounded client can't
+// stall a 4-player match. 30s > 29s lets the client's auto-move win the race.
+const LUDO_TURN_TIMEOUT_MS = 30 * 1000;
 
 const setupGameSocket = (io) => {
   const gameNs = io.of('/game-engine');
@@ -114,19 +114,41 @@ const setupGameSocket = (io) => {
             io.to(`user:${p.userId}`).emit('SESSION_EXPIRED', { matchId });
           });
         } else {
-          // Snake-ladder: an idle player gets auto-rolled (dice + move) rather
-          // than silently skipping the turn — keeps the match flowing. The
-          // plugin rolls server-side, applies snakes/ladders and advances the
-          // turn, exactly like a real ROLL move.
-          if (gameSlug === 'snake-ladder') {
+          // Snake-ladder / ludo: idle players are AUTO-MOVED server-side rather
+          // than having their turn skipped — the match keeps flowing exactly
+          // like the client's own auto-move, even if the client is
+          // backgrounded. Snake-ladder rolls (dice + move) in one step; ludo
+          // rolls if the player never rolled, then moves the first movable
+          // token. Chess still skips (a timeout is a forfeit there).
+          if (gameSlug === 'snake-ladder' || gameSlug === 'ludo') {
             const GameRegistry = require('../modules/game/engine/GameRegistry');
             const plugin = GameRegistry.createInstance(gameSlug, latestState.metadata);
-            latestState.pluginState = plugin.applyMove(
-              currentPlayerId,
-              { type: 'ROLL' },
-              latestState.pluginState,
-            );
-            if (plugin.isFinished(latestState.pluginState)) {
+            let ps = latestState.pluginState;
+            if (gameSlug === 'snake-ladder') {
+              // One server-side ROLL does dice + move (unchanged behaviour).
+              ps = plugin.applyMove(currentPlayerId, { type: 'ROLL' }, ps);
+            } else {
+              // Ludo: roll if the player never rolled, then auto-move the first
+              // movable token.
+              if (ps.dice == null) {
+                ps = plugin.applyMove(currentPlayerId, { type: 'ROLL' }, ps);
+              }
+              if (ps.dice != null && (ps.movableTokens || []).length > 0) {
+                ps = plugin.applyMove(currentPlayerId, { type: 'MOVE_TOKEN', tokenId: ps.movableTokens[0] }, ps);
+              } else if (ps.dice != null) {
+                // Defensive: dice set with no legal move (the plugin maintains
+                // the invariant, but if it ever broke this keeps the match
+                // flowing instead of stalling on repeated no-op timeouts).
+                ps = {
+                  ...ps,
+                  dice: null,
+                  movableTokens: [],
+                  currentTurnIndex: ((ps.currentTurnIndex || 0) + 1) % (ps.turnOrder?.length || 1),
+                };
+              }
+            }
+            latestState.pluginState = ps;
+            if (plugin.isFinished(ps)) {
               latestState.status = MATCH_STATES.FINISHED;
               TimerEngine.clearAllTimers(matchId);
               await EventStore.saveMatchSnapshot(matchId, latestState);
@@ -150,12 +172,6 @@ const setupGameSocket = (io) => {
             latestState.pluginState = {
               ...latestState.pluginState,
               currentTurnIndex: nextIndex,
-              // A skipped ludo turn must not carry the previous player's dice
-              // into the next player's turn (the plugin normally clears it in
-              // MOVE_TOKEN; a server-side skip never goes through applyMove).
-              ...(gameSlug === 'ludo'
-                ? { dice: null, movableTokens: [] }
-                : {}),
             };
           }
           await EventStore.saveMatchSnapshot(matchId, latestState);
@@ -219,9 +235,14 @@ const setupGameSocket = (io) => {
 
     try {
       // Validate the user's match token AND fetch all players in this match
+      // (with real names/avatars so in-match chat resolves sender identities
+      // instead of falling back to the literal string "Player").
       const { rows } = await pool.query(
-        `SELECT mm.user_id, mm.ws_token, mm.player_color, g.slug as game_slug, gm.metadata as match_metadata
+        `SELECT mm.user_id, mm.ws_token, mm.player_color, g.slug as game_slug, gm.metadata as match_metadata,
+                u.name, u.username, m.cloudfront_url AS avatar
          FROM match_members mm
+         JOIN users u ON u.id = mm.user_id
+         LEFT JOIN media m ON m.id = u.avatar_url
          JOIN game_matches gm ON mm.match_id = gm.id
          JOIN game g ON gm.game_id = g.id
          WHERE mm.match_id = $1`,
@@ -235,7 +256,13 @@ const setupGameSocket = (io) => {
       socket.matchId = matchId;
       socket.userId = userId;
       socket.gameSlug = myRow.game_slug;
-      socket.matchPlayers = rows.map(r => ({ userId: r.user_id, color: r.player_color }));
+      socket.matchPlayers = rows.map(r => ({
+        userId: r.user_id,
+        color: r.player_color,
+        name: r.name,
+        username: r.username,
+        avatar: r.avatar,
+      }));
       socket.matchMetadata = myRow.match_metadata || {};
 
       // AUTO/CUSTOM lobbies fill empty spots with bots stored in game_lobby.settings.bots.
@@ -807,8 +834,8 @@ const setupGameSocket = (io) => {
         // Idle players get auto-rolled shortly after the client countdown ends.
         timerDuration = SNAKE_LADDER_TURN_TIMEOUT_MS;
       } else if (gameSlug === 'ludo') {
-        // The client auto-rolls at ~10s and auto-moves the first movable token
-        // at ~13.5s; the server skips the turn as a backstop.
+        // The client auto-rolls at ~10s and auto-moves within its 30s post-roll
+        // window (~29s); the server's own timeout AUTO-MOVES as a backstop.
         timerDuration = LUDO_TURN_TIMEOUT_MS;
       }
 

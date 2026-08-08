@@ -82,11 +82,11 @@ class GameService {
       // ('auto' | 'custom' | 'tournament' | 'practice') used for labels/rematch.
       const normalizedMode = String(active.mode || 'AUTO').toLowerCase();
 
-      // Rejoin needs the FULL player roster (names + avatars) so in-game
-      // boards show real profiles instead of generic "P1/P2" labels — the
-      // fresh-match flow gets these from the matchmaking response, but a
-      // rejoin path only has this endpoint. The snapshots live in
-      // game_matches.metadata.playerSnapshots (written by the lobby fill).
+      // Rejoin needs the FULL player roster (names + avatars + levels) so
+      // in-game boards show real profiles and level badges instead of generic
+      // "P1/P2" labels — the fresh-match flow gets these from the matchmaking
+      // response, but a rejoin path only has this endpoint. The snapshots live
+      // in game_matches.metadata.playerSnapshots (written by the lobby fill).
       const matchMeta = active.match_metadata || {};
       const snapshots = Array.isArray(matchMeta.playerSnapshots)
         ? matchMeta.playerSnapshots
@@ -103,10 +103,28 @@ class GameService {
           avatar: p.avatar || p.avatarUrl,
           team: p.team,
           seat: p.seat,
+          level: p.level ?? (typeof p.xp === 'number' ? Math.floor(p.xp / 1000) + 1 : undefined),
         }));
 
       // Legacy matches created before playerSnapshots existed have no roster —
-      // fall back to the opponent name so a rejoin never shows a bare board.
+      // rebuild names + avatars + levels from match_members JOIN users so a
+      // rejoin never shows a bare board.
+      if (players.length === 0) {
+        const roster = await this.gameRepo.getMatchRoster({
+          matchId: active.match_id,
+          excludeUserId: userId,
+        });
+        roster.forEach((p) => {
+          players.push({
+            id: p.id,
+            name: p.name || p.username || 'Opponent',
+            username: p.username,
+            avatar: p.avatar,
+            level: p.level,
+          });
+        });
+      }
+
       if (players.length === 0 && active.opponent_name) {
         players.push({ id: 'opponent', name: active.opponent_name });
       }

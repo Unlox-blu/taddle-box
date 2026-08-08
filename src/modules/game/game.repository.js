@@ -3,6 +3,19 @@
 const pool = require('../../config/database');
 const gameModel = require('./game.model');
 
+// Seat shuffle — rotate the snapshot order by a per-match random offset so
+// players land on a DIFFERENT corner/color every match (instead of always the
+// first seat = red TL). The rotation happens once, before the metadata is
+// persisted, so every client derives the same colors from the same order.
+// Skipped for team-locked lobbies where the pairing (index % 2) is meaningful.
+function _rotatePlayerOrder(snapshots, teamsLocked) {
+  const n = Array.isArray(snapshots) ? snapshots.length : 0;
+  if (teamsLocked || n < 2) return snapshots;
+  const offset = Math.floor(Math.random() * n);
+  if (offset === 0) return snapshots;
+  return snapshots.slice(offset).concat(snapshots.slice(0, offset));
+}
+
 const findManyGames = async ({ limit, offset }) => {
   try {
     const { rows } = await pool.query(
@@ -676,10 +689,12 @@ const joinMatchmaking = async ({ userId, game, mode, tournamentId, targetPlayers
     lobby = updatedLobbyRes.rows[0];
 
     const playersRes = await client.query(
-      `SELECT t.user_id, u.name, u.username, m.cloudfront_url AS avatar, t.id as ticket_id
+      `SELECT t.user_id, u.name, u.username, m.cloudfront_url AS avatar, t.id as ticket_id,
+              COALESCE(x.total_xp_earned, 0) AS xp
        FROM ${gameModel.GAME_MATCHMAKING_TICKET_TABLE} t
        JOIN users u ON u.id = t.user_id
        LEFT JOIN media m ON m.id = u.avatar_url
+       LEFT JOIN xp x ON x.user_id = u.id
        WHERE t.lobby_id = $1 AND t.status = 'WAITING'
        ORDER BY t.created_at ASC`,
       [lobby.id]
@@ -693,7 +708,10 @@ const joinMatchmaking = async ({ userId, game, mode, tournamentId, targetPlayers
       isBot: false,
       team: index % 2,
       seat: index,
-      status: 'JOINED'
+      status: 'JOINED',
+      // Level mirrors the app-wide formula (floor(totalXp / 1000) + 1) so the
+      // in-game profile badges match the profile pages.
+      level: Math.floor((Number(r.xp) || 0) / 1000) + 1
     }));
 
     // Mid-fill joins: the gradual bot-fill sweep may have already added bots to
@@ -718,6 +736,8 @@ const joinMatchmaking = async ({ userId, game, mode, tournamentId, targetPlayers
 
     if (lobby.current_players === lobby.max_players) {
       const startedAt = new Date().toISOString();
+      // Randomize who sits where (corner/color) for this match.
+      playerSnapshots = _rotatePlayerOrder(playerSnapshots, !!(lobby.settings?.teamsLocked));
       const matchMetadata = {
         lobbyId: lobby.id,
         matchGroupId: lobby.id,
@@ -946,6 +966,9 @@ const fillMatchmakingLobby = async ({ userId, ticketId, overrideLobbyId, fillBot
     );
 
     const startedAt = new Date().toISOString();
+
+    // Randomize who sits where (corner/color) for this match.
+    playerSnapshots = _rotatePlayerOrder(playerSnapshots, !!(lobby.settings?.teamsLocked));
 
     const matchMetadata = {
       lobbyId: lobby.id,
@@ -1279,6 +1302,58 @@ const getMatchArchivedState = async ({ matchId }) => {
   } catch (error) {
     return null;
   }
+};
+
+// Fallback roster for matches whose metadata predates playerSnapshots (or was
+// written without them): rebuild names + avatars + levels straight from
+// match_members JOIN users, so a rejoin never shows a bare P1/P2 board.
+// Bots are NOT in match_members — matchGroupId doubles as the lobby id, so the
+// lobby's persisted bots (settings.bots, with name/avatar/level) are appended
+// to complete the corner roster for bot matches.
+const getMatchRoster = async ({ matchId, excludeUserId }) => {
+  const { rows } = await pool.query(
+    `SELECT mm.user_id, u.name, u.username, m.cloudfront_url AS avatar,
+            COALESCE(x.total_xp_earned, 0) AS xp, mm.player_color,
+            gl.settings->'bots' AS lobby_bots
+     FROM match_members mm
+     JOIN users u ON u.id = mm.user_id
+     LEFT JOIN media m ON m.id = u.avatar_url
+     LEFT JOIN xp x ON x.user_id = u.id
+     LEFT JOIN game_lobby gl ON gl.id::text = mm.match_id::text
+     WHERE mm.match_id = $1${excludeUserId ? ' AND mm.user_id != $2' : ''}
+     ORDER BY mm.created_at ASC`,
+    excludeUserId ? [matchId, excludeUserId] : [matchId]
+  );
+
+  const roster = rows.map((r) => ({
+    id: r.user_id,
+    name: r.name,
+    username: r.username,
+    avatar: r.avatar,
+    level: Math.floor((Number(r.xp) || 0) / 1000) + 1,
+    color: r.player_color,
+  }));
+
+  // Append the lobby's bots (bots have no match_members row). Dedupe by id so
+  // a bot that also appears in the members list never shows twice.
+  const seen = new Set(roster.map((p) => String(p.id)));
+  const bots = Array.isArray(rows[0]?.lobby_bots) ? rows[0].lobby_bots : [];
+  bots.forEach((b) => {
+    const bid = String(b.id || '');
+    if (bid && !seen.has(bid)) {
+      seen.add(bid);
+      roster.push({
+        id: b.id,
+        name: b.name || b.username || 'Bot',
+        username: b.username,
+        avatar: b.avatar || null,
+        level: b.level ?? (typeof b.xp === 'number' ? Math.floor(b.xp / 1000) + 1 : undefined),
+        isBot: true,
+      });
+    }
+  });
+
+  return roster;
 };
 
 const findActiveSession = async ({ userId }) => {
@@ -2129,4 +2204,5 @@ module.exports = {
   getMatchArchivedState,
   findCompletedMatchRecord,
   findActiveSession,
+  getMatchRoster,
 };

@@ -201,6 +201,18 @@ class BotMatchHandler {
           userId: bot.id,
           color: this._assignBotColor(socket, players),
           isBot: true,
+          // Carry identity so in-match chat shows the bot's real name/avatar
+          // instead of the generic "Player" fallback.
+          name: bot.name || bot.username,
+          username: bot.username,
+          avatar: bot.avatar || null,
+          // Carry the profile level/badge so the in-game level badge renders
+          // for bots too. The client falls back to the engine player list
+          // (state.players) for matches whose metadata has no playerSnapshots
+          // (practice / quick-start bot matches), and the CONNECT_ACK/players
+          // snapshot path already carries these fields.
+          level: bot.level,
+          badge: bot.badge,
         });
       }
     }

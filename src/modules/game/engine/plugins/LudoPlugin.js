@@ -3,6 +3,15 @@
 const GamePlugin = require('../GamePlugin');
 
 const START_POSITIONS = { 0: 0, 1: 13, 2: 26, 3: 39 }; // Step on the path
+// Length of the SHARED track loop (mirrors the client's LUDO_PATH — 52 cells,
+// 13 per player, starts at 0/13/26/39). Absolute positions on the loop are
+// always modulo this value. Positions 52–56 are each player's exclusive home
+// column (never shared, never captured); 57 is home.
+const LOOP_LEN = 52;
+// Absolute loop indices of the safe cells — the four start cells plus the four
+// middle-cross cells — where a capture cannot happen. Mirrors the client's
+// SAFE_CELLS grid set (converted to loop indices).
+const SAFE_PATH_IDX = new Set([0, 8, 13, 21, 26, 34, 39, 47]);
 
 class LudoPlugin extends GamePlugin {
   constructor(matchData) {
@@ -104,6 +113,25 @@ class LudoPlugin extends GamePlugin {
         token.pos = START_POSITIONS[playerIndex];
       } else if (token.pos >= 0) {
         token.pos = Math.min(57, token.pos + diceValue);
+      }
+
+      // Capture rule: landing on a SHARED track cell (pos 0..51) occupied by
+      // an opponent token (safe cells are exempt) sends that token back to its
+      // yard (pos -1). Tokens on their own home column (52..56) can never be
+      // captured. The client animates the captured token running home.
+      if (token.pos >= 0 && token.pos <= 51) {
+        const abs = (START_POSITIONS[playerIndex] + token.pos) % LOOP_LEN;
+        if (!SAFE_PATH_IDX.has(abs)) {
+          Object.keys(newTokens).forEach((uid) => {
+            if (uid === userId) return;
+            newTokens[uid].forEach((opp) => {
+              if (opp.pos >= 0 && opp.pos <= 51) {
+                const oppAbs = (START_POSITIONS[(opp.playerIndex ?? 0)] + opp.pos) % LOOP_LEN;
+                if (oppAbs === abs) opp.pos = -1;
+              }
+            });
+          });
+        }
       }
 
       const allHome = newTokens[userId].every(t => t.pos === 57);

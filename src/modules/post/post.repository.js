@@ -333,6 +333,14 @@ const softDelete = async (postId) => {
   }
 };
 
+const setRepostNull = async (repostId) => {
+  try {
+    await pool.query(`UPDATE ${PostModel.TABLE} SET repost_of_id = NULL WHERE repost_of_id = $1`, [repostId])
+  } catch (error) {
+    throw error
+  }
+}
+
 // The repost row the current user created for a given original post (used for
 // unrepost and to make reposting idempotent).
 const findMyRepost = async (originalPostId, userId) => {
@@ -512,6 +520,7 @@ module.exports = {
   create,
   update,
   softDelete,
+  setRepostNull,
   hardDelete,
   findMyRepost,
   addLike,

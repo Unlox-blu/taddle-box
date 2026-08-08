@@ -6,7 +6,7 @@ const VIEWS_TABLE = 'post_views';
 
 // Full detail view — used in single post fetch with author + community JOINs
 const DETAIL_FIELDS = [
-  'p.id', 'p.author_id', 'p.community_id', 'p.title', 'p.content',
+  'p.id', 'p.author_id', 'p.community_id', 'p.repost_of_id', 'p.title', 'p.content',
   'p.media', 'p.tags', 'p.category', 'p.status',
   'p.visibility', 'p.likes_count', 'p.comments_count', 'p.shares_count',
   'p.views_count', 'p.is_pinned', 'p.poll_data', 'p.link_data',
@@ -17,18 +17,18 @@ const DETAIL_FIELDS = [
 
 // Light list view — used in feed and browse
 const LIST_FIELDS = [
-  'p.id', 'p.author_id', 'p.community_id', 'p.title', 'p.content',
+  'p.id', 'p.author_id', 'p.community_id', 'p.repost_of_id', 'p.title', 'p.content',
   'p.media', 'p.tags', 'p.status', 'p.visibility',
   'p.likes_count', 'p.comments_count', 'p.shares_count', 'p.views_count',
   'p.is_pinned', 'p.published_at', 'p.created_at',
   'u.name AS author_name', 'u.username AS author_username',
   'ua.cloudfront_url AS author_avatar',
-  'c.name AS community_name', 'c.slug   AS community_slug',
+  'c.name AS community_name', 'c.slug   AS community_slug', 'c.privacy AS community_privacy',
   'ca.cloudfront_url AS community_avatar',
 ].join(', ');
 
 const POST_STATUSES = ['draft', 'published', 'archived', 'removed'];
-const VISIBILITIES = ['public', 'community_only', 'private'];
+const VISIBILITIES = ['public', 'community_only', 'private', 'followers'];
 
 const sanitize = (row) => {
   if (!row) return null;
@@ -47,6 +47,8 @@ const format = (row) => {
     category: row.category || [],
     status: row.status,
     visibility: row.visibility,
+    repostOfId: row.repost_of_id,
+    repostedByMe: row.is_reposted || false,
     likesCount: row.likes_count,
     commentsCount: row.comments_count,
     sharesCount: row.shares_count,
@@ -63,12 +65,16 @@ const format = (row) => {
       username: row.author_username,
       avatarUrl: row.author_avatar,
       isVerified: row.author_is_verified,
+      // False when the author disabled "Allow Reposting" — the UI hides the
+      // repost button, and repostPost enforces it server-side regardless.
+      repostsEnabled: row.author_reposts_enabled !== false,
     },
     community: row.community_id ? {
       id: row.community_id,
       name: row.community_name,
       slug: row.community_slug,
       avatarUrl: row.community_avatar,
+      privacy: row.community_privacy,
     } : null,
     publishedAt: row.published_at,
     createdAt: row.created_at,

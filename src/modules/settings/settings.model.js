@@ -13,6 +13,7 @@ const LIST_FIELDS = [
   'public_account',
   'activity_status',
   'allow_tagging',
+  'allow_reposts',
   'show_on_leaderboard',
   'created_at',
   'updated_at'
@@ -31,6 +32,7 @@ const format = (row) => {
     publicAccount: row.public_account,
     activityStatus: row.activity_status,
     allowTagging: row.allow_tagging,
+    allowReposts: row.allow_reposts,
     showOnLeaderboard: row.show_on_leaderboard,
     createdAt: row.created_at,
     updatedAt: row.updated_at

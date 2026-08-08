@@ -77,6 +77,27 @@ class CommentService {
         message: content,
       });
 
+      // Mention notifications: @handles in the comment text notify the mentioned
+      // users (never the comment author or the post owner — the owner already
+      // gets the COMMENT notification above).
+      const mentionMatches = content.match(/@(\w+)/g) || [];
+      const mentionedUsernames = [...new Set(mentionMatches.map(m => m.slice(1)))];
+      for (const username of mentionedUsernames) {
+        this.userRepo.findByUsername(username).then(mentioned => {
+          if (mentioned && mentioned.id !== authorId && mentioned.id !== post.author_id) {
+            this.notifSvc.create({
+              type: 'MENTION',
+              recipientId: mentioned.id,
+              senderId: user.id,
+              resourceId: post.id,
+              resourceType: 'post',
+              title: 'New mention',
+              message: `${user.name} mentioned you in a comment`,
+            }).catch(e => console.error(`Failed to notify mentioned user ${username}`, e));
+          }
+        }).catch(e => console.error(`Failed to find user ${username}`, e));
+      }
+
       this.feedSvc.updatePreferences({userId: authorId, categories: post.category || [], tags: post.tags || []});
       return CommentModel.format(comment);
     } catch (error) {
@@ -128,9 +149,9 @@ class CommentService {
       await this.notifSvc.publishNotification({
         type: 'COMMENT',
         recipientId: post.author_id,
-        actorId: user.id,
-        entityId: post.id,
-        entityType: 'post',
+        senderId: user.id,
+        resourceType: 'post',
+        resourceId: post.id,
         title: 'New comment',
         message: content,
       });

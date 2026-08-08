@@ -191,6 +191,14 @@ const toggleAllowTagging = async (userId) => {
   return SettingsModel.format(rows[0]);
 };
 
+const toggleAllowReposts = async (userId) => {
+  const { rows } = await pool.query(
+    `UPDATE ${SettingsModel.TABLE} SET allow_reposts = NOT allow_reposts, updated_at = NOW() WHERE user_id = $1 RETURNING allow_reposts`,
+    [userId]
+  );
+  return SettingsModel.format(rows[0]);
+};
+
 const toggleShowOnLeaderboard = async (userId) => {
   const { rows } = await pool.query(
     `UPDATE ${SettingsModel.TABLE} SET show_on_leaderboard = NOT show_on_leaderboard, updated_at = NOW() WHERE user_id = $1 RETURNING show_on_leaderboard`,
@@ -215,5 +223,6 @@ module.exports = {
   togglePublicAccount,
   toggleActivityStatus,
   toggleAllowTagging,
+  toggleAllowReposts,
   toggleShowOnLeaderboard,
 };

@@ -31,7 +31,7 @@ const POST_FIELDS = [
   'p.is_pinned', 'p.published_at', 'p.created_at',
   'u.name AS author_name', 'u.username AS author_username',
   'ua.cloudfront_url AS author_avatar',
-  'c.name AS community_name', 'c.slug   AS community_slug',
+  'c.name AS community_name', 'c.slug   AS community_slug', 'c.privacy AS community_privacy',
   'ca.cloudfront_url AS community_avatar',
 ].join(', ');
 

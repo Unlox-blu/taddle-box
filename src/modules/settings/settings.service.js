@@ -121,6 +121,15 @@ class SettingsService {
     }
   }
 
+  async toggleAllowReposts({ userId }) {
+    try {
+      await this._getOrCreateSettings(userId);
+      return await this.settingsRepo.toggleAllowReposts(userId);
+    } catch (error) {
+      throw error;
+    }
+  }
+
   async toggleShowOnLeaderboard({ userId }) {
     try {
       await this._getOrCreateSettings(userId);

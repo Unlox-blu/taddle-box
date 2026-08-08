@@ -21,6 +21,7 @@ router.patch('/publicaccount',          verifyToken,                            
 router.patch('/activitystatus',         verifyToken,                                   settingsController.toggleActivityStatus)
 router.patch('/allowtagging',           verifyToken,                                   settingsController.toggleAllowTagging)
 router.patch('/showonleaderboard',      verifyToken,                                   settingsController.toggleShowOnLeaderboard)
+router.patch('/allowreposts',           verifyToken,                                   settingsController.toggleAllowReposts)
 router.get('/notifications/preferences', verifyToken,                                  notificationController.getPreferences)
 router.put('/notifications/preferences', verifyToken,                                  notificationController.updatePreferences)
 

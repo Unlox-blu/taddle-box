@@ -121,6 +121,16 @@ class SettingsController {
     }
   };
 
+  toggleAllowReposts = async (req, res, next) => {
+    try {
+      const userId = req.userId;
+      const data = await this.settingsSvc.toggleAllowReposts({userId});
+      res.json(apiResponse(data, `Privacy setting toggled successfully`));
+    } catch (error) {
+      next(error);
+    }
+  };
+
   toggleShowOnLeaderboard = async (req, res, next) => {
     try {
       const userId = req.userId;

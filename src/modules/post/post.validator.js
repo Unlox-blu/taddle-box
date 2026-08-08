@@ -64,6 +64,9 @@ const paginationQuerySchema = z.object({
     .positive({ message: 'Limit must be greater than zero' })
     .max(100, 'Maximum limit allowed is 100')
     .default(10).optional(),
+
+  // Profile feed filter: 'all' (default) | 'posts' (originals only) | 'reposts'.
+  type: z.enum(['all', 'posts', 'reposts']).optional().default('all'),
 }).strict();
 
 module.exports = { createPostSchema, updatePostSchema, postIdParamsSchema, authorIdParamsSchema, paginationQuerySchema };

@@ -110,6 +110,16 @@ const DEFAULT_NOTIFICATION_DEFINITIONS = {
     delay: 0,
     priority: PRIORITY.MEDIUM,
   },
+  // Fan-out when a followed user publishes a post or repost (Twitter-style).
+  NEW_POST: {
+    save: true,
+    socket: false,
+    push: true,
+    batch: false,
+    delay: 0,
+    priority: PRIORITY.LOW,
+    category: 'social',
+  },
 };
 
 const TYPE_ALIASES = {
@@ -122,6 +132,8 @@ const TYPE_ALIASES = {
   PROMOTION: 'PROMOTION',
   REQUEST_TO_FOLLOW: 'REQUEST_TO_FOLLOW',
   REQUEST_TO_JOIN_COMMUNITY: 'REQUEST_TO_JOIN_COMMUNITY',
+  NEW_POST: 'NEW_POST',
+  REPOST: 'NEW_POST',
 };
 
 const normalizeType = (type) => {

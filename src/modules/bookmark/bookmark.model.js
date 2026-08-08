@@ -31,24 +31,28 @@ const format = (row) => {
     category: row.category || [],
     status: row.status,
     visibility: row.visibility,
+    repostOfId: row.repost_of_id,
+    repostedByMe: row.is_reposted || false,
     likesCount: row.likes_count ?? 0,
     commentsCount: row.comments_count ?? 0,
     sharesCount: row.shares_count ?? 0,
     viewsCount: row.views_count ?? 0,
     isPinned: row.is_pinned || false,
-    isLiked: false, // Could query, but default false for now
+    isLiked: row.is_liked || false,
     isSaved: true,  // It's in the bookmark list, so it's saved
     author: row.author && {
       id: row.author.id,
       name: row.author.name || row.author.username, // fallbacks
       username: row.author.username,
       avatarUrl: row.author.avatar_url?.cloudfront_url,
+      repostsEnabled: row.author.reposts_enabled !== false,
     },
     community: row.community ? {
       id: row.community.id,
       name: row.community.name,
       slug: row.community.slug,
       avatarUrl: row.community.avatar_url?.cloudfront_url,
+      privacy: row.community.privacy,
     } : null,
     publishedAt: row.published_at,
   };

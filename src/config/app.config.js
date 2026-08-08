@@ -72,14 +72,23 @@ module.exports = {
   RAZORPAY_KEY_SECRET: optional('RAZORPAY_KEY_SECRET'),
   RAZORPAY_WEBHOOK_SECRET: optional('RAZORPAY_WEBHOOK_SECRET'),
 
-  // PayU
-  PAYU_KEY: optional('PAYU_KEY', 'gtKFFx'),
-  PAYU_SALT: optional('PAYU_SALT', 'eCwWELxi'),
+  // PayU — credentials MUST come from .env (single source of truth). No test
+  // credentials are hardcoded here; PAYU_KEY / PAYU_SALT are required so the
+  // server refuses to start with a misconfigured checkout.
+  PAYU_KEY: required('PAYU_KEY'),
+  PAYU_SALT: required('PAYU_SALT'),
   PAYU_URL: optional('PAYU_URL', 'https://test.payu.in/_payment'),
   // Where PayU redirects the WebView after checkout. Defaults to BASE_URL but
   // can be overridden with the public tunnel/domain when testing on a device
   // (the phone's WebView can't reach a localhost backend).
   PAYU_RETURN_BASE_URL: optional('PAYU_RETURN_BASE_URL'),
+
+  // Admin withdrawal handoff — the secure URL that receives the one-time token
+  // when a user requests a payout. Must be set in production.
+  WITHDRAWAL_ADMIN_BASE_URL: optional('WITHDRAWAL_ADMIN_BASE_URL', 'https://admin.taddlebox.com'),
+  // Shared secret the admin backend sends in the X-Webhook-Secret header to
+  // authorize withdrawal confirm/reject webhooks.
+  WITHDRAWAL_WEBHOOK_SECRET: required('WITHDRAWAL_WEBHOOK_SECRET'),
 
   // Economy — XP conversion rate: how many XP are worth 1 Rupee. Used by
   // wallet conversions (XP <-> cash) and paid-event ticket pricing.

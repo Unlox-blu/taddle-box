@@ -63,6 +63,37 @@ class UserController {
     }
   };
 
+  recordLocation = async (req, res, next) => {
+    try {
+      const userId = req.userId;
+      const result = await this.userSvc.recordLocation({ userId, body: req.body });
+      res.json(apiResponse(result, 'Location captured'));
+    } catch (error) {
+      next(error);
+    }
+  };
+
+  clearLocation = async (req, res, next) => {
+    try {
+      const userId = req.userId;
+      const result = await this.userSvc.clearLocationHistory({ userId });
+      res.json(apiResponse(result, 'Location data cleared'));
+    } catch (error) {
+      next(error);
+    }
+  };
+
+  getPresenceBatch = async (req, res, next) => {
+    try {
+      const userId = req.userId;
+      const userIds = req.body?.userIds || [];
+      const result = await this.userSvc.getPresenceBatch({ userId, userIds });
+      res.json(apiResponse(result, 'Presence fetched successfully'));
+    } catch (error) {
+      next(error);
+    }
+  };
+
   updatePrivacy = async (req, res, next) => {
     try {
       const userId = req.userId
@@ -73,6 +104,18 @@ class UserController {
       next(error)
     }
   }
+
+  getMutuals = async (req, res, next) => {
+    try {
+      const { limit, offset, page } = getPaginationParams(req.query);
+      const viewerId = req.userId;
+      const { username } = req.params;
+      const { users, total } = await this.userSvc.getMutuals({ viewerId, username, limit, offset });
+      res.json(apiResponse(users, 'Mutuals fetched successfully', paginationMeta(total, page, limit)));
+    } catch (error) {
+      next(error);
+    }
+  };
 
   getFollowers = async (req, res, next) => {
     try {

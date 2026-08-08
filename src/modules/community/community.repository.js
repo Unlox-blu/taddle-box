@@ -68,7 +68,8 @@ const findManyCommunity = async ({limit, offset, userId = null}) => {
       -- Soft-deleted/inactive communities must not appear in the list (clicking
       -- them 404s on the detail screen). Membership alone can't resurrect one.
       WHERE c.deleted_at IS NULL AND c.is_active = TRUE
-        AND (privacy = 'public' OR EXISTS (SELECT 1 FROM ${CommunityModel.MEMBERS_TABLE} cm WHERE cm.community_id = c.id AND cm.user_id = $3 AND cm.status = 'active'))
+        AND (privacy = 'public' OR c.owner_id = $3
+          OR EXISTS (SELECT 1 FROM ${CommunityModel.MEMBERS_TABLE} cm WHERE cm.community_id = c.id AND cm.user_id = $3 AND cm.status = 'active'))
       ORDER BY member_count DESC
       LIMIT $1 OFFSET $2`,
       [limit, offset, userId]

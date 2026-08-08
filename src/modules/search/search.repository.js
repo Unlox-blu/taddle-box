@@ -53,6 +53,21 @@ const searchPost = async (query, limit, offset, userId = null) => {
     const { rows } = await pool.query(
       `SELECT 
               ${SearchModel.POST_FIELDS},
+              -- Per-viewer like / bookmark state (same shape as discoverPost) so
+              -- the heart + bookmark icons render correctly in search results.
+              EXISTS(
+                  SELECT 1 FROM post_likes pl
+                  WHERE pl.post_id = p.id AND pl.user_id = $4
+              ) AS is_liked,
+              EXISTS(
+                  SELECT 1 FROM bookmark bm
+                  WHERE bm.post_id = p.id AND bm.user_id = $4
+              ) AS is_bookmarked,
+              EXISTS(
+                  SELECT 1 FROM posts rp
+                  WHERE rp.repost_of_id = p.id AND rp.author_id = $4 AND rp.deleted_at IS NULL
+              ) AS is_reposted,
+              COALESCE(s.allow_reposts, TRUE) AS author_reposts_enabled,
               COALESCE(
                   json_agg(
                       json_build_object(
@@ -69,6 +84,7 @@ const searchPost = async (query, limit, offset, userId = null) => {
           FROM posts p
           JOIN users u ON p.author_id = u.id
           LEFT JOIN media AS ua ON u.avatar_url = ua.id
+          LEFT JOIN settings s ON s.user_id = u.id
           LEFT JOIN communities AS c ON p.community_id = c.id
           LEFT JOIN media AS ca ON c.avatar_url = ca.id
           LEFT JOIN media m ON p.id = m.post_id
@@ -81,7 +97,7 @@ const searchPost = async (query, limit, offset, userId = null) => {
               SELECT 1 FROM followers f
               WHERE f.follower_id = $4 AND f.following_id = p.author_id AND f.status = 'active'
             ))
-          GROUP BY p.id, u.id, ua.id, c.id, ca.id
+          GROUP BY p.id, u.id, ua.id, c.id, ca.id, s.user_id
           ORDER BY CASE WHEN $1 = '' THEN (p.likes_count + p.comments_count) END DESC NULLS LAST, p.created_at DESC
            LIMIT $2 OFFSET $3`,
       [`%${q}%`, limit, offset, userId]

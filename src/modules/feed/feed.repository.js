@@ -86,6 +86,12 @@ const getPersonalizedPosts = async ({userId, followingId, communityId, prefCateg
                   WHERE xt.xp_id = (SELECT id FROM xp WHERE user_id = $1 LIMIT 1) AND xt.source_type = 'view_post_' || p.id
             ) AS is_xp_claimed,
 
+            EXISTS(
+                  SELECT 1 FROM posts rp
+                  WHERE rp.repost_of_id = p.id AND rp.author_id = $1 AND rp.deleted_at IS NULL
+            ) AS is_reposted,
+            COALESCE(s.allow_reposts, TRUE) AS author_reposts_enabled,
+
         -- Following
                 CASE
                     WHEN p.author_id = ANY($2::uuid[]) THEN 10000
@@ -181,6 +187,9 @@ const getPersonalizedPosts = async ({userId, followingId, communityId, prefCateg
         JOIN users u
             ON u.id = p.author_id
 
+        LEFT JOIN settings s
+            ON s.user_id = u.id
+
         LEFT JOIN communities c
             ON p.community_id = c.id
 
@@ -219,6 +228,20 @@ const getPersonalizedPosts = async ({userId, followingId, communityId, prefCateg
 
           )
 
+        -- Audience: own posts, public posts, community posts (public community
+        -- OR joined community), and followers-only posts from followed users.
+          AND (
+
+              p.author_id = $1
+
+              OR p.visibility = 'public'
+
+              OR (p.visibility = 'community_only' AND (c.privacy = 'public' OR p.community_id = ANY($3::uuid[])))
+
+              OR (p.visibility = 'followers' AND p.author_id = ANY($2::uuid[]))
+
+          )
+
         -- hashtag
           AND (
 
@@ -227,7 +250,7 @@ const getPersonalizedPosts = async ({userId, followingId, communityId, prefCateg
               OR p.tags @> ARRAY[$8::text]
 
           )
-        GROUP BY p.id, u.id, ua.id, c.id, ca.id
+        GROUP BY p.id, u.id, ua.id, c.id, ca.id, s.user_id
 
       )
 

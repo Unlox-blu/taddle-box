@@ -68,18 +68,12 @@ class TaskService {
     }
   }
 
+  // Keeps the task board's streak counter in sync with the streak module.
+  // Streak XP (the dynamic milestone reward) is granted by the streak service
+  // itself — no duplicate payout here.
   async updateStreak ({userId, streak}) {
     try {
-        const task = await this.taskRepo.updateStreak(userId, streak)
-        const streakCount = parseInt(task.streak, 10)
-
-        if(streakCount === 7 || streakCount % 7 === 0){
-          const xp = 5
-          const transactionType = "bonus"
-          const sourceType = "Streak"
-          await this.xpSvc.creditXP({ userId, xp, transactionType, sourceType })
-        }
-        return task
+        return await this.taskRepo.updateStreak(userId, streak)
     } catch (error) {
         throw error
     }

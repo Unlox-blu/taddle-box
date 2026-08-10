@@ -68,7 +68,7 @@ export default function TournamentLeaderboardModal({ visible, tournament, onClos
         activeOpacity={0.7}
         onPress={() => {
           onClose();
-          navigation.navigate("UserProfile", {
+          navigation.push("UserProfile", {
             user: {
               id: item.userId,
               name: item.name,

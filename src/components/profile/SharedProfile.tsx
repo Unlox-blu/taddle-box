@@ -27,6 +27,7 @@ import { postsService } from "../../services/posts.service";
 import { presenceIndicator } from "../../context/PresenceContext";
 import CommentsModal from "../home/CommentsModal";
 import PresenceDot from "../common/PresenceDot";
+import { notificationService } from "../../services/notification.service";
 
 const { width } = Dimensions.get("window");
 
@@ -331,6 +332,37 @@ function makeStyles(c: ColorPalette) {
       borderTopRightRadius: radii.full,
       backgroundColor: c.primaryLight,
     },
+    // Mentions tab rows — notifications-style (avatar, actor, message, time,
+    // content thumbnail), tapping opens the mentioned post.
+    mentionRow: {
+      flexDirection: "row",
+      alignItems: "center",
+      gap: 12,
+      paddingHorizontal: spacing.lg,
+      paddingVertical: 12,
+      borderBottomWidth: StyleSheet.hairlineWidth,
+      borderBottomColor: c.border,
+      backgroundColor: c.bg.base,
+    },
+    mentionAvatar: {
+      width: 40,
+      height: 40,
+      borderRadius: 20,
+      backgroundColor: c.bg.elevated,
+      alignItems: "center",
+      justifyContent: "center",
+      overflow: "hidden",
+    },
+    mentionBody: { flex: 1, gap: 2 },
+    mentionName: { fontSize: fontSizes.sm, fontWeight: "800", color: c.text.primary },
+    mentionText: { fontSize: fontSizes.xs, color: c.text.secondary, lineHeight: 17 },
+    mentionTime: { fontSize: fontSizes.xs, color: c.text.muted, marginTop: 2 },
+    mentionThumb: {
+      width: 44,
+      height: 44,
+      borderRadius: 10,
+      backgroundColor: c.bg.elevated,
+    },
     achievementsCard: {
       marginHorizontal: spacing.lg,
       marginTop: spacing.md,
@@ -472,11 +504,24 @@ export default function SharedProfile({
   const { user: currentUser } = useAuth();
   const [posts, setPosts] = useState<any[]>([]);
   const [loadingPosts, setLoadingPosts] = useState(true);
-  // Profile feed filter: "Posts" (originals) vs "Reposts" (Twitter-style).
-  const [profileTab, setProfileTab] = useState<"posts" | "reposts">("posts");
+  // Profile feed filter: "Posts" (originals), "Reposts" (Twitter-style), and
+  // "Mentions" — @-mentions of this user, rendered like the notifications UI
+  // (own profile only: someone else's mentions are private).
+  const [profileTab, setProfileTab] = useState<"posts" | "reposts" | "mentions">("posts");
   // Guards against out-of-order responses when switching tabs fast — only the
   // latest request may commit its posts.
   const postsReqRef = useRef(0);
+  const [mentions, setMentions] = useState<any[]>([]);
+  const [loadingMentions, setLoadingMentions] = useState(false);
+  const [mentionPage, setMentionPage] = useState(1);
+  const [hasMoreMentions, setHasMoreMentions] = useState(false);
+  const [loadingMoreMentions, setLoadingMoreMentions] = useState(false);
+  const mentionsReqRef = useRef(0);
+  // Mentions list is conditionally rendered (unmounts when switching to the
+  // posts/reposts tabs), so its scroll offset is captured here and restored
+  // when the tab is re-entered — otherwise it always bounces back to the top.
+  const mentionsListRef = useRef<any>(null);
+  const mentionsScrollOffset = useRef(0);
   // Deep-link: a notification tapped through to a post inside this profile.
   const [openCommentPost, setOpenCommentPost] = useState<any>(null);
   const [openCommentVisible, setOpenCommentVisible] = useState(false);
@@ -500,6 +545,74 @@ export default function SharedProfile({
     ]);
   };
 
+  // Mention row tap — post & comment mentions both carry the post id; open the
+  // full post page (same redirect as the notifications screen). Falls back to
+  // the sender's profile when the post is gone (deleted / private / legacy).
+  const openMention = useCallback(async (notif: any) => {
+    const resourceId = notif?.resourceId;
+    if (resourceId) {
+      try {
+        const res = await postsService.getPost(resourceId);
+        const post = res?.data;
+        if (post) {
+          // Comment mentions carry the exact comment id → the post page
+          // auto-scrolls to and highlights that comment.
+          (navigation as any).push('PostDetail', {
+            post,
+            commentId: notif?.payload?.commentId,
+          } as any);
+          return;
+        }
+      } catch (e) {
+        // fall through to the sender's profile
+      }
+    }
+    const username = notif?.payload?.username;
+    if (username) {
+      (navigation as any).push('UserProfile', {
+        user: {
+          name: notif.actor,
+          username,
+          avatarUrl: notif.avatarUrl,
+          handle: username,
+          avatar: '👾',
+          level: 1,
+          xp: 0,
+          xpToNext: 100,
+        } as any,
+      });
+    }
+  }, [navigation]);
+
+  const renderMentionRow = (notif: any) => (
+    <TouchableOpacity
+      key={String(notif?.id)}
+      style={styles.mentionRow}
+      activeOpacity={0.7}
+      onPress={() => openMention(notif)}
+    >
+      <View style={styles.mentionAvatar}>
+        {notif?.avatarUrl ? (
+          <Image source={{ uri: notif.avatarUrl }} style={{ width: "100%", height: "100%" }} />
+        ) : (
+          <Text style={{ fontSize: 15 }}>{notif?.avatar || "👤"}</Text>
+        )}
+      </View>
+      <View style={styles.mentionBody}>
+        <Text style={styles.mentionName} numberOfLines={1}>
+          {notif?.actor || "Someone"}
+        </Text>
+        <Text style={styles.mentionText} numberOfLines={2}>
+          {notif?.text || "mentioned you"}
+        </Text>
+        <Text style={styles.mentionTime}>{notif?.time || ""}</Text>
+      </View>
+      {notif?.thumbnailUrl ? (
+        <Image source={{ uri: notif.thumbnailUrl }} style={styles.mentionThumb} resizeMode="cover" />
+      ) : null}
+    </TouchableOpacity>
+  );
+
   const loadProfile = useCallback(async () => {
     const username = initialUser?.username || "";
     if (!username) return;
@@ -518,6 +631,12 @@ export default function SharedProfile({
   }, [initialUser?.username]);
 
   const loadPosts = useCallback(async () => {
+    // The Mentions tab has its own loader + list — never fetch posts for it.
+    if (profileTab === 'mentions') {
+      setPosts([]);
+      setLoadingPosts(false);
+      return;
+    }
     const reqId = ++postsReqRef.current;
     try {
       if (!user?.id) return;
@@ -541,9 +660,36 @@ export default function SharedProfile({
     }
   }, [user?.id, user?.privacy, followed, isOwnProfile, profileTab]);
 
+  // Mentions — the user's @-mention notifications (post + comment mentions),
+  // server-filtered by type, paginated like the notifications screen.
+  const loadMentions = useCallback(async (page = 1, append = false) => {
+    const reqId = ++mentionsReqRef.current;
+    try {
+      if (!user?.id) return;
+      if (!append) setLoadingMentions(true);
+      const res = await notificationService.getNotifications(page, 20, false, 'MENTION');
+      if (mentionsReqRef.current !== reqId) return;
+      const rows = res.data || [];
+      const meta = res.meta as any;
+      setHasMoreMentions(meta ? !!meta.hasNext : rows.length === 20);
+      setMentions((prev) =>
+        append
+          ? [...prev, ...rows.filter((r: any) => !prev.some((p: any) => p.id === r.id))]
+          : rows,
+      );
+      setMentionPage(page);
+    } catch (e) {
+      console.warn("Failed to load mentions", e);
+    } finally {
+      if (mentionsReqRef.current === reqId) setLoadingMentions(false);
+    }
+  }, [user?.id]);
+
   useEffect(() => {
-    if (user?.id) loadPosts();
-  }, [user?.id, user?.privacy, followed, isOwnProfile, loadPosts]);
+    if (!user?.id) return;
+    if (profileTab === 'mentions') loadMentions();
+    else loadPosts();
+  }, [user?.id, user?.privacy, followed, isOwnProfile, loadPosts, loadMentions, profileTab]);
 
   // Refetch profile + posts whenever the screen regains focus so follower/post/
   // XP counts stay fresh (e.g. new followers or posts while away) without a
@@ -551,9 +697,24 @@ export default function SharedProfile({
   useFocusEffect(
     useCallback(() => {
       loadProfile();
-      if (user?.id) loadPosts();
-    }, [loadProfile, loadPosts, user?.id])
+      if (!user?.id) return;
+      if (profileTab === 'mentions') loadMentions();
+      else loadPosts();
+    }, [loadProfile, loadPosts, loadMentions, profileTab, user?.id])
   );
+
+  // Re-entering the Mentions tab remounts its FlatList — restore the saved
+  // scroll offset once the list is back on screen so the position is kept.
+  useEffect(() => {
+    if (profileTab !== 'mentions' || loadingMentions || mentions.length === 0) return;
+    const t = setTimeout(() => {
+      mentionsListRef.current?.scrollToOffset({
+        offset: mentionsScrollOffset.current,
+        animated: false,
+      });
+    }, 30);
+    return () => clearTimeout(t);
+  }, [profileTab, loadingMentions, mentions.length]);
 
   // Private accounts hide their posts until the viewer is an approved follower.
   const isLocked =
@@ -640,8 +801,10 @@ export default function SharedProfile({
     setRefreshing(true);
     try {
       await loadProfile();
-      if (
-        user?.id &&
+      if (!user?.id) return;
+      if (profileTab === 'mentions') {
+        await loadMentions();
+      } else if (
         !(!isOwnProfile && user?.privacy === "private" && !followed)
       ) {
         const postsRes = await postsService.getUserPosts(user.id, 1, 20, profileTab);
@@ -652,7 +815,7 @@ export default function SharedProfile({
     } finally {
       setRefreshing(false);
     }
-  }, [loadProfile, user?.id, isOwnProfile, followed, profileTab]);
+  }, [loadProfile, loadMentions, user?.id, isOwnProfile, followed, profileTab]);
 
   const refreshControl = (
     <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={colors.primary} />
@@ -1135,11 +1298,15 @@ export default function SharedProfile({
         </View>
       )}
 
-      {/* Posts / Reposts — segmented tab bar (Twitter-style underline). Hidden
-          on locked private accounts along with the feed itself. */}
+      {/* Posts / Reposts / Mentions — segmented tab bar (Twitter-style
+          underline). Hidden on locked private accounts along with the feed.
+          Mentions is own-profile only — other users' mentions are private. */}
       {!isLocked && (
         <View style={styles.postTabs}>
-          {(["posts", "reposts"] as const).map((tab) => (
+          {(isOwnProfile
+            ? (["posts", "reposts", "mentions"] as const)
+            : (["posts", "reposts"] as const)
+          ).map((tab) => (
             <TouchableOpacity
               key={tab}
               style={styles.postTab}
@@ -1152,7 +1319,7 @@ export default function SharedProfile({
                   profileTab === tab && styles.postTabTextActive,
                 ]}
               >
-                {tab === "posts" ? "Posts" : "Reposts"}
+                {tab === "posts" ? "Posts" : tab === "reposts" ? "Reposts" : "Mentions"}
               </Text>
               {profileTab === tab && <View style={styles.postTabActiveBar} />}
             </TouchableOpacity>
@@ -1186,6 +1353,59 @@ export default function SharedProfile({
             </Text>
           </View>
         </ScrollView>
+      // Mentions tab — notification-style list (own profile only). Spinner on
+      // first load, paginated via onEndReached like the notifications screen.
+      ) : profileTab === 'mentions' ? (
+        loadingMentions && mentions.length === 0 ? (
+          <ScrollView showsVerticalScrollIndicator={false} refreshControl={refreshControl}>
+            {profileHeader}
+            <View style={{ padding: 40, alignItems: "center" }}>
+              <ActivityIndicator size="small" color={colors.primary} />
+            </View>
+          </ScrollView>
+        ) : mentions.length === 0 ? (
+          <ScrollView showsVerticalScrollIndicator={false} refreshControl={refreshControl}>
+            {profileHeader}
+            <View style={{ padding: 40, alignItems: "center" }}>
+              <Text style={{ color: colors.text.muted }}>
+                No mentions yet — when someone @mentions you, it shows up here.
+              </Text>
+            </View>
+          </ScrollView>
+        ) : (
+          <FlatList
+            ref={mentionsListRef}
+            data={mentions}
+            keyExtractor={(item: any) => String(item.id)}
+            showsVerticalScrollIndicator={false}
+            ListHeaderComponent={profileHeader}
+            contentContainerStyle={{ paddingBottom: 24 }}
+            refreshControl={refreshControl}
+            onScroll={(e: any) => {
+              mentionsScrollOffset.current = e.nativeEvent.contentOffset.y;
+            }}
+            scrollEventThrottle={16}
+            renderItem={({ item }: any) => renderMentionRow(item)}
+            onEndReached={() => {
+              if (hasMoreMentions && !loadingMoreMentions) {
+                setLoadingMoreMentions(true);
+                loadMentions(mentionPage + 1, true).finally(() => setLoadingMoreMentions(false));
+              }
+            }}
+            onEndReachedThreshold={0.4}
+            ListFooterComponent={
+              loadingMoreMentions ? (
+                <ActivityIndicator
+                  size="small"
+                  color={colors.primary}
+                  style={{ paddingVertical: 14 }}
+                />
+              ) : (
+                <View style={{ height: 80 }} />
+              )
+            }
+          />
+        )
       // Keep the feed list mounted during tab switches (only show the
       // full-screen spinner on the very first load) so switching Posts ↔
       // Reposts never resets the scroll position to the top of the page.
@@ -1391,20 +1611,61 @@ function FollowListModal({
   onFollowerRemoved,
 }: any) {
   const navigation = useNavigation<any>();
-  // Lists are shipped inside the profile response (see getProfile), so the
-  // modal renders instantly without hitting /users/:username/followers etc.
-  // A local copy keeps the Unfollow action working without mutating the prop.
+  // Paginated server fetch — the profile response only ships the first 50
+  // inline, so the modal loads the REST page-by-page via onEndReached. The
+  // inline list seeds the first screen so it still renders instantly.
   const source = React.useMemo(() => {
     if (type === "followers") return user?.followers || [];
     if (type === "following") return user?.following || [];
     return user?.mutuals?.users || [];
   }, [type, user]);
   const [users, setUsers] = useState<any[]>(source);
+  const [page, setPage] = useState(1);
+  const [hasMore, setHasMore] = useState(false);
   const [loading, setLoading] = useState(false);
+  const [refreshing, setRefreshing] = useState(false);
 
+  const fetchPage = React.useCallback(
+    async (nextPage: number, refresh = false) => {
+      const username = user?.username;
+      if (!username) return;
+      setLoading(true);
+      try {
+        const res =
+          type === "followers"
+            ? await userService.getFollowers(username, nextPage, 20)
+            : type === "following"
+              ? await userService.getFollowing(username, nextPage, 20)
+              : await userService.getMutuals(username, nextPage, 20);
+        const rows = res?.data || [];
+        const meta = res?.meta;
+        // Server returns page*limit sized pages → more exists when a full page
+        // came back (meta.hasNext is the authoritative signal when present).
+        setHasMore(meta ? !!meta.hasNext : rows.length === 20);
+        setUsers((prev) =>
+          refresh ? rows : [...prev, ...rows.filter((r: any) => !prev.some((p: any) => (p.id || p.user_id) === (r.id || r.user_id)))],
+        );
+        setPage(nextPage);
+      } catch (e) {
+        console.warn("Failed to load user list", e);
+      } finally {
+        setLoading(false);
+        setRefreshing(false);
+      }
+    },
+    [type, user?.username],
+  );
+
+  // Reset + fetch the first page when opened (or when the target changes).
   React.useEffect(() => {
-    setUsers(source);
-  }, [source]);
+    if (visible) {
+      setUsers(source);
+      setPage(1);
+      setHasMore(false);
+      fetchPage(1, true);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [visible, type, user?.username]);
 
   const handleUnfollow = async (targetUsername: string) => {
     try {
@@ -1470,13 +1731,31 @@ function FollowListModal({
           ) : (
             <FlatList
               data={users}
-              keyExtractor={(item, index) => item.id || String(index)}
+              keyExtractor={(item, index) => item.id || item.user_id || String(index)}
+              onEndReached={() => {
+                if (hasMore && !loading) fetchPage(page + 1);
+              }}
+              onEndReachedThreshold={0.4}
+              refreshing={refreshing}
+              onRefresh={() => {
+                setRefreshing(true);
+                fetchPage(1, true);
+              }}
+              ListFooterComponent={
+                loading && users.length > 0 ? (
+                  <ActivityIndicator
+                    size="small"
+                    color={colors.primary}
+                    style={{ paddingVertical: 14 }}
+                  />
+                ) : null
+              }
               renderItem={({ item }) => (
                 <TouchableOpacity
                   style={styles.userRow}
                   onPress={() => {
                     onClose();
-                    navigation.navigate("UserProfile", { user: item });
+                    navigation.push("UserProfile", { user: item });
                   }}
                 >
                   <View style={styles.userInfo}>
@@ -1556,7 +1835,7 @@ function BioText({
   const openMention = async (handle: string) => {
     try {
       const res = await userService.getProfile(handle);
-      navigation.navigate("UserProfile", {
+      navigation.push("UserProfile", {
         user: {
           username: handle,
           name: handle,

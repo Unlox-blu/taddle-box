@@ -2,7 +2,7 @@ import React from 'react';
 import { View, Text, StyleSheet } from 'react-native';
 import { colors, radii, fontSizes, spacing } from '../../theme';
 
-const DAYS = ['M', 'T', 'W', 'T', 'F', 'S', 'S'];
+const DAYS = ['Day 1', 'Day 2', 'Day 3', 'Day 4', 'Day 5', 'Day 6', 'Day 7'];
 
 interface StreakCardProps {
   streakDays: number;
@@ -17,7 +17,9 @@ export default function StreakCard({ streakDays, completedDays, todayIndex }: St
         <Text style={styles.title}>🔥 Daily Streak</Text>
         <View style={styles.countBox}>
           <Text style={styles.days}>{streakDays}</Text>
-          <Text style={styles.daysLabel}>days streak!</Text>
+          <Text style={styles.daysLabel}>
+            {streakDays === 1 ? 'day' : 'days'} streak!
+          </Text>
         </View>
       </View>
       <View style={styles.dots}>

@@ -14,6 +14,7 @@ import type { HomeStackParamList, Notification, Post } from '../../types';
 import { notificationService } from '../../services/notification.service';
 import { userService } from '../../services/user.service';
 import { postsService } from '../../services/posts.service';
+import { communityService } from '../../services/community.service';
 import { useNotifications } from '../../context/NotificationContext';
 import { notificationBus, NOTIF_EVENTS } from '../../lib/notificationBus';
 import { socketClient } from '../../services/socketClient';
@@ -28,7 +29,7 @@ type Props = NativeStackScreenProps<HomeStackParamList, 'Notifications'>;
 const NOTIF_ICON: Record<Notification['type'], string> = {
   like: 'heart', comment: 'chatbubble', follow: 'person-add',
   mention: 'at', event: 'calendar', achievement: 'trophy', game_invite: 'game-controller',
-  post: 'create'
+  post: 'create', community: 'people'
 };
 
 const GROUPS: { key: Notification['group']; label: string }[] = [
@@ -41,7 +42,7 @@ function getNotifColor(c: ColorPalette): Record<Notification['type'], string> {
   return {
     like: c.pink, comment: c.primaryLight, follow: c.cyan,
     mention: c.cyanLight, event: c.xpGold, achievement: c.xpGold, game_invite: c.primaryLight,
-    post: c.primary
+    post: c.primary, community: c.cyan
   };
 }
 
@@ -115,6 +116,12 @@ function makeStyles(c: ColorPalette) {
       width: 10, height: 10, borderRadius: 5,
       backgroundColor: c.primary, marginTop: 18, flexShrink: 0,
       shadowColor: c.primary, shadowOpacity: 0.4, shadowRadius: 4, shadowOffset: { width: 0, height: 0 },
+    },
+
+    thumb: {
+      width: 56, height: 56, borderRadius: 12,
+      backgroundColor: c.bg.elevated, borderWidth: 1, borderColor: c.border,
+      alignSelf: 'center', flexShrink: 0,
     },
     
     emptyState: {
@@ -233,14 +240,36 @@ export default function NotificationsScreen({ navigation }: Props) {
     });
   };
 
-  const fetchNotifs = React.useCallback(async () => {
+  // ── Pagination ──
+  // The server returns 20 per page; the scroll handler appends the next page
+  // when the user nears the bottom. Every other trigger (focus, socket events,
+  // actions) reloads page 1 so the list stays fresh and deduped.
+  const [notifPage, setNotifPage] = useState(1);
+  const [hasMoreNotifs, setHasMoreNotifs] = useState(false);
+  const [loadingMore, setLoadingMore] = useState(false);
+
+  const fetchNotifs = React.useCallback(async (pageToLoad = 1, append = false) => {
     try {
-      const res = await notificationService.getNotifications();
-      setNotifs(res.data);
+      const res = await notificationService.getNotifications(pageToLoad, 20);
+      const rows = res.data || [];
+      const meta = res.meta as any;
+      setHasMoreNotifs(meta ? !!meta.hasNext : rows.length === 20);
+      setNotifs((prev) =>
+        append
+          ? [...prev, ...rows.filter((r: any) => !prev.some((p) => p.id === r.id))]
+          : rows,
+      );
+      setNotifPage(pageToLoad);
     } catch (e) {
       console.error('Failed to fetch notifications:', e);
     }
   }, []);
+
+  const loadMoreNotifs = React.useCallback(() => {
+    if (!hasMoreNotifs || loadingMore) return;
+    setLoadingMore(true);
+    fetchNotifs(notifPage + 1, true).finally(() => setLoadingMore(false));
+  }, [hasMoreNotifs, loadingMore, notifPage, fetchNotifs]);
 
   // Real-time follow-state sync: when a follow request is cancelled by the
   // requester, or a mutual follow happens, update the affected rows instantly
@@ -333,13 +362,38 @@ export default function NotificationsScreen({ navigation }: Props) {
       }
 
       if (type === 'follow' && payload?.username) {
-        navigation.navigate('UserProfile', {
+        navigation.push('UserProfile', {
           user: {
             username: payload.username,
             name: payload.name || notif.actor,
             avatarUrl: notif.avatarUrl,
           } as any,
         });
+        return;
+      }
+
+      // Community rows (join request / new member / approved) open the
+      // community's detail page. The row only carries the community id, so
+      // resolve it to a slug first; if that fails, fall back to the Community
+      // tab so the tap always lands somewhere useful.
+      if (type === 'community') {
+        const communityId = payload?.communityId || resourceId;
+        if (communityId) {
+          try {
+            const res = await communityService.getCommunityById(communityId);
+            const community = res?.data;
+            if (community?.slug) {
+              (navigation as any).navigate('Community', {
+                screen: 'CommunityDetail',
+                params: { communitySlug: community.slug },
+              });
+              return;
+            }
+          } catch (e) {
+            // fall through to the Community tab
+          }
+        }
+        (navigation as any).navigate('Main', { screen: 'Community' });
         return;
       }
 
@@ -354,49 +408,54 @@ export default function NotificationsScreen({ navigation }: Props) {
       }
 
       if (type === 'achievement') {
-        (navigation as any).navigate('Main', { screen: 'Profile' });
+        // Wallet credits / referral rewards belong in the Wallet tab; level-up
+        // achievements open the profile.
+        const kind = payload?.kind;
+        if (kind === 'wallet_credit' || kind === 'referral_reward') {
+          (navigation as any).navigate('Main', { screen: 'Wallet' });
+        } else {
+          (navigation as any).navigate('Main', { screen: 'Profile' });
+        }
         return;
       }
 
-      // like / comment / mention / new post / repost → open that post INSIDE
-      // the author's profile page (comments pop open over it), like other
-      // social platforms. The tap ALWAYS lands somewhere: if the post can't be
-      // fetched (deleted / private), we still open the author's profile with
-      // whatever identity the notification carries.
+      // like / comment / mention / new post / repost → open that post's full
+      // thread with all native options (like, comment, share, media), the same
+      // as tapping a post card in the feed. If the post can't be fetched
+      // (deleted / private), fall back to the author's profile.
       if (type === 'post' || type === 'like' || type === 'comment' || type === 'mention') {
-        let post: Post | null = null;
         if (resourceId) {
           try {
             const res = await postsService.getPost(resourceId);
-            post = res?.data || null;
+            const post = res?.data || null;
+            if (post) {
+              // Comment mentions carry the exact comment id → the detail page
+              // auto-scrolls to (and highlights) that comment.
+              const commentId = (notif as any)?.payload?.commentId;
+              navigation.push('PostDetail', { post: post as Post, commentId } as any);
+              return;
+            }
           } catch (e) {
-            post = null;
+            // fall through to author profile
           }
         }
-        const author: any = (post as any)?.author || {};
-        // Only navigate when we have a real handle — a guessed fallback would
-        // open a broken profile page.
-        const username = author.username || notif.payload?.username;
-        if (!username) return;
-        navigation.navigate('UserProfile', {
-          user: {
-            id: author.id || notif.senderId,
-            name: author.name || notif.actor,
-            username,
-            avatarUrl: author.avatarUrl || notif.avatarUrl,
-            handle: username,
-            avatar: '👾',
-            level: 1,
-            xp: 0,
-            xpToNext: 100,
-          } as any,
-          openPostId: post?.id || resourceId,
-          // Ship the full post so the comments open instantly over the profile
-          // (no dependency on the profile's own posts fetch or a re-fetch).
-          // If the fetch failed, the profile skips refetching when it's a
-          // locked private account, and recovers via its own posts otherwise.
-          ...(post ? { openPost: post } : {}),
-        });
+        // Post fetch failed → open the author's profile so the tap still lands
+        // somewhere useful.
+        const username = notif.payload?.username;
+        if (username) {
+          navigation.push('UserProfile', {
+            user: {
+              name: notif.actor,
+              username,
+              avatarUrl: notif.avatarUrl,
+              handle: username,
+              avatar: '👾',
+              level: 1,
+              xp: 0,
+              xpToNext: 100,
+            } as any,
+          });
+        }
       }
     } catch (e) {
       console.warn('Failed to open notification content', e);
@@ -550,6 +609,13 @@ export default function NotificationsScreen({ navigation }: Props) {
         <ScrollView 
           showsVerticalScrollIndicator={false} 
           contentContainerStyle={{ paddingTop: 8 }}
+          onScroll={({ nativeEvent }: any) => {
+            const { layoutMeasurement, contentOffset, contentSize } = nativeEvent;
+            const distanceFromBottom =
+              contentSize.height - (contentOffset.y + layoutMeasurement.height);
+            if (distanceFromBottom < 400) loadMoreNotifs();
+          }}
+          scrollEventThrottle={200}
           refreshControl={
             <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={colors.primary} />
           }
@@ -844,12 +910,29 @@ export default function NotificationsScreen({ navigation }: Props) {
                       })()}
                     </View>
 
+                    {/* Content preview thumbnail (post media / community avatar
+                        / game cover) — server-enriched, absent for follow rows. */}
+                    {notif.thumbnailUrl ? (
+                      <Image
+                        source={{ uri: notif.thumbnailUrl }}
+                        style={styles.thumb}
+                        resizeMode="cover"
+                      />
+                    ) : null}
+
                     {!notif.isRead && <View style={styles.unreadDot} />}
                   </TouchableOpacity>
                 ))}
               </View>
             );
           })}
+          {loadingMore ? (
+            <ActivityIndicator
+              size="small"
+              color={colors.primary}
+              style={{ paddingVertical: 14 }}
+            />
+          ) : null}
           <View style={{ height: 40 }} />
         </ScrollView>
       )}

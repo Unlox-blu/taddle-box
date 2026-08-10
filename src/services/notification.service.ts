@@ -7,9 +7,12 @@ export const notificationService = {
     page = 1,
     limit = 20,
     unreadOnly = false,
+    type?: string,
   ): Promise<{ data: Notification[]; meta: { unreadCount: number } }> => {
+    const typeParam = type ? `&type=${encodeURIComponent(type)}` : '';
+    const unreadParam = unreadOnly ? '&unread=true' : '';
     const response = await apiClient.get(
-      `/notifications?page=${page}&limit=${limit}`,
+      `/notifications?page=${page}&limit=${limit}${unreadParam}${typeParam}`,
     );
     
     const now = new Date();
@@ -38,10 +41,23 @@ export const notificationService = {
 
       // Carry the sender id for presence dots on avatars.
       (n as any).senderId = n.senderId || undefined;
-      if (rawType === 'FOLLOW' || rawType === 'REQUEST_TO_FOLLOW' || rawType === 'APPROVED_TO_FOLLOW') mappedType = 'follow';
+      // "X joined the community" / "X approved your request" are stored as
+      // FOLLOW rows with a community resource — route them to the community,
+      // not to the sender's profile with a Follow Back button. This must be
+      // checked BEFORE the generic FOLLOW branch below.
+      if (rawType === 'FOLLOW' && n.resourceType === 'community') mappedType = 'community';
+      else if (rawType === 'FOLLOW' || rawType === 'REQUEST_TO_FOLLOW' || rawType === 'APPROVED_TO_FOLLOW') mappedType = 'follow';
       else if (rawType === 'NEW_POST') mappedType = 'post';
       else if (rawType.includes('LIKE')) mappedType = 'like';
       else if (rawType.includes('COMMENT')) mappedType = 'comment';
+      else if (rawType === 'REPLY') mappedType = 'comment';
+      else if (
+        rawType === 'REQUEST_TO_JOIN_COMMUNITY' ||
+        rawType === 'NEW_MEMBER_JOIN_COMMUNITY' ||
+        rawType === 'APPROVED_TO_JOIN_COMMUNITY' ||
+        rawType === 'COMMUNITY_JOIN_REQUEST' ||
+        rawType === 'COMMUNITY_JOIN_APPROVED'
+      ) mappedType = 'community';
       else if (rawType.includes('EVENT')) mappedType = 'event';
       else if (rawType === 'WALLET_CREDIT' || rawType === 'REFERRAL_REWARD' || rawType === 'LEVEL_UP') mappedType = 'achievement';
       else if (rawType === 'GAME_INVITE') mappedType = 'game_invite';
@@ -85,8 +101,27 @@ export const notificationService = {
           requestActive: n.requestActive !== false,
           senderPrivacy: n.senderPrivacy || 'public',
         };
-      } else if (mappedType === 'achievement' && rawType === 'REFERRAL_REWARD') {
-        payload = { kind: 'referral_reward', userId: n.senderId };
+      } else if (mappedType === 'achievement') {
+        // Route wallet/referral rewards to the Wallet tab; level-ups go to the
+        // profile. The screen reads payload.kind to pick the destination.
+        if (rawType === 'REFERRAL_REWARD') payload = { kind: 'referral_reward', userId: n.senderId };
+        else if (rawType === 'WALLET_CREDIT') payload = { kind: 'wallet_credit', userId: n.senderId };
+        else payload = { kind: 'level_up', userId: n.senderId };
+      } else if (mappedType === 'community') {
+        // Community rows carry the community id in resourceId — the screen
+        // resolves the slug from it and opens the community detail page.
+        payload = { communityId: n.resourceId, userId: n.senderId };
+      }
+
+      // Comment mentions carry the exact comment id in the message
+      // ("<name> mentioned you in a comment | <id>") so the app can deep-link
+      // and auto-scroll to the mentioned comment on the post page.
+      const commentMentionMatch = String(text).match(
+        /^(.*mentioned you in a comment)\s*\|\s*([0-9a-fA-F-]{36})$/
+      );
+      if (commentMentionMatch) {
+        text = commentMentionMatch[1].trim();
+        payload = { ...(payload || {}), commentId: commentMentionMatch[2] };
       }
 
       return {
@@ -95,6 +130,9 @@ export const notificationService = {
         senderId: n.senderId || undefined,
         avatar: firstWord.charAt(0).toUpperCase(),
         avatarUrl: n.senderAvatarUrl || undefined,
+        // Server-enriched preview image (post media / community avatar / game
+        // cover) — rendered as a thumbnail on the right side of the row.
+        thumbnailUrl: n.thumbnailUrl || undefined,
         actor: n.senderName || n.title || 'Notification',
         text: text,
         time: timeStr,

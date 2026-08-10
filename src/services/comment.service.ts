@@ -28,10 +28,17 @@ export interface Comment {
 }
 
 export const commentService = {
-  getComments: async (postId: string, parentId: string | null = null, page: number = 1, limit: number = 20) => {
+  getComments: async (postId: string, parentId: string | null = null, page: number = 1, limit: number = 20, sort?: 'top' | 'newest') => {
     const params: any = { page, limit };
     if (parentId) params.parentId = parentId;
+    if (sort) params.sort = sort;
     const response = await apiClient.get(`/comments/${postId}`, { params });
+    return response.data;
+  },
+
+  /** Single comment — used to deep-link a mention/reply straight to it. */
+  getComment: async (commentId: string) => {
+    const response = await apiClient.get(`/comments/single/${commentId}`);
     return response.data;
   },
 

@@ -12,6 +12,7 @@ import { StatusBar } from 'expo-status-bar';
 
 import { fontSizes, spacing, radii, type ColorPalette } from '../../theme';
 import { useThemeColors, useTheme } from '../../context/ThemeContext';
+import { useAuth } from '../../context/AuthContext';
 import { communityService } from '../../services/community.service';
 import { mediaService } from '../../services/media.service';
 import { appLockBypass } from '../../utils/appLockBypass';
@@ -90,6 +91,7 @@ export default function CommunitySettingsScreen() {
   const { isDark } = useTheme();
   const colors = useThemeColors();
   const styles = useMemo(() => makeStyles(colors), [colors]);
+  const { user: authUser } = useAuth();
 
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -314,6 +316,18 @@ export default function CommunitySettingsScreen() {
             <View style={styles.rowBtnLeft}>
               <Ionicons name="person-add-outline" size={20} color={colors.text.primary} />
               <Text style={styles.rowBtnText}>Manage Join Requests</Text>
+            </View>
+            <Ionicons name="chevron-forward" size={20} color={colors.text.muted} />
+          </TouchableOpacity>
+        )}
+
+        {/* Moderation log — owner and admins only (server also enforces it).
+            community.memberRole is the VIEWER's role (owner is seeded 'admin'). */}
+        {(community.ownerId === authUser?.id || ['admin', 'moderator'].includes(community.memberRole)) && (
+          <TouchableOpacity style={styles.rowBtn} onPress={() => navigation.navigate('ModerationLog', { communityId: community.id })}>
+            <View style={styles.rowBtnLeft}>
+              <Ionicons name="file-tray-full-outline" size={20} color={colors.text.primary} />
+              <Text style={styles.rowBtnText}>Moderation Log</Text>
             </View>
             <Ionicons name="chevron-forward" size={20} color={colors.text.muted} />
           </TouchableOpacity>

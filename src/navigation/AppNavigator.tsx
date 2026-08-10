@@ -8,6 +8,9 @@ import { useAuth } from '../context/AuthContext';
 import AuthNavigator from './AuthNavigator';
 import MainNavigator from './MainNavigator';
 import ForceUpdateScreen from '../screens/main/ForceUpdateScreen';
+import PostDetailScreen from '../screens/main/PostDetailScreen';
+import UserProfileScreen from '../screens/main/UserProfileScreen';
+import SearchScreen from '../screens/main/SearchScreen';
 import UpdateAvailableModal from '../components/common/UpdateAvailableModal';
 
 const Stack = createNativeStackNavigator<RootStackParamList>();
@@ -40,7 +43,33 @@ export default function AppNavigator() {
         {needsForceUpdate ? (
           <Stack.Screen name="ForceUpdate" component={ForceUpdateScreen} />
         ) : isLoggedIn ? (
-          <Stack.Screen name="Main" component={MainNavigator} />
+          <>
+            <Stack.Screen name="Main" component={MainNavigator} />
+            {/* Post page lives ABOVE the tabs (root stack) so it opens full-screen
+                from any tab — feed, community, profile, notifications, tray taps.
+                Registering it only in the Home stack made taps from other tabs
+                bubble up unhandled (nothing happened). */}
+            <Stack.Screen
+              name="PostDetail"
+              component={PostDetailScreen}
+              options={{ animation: 'slide_from_right' }}
+            />
+            {/* Profiles reachable from the full-screen post page (author/mention
+                taps). Registered at root so those taps work; the Home-stack copy
+                still handles profile navigation inside the tab. */}
+            <Stack.Screen
+              name="UserProfile"
+              component={UserProfileScreen}
+              options={{ animation: 'slide_from_right' }}
+            />
+            {/* Hashtag taps inside the full-screen post page / pushed profiles
+                land here (the Home-stack copy serves the in-tab search). */}
+            <Stack.Screen
+              name="Search"
+              component={SearchScreen}
+              options={{ animation: 'slide_from_right' }}
+            />
+          </>
         ) : (
           <Stack.Screen name="Auth" component={AuthNavigator} />
         )}

@@ -1,11 +1,29 @@
 // ── Navigation param lists ──────────────────────────────────────
+// PostDetail and UserProfile are registered in BOTH the root stack (full-screen
+// opens from any tab) and the Home stack (in-tab navigation). These shared
+// param types are the single source of truth — both param lists reference them
+// so the two registrations can never drift apart (e.g. one gaining commentId
+// and the other not).
+export type PostDetailParams = {
+  post: Post;
+  /** Deep-link straight to this comment (mention/reply notifications). */
+  commentId?: string;
+};
+
+export type UserProfileParams = {
+  user: User;
+  /** openPostId deep-links a post (e.g. from a notification) into the profile. */
+  /** openPost ships the full post so the deep-link opens without re-fetching. */
+  openPostId?: string;
+  openPost?: any;
+};
+
 export type HomeStackParamList = {
   HomeMain:       undefined;
   Notifications:  undefined;
   Comments:       { post: Post };
-  /** openPostId deep-links a post (e.g. from a notification) into the profile. */
-  /** openPost ships the full post so the deep-link opens without re-fetching. */
-  UserProfile:    { user: User; openPostId?: string; openPost?: any };
+  PostDetail:      PostDetailParams;
+  UserProfile:    UserProfileParams;
   StoryViewer:    { stories: Story[]; initialIndex: number };
   Bookmarks:      undefined;
   Leaderboards:   { initialTab?: 'Global' | 'Friends' | 'Games' | 'Feed' | 'Community' | 'Events' } | undefined;
@@ -26,6 +44,7 @@ export type CommunityStackParamList = {
   CommunityDetail: { communitySlug: string };
   CommunitySettings: { communitySlug: string };
   ManageRequests: { communityId: string };
+  ModerationLog: { communityId: string };
 };
 
 export type AuthStackParamList = {
@@ -54,6 +73,15 @@ export type RootStackParamList = {
   Auth: undefined;
   Main: undefined;
   ForceUpdate: undefined;
+  /** Full-screen post page — registered at the ROOT so it opens above the tab
+      bar from any tab (feed, community, profile, notifications, tray taps). */
+  PostDetail: PostDetailParams;
+  /** Also at root so profile navigation from the full-screen post page works. */
+  UserProfile: UserProfileParams;
+  /** Also at root so hashtag taps (@#tag inside a post body) work from the
+      full-screen post page and pushed profiles — the Home-stack copy still
+      handles search inside the tab. */
+  Search: HomeStackParamList['Search'];
 };
 
 // ── Data models ─────────────────────────────────────────────────
@@ -195,11 +223,13 @@ export interface Transaction {
 
 export interface Notification {
   id: string;
-  type: 'like' | 'comment' | 'follow' | 'mention' | 'event' | 'achievement' | 'game_invite' | 'post';
+  type: 'like' | 'comment' | 'follow' | 'mention' | 'event' | 'achievement' | 'game_invite' | 'post' | 'community';
   /** Actor (sender) id — used for presence dots on the avatar. */
   senderId?: string;
   avatar: string;
   avatarUrl?: string;
+  /** Server-enriched preview image (post media / community avatar / game cover). */
+  thumbnailUrl?: string;
   actor: string;
   text: string;
   time: string;

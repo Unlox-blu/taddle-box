@@ -16,6 +16,10 @@ export type AllSearchResults = {
   games: any[];
   posts: any[];
   hashtags: string[];
+  /** Ordered sections from the server — the API owns the layout order and may
+      repeat a type (each occurrence renders as its own section). Falls back to
+      the flat keys in canonical order when absent (older servers). */
+  sections?: { type: string; items: any[] }[];
 };
 
 // The backend wraps data as { dataType, data, ...meta }. Extract the inner list
@@ -41,17 +45,32 @@ export const searchService = {
       games: Array.isArray(data.games) ? data.games : [],
       posts: Array.isArray(data.posts) ? data.posts : [],
       hashtags: Array.isArray(data.hashtags) ? data.hashtags : [],
+      sections: Array.isArray(data.sections) ? data.sections : undefined,
     };
   },
 
-  /** Single-type search used by the individual tabs. */
-  searchByType: async (type: Exclude<SearchType, "all">, q = "", filter = "") => {
+  /** Single-type search used by the individual tabs — paginated. Returns the
+      rows plus the server's total/hasNext so the screen can infinite-scroll. */
+  searchByType: async (
+    type: Exclude<SearchType, "all">,
+    q = "",
+    page = 1,
+    limit = 10,
+    filter = "",
+  ): Promise<{ items: any[]; total: number; hasNext: boolean; page: number }> => {
     const res = await apiClient.get(
-      `/search?type=${type}&q=${encodeURIComponent(q)}${
+      `/search?type=${type}&q=${encodeURIComponent(q)}&page=${page}&limit=${limit}${
         filter ? `&filter=${encodeURIComponent(filter)}` : ""
       }`,
     );
-    return extractData(res).map((item: any) => ({ ...item, itemType: type }));
+    const items = extractData(res).map((item: any) => ({ ...item, itemType: type }));
+    const meta = res?.data?.meta;
+    return {
+      items,
+      total: meta?.total ?? 0,
+      hasNext: meta?.hasNext ?? items.length === limit,
+      page: meta?.page ?? page,
+    };
   },
 
   getHashtags: async (q = ""): Promise<string[]> => {

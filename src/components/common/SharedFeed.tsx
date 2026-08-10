@@ -116,7 +116,10 @@ export default function SharedFeed({
       if (currentUser?.id && post.author.id === currentUser.id) {
         navigation.navigate("Profile");
       } else {
-        navigation.navigate("UserProfile", { user: post.author });
+        // push (not navigate): from a profile grid opened off a detail page a
+        // UserProfile may already be in the stack — navigate would pop back to
+        // it and skip the screens in between.
+        navigation.push("UserProfile", { user: post.author });
       }
     }
   }, [navigation, currentUser?.id]);
@@ -213,6 +216,10 @@ export default function SharedFeed({
             colors={["#7C3AED"]}
           />
         }
+        // iOS only: without this, a short list (few posts / short bookmarks /
+        // profile with a handful of posts) can't be pulled down at all, so the
+        // refresh gesture silently does nothing.
+        alwaysBounceVertical
         onEndReached={onEndReached}
         onEndReachedThreshold={onEndReachedThreshold || 0.5}
         ListHeaderComponent={enhancedHeader}

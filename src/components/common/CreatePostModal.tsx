@@ -32,6 +32,7 @@ import { userService } from "../../services/user.service";
 import { useMyCommunities } from "../../queries/communities";
 import type { Post } from "../../types";
 import SmartInput from "./SmartInput";
+import AudiencePicker from "./AudiencePicker";
 import { appLockBypass } from "../../utils/appLockBypass";
 
 const SCREEN_W = Dimensions.get("window").width;
@@ -1458,180 +1459,31 @@ export default function CreatePostModal({
             </View>
           )}
 
-          {/* ── Audience picker ── */}
-          <Modal visible={showPicker} transparent animationType="fade">
-            <View style={styles.gifModalContainer}>
-              <View style={[styles.gifModalContent, { padding: 0 }]}>
-                <View
-                  style={[
-                    styles.gifHeader,
-                    {
-                      padding: spacing.md,
-                      borderBottomWidth: 1,
-                      borderBottomColor: colors.border,
-                      marginBottom: 0,
-                    },
-                  ]}
-                >
-                  <Text style={styles.gifTitle}>Select Audience</Text>
-                  <TouchableOpacity onPress={() => setShowPicker(false)}>
-                    <Ionicons
-                      name="close"
-                      size={24}
-                      color={colors.text.secondary}
-                    />
-                  </TouchableOpacity>
-                </View>
-
-                <ScrollView
-                  style={{ flex: 1, padding: spacing.md }}
-                  showsVerticalScrollIndicator={false}
-                >
-                  <TouchableOpacity
-                    style={[
-                      styles.communityOption,
-                      postType === "feed" && styles.communityOptionActive,
-                    ]}
-                    onPress={() => {
-                      setPostType("feed");
-                      setSelComId(null);
-                      setShowPicker(false);
-                    }}
-                  >
-                    <View
-                      style={{
-                        width: 40,
-                        height: 40,
-                        borderRadius: 20,
-                        backgroundColor: colors.bg.base,
-                        alignItems: "center",
-                        justifyContent: "center",
-                        marginRight: spacing.md,
-                      }}
-                    >
-                      <Ionicons
-                        name={
-                          isPrivateAccount
-                            ? "lock-closed-outline"
-                            : "globe-outline"
-                        }
-                        size={20}
-                        color={
-                          postType === "feed"
-                            ? colors.primaryLight
-                            : colors.text.secondary
-                        }
-                      />
-                    </View>
-                    <View style={styles.communityInfo}>
-                      <Text
-                        style={[
-                          styles.communityName,
-                          postType === "feed" && { color: colors.primaryLight },
-                        ]}
-                      >
-                        {feedLabel} (Feed)
-                      </Text>
-                      <Text style={styles.communityMeta}>
-                        {isPrivateAccount
-                          ? "Only your approved followers can see this"
-                          : "Anyone on Taddle can see this"}
-                      </Text>
-                    </View>
-                    {postType === "feed" && (
-                      <Ionicons
-                        name="checkmark-circle"
-                        size={20}
-                        color={colors.primaryLight}
-                      />
-                    )}
-                  </TouchableOpacity>
-
-                  <View
-                    style={{
-                      height: 1,
-                      backgroundColor: colors.border,
-                      marginVertical: spacing.md,
-                    }}
-                  />
-
-                  <Text
-                    style={[styles.sectionLabel, { marginBottom: spacing.sm }]}
-                  >
-                    Your Communities
-                  </Text>
-                  {joinedCommunities.length === 0 ? (
-                    <View style={styles.emptyComm}>
-                      <Text style={styles.emptyCommText}>
-                        You haven't joined any communities yet.
-                      </Text>
-                    </View>
-                  ) : (
-                    joinedCommunities.map((comm) => {
-                      const active =
-                        postType === "community" && selectedComId === comm.id;
-                      return (
-                        <TouchableOpacity
-                          key={comm.id}
-                          style={[
-                            styles.communityOption,
-                            active && styles.communityOptionActive,
-                          ]}
-                          onPress={() => {
-                            setPostType("community");
-                            setSelComId(comm.id);
-                            setShowPicker(false);
-                          }}
-                        >
-                          <Text style={styles.communityAvatar}>
-                              {comm.avatar}
-                            </Text>
-                            <View style={styles.communityInfo}>
-                              <View
-                                style={{
-                                  flexDirection: "row",
-                                  alignItems: "center",
-                                  gap: 5,
-                                }}
-                              >
-                                <Text
-                                  style={[
-                                    styles.communityName,
-                                    active && { color: colors.primaryLight },
-                                  ]}
-                                >
-                                  {comm.name}
-                                </Text>
-                                {comm.privacy === "private" && (
-                                  <Ionicons
-                                    name="lock-closed"
-                                    size={11}
-                                    color={colors.text.muted}
-                                  />
-                                )}
-                              </View>
-                            <Text style={styles.communityMeta}>
-                              {(comm.memberCount || 0).toLocaleString()} members
-                              · {comm.privacy === "private" ? "Private" : "Public"}
-                              {comm.category ? ` · ${comm.category}` : ""}
-                            </Text>
-                          </View>
-                          {active && (
-                            <Ionicons
-                              name="checkmark-circle"
-                              size={20}
-                              color={colors.primaryLight}
-                            />
-                          )}
-                        </TouchableOpacity>
-                      );
-                    })
-                  )}
-                  <View style={{ height: 40 }} />
-                </ScrollView>
-              </View>
-            </View>
-          </Modal>
+          {/* ── Audience picker — shared, searchable + paginated ── */}
+          <AudiencePicker
+            visible={showPicker}
+            onClose={() => setShowPicker(false)}
+            selectedId={postType === "community" ? selectedComId : null}
+            onSelect={(id) => {
+              if (id === null) {
+                setPostType("feed");
+                setSelComId(null);
+              } else {
+                setPostType("community");
+                setSelComId(id);
+              }
+              setShowPicker(false);
+            }}
+            feedLabel={feedLabel}
+            feedMeta={
+              isPrivateAccount
+                ? "Only your approved followers can see this"
+                : "Anyone on Taddle can see this"
+            }
+            feedIcon={
+              isPrivateAccount ? "lock-closed-outline" : "globe-outline"
+            }
+          />
         </ScrollView>
       </KeyboardAvoidingView>
 

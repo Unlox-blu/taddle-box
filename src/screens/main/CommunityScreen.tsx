@@ -488,7 +488,20 @@ export default function CommunityScreen() {
     fetchNextPage,
     hasNextPage,
   } = useCommunities();
-  const communities = communitiesData?.pages.flat() || [];
+  const communities = communitiesData?.pages.flatMap((p: any) => p.items) || [];
+
+  // The server owns the SECTION ORDER of the All tab (sections descriptor
+  // rides on page 1). Unknown/newer section types are skipped; this fallback
+  // keeps older servers working.
+  const DEFAULT_SECTIONS = [
+    { type: "trending", title: "Trending" },
+    { type: "created", title: "Created by You" },
+    { type: "joined", title: "Your Communities" },
+    { type: "discover", title: "Discover" },
+  ];
+  const firstPage = (communitiesData?.pages?.[0] as any) || null;
+  const sectionOrder: { type: string; title: string }[] =
+    firstPage?.sections?.length > 0 ? firstPage.sections : DEFAULT_SECTIONS;
 
   const { mutate: toggleJoin } = useJoinCommunity();
   const { mutateAsync: createCommunityAsync } = useCreateCommunity();
@@ -534,6 +547,126 @@ export default function CommunityScreen() {
     if (activeCategory === "Created") return createdCommunities;
     return communities.filter((c) => c.category?.includes(activeCategory));
   }, [communities, activeCategory, joinedCommunities, createdCommunities]);
+
+  // ── All-tab sections — rendered in the server-provided order ─────────────
+  const sectionHeader = (title: string, first: boolean, action?: { label: string; onPress: () => void }) => (
+    <View style={[styles.sectionHeaderRow, !first && { marginTop: 32 }]}>
+      <Text style={styles.sectionLabel}>{title}</Text>
+      {action && (
+        <TouchableOpacity
+          onPress={action.onPress}
+          style={{ flexDirection: "row", alignItems: "center" }}
+        >
+          <Text style={styles.sectionAction}>{action.label} </Text>
+          <Ionicons name="arrow-forward" size={12} color={colors.primaryLight} />
+        </TouchableOpacity>
+      )}
+    </View>
+  );
+
+  const renderAllSection = (s: { type: string; title: string }, first: boolean) => {
+    switch (s.type) {
+      case "trending":
+        if (trendingCommunities.length === 0) return null;
+        return (
+          <View key="sect-trending">
+            {sectionHeader(s.title, first)}
+            <ScrollView
+              horizontal
+              showsHorizontalScrollIndicator={false}
+              snapToInterval={CARD_WIDTH + spacing.xl}
+              decelerationRate="fast"
+            >
+              {trendingCommunities.map((c, i) => (
+                <View
+                  key={c.id}
+                  style={i === trendingCommunities.length - 1 ? { paddingRight: spacing.xl } : {}}
+                >
+                  <FeaturedCommunityCard
+                    community={c}
+                    styles={styles}
+                    onPress={() =>
+                      navigation.navigate("CommunityDetail", { communitySlug: c.slug })
+                    }
+                    onToggleJoin={(id, isCurrentlyMember, isPending) =>
+                      toggleJoin({ communityId: id, isCurrentlyMember, isPending })
+                    }
+                  />
+                </View>
+              ))}
+            </ScrollView>
+          </View>
+        );
+      case "created":
+        if (createdCommunities.length === 0) return null;
+        return (
+          <View key="sect-created">
+            {sectionHeader(s.title, first, { label: "See all", onPress: () => setActiveCategory("Created") })}
+            {createdCommunities.slice(0, 3).map((c) => (
+              <CompactCommunityCard
+                key={c.id}
+                community={c}
+                styles={styles}
+                colors={colors}
+                onPress={() =>
+                  navigation.navigate("CommunityDetail", { communitySlug: c.slug })
+                }
+                onToggleJoin={(id, isCurrentlyMember, isPending) =>
+                  toggleJoin({ communityId: id, isCurrentlyMember, isPending })
+                }
+                isOwner={true}
+              />
+            ))}
+          </View>
+        );
+      case "joined":
+        if (joinedCommunities.length === 0) return null;
+        return (
+          <View key="sect-joined">
+            {sectionHeader(s.title, first, { label: "See all", onPress: () => setActiveCategory("Joined") })}
+            {joinedCommunities.slice(0, 3).map((c) => (
+              <CompactCommunityCard
+                key={c.id}
+                community={c}
+                styles={styles}
+                colors={colors}
+                onPress={() =>
+                  navigation.navigate("CommunityDetail", { communitySlug: c.slug })
+                }
+                onToggleJoin={(id, isCurrentlyMember, isPending) =>
+                  toggleJoin({ communityId: id, isCurrentlyMember, isPending })
+                }
+                isOwner={false}
+              />
+            ))}
+          </View>
+        );
+      case "discover":
+        if (discoverCommunities.length === 0) return null;
+        return (
+          <View key="sect-discover">
+            {sectionHeader(s.title, first)}
+            {discoverCommunities.slice(0, 10).map((c: any) => (
+              <CompactCommunityCard
+                key={c.id}
+                community={c}
+                styles={styles}
+                colors={colors}
+                onPress={() =>
+                  navigation.navigate("CommunityDetail", { communitySlug: c.slug })
+                }
+                onToggleJoin={(id, isCurrentlyMember, isPending) =>
+                  toggleJoin({ communityId: id, isCurrentlyMember, isPending })
+                }
+              />
+            ))}
+          </View>
+        );
+      default:
+        // Unknown section type from a newer server — skip it rather than crash.
+        return null;
+    }
+  };
 
   return (
     <View style={[styles.container, { paddingTop: insets.top }]}>
@@ -630,142 +763,10 @@ export default function CommunityScreen() {
         scrollEventThrottle={400}
         contentContainerStyle={{ paddingBottom: 100 }}
       >
-        {/* Render ALL View */}
+        {/* Render ALL View — sections in the SERVER-provided order. */}
         {activeCategory === "All" ? (
           <>
-            {trendingCommunities.length > 0 && (
-              <View>
-                <View style={styles.sectionHeaderRow}>
-                  <Text style={styles.sectionLabel}>Trending</Text>
-                </View>
-                <ScrollView
-                  horizontal
-                  showsHorizontalScrollIndicator={false}
-                  snapToInterval={CARD_WIDTH + spacing.xl}
-                  decelerationRate="fast"
-                >
-                  {trendingCommunities.map((c, i) => (
-                    <View
-                      key={c.id}
-                      style={
-                        i === trendingCommunities.length - 1
-                          ? { paddingRight: spacing.xl }
-                          : {}
-                      }
-                    >
-                      <FeaturedCommunityCard
-                        community={c}
-                        styles={styles}
-                        onPress={() =>
-                          navigation.navigate("CommunityDetail", {
-                            communitySlug: c.slug,
-                          })
-                        }
-                        onToggleJoin={(id, isCurrentlyMember, isPending) =>
-                          toggleJoin({ communityId: id, isCurrentlyMember, isPending })
-                        }
-                      />
-                    </View>
-                  ))}
-                </ScrollView>
-              </View>
-            )}
-
-            {createdCommunities.length > 0 && (
-              <View>
-                <View style={[styles.sectionHeaderRow, { marginTop: 32 }]}>
-                  <Text style={styles.sectionLabel}>Created by You</Text>
-                  <TouchableOpacity
-                    onPress={() => setActiveCategory("Created")}
-                    style={{ flexDirection: "row", alignItems: "center" }}
-                  >
-                    <Text style={styles.sectionAction}>See all </Text>
-                    <Ionicons
-                      name="arrow-forward"
-                      size={12}
-                      color={colors.primaryLight}
-                    />
-                  </TouchableOpacity>
-                </View>
-                {createdCommunities.slice(0, 3).map((c) => (
-                  <CompactCommunityCard
-                    key={c.id}
-                    community={c}
-                    styles={styles}
-                    colors={colors}
-                    onPress={() =>
-                      navigation.navigate("CommunityDetail", {
-                        communitySlug: c.slug,
-                      })
-                    }
-                    onToggleJoin={(id, isCurrentlyMember, isPending) =>
-                      toggleJoin({ communityId: id, isCurrentlyMember, isPending })
-                    }
-                    isOwner={true}
-                  />
-                ))}
-              </View>
-            )}
-
-            {joinedCommunities.length > 0 && (
-              <View>
-                <View style={[styles.sectionHeaderRow, { marginTop: 32 }]}>
-                  <Text style={styles.sectionLabel}>✅ Your Communities</Text>
-                  <TouchableOpacity
-                    onPress={() => setActiveCategory("Joined")}
-                    style={{ flexDirection: "row", alignItems: "center" }}
-                  >
-                    <Text style={styles.sectionAction}>See all </Text>
-                    <Ionicons
-                      name="arrow-forward"
-                      size={12}
-                      color={colors.primaryLight}
-                    />
-                  </TouchableOpacity>
-                </View>
-                {joinedCommunities.slice(0, 3).map((c) => (
-                  <CompactCommunityCard
-                    key={c.id}
-                    community={c}
-                    styles={styles}
-                    colors={colors}
-                    onPress={() =>
-                      navigation.navigate("CommunityDetail", {
-                        communitySlug: c.slug,
-                      })
-                    }
-                    onToggleJoin={(id, isCurrentlyMember, isPending) =>
-                      toggleJoin({ communityId: id, isCurrentlyMember, isPending })
-                    }
-                    isOwner={false}
-                  />
-                ))}
-              </View>
-            )}
-
-            {discoverCommunities.length > 0 && (
-              <>
-                <View style={[styles.sectionHeaderRow, { marginTop: 32 }]}>
-                  <Text style={styles.sectionLabel}>Discover</Text>
-                </View>
-                {discoverCommunities.slice(0, 10).map((c: any) => (
-                  <CompactCommunityCard
-                    key={c.id}
-                    community={c}
-                    styles={styles}
-                    colors={colors}
-                    onPress={() =>
-                      navigation.navigate("CommunityDetail", {
-                        communitySlug: c.slug,
-                      })
-                    }
-                    onToggleJoin={(id, isCurrentlyMember, isPending) =>
-                      toggleJoin({ communityId: id, isCurrentlyMember, isPending })
-                    }
-                  />
-                ))}
-              </>
-            )}
+            {sectionOrder.map((s, idx) => renderAllSection(s, idx === 0))}
           </>
         ) : (
           /* Render Filtered View */

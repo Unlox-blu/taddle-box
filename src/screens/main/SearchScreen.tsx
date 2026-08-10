@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo, useCallback } from "react";
+import React, { useState, useEffect, useMemo, useCallback, useRef } from "react";
 import {
   View,
   Text,
@@ -8,6 +8,9 @@ import {
   StyleSheet,
   ActivityIndicator,
   Image,
+  Alert,
+  Share,
+  RefreshControl,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
@@ -15,6 +18,7 @@ import { StatusBar } from "expo-status-bar";
 import { NativeStackScreenProps } from "@react-navigation/native-stack";
 import { fontSizes, spacing, radii, type ColorPalette } from "../../theme";
 import { useTheme, useThemeColors } from "../../context/ThemeContext";
+import { useAuth } from "../../context/AuthContext";
 import { searchService, type SearchType } from "../../services/search.service";
 import type { HomeStackParamList, Post } from "../../types";
 import { useToggleLike, useToggleSave } from "../../mutations/posts";
@@ -49,6 +53,9 @@ const normalizePostResult = (item: any): Post => {
   return {
     ...item,
     author,
+    // Search returns the raw snake_case column — carry it as the camelCase
+    // key PostCard checks so the embedded original preview renders for reposts.
+    repostOfId: item.repostOfId ?? item.repost_of_id ?? null,
     media: item.media || [],
     hashtags: item.hashtags || item.tags || [],
     likes: item.likes ?? item.likesCount ?? item.likes_count ?? 0,
@@ -80,67 +87,245 @@ export default function SearchScreen({ navigation, route }: Props) {
 
   const [query, setQuery] = useState(initialQuery);
   const [activeTab, setActiveTab] = useState<SearchType>(initialTab);
-  const [rows, setRows] = useState<Row[]>([]);
   const [loading, setLoading] = useState(false);
+
+  // Hashtag taps navigate to Search with { query, tab: 'hashtags' }. When the
+  // Search screen is ALREADY in the stack, navigate() pops back to the existing
+  // instance instead of mounting a fresh one — its useState initializers won't
+  // re-run, so sync params → state here to pick up the new query/tab. The query
+  // change then flows through the normal cache-reset + fetch path below.
+  useEffect(() => {
+    const p = route.params as any;
+    if (p?.query !== undefined) setQuery(p.query);
+    if (p?.tab) setActiveTab(p.tab as SearchType);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [(route.params as any)?.query, (route.params as any)?.tab]);
   // Track whether we've loaded discovery content at least once — prevents the
   // empty-state flash on the "all" tab when discovery data is already available.
   const [discoveryLoaded, setDiscoveryLoaded] = useState(false);
 
+  // ── Per-tab results cache ──
+  // Each tab keeps its own rows + pagination + scroll offset, so switching tabs
+  // back and forth restores exactly where you left off instead of resetting to
+  // page 1. The cache is invalidated only when the QUERY changes.
+  const [rowsByTab, setRowsByTab] = useState<Partial<Record<SearchType, Row[]>>>({});
+  const [loadingMore, setLoadingMore] = useState(false);
+  const [refreshing, setRefreshing] = useState(false);
+  const tabPageRef = useRef<Record<string, number>>({});
+  const tabHasMoreRef = useRef<Record<string, boolean>>({});
+  // Guards against out-of-order responses when typing/tab-switching fast — only
+  // the latest request may commit its rows.
+  const searchReqRef = useRef(0);
+  // Mirrors so effects/async flows read fresh values without re-subscribing.
+  const rowsByTabRef = useRef(rowsByTab);
+  rowsByTabRef.current = rowsByTab;
+  const lastQueryRef = useRef(query);
+  // Per-tab scroll offsets — saved on leave, restored on return.
+  const scrollOffsetsRef = useRef<Record<string, number>>({});
+  const scrollOffsetCurrentRef = useRef(0);
+  const listRef = useRef<FlatList<any>>(null);
+
+  // Active tab's rows — derived from the cache so switching tabs is instant.
+  const rows = rowsByTab[activeTab] || [];
+
+  const { user: currentUser } = useAuth();
   const { mutate: toggleLike } = useToggleLike();
   const { mutate: toggleSave } = useToggleSave();
 
-  // Build a flat, sectioned row list for the "all" tab.
+  // Section titles for the "all" tab. The API owns the ORDER (and may repeat
+  // a type — each occurrence renders as its own section), so titles are keyed
+  // by type rather than baked into a hardcoded sequence.
+  const sectionTitle = (type: string, isDiscovery: boolean): string => {
+    switch (type) {
+      case "people":
+        return isDiscovery ? "People to Follow" : "People";
+      case "communities":
+        return "Communities";
+      case "events":
+        return "Upcoming Events";
+      case "games":
+        return "Games";
+      case "posts":
+        return isDiscovery ? "Trending Posts" : "Posts";
+      case "hashtags":
+        return "Hashtags";
+      default:
+        // Unknown section type from a newer server — show it with a readable
+        // title instead of dropping the content.
+        return type.charAt(0).toUpperCase() + type.slice(1);
+    }
+  };
+
+  // Build a flat, sectioned row list for the "all" tab. Sections render in the
+  // exact order the API returns them (the server's `sections` array), and a
+  // type repeated in the response produces two separate sections — the client
+  // never reorders or merges. Older servers without `sections` fall back to the
+  // flat keys in canonical order. Empty sections are skipped.
   const buildAllRows = (r: any, isDiscovery: boolean): Row[] => {
-    const sections: { title: string; type: SearchType; items: any[] }[] = [
-      { title: isDiscovery ? "People to Follow" : "People", type: "people", items: r.people },
-      { title: "Communities", type: "communities", items: r.communities },
-      { title: "Upcoming Events", type: "events", items: r.events },
-      { title: "Games", type: "games", items: r.games },
-      { title: isDiscovery ? "Trending Posts" : "Posts", type: "posts", items: r.posts },
-      { title: "Hashtags", type: "hashtags", items: r.hashtags.map((h: string) => ({ text: h })) },
-    ];
+    const sections: { type: string; items: any[] }[] =
+      Array.isArray(r?.sections) && r.sections.length > 0
+        ? r.sections
+        : [
+            { type: "people", items: r.people },
+            { type: "communities", items: r.communities },
+            { type: "events", items: r.events },
+            { type: "games", items: r.games },
+            { type: "posts", items: r.posts },
+            { type: "hashtags", items: r.hashtags },
+          ];
 
     const out: Row[] = [];
     sections.forEach((section) => {
-      if (!section.items?.length) return;
-      out.push({ isHeader: true, title: section.title, type: section.type });
-      section.items.forEach((item: any) =>
-        out.push({ isHeader: false, item: { ...item, itemType: section.type }, type: section.type }),
+      const type = section.type as SearchType;
+      let items = Array.isArray(section.items) ? section.items : [];
+      if (!items.length) return;
+      out.push({ isHeader: true, title: sectionTitle(type, isDiscovery), type });
+      if (type === "hashtags") {
+        // Don't duplicate the hashtag rows inline — they live on the dedicated
+        // Hashtags tab. The section is a single doorway that jumps there and
+        // runs the hashtag search (see renderItem's viewAll branch).
+        out.push({ isHeader: false, item: { viewAll: true, itemType: "hashtags" }, type });
+        return;
+      }
+      items.forEach((item: any) =>
+        out.push({ isHeader: false, item: { ...item, itemType: type }, type }),
       );
     });
     return out;
   };
 
-  const fetchResults = useCallback(async (q: string, tab: SearchType) => {
-    setLoading(true);
+  const fetchResults = useCallback(async (
+    q: string,
+    tab: SearchType,
+    pageToLoad = 1,
+    append = false,
+    // Pull-to-refresh: skip the full-screen loading spinner (the RefreshControl
+    // shows its own) so the list stays visible while it re-fetches.
+    silent = false,
+  ) => {
+    const reqId = ++searchReqRef.current;
+    if (!append && !silent) setLoading(true);
     try {
       if (tab === "all") {
+        // Discovery overview — one request with per-section previews. The "See
+        // all" buttons jump to the fully paginated individual tabs.
+        if (append) return;
         const res = await searchService.searchAll(q, 6);
         const built = buildAllRows(res, !q.trim());
-        setRows(built);
+        setRowsByTab((prev) => ({ ...prev, [tab]: built }));
         if (!q.trim() && built.length > 0) setDiscoveryLoaded(true);
       } else if (tab === "hashtags") {
+        if (append) return;
         const hashtags = await searchService.getHashtags(q);
-        setRows(
-          hashtags.map((h) => ({ isHeader: false, item: { text: h, itemType: "hashtags" }, type: "hashtags" as SearchType })),
-        );
+        setRowsByTab((prev) => ({
+          ...prev,
+          [tab]: hashtags.map((h) => ({ isHeader: false, item: { text: h, itemType: "hashtags" }, type: "hashtags" as SearchType })),
+        }));
       } else {
-        const items = await searchService.searchByType(tab, q);
-        setRows(items.map((item) => ({ isHeader: false, item, type: tab })));
+        const res = await searchService.searchByType(tab, q, pageToLoad, 10);
+        // A newer request (typing / tab switch) started after this one — drop it.
+        if (searchReqRef.current !== reqId) return;
+        tabHasMoreRef.current[tab] = res.hasNext;
+        tabPageRef.current[tab] = res.page;
+        const newRows: Row[] = res.items.map((item) => ({
+          isHeader: false as const,
+          item,
+          type: tab as SearchType,
+        }));
+        setRowsByTab((prev) => {
+          const existing = prev[tab] || [];
+          return {
+            ...prev,
+            [tab]: append
+              ? [
+                  ...existing,
+                  ...newRows.filter(
+                    (row: any) => !existing.some((r: any) => !r.isHeader && r.item?.id === row.item?.id),
+                  ),
+                ]
+              : newRows,
+          };
+        });
       }
     } catch (e) {
       console.warn("Search failed", e);
-      setRows([]);
+      if (!append) setRowsByTab((prev) => ({ ...prev, [tab]: [] }));
     } finally {
-      setLoading(false);
+      if (searchReqRef.current === reqId) {
+        setLoading(false);
+        setLoadingMore(false);
+      }
     }
   }, []);
 
+  // Pull-to-refresh — re-fetch the ACTIVE tab's first page (replaces the rows
+  // for that tab; other tabs keep their cached results + scroll offsets).
+  const onRefresh = useCallback(async () => {
+    setRefreshing(true);
+    try {
+      await fetchResults(query, activeTab, 1, false, true);
+    } finally {
+      setRefreshing(false);
+    }
+  }, [query, activeTab, fetchResults]);
+
+  // Infinite scroll — appends the next page on individual tabs (posts, people,
+  // communities, events, games) using that tab's own pagination refs. The
+  // "all" and "hashtags" tabs are single requests.
+  const loadMore = useCallback(() => {
+    if (activeTab === "all" || activeTab === "hashtags") return;
+    if (!tabHasMoreRef.current[activeTab] || loadingMore || loading) return;
+    setLoadingMore(true);
+    fetchResults(query, activeTab, (tabPageRef.current[activeTab] || 1) + 1, true);
+  }, [activeTab, loadingMore, loading, query, fetchResults]);
+
+  // Switching tabs saves the outgoing tab's scroll offset so it can be
+  // restored exactly on return. The QUERY is shared state, so it stays
+  // pre-filled in the input on every tab; the tab-switch effect below either
+  // restores the incoming tab's cached rows + scroll (already fetched for this
+  // query) or fetches its first page fresh.
+  const switchTab = useCallback((tab: SearchType) => {
+    if (tab === activeTab) return;
+    scrollOffsetsRef.current[activeTab] = scrollOffsetCurrentRef.current;
+    setActiveTab(tab);
+  }, [activeTab]);
+
+  // "See all" on an All-tab section header → deep-link to that section's tab
+  // with the current query kept (shared state) and scroll restored by the
+  // tab-switch effect. Same path as the tab bar, named for intent.
+  const seeAll = useCallback((tab: SearchType) => switchTab(tab), [switchTab]);
+
+  // Single debounced effect: on a QUERY change every tab's cache is invalidated
+  // and the active tab refetches; on a TAB switch the cached rows (if any) are
+  // kept and only scrolled back into place — no reset to page 1.
   useEffect(() => {
+    const queryChanged = lastQueryRef.current !== query;
+    lastQueryRef.current = query;
     const handler = setTimeout(() => {
+      if (queryChanged) {
+        // New query → drop every tab's cache + pagination + scroll offsets.
+        setRowsByTab({});
+        tabPageRef.current = {};
+        tabHasMoreRef.current = {};
+        scrollOffsetsRef.current = {};
+        scrollOffsetCurrentRef.current = 0;
+      }
+      const cached = rowsByTabRef.current[activeTab];
+      if (!queryChanged && cached && cached.length > 0) {
+        // Already fetched for this query — just restore the scroll position
+        // (an offset of 0 — user was at the top — is still a valid restore).
+        const offset = scrollOffsetsRef.current[activeTab];
+        if (typeof offset === "number" && offset > 0 && listRef.current) {
+          requestAnimationFrame(() => {
+            listRef.current?.scrollToOffset({ offset, animated: false });
+          });
+        }
+        return;
+      }
       fetchResults(query, activeTab);
-    }, 300);
+    }, queryChanged ? 300 : 0);
     return () => clearTimeout(handler);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [query, activeTab, fetchResults]);
 
   // Open a games tab result inside the Games screen.
@@ -151,7 +336,7 @@ export default function SearchScreen({ navigation, route }: Props) {
   const renderTab = (tab: { key: SearchType; label: string }) => (
     <TouchableOpacity
       style={[styles.tabBtn, activeTab === tab.key && styles.tabBtnActive]}
-      onPress={() => setActiveTab(tab.key)}
+      onPress={() => switchTab(tab.key)}
       activeOpacity={0.8}
     >
       <Text style={[styles.tabText, activeTab === tab.key && styles.tabTextActive]}>
@@ -165,7 +350,7 @@ export default function SearchScreen({ navigation, route }: Props) {
       return (
         <View style={styles.sectionHeader}>
           <Text style={styles.sectionTitle}>{item.title}</Text>
-          <TouchableOpacity onPress={() => setActiveTab(item.type)}>
+          <TouchableOpacity onPress={() => seeAll(item.type)}>
             <Text style={styles.seeAll}>See all</Text>
           </TouchableOpacity>
         </View>
@@ -180,13 +365,17 @@ export default function SearchScreen({ navigation, route }: Props) {
       // consistent across re-renders (search results aren't react-query
       // cached, so the useToggleSave/useToggleLike cache updates miss them).
       const patchPost = (patch: Partial<Post>) => {
-        setRows((prev) =>
-          prev.map((row) =>
-            row.isHeader || row.type !== "posts" || (row.item as any)?.id !== post.id
-              ? row
-              : { ...row, item: { ...(row.item as any), ...patch } },
-          ),
-        );
+        setRowsByTab((prev) => {
+          const list = prev.posts || [];
+          return {
+            ...prev,
+            posts: list.map((row) =>
+              row.isHeader || row.type !== "posts" || (row.item as any)?.id !== post.id
+                ? row
+                : { ...row, item: { ...(row.item as any), ...patch } },
+            ),
+          };
+        });
       };
       return (
         <PostCard
@@ -200,9 +389,24 @@ export default function SearchScreen({ navigation, route }: Props) {
             patchPost({ isSaved: !post.isSaved });
           }}
           onComment={(p: any) =>
-            navigation.navigate("Comments", { post: p ?? post })
+            navigation.push("PostDetail", { post: p ?? post })
           }
-          onShare={() => {}}
+          onShare={() => {
+            const shareTitle = (post as any)?.title || `${post.author?.name || "User"}'s Post`;
+            const appUrl = `https://taddlebox.com/post/${post.id}`;
+            Share.share({
+              message: `${shareTitle}\n\n${appUrl}`,
+              url: appUrl,
+              title: shareTitle,
+            }).catch(() => {});
+          }}
+          onAuthorPress={() =>
+            navigation.push("UserProfile", { user: post.author })
+          }
+          onReport={() =>
+            Alert.alert("Reported", "Thank you. This post has been reported for review.")
+          }
+          showDelete={!!currentUser && currentUser.id === (post as any)?.author?.id}
           onReposted={() => fetchResults(query, activeTab)}
         />
       );
@@ -212,7 +416,7 @@ export default function SearchScreen({ navigation, route }: Props) {
       return (
         <TouchableOpacity
           style={styles.peopleRow}
-          onPress={() => navigation.navigate("UserProfile", { user: data })}
+          onPress={() => navigation.push("UserProfile", { user: data })}
           activeOpacity={0.8}
         >
           <View style={styles.avatarBubble}>
@@ -346,6 +550,24 @@ export default function SearchScreen({ navigation, route }: Props) {
     }
 
     if (type === "hashtags") {
+      // All-tab section doorway — jump to the dedicated Hashtags tab (runs the
+      // hashtag search there) instead of showing the rows inline here.
+      if (data?.viewAll) {
+        return (
+          <TouchableOpacity
+            style={styles.hashtagRow}
+            onPress={() => seeAll("hashtags")}
+            activeOpacity={0.8}
+          >
+            <View style={styles.hashIconBubble}>
+              <Ionicons name="pricetags-outline" size={15} color={colors.primaryLight} />
+            </View>
+            <Text style={styles.hashtagText}>Browse all hashtags</Text>
+            <Ionicons name="chevron-forward" size={16} color={colors.text.muted} />
+          </TouchableOpacity>
+        );
+      }
+      // Dedicated Hashtags-tab rows — tap runs the posts search for that tag.
       return (
         <TouchableOpacity
           style={styles.hashtagRow}
@@ -435,6 +657,7 @@ export default function SearchScreen({ navigation, route }: Props) {
         </View>
       ) : hasResults ? (
         <FlatList
+          ref={listRef}
           data={rows}
           keyExtractor={(row, index) =>
             row.isHeader ? `header-${row.type}-${index}` : `${row.type}-${row.item.id || index}`
@@ -446,6 +669,30 @@ export default function SearchScreen({ navigation, route }: Props) {
           ]}
           ItemSeparatorComponent={() => <View style={{ height: 10 }} />}
           keyboardShouldPersistTaps="handled"
+          refreshControl={
+            <RefreshControl
+              refreshing={refreshing}
+              onRefresh={onRefresh}
+              tintColor={colors.primaryLight}
+              colors={[colors.primaryLight]}
+            />
+          }
+          // Track the live offset so switching tabs can save/restore it.
+          onScroll={(e) => {
+            scrollOffsetCurrentRef.current = e.nativeEvent.contentOffset.y;
+          }}
+          scrollEventThrottle={16}
+          onEndReached={loadMore}
+          onEndReachedThreshold={0.4}
+          ListFooterComponent={
+            loadingMore ? (
+              <ActivityIndicator
+                size="small"
+                color={colors.primaryLight}
+                style={{ paddingVertical: 16 }}
+              />
+            ) : null
+          }
           ListHeaderComponent={
             isEmptyQuery && activeTab === "all" ? (
               <View style={styles.discoverBanner}>
@@ -468,7 +715,16 @@ export default function SearchScreen({ navigation, route }: Props) {
             No results found for "{query}" in {activeTab}
           </Text>
         </View>
-      ) : null}
+      ) : (
+        // Empty query + no rows on an individual tab — e.g. a "See all" jump
+        // from the discovery view. Show a hint instead of a blank screen.
+        <View style={styles.centerBox}>
+          <Ionicons name="compass-outline" size={56} color={colors.border} />
+          <Text style={styles.emptyText}>
+            Nothing here yet — type a search, or explore the All tab.
+          </Text>
+        </View>
+      )}
     </View>
   );
 }

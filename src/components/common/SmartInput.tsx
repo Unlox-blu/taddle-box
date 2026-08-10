@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useEffect } from "react";
+import React, { useState, useMemo, useEffect, useRef } from "react";
 import {
   View,
   Text,
@@ -44,21 +44,24 @@ const MENTION_AND_HASHTAG_CONFIG = {
   },
 };
 
-export default function SmartInput({
-  value,
-  onChange,
-  placeholder,
-  placeholderTextColor = colors.text.muted,
-  multiline = false,
-  style,
-  onFocus,
-  onBlur,
-  maxLength,
-  textAlignVertical = "top",
-  containerStyle,
-  suggestionPosition = "bottom",
-  autoFocus,
-}: SmartInputProps) {
+const SmartInput = React.forwardRef<any, SmartInputProps>(function SmartInput(
+  {
+    value,
+    onChange,
+    placeholder,
+    placeholderTextColor = colors.text.muted,
+    multiline = false,
+    style,
+    onFocus,
+    onBlur,
+    maxLength,
+    textAlignVertical = "top",
+    containerStyle,
+    suggestionPosition = "bottom",
+    autoFocus,
+  }: SmartInputProps,
+  ref,
+) {
   const [triggers, setTriggers] = useState<any>();
   const [dynamicTags, setDynamicTags] = useState<string[]>([]);
   const [dynamicUsers, setDynamicUsers] = useState<any[]>([]);
@@ -146,8 +149,47 @@ export default function SmartInput({
     });
   }, []);
 
+  // ── Android multiline Enter-key safeguard ────────────────────────────────
+  // MentionInput renders the native EditText from `children` (the parsed
+  // mention markup) with NO `value` prop, so on Android the field is effectively
+  // uncontrolled. When such an input re-renders mid-IME-composition, the
+  // Enter key's newline can get dropped — pressing Enter then appears to do
+  // nothing. The JS diff layer provably preserves newlines, so the loss is
+  // native-only. We re-assert the newline idempotently: only when the Enter
+  // keypress produced NO change to the raw text at all.
+  const valueRef = useRef(value);
+  useEffect(() => {
+    valueRef.current = value;
+  }, [value]);
+  const enterPendingRef = useRef(false);
+
+  const handleKeyPress = (e: any) => {
+    if (Platform.OS === "android" && multiline && e?.nativeEvent?.key === "Enter") {
+      enterPendingRef.current = true;
+      // If the native field swallows Enter so completely that no change event
+      // fires at all, re-assert the newline once the dust settles.
+      setTimeout(() => {
+        if (enterPendingRef.current) {
+          enterPendingRef.current = false;
+          onChange(valueRef.current + "\n");
+        }
+      }, 80);
+    }
+  };
+
   const handleChange = (val: string) => {
-    onChange(formatTagsOnSpace(val, dynamicUsers));
+    const formatted = formatTagsOnSpace(val, dynamicUsers);
+    let next = formatted;
+    if (Platform.OS === "android" && multiline && enterPendingRef.current) {
+      enterPendingRef.current = false;
+      // Raw text unchanged after an Enter → the IME newline was dropped. Add
+      // it back (formatting differences in the fallback timer are self-healed
+      // on the next keystroke).
+      if (val === valueRef.current) {
+        next = formatted + "\n";
+      }
+    }
+    onChange(next);
   };
 
   const renderSuggestions = () => {
@@ -261,14 +303,19 @@ export default function SmartInput({
         </Text>
       )}
       <MentionInput
+        ref={ref}
         style={style}
-        placeholder={placeholder}
+        // When the Android overlay placeholder is active, suppress the native
+        // one so the hint never renders twice (children sometimes don't
+        // suppress it on Android).
+        placeholder={showOverlayPlaceholder ? undefined : placeholder}
         placeholderTextColor={placeholderTextColor}
         multiline={multiline}
         value={value}
         onChange={handleChange}
         onFocus={onFocus}
         onBlur={onBlur}
+        onKeyPress={handleKeyPress}
         triggersConfig={MENTION_AND_HASHTAG_CONFIG}
         onTriggersChange={handleTriggersChange}
         maxLength={maxLength}
@@ -278,7 +325,9 @@ export default function SmartInput({
       {suggestionPosition === "bottom" && renderSuggestions()}
     </View>
   );
-}
+});
+
+export default SmartInput;
 
 const styles = StyleSheet.create({
   container: {

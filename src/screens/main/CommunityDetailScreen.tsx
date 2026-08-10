@@ -1,6 +1,6 @@
-import React, { useMemo, useState, useEffect, useRef } from 'react';
+import React, { useMemo, useState, useEffect, useRef, useCallback } from 'react';
 import {
-  View, Text, ScrollView, TouchableOpacity,
+  View, Text, ScrollView, TouchableOpacity, TouchableWithoutFeedback,
   StyleSheet, Share, FlatList, Image, Alert, ActivityIndicator
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -45,7 +45,6 @@ const AVATAR_COLORS_MAP: Record<string, [string, string]> = {
 
 type Nav   = NativeStackNavigationProp<CommunityStackParamList, 'CommunityDetail'>;
 type Route = RouteProp<CommunityStackParamList, 'CommunityDetail'>;
-type FeedFilter = 'All' | 'Trending' | 'New';
 
 function makeStyles(c: ColorPalette) {
   return StyleSheet.create({
@@ -137,20 +136,6 @@ function makeStyles(c: ColorPalette) {
     },
     writePostPlaceholder: { flex: 1, fontSize: fontSizes.sm, color: c.text.muted },
 
-    filterBar: {
-      flexDirection: 'row',
-      backgroundColor: c.bg.base,
-      borderBottomWidth: 1, borderBottomColor: c.border,
-      paddingHorizontal: spacing.lg, gap: 0,
-    },
-    filterTab: {
-      flex: 1, alignItems: 'center', paddingVertical: 12,
-      borderBottomWidth: 2, borderBottomColor: 'transparent',
-    },
-    filterTabActive:    { borderBottomColor: c.primaryLight },
-    filterTabText:      { fontSize: fontSizes.sm, fontWeight: '600', color: c.text.muted },
-    filterTabTextActive: { color: c.primaryLight },
-
     emptyState: { alignItems: 'center', paddingVertical: 50 },
     emptyEmoji: { fontSize: 40, marginBottom: 12 },
     emptyTitle: { fontSize: fontSizes.lg, fontWeight: '700', color: c.text.primary, marginBottom: 6 },
@@ -219,7 +204,14 @@ export default function CommunityDetailScreen() {
   const [loadingDetail, setLoadingDetail] = useState(true);
   const [detailError, setDetailError] = useState<string | null>(null);
 
-  const [filter, setFilter]         = useState<FeedFilter>('All');
+  // Post feed pagination + pull-to-refresh. The server endpoint supports
+  // page/limit (newest first); we append pages on scroll and reset on refresh.
+  const [postPage, setPostPage] = useState(1);
+  const [hasMorePosts, setHasMorePosts] = useState(false);
+  const [loadingMorePosts, setLoadingMorePosts] = useState(false);
+  const [refreshingPosts, setRefreshingPosts] = useState(false);
+  const postsReqRef = useRef(0);
+
   const [showCreate, setShowCreate]  = useState(false);
   const [showRequests, setShowRequests] = useState(false);
   const [showMembers, setShowMembers] = useState(false);
@@ -283,6 +275,40 @@ export default function CommunityDetailScreen() {
     }
   };
 
+  // Loads a page of the community's posts and appends/replaces the list. Uses
+  // a request-id guard so a slow page-1 response can't clobber a newer one
+  // after a refresh or a community switch.
+  const loadPosts = useCallback(
+    async (communityId: string, nextPage: number, refresh = false) => {
+      const reqId = ++postsReqRef.current;
+      if (!refresh) setLoadingPosts(true);
+      try {
+        const postsRes = await communityService.getCommunityPosts(communityId, nextPage, 20);
+        if (postsReqRef.current !== reqId) return;
+        const rows = postsRes.data || [];
+        const meta = postsRes.meta as any;
+        setHasMorePosts(meta ? !!meta.hasNext : rows.length === 20);
+        setCommunityPosts((prev) =>
+          refresh
+            ? rows
+            : [...prev, ...rows.filter((r: any) => !prev.some((p: any) => p.id === r.id))],
+        );
+        setPostPage(nextPage);
+      } catch (e) {
+        // Private communities: non-members get 403 on posts — that's fine,
+        // the empty state explains they must join first.
+        if (postsReqRef.current === reqId) setCommunityPosts([]);
+      } finally {
+        if (postsReqRef.current === reqId) {
+          setLoadingPosts(false);
+          setRefreshingPosts(false);
+          setLoadingMorePosts(false);
+        }
+      }
+    },
+    [],
+  );
+
   // Resolves true only when the detail re-fetch succeeded — callers use the
   // boolean to decide whether an optimistic membership flip can be trusted.
   const loadData = useMemo(
@@ -294,18 +320,7 @@ export default function CommunityDetailScreen() {
         if (detailRes.data) {
           setCommunity(detailRes.data);
           setLoadingPosts(true);
-          try {
-            const postsRes = await communityService.getCommunityPosts(detailRes.data.id);
-            if (postsRes.data) {
-              setCommunityPosts(postsRes.data);
-            }
-          } catch (e) {
-            // Private communities: non-members get 403 on posts — that's fine,
-            // the empty state explains they must join first.
-            setCommunityPosts([]);
-          } finally {
-            setLoadingPosts(false);
-          }
+          await loadPosts(detailRes.data.id, 1, true);
           return true;
         }
         setDetailError("Community not found.");
@@ -320,7 +335,7 @@ export default function CommunityDetailScreen() {
         setLoadingDetail(false);
       }
     },
-    [communitySlug],
+    [communitySlug, loadPosts],
   );
 
   // Fetch full details and posts on mount
@@ -380,12 +395,6 @@ export default function CommunityDetailScreen() {
 
   const bannerGradient = BANNER_COLORS[community.category?.[0]] ?? ['#1a0a3e', '#0a1a3e'];
   const avatarGradient = AVATAR_COLORS_MAP[community.category?.[0]] ?? ['#7C3AED', '#4C1D95'];
-
-  const displayPosts = filter === 'Trending'
-    ? [...communityPosts].sort((a, b) => b.likes - a.likes)
-    : filter === 'New'
-    ? [...communityPosts].reverse()
-    : communityPosts;
 
   const renderHeader = () => (
     <>
@@ -511,19 +520,10 @@ export default function CommunityDetailScreen() {
         )}
       </View>
 
-      <View style={styles.filterBar}>
-        {(['All', 'Trending', 'New'] as FeedFilter[]).map(f => (
-          <TouchableOpacity
-            key={f}
-            style={[styles.filterTab, filter === f && styles.filterTabActive]}
-            onPress={() => setFilter(f)}
-          >
-            <Text style={[styles.filterTabText, filter === f && styles.filterTabTextActive]}>
-              {f === 'Trending' ? '🔥 Trending' : f === 'New' ? '✨ New' : '📋 All'}
-            </Text>
-          </TouchableOpacity>
-        ))}
-      </View>
+      {/* Breathing room before the first post. The header's card-coloured
+          surface would otherwise sit flush against the first post card (same
+          background) and read as one overlapping block. */}
+      <View style={{ height: spacing.sm }} />
     </>
   );
 
@@ -536,7 +536,9 @@ export default function CommunityDetailScreen() {
           <Ionicons name="arrow-back" size={22} color="#fff" />
         </TouchableOpacity>
         <View style={{ flexDirection: 'row', gap: 10 }}>
-          {(isAdmin || isOwner) && (
+          {/* Only the OWNER can edit the community / manage admins — admins get
+              their powers (kick, delete posts, requests) from the member menu. */}
+          {isOwner && (
             <TouchableOpacity style={styles.shareBtn} onPress={() => {
               (navigation as any).navigate('CommunitySettings', { communitySlug: community.slug });
             }}>
@@ -552,11 +554,41 @@ export default function CommunityDetailScreen() {
       </View>
 
       <SharedFeed
-        posts={displayPosts}
+        posts={communityPosts}
         setPosts={setCommunityPosts}
         onDelete={handleDeletePost}
         onReposted={loadData}
         isAdmin={isAdmin}
+        // Pull-to-refresh re-fetches detail + the first page of posts from the
+        // server (previously nothing was wired here — the gesture did nothing).
+        refreshing={refreshingPosts}
+        onRefresh={async () => {
+          setRefreshingPosts(true);
+          try {
+            await loadData();
+          } finally {
+            setRefreshingPosts(false);
+          }
+        }}
+        // Infinite scroll — appends page 2, 3, … of the community's posts.
+        onEndReached={() => {
+          if (hasMorePosts && !loadingPosts && !loadingMorePosts) {
+            setLoadingMorePosts(true);
+            loadPosts(community.id, postPage + 1);
+          }
+        }}
+        onEndReachedThreshold={0.4}
+        ListFooterComponent={
+          loadingMorePosts ? (
+            <ActivityIndicator
+              size="small"
+              color={colors.primary}
+              style={{ paddingVertical: 16 }}
+            />
+          ) : (
+            <View style={{ height: 100 }} />
+          )
+        }
         ListHeaderComponent={renderHeader()}
         ListEmptyComponent={
           !loadingPosts ? (
@@ -580,7 +612,6 @@ export default function CommunityDetailScreen() {
             </View>
           )
         }
-        ListFooterComponent={<View style={{ height: 100 }} />}
       />
 
       <CreatePostModal
@@ -604,6 +635,9 @@ export default function CommunityDetailScreen() {
         isAdmin={isAdmin}
         isOwner={isOwner}
         currentUserId={authUser?.id}
+        // Ownership transfers / role changes / kicks all affect the screen's
+        // community state (owner badge, memberRole, member count) — reload it.
+        onChanged={loadData}
         styles={styles}
         colors={colors}
       />
@@ -679,7 +713,7 @@ function ManageRequestsModal({ visible, onClose, communityId, styles, colors }: 
                     style={styles.requestUser}
                     onPress={() => {
                       onClose();
-                      navigation.navigate('UserProfile' as any, { user: { id: item.user_id, name: item.name, username: item.username, avatarUrl: item.avatar_url } } as any);
+                      navigation.push('UserProfile' as any, { user: { id: item.user_id, name: item.name, username: item.username, avatarUrl: item.avatar_url } } as any);
                     }}
                     activeOpacity={0.7}
                   >
@@ -713,26 +747,50 @@ function ManageRequestsModal({ visible, onClose, communityId, styles, colors }: 
   );
 }
 
-function ManageMembersModal({ visible, onClose, communityId, isAdmin, isOwner, currentUserId, styles, colors }: any) {
+function ManageMembersModal({ visible, onClose, communityId, isAdmin, isOwner, currentUserId, onChanged, styles, colors }: any) {
   const navigation = useNavigation<any>();
   const [members, setMembers] = useState<any[]>([]);
+  const [page, setPage] = useState(1);
+  const [hasMore, setHasMore] = useState(false);
   const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
+  // Viewer's role in this community (owner/admin/moderator/member/visitor) —
+  // drives which actions the ⋯ menu offers. Seeded from the screen's props,
+  // refreshed from the members fetch so a just-transferred owner immediately
+  // sees owner controls.
+  const [viewerRole, setViewerRole] = useState<string>(isOwner ? 'owner' : isAdmin ? 'admin' : 'visitor');
+  // Member whose ⋯ menu is open — renders the action sheet overlay.
+  const [actionMember, setActionMember] = useState<any | null>(null);
 
   useEffect(() => {
     if (visible) {
-      loadMembers();
+      setMembers([]);
+      setPage(1);
+      setHasMore(false);
+      loadMembers(1, true);
     }
-  }, [visible]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [visible, communityId]);
 
-  const loadMembers = async () => {
+  const loadMembers = async (nextPage: number, refresh = false) => {
     setLoading(true);
     try {
-      const res = await communityService.getMembers(communityId);
-      setMembers(res.data || []);
+      const res = await communityService.getMembers(communityId, nextPage, 20);
+      const rows = res.data || [];
+      const meta = res.meta as any;
+      // Server reports the true viewer role + owner mapping — trust it over the
+      // props (they're stale the moment ownership transfers).
+      if (res.viewerRole) setViewerRole(res.viewerRole);
+      setHasMore(meta ? !!meta.hasNext : rows.length === 20);
+      setMembers((prev) =>
+        refresh ? rows : [...prev, ...rows.filter((r: any) => !prev.some((m: any) => m.user_id === r.user_id))],
+      );
+      setPage(nextPage);
     } catch (e) {
       console.log('Failed to load members', e);
     } finally {
       setLoading(false);
+      setRefreshing(false);
     }
   };
 
@@ -743,11 +801,115 @@ function ManageMembersModal({ visible, onClose, communityId, isAdmin, isOwner, c
         try {
           await communityService.removeMember(communityId, userId);
           setMembers(prev => prev.filter(m => m.user_id !== userId));
-        } catch (e) {
-          Alert.alert('Error', 'Failed to remove member');
+          setActionMember(null);
+          onChanged?.();
+        } catch (e: any) {
+          Alert.alert('Error', e?.response?.data?.message || 'Failed to remove member');
         }
       }}
     ]);
+  };
+
+  // Owner-only: promote to admin / demote to member.
+  const handleRoleChange = (item: any, role: 'admin' | 'member') => {
+    const isPromote = role === 'admin';
+    Alert.alert(
+      isPromote ? 'Make Admin' : 'Remove Admin',
+      isPromote
+        ? `${item.name} will be able to kick members, manage join requests and delete posts.`
+        : `${item.name} will lose admin powers and become a regular member.`,
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: isPromote ? 'Make Admin' : 'Remove Admin',
+          style: isPromote ? 'default' : 'destructive',
+          onPress: async () => {
+            try {
+              await communityService.updateMemberRole(communityId, item.user_id, role);
+              // Flip the row locally so the badge updates instantly.
+              setMembers(prev => prev.map(m => m.user_id === item.user_id ? { ...m, role } : m));
+              setActionMember(null);
+              onChanged?.();
+            } catch (e: any) {
+              Alert.alert('Error', e?.response?.data?.message || 'Failed to update role');
+            }
+          },
+        },
+      ],
+    );
+  };
+
+  // Owner-only: hand over the whole community. Old owner auto-becomes admin.
+  const handleTransfer = (item: any) => {
+    Alert.alert(
+      'Transfer Ownership',
+      `Transfer this community to ${item.name}? You will become an admin, and the transfer cannot be undone.`,
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Transfer',
+          style: 'destructive',
+          onPress: async () => {
+            try {
+              await communityService.transferOwnership(communityId, item.user_id);
+              setActionMember(null);
+              // Membership + community detail both changed (owner badge, role,
+              // settings access) — refresh both.
+              loadMembers(1, true);
+              onChanged?.();
+            } catch (e: any) {
+              Alert.alert('Error', e?.response?.data?.message || 'Failed to transfer ownership');
+            }
+          },
+        },
+      ],
+    );
+  };
+
+  // Which actions appear for this member, given who's viewing.
+  const buildActions = (item: any) => {
+    const actions: { label: string; icon: string; danger?: boolean; onPress: () => void }[] = [];
+    const targetRole = item.role || 'member'; // owner | admin | moderator | member
+    const isTargetOwner = targetRole === 'owner';
+    const isTargetSelf = item.user_id === currentUserId;
+    const isViewerOwner = viewerRole === 'owner' || isOwner;
+    const isViewerAdmin = viewerRole === 'admin' || viewerRole === 'moderator' || isAdmin;
+
+    actions.push({
+      label: 'View Profile',
+      icon: 'person-outline',
+      onPress: () => {
+        setActionMember(null);
+        onClose();
+        navigation.push('UserProfile' as any, { user: { id: item.user_id, name: item.name, username: item.username, avatarUrl: item.avatar_url } } as any);
+      },
+    });
+
+    // Owner-only admin management.
+    if (isViewerOwner && !isTargetOwner) {
+      if (targetRole === 'admin' || targetRole === 'moderator') {
+        actions.push({ label: 'Remove Admin', icon: 'shield-outline', danger: true, onPress: () => handleRoleChange(item, 'member') });
+      } else {
+        actions.push({ label: 'Make Admin', icon: 'shield-checkmark-outline', onPress: () => handleRoleChange(item, 'admin') });
+      }
+    }
+
+    // Owner-only transfer (never to yourself).
+    if (isViewerOwner && !isTargetOwner && !isTargetSelf) {
+      actions.push({ label: 'Transfer Ownership', icon: 'swap-horizontal', danger: true, onPress: () => handleTransfer(item) });
+    }
+
+    // Kick: owner may remove anyone but the owner/self; admins remove members
+    // only (never other admins, never the owner).
+    const canKick =
+      !isTargetOwner &&
+      !isTargetSelf &&
+      (isViewerOwner || (isViewerAdmin && targetRole !== 'admin' && targetRole !== 'moderator'));
+    if (canKick) {
+      actions.push({ label: 'Kick Member', icon: 'trash-outline', danger: true, onPress: () => handleKick(item.user_id, item.name) });
+    }
+
+    return actions;
   };
 
   if (!visible) return null;
@@ -771,13 +933,31 @@ function ManageMembersModal({ visible, onClose, communityId, isAdmin, isOwner, c
             <FlatList
               data={members}
               keyExtractor={item => item.user_id}
+              onEndReached={() => {
+                if (hasMore && !loading) loadMembers(page + 1);
+              }}
+              onEndReachedThreshold={0.4}
+              refreshing={refreshing}
+              onRefresh={() => {
+                setRefreshing(true);
+                loadMembers(1, true);
+              }}
+              ListFooterComponent={
+                loading && members.length > 0 ? (
+                  <ActivityIndicator
+                    size="small"
+                    color={colors.primary}
+                    style={{ paddingVertical: 14 }}
+                  />
+                ) : null
+              }
               renderItem={({ item }) => (
                 <View style={styles.requestRow}>
                   <TouchableOpacity 
                     style={styles.requestUser}
                     onPress={() => {
                       onClose();
-                      navigation.navigate('UserProfile' as any, { user: { id: item.user_id, name: item.name, username: item.username, avatarUrl: item.avatar_url } } as any);
+                      navigation.push('UserProfile' as any, { user: { id: item.user_id, name: item.name, username: item.username, avatarUrl: item.avatar_url } } as any);
                     }}
                     activeOpacity={0.7}
                   >
@@ -800,21 +980,63 @@ function ManageMembersModal({ visible, onClose, communityId, isAdmin, isOwner, c
                             <Text style={{ fontSize: 10, fontWeight: '800', color: '#A78BFA' }}>ADMIN</Text>
                           </View>
                         ) : null}
+                        {item.user_id === currentUserId && (
+                          <Text style={{ fontSize: 10, fontWeight: '700', color: colors.text.muted }}>You</Text>
+                        )}
                       </View>
                       <Text style={styles.requestUsername}>@{item.username}</Text>
                     </View>
                   </TouchableOpacity>
-                  {isAdmin && item.role !== 'owner' && item.user_id !== currentUserId && (
-                    <TouchableOpacity style={[styles.actionBtn, styles.rejectBtn]} onPress={() => handleKick(item.user_id, item.name)}>
-                      <Ionicons name="trash-outline" size={18} color="#EF4444" />
-                    </TouchableOpacity>
-                  )}
+                  {/* Vertical-dots action button — contextual options for this member. */}
+                  <TouchableOpacity
+                    style={[styles.actionBtn, { borderColor: colors.border }]}
+                    onPress={() => setActionMember(item)}
+                    hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                  >
+                    <Ionicons name="ellipsis-vertical" size={18} color={colors.text.secondary} />
+                  </TouchableOpacity>
                 </View>
               )}
             />
           )}
         </View>
       </View>
+
+      {/* Member action sheet — options depend on viewer role + target role. */}
+      {actionMember && (
+        <View style={[StyleSheet.absoluteFill, { zIndex: 1000, backgroundColor: 'rgba(0,0,0,0.45)', justifyContent: 'flex-end' }]}>
+          <TouchableWithoutFeedback onPress={() => setActionMember(null)}>
+            <View style={{ flex: 1 }} />
+          </TouchableWithoutFeedback>
+          <View style={{ backgroundColor: colors.bg.surface, borderTopLeftRadius: 20, borderTopRightRadius: 20, paddingBottom: 28, paddingTop: 10 }}>
+            <View style={{ alignSelf: 'center', width: 36, height: 4, borderRadius: 2, backgroundColor: colors.border, marginBottom: 14 }} />
+            <Text style={{ fontSize: 15, fontWeight: '800', color: colors.text.primary, textAlign: 'center' }} numberOfLines={1}>
+              {actionMember.name}
+            </Text>
+            <Text style={{ fontSize: 12, color: colors.text.muted, textAlign: 'center', marginBottom: 10 }}>
+              @{actionMember.username}
+            </Text>
+            {buildActions(actionMember).map((a, i) => (
+              <TouchableOpacity
+                key={a.label}
+                style={{ flexDirection: 'row', alignItems: 'center', gap: 12, paddingVertical: 13, paddingHorizontal: 20, borderTopWidth: i === 0 ? 0 : 1, borderTopColor: colors.border }}
+                onPress={a.onPress}
+              >
+                <Ionicons name={a.icon as any} size={18} color={a.danger ? '#EF4444' : colors.text.primary} />
+                <Text style={{ fontSize: 15, fontWeight: '600', color: a.danger ? '#EF4444' : colors.text.primary }}>
+                  {a.label}
+                </Text>
+              </TouchableOpacity>
+            ))}
+            <TouchableOpacity
+              style={{ marginTop: 10, marginHorizontal: 20, paddingVertical: 12, borderRadius: 12, backgroundColor: colors.bg.elevated, alignItems: 'center' }}
+              onPress={() => setActionMember(null)}
+            >
+              <Text style={{ fontSize: 15, fontWeight: '700', color: colors.text.muted }}>Cancel</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      )}
     </View>
   );
 }

@@ -84,7 +84,7 @@ export default function ProfileTabs({ userId }: ProfileTabsProps) {
           ) : (
             posts.filter(p => !!p.mediaUri).map(post => {
               return (
-                <TouchableOpacity key={post.id} style={{ width: '33.33%', padding: 2, aspectRatio: 1 }} onPress={() => navigation.navigate('Comments', { post })}>
+                <TouchableOpacity key={post.id} style={{ width: '33.33%', padding: 2, aspectRatio: 1 }} onPress={() => navigation.push('PostDetail', { post })}>
                   <Image source={{ uri: post.mediaUri }} style={{ width: '100%', height: '100%', borderRadius: 4, backgroundColor: colors.bg.elevated }} />
                 </TouchableOpacity>
               );

@@ -57,6 +57,22 @@ function makeStyles(c: ColorPalette) {
     closeBtn: { padding: 8, marginLeft: 8 },
     title: { flex: 1, textAlign: 'center', fontSize: fontSizes.md, fontWeight: '800', color: c.text.primary },
     listContent: { paddingHorizontal: spacing.lg, paddingVertical: spacing.md, flexGrow: 1 },
+    sortBar: {
+      flexDirection: 'row', alignItems: 'center', justifyContent: 'flex-end',
+      gap: 8, paddingHorizontal: spacing.lg, paddingTop: 10,
+    },
+    sortChip: {
+      paddingHorizontal: 14, paddingVertical: 5,
+      borderRadius: radii.full,
+      borderWidth: 1, borderColor: c.border,
+      backgroundColor: c.bg.card,
+    },
+    sortChipActive: {
+      backgroundColor: 'rgba(124,58,237,0.15)',
+      borderColor: 'rgba(124,58,237,0.45)',
+    },
+    sortChipText:     { fontSize: fontSizes.xs, fontWeight: '700', color: c.text.muted },
+    sortChipTextActive: { color: c.primaryLight },
     empty: { flex: 1, alignItems: 'center', justifyContent: 'center', paddingTop: 60 },
     emptyTitle: { fontSize: fontSizes.lg, fontWeight: '700', color: c.text.primary, marginBottom: 6 },
     emptyText:  { fontSize: fontSizes.sm, color: c.text.muted },
@@ -153,6 +169,7 @@ export default function CommentsModal({ visible, onClose, post }: Props) {
   const [comments, setComments] = useState<Comment[]>([]);
   const [loading, setLoading] = useState(false);
   const [replyingTo, setReplyingTo] = useState<Comment | null>(null);
+  const [sort, setSort] = useState<'top' | 'newest'>('newest');
 
   const translateY = useRef(new Animated.Value(SCREEN_H)).current;
 
@@ -172,17 +189,37 @@ export default function CommentsModal({ visible, onClose, post }: Props) {
     }
   }, [visible, post]);
 
-  const fetchTopLevelComments = async () => {
+  const [page, setPage] = useState(1);
+  const [hasMore, setHasMore] = useState(false);
+  const [loadingMore, setLoadingMore] = useState(false);
+
+  const fetchTopLevelComments = async (nextPage = 1, append = false, sortOverride?: 'top' | 'newest') => {
     if (!post) return;
-    setLoading(true);
+    if (append) setLoadingMore(true);
+    else setLoading(true);
     try {
-      const res = await commentService.getComments(post.id);
-      if (res.data) setComments(res.data);
+      const res = await commentService.getComments(post.id, null, nextPage, 20, sortOverride ?? sort);
+      const rows = res.data || [];
+      const meta = res.meta as any;
+      setHasMore(meta ? !!meta.hasNext : rows.length === 20);
+      setComments((prev) =>
+        append
+          ? [...prev, ...rows.filter((r: any) => !prev.some((c) => c.id === r.id))]
+          : rows,
+      );
+      setPage(nextPage);
     } catch (e) {
       console.error(e);
     } finally {
-      setLoading(false);
+      if (append) setLoadingMore(false);
+      else setLoading(false);
     }
+  };
+
+  const changeSort = async (next: 'top' | 'newest') => {
+    if (next === sort) return;
+    setSort(next);
+    await fetchTopLevelComments(1, false, next);
   };
 
   const handleSend = async () => {
@@ -305,7 +342,7 @@ export default function CommentsModal({ visible, onClose, post }: Props) {
   const fetchReplies = async (parentComment: Comment) => {
     if (!post) return;
     try {
-      const res = await commentService.getComments(post.id, parentComment.id);
+      const res = await commentService.getComments(post.id, parentComment.id, 1, 20, sort);
       setComments(prev => prev.map(c => 
         c.id === parentComment.id ? { ...c, hasFetchedReplies: true, subComments: res.data } : c
       ));
@@ -321,14 +358,14 @@ export default function CommentsModal({ visible, onClose, post }: Props) {
       if (mentionMatch) {
         const [, name, id] = mentionMatch;
         return (
-          <Text key={i} style={{ color: colors.primaryLight, fontWeight: '600' }} onPress={() => { handleClose(); navigation.navigate('UserProfile', { user: { id, name, username: name } as any }); }}>
+          <Text key={i} style={{ color: colors.primaryLight, fontWeight: '600' }} onPress={() => { handleClose(); navigation.push('UserProfile', { user: { id, name, username: name } as any }); }}>
             @{name}
           </Text>
         );
       }
       if (part.startsWith('@')) {
         return (
-          <Text key={i} style={{ color: colors.primaryLight, fontWeight: '600' }} onPress={() => { handleClose(); navigation.navigate('UserProfile', { user: { id: part.slice(1), name: part.slice(1), username: part.slice(1) } as any }); }}>
+          <Text key={i} style={{ color: colors.primaryLight, fontWeight: '600' }} onPress={() => { handleClose(); navigation.push('UserProfile', { user: { id: part.slice(1), name: part.slice(1), username: part.slice(1) } as any }); }}>
             {part}
           </Text>
         );
@@ -340,7 +377,7 @@ export default function CommentsModal({ visible, onClose, post }: Props) {
   const renderComment = (comment: Comment, isReply = false, rootComment?: Comment) => (
     <View key={comment.id} style={styles.commentWrapper}>
       <View style={styles.commentRow}>
-        <TouchableOpacity onPress={() => { handleClose(); navigation.navigate('UserProfile', { user: comment.author as any }); }}>
+        <TouchableOpacity onPress={() => { handleClose(); navigation.push('UserProfile', { user: comment.author as any }); }}>
           <View style={[styles.commentAvatar, isReply && { width: 28, height: 28, borderRadius: 14 }]}>
             {comment.author?.avatarUrl || (comment.author as any)?.avatar_url ? (
               <Image source={{ uri: comment.author.avatarUrl || (comment.author as any).avatar_url }} style={{ width: '100%', height: '100%' }} />
@@ -414,6 +451,20 @@ export default function CommentsModal({ visible, onClose, post }: Props) {
             </TouchableOpacity>
           </View>
 
+          <View style={styles.sortBar}>
+            {(['top', 'newest'] as const).map((opt) => (
+              <TouchableOpacity
+                key={opt}
+                style={[styles.sortChip, sort === opt && styles.sortChipActive]}
+                onPress={() => changeSort(opt)}
+              >
+                <Text style={[styles.sortChipText, sort === opt && styles.sortChipTextActive]}>
+                  {opt === 'top' ? 'Top' : 'Newest'}
+                </Text>
+              </TouchableOpacity>
+            ))}
+          </View>
+
           {loading ? (
             <ActivityIndicator style={{ flex: 1 }} color={colors.primary} />
           ) : (
@@ -422,6 +473,19 @@ export default function CommentsModal({ visible, onClose, post }: Props) {
               keyExtractor={item => item.id}
               showsVerticalScrollIndicator={false}
               contentContainerStyle={styles.listContent}
+              onEndReached={() => {
+                if (hasMore && !loadingMore) fetchTopLevelComments(page + 1, true);
+              }}
+              onEndReachedThreshold={0.4}
+              ListFooterComponent={
+                loadingMore ? (
+                  <ActivityIndicator
+                    size="small"
+                    color={colors.primary}
+                    style={{ paddingVertical: 14 }}
+                  />
+                ) : null
+              }
               ListEmptyComponent={
                 <View style={styles.empty}>
                   <Text style={styles.emptyTitle}>No comments yet.</Text>

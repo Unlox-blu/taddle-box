@@ -3,6 +3,7 @@ import {
   ActivityIndicator,
   Animated,
   Image,
+  RefreshControl,
   ScrollView,
   StyleSheet,
   Text,
@@ -55,6 +56,7 @@ export default function LeaderboardsScreen() {
   
   const [data, setData] = useState<WeeklyLeaderboards>(DEFAULT_DATA);
   const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
 
   useEffect(() => {
     let active = true;
@@ -69,6 +71,19 @@ export default function LeaderboardsScreen() {
       });
     return () => { active = false; };
   }, []);
+
+  // Pull-to-refresh re-fetches the weekly rankings from the server.
+  const onRefresh = async () => {
+    setRefreshing(true);
+    try {
+      const res = await leaderboardService.getWeekly(20);
+      setData(res.data || DEFAULT_DATA);
+    } catch (error) {
+      console.warn('Failed to refresh weekly leaderboards', error);
+    } finally {
+      setRefreshing(false);
+    }
+  };
 
   const activeEntries = data[activeTab] || [];
 
@@ -88,7 +103,18 @@ export default function LeaderboardsScreen() {
         </View>
       </View>
 
-      <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.content}>
+      <ScrollView
+        showsVerticalScrollIndicator={false}
+        contentContainerStyle={styles.content}
+        refreshControl={
+          <RefreshControl
+            refreshing={refreshing}
+            onRefresh={onRefresh}
+            tintColor={colors.primaryLight}
+            colors={[colors.primaryLight]}
+          />
+        }
+      >
         <View style={styles.tabRail}>
           {TABS.map((tab) => (
             <TouchableOpacity
@@ -233,7 +259,7 @@ function LeaderboardRow({ entry }: { entry: WeeklyLeaderboardEntry }) {
   const handlePress = () => {
     if (entry.subtitle?.startsWith('@')) {
       const username = entry.subtitle.substring(1);
-      navigation.navigate('UserProfile', { user: { username, name: entry.title, avatarUrl: entry.avatarUrl, handle: username } });
+      navigation.push('UserProfile', { user: { username, name: entry.title, avatarUrl: entry.avatarUrl, handle: username } });
     }
   };
 

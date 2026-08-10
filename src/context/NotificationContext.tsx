@@ -119,11 +119,39 @@ export function NotificationProvider({ children }: { children: React.ReactNode }
 
     registerForPushNotificationsAsync();
 
-    // Tapped from the system tray → open the notifications list.
+    // Tapped from the system tray. Post-bound pushes (mention / reply / like /
+    // comment / new post) deep-link straight to the post's detail page — with
+    // the exact comment id when it's a comment mention, so the page auto-scrolls
+    // to that comment. Everything else falls back to the notifications list
+    // (same route the in-app banner uses).
     const responseSub = Notifications.addNotificationResponseReceivedListener(
-      (response) => {
+      async (response) => {
         clearUnread();
-        notificationBus.emit(NOTIF_EVENTS.OPEN, response.notification.request.content.data);
+        const data = response.notification.request.content.data || {};
+        const { navigationRef } = require("../navigation/AppNavigator");
+        if (data?.resourceType === "post" && data?.resourceId) {
+          try {
+            const { postsService } = require("../services/posts.service");
+            const res = await postsService.getPost(data.resourceId);
+            const post = res?.data;
+            if (post && navigationRef?.isReady?.()) {
+              (navigationRef.navigate as any)("PostDetail", {
+                post,
+                commentId: data.commentId,
+              });
+              return;
+            }
+          } catch (e) {
+            // Post gone / offline → fall through to the notifications list.
+          }
+        }
+        notificationBus.emit(NOTIF_EVENTS.OPEN, data);
+        if (navigationRef?.isReady?.()) {
+          (navigationRef.navigate as any)("Main", {
+            screen: "Home",
+            params: { screen: "Notifications" },
+          });
+        }
       },
     );
 

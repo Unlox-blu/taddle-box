@@ -58,19 +58,19 @@ export const userService = {
     return res.data;
   },
 
-  getFollowers: async (username: string) => {
-    const res = await apiClient.get(`/users/${username}/followers`);
+  getFollowers: async (username: string, page = 1, limit = 20) => {
+    const res = await apiClient.get(`/users/${username}/followers?page=${page}&limit=${limit}`);
     return res.data;
   },
 
   // Users the viewer follows who also follow this profile (Instagram-style).
-  getMutuals: async (username: string) => {
-    const res = await apiClient.get(`/users/${username}/mutuals`);
+  getMutuals: async (username: string, page = 1, limit = 20) => {
+    const res = await apiClient.get(`/users/${username}/mutuals?page=${page}&limit=${limit}`);
     return res.data;
   },
 
-  getFollowing: async (username: string) => {
-    const res = await apiClient.get(`/users/${username}/following`);
+  getFollowing: async (username: string, page = 1, limit = 20) => {
+    const res = await apiClient.get(`/users/${username}/following?page=${page}&limit=${limit}`);
     return res.data;
   },
 

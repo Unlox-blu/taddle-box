@@ -18,6 +18,7 @@ import {
 } from "react-native";
 import { Video, ResizeMode } from "expo-av";
 import PostMenuSheet from './PostMenuSheet';
+import { AudiencePickerList } from '../common/AudiencePicker';
 import { Ionicons } from "@expo/vector-icons";
 import { useNavigation } from "@react-navigation/native";
 import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
@@ -34,8 +35,13 @@ import PresenceDot from "../common/PresenceDot";
 import SmartInput from "../common/SmartInput";
 import { useMyCommunities } from "../../queries/communities";
 
-const CARD_W = Dimensions.get("window").width - spacing.lg * 2;
+const SCREEN_W = Dimensions.get("window").width;
+const CARD_W = SCREEN_W - spacing.lg * 2;
 const claimedPosts = new Set<string>();
+// Repost audience sentinel — the repost sheet starts with NO destination
+// selected (unlike before, where Feed was a silent default). null = not chosen
+// yet, REPOST_FEED_AUDIENCE = the user's Feed, a real id = a community.
+const REPOST_FEED_AUDIENCE = "__feed__";
 let globalIsMuted = true;
 
 interface PostCardProps {
@@ -51,6 +57,12 @@ interface PostCardProps {
   index?: number;
   /** Show the view count (profile page only — never in feed/community). */
   showViews?: boolean;
+  /** When the card is rendered inside its own detail page, single-tap body
+      navigation is disabled (it would push a duplicate page). */
+  disableTapNavigation?: boolean;
+  /** Detail-page mode — drops the box (margins/bg/border/radius) so the card
+      spans the full screen width and media goes edge-to-edge. */
+  fullBleed?: boolean;
   onDelete?: (post: Post) => void;
   onReport?: (post: Post) => void;
   showDelete?: boolean;
@@ -65,6 +77,17 @@ function makeStyles(c: ColorPalette) {
       borderRadius: radii.lg,
       borderWidth: 1,
       borderColor: c.border,
+    },
+    // Detail-page mode: flush with the page, no box chrome — only a hairline
+    // under the card so the transition into the comment thread stays clear.
+    cardFullBleed: {
+      marginHorizontal: 0,
+      marginBottom: 0,
+      backgroundColor: 'transparent',
+      borderRadius: 0,
+      borderWidth: 0,
+      borderBottomWidth: 1,
+      borderBottomColor: c.border,
     },
     header: {
       flexDirection: "row",
@@ -283,6 +306,8 @@ export default function PostCard({
   onReport,
   showDelete,
   showViews,
+  disableTapNavigation,
+  fullBleed,
 }: PostCardProps) {
   const colors = useThemeColors();
   const styles = useMemo(() => makeStyles(colors), [colors]);
@@ -297,6 +322,9 @@ export default function PostCard({
 
   const [currentMediaPage, setCurrentMediaPage] = React.useState(0);
   const postId = String(post?.id || "");
+  // Full-bleed (detail page) media spans the whole screen; otherwise the card
+  // width (screen minus side margins) drives it.
+  const mediaW = fullBleed ? SCREEN_W : CARD_W;
   // Tapping a repost (the preview OR its comment action) opens the ORIGINAL
   // post's thread — never the repost's own (empty) comments. The root is
   // resolved on demand via the cache-aware resolveRootPost (which also walks
@@ -307,7 +335,11 @@ export default function PostCard({
       const targetId = String((target as any)?.repostOfId || "");
       const root = targetId ? await resolveRootPost(targetId) : null;
       const dest = root && !root?.repostOfId ? root : target;
-      navigation.navigate("Comments", { post: dest as Post } as any);
+      // push (not navigate): a detail page may already be on the stack (e.g.
+      // viewing a repost's preview inside its own detail page) — navigate
+      // would jump BACK to that instance and collapse the back stack, so
+      // back would skip screens. push always opens a fresh page.
+      navigation.push("PostDetail", { post: dest as Post } as any);
     },
     [navigation],
   );
@@ -343,6 +375,104 @@ export default function PostCard({
       ? (post.community as any)?.privacy
       : undefined;
 
+  // Destination picker for reposts — Feed or one of the user's communities,
+  // same as the create-post flow. No destination is pre-selected: the user must
+  // explicitly choose (Feed or a community) before Repost/Post works, and a
+  // pill error + shake fires otherwise — exactly like the create-post flow.
+  const renderAudienceSection = () => {
+    // The Feed destination mirrors the account type — public accounts post to
+    // everyone, private accounts only to their approved followers (same as the
+    // create-post audience picker).
+    const isPrivateAccount = (currentUser as any)?.privacy === 'private';
+    const feedLabel = isPrivateAccount ? 'Followers' : 'Public';
+    const feedMeta = isPrivateAccount
+      ? 'Only your approved followers can see this'
+      : 'Anyone on Taddle can see this';
+    const feedIcon = isPrivateAccount ? 'lock-closed-outline' : 'globe-outline';
+    const feedSelected = repostCommunityId === REPOST_FEED_AUDIENCE;
+    const selectedAudienceName = feedSelected
+      ? feedLabel
+      : repostCommunityId
+        ? repostCommunityName ||
+          repostCommunities.find((c) => c.id === repostCommunityId)?.name ||
+          'Community'
+        : null;
+    return (
+    <Animated.View
+      style={{
+        borderTopWidth: 1,
+        borderTopColor: colors.border,
+        paddingTop: 10,
+        marginTop: 4,
+        transform: [{ translateX: repostAudienceAnim }],
+      }}
+    >
+      <TouchableOpacity
+        style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingVertical: 6 }}
+        onPress={() => setAudienceExpanded((v) => !v)}
+        activeOpacity={0.7}
+      >
+        <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
+          <Ionicons
+            name={feedSelected ? feedIcon : repostCommunityId ? "people-outline" : "radio-button-off-outline"}
+            size={16}
+            color={repostCommunityId ? colors.primaryLight : colors.text.secondary}
+          />
+          <Text style={{ fontSize: fontSizes.sm, fontWeight: "800", color: colors.text.primary }}>
+            Select audience
+          </Text>
+        </View>
+        <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
+          <Text
+            style={{
+              fontSize: fontSizes.xs,
+              fontWeight: selectedAudienceName ? "700" : "500",
+              color: selectedAudienceName ? colors.text.muted : "rgba(148,163,184,0.8)",
+            }}
+            numberOfLines={1}
+          >
+            {selectedAudienceName || "Not selected"}
+          </Text>
+          <Ionicons
+            name={audienceExpanded ? "chevron-up" : "chevron-down"}
+            size={15}
+            color={colors.text.muted}
+          />
+        </View>
+      </TouchableOpacity>
+
+      {audienceExpanded && (
+        <View style={{ marginTop: 6, height: 230 }}>
+          <AudiencePickerList
+            selectedId={feedSelected ? null : repostCommunityId}
+            onSelect={(id, comm) => {
+              // null from the picker = the Feed row was tapped.
+              setRepostCommunityId(id === null ? REPOST_FEED_AUDIENCE : id);
+              setRepostCommunityName(id ? (comm?.name || null) : null);
+              setRepostAudienceError(null);
+            }}
+            feedLabel={feedLabel}
+            feedMeta={feedMeta}
+            feedIcon={feedIcon}
+          />
+        </View>
+      )}
+
+      {/* Pill error — create-post style: shake + red pill under the audience
+          row when Repost/Post is tapped with no destination chosen. */}
+      {repostAudienceError && (
+        <Animated.View
+          pointerEvents="none"
+          style={[sheetStyles.repostErrorPop, { opacity: repostAudienceOpacity }]}
+        >
+          <Ionicons name="alert-circle" size={13} color="#fff" style={{ marginRight: 5 }} />
+          <Text style={sheetStyles.repostErrorPopText}>{repostAudienceError}</Text>
+        </Animated.View>
+      )}
+    </Animated.View>
+    );
+  };
+
   if (post.isXpClaimed) {
     claimedPosts.add(postId);
   }
@@ -354,30 +484,31 @@ export default function PostCard({
   const [isExpanded, setIsExpanded] = React.useState(false);
   const [repostSheetVisible, setRepostSheetVisible] = React.useState(false);
   const [repostCommunityId, setRepostCommunityId] = React.useState<string | null>(null);
+  const [repostCommunityName, setRepostCommunityName] = React.useState<string | null>(null);
+  const [audienceExpanded, setAudienceExpanded] = React.useState(false);
   const [likersVisible, setLikersVisible] = React.useState(false);
   const [repostersVisible, setRepostersVisible] = React.useState(false);
-  // For reposts, the action bar shows the ORIGINAL post's engagement counts
-  // (what the user sees on the thread), not the repost's own numbers — a repost
-  // row's own shares/likes/comments are always ~0 and meaningless. RepostedPostCard
-  // reports them here once its root fetch lands.
-  const [origCounts, setOrigCounts] = React.useState<{ likes: number; comments: number; shares: number } | null>(null);
+  // The repost CARD keeps its OWN engagement — every repost row carries its
+  // own likes/comments/shares counters (the original's numbers live only in the
+  // embedded preview below, as a peek; tapping the preview opens the original).
   // True once the embedded preview resolves and finds the ORIGINAL post is
   // gone (deleted/404) — hides the Repost action so nobody can reshare
   // unavailable content (the button is meaningless there anyway).
   const [origUnavailable, setOrigUnavailable] = React.useState(false);
-  const isRepost = !!(post as any).repostOfId;
-  const displayLikes = isRepost && origCounts ? origCounts.likes : (post.likes ?? (post as any).likesCount ?? 0);
-  const displayComments = isRepost && origCounts ? origCounts.comments : (post.comments ?? (post as any).commentsCount ?? 0);
-  const displayShares = isRepost && origCounts ? origCounts.shares : (post.shares ?? (post as any).sharesCount ?? 0);
-  const [quoteVisible, setQuoteVisible] = React.useState(false);
+  const displayLikes = post.likes ?? (post as any).likesCount ?? 0;
+  const displayComments = post.comments ?? (post as any).commentsCount ?? 0;
+  const displayShares = post.shares ?? (post as any).sharesCount ?? 0;
+  // Quote text lives in the repost sheet itself — empty = verbatim repost,
+  // typed = quote repost (create-post style content with # and @ support).
   const [quoteText, setQuoteText] = React.useState("");
   const [repostBusy, setRepostBusy] = React.useState(false);
-  // Timer that opens the quote composer after the repost sheet closes — cleared
-  // on unmount so it can never fire on a dead component.
-  const quoteTimerRef = useRef<any>(null);
-  React.useEffect(() => () => {
-    if (quoteTimerRef.current) clearTimeout(quoteTimerRef.current);
-  }, []);
+  // Audience validation — no destination is pre-selected; a shake + pill error
+  // (same pattern as create post) fires if the user hits Repost/Post without
+  // choosing one.
+  const [repostAudienceError, setRepostAudienceError] = React.useState<string | null>(null);
+  const repostAudienceAnim = React.useRef(new Animated.Value(0)).current;
+  const repostAudienceOpacity = React.useRef(new Animated.Value(0)).current;
+  const repostAudienceTimer = React.useRef<any>(null);
   const progressAnim = useRef(new Animated.Value(claimedPosts.has(postId) ? 1 : 0)).current;
   const doubleTapAnim = useRef(new Animated.Value(0)).current;
   const pillOpacity = useRef(new Animated.Value(1)).current;
@@ -436,17 +567,54 @@ export default function PostCard({
     [queryClient, postId],
   );
 
+  // Audience not chosen yet → shake the row + show the create-post style pill.
+  const showRepostAudienceError = () => {
+    const isPrivateAccount = (currentUser as any)?.privacy === 'private';
+    const msg = isPrivateAccount
+      ? "Choose where to post — Followers or a Community"
+      : "Choose where to post — Public or a Community";
+    setRepostAudienceError(msg);
+    if (repostAudienceTimer.current) clearTimeout(repostAudienceTimer.current);
+    repostAudienceAnim.setValue(0);
+    Animated.sequence([
+      Animated.timing(repostAudienceAnim, { toValue: 8, duration: 60, useNativeDriver: true }),
+      Animated.timing(repostAudienceAnim, { toValue: -8, duration: 60, useNativeDriver: true }),
+      Animated.timing(repostAudienceAnim, { toValue: 6, duration: 60, useNativeDriver: true }),
+      Animated.timing(repostAudienceAnim, { toValue: -4, duration: 60, useNativeDriver: true }),
+      Animated.timing(repostAudienceAnim, { toValue: 0, duration: 50, useNativeDriver: true }),
+    ]).start();
+    repostAudienceOpacity.setValue(0);
+    Animated.spring(repostAudienceOpacity, {
+      toValue: 1,
+      friction: 6,
+      tension: 80,
+      useNativeDriver: true,
+    }).start();
+    repostAudienceTimer.current = setTimeout(() => {
+      Animated.timing(repostAudienceOpacity, {
+        toValue: 0,
+        duration: 220,
+        useNativeDriver: true,
+      }).start(() => setRepostAudienceError(null));
+    }, 2600);
+  };
+
   const doRepost = async (content?: string) => {
     if (repostBusy) return;
+    // No destination chosen yet — same validation gate as create post.
+    if (!repostCommunityId) {
+      setAudienceExpanded(true);
+      showRepostAudienceError();
+      return;
+    }
     setRepostBusy(true);
     try {
       const res = await postsService.repostPost(postId, content, {
         tags: content ? extractQuoteTags(content) : [],
         mentions: content ? extractQuoteMentions(content) : [],
-        communityId: repostCommunityId || undefined,
+        communityId: repostCommunityId === REPOST_FEED_AUDIENCE ? undefined : repostCommunityId,
       });
       setRepostSheetVisible(false);
-      setQuoteVisible(false);
       setQuoteText("");
       // Optimistic flip — icon shows reposted state before any refetch.
       flipRepostInCaches(true, 1);
@@ -482,11 +650,56 @@ export default function PostCard({
   };
 
   // Always open the repost sheet — it offers Remove (when already reposted),
-  // verbatim Repost, and Quote Post, so quoting is never blocked by an
+  // verbatim Repost, or a Quote via the "Quote something..." input at the top
+  // (which supports #tags/@mentions), so quoting is never blocked by an
   // existing repost.
   const handleRepostToggle = () => {
     setRepostCommunityId(null);
+    setRepostCommunityName(null);
+    setAudienceExpanded(false);
+    setRepostAudienceError(null);
     setRepostSheetVisible(true);
+  };
+
+  // Single tap opens this post's DETAIL page (Instagram-style); a quick second
+  // tap is a double-tap → like. The 300ms window matches handleDoubleTap's own
+  // threshold, so the two never fight.
+  const tapNavTimer = React.useRef<any>(null);
+  const openPostDetail = React.useCallback(() => {
+    // push (not navigate): see openPostThread — a detail page may already be
+    // in the stack (e.g. from a profile grid opened off a detail page), and
+    // navigate would pop back to it, skipping the screens in between.
+    navigation.push("PostDetail", { post } as any);
+  }, [navigation, post]);
+
+  // Tapping the EMPTY space of the action row (padding/gaps around the buttons)
+  // opens the detail page too — the buttons still win because the innermost
+  // touchable claims the press. Inside the post's own detail page this is a
+  // no-op, same as the body tap.
+  const handleFooterTap = () => {
+    if (disableTapNavigation) return;
+    openPostDetail();
+  };
+
+  const handleBodyTap = () => {
+    const now = Date.now();
+    if (now - lastTapTime.current < 300) {
+      // Double tap → like (cancel any pending single-tap navigation).
+      if (tapNavTimer.current) {
+        clearTimeout(tapNavTimer.current);
+        tapNavTimer.current = null;
+      }
+      handleDoubleTap();
+      return;
+    }
+    // First tap — wait briefly to see if a second tap follows. Inside the
+    // post's own detail page the single tap is a no-op (nothing to navigate).
+    if (disableTapNavigation) return;
+    if (tapNavTimer.current) clearTimeout(tapNavTimer.current);
+    tapNavTimer.current = setTimeout(() => {
+      tapNavTimer.current = null;
+      openPostDetail();
+    }, 300);
   };
 
   const handleDoubleTap = () => {
@@ -626,8 +839,8 @@ export default function PostCard({
   }, [isActive, requiredTimeMs, isClaimed, rewardXp]);
 
   const previewH = useMemo(() => {
-    const { width: SCREEN_W } = Dimensions.get("window");
-    let h = CARD_W;
+    const baseW = fullBleed ? SCREEN_W : CARD_W;
+    let h = baseW;
     const media = (post as any).media;
     if (media && media.length > 0) {
       let minAspectRatio = 1;
@@ -642,13 +855,13 @@ export default function PostCard({
         }
       });
       if (hasValidDimensions) {
-        h = CARD_W / minAspectRatio;
+        h = baseW / minAspectRatio;
         if (h > SCREEN_W * 1.5) h = SCREEN_W * 1.5;
         if (h < SCREEN_W * 0.4) h = SCREEN_W * 0.4;
       }
     }
     return h;
-  }, [post]);
+  }, [post, fullBleed]);
 
   const handleLike = () => {
     Animated.sequence([
@@ -680,7 +893,7 @@ export default function PostCard({
                   key={i}
                   style={{ color: colors.primaryLight, fontWeight: "700" }}
                   onPress={() =>
-                    navigation.navigate("UserProfile", {
+                    navigation.push("UserProfile", {
                       user: {
                         id,
                         name,
@@ -706,7 +919,9 @@ export default function PostCard({
                 <Text
                   key={i}
                   style={{ color: colors.cyanLight }}
-                  onPress={() => navigation.navigate("Search", { query: tag })}
+                  // Hashtag taps open Search on the HASHTAGS tab with the tag
+                  // pre-filled — not the generic All tab.
+                  onPress={() => navigation.navigate("Search", { query: tag, tab: "hashtags" })}
                 >
                   #{tag}
                 </Text>
@@ -719,7 +934,7 @@ export default function PostCard({
                   key={i}
                   style={{ color: colors.primaryLight, fontWeight: "700" }}
                   onPress={() =>
-                    navigation.navigate("UserProfile", {
+                    navigation.push("UserProfile", {
                       user: {
                         id: part.slice(1),
                         name: part.slice(1),
@@ -746,6 +961,7 @@ export default function PostCard({
                   onPress={() =>
                     navigation.navigate("Search", {
                       query: part.replace("#", ""),
+                      tab: "hashtags",
                     })
                   }
                 >
@@ -769,6 +985,7 @@ export default function PostCard({
     <View
       style={[
         styles.card,
+        fullBleed && styles.cardFullBleed,
         { zIndex: showMenu ? 99 : 1, elevation: showMenu ? 99 : 1 }
       ]}
     >
@@ -1002,7 +1219,7 @@ export default function PostCard({
       </View>
 
       {/* Body Text Before Media */}
-      <TouchableWithoutFeedback onPress={handleDoubleTap}>
+      <TouchableWithoutFeedback onPress={handleBodyTap}>
         <View style={[styles.body, { paddingTop: 0 }]}>
           {!!(post as any).title &&
             renderParsedText((post as any).title, styles.title, isExpanded ? undefined : 2)}
@@ -1020,19 +1237,6 @@ export default function PostCard({
             postId={(post as any).repostOfId}
             isActive={isActive ?? true}
             onOpen={(orig) => openPostThread(orig as Post)}
-            onOrigCounts={(likes, comments, shares) =>
-              setOrigCounts(prev => {
-                const next = { likes, comments, shares };
-                // Avoid re-render churn on repeated reports with identical values.
-                if (
-                  prev &&
-                  prev.likes === likes &&
-                  prev.comments === comments &&
-                  prev.shares === shares
-                ) return prev;
-                return next;
-              })
-            }
             onOrigUnavailable={() => setOrigUnavailable(true)}
           />
           ) : null}
@@ -1046,7 +1250,7 @@ export default function PostCard({
           return post.mediaUri ? (
             <Image
               source={{ uri: post.mediaUri }}
-              style={{ width: CARD_W, height: previewH, backgroundColor: "#000" }}
+              style={{ width: mediaW, height: previewH, backgroundColor: "#000" }}
               resizeMode="contain"
             />
           ) : post.type === "image" && post.image ? (
@@ -1075,13 +1279,13 @@ export default function PostCard({
                 horizontal
                 pagingEnabled
                 showsHorizontalScrollIndicator={false}
-                snapToInterval={CARD_W}
+                snapToInterval={mediaW}
                 decelerationRate="fast"
                 onScroll={(e) => {
                   const x = e.nativeEvent.contentOffset.x;
                   const page = Math.max(
                     0,
-                    Math.min(renderMedia.length - 1, Math.round(x / CARD_W))
+                    Math.min(renderMedia.length - 1, Math.round(x / mediaW))
                   );
                   if (page !== currentMediaPage) setCurrentMediaPage(page);
                 }}
@@ -1093,17 +1297,17 @@ export default function PostCard({
 
                   if (isVideo) {
                     return (
-                      <TouchableWithoutFeedback key={idx} onPress={handleDoubleTap}>
+                      <TouchableWithoutFeedback key={idx} onPress={handleBodyTap}>
                         <View
                           style={{
-                            width: CARD_W,
+                            width: mediaW,
                             height: previewH,
                             backgroundColor: "#000",
                           }}
                         >
                           <Video
                             source={{ uri: url }}
-                            style={{ width: CARD_W, height: previewH }}
+                            style={{ width: mediaW, height: previewH }}
                             resizeMode={ResizeMode.CONTAIN}
                             shouldPlay={isActive ?? true}
                             isLooping
@@ -1119,11 +1323,11 @@ export default function PostCard({
                     );
                   }
                   return url ? (
-                    <TouchableWithoutFeedback key={idx} onPress={handleDoubleTap}>
+                    <TouchableWithoutFeedback key={idx} onPress={handleBodyTap}>
                       <Image
                         source={{ uri: url }}
                         style={{
-                          width: CARD_W,
+                          width: mediaW,
                           height: previewH,
                           backgroundColor: "#000",
                         }}
@@ -1218,7 +1422,9 @@ export default function PostCard({
         );
       })()}
 
-      {/* Actions */}
+      {/* Actions — the row itself is tappable (empty space opens the detail
+          page); each button inside still handles its own press. */}
+      <TouchableWithoutFeedback onPress={handleFooterTap}>
       <View style={styles.actions}>
         <View style={{ flexDirection: "row", alignItems: "center", gap: 4 }}>
           <TouchableOpacity style={styles.action} onPress={handleLike}>
@@ -1249,13 +1455,10 @@ export default function PostCard({
         <TouchableOpacity
           style={styles.action}
           onPress={() => {
-            // A repost's comment action opens the ORIGINAL post's thread — the
-            // repost itself has no comment thread of its own.
-            if (isRepost) {
-              openPostThread(post);
-            } else {
-              onComment?.(post);
-            }
+            // The comment bubble acts on the REPOST's own thread (the repost
+            // has its own comments). The embedded preview below is the door to
+            // the ORIGINAL — tapping it opens the original's thread.
+            onComment?.(post);
           }}
         >
           <Ionicons
@@ -1267,22 +1470,25 @@ export default function PostCard({
             {displayComments.toLocaleString()}
           </Text>
         </TouchableOpacity>
-        {/* Repost — hidden on your own posts, and on posts whose author
-            disabled "Allow Reposting" (unless you already reposted it, so
-            you can still take it down). */}
-        {/* Repost action icon — hidden on your own posts, and on posts whose
-            author disabled "Allow Reposting" (unless you already reposted it,
-            so you can still take it down). */}
-        {author.id !== currentUser?.id &&
+        {/* Repost — icon + count together, gap:2 so they're close. Hidden on
+            reposted cards (reposts can't be reposted themselves) and when the
+            author disabled reposting. On your OWN posts the button is
+            informational: tap opens the reposters list. */}
+        {!post.repostOfId &&
           !origUnavailable &&
           (author.repostsEnabled !== false || post.repostedByMe) && (
           <TouchableOpacity
             style={styles.action}
-            onPress={handleRepostToggle}
-            disabled={repostBusy}
+            onPress={
+              author.id === currentUser?.id
+                ? () => setRepostersVisible(true)
+                : handleRepostToggle
+            }
+            onLongPress={() => setRepostersVisible(true)}
+            disabled={author.id === currentUser?.id ? false : repostBusy}
           >
             {post.repostedByMe ? (
-              <View style={{ flexDirection: "row", alignItems: "center" }}>
+              <View style={{ flexDirection: "row", alignItems: "center", gap: 2 }}>
                 <Ionicons name="repeat" size={19} color={colors.primaryLight} />
                 <Ionicons
                   name="checkmark-circle"
@@ -1292,26 +1498,19 @@ export default function PostCard({
                 />
               </View>
             ) : (
-              <Ionicons name="repeat-outline" size={19} color={colors.text.muted} />
+              <View style={{ flexDirection: "row", alignItems: "center", gap: 2 }}>
+                <Ionicons name="repeat-outline" size={19} color={colors.text.muted} />
+                <Text
+                  style={[
+                    styles.actionText,
+                  ]}
+                >
+                  {displayShares.toLocaleString()}
+                </Text>
+              </View>
             )}
           </TouchableOpacity>
         )}
-        {/* Tap the repost count to see who reposted this post — same popup as
-            the likes count. Always visible (even on your own posts) so authors
-            can see who reposted their content. */}
-        <TouchableOpacity
-          style={styles.action}
-          onPress={() => setRepostersVisible(true)}
-        >
-          <Text
-            style={[
-              styles.actionText,
-              post.repostedByMe && { color: colors.primaryLight, fontWeight: "700" },
-            ]}
-          >
-            {displayShares.toLocaleString()}
-          </Text>
-        </TouchableOpacity>
 
         <TouchableOpacity
           style={styles.action}
@@ -1345,6 +1544,7 @@ export default function PostCard({
           />
         </TouchableOpacity>
       </View>
+      </TouchableWithoutFeedback>
 
       {/* Double Tap Heart Overlay */}
       <Animated.View
@@ -1400,6 +1600,10 @@ export default function PostCard({
         animationType="fade"
         onRequestClose={() => setRepostSheetVisible(false)}
       >
+        <KeyboardAvoidingView
+          style={{ flex: 1 }}
+          behavior={Platform.OS === "ios" ? "padding" : "height"}
+        >
         <View style={sheetStyles.backdrop}>
           {/* Backdrop tap target — only the area OUTSIDE the sheet closes it */}
           <TouchableWithoutFeedback onPress={() => setRepostSheetVisible(false)}>
@@ -1411,213 +1615,79 @@ export default function PostCard({
               { backgroundColor: colors.bg.card, borderColor: colors.border },
             ]}
           >
-              <Text style={[sheetStyles.sheetTitle, { color: colors.text.primary }]}>
-                Repost
-              </Text>
+              <View
+                style={[sheetStyles.dragHandle, { backgroundColor: colors.borderHover }]}
+              />
+              <View style={sheetStyles.sheetHeader}>
+                <Text style={[sheetStyles.sheetHeaderTitle, { color: colors.text.primary }]}>
+                  Repost
+                </Text>
+                <TouchableOpacity
+                  style={[sheetStyles.sheetClose, { backgroundColor: colors.bg.elevated }]}
+                  onPress={() => setRepostSheetVisible(false)}
+                >
+                  <Ionicons name="close" size={18} color={colors.text.secondary} />
+                </TouchableOpacity>
+              </View>
+
+              {/* Quote input — same as create post's content field (# and @
+                  supported). Leaving it empty is a verbatim repost; typing
+                  turns it into a quote repost. */}
+              <SmartInput
+                style={[sheetStyles.composerInput, { color: colors.text.primary }]}
+                containerStyle={[
+                  sheetStyles.composerInputWrap,
+                  { backgroundColor: colors.bg.surface },
+                ]}
+                placeholder="Quote something..."
+                placeholderTextColor={colors.text.muted}
+                multiline
+                value={quoteText}
+                onChange={setQuoteText}
+                maxLength={500}
+                suggestionPosition="top"
+              />
+
+              {/* Audience — where this repost goes. Required, like create post:
+                  nothing is pre-selected, and Repost/Post shows a pill error
+                  until a destination is chosen. */}
+              {renderAudienceSection()}
+
               {post.repostedByMe ? (
                 <TouchableOpacity
-                  style={sheetStyles.option}
+                  style={[sheetStyles.primaryBtn, { backgroundColor: "#ef4444" }]}
                   disabled={repostBusy}
                   onPress={() => {
                     setRepostSheetVisible(false);
                     doUnrepost();
                   }}
                 >
-                  <View style={[sheetStyles.optionIcon, { backgroundColor: "rgba(239,68,68,0.12)" }]}>
-                    <Ionicons name="trash-outline" size={20} color="#ef4444" />
-                  </View>
-                  <View style={{ flex: 1 }}>
-                    <Text style={[sheetStyles.optionLabel, { color: "#ef4444" }]}>
-                      Remove Repost
-                    </Text>
-                    <Text style={[sheetStyles.optionSub, { color: colors.text.muted }]}>
-                      Take this repost down from your feed
-                    </Text>
-                  </View>
-                  {repostBusy && <ActivityIndicator size="small" color={colors.primary} />}
+                  <Ionicons name="trash-outline" size={18} color="#fff" />
+                  <Text style={sheetStyles.primaryBtnText}>
+                    {repostBusy ? "Removing…" : "Remove Repost"}
+                  </Text>
                 </TouchableOpacity>
               ) : (
                 <TouchableOpacity
-                  style={sheetStyles.option}
+                  style={[sheetStyles.primaryBtn, { backgroundColor: colors.primary }]}
                   disabled={repostBusy}
-                  onPress={() => doRepost(undefined)}
+                  onPress={() => doRepost(quoteText.trim() || undefined)}
                 >
-                  <View style={[sheetStyles.optionIcon, { backgroundColor: "rgba(124,58,237,0.12)" }]}>
-                    <Ionicons name="repeat" size={20} color={colors.primaryLight} />
-                  </View>
-                  <View style={{ flex: 1 }}>
-                    <Text style={[sheetStyles.optionLabel, { color: colors.text.primary }]}>
-                      Repost
-                    </Text>
-                    <Text style={[sheetStyles.optionSub, { color: colors.text.muted }]}>
-                      Share this post to your feed
-                    </Text>
-                  </View>
-                  {repostBusy && <ActivityIndicator size="small" color={colors.primary} />}
+                  <Ionicons name="repeat" size={18} color="#fff" />
+                  <Text style={sheetStyles.primaryBtnText}>
+                    {repostBusy
+                      ? "Reposting…"
+                      : quoteText.trim()
+                        ? "Post"
+                        : "Repost"}
+                  </Text>
                 </TouchableOpacity>
               )}
-              {!post.repostedByMe && (
-                <TouchableOpacity
-                  style={sheetStyles.option}
-                  disabled={repostBusy}
-                  onPress={() => {
-                    setRepostSheetVisible(false);
-                    // Opening the quote modal in the same tick the sheet modal
-                    // closes is unreliable on Android (nested RN Modals) — let
-                    // the sheet fully unmount first.
-                    quoteTimerRef.current = setTimeout(() => setQuoteVisible(true), 300);
-                  }}
-                >
-                  <View style={[sheetStyles.optionIcon, { backgroundColor: "rgba(251,191,36,0.12)" }]}>
-                    <Ionicons name="create-outline" size={20} color={colors.xpGold} />
-                  </View>
-                  <View style={{ flex: 1 }}>
-                    <Text style={[sheetStyles.optionLabel, { color: colors.text.primary }]}>
-                      Quote Post
-                    </Text>
-                    <Text style={[sheetStyles.optionSub, { color: colors.text.muted }]}>
-                      Add your thoughts and reshare
-                    </Text>
-                  </View>
-                </TouchableOpacity>
-              )}
-              {/* Destination — Feed or one of the user's communities, same as
-                  a normal post. Applies to verbatim AND quote reposts. */}
-              <View
-                style={{
-                  borderTopWidth: 1,
-                  borderTopColor: colors.border,
-                  paddingTop: 10,
-                  marginTop: 4,
-                }}
-              >
-                <Text style={[sheetStyles.optionSub, { color: colors.text.muted, marginBottom: 8 }]}>
-                  Post to
-                </Text>
-                <ScrollView
-                  horizontal
-                  showsHorizontalScrollIndicator={false}
-                  contentContainerStyle={{ gap: 8 }}
-                >
-                  <TouchableOpacity
-                    onPress={() => setRepostCommunityId(null)}
-                    style={[
-                      sheetStyles.audienceChip,
-                      !repostCommunityId && sheetStyles.audienceChipActive,
-                    ]}
-                  >
-                    <Ionicons
-                      name="globe-outline"
-                      size={13}
-                      color={!repostCommunityId ? colors.primaryLight : colors.text.muted}
-                    />
-                    <Text
-                      style={[
-                        sheetStyles.audienceChipText,
-                        { color: colors.text.muted },
-                        !repostCommunityId && { color: colors.primaryLight },
-                      ]}
-                    >
-                      Feed
-                    </Text>
-                  </TouchableOpacity>
-                  {repostCommunities.map((comm) => {
-                    const active = repostCommunityId === comm.id;
-                    return (
-                      <TouchableOpacity
-                        key={comm.id}
-                        onPress={() => setRepostCommunityId(comm.id)}
-                        style={[
-                          sheetStyles.audienceChip,
-                          active && sheetStyles.audienceChipActive,
-                        ]}
-                      >
-                        <Text
-                          numberOfLines={1}
-                          style={[
-                            sheetStyles.audienceChipText,
-                            { color: colors.text.muted },
-                            active && { color: colors.primaryLight },
-                          ]}
-                        >
-                          {comm.name}
-                        </Text>
-                      </TouchableOpacity>
-                    );
-                  })}
-                </ScrollView>
-              </View>
-              <TouchableOpacity
-                style={[sheetStyles.option, { borderTopWidth: 1, borderTopColor: colors.border }]}
-                onPress={() => setRepostSheetVisible(false)}
-              >
-                <Text style={[sheetStyles.cancel, { color: colors.text.muted }]}>Cancel</Text>
-              </TouchableOpacity>
             </View>
-          </View>
-      </Modal>
-
-      {/* ── Quote repost composer ── */}
-      <Modal
-        visible={quoteVisible}
-        transparent
-        animationType="slide"
-        onRequestClose={() => setQuoteVisible(false)}
-      >
-        <KeyboardAvoidingView
-          style={sheetStyles.composerWrap}
-          behavior={Platform.OS === "ios" ? "padding" : "height"}
-        >
-          <TouchableWithoutFeedback onPress={() => setQuoteVisible(false)}>
-            <View style={sheetStyles.composerBackdrop} />
-          </TouchableWithoutFeedback>
-          <View style={[sheetStyles.composer, { backgroundColor: colors.bg.card, borderColor: colors.border }]}>
-            <View style={sheetStyles.composerHeader}>
-              <Text style={[sheetStyles.composerTitle, { color: colors.text.primary }]}>
-                Quote Post
-              </Text>
-              <TouchableOpacity onPress={() => setQuoteVisible(false)} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
-                <Ionicons name="close" size={22} color={colors.text.secondary} />
-              </TouchableOpacity>
-            </View>
-            <SmartInput
-              style={[sheetStyles.composerInput, { color: colors.text.primary }]}
-              containerStyle={[
-                sheetStyles.composerInputWrap,
-                { backgroundColor: colors.bg.surface },
-              ]}
-              placeholder="Add your thoughts... #tags @mentions"
-              placeholderTextColor={colors.text.muted}
-              multiline
-              value={quoteText}
-              onChange={setQuoteText}
-              maxLength={500}
-              suggestionPosition="top"
-            />
-            <View style={[sheetStyles.composerMeta, { borderLeftColor: "rgba(124,58,237,0.4)" }]}>
-              <Text style={[sheetStyles.composerMetaAuthor, { color: colors.text.primary }]} numberOfLines={1}>
-                @{author.username}
-              </Text>
-              <Text style={[sheetStyles.composerMetaText, { color: colors.text.muted }]} numberOfLines={2}>
-                {(post as any).content || (post as any).title || ""}
-              </Text>
-            </View>
-            <TouchableOpacity
-              style={[sheetStyles.postBtn, { backgroundColor: colors.primary }]}
-              disabled={repostBusy}
-              onPress={() => doRepost(quoteText.trim())}
-            >
-              {repostBusy ? (
-                <ActivityIndicator size="small" color="#fff" />
-              ) : (
-                <Text style={sheetStyles.postBtnText}>
-                  {quoteText.trim() ? "Post" : "Repost"}
-                </Text>
-              )}
-            </TouchableOpacity>
           </View>
         </KeyboardAvoidingView>
       </Modal>
+
     </View>
   );
 }
@@ -1680,15 +1750,11 @@ function RepostedPostCard({
   postId,
   isActive,
   onOpen,
-  onOrigCounts,
   onOrigUnavailable,
 }: {
   postId: string;
   isActive?: boolean;
   onOpen?: (orig: any) => void;
-  /** Report the ORIGINAL post's engagement counts once the root loads, so the
-      outer card's action bar can show them instead of the repost's own. */
-  onOrigCounts?: (likes: number, comments: number, shares: number) => void;
   /** Fired when the original is unreachable (deleted/404) — the outer card
       hides its Repost action so unavailable content can't be reshared. */
   onOrigUnavailable?: () => void;
@@ -1711,15 +1777,7 @@ function RepostedPostCard({
         if (cancelled) return;
         setOrig(root);
         setLoaded(true);
-        if (root) {
-          onOrigCounts?.(
-            root.likesCount ?? root.likes ?? 0,
-            root.commentsCount ?? root.comments ?? 0,
-            root.sharesCount ?? root.shares ?? 0,
-          );
-        } else {
-          onOrigUnavailable?.();
-        }
+        if (!root) onOrigUnavailable?.();
       })
       .catch(() => {
         if (cancelled) return;
@@ -1841,11 +1899,6 @@ function RepostedPostCard({
         </Text>
       ) : null}
 
-      {/* NOTE: the ORIGINAL's engagement counts are intentionally NOT shown
-          here — the outer card's action bar already renders them (via
-          onOrigCounts), so duplicating them in the preview made counts appear
-          twice on every repost card. */}
-
       {/* Full-width original media carousel — images + playable videos */}
       {visual.length > 0 && (
         <View style={{ position: "relative" }}>
@@ -1929,6 +1982,38 @@ function RepostedPostCard({
               ))}
             </View>
           )}
+        </View>
+      )}
+
+      {/* The ORIGINAL's engagement counts as a preview peek — pinned at the
+          BOTTOM of the embedded preview. The repost card above carries its
+          OWN counts; this row just shows what the original looks like.
+          Tapping the preview opens the original's full thread. */}
+      {((orig as any).likesCount ?? 0) + ((orig as any).commentsCount ?? 0) +
+       ((orig as any).sharesCount ?? (orig as any).shares ?? 0) > 0 && (
+        <View style={{ flexDirection: "row", alignItems: "center", gap: 14 }}>
+          <View style={{ flexDirection: "row", alignItems: "center", gap: 2 }}>
+            <Ionicons name="heart-outline" size={13} color={colors.text.muted} />
+            <Text style={{ fontSize: 11, color: colors.text.muted }}>
+              {(orig as any).likesCount ?? 0}
+            </Text>
+          </View>
+          <View style={{ flexDirection: "row", alignItems: "center", gap: 2 }}>
+            <Ionicons
+              name="chatbubble-outline"
+              size={12}
+              color={colors.text.muted}
+            />
+            <Text style={{ fontSize: 11, color: colors.text.muted }}>
+              {(orig as any).commentsCount ?? 0}
+            </Text>
+          </View>
+          <View style={{ flexDirection: "row", alignItems: "center", gap: 2 }}>
+            <Ionicons name="repeat" size={12} color={colors.text.muted} />
+            <Text style={{ fontSize: 11, color: colors.text.muted }}>
+              {(orig as any).sharesCount ?? (orig as any).shares ?? 0}
+            </Text>
+          </View>
         </View>
       )}
     </TouchableOpacity>
@@ -2075,7 +2160,7 @@ function UsersModal({
                     if (currentUser?.id && item.id === currentUser.id) {
                       navigation.navigate("Profile");
                     } else {
-                      navigation.navigate("UserProfile", {
+                      navigation.push("UserProfile", {
                         user: {
                           id: item.id,
                           name: item.name,
@@ -2221,6 +2306,9 @@ const sheetStyles = StyleSheet.create({
     paddingHorizontal: spacing.lg,
     paddingTop: spacing.md,
     paddingBottom: 32,
+    // The expandable audience list can make the sheet tall — never let it run
+    // off a small screen.
+    maxHeight: "90%",
   },
   sheetTitle: {
     fontSize: fontSizes.sm,
@@ -2246,6 +2334,81 @@ const sheetStyles = StyleSheet.create({
   optionLabel: { fontSize: fontSizes.md, fontWeight: "700" },
   optionSub: { fontSize: fontSizes.xs, marginTop: 1 },
   cancel: { fontSize: fontSizes.md, fontWeight: "700", textAlign: "center", flex: 1, paddingVertical: 10 },
+
+  // ── Revamped repost sheet ──────────────────────────────────────
+  dragHandle: {
+    alignSelf: "center",
+    width: 40,
+    height: 4,
+    borderRadius: 2,
+    marginTop: 6,
+    marginBottom: 10,
+  },
+  sheetHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    marginBottom: spacing.sm,
+  },
+  sheetHeaderTitle: { fontSize: fontSizes.lg, fontWeight: "800" },
+  sheetClose: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  repostErrorPop: {
+    marginTop: 8,
+    alignSelf: "flex-start",
+    minWidth: 150,
+    backgroundColor: "rgba(239,68,68,0.95)",
+    borderRadius: 10,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    flexDirection: "row",
+    alignItems: "center",
+    shadowColor: "#EF4444",
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.35,
+    shadowRadius: 10,
+    elevation: 12,
+    zIndex: 300,
+  },
+  repostErrorPopText: {
+    fontSize: fontSizes.xs,
+    fontWeight: "700",
+    color: "#fff",
+    flexShrink: 1,
+  },
+  audienceLabel: {
+    fontSize: fontSizes.xs,
+    fontWeight: "800",
+    textTransform: "uppercase",
+    letterSpacing: 0.6,
+    marginBottom: 8,
+  },
+  primaryBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 8,
+    paddingVertical: 13,
+    borderRadius: radii.full,
+    marginTop: 4,
+  },
+  primaryBtnText: { color: "#fff", fontSize: fontSizes.md, fontWeight: "800" },
+  secondaryBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 8,
+    paddingVertical: 12,
+    borderRadius: radii.full,
+    borderWidth: 1,
+    marginTop: 10,
+  },
+  secondaryBtnText: { fontSize: fontSizes.md, fontWeight: "700" },
   audienceChip: {
     flexDirection: "row",
     alignItems: "center",
@@ -2267,17 +2430,6 @@ const sheetStyles = StyleSheet.create({
     fontWeight: "600",
     flexShrink: 1,
   },
-  composerWrap: { flex: 1, justifyContent: "flex-end" },
-  composerBackdrop: { ...StyleSheet.absoluteFillObject, backgroundColor: "rgba(0,0,0,0.5)" },
-  composer: {
-    borderTopLeftRadius: radii.xl,
-    borderTopRightRadius: radii.xl,
-    borderWidth: 1,
-    padding: spacing.lg,
-    gap: 10,
-  },
-  composerHeader: { flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
-  composerTitle: { fontSize: fontSizes.lg, fontWeight: "800" },
   composerInputWrap: {
     minHeight: 90,
     maxHeight: 160,
@@ -2298,18 +2450,4 @@ const sheetStyles = StyleSheet.create({
     paddingVertical: 0,
     margin: 0,
   },
-  composerMeta: {
-    borderLeftWidth: 3,
-    paddingLeft: 10,
-    paddingVertical: 4,
-    gap: 3,
-  },
-  composerMetaAuthor: { fontSize: fontSizes.xs, fontWeight: "700" },
-  composerMetaText: { fontSize: fontSizes.xs, lineHeight: 16 },
-  postBtn: {
-    alignItems: "center",
-    paddingVertical: 12,
-    borderRadius: radii.full,
-  },
-  postBtnText: { color: "#fff", fontSize: fontSizes.md, fontWeight: "800" },
 });

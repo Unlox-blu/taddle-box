@@ -5,6 +5,7 @@ import CommunityScreen       from '../screens/main/CommunityScreen';
 import CommunityDetailScreen from '../screens/main/CommunityDetailScreen';
 import CommunitySettingsScreen from '../screens/main/CommunitySettingsScreen';
 import ManageRequestsScreen from '../screens/main/ManageRequestsScreen';
+import CommunityModerationLogScreen from '../screens/main/CommunityModerationLogScreen';
 
 const Stack = createNativeStackNavigator<CommunityStackParamList>();
 
@@ -15,6 +16,7 @@ export default function CommunityStackNavigator() {
       <Stack.Screen name="CommunityDetail" component={CommunityDetailScreen} />
       <Stack.Screen name="CommunitySettings" component={CommunitySettingsScreen} />
       <Stack.Screen name="ManageRequests" component={ManageRequestsScreen} />
+      <Stack.Screen name="ModerationLog" component={CommunityModerationLogScreen} />
     </Stack.Navigator>
   );
 }

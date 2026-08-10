@@ -290,23 +290,30 @@ export default function EditProfileScreen() {
         JSON.stringify(interests) !== JSON.stringify(originalRef.current.interests);
 
       if (profileChanged) {
-        tasks.push(authService.updateProfile({
-          name:       name.trim(),
-          bio:        bio.trim()     || undefined,
-          websiteUrl: website.trim() || undefined,
-          location:   location.trim()    || undefined,
-          organization: organization.trim() || undefined,
-          // Raw value INCLUDING '' — the API treats empty string as "clear
-          // this field" (persists NULL), so clearing a previously-set
-          // occupation/gender actually sticks.
-          occupation: occupation,
-          gender:     gender as any,
-          dateOfBirth: dateOfBirth || undefined,
-          // Always send interests (even an empty array) so clearing them
-          // actually clears them server-side instead of silently keeping the
-          // old list.
-          interests:  interests.map(stripInterestEmoji),
-        }));
+        // Send ONLY the fields the user actually changed. Sending everything
+        // unconditionally would wipe untouched fields whenever getMe didn't
+        // return them (e.g. a stale server response) — a bio-only edit must
+        // never clobber occupation/gender/interests.
+        const payload: Record<string, any> = {};
+        if (name.trim() !== originalRef.current.name) payload.name = name.trim();
+        if (bio.trim() !== originalRef.current.bio) payload.bio = bio.trim();
+        if (website.trim() !== originalRef.current.website) payload.websiteUrl = website.trim();
+        if (location.trim() !== originalRef.current.location) payload.location = location.trim();
+        if (organization.trim() !== originalRef.current.organization) payload.organization = organization.trim();
+        // Raw value INCLUDING '' — the API treats empty string as "clear
+        // this field" (persists NULL), so clearing a previously-set
+        // occupation/gender actually sticks.
+        if (occupation !== originalRef.current.occupation) payload.occupation = occupation;
+        if (gender !== originalRef.current.gender) payload.gender = gender;
+        if (dateOfBirth !== originalRef.current.dateOfBirth) payload.dateOfBirth = dateOfBirth || undefined;
+        if (JSON.stringify(interests) !== JSON.stringify(originalRef.current.interests)) {
+          // Always send the full list (even an empty array) when it changed so
+          // clearing interests actually clears them server-side.
+          payload.interests = interests.map(stripInterestEmoji);
+        }
+        if (Object.keys(payload).length > 0) {
+          tasks.push(authService.updateProfile(payload));
+        }
       }
 
       // Username is separate endpoint
@@ -336,6 +343,12 @@ export default function EditProfileScreen() {
         username: username.trim(),
         bio: bio.trim(),
         websiteUrl: website.trim(),
+        location: location.trim(),
+        organization: organization.trim(),
+        occupation,
+        gender,
+        dateOfBirth: dateOfBirth || undefined,
+        interests: interests.map(stripInterestEmoji),
         ...(avatarAsset ? { avatarUrl: avatarAsset.uri } : {}),
         ...(bannerAsset ? { bannerUrl: bannerAsset.uri } : {}),
       });

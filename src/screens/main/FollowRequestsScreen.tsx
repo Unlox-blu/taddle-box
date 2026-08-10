@@ -243,7 +243,7 @@ export default function FollowRequestsScreen() {
             <View style={styles.row}>
               <TouchableOpacity
                 style={styles.userInfo}
-                onPress={() => navigation.navigate("UserProfile", { user: item })}
+                onPress={() => navigation.push("UserProfile", { user: item })}
               >
                 <View style={styles.avatarWrap}>
                   {item.avatarUrl ? (

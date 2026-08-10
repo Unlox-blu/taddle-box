@@ -79,6 +79,7 @@ class SocketService {
       this.socket.on('follow:requestCancelled', (data) => this.events.emit('follow:requestCancelled', data));
       this.socket.on('follow:stateChanged', (data) => this.events.emit('follow:stateChanged', data));
       this.socket.on('presence:changed', (data) => this.events.emit('presence:changed', data));
+      this.socket.on('presence:snapshot', (data) => this.events.emit('presence:snapshot', data));
       this.socket.on('SESSION_EXPIRED', (data) => this.events.emit('SESSION_EXPIRED', data));
 
       this.socket.on('connect_error', (error) => {

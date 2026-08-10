@@ -2,13 +2,23 @@ import { apiClient } from './apiClient';
 import type { Community, Post } from '../types';
 
 export const communityService = {
-  getCommunities: async (page = 1, limit = 20): Promise<{ data: Community[]; meta?: any }> => {
-    const response = await apiClient.get(`/communities/discover?page=${page}&limit=${limit}`);
+  getCommunities: async (page = 1, limit = 20, search?: string, mine?: boolean): Promise<{ data: Community[]; meta?: any }> => {
+    const params: any = { page, limit };
+    if (search) params.search = search;
+    if (mine) params.mine = 'true';
+    const response = await apiClient.get('/communities/discover', { params });
     return response.data;
   },
 
   getCommunityDetail: async (slug: string): Promise<{ data: Community }> => {
     const response = await apiClient.get(`/communities/${slug}`);
+    return response.data;
+  },
+
+  /** Resolve a community by id (share endpoint) — used to deep-link community
+      notifications that only carry the community id. */
+  getCommunityById: async (id: string): Promise<{ data: Community }> => {
+    const response = await apiClient.get(`/share/community/${id}`);
     return response.data;
   },
 
@@ -27,13 +37,31 @@ export const communityService = {
     return response.data;
   },
 
-  getMembers: async (id: string, page = 1, limit = 20): Promise<{ data: any[]; meta?: any }> => {
+  getMembers: async (id: string, page = 1, limit = 20): Promise<{ data: any[]; meta?: any; ownerId?: string; viewerRole?: string }> => {
     const response = await apiClient.get(`/communities/${id}/members?page=${page}&limit=${limit}`);
     return response.data;
   },
 
   removeMember: async (communityId: string, userId: string) => {
     const response = await apiClient.delete(`/communities/${communityId}/members/${userId}`);
+    return response.data;
+  },
+
+  /** Owner/admins only: paginated history of moderation actions in the community. */
+  getModerationLog: async (id: string, page = 1, limit = 20): Promise<{ data: any[]; meta?: any }> => {
+    const response = await apiClient.get(`/communities/${id}/moderation-log?page=${page}&limit=${limit}`);
+    return response.data;
+  },
+
+  /** Owner-only: promote a member to admin or demote an admin to member. */
+  updateMemberRole: async (communityId: string, userId: string, role: 'admin' | 'member') => {
+    const response = await apiClient.patch(`/communities/${communityId}/members/${userId}/role`, { role });
+    return response.data;
+  },
+
+  /** Owner-only: hand the community to another active member (old owner becomes admin). */
+  transferOwnership: async (communityId: string, userId: string) => {
+    const response = await apiClient.post(`/communities/${communityId}/transfer-ownership`, { userId });
     return response.data;
   },
 

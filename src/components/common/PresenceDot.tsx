@@ -24,9 +24,6 @@ export default function PresenceDot({ userId, size = 14, style }: Props) {
   if (!indicator || !userId) return null;
 
   const dot = Math.max(10, size);
-  // Ionicons glyphs carry internal padding — 62% of the bubble fills it
-  // without clipping, so the clock reads as a proper filled indicator.
-  const iconSize = Math.round(dot * 0.62);
 
   return (
     <View
@@ -38,6 +35,8 @@ export default function PresenceDot({ userId, size = 14, style }: Props) {
           height: dot,
           borderRadius: dot / 2,
           borderColor: colors.bg.base,
+          // The recent badge fills the whole circle — no gap ring around it.
+          borderWidth: indicator === 'online' ? 2 : 0,
         },
         style,
       ]}
@@ -55,20 +54,21 @@ export default function PresenceDot({ userId, size = 14, style }: Props) {
           ]}
         />
       ) : (
-        // Recently active — same footprint/position as the online dot, but
-        // fainter: a visible purple fill with a clock glyph that fills it.
+        // Recently active — a black circle (theme background) with a purple
+        // clock filling it: the badge occupies the whole corner circle while
+        // staying subtle against the avatar.
         <View
           style={[
             styles.recent,
             {
-              width: dot - 3,
-              height: dot - 3,
-              borderRadius: (dot - 3) / 2,
-              backgroundColor: 'rgba(124,58,237,0.18)',
+              width: dot,
+              height: dot,
+              borderRadius: dot / 2,
+              backgroundColor: colors.bg.base,
             },
           ]}
         >
-          <Ionicons name="time" size={iconSize} color="rgba(124,58,237,0.9)" />
+          <Ionicons name="time" size={Math.round(dot * 0.7)} color="rgba(124,58,237,0.95)" />
         </View>
       )}
     </View>

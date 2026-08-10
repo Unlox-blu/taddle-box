@@ -41,7 +41,7 @@ import { hashtagService } from "../../services/hashtag.service";
 
 type HomeNavProp = NativeStackNavigationProp<HomeStackParamList, "HomeMain">;
 
-const WEEK_LABELS = ["M", "T", "W", "T", "F", "S", "S"];
+const WEEK_LABELS = ["Day 1", "Day 2", "Day 3", "Day 4", "Day 5", "Day 6", "Day 7"];
 const TODAY_INDEX = new Date().getDay() === 0 ? 6 : new Date().getDay() - 1; // 0 is Monday, 6 is Sunday
 const getTodayKey = () => {
   const d = new Date();
@@ -330,9 +330,14 @@ export default function HomeScreen() {
 
   const onRefresh = async () => {
     setRefreshing(true);
-    // Pull the latest user profile so XP (and streak) values refresh server-side
-    await Promise.all([initHomeData(), refreshUser()]);
-    setRefreshing(false);
+    // Pull the latest feed + user profile so XP (and streak) values refresh
+    // server-side. Previously the feed query was never refetched here — the
+    // list kept its stale contents and only the profile/streak APIs were hit.
+    try {
+      await Promise.all([refetchFeed(), initHomeData(), refreshUser()]);
+    } finally {
+      setRefreshing(false);
+    }
   };
 
   return (
@@ -344,7 +349,7 @@ export default function HomeScreen() {
 
       <SharedFeed
         posts={filteredPosts}
-        refreshing={isRefetching}
+        refreshing={isRefetching || refreshing}
         onRefresh={onRefresh}
         onLike={(id) =>
           toggleLike({
@@ -403,7 +408,7 @@ export default function HomeScreen() {
                   <Text
                     style={[styles.miniVal, { color: colors.text.primary }]}
                   >
-                    {realStreak} Days
+                    {realStreak} {realStreak === 1 ? 'Day' : 'Days'}
                   </Text>
                   <Text
                     style={[styles.miniLabel, { color: colors.text.muted }]}
@@ -796,7 +801,7 @@ function StreakModal({
                 Daily Streak
               </Text>
               <Text style={[sm.sub, { color: colors.text.muted }]}>
-                {streakCount} days and counting!
+                {streakCount} {streakCount === 1 ? 'day' : 'days'} and counting!
               </Text>
             </View>
             <TouchableOpacity onPress={onClose} style={sm.closeBtn}>
@@ -859,7 +864,7 @@ function StreakModal({
                   color: colors.xpGold,
                 }}
               >
-                7-Day Streak Reward
+                7-Days Streak Reward
               </Text>
               <Text
                 style={{ fontSize: 11, color: colors.text.muted, marginTop: 2 }}
@@ -940,7 +945,7 @@ function WeeklyBonusModal({
               marginBottom: spacing.xs,
             }}
           >
-            7-Day Streak!
+            7-Days Streak!
           </Text>
           <Text
             style={{

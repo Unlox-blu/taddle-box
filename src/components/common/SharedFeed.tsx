@@ -1,11 +1,12 @@
 import React, { useState, useRef, useCallback } from 'react';
-import { FlatList, View, Text, Share, Image, RefreshControl, DeviceEventEmitter, Alert } from 'react-native';
+import { FlatList, View, Text, Share, Image, RefreshControl, DeviceEventEmitter } from 'react-native';
 import { useNavigation, useScrollToTop } from '@react-navigation/native';
 import PostCard from '../home/PostCard';
 import CommentsModal from '../home/CommentsModal';
 import { postsService } from '../../services/posts.service';
 import { useAuth } from '../../context/AuthContext';
 import type { Post } from '../../types';
+import { themedAlert } from './ThemedAlert';
 
 interface SharedFeedProps {
   posts: Post[];
@@ -174,7 +175,7 @@ export default function SharedFeed({
             onLike={() => handleLikeInternal(item.id)}
             onSave={() => handleSaveInternal(item.id)}
             onDelete={onDelete}
-            onReport={onReport || (() => Alert.alert('Reported', 'Thank you. This post has been reported for review.'))}
+            onReport={onReport || (() => themedAlert('Reported', 'Thank you. This post has been reported for review.'))}
             showDelete={currentUser?.id === (item as any)?.author?.id || currentUser?.id === (item as any)?.author_id || currentUser?.id === (item as any)?.authorId || isAdmin}
           />
         ))}
@@ -243,7 +244,7 @@ export default function SharedFeed({
             onLike={() => handleLikeInternal(item.id)}
             onSave={() => handleSaveInternal(item.id)}
             onDelete={onDelete}
-            onReport={onReport || (() => Alert.alert('Reported', 'Thank you. This post has been reported for review.'))}
+            onReport={onReport || (() => themedAlert('Reported', 'Thank you. This post has been reported for review.'))}
             showDelete={currentUser?.id === (item as any)?.author?.id || currentUser?.id === (item as any)?.author_id || currentUser?.id === (item as any)?.authorId || isAdmin}
           />
         )}

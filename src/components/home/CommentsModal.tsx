@@ -1,7 +1,7 @@
 import React, { useMemo, useState, useRef, useEffect } from 'react';
 import {
   View, Text, FlatList, TouchableOpacity,
-  StyleSheet, KeyboardAvoidingView, Platform, Modal, Animated, Dimensions, TouchableWithoutFeedback, Keyboard, ActivityIndicator, Image, Alert
+  StyleSheet, KeyboardAvoidingView, Platform, Modal, Animated, Dimensions, TouchableWithoutFeedback, Keyboard, ActivityIndicator, Image, 
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
@@ -16,6 +16,7 @@ import type { HomeStackParamList, Post } from '../../types';
 import { commentService, Comment } from '../../services/comment.service';
 import { postsService } from '../../services/posts.service';
 import { usePosts } from '../../context/PostsContext';
+import { themedAlert } from '../common/ThemedAlert';
 
 const { height: SCREEN_H } = Dimensions.get('window');
 
@@ -276,7 +277,7 @@ export default function CommentsModal({ visible, onClose, post }: Props) {
   };
 
   const handleDelete = async (comment: Comment) => {
-    Alert.alert(
+    themedAlert(
       'Delete comment',
       'Are you sure you want to delete this comment?',
       [

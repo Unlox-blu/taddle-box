@@ -3,7 +3,7 @@ import {
   View,
   StyleSheet,
   ActivityIndicator,
-  Alert,
+
   TextInput,
   TouchableOpacity,
   Text,
@@ -22,6 +22,7 @@ import PinPad from "../../components/common/PinPad";
 import { authService } from "../../services/auth.service";
 import { useAuth } from "../../context/AuthContext";
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
+import { themedAlert } from '../../components/common/ThemedAlert';
 
 export default function LockScreen() {
   const colors = useThemeColors();
@@ -109,7 +110,7 @@ export default function LockScreen() {
           }
           await authService.setupPin(pin);
           await refreshUser(); // refresh so appLockEnabled toggle updates
-          Alert.alert("Success", "PIN setup complete.");
+          themedAlert("Success", "PIN setup complete.");
           handleSuccess();
           return;
         }
@@ -121,11 +122,11 @@ export default function LockScreen() {
       if (isDisable) {
         await authService.removePin(pin);
         await refreshUser(); // refresh so appLockEnabled toggle updates
-        Alert.alert("Success", "App Lock disabled.");
+        themedAlert("Success", "App Lock disabled.");
       } else if (isVerifyToEnable) {
         await authService.toggleGlobalAppLock(pin, true);
         await refreshUser();
-        Alert.alert("Success", "Global App Lock enabled.");
+        themedAlert("Success", "Global App Lock enabled.");
       }
 
       handleSuccess();
@@ -182,7 +183,7 @@ export default function LockScreen() {
   const subtitle = "Please enter your 4-digit PIN to continue";
 
   const handleLogout = () => {
-    Alert.alert(
+    themedAlert(
       "Log Out",
       "Are you sure you want to log out? This will bring you back to the login screen.",
       [

@@ -1,7 +1,7 @@
 import React, { useState, useRef, useEffect, useMemo } from 'react';
 import {
   View, Text, TextInput, TouchableOpacity, ScrollView,
-  StyleSheet, Alert, ActivityIndicator, Image, Dimensions
+  StyleSheet,  ActivityIndicator, Image, Dimensions
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
@@ -17,6 +17,7 @@ import { communityService } from '../../services/community.service';
 import { mediaService } from '../../services/media.service';
 import { appLockBypass } from '../../utils/appLockBypass';
 import type { CommunityStackParamList } from '../../types';
+import { themedAlert } from '../../components/common/ThemedAlert';
 
 type Route = RouteProp<CommunityStackParamList, 'CommunitySettings'>;
 
@@ -119,7 +120,7 @@ export default function CommunitySettingsScreen() {
       setDesc(c.description || '');
       setIsPrivate(c.privacy === 'private');
     } catch (e) {
-      Alert.alert('Error', 'Failed to load community details');
+      themedAlert('Error', 'Failed to load community details');
       navigation.goBack();
     } finally {
       setLoading(false);
@@ -131,7 +132,7 @@ export default function CommunitySettingsScreen() {
     try {
       const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
       if (status !== 'granted') {
-        Alert.alert('Permission needed', 'Allow access to your media library to upload images.');
+        themedAlert('Permission needed', 'Allow access to your media library to upload images.');
         return;
       }
 
@@ -174,7 +175,7 @@ export default function CommunitySettingsScreen() {
 
   const handleSave = async () => {
     if (!name.trim()) {
-      Alert.alert('Validation Error', 'Name is required.');
+      themedAlert('Validation Error', 'Name is required.');
       return;
     }
     setSaving(true);
@@ -197,25 +198,25 @@ export default function CommunitySettingsScreen() {
       }
 
       await Promise.all(tasks);
-      Alert.alert('Saved!', 'Community updated successfully.', [
+      themedAlert('Saved!', 'Community updated successfully.', [
         { text: 'OK', onPress: () => navigation.goBack() }
       ]);
     } catch (e: any) {
-      Alert.alert('Error', e.response?.data?.message || 'Failed to update community.');
+      themedAlert('Error', e.response?.data?.message || 'Failed to update community.');
     } finally {
       setSaving(false);
     }
   };
 
   const handleDelete = () => {
-    Alert.alert('Delete Community', 'Are you sure you want to permanently delete this community? This action cannot be undone.', [
+    themedAlert('Delete Community', 'Are you sure you want to permanently delete this community? This action cannot be undone.', [
       { text: 'Cancel', style: 'cancel' },
       { text: 'Delete', style: 'destructive', onPress: async () => {
           try {
             await communityService.deleteCommunity(community.id);
             navigation.navigate('CommunityList');
           } catch (e) {
-            Alert.alert('Error', 'Failed to delete community');
+            themedAlert('Error', 'Failed to delete community');
           }
       }}
     ]);

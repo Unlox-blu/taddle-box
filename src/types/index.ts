@@ -223,7 +223,7 @@ export interface Transaction {
 
 export interface Notification {
   id: string;
-  type: 'like' | 'comment' | 'follow' | 'mention' | 'event' | 'achievement' | 'game_invite' | 'post' | 'community';
+  type: 'like' | 'comment' | 'follow' | 'mention' | 'event' | 'achievement' | 'game_invite' | 'post' | 'community' | 'streak';
   /** Actor (sender) id — used for presence dots on the avatar. */
   senderId?: string;
   avatar: string;

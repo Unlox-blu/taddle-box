@@ -1,18 +1,40 @@
 import React from 'react';
-import { View, Text, StyleSheet } from 'react-native';
+import { View, Text, StyleSheet, TouchableOpacity } from 'react-native';
 import { colors, radii, fontSizes, spacing } from '../../theme';
-
-const DAYS = ['Day 1', 'Day 2', 'Day 3', 'Day 4', 'Day 5', 'Day 6', 'Day 7'];
+import { cycleInfo, STREAK_CYCLE } from '../../utils/streak';
 
 interface StreakCardProps {
   streakDays: number;
-  completedDays: number[]; // indices 0–6 that are done
-  todayIndex: number;
+  /** True when today's day is already counted (end_date is today). */
+  todayFilled?: boolean;
+  /** True when a missed day has opened a 24-hour restore window. */
+  restorable?: boolean;
+  /** XP cost shown on the restore chip (only when restorable). */
+  restoreCost?: number;
+  /** Opens the streak popup (which hosts the restore flow). */
+  onPress: () => void;
 }
 
-export default function StreakCard({ streakDays, completedDays, todayIndex }: StreakCardProps) {
+export default function StreakCard({
+  streakDays,
+  todayFilled = false,
+  restorable = false,
+  restoreCost = 0,
+  onPress,
+}: StreakCardProps) {
+  const { pos, labels } = cycleInfo(streakDays);
+  // The tick that represents "today": the just-filled one when today is
+  // already counted, otherwise the next tick to earn (or the missed one when
+  // the streak is restorable). Clamped — a completed cycle (pos === 7) with a
+  // missed day means the missed tick lives in the next cycle, off-screen.
+  const todayIdx = Math.min(
+    restorable ? pos : todayFilled ? pos - 1 : pos,
+    STREAK_CYCLE - 1
+  );
+  const showMissed = restorable && pos < STREAK_CYCLE;
+
   return (
-    <View style={styles.card}>
+    <TouchableOpacity style={styles.card} onPress={onPress} activeOpacity={0.8}>
       <View style={styles.header}>
         <Text style={styles.title}>🔥 Daily Streak</Text>
         <View style={styles.countBox}>
@@ -22,26 +44,39 @@ export default function StreakCard({ streakDays, completedDays, todayIndex }: St
           </Text>
         </View>
       </View>
+
       <View style={styles.dots}>
-        {DAYS.map((d, i) => {
-          const done  = completedDays.includes(i);
-          const today = i === todayIndex;
+        {labels.map((day, i) => {
+          const done = i < pos;
+          const missed = showMissed && i === pos;
+          const isToday = i === todayIdx;
           return (
             <View
-              key={i}
+              key={day}
               style={[
                 styles.dot,
-                done  && styles.dotDone,
-                today && styles.dotToday,
+                done && styles.dotDone,
+                missed && styles.dotMissed,
+                !done && !missed && isToday && styles.dotToday,
               ]}
             >
-              <Text style={styles.dotDay}>{d}</Text>
-              <Text style={styles.dotIcon}>{done ? '✓' : today ? '🔥' : ''}</Text>
+              <Text style={styles.dotDay}>Day {day}</Text>
+              <Text style={styles.dotIcon}>
+                {done ? '✓' : missed ? '⚠️' : isToday ? '🔥' : ''}
+              </Text>
             </View>
           );
         })}
       </View>
-    </View>
+
+      {restorable && (
+        <TouchableOpacity style={styles.restoreChip} onPress={onPress} activeOpacity={0.85}>
+          <Text style={styles.restoreChipText}>
+            ⚠️ Missed a day — restore for {restoreCost} XP
+          </Text>
+        </TouchableOpacity>
+      )}
+    </TouchableOpacity>
   );
 }
 
@@ -70,7 +105,7 @@ const styles = StyleSheet.create({
   daysLabel: { fontSize: fontSizes.xs, color: colors.text.muted },
   dots: { flexDirection: 'row', gap: 6 },
   dot: {
-    flex: 1, height: 36,
+    flex: 1, height: 38,
     borderRadius: radii.sm,
     borderWidth: 1,
     borderColor: colors.border,
@@ -85,6 +120,21 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(251,191,36,0.22)',
     borderColor: colors.xpGold,
   },
+  dotMissed: {
+    backgroundColor: 'rgba(239,68,68,0.14)',
+    borderColor: 'rgba(239,68,68,0.45)',
+  },
   dotDay:  { fontSize: 8, color: colors.text.muted },
   dotIcon: { fontSize: 11 },
+  restoreChip: {
+    marginTop: 10,
+    backgroundColor: 'rgba(251,191,36,0.16)',
+    borderWidth: 1,
+    borderColor: 'rgba(251,191,36,0.4)',
+    borderRadius: radii.md,
+    paddingVertical: 8,
+    paddingHorizontal: 12,
+    alignItems: 'center',
+  },
+  restoreChipText: { fontSize: fontSizes.xs, fontWeight: '800', color: colors.xpGold },
 });

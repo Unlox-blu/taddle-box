@@ -8,7 +8,7 @@ import {
   StyleSheet,
   Modal,
   KeyboardAvoidingView,
-  Alert,
+
   Image,
   Dimensions,
   RefreshControl,
@@ -35,6 +35,7 @@ import * as ImagePicker from "expo-image-picker";
 import * as FileSystem from "expo-file-system";
 import { mediaService } from "../../services/media.service";
 import { appLockBypass } from "../../utils/appLockBypass";
+import { themedAlert } from '../../components/common/ThemedAlert';
 
 type Nav = NativeStackNavigationProp<CommunityStackParamList, "CommunityList">;
 
@@ -1132,7 +1133,7 @@ function CreateCommunityModal({
       const { status } =
         await ImagePicker.requestMediaLibraryPermissionsAsync();
       if (status !== "granted") {
-        Alert.alert("Permission needed", "Allow access to your media library.");
+        themedAlert("Permission needed", "Allow access to your media library.");
         return;
       }
       const result = await ImagePicker.launchImageLibraryAsync({
@@ -1179,18 +1180,18 @@ function CreateCommunityModal({
   const handleCreate = async () => {
     const cleanName = name.trim();
     if (!cleanName) {
-      Alert.alert("Name required", "Please enter a community name.");
+      themedAlert("Name required", "Please enter a community name.");
       return;
     }
     if (/[^a-zA-Z0-9_]/.test(cleanName)) {
-      Alert.alert(
+      themedAlert(
         "Invalid name",
         "Community names can only contain letters, numbers and underscores (no spaces or hyphens).",
       );
       return;
     }
     if (!desc.trim()) {
-      Alert.alert("Description required", "Please add a short description.");
+      themedAlert("Description required", "Please add a short description.");
       return;
     }
     setCreating(true);
@@ -1223,7 +1224,7 @@ function CreateCommunityModal({
         uploadedMediaIds.forEach((mediaId) => {
           mediaService.cancleUpload(mediaId).catch(() => {});
         });
-        Alert.alert(
+        themedAlert(
           "Error",
           e.response?.data?.message || "Failed to create community.",
         );

@@ -5,7 +5,7 @@ import {
   TouchableOpacity,
   StyleSheet,
   Dimensions,
-  Alert,
+
   Platform,
   Image,
 } from "react-native";
@@ -27,6 +27,7 @@ import * as Linking from "expo-linking";
 WebBrowser.maybeCompleteAuthSession();
 
 import Constants from "expo-constants";
+import { themedAlert } from '../../components/common/ThemedAlert';
 
 const { height } = Dimensions.get("window");
 type Props = NativeStackScreenProps<AuthStackParamList, "Welcome">;
@@ -46,7 +47,7 @@ export default function WelcomeScreen({ navigation }: Props) {
 
   const handleGoogleLogin = async () => {
     if (!hasGoogleConfig || !webId) {
-      Alert.alert(
+      themedAlert(
         "Service Unavailable",
         "Google Sign-In is currently unavailable on this platform.",
       );
@@ -71,7 +72,7 @@ export default function WelcomeScreen({ navigation }: Props) {
           urlParams.queryParams || {};
 
         if (error) {
-          Alert.alert(
+          themedAlert(
             "Google Sign-In Error",
             decodeURIComponent(error as string),
           );
@@ -91,12 +92,12 @@ export default function WelcomeScreen({ navigation }: Props) {
         if (accessToken && refreshToken) {
           await signIn(accessToken as string, refreshToken as string);
         } else {
-          Alert.alert("Error", "Authentication failed. Tokens not received.");
+          themedAlert("Error", "Authentication failed. Tokens not received.");
         }
       }
     } catch (error: any) {
       if (error.code !== "ERR_REQUEST_CANCELED") {
-        Alert.alert("Error", error.message);
+        themedAlert("Error", error.message);
       }
     }
   };
@@ -146,7 +147,7 @@ export default function WelcomeScreen({ navigation }: Props) {
         }
       } catch (e: any) {
         if (e.code !== "ERR_REQUEST_CANCELED") {
-          Alert.alert("Apple Sign-In Error", e.message);
+          themedAlert("Apple Sign-In Error", e.message);
         }
       }
     } else {
@@ -155,7 +156,7 @@ export default function WelcomeScreen({ navigation }: Props) {
         process.env.EXPO_PUBLIC_BACKEND_URL || "https://taddlebox.com";
 
       if (!appleServiceId) {
-        Alert.alert(
+        themedAlert(
           "Service Unavailable",
           "Apple Sign-In is currently unavailable on this platform.",
         );
@@ -186,7 +187,7 @@ export default function WelcomeScreen({ navigation }: Props) {
           } = urlParams.queryParams || {};
 
           if (error) {
-            Alert.alert(
+            themedAlert(
               "Apple Sign-In Error",
               decodeURIComponent(error as string),
             );
@@ -206,11 +207,11 @@ export default function WelcomeScreen({ navigation }: Props) {
           if (accessToken && refreshToken) {
             await signIn(accessToken as string, refreshToken as string);
           } else {
-            Alert.alert("Error", "Authentication failed. Tokens not received.");
+            themedAlert("Error", "Authentication failed. Tokens not received.");
           }
         }
       } catch (error: any) {
-        Alert.alert("Error", error.message);
+        themedAlert("Error", error.message);
       }
     }
   };

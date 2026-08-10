@@ -10,7 +10,7 @@ import React, {
 } from "react";
 import {
   ActivityIndicator,
-  Alert,
+
   Animated,
   Easing,
   Image,
@@ -34,6 +34,7 @@ import { socketClient } from "../../services/socketClient";
 import { userService } from "../../services/user.service";
 import { fontSizes, radii, spacing, type ColorPalette } from "../../theme";
 import type { Game } from "../../types";
+import { themedAlert } from '../common/ThemedAlert';
 
 export type MatchMode = "AUTO" | "CUSTOM" | "PRACTICE";
 
@@ -222,7 +223,7 @@ export default function MatchModeModal({
         if (Array.isArray(ld?.players)) setLobbyPlayers(ld.players);
       } catch { /* fallback to UUID segment */ }
     } catch (e: any) {
-      Alert.alert("Error", e?.response?.data?.message || "Could not create lobby.");
+      themedAlert("Error", e?.response?.data?.message || "Could not create lobby.");
       onClose();
     } finally { setLobbyLoading(false); }
   }, [game, onClose]);
@@ -444,7 +445,7 @@ export default function MatchModeModal({
       loadFollowers();
       setStep("lobby");
     } catch (e: any) {
-      Alert.alert("Invalid Code", e?.response?.data?.message || "Lobby not found or expired.");
+      themedAlert("Invalid Code", e?.response?.data?.message || "Lobby not found or expired.");
     } finally {
       setJoinCodeLoading(false);
     }
@@ -550,7 +551,7 @@ export default function MatchModeModal({
       })
       .catch((e: any) => {
         if (!cancelledRef.current) {
-          Alert.alert("Error", e?.response?.data?.message || "Could not join matchmaking.");
+          themedAlert("Error", e?.response?.data?.message || "Could not join matchmaking.");
           onClose();
         }
       });
@@ -596,7 +597,7 @@ export default function MatchModeModal({
       setPendingInviteIds((prev) => [...prev.filter((i) => i !== personId), personId]);
       setInvitedAtMap((prev) => ({ ...prev, [personId]: Date.now() }));
     } catch (e: any) {
-      Alert.alert("Error", e?.response?.data?.message || "Could not send invite.");
+      themedAlert("Error", e?.response?.data?.message || "Could not send invite.");
     }
   };
 
@@ -611,7 +612,7 @@ export default function MatchModeModal({
       if (Array.isArray(d?.players)) setLobbyPlayers(d.players);
       if (d?.state?.currentPlayers !== undefined) setLobbyMaxPlayers(d.settings?.targetPlayers || lobbyMaxPlayers);
     } catch (e: any) {
-      Alert.alert("Error", e?.response?.data?.message || "Could not add bot.");
+      themedAlert("Error", e?.response?.data?.message || "Could not add bot.");
     }
   };
 
@@ -681,7 +682,7 @@ export default function MatchModeModal({
         }
       } catch (e: any) {
         if (!cancelledRef.current) {
-          Alert.alert("Error", e?.response?.data?.message || "Could not start match.");
+          themedAlert("Error", e?.response?.data?.message || "Could not start match.");
           setStep("lobby"); setQueuePhase("searching");
         }
       }
@@ -731,7 +732,7 @@ export default function MatchModeModal({
       }, 1000);
     } catch (e: any) {
       if (!cancelledRef.current) {
-        Alert.alert("Error", e?.response?.data?.message || "Could not queue the lobby.");
+        themedAlert("Error", e?.response?.data?.message || "Could not queue the lobby.");
         setStep("lobby"); setQueuePhase("searching");
       }
     }

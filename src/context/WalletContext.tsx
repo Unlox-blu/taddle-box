@@ -229,9 +229,10 @@ export function WalletProvider({ children }: { children: React.ReactNode }) {
         ts: new Date(t.createdAt || new Date()).getTime(),
         amount: t.xp || 0,
         currency: 'XP',
-        // 'earned' and 'bonus' (daily login / weekly streak) are earnings;
-        // only 'spent' is a deduction. Previously 'bonus' fell through to
-        // 'spend', so daily-login XP showed up as -50 in wallet history.
+        // 'earned' and 'bonus' (daily login / streak rewards) are earnings;
+        // only 'spent' is a deduction (e.g. streak restore). Previously
+        // 'bonus' fell through to 'spend', so daily-login XP showed up as
+        // -50 in wallet history.
         type: t.transactionType === 'spent' ? 'spend' : 'earn',
         status: t.status || 'completed'
       }));

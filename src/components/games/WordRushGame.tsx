@@ -1,11 +1,12 @@
 import React, { useEffect, useState, useRef, useCallback } from 'react';
 import {
-  View, Text, StyleSheet, TouchableOpacity, Animated, Image, Alert, Dimensions, ScrollView,
+  View, Text, StyleSheet, TouchableOpacity, Animated, Image,  Dimensions, ScrollView,
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import type { HtmlGameResult } from '../../games/types';
 import { createGameEngineSocket } from '../../services/socketClient';
 import { gameSound } from '../../services/gameSound';
+import { themedAlert } from '../common/ThemedAlert';
 
 const { width } = Dimensions.get('window');
 const GRID_COLS = 4;
@@ -130,7 +131,7 @@ export default function WordRushGame({ matchId, userId, wsToken, externalPhase =
       const allScores = Object.values<number>(ps?.scores || { _: 0 });
       const maxScore = allScores.length ? Math.max(...allScores) : 0;
       const won = myScore >= maxScore && myScore > 0;
-      Alert.alert(
+      themedAlert(
         won ? '🏆 You Won!' : '😔 Good Try!',
         `Your score: ${myScore} pts`,
         [{ text: 'OK', onPress: () => onComplete({ score: myScore, won, xpEarned: won ? 50 : 10, durationSeconds: 0 }) }]
@@ -158,7 +159,7 @@ export default function WordRushGame({ matchId, userId, wsToken, externalPhase =
         setLastResult('invalid');
         triggerShake();
       } else {
-        Alert.alert('Error', e.message || 'Something went wrong');
+        themedAlert('Error', e.message || 'Something went wrong');
       }
     });
 

@@ -6,7 +6,7 @@ import {
   FlatList,
   TouchableOpacity,
   ActivityIndicator,
-  Alert,
+
   Image,
   RefreshControl,
 } from "react-native";
@@ -19,6 +19,7 @@ import { fontSizes, spacing, radii, type ColorPalette } from "../../theme";
 import { userService } from "../../services/user.service";
 import { socketClient } from "../../services/socketClient";
 import { useAuth } from "../../context/AuthContext";
+import { themedAlert } from '../../components/common/ThemedAlert';
 
 function makeStyles(c: ColorPalette) {
   return StyleSheet.create({
@@ -145,7 +146,7 @@ export default function FollowRequestsScreen() {
       setRequests((prev) => prev.filter((r) => r.id !== follower.id));
       refreshUser();
     } catch (e: any) {
-      Alert.alert("Error", e?.response?.data?.message || "Failed to approve request.");
+      themedAlert("Error", e?.response?.data?.message || "Failed to approve request.");
     } finally {
       setBusyId(null);
     }
@@ -158,7 +159,7 @@ export default function FollowRequestsScreen() {
       setRequests((prev) => prev.filter((r) => r.id !== follower.id));
       refreshUser();
     } catch (e: any) {
-      Alert.alert("Error", e?.response?.data?.message || "Failed to reject request.");
+      themedAlert("Error", e?.response?.data?.message || "Failed to reject request.");
     } finally {
       setBusyId(null);
     }
@@ -168,7 +169,7 @@ export default function FollowRequestsScreen() {
   const [acceptingAll, setAcceptingAll] = useState(false);
   const handleAcceptAll = async () => {
     if (requests.length === 0 || acceptingAll) return;
-    Alert.alert(
+    themedAlert(
       "Accept all requests?",
       `This will approve ${requests.length} follow request${requests.length === 1 ? "" : "s"} at once.`,
       [
@@ -181,9 +182,9 @@ export default function FollowRequestsScreen() {
               const res = await userService.acceptAllFollowRequests();
               setRequests([]);
               refreshUser();
-              Alert.alert("Done", res?.message || "All follow requests accepted.");
+              themedAlert("Done", res?.message || "All follow requests accepted.");
             } catch (e: any) {
-              Alert.alert("Error", e?.response?.data?.message || "Failed to accept requests.");
+              themedAlert("Error", e?.response?.data?.message || "Failed to accept requests.");
             } finally {
               setAcceptingAll(false);
             }

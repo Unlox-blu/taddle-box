@@ -23,6 +23,7 @@ import { QueryClientProvider } from '@tanstack/react-query';
 import { queryClient } from './src/lib/react-query';
 import AppLockOverlay       from './src/components/common/AppLockOverlay';
 import NotificationBanner   from './src/components/common/NotificationBanner';
+import { ThemedAlertHost }  from './src/components/common/ThemedAlert';
 import { PresenceProvider } from './src/context/PresenceContext';
 import { useAuth } from './src/context/AuthContext';
 import { locationService } from './src/services/location.service';
@@ -52,6 +53,7 @@ function AppShell() {
         <AppNavigator />
         <NotificationBanner />
         <AppLockOverlay />
+        <ThemedAlertHost />
       </SafeAreaProvider>
     </GestureHandlerRootView>
   );

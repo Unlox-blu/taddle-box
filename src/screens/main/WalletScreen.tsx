@@ -2,7 +2,7 @@ import React, { useState, useRef, useMemo, useEffect } from 'react';
 import {
   View, Text, ScrollView, TouchableOpacity, StyleSheet,
   Modal, TextInput, KeyboardAvoidingView, Platform,
-  Alert, Share, Switch, Animated, SafeAreaView, ActivityIndicator,
+   Share, Switch, Animated, SafeAreaView, ActivityIndicator,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { WebView } from 'react-native-webview';
@@ -20,6 +20,7 @@ import { authService } from '../../services/auth.service';
 import * as LocalAuthentication from '../../utils/localAuth';
 import * as SecureStore from 'expo-secure-store';
 import type { Transaction } from '../../types';
+import { themedAlert } from '../../components/common/ThemedAlert';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -281,7 +282,7 @@ export default function WalletScreen() {
             </TouchableOpacity>
             <TouchableOpacity
               style={[styles.convertBtn, wallet.xpBalance < 500 && styles.convertBtnDisabled]}
-              onPress={() => wallet.xpBalance >= 500 ? openModal('convert') : Alert.alert('Not enough XP', 'You need at least 500 XP to convert.')}
+              onPress={() => wallet.xpBalance >= 500 ? openModal('convert') : themedAlert('Not enough XP', 'You need at least 500 XP to convert.')}
               activeOpacity={0.8}
             >
               <Text style={styles.convertBtnText}>Convert →</Text>
@@ -436,7 +437,7 @@ export default function WalletScreen() {
               closeModal();
             }
           } catch (e: any) {
-            Alert.alert('Recharge Error', e?.response?.data?.message || e?.message || 'Could not start recharge.');
+            themedAlert('Recharge Error', e?.response?.data?.message || e?.message || 'Could not start recharge.');
           } finally {
             setPayuBusy(false);
           }
@@ -510,7 +511,7 @@ export default function WalletScreen() {
               )}
               onError={(syntheticEvent) => {
                 console.warn('PayU WebView error', syntheticEvent.nativeEvent);
-                Alert.alert('Checkout Error', 'Could not load the payment page. Please try again.');
+                themedAlert('Checkout Error', 'Could not load the payment page. Please try again.');
                 setPayuHtml(null);
               }}
               onNavigationStateChange={(state) => {
@@ -607,7 +608,7 @@ function WithdrawModal({
 
   const handleConfirm = () => {
     if (!linkedUPI) { onLinkUPI(); return; }
-    if (error) { Alert.alert('Invalid Amount', error); return; }
+    if (error) { themedAlert('Invalid Amount', error); return; }
     
     if (pinEnabled || globalLock) {
       setVerifyingPin(true);
@@ -809,7 +810,7 @@ function LinkUPIModal({
   const isValidUPI = /^[a-zA-Z0-9._-]+@[a-zA-Z]{3,}$/.test(upiId.trim());
 
   const handleVerify = () => {
-    if (!isValidUPI) { Alert.alert('Invalid UPI ID', 'Enter a valid UPI ID like name@paytm'); return; }
+    if (!isValidUPI) { themedAlert('Invalid UPI ID', 'Enter a valid UPI ID like name@paytm'); return; }
     setVerifying(true);
     setTimeout(() => {
       setVerifying(false);
@@ -909,7 +910,7 @@ function ConvertModal({
 
   const handleConvert = () => {
     if (!canConvert || error) return;
-    Alert.alert(
+    themedAlert(
       'Confirm Conversion',
       `Convert ${xpAmount.toLocaleString()} XP → ₹${cashResult.toFixed(2)}?\n\nThis cannot be undone.`,
       [
@@ -1047,7 +1048,7 @@ function RechargeModal({
 
   const handleRecharge = () => {
     if (!canSubmit || busy) return;
-    Alert.alert(
+    themedAlert(
       'Add Money',
       `You'll be redirected to PayU to add ₹${amount.toLocaleString('en-IN')} to your wallet.`,
       [
@@ -1172,7 +1173,7 @@ function BuyXPModal({
 
   const handleBuy = () => {
     if (!canBuy || error) return;
-    Alert.alert(
+    themedAlert(
       'Buy XP',
       `Convert ₹${cashAmount.toLocaleString('en-IN')} → ${xpResult.toLocaleString()} XP?`,
       [
@@ -1536,7 +1537,7 @@ function SettingsModal({
                   <Text style={styles.settingsRowDesc}>Not linked</Text>
                 </View>
               </View>
-              <TouchableOpacity onPress={() => Alert.alert('Coming Soon', 'Bank account linking will be available in the next update.')}>
+              <TouchableOpacity onPress={() => themedAlert('Coming Soon', 'Bank account linking will be available in the next update.')}>
                 <Text style={styles.changeLink}>Link →</Text>
               </TouchableOpacity>
             </View>
@@ -1550,7 +1551,7 @@ function SettingsModal({
               desc={globalLock ? "Enabled by Global App Lock" : "Require PIN for withdrawals"}
               settingKey="pinEnabled" value={globalLock ? true : wallet.pinEnabled}
               disabled={globalLock}
-              onDisabledPress={() => Alert.alert("Global Lock Active", "Wallet PIN is automatically enabled because you have Global App Lock turned on in your main Settings.")}
+              onDisabledPress={() => themedAlert("Global Lock Active", "Wallet PIN is automatically enabled because you have Global App Lock turned on in your main Settings.")}
               onToggle={handleToggle} colors={colors} styles={styles}
             />
             <View style={{ borderTopWidth: 1, borderTopColor: colors.border }}>
@@ -1559,7 +1560,7 @@ function SettingsModal({
                 desc={globalLock ? "Enabled by Global App Lock" : "Use fingerprint or face ID"}
                 settingKey="biometricEnabled" value={globalLock ? true : wallet.biometricEnabled}
                 disabled={globalLock}
-                onDisabledPress={() => Alert.alert("Global Lock Active", "Wallet Biometrics are automatically enabled because you have Global App Lock turned on in your main Settings.")}
+                onDisabledPress={() => themedAlert("Global Lock Active", "Wallet Biometrics are automatically enabled because you have Global App Lock turned on in your main Settings.")}
                 onToggle={handleToggle} colors={colors} styles={styles}
               />
             </View>

@@ -13,6 +13,7 @@ import {
   Animated,
   DeviceEventEmitter,
   ActivityIndicator,
+
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
@@ -38,31 +39,14 @@ import type { Post, HomeStackParamList } from "../../types";
 import { streakService } from "../../services/streak.service";
 import { xpService } from "../../services/xp.service";
 import { hashtagService } from "../../services/hashtag.service";
+import { cycleInfo, isSameDay } from "../../utils/streak";
+import { themedAlert } from '../../components/common/ThemedAlert';
 
 type HomeNavProp = NativeStackNavigationProp<HomeStackParamList, "HomeMain">;
 
-const WEEK_LABELS = ["Day 1", "Day 2", "Day 3", "Day 4", "Day 5", "Day 6", "Day 7"];
-const TODAY_INDEX = new Date().getDay() === 0 ? 6 : new Date().getDay() - 1; // 0 is Monday, 6 is Sunday
 const getTodayKey = () => {
   const d = new Date();
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
-};
-
-const calculateCompletedDays = (
-  streakCount: number,
-  endDateString?: string | null,
-): number[] => {
-  if (!endDateString || streakCount <= 0) return [];
-  const end = new Date(endDateString);
-  const completed = [];
-  const endIndex = end.getDay() === 0 ? 6 : end.getDay() - 1;
-
-  for (let i = 0; i < streakCount; i++) {
-    const dayIndex = endIndex - i;
-    if (dayIndex < 0) break; // reached previous week
-    completed.push(dayIndex);
-  }
-  return completed;
 };
 
 // ─── Main screen ──────────────────────────────────────────────────────────────
@@ -71,7 +55,7 @@ export default function HomeScreen() {
   const scrollRef = useRef<FlatList>(null);
 
   const { user: CURRENT_USER, refreshUser } = useAuth();
-  const { wallet } = useWallet();
+  const { wallet, fetchWalletData } = useWallet();
   const insets = useSafeAreaInsets();
   const navigation = useNavigation<HomeNavProp>();
   const isFocused = useIsFocused();
@@ -104,10 +88,18 @@ export default function HomeScreen() {
   const [trendChips, setTrendChips] = useState<string[]>(["All"]);
   const [refreshing, setRefreshing] = useState(false);
   const [streakOpen, setStreakOpen] = useState(false);
-  const [showWeeklyBonusModal, setShowWeeklyBonusModal] = useState(false);
+  const [showStreakRewardModal, setShowStreakRewardModal] = useState(false);
+  const [rewardXp, setRewardXp] = useState(0);
+  const [rewardDay, setRewardDay] = useState(0);
 
   const [realStreak, setRealStreak] = useState(0);
-  const [completedDays, setCompletedDays] = useState<number[]>([]);
+  const [streakEndDate, setStreakEndDate] = useState<string | null>(null);
+  const [streakRestorable, setStreakRestorable] = useState(false);
+  const [restoreCost, setRestoreCost] = useState(0);
+  const [restoreDeadline, setRestoreDeadline] = useState<string | null>(null);
+  const [nextMilestoneDay, setNextMilestoneDay] = useState(7);
+  const [nextRewardXp, setNextRewardXp] = useState(100);
+  const [restoring, setRestoring] = useState(false);
   const [localXP, setLocalXP] = useState(CURRENT_USER?.xp || 0);
   const [hasDailyReward, setHasDailyReward] = useState(false);
 
@@ -148,35 +140,47 @@ export default function HomeScreen() {
 
   const initHomeData = async () => {
     try {
-      // First get current streak to check if it's already updated today
+      // Streak state machine: GET /streak evaluates freeze/reset; POST advances
+      // the count. When a restore window is open we DON'T post — the user must
+      // restore first (the popup shows the Restore button + countdown).
       let currentStreak = 0;
-      let streakEndDate = null;
-      let weeklyBonus = false;
+      let endDate: string | null = null;
+      let restorable = false;
+      let cost = 0;
+      let deadline: string | null = null;
 
       try {
         const streakRes = await streakService.getCurrentStreak();
-        currentStreak = streakRes?.data?.streakCount || 0;
-        streakEndDate = streakRes?.data?.endDate || null;
+        const d = streakRes?.data;
+        currentStreak = d?.streak?.streakCount || 0;
+        endDate = d?.streak?.endDate || null;
+        restorable = !!d?.restorable;
+        cost = d?.restoreCost || 0;
+        deadline = d?.restoreDeadline || null;
+        setNextMilestoneDay(d?.nextMilestoneDay || 7);
+        setNextRewardXp(d?.nextRewardXp || 0);
 
-        const now = new Date();
-        const prev = streakEndDate ? new Date(streakEndDate) : null;
-
-        let isSameDay = false;
-        if (prev) {
-          isSameDay =
-            now.getFullYear() === prev.getFullYear() &&
-            now.getMonth() === prev.getMonth() &&
-            now.getDate() === prev.getDate();
-        }
-
-        // If not updated today, try to update it
-        if (!isSameDay) {
+        // Not updated today and no restore window → advance the streak.
+        const prev = endDate ? new Date(endDate) : null;
+        const alreadyToday = prev ? isSameDay(prev, new Date()) : false;
+        if (!alreadyToday && !restorable) {
           try {
             const updateRes = await streakService.createOrUpdate();
-            if (updateRes?.data?.streak) {
-              currentStreak = updateRes.data.streak.streakCount;
-              streakEndDate = updateRes.data.streak.endDate;
-              weeklyBonus = !!updateRes.data.weeklyBonusEarned;
+            const ud = updateRes?.data;
+            if (ud?.streak) {
+              currentStreak = ud.streak.streakCount;
+              endDate = ud.streak.endDate;
+              restorable = !!ud.restorable;
+              cost = ud.restoreCost || 0;
+              deadline = ud.restoreDeadline || null;
+              setNextMilestoneDay(ud.nextMilestoneDay || 7);
+              setNextRewardXp(ud.nextRewardXp || 0);
+              if (ud.rewardEarned && (ud.rewardXp || 0) > 0) {
+                setRewardXp(ud.rewardXp || 0);
+                setRewardDay(currentStreak);
+                setShowStreakRewardModal(true);
+                setLocalXP((prevXP: number) => prevXP + (ud.rewardXp || 0));
+              }
             }
           } catch (e) {
             // Already updated or other error
@@ -186,21 +190,19 @@ export default function HomeScreen() {
         // Fallback or initial streak creation
         try {
           const updateRes = await streakService.createOrUpdate();
-          if (updateRes?.data?.streak) {
-            currentStreak = updateRes.data.streak.streakCount;
-            streakEndDate = updateRes.data.streak.endDate;
-            weeklyBonus = !!updateRes.data.weeklyBonusEarned;
+          const ud = updateRes?.data;
+          if (ud?.streak) {
+            currentStreak = ud.streak.streakCount;
+            endDate = ud.streak.endDate;
           }
         } catch (err) {}
       }
 
       setRealStreak(currentStreak);
-      setCompletedDays(calculateCompletedDays(currentStreak, streakEndDate));
-
-      if (weeklyBonus) {
-        setShowWeeklyBonusModal(true);
-        setLocalXP((prev: number) => prev + 150);
-      }
+      setStreakEndDate(endDate);
+      setStreakRestorable(restorable);
+      setRestoreCost(cost);
+      setRestoreDeadline(deadline);
 
       // Unread badge is handled by NotificationContext/MainHeader (socket-driven,
       // synced on login + reconnect) — no need to re-fetch here on every focus.
@@ -242,6 +244,36 @@ export default function HomeScreen() {
       console.error("Failed to init home data:", e);
     }
   };
+
+  // Pay XP to revive a frozen streak (24-hour restore window). Returns true
+  // on success so the popup can close; false keeps it open with the error.
+  const handleRestoreStreak = useCallback(async () => {
+    setRestoring(true);
+    try {
+      const res = await streakService.restoreStreak();
+      const d = res?.data;
+      if (d?.streak) {
+        setRealStreak(d.streak.streakCount);
+        setStreakEndDate(d.streak.endDate);
+        setStreakRestorable(false);
+        setRestoreCost(0);
+        setRestoreDeadline(null);
+        setNextMilestoneDay(d.nextMilestoneDay || 7);
+        setNextRewardXp(d.nextRewardXp || 0);
+        fetchWalletData(); // refresh the XP balance (socket also fires)
+        return true;
+      }
+      return false;
+    } catch (e: any) {
+      themedAlert(
+        "Restore Failed",
+        e?.response?.data?.message || "Could not restore your streak",
+      );
+      return false;
+    } finally {
+      setRestoring(false);
+    }
+  }, [fetchWalletData]);
 
   // XP fly-to-card animation
   const xpCardRef = useRef<View>(null);
@@ -574,12 +606,23 @@ export default function HomeScreen() {
         visible={streakOpen}
         onClose={() => setStreakOpen(false)}
         streakCount={realStreak}
-        completedDays={completedDays}
+        todayFilled={streakEndDate ? isSameDay(new Date(streakEndDate), new Date()) : false}
+        restorable={streakRestorable}
+        restoreCost={restoreCost}
+        restoreDeadline={restoreDeadline}
+        xpBalance={wallet?.xpBalance ?? 0}
+        nextMilestoneDay={nextMilestoneDay}
+        nextRewardXp={nextRewardXp}
+        restoring={restoring}
+        onRestore={handleRestoreStreak}
+        onExpired={() => { setStreakOpen(false); initHomeData(); }}
       />
 
-      <WeeklyBonusModal
-        visible={showWeeklyBonusModal}
-        onClose={() => setShowWeeklyBonusModal(false)}
+      <StreakRewardModal
+        visible={showStreakRewardModal}
+        onClose={() => setShowStreakRewardModal(false)}
+        day={rewardDay}
+        xp={rewardXp}
       />
 
       {/* ── XP reward particle (flies to XP card on claim) ── */}
@@ -761,14 +804,67 @@ function StreakModal({
   visible,
   onClose,
   streakCount,
-  completedDays,
+  todayFilled,
+  restorable,
+  restoreCost,
+  restoreDeadline,
+  xpBalance,
+  nextMilestoneDay,
+  nextRewardXp,
+  restoring,
+  onRestore,
+  onExpired,
 }: {
   visible: boolean;
   onClose: () => void;
   streakCount: number;
-  completedDays: number[];
+  todayFilled: boolean;
+  restorable: boolean;
+  restoreCost: number;
+  restoreDeadline: string | null;
+  xpBalance: number;
+  nextMilestoneDay: number;
+  nextRewardXp: number;
+  restoring: boolean;
+  onRestore: () => Promise<boolean>;
+  onExpired: () => void;
 }) {
   const colors = useThemeColors();
+  const { pos, labels } = cycleInfo(streakCount);
+  const cycleEnd = labels[labels.length - 1] || 7;
+
+  // Live countdown to the restore deadline (updates every second).
+  const [now, setNow] = useState(Date.now());
+  useEffect(() => {
+    if (!visible || !restorable || !restoreDeadline) return;
+    const t = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(t);
+  }, [visible, restorable, restoreDeadline]);
+
+  const deadlineMs = restoreDeadline ? new Date(restoreDeadline).getTime() : 0;
+  const remainingMs = restorable && deadlineMs ? Math.max(0, deadlineMs - now) : 0;
+  const expired = restorable && remainingMs <= 0;
+
+  useEffect(() => {
+    if (expired) onExpired();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [expired]);
+
+  const fmtCountdown = (ms: number) => {
+    const total = Math.floor(ms / 1000);
+    const h = Math.floor(total / 3600);
+    const m = Math.floor((total % 3600) / 60);
+    const s = total % 60;
+    return `${h}h ${String(m).padStart(2, "0")}m ${String(s).padStart(2, "0")}s`;
+  };
+
+  // The tick that represents today (or the missed day when restorable).
+  const todayIdx = Math.min(
+    restorable ? pos : todayFilled ? pos - 1 : pos,
+    labels.length - 1
+  );
+  const showMissed = restorable && pos < labels.length;
+  const canAfford = xpBalance >= restoreCost;
 
   return (
     <Modal
@@ -801,7 +897,9 @@ function StreakModal({
                 Daily Streak
               </Text>
               <Text style={[sm.sub, { color: colors.text.muted }]}>
-                {streakCount} {streakCount === 1 ? 'day' : 'days'} and counting!
+                {restorable
+                  ? `${streakCount}-day streak is at risk!`
+                  : `${streakCount} ${streakCount === 1 ? "day" : "days"} and counting!`}
               </Text>
             </View>
             <TouchableOpacity onPress={onClose} style={sm.closeBtn}>
@@ -809,16 +907,17 @@ function StreakModal({
             </TouchableOpacity>
           </View>
 
-          <Text style={[sm.weekHeader, { color: colors.text.muted }]}>
-            This Week
+          <Text style={[sm.cycleHeader, { color: colors.text.muted }]}>
+            Day {streakCount} of {cycleEnd}
           </Text>
           <View style={sm.dots}>
-            {WEEK_LABELS.map((d, i) => {
-              const done = completedDays.includes(i);
-              const today = i === TODAY_INDEX;
+            {labels.map((day, i) => {
+              const done = i < pos;
+              const missed = showMissed && i === pos;
+              const isToday = i === todayIdx;
               return (
                 <View
-                  key={i}
+                  key={day}
                   style={[
                     sm.dot,
                     { borderColor: colors.border },
@@ -826,67 +925,127 @@ function StreakModal({
                       backgroundColor: "rgba(251,191,36,0.12)",
                       borderColor: "rgba(251,191,36,0.30)",
                     },
-                    today && {
+                    missed && {
+                      backgroundColor: "rgba(239,68,68,0.14)",
+                      borderColor: "rgba(239,68,68,0.45)",
+                    },
+                    !done && !missed && isToday && {
                       backgroundColor: "rgba(251,191,36,0.22)",
                       borderColor: colors.xpGold,
                     },
                   ]}
                 >
                   <Text style={[sm.dotDay, { color: colors.text.muted }]}>
-                    {d}
+                    Day {day}
                   </Text>
                   <Text style={sm.dotIcon}>
-                    {done ? "✓" : today ? "🔥" : ""}
+                    {done ? "✓" : missed ? "⚠️" : isToday ? "🔥" : ""}
                   </Text>
                 </View>
               );
             })}
           </View>
 
-          <View
-            style={{
-              flexDirection: "row",
-              alignItems: "center",
-              backgroundColor: "rgba(251,191,36,0.15)",
-              padding: 12,
-              borderRadius: 12,
-              marginTop: 8,
-              marginBottom: 32,
-              gap: 10,
-            }}
-          >
-            <Text style={{ fontSize: 24 }}>🎁</Text>
+          {/* Next milestone preview */}
+          <View style={[sm.nextBox, { borderColor: colors.border }]}>
             <View style={{ flex: 1 }}>
-              <Text
-                style={{
-                  fontSize: 13,
-                  fontWeight: "700",
-                  color: colors.xpGold,
-                }}
-              >
-                7-Days Streak Reward
+              <Text style={[sm.nextLabel, { color: colors.text.muted }]}>
+                Next milestone
               </Text>
-              <Text
-                style={{ fontSize: 11, color: colors.text.muted, marginTop: 2 }}
-              >
-                Complete a full week to earn an instant 150 XP bonus!
+              <Text style={[sm.nextDays, { color: colors.text.primary }]}>
+                Day {nextMilestoneDay}
+              </Text>
+            </View>
+            <View style={sm.nextRewardBox}>
+              <Text style={sm.nextEmoji}>🎁</Text>
+              <Text style={[sm.nextReward, { color: colors.xpGold }]}>
+                +{nextRewardXp} XP
               </Text>
             </View>
           </View>
+
+          {/* Restore banner — only while a 24-hour restore window is open */}
+          {restorable && (
+            <View
+              style={{
+                backgroundColor: "rgba(239,68,68,0.08)",
+                borderRadius: 12,
+                padding: 12,
+                marginBottom: 32,
+                borderWidth: 1,
+                borderColor: "rgba(239,68,68,0.3)",
+              }}
+            >
+              <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
+                <Text style={{ fontSize: 18 }}>⏳</Text>
+                <View style={{ flex: 1 }}>
+                  <Text style={{ fontSize: 13, fontWeight: "800", color: colors.danger }}>
+                    Restore your streak
+                  </Text>
+                  <Text style={{ fontSize: 11, color: colors.text.muted, marginTop: 2 }}>
+                    Window closes in {fmtCountdown(remainingMs)}
+                  </Text>
+                </View>
+              </View>
+              <View
+                style={{
+                  flexDirection: "row",
+                  alignItems: "center",
+                  justifyContent: "space-between",
+                  marginTop: 10,
+                  gap: 10,
+                }}
+              >
+                <Text style={{ fontSize: 11, color: colors.text.muted, flex: 1 }}>
+                  Cost: {restoreCost} XP · Balance: {xpBalance} XP
+                </Text>
+                <TouchableOpacity
+                  onPress={async () => {
+                    if (!canAfford) {
+                      themedAlert(
+                        "Not enough XP",
+                        `You need ${restoreCost} XP to restore this streak.`
+                      );
+                      return;
+                    }
+                    const ok = await onRestore();
+                    if (ok) onClose();
+                  }}
+                  disabled={restoring || !canAfford}
+                  style={{
+                    backgroundColor: canAfford ? colors.xpGold : colors.border,
+                    paddingHorizontal: 16,
+                    paddingVertical: 8,
+                    borderRadius: 20,
+                  }}
+                >
+                  <Text style={{ fontSize: 12, fontWeight: "800", color: "#1A0A00" }}>
+                    {restoring ? "Restoring…" : `Restore · ${restoreCost} XP`}
+                  </Text>
+                </TouchableOpacity>
+              </View>
+            </View>
+          )}
+
+          {!restorable && <View style={{ marginBottom: 32 }} />}
         </View>
       </View>
     </Modal>
   );
 }
 
-// ─── Weekly Bonus Modal ───────────────────────────────────────────────────────
+// ─── Streak Reward Modal ──────────────────────────────────────────────────────
 
-function WeeklyBonusModal({
+function StreakRewardModal({
   visible,
   onClose,
+  day,
+  xp,
 }: {
   visible: boolean;
   onClose: () => void;
+  day: number;
+  xp: number;
 }) {
   const colors = useThemeColors();
   const scale = useRef(new Animated.Value(0)).current;
@@ -945,7 +1104,7 @@ function WeeklyBonusModal({
               marginBottom: spacing.xs,
             }}
           >
-            7-Days Streak!
+            Day {day} Complete!
           </Text>
           <Text
             style={{
@@ -955,7 +1114,7 @@ function WeeklyBonusModal({
               marginBottom: spacing.lg,
             }}
           >
-            You've maintained a full week streak. Keep it up!
+            You've reached Day {day} of your streak. Keep it going!
           </Text>
 
           <View
@@ -974,7 +1133,7 @@ function WeeklyBonusModal({
                 color: colors.xpGold,
               }}
             >
-              + 150 XP
+              + {xp} XP
             </Text>
           </View>
 
@@ -1191,7 +1350,7 @@ const sm = StyleSheet.create({
     justifyContent: "center",
     marginLeft: "auto",
   },
-  weekHeader: {
+  cycleHeader: {
     fontSize: fontSizes.xs,
     fontWeight: "700",
     textTransform: "uppercase",

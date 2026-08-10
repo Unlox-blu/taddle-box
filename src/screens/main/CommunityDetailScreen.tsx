@@ -1,7 +1,7 @@
 import React, { useMemo, useState, useEffect, useRef, useCallback } from 'react';
 import {
   View, Text, ScrollView, TouchableOpacity, TouchableWithoutFeedback,
-  StyleSheet, Share, FlatList, Image, Alert, ActivityIndicator
+  StyleSheet, Share, FlatList, Image,  ActivityIndicator
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useNavigation, useRoute, type RouteProp } from '@react-navigation/native';
@@ -22,6 +22,7 @@ import { useAuth }          from '../../context/AuthContext';
 import { useQueryClient }   from '@tanstack/react-query';
 import { queryKeys }        from '../../lib/queryKeys';
 import type { CommunityStackParamList, Post, Community } from '../../types';
+import { themedAlert } from '../../components/common/ThemedAlert';
 
 
 
@@ -795,7 +796,7 @@ function ManageMembersModal({ visible, onClose, communityId, isAdmin, isOwner, c
   };
 
   const handleKick = (userId: string, name: string) => {
-    Alert.alert('Kick Member', `Are you sure you want to remove ${name} from the community?`, [
+    themedAlert('Kick Member', `Are you sure you want to remove ${name} from the community?`, [
       { text: 'Cancel', style: 'cancel' },
       { text: 'Kick', style: 'destructive', onPress: async () => {
         try {
@@ -804,7 +805,7 @@ function ManageMembersModal({ visible, onClose, communityId, isAdmin, isOwner, c
           setActionMember(null);
           onChanged?.();
         } catch (e: any) {
-          Alert.alert('Error', e?.response?.data?.message || 'Failed to remove member');
+          themedAlert('Error', e?.response?.data?.message || 'Failed to remove member');
         }
       }}
     ]);
@@ -813,7 +814,7 @@ function ManageMembersModal({ visible, onClose, communityId, isAdmin, isOwner, c
   // Owner-only: promote to admin / demote to member.
   const handleRoleChange = (item: any, role: 'admin' | 'member') => {
     const isPromote = role === 'admin';
-    Alert.alert(
+    themedAlert(
       isPromote ? 'Make Admin' : 'Remove Admin',
       isPromote
         ? `${item.name} will be able to kick members, manage join requests and delete posts.`
@@ -831,7 +832,7 @@ function ManageMembersModal({ visible, onClose, communityId, isAdmin, isOwner, c
               setActionMember(null);
               onChanged?.();
             } catch (e: any) {
-              Alert.alert('Error', e?.response?.data?.message || 'Failed to update role');
+              themedAlert('Error', e?.response?.data?.message || 'Failed to update role');
             }
           },
         },
@@ -841,7 +842,7 @@ function ManageMembersModal({ visible, onClose, communityId, isAdmin, isOwner, c
 
   // Owner-only: hand over the whole community. Old owner auto-becomes admin.
   const handleTransfer = (item: any) => {
-    Alert.alert(
+    themedAlert(
       'Transfer Ownership',
       `Transfer this community to ${item.name}? You will become an admin, and the transfer cannot be undone.`,
       [
@@ -858,7 +859,7 @@ function ManageMembersModal({ visible, onClose, communityId, isAdmin, isOwner, c
               loadMembers(1, true);
               onChanged?.();
             } catch (e: any) {
-              Alert.alert('Error', e?.response?.data?.message || 'Failed to transfer ownership');
+              themedAlert('Error', e?.response?.data?.message || 'Failed to transfer ownership');
             }
           },
         },

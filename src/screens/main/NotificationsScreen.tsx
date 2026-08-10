@@ -1,6 +1,6 @@
 import React, { useMemo, useState, useEffect } from 'react';
 import {
-  View, Text, ScrollView, TouchableOpacity, StyleSheet, ActivityIndicator, RefreshControl, Image, Alert,
+  View, Text, ScrollView, TouchableOpacity, StyleSheet, ActivityIndicator, RefreshControl, Image, 
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
@@ -19,6 +19,7 @@ import { useNotifications } from '../../context/NotificationContext';
 import { notificationBus, NOTIF_EVENTS } from '../../lib/notificationBus';
 import { socketClient } from '../../services/socketClient';
 import PresenceDot from '../../components/common/PresenceDot';
+import { themedAlert } from '../../components/common/ThemedAlert';
 
 const FOLLOWED_BACK_KEY = '@taddle_followed_back_usernames';
 // CUSTOM private lobbies stay open for 30 minutes before the invite expires.
@@ -29,7 +30,7 @@ type Props = NativeStackScreenProps<HomeStackParamList, 'Notifications'>;
 const NOTIF_ICON: Record<Notification['type'], string> = {
   like: 'heart', comment: 'chatbubble', follow: 'person-add',
   mention: 'at', event: 'calendar', achievement: 'trophy', game_invite: 'game-controller',
-  post: 'create', community: 'people'
+  post: 'create', community: 'people', streak: 'flame'
 };
 
 const GROUPS: { key: Notification['group']; label: string }[] = [
@@ -42,7 +43,7 @@ function getNotifColor(c: ColorPalette): Record<Notification['type'], string> {
   return {
     like: c.pink, comment: c.primaryLight, follow: c.cyan,
     mention: c.cyanLight, event: c.xpGold, achievement: c.xpGold, game_invite: c.primaryLight,
-    post: c.primary, community: c.cyan
+    post: c.primary, community: c.cyan, streak: c.xpGold
   };
 }
 
@@ -407,6 +408,13 @@ export default function NotificationsScreen({ navigation }: Props) {
         return;
       }
 
+      // Streak at-risk / milestone reward → the Home tab, where the streak
+      // card + popup (restore flow) live.
+      if (type === 'streak') {
+        (navigation as any).navigate('Main', { screen: 'Home' });
+        return;
+      }
+
       if (type === 'achievement') {
         // Wallet credits / referral rewards belong in the Wallet tab; level-up
         // achievements open the profile.
@@ -562,7 +570,7 @@ export default function NotificationsScreen({ navigation }: Props) {
           return next;
         });
       } else {
-        Alert.alert('Error', msg || 'Failed to accept requests.');
+        themedAlert('Error', msg || 'Failed to accept requests.');
       }
     } finally {
       setAcceptingAll(false);

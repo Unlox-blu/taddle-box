@@ -11,7 +11,7 @@ import {
   Platform,
   Image,
   Dimensions,
-  Alert,
+
   Animated,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
@@ -34,6 +34,7 @@ import type { Post } from "../../types";
 import SmartInput from "./SmartInput";
 import AudiencePicker from "./AudiencePicker";
 import { appLockBypass } from "../../utils/appLockBypass";
+import { themedAlert } from './ThemedAlert';
 
 const SCREEN_W = Dimensions.get("window").width;
 
@@ -396,7 +397,7 @@ export default function CreatePostModal({
     try {
       if (kind === "audio") {
         if (mediaItems.length >= 5 && !audioItem) {
-          Alert.alert("Limit Reached", "You can only add up to 5 media files total.");
+          themedAlert("Limit Reached", "You can only add up to 5 media files total.");
           setPickLoading(false);
           return;
         }
@@ -421,7 +422,7 @@ export default function CreatePostModal({
           const { status } =
             await ImagePicker.requestMediaLibraryPermissionsAsync();
           if (status !== "granted") {
-            Alert.alert(
+            themedAlert(
               "Permission needed",
               "Allow access to your media library to upload photos and videos.",
             );
@@ -432,7 +433,7 @@ export default function CreatePostModal({
           const currentTotal = mediaItems.length + (audioItem ? 1 : 0);
           const remaining = 5 - currentTotal;
           if (remaining <= 0) {
-            Alert.alert("Limit Reached", "You can only add up to 5 media files total.");
+            themedAlert("Limit Reached", "You can only add up to 5 media files total.");
             setPickLoading(false);
             appLockBypass.endNativeFlow();
             return;
@@ -463,7 +464,7 @@ export default function CreatePostModal({
               const currentTotal = prev.length + (audioItem ? 1 : 0);
               const combined = [...prev, ...newItems];
               if (currentTotal + newItems.length > 5) {
-                Alert.alert("Limit Reached", "You can only add up to 5 media files total.");
+                themedAlert("Limit Reached", "You can only add up to 5 media files total.");
                 return combined.slice(0, 5 - (audioItem ? 1 : 0));
               }
               return combined;
@@ -474,7 +475,7 @@ export default function CreatePostModal({
         }
       }
     } catch {
-      Alert.alert("Error", "Could not open media library. Try again.");
+      themedAlert("Error", "Could not open media library. Try again.");
     }
     setPickLoading(false);
   };
@@ -516,7 +517,7 @@ export default function CreatePostModal({
     if (!uri) return;
 
     if (mediaItems.length + (audioItem ? 1 : 0) >= 5) {
-      Alert.alert("Limit Reached", "You can only add up to 5 media files total.");
+      themedAlert("Limit Reached", "You can only add up to 5 media files total.");
       return;
     }
 
@@ -595,7 +596,7 @@ export default function CreatePostModal({
         if (!alreadyAdded) {
           const currentTotal = mediaItems.length + (audioItem ? 1 : 0);
           if (currentTotal >= 5 && !(detected.type === "audio" && audioItem)) {
-            Alert.alert("Limit Reached", "You can only add up to 5 media files total.");
+            themedAlert("Limit Reached", "You can only add up to 5 media files total.");
           } else {
             if (detected.type === "audio") {
               setAudioItem(detected);
@@ -748,7 +749,7 @@ export default function CreatePostModal({
           }
         });
       }
-      Alert.alert("Error", "Failed to upload media or create post. Try again.");
+      themedAlert("Error", "Failed to upload media or create post. Try again.");
       console.error(err);
     }
     setUploading(false);

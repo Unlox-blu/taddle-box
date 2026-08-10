@@ -11,7 +11,7 @@ import {
   Modal,
   Image,
   Share,
-  Alert,
+
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useNavigation } from "@react-navigation/native";
@@ -22,6 +22,7 @@ import { useThemeColors } from "../../context/ThemeContext";
 import { useAuth } from "../../context/AuthContext";
 import { xpService } from "../../services/xp.service";
 import XPProgressBar from "./XPProgressBar";
+import { themedAlert } from '../common/ThemedAlert';
 
 const { width: SW } = Dimensions.get("window");
 const DRAWER_W = Math.min(Math.round(SW * 0.82), 320);
@@ -113,7 +114,7 @@ export default function SideDrawer({
   const shareReferral = async () => {
     const code = user?.referralCode || user?.referral_code;
     if (!code) {
-      Alert.alert("Referral Unavailable", "Your referral code isn't ready yet. Please try again in a moment.");
+      themedAlert("Referral Unavailable", "Your referral code isn't ready yet. Please try again in a moment.");
       return;
     }
     onClose();

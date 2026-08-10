@@ -8,7 +8,7 @@ import {
   StyleSheet,
   ActivityIndicator,
   Image,
-  Alert,
+
   Share,
   RefreshControl,
 } from "react-native";
@@ -23,6 +23,7 @@ import { searchService, type SearchType } from "../../services/search.service";
 import type { HomeStackParamList, Post } from "../../types";
 import { useToggleLike, useToggleSave } from "../../mutations/posts";
 import PostCard from "../../components/home/PostCard";
+import { themedAlert } from '../../components/common/ThemedAlert';
 
 type Props = NativeStackScreenProps<HomeStackParamList, "Search">;
 
@@ -404,7 +405,7 @@ export default function SearchScreen({ navigation, route }: Props) {
             navigation.push("UserProfile", { user: post.author })
           }
           onReport={() =>
-            Alert.alert("Reported", "Thank you. This post has been reported for review.")
+            themedAlert("Reported", "Thank you. This post has been reported for review.")
           }
           showDelete={!!currentUser && currentUser.id === (post as any)?.author?.id}
           onReposted={() => fetchResults(query, activeTab)}

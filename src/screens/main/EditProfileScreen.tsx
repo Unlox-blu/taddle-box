@@ -1,7 +1,7 @@
 import React, { useState, useRef, useMemo } from 'react';
 import {
   View, Text, TextInput, TouchableOpacity, ScrollView, Image,
-  StyleSheet, Alert, ActivityIndicator, KeyboardAvoidingView, Platform, Modal,
+  StyleSheet,  ActivityIndicator, KeyboardAvoidingView, Platform, Modal,
 } from 'react-native';
 import * as ImagePicker from 'expo-image-picker';
 import * as FileSystem from 'expo-file-system/legacy';
@@ -15,6 +15,7 @@ import { authService } from '../../services/auth.service';
 import { mediaService } from '../../services/media.service';
 import { fontSizes, spacing, radii } from '../../theme';
 import { appLockBypass } from '../../utils/appLockBypass';
+import { themedAlert } from '../../components/common/ThemedAlert';
 
 const OCCUPATION_OPTIONS = [
   "Student",
@@ -164,7 +165,7 @@ export default function EditProfileScreen() {
     try {
       const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
       if (status !== 'granted') {
-        Alert.alert('Permission needed', 'Allow access to your media library to update your profile image.');
+        themedAlert('Permission needed', 'Allow access to your media library to update your profile image.');
         return;
       }
 
@@ -215,7 +216,7 @@ export default function EditProfileScreen() {
     try {
       const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
       if (status !== 'granted') {
-        Alert.alert('Permission needed', 'Allow access to your media library to update your profile banner.');
+        themedAlert('Permission needed', 'Allow access to your media library to update your profile banner.');
         return;
       }
 
@@ -262,13 +263,13 @@ export default function EditProfileScreen() {
 
   const handleSave = async () => {
     if (!hasChanges) { returnToProfile(); return; }
-    if (!name.trim()) { Alert.alert('Validation', 'Name cannot be empty.'); return; }
+    if (!name.trim()) { themedAlert('Validation', 'Name cannot be empty.'); return; }
     if (username !== originalUsername && !usernameValid) {
-      Alert.alert('Validation', 'Username can only contain letters, numbers and underscores (3–30 chars).');
+      themedAlert('Validation', 'Username can only contain letters, numbers and underscores (3–30 chars).');
       return;
     }
     if (usernameStatus === 'taken') {
-      Alert.alert('Validation', 'That username is already taken.');
+      themedAlert('Validation', 'That username is already taken.');
       return;
     }
 
@@ -354,7 +355,7 @@ export default function EditProfileScreen() {
       });
       await refreshUser();
 
-      Alert.alert('Saved!', 'Your profile has been updated.', [
+      themedAlert('Saved!', 'Your profile has been updated.', [
         { text: 'OK', onPress: returnToProfile },
       ]);
     } catch (e: any) {
@@ -364,7 +365,7 @@ export default function EditProfileScreen() {
         mediaService.cancleUpload(mediaId).catch(() => {});
       });
       pendingMediaRef.current = [];
-      Alert.alert('Error', e.response?.data?.message || 'Failed to save profile. Please try again.');
+      themedAlert('Error', e.response?.data?.message || 'Failed to save profile. Please try again.');
     } finally {
       setSaving(false);
     }

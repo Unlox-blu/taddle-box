@@ -9,7 +9,7 @@ import {
   ActivityIndicator,
   FlatList,
   Image,
-  Alert,
+
   RefreshControl,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -28,6 +28,7 @@ import { presenceIndicator } from "../../context/PresenceContext";
 import CommentsModal from "../home/CommentsModal";
 import PresenceDot from "../common/PresenceDot";
 import { notificationService } from "../../services/notification.service";
+import { themedAlert } from '../common/ThemedAlert';
 
 const { width } = Dimensions.get("window");
 
@@ -528,7 +529,7 @@ export default function SharedProfile({
   const openPostHandledRef = useRef<string | null>(null);
 
   const handleDeletePost = async (post: any) => {
-    Alert.alert("Delete Post", "Are you sure you want to delete this post?", [
+    themedAlert("Delete Post", "Are you sure you want to delete this post?", [
       { text: "Cancel", style: "cancel" },
       {
         text: "Delete",
@@ -825,7 +826,7 @@ export default function SharedProfile({
     // Private account + not an approved follower: counts stay visible but the
     // list itself is gated (same rule the backend enforces with a 403).
     if (isLocked) {
-      Alert.alert(
+      themedAlert(
         "Private Account",
         `Follow @${user?.username || "user"} to see their ${type === "followers" ? "followers" : "following"}.`
       );
@@ -1685,7 +1686,7 @@ function FollowListModal({
       onFollowerRemoved?.();
     } catch (e) {
       console.warn("Failed to remove follower", e);
-      Alert.alert("Error", "Failed to remove follower. Please try again.");
+      themedAlert("Error", "Failed to remove follower. Please try again.");
     }
   };
 

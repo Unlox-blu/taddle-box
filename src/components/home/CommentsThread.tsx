@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   View, Text, FlatList, TouchableOpacity, Image,
-  StyleSheet, ActivityIndicator, Alert,
+  StyleSheet, ActivityIndicator, 
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
@@ -16,6 +16,7 @@ import { commentService, Comment } from '../../services/comment.service';
 import { usePosts } from '../../context/PostsContext';
 import { useQueryClient } from '@tanstack/react-query';
 import type { Post, HomeStackParamList } from '../../types';
+import { themedAlert } from '../common/ThemedAlert';
 
 interface Props {
   post: Post;
@@ -458,7 +459,7 @@ export default function CommentsThread({
   };
 
   const deleteComment = (comment: Comment) => {
-    Alert.alert(
+    themedAlert(
       'Delete comment',
       'Are you sure you want to delete this comment?',
       [

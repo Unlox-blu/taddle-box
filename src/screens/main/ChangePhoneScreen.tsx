@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { View, StyleSheet, TouchableOpacity, Text, ScrollView, Alert, KeyboardAvoidingView, Platform, TextInput } from 'react-native';
+import { View, StyleSheet, TouchableOpacity, Text, ScrollView,  KeyboardAvoidingView, Platform, TextInput } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { NativeStackScreenProps } from '@react-navigation/native-stack';
@@ -11,6 +11,7 @@ import Button from '../../components/common/Button';
 import { authService } from '../../services/auth.service';
 import { useAuth } from '../../context/AuthContext';
 import { maskEmail } from '../../utils/mask.util';
+import { themedAlert } from '../../components/common/ThemedAlert';
 
 type Props = NativeStackScreenProps<HomeStackParamList, 'ChangePhone'>;
 
@@ -99,7 +100,7 @@ export default function ChangePhoneScreen({ navigation }: Props) {
       await authService.requestChangePhoneOtp({ newCountryCode: countryCode, newPhone: phone });
       setTimer(30);
     } catch (e: any) {
-      Alert.alert('Error', e.response?.data?.message || 'Failed to resend OTPs');
+      themedAlert('Error', e.response?.data?.message || 'Failed to resend OTPs');
     } finally {
       setLoading(false);
     }
@@ -162,7 +163,7 @@ export default function ChangePhoneScreen({ navigation }: Props) {
       setLoading(true);
       await authService.verifyChangePhoneOtp({ emailOtp: eOtp, phoneOtp: pOtp });
       await refreshUser();
-      Alert.alert('Success', 'Phone number updated successfully.', [
+      themedAlert('Success', 'Phone number updated successfully.', [
         { text: 'OK', onPress: () => navigation.goBack() }
       ]);
     } catch (e: any) {

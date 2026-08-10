@@ -1,12 +1,13 @@
 import React, { useEffect, useState, useRef, useCallback } from 'react';
 import {
-  View, Text, StyleSheet, TextInput, TouchableOpacity, Alert,
+  View, Text, StyleSheet, TextInput, TouchableOpacity, 
   Dimensions, PanResponder, FlatList, KeyboardAvoidingView, Platform, Animated, Image,
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import type { HtmlGameResult } from '../../games/types';
 import { createGameEngineSocket } from '../../services/socketClient';
 import { gameSound } from '../../services/gameSound';
+import { themedAlert } from '../common/ThemedAlert';
 
 const { width, height } = Dimensions.get('window');
 const CANVAS_W = width - 24;
@@ -165,7 +166,7 @@ export default function ScribbleGame({ matchId, userId, wsToken, players, extern
       const allScores = Object.values<number>(ps?.scores || { _: 0 });
       const maxScore = allScores.length ? Math.max(...allScores) : 0;
       const won = myScore >= maxScore && myScore > 0;
-      Alert.alert(
+      themedAlert(
         won ? '🎨 You Won!' : '😔 Good Try!',
         `Your score: ${myScore} pts`,
         [{ text: 'OK', onPress: () => onComplete({ score: myScore, won, xpEarned: won ? 50 : 10, durationSeconds: 0 }) }]
@@ -178,7 +179,7 @@ export default function ScribbleGame({ matchId, userId, wsToken, players, extern
       if (msg.includes('Incorrect') || msg.includes('wrong') || msg.includes('not correct')) {
         // silently ignore — chat will reflect
       } else {
-        Alert.alert('Error', msg);
+        themedAlert('Error', msg);
       }
     });
 

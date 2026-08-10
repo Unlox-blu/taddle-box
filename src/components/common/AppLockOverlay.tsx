@@ -3,7 +3,7 @@ import {
   StyleSheet,
   AppState,
   AppStateStatus,
-  Alert,
+
   TouchableOpacity,
   Text,
   Modal,
@@ -18,6 +18,7 @@ import PinPad from "./PinPad";
 import { authService } from "../../services/auth.service";
 import { useAuth } from "../../context/AuthContext";
 import { appLockBypass } from "../../utils/appLockBypass";
+import { themedAlert } from './ThemedAlert';
 
 export default function AppLockOverlay() {
   const colors = useThemeColors();
@@ -114,7 +115,7 @@ export default function AppLockOverlay() {
   };
 
   const handleLogout = () => {
-    Alert.alert(
+    themedAlert(
       "Log Out",
       "Are you sure you want to log out? This will bring you back to the login screen.",
       [

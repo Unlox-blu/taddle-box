@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { View, Text, StyleSheet, FlatList, TouchableOpacity, ActivityIndicator, Alert, Image } from 'react-native';
+import { View, Text, StyleSheet, FlatList, TouchableOpacity, ActivityIndicator,  Image } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useNavigation, useRoute, type RouteProp } from '@react-navigation/native';
 import { Ionicons } from '@expo/vector-icons';
@@ -7,6 +7,7 @@ import { useThemeColors, useTheme } from '../../context/ThemeContext';
 import { fontSizes, spacing, radii } from '../../theme';
 import { communityService } from '../../services/community.service';
 import type { CommunityStackParamList } from '../../types';
+import { themedAlert } from '../../components/common/ThemedAlert';
 
 type Route = RouteProp<CommunityStackParamList, 'ManageRequests'>;
 
@@ -29,7 +30,7 @@ export default function ManageRequestsScreen() {
       const res = await communityService.getRequests(communityId);
       setRequests(res.data || []);
     } catch (e: any) {
-      Alert.alert('Error', 'Failed to load requests');
+      themedAlert('Error', 'Failed to load requests');
     } finally {
       setLoading(false);
     }
@@ -40,7 +41,7 @@ export default function ManageRequestsScreen() {
       await communityService.approveRequest(communityId, userId);
       setRequests(prev => prev.filter(r => r.user_id !== userId));
     } catch (e) {
-      Alert.alert('Error', 'Failed to approve request');
+      themedAlert('Error', 'Failed to approve request');
     }
   };
 
@@ -49,7 +50,7 @@ export default function ManageRequestsScreen() {
       await communityService.rejectRequest(communityId, userId);
       setRequests(prev => prev.filter(r => r.user_id !== userId));
     } catch (e) {
-      Alert.alert('Error', 'Failed to reject request');
+      themedAlert('Error', 'Failed to reject request');
     }
   };
 

@@ -7,7 +7,7 @@ import React, {
 } from "react";
 import {
   ActivityIndicator,
-  Alert,
+
   Animated,
   Easing,
   Image,
@@ -61,6 +61,7 @@ import type { User } from "../../types";
 import { useAuth } from "../../context/AuthContext";
 import TournamentLeaderboardModal from "../../components/games/TournamentLeaderboardModal";
 import { gameSound, useGameSoundPrefs } from "../../services/gameSound";
+import { themedAlert } from '../../components/common/ThemedAlert';
 
 type ActiveTab = "games" | "tournaments" | "history";
 type ScreenModal = "none" | "history";
@@ -288,7 +289,7 @@ export default function GamesScreen() {
           prev.map((item) => (item.id === tournament.id ? res.data : item)),
         );
       } catch (error: any) {
-        Alert.alert(
+        themedAlert(
           "Tournament Error",
           error.response?.data?.message || "Could not join tournament.",
         );
@@ -296,7 +297,7 @@ export default function GamesScreen() {
     };
 
     if (tournament.entryFeeXP > 0 && !tournament.isJoined) {
-      Alert.alert("Join Tournament", `Entry fee: ${tournament.entryFeeXP} XP`, [
+      themedAlert("Join Tournament", `Entry fee: ${tournament.entryFeeXP} XP`, [
         { text: "Cancel", style: "cancel" },
         { text: "Join", onPress: run },
       ]);
@@ -400,7 +401,7 @@ export default function GamesScreen() {
           });
         })
         .catch((err: any) => {
-          Alert.alert(
+          themedAlert(
             "Error",
             err?.response?.data?.message || "Failed to initialize the game session.",
           );
@@ -594,7 +595,7 @@ export default function GamesScreen() {
                       return;
                     }
                     if (!user || user.xp < (game.entryFee || 0)) {
-                      Alert.alert(
+                      themedAlert(
                         "Insufficient XP",
                         `You need ${game.entryFee || 0} XP to play ${game.name}.`,
                       );
@@ -1193,7 +1194,7 @@ function GamePlayModal({
         return;
       }
       completingRef.current = false;
-      Alert.alert(
+      themedAlert(
         "Game Error",
         error.response?.data?.message || "Could not save your game result.",
       );

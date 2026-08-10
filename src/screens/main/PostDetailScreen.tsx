@@ -1,7 +1,7 @@
 import React, { useMemo, useRef, useState, useEffect, useCallback } from 'react';
 import {
   View, Text, TouchableOpacity,
-  StyleSheet, Alert, Platform, KeyboardAvoidingView, Share, BackHandler,
+  StyleSheet,  Platform, KeyboardAvoidingView, Share, BackHandler,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { StatusBar } from 'expo-status-bar';
@@ -15,6 +15,7 @@ import { useAuth } from '../../context/AuthContext';
 import { postsService } from '../../services/posts.service';
 import PostCard from '../../components/home/PostCard';
 import CommentsThread from '../../components/home/CommentsThread';
+import { themedAlert } from '../../components/common/ThemedAlert';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'PostDetail'>;
 
@@ -239,7 +240,7 @@ export default function PostDetailScreen({ navigation, route }: Props) {
   }, [author.id, livePost, navigation]);
 
   const handleDelete = useCallback(() => {
-    Alert.alert(
+    themedAlert(
       'Delete post',
       'Are you sure you want to delete this post? This cannot be undone.',
       [
@@ -253,7 +254,7 @@ export default function PostDetailScreen({ navigation, route }: Props) {
               removeFromCaches(initialPost.id);
               handleBack();
             } catch (e) {
-              Alert.alert('Error', 'Could not delete the post. Please try again.');
+              themedAlert('Error', 'Could not delete the post. Please try again.');
             }
           },
         },
@@ -262,7 +263,7 @@ export default function PostDetailScreen({ navigation, route }: Props) {
   }, [initialPost.id, navigation, removeFromCaches, handleBack]);
 
   const handleReport = useCallback(() => {
-    Alert.alert('Reported', 'Thank you. This post has been reported for review.');
+    themedAlert('Reported', 'Thank you. This post has been reported for review.');
   }, []);
 
   // Comments streaming in below keep the card's count live.

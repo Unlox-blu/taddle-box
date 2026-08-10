@@ -1,6 +1,6 @@
 import React, { useMemo, useState, useEffect } from 'react';
 import {
-  View, Text, ScrollView, TouchableOpacity, Alert,
+  View, Text, ScrollView, TouchableOpacity, 
   StyleSheet,
   RefreshControl,
   Image,
@@ -20,6 +20,7 @@ import MainHeader from '../../components/common/MainHeader';
 import type { Event } from '../../types';
 import { useEvents } from '../../queries/events';
 import { useToggleEventRegister } from '../../mutations/events';
+import { themedAlert } from '../../components/common/ThemedAlert';
 
 const FILTERS = ['All', 'Live', 'Online', 'Offline', 'Contest'];
 
@@ -326,7 +327,7 @@ export default function EventsScreen() {
 
     // Paid events are paid in XP (never real money) — confirm the XP spend.
     if (!isReg && !ev.isFree && ev.xpPrice) {
-      Alert.alert(
+      themedAlert(
         'Join with XP',
         `This event costs ${ev.xpPrice.toLocaleString()} XP. Continue?`,
         [
@@ -341,7 +342,7 @@ export default function EventsScreen() {
     }
 
     if (isReg) {
-      Alert.alert(
+      themedAlert(
         'Cancel Registration',
         'Are you sure you want to cancel your registration?',
         [

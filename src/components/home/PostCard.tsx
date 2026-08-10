@@ -9,7 +9,7 @@ import {
   Image,
   Dimensions,
   ScrollView,
-  Alert,
+
   Modal,
   KeyboardAvoidingView,
   Platform,
@@ -34,6 +34,7 @@ import { queryKeys } from "../../lib/queryKeys";
 import PresenceDot from "../common/PresenceDot";
 import SmartInput from "../common/SmartInput";
 import { useMyCommunities } from "../../queries/communities";
+import { themedAlert } from '../common/ThemedAlert';
 
 const SCREEN_W = Dimensions.get("window").width;
 const CARD_W = SCREEN_W - spacing.lg * 2;
@@ -623,7 +624,7 @@ export default function PostCard({
     } catch (e) {
       // Roll back the optimistic flip so the icon doesn't stay desynced.
       flipRepostInCaches(false, -1);
-      Alert.alert("Error", "Failed to repost. Please try again.");
+      themedAlert("Error", "Failed to repost. Please try again.");
       console.warn("Repost failed", e);
     } finally {
       setRepostBusy(false);
@@ -642,7 +643,7 @@ export default function PostCard({
     } catch (e) {
       // Roll back the optimistic flip so the icon doesn't stay desynced.
       flipRepostInCaches(true, 1);
-      Alert.alert("Error", "Failed to remove repost. Please try again.");
+      themedAlert("Error", "Failed to remove repost. Please try again.");
       console.warn("Unrepost failed", e);
     } finally {
       setRepostBusy(false);

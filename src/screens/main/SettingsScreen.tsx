@@ -6,10 +6,8 @@ import {
   TouchableOpacity,
   ScrollView,
   Switch,
-  Alert,
+
   Linking,
-  Platform,
-  ActionSheetIOS,
   Image,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -29,6 +27,7 @@ import * as SecureStore from "expo-secure-store";
 import * as LocalAuthentication from "expo-local-authentication";
 import { useFocusEffect } from "@react-navigation/native";
 import type { HomeStackParamList } from "../../types";
+import { themedAlert, themedPrompt } from '../../components/common/ThemedAlert';
 
 type NavProp = NativeStackNavigationProp<HomeStackParamList, "Settings">;
 
@@ -101,7 +100,7 @@ const maskPhone = (phone?: string, countryCode?: string) => {
   const toggleBiometric = async () => {
     // Biometric can only be enabled if PIN (App Lock) is set first
     if (!CURRENT_USER?.appLockEnabled) {
-      Alert.alert(
+      themedAlert(
         "PIN Required",
         "Please enable Global App Lock (PIN) before turning on biometric authentication.",
         [
@@ -126,7 +125,7 @@ const maskPhone = (phone?: string, countryCode?: string) => {
         const hasHardware = await LocalAuthentication.hasHardwareAsync();
         const isEnrolled = await LocalAuthentication.isEnrolledAsync();
         if (!hasHardware || !isEnrolled) {
-          Alert.alert(
+          themedAlert(
             "Not Supported",
             "Biometrics are not supported or not enrolled on this device.",
           );
@@ -158,7 +157,7 @@ const maskPhone = (phone?: string, countryCode?: string) => {
     const current =
       options.find((o) => o.value === themePreference)?.label ??
       "System Default";
-    Alert.alert("App Theme", `Currently: ${current}`, [
+    themedAlert("App Theme", `Currently: ${current}`, [
       ...options.map((o) => ({
         text: o.label,
         onPress: () => setThemePreference(o.value),
@@ -176,14 +175,14 @@ const maskPhone = (phone?: string, countryCode?: string) => {
       updateUser({ privacy: next ? "public" : "private" });
       const accepted = res?.data?.accepted;
       if (next && accepted) {
-        Alert.alert(
+        themedAlert(
           "Requests accepted",
           `${accepted} pending follow request${accepted === 1 ? "" : "s"} ${accepted === 1 ? "was" : "were"} accepted automatically.`,
         );
       }
     } catch (e) {
       setPublicAccount(old);
-      Alert.alert(
+      themedAlert(
         "Error",
         "Failed to update privacy settings. Please try again.",
       );
@@ -191,7 +190,7 @@ const maskPhone = (phone?: string, countryCode?: string) => {
   };
 
   const handleLogout = () => {
-    Alert.alert("Log Out", "Are you sure you want to log out?", [
+    themedAlert("Log Out", "Are you sure you want to log out?", [
       { text: "Cancel", style: "cancel" },
       {
         text: "Log Out",
@@ -202,71 +201,40 @@ const maskPhone = (phone?: string, countryCode?: string) => {
   };
 
   const handleDeleteAccount = () => {
-    if (Platform.OS === 'ios') {
-      Alert.prompt(
-        "Delete Account",
-        "This action is permanent and cannot be undone. Type 'DELETE' to confirm.",
-        [
-          { text: "Cancel", style: "cancel" },
-          {
-            text: "Delete",
-            style: "destructive",
-            onPress: async (text?: string) => {
-              if (text !== "DELETE") {
-                Alert.alert("Error", "You must type DELETE to confirm.");
-                return;
-              }
-              try {
-                await authService.deleteAccount();
-                await signOut();
-              } catch (e: any) {
-                Alert.alert("Error", e.message || "Failed to delete account");
-              }
-            },
+    // In-app themed prompt (works on both platforms) — the user must type
+    // DELETE to confirm the permanent deletion.
+    themedPrompt(
+      "Delete Account",
+      "This action is permanent and cannot be undone. Type 'DELETE' to confirm.",
+      [
+        { text: "Cancel", style: "cancel" },
+        {
+          text: "Delete",
+          style: "destructive",
+          onPress: async (text?: string) => {
+            if (text !== "DELETE") {
+              themedAlert("Error", "You must type DELETE to confirm.");
+              return;
+            }
+            try {
+              await authService.deleteAccount();
+              await signOut();
+            } catch (e: any) {
+              themedAlert("Error", e.message || "Failed to delete account");
+            }
           },
-        ],
-        "plain-text",
-      );
-    } else {
-      Alert.alert(
-        "Delete Account",
-        "This action is permanent and cannot be undone. Are you absolutely sure you want to delete your account?",
-        [
-          { text: "Cancel", style: "cancel" },
-          {
-            text: "Delete",
-            style: "destructive",
-            onPress: async () => {
-              try {
-                await authService.deleteAccount();
-                await signOut();
-              } catch (e: any) {
-                Alert.alert("Error", e.message || "Failed to delete account");
-              }
-            },
-          },
-        ]
-      );
-    }
+        },
+      ],
+      "plain-text",
+    );
   };
 
   const handleLanguagePicker = () => {
-    if (Platform.OS === "ios") {
-      ActionSheetIOS.showActionSheetWithOptions(
-        {
-          options: ["Cancel", "English (Default)"],
-          cancelButtonIndex: 0,
-        },
-        (buttonIndex) => {
-          // Only English available for now
-        },
-      );
-    } else {
-      Alert.alert("Language", "Select your preferred language", [
-        { text: "Cancel", style: "cancel" },
-        { text: "English (Default)", onPress: () => {} },
-      ]);
-    }
+    // In-app themed picker (works on both platforms).
+    themedAlert("Language", "Select your preferred language", [
+      { text: "Cancel", style: "cancel" },
+      { text: "English (Default)", onPress: () => {} },
+    ]);
   };
 
   const handleAppVersionCheck = async () => {
@@ -277,7 +245,7 @@ const maskPhone = (phone?: string, countryCode?: string) => {
       const currentVersion = "1.0.0"; // Hardcoded for now
 
       if (config.latestVersion && config.latestVersion > currentVersion) {
-        Alert.alert(
+        themedAlert(
           "Update Available",
           `Version ${config.latestVersion} is available. Would you like to update now?`,
           [
@@ -292,13 +260,13 @@ const maskPhone = (phone?: string, countryCode?: string) => {
           ],
         );
       } else {
-        Alert.alert(
+        themedAlert(
           "Up to Date ✅",
           "You are running the latest version of Taddle.",
         );
       }
     } catch (err) {
-      Alert.alert(
+      themedAlert(
         "Error",
         "Failed to check for updates. Please try again later.",
       );
@@ -310,7 +278,7 @@ const maskPhone = (phone?: string, countryCode?: string) => {
   const handleRateApp = () => {
     Linking.openURL(storeUrl || "https://play.google.com/store");
     setTimeout(() => {
-      Alert.alert("Thank you! ⭐", "Your support means a lot to us.");
+      themedAlert("Thank you! ⭐", "Your support means a lot to us.");
     }, 1000);
   };
 
@@ -483,7 +451,7 @@ const maskPhone = (phone?: string, countryCode?: string) => {
               // Going public auto-accepts every pending follow request — warn
               // the user before flipping the switch.
               if (next) {
-                Alert.alert(
+                themedAlert(
                   "Make account public?",
                   "Switching to a public account will automatically accept all of your pending follow requests. You can't undo this by going private again.",
                   [
@@ -564,7 +532,7 @@ const maskPhone = (phone?: string, countryCode?: string) => {
             label="Clear Location Data"
             description="Delete your captured location history"
             onPress={() => {
-              Alert.alert(
+              themedAlert(
                 "Clear Location Data",
                 "This deletes your captured device location history. Your declared profile location is not affected.",
                 [
@@ -575,12 +543,12 @@ const maskPhone = (phone?: string, countryCode?: string) => {
                     onPress: async () => {
                       try {
                         await userService.clearLocationData();
-                        Alert.alert(
+                        themedAlert(
                           "Cleared",
                           "Your captured location history has been deleted.",
                         );
                       } catch (e) {
-                        Alert.alert(
+                        themedAlert(
                           "Error",
                           "Failed to clear location data. Please try again.",
                         );

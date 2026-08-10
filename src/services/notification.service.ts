@@ -61,6 +61,9 @@ export const notificationService = {
       else if (rawType.includes('EVENT')) mappedType = 'event';
       else if (rawType === 'WALLET_CREDIT' || rawType === 'REFERRAL_REWARD' || rawType === 'LEVEL_UP') mappedType = 'achievement';
       else if (rawType === 'GAME_INVITE') mappedType = 'game_invite';
+      // Streak reminders / milestone rewards → the Home tab (the streak popup
+      // lives there), never to a post or profile.
+      else if (rawType === 'STREAK_AT_RISK' || rawType === 'STREAK_REWARD') mappedType = 'streak';
 
       let payload: any = undefined;
       let text = n.message || '';

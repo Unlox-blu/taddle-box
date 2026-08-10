@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { View, StyleSheet, TouchableOpacity, Text, ScrollView, Alert, KeyboardAvoidingView, Platform, TextInput, Animated } from 'react-native';
+import { View, StyleSheet, TouchableOpacity, Text, ScrollView,  KeyboardAvoidingView, Platform, TextInput, Animated } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { NativeStackScreenProps } from '@react-navigation/native-stack';
@@ -11,6 +11,7 @@ import Button from '../../components/common/Button';
 import { authService } from '../../services/auth.service';
 import { useAuth } from '../../context/AuthContext';
 import { maskEmail, maskPhone } from '../../utils/mask.util';
+import { themedAlert } from '../../components/common/ThemedAlert';
 
 type Props = NativeStackScreenProps<HomeStackParamList, 'ChangePassword'>;
 const OTP_LENGTH = 6;
@@ -232,7 +233,7 @@ export default function ChangePasswordScreen({ navigation }: Props) {
           newPassword,
         });
       }
-      Alert.alert('Success', 'Your password has been reset successfully.', [
+      themedAlert('Success', 'Your password has been reset successfully.', [
         { text: 'OK', onPress: () => navigation.goBack() }
       ]);
     } catch (e: any) {

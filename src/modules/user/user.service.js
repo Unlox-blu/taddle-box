@@ -179,23 +179,60 @@ class UserService {
     const ids = [...new Set((userIds || []).filter(Boolean))].slice(0, 50);
     const result = {};
     if (!ids.length) return result;
+    const redis = require('../../config/redis');
     const pool = require('../../config/database');
 
-    const { rows: followRows } = await pool.query(
-      `SELECT following_id FROM followers
-       WHERE follower_id = $1 AND following_id = ANY($2::uuid[]) AND status = 'active'`,
-      [viewerId, ids]
-    );
-    const allowed = new Set(ids.filter((id) => id === viewerId));
-    followRows.forEach((r) => allowed.add(r.following_id));
+    // The two authz checks below are cached in Redis (60s TTL) so a warm batch
+    // costs zero SQL — presence polling is chatty by nature, and the client's
+    // freshness window means the same viewer repeats the same id set, so the
+    // cache absorbs nearly all of it. Only first access (or TTL expiry) hits
+    // Postgres.
 
-    const { rows: settingsRows } = await pool.query(
-      `SELECT user_id, activity_status FROM settings WHERE user_id = ANY($1::uuid[])`,
-      [ids]
+    // Allow-list: self + users the viewer actively follows.
+    const followsKey = `presence:follows:${viewerId}`;
+    let allowed = null;
+    const cachedFollows = await redis.get(followsKey).catch(() => null);
+    if (cachedFollows) {
+      try {
+        allowed = new Set(JSON.parse(cachedFollows));
+      } catch {
+        allowed = null; // corrupt value → rebuild from DB
+      }
+    }
+    if (!allowed) {
+      const { rows: followRows } = await pool.query(
+        `SELECT following_id FROM followers
+         WHERE follower_id = $1 AND status = 'active'`,
+        [viewerId]
+      );
+      allowed = new Set(followRows.map((r) => r.following_id));
+      allowed.add(viewerId);
+      redis.setex(followsKey, 60, JSON.stringify([...allowed])).catch(() => {});
+    }
+
+    // Per-user Activity Status visibility (defaults to visible when no row).
+    const settings = new Map();
+    const cachedVis = await Promise.all(
+      ids.map((id) => redis.get(`presence:setting:${id}`).catch(() => null))
     );
-    const settings = new Map(
-      settingsRows.map((r) => [r.user_id, r.activity_status !== false])
-    );
+    const missIds = [];
+    ids.forEach((id, i) => {
+      if (cachedVis[i] === null) missIds.push(id);
+      else settings.set(id, cachedVis[i] === '1');
+    });
+    if (missIds.length > 0) {
+      const { rows: settingsRows } = await pool.query(
+        `SELECT user_id, activity_status FROM settings WHERE user_id = ANY($1::uuid[])`,
+        [missIds]
+      );
+      const byId = new Map(settingsRows.map((r) => [r.user_id, r.activity_status !== false]));
+      missIds.forEach((id) => {
+        // No settings row → Activity Status is visible (the app's default).
+        const visible = byId.has(id) ? byId.get(id) : true;
+        settings.set(id, visible);
+        redis.setex(`presence:setting:${id}`, 60, visible ? '1' : '0').catch(() => {});
+      });
+    }
 
     for (const id of ids) {
       if (!allowed.has(id) || settings.get(id) === false) {

@@ -119,7 +119,7 @@ const LIST_FIELDS_QUALIFIED = [
   'n.resource_type', 'n.resource_id', 'n.is_read', 'n.read_at', 'n.created_at',
 ].join(', ');
 
-const findByUser = async (userId, limit, offset, unreadOnly = false) => {
+const findByUser = async (userId, limit, offset, unreadOnly = false, type = null) => {
   try {
     const { rows } = await pool.query(
       `SELECT ${LIST_FIELDS_QUALIFIED},
@@ -130,9 +130,10 @@ const findByUser = async (userId, limit, offset, unreadOnly = false) => {
       LEFT JOIN users u ON u.id = n.sender_id
       LEFT JOIN media avatar_media ON avatar_media.id = u.avatar_url
       WHERE n.recipient_id = $1 AND ($4 = FALSE OR n.is_read = FALSE)
+        AND ($5::text IS NULL OR n.type = $5)
       ORDER BY n.created_at DESC 
       LIMIT $2 OFFSET $3`,
-      [userId, limit, offset, unreadOnly]
+      [userId, limit, offset, unreadOnly, type]
     );
     const total = rows[0]?.total || 0;
     const notifications = rows.map((row) => ({

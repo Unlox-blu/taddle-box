@@ -72,7 +72,56 @@ const updateById = async (id) => {
     }
 }
 
+// Freeze the streak after a missed day: opens the 24h restore window.
+const freeze = async (id, deadline) => {
+    try {
+        const { rows } = await pool.query(
+            `UPDATE ${StreakModel.TABLE}
+            SET restore_deadline = $2, updated_at = CURRENT_TIMESTAMP
+            WHERE id = $1
+            RETURNING *`,
+            [id, deadline]
+        )
+        return StreakModel.format(rows[0]);
+    } catch (error) {
+        throw error
+    }
+}
+
+// Revive a frozen streak: close the restore window and bring end_date to
+// today so the streak continues from here. Count is intentionally unchanged.
+const restore = async (id) => {
+    try {
+        const { rows } = await pool.query(
+            `UPDATE ${StreakModel.TABLE}
+            SET restore_deadline = NULL, end_date = CURRENT_DATE, updated_at = CURRENT_TIMESTAMP
+            WHERE id = $1
+            RETURNING *`,
+            [id]
+        )
+        return StreakModel.format(rows[0]);
+    } catch (error) {
+        throw error
+    }
+}
+
+// Record the highest rewarded day so a milestone is only paid out once per row.
+const markRewarded = async (id, day) => {
+    try {
+        const { rows } = await pool.query(
+            `UPDATE ${StreakModel.TABLE}
+            SET last_rewarded_day = GREATEST(last_rewarded_day, $2), updated_at = CURRENT_TIMESTAMP
+            WHERE id = $1
+            RETURNING *`,
+            [id, day]
+        )
+        return StreakModel.format(rows[0]);
+    } catch (error) {
+        throw error
+    }
+}
+
 
 module.exports = {
-    create, updateById, findManyByUserId, findOneByUserId
+    create, updateById, freeze, restore, markRewarded, findManyByUserId, findOneByUserId
 }

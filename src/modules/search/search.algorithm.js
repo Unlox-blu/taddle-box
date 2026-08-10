@@ -111,6 +111,17 @@ const SEARCH_POSt_ALGORITHM = `SELECT
                             WHERE
                                 p.deleted_at IS NULL
                                 AND p.status = 'published'
+                                -- Reposts whose ORIGINAL is gone (deleted /
+                                -- unpublished) are hidden — nothing to show.
+                                AND (
+                                    p.repost_of_id IS NULL
+                                    OR EXISTS (
+                                        SELECT 1 FROM posts orig
+                                        WHERE orig.id = p.repost_of_id
+                                          AND orig.deleted_at IS NULL
+                                          AND orig.status = 'published'
+                                    )
+                                )
                                 AND (
                                     p.visibility = 'public'
                                     OR (
@@ -417,6 +428,17 @@ const DISCOVER_POSTS_ALGORITHM = `WITH ranked_posts AS (
                                                 p.deleted_at IS NULL
                                     
                                                 AND p.status = 'published'
+                                    
+                                                -- Reposts whose ORIGINAL is gone are hidden.
+                                                AND (
+                                                    p.repost_of_id IS NULL
+                                                    OR EXISTS (
+                                                        SELECT 1 FROM posts orig
+                                                        WHERE orig.id = p.repost_of_id
+                                                          AND orig.deleted_at IS NULL
+                                                          AND orig.status = 'published'
+                                                    )
+                                                )
                                     
                                                 AND (
                                     

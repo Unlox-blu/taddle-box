@@ -21,6 +21,9 @@ const paginationQuerySchema = z.object({
     .positive({ message: 'Limit must be greater than zero' })
     .max(100, 'Maximum limit allowed is 100')
     .default(10).optional(),
+
+  type: z.string().max(50).optional(),
+  unread: z.enum(['true', 'false']).optional(),
 }).strict();
 
 

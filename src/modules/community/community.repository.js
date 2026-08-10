@@ -50,7 +50,7 @@ const findBySlug = async (slug, userId = null) => {
   }
 };
 
-const findManyCommunity = async ({limit, offset, userId = null}) => {
+const findManyCommunity = async ({limit, offset, userId = null, search = null, mine = false}) => {
   try {
     const {rows} = await pool.query(
       `SELECT ${CommunityModel.LIST_FIELDS},
@@ -70,9 +70,15 @@ const findManyCommunity = async ({limit, offset, userId = null}) => {
       WHERE c.deleted_at IS NULL AND c.is_active = TRUE
         AND (privacy = 'public' OR c.owner_id = $3
           OR EXISTS (SELECT 1 FROM ${CommunityModel.MEMBERS_TABLE} cm WHERE cm.community_id = c.id AND cm.user_id = $3 AND cm.status = 'active'))
+        -- Name search (audience picker) — case-insensitive substring.
+        AND ($4::text IS NULL OR c.name ILIKE '%' || $4 || '%')
+        -- mine=true → only communities the user can post to (joined or owned),
+        -- so the audience picker paginates cleanly instead of filtering after.
+        AND ($5::boolean = FALSE OR c.owner_id = $3
+          OR EXISTS (SELECT 1 FROM ${CommunityModel.MEMBERS_TABLE} cm WHERE cm.community_id = c.id AND cm.user_id = $3 AND cm.status = 'active'))
       ORDER BY member_count DESC
       LIMIT $1 OFFSET $2`,
-      [limit, offset, userId]
+      [limit, offset, userId, search, mine]
     )
     const total = rows[0] ? rows[0].total : 0
     const communities = rows.length ? rows.map(CommunityModel.format) : []
@@ -250,6 +256,17 @@ const updateMemberRole = async (communityId, userId, role) => {
   }
 };
 
+const updateOwner = async (communityId, ownerId) => {
+  try {
+    await pool.query(
+      `UPDATE ${CommunityModel.TABLE} SET owner_id = $1 WHERE id = $2`,
+      [ownerId, communityId]
+    );
+  } catch (error) {
+    throw error;
+  }
+};
+
 const getMembers = async (communityId, status, limit, offset) => {
   try {
     const { rows } = await pool.query(
@@ -257,10 +274,58 @@ const getMembers = async (communityId, status, limit, offset) => {
      FROM ${CommunityModel.MEMBERS_TABLE} cm
      JOIN users u ON u.id = cm.user_id
      LEFT JOIN media ua ON u.avatar_url = ua.id
+     JOIN ${CommunityModel.TABLE} c ON c.id = cm.community_id
      WHERE cm.community_id = $1 AND cm.status = $2
-     ORDER BY cm.joined_at DESC
+     -- Owner first, then admins/moderators, then everyone else — so the
+     -- member list always leads with leadership regardless of page size.
+     ORDER BY
+       CASE WHEN cm.user_id = c.owner_id THEN 0
+            WHEN cm.role IN ('admin','moderator') THEN 1
+            ELSE 2 END,
+       cm.joined_at ASC
      LIMIT $3 OFFSET $4`,
       [communityId, status, limit, offset]
+    );
+    const total = rows[0]?.total || 0;
+    return { rows, total: parseInt(total, 10) };
+  } catch (error) {
+    throw error;
+  }
+};
+
+// Record a moderation action (kick, role change, ownership transfer, request
+// decision, community-post removal) against the community's moderation log.
+const logModeration = async ({ communityId, actorId, action, targetUserId = null, postId = null, details = {} }) => {
+  try {
+    await pool.query(
+      `INSERT INTO community_moderation_log
+        (community_id, actor_id, action, target_user_id, post_id, details)
+       VALUES ($1, $2, $3, $4, $5, $6)`,
+      [communityId, actorId, action, targetUserId, postId, JSON.stringify(details)]
+    );
+  } catch (error) {
+    throw error;
+  }
+};
+
+// Paginated moderation log, newest first. Joins the actor + target names so
+// the app can render a readable "who did what to whom" row without extra calls.
+const getModerationLog = async (communityId, limit, offset) => {
+  try {
+    const { rows } = await pool.query(
+      `SELECT l.*,
+              a.name AS actor_name, a.username AS actor_username,
+              ua.cloudfront_url AS actor_avatar,
+              t.name AS target_name, t.username AS target_username,
+              COUNT(*) OVER() AS total
+     FROM community_moderation_log l
+     JOIN users a ON a.id = l.actor_id
+     LEFT JOIN media ua ON ua.id = a.avatar_url
+     LEFT JOIN users t ON t.id = l.target_user_id
+     WHERE l.community_id = $1
+     ORDER BY l.created_at DESC
+     LIMIT $2 OFFSET $3`,
+      [communityId, limit, offset]
     );
     const total = rows[0]?.total || 0;
     return { rows, total: parseInt(total, 10) };
@@ -378,6 +443,9 @@ module.exports = {
   updateMemberStatus,
   updateMemberRole,
   getMembers,
+  logModeration,
+  getModerationLog,
+  updateOwner,
   incrementMemberCount,
   decrementMemberCount,
   incrementPostCount,

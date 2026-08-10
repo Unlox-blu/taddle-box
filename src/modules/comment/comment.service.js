@@ -47,12 +47,14 @@ class CommentService {
       // Compute nested thread path + depth
       let depth = 0;
       let path = [];
+      let parentComment = null;
       if (parentId) {
         const parent = await this.commentRepo.findById(parentId);
         if (!parent) throw createError("Parent comment not found", 404);
         if (parent.depth >= 5) throw createError("Maximum reply depth exceeded", 400);
         depth = parent.depth + 1;
         path = [...(parent.path || []), parent.id];
+        parentComment = parent;
       }
 
       const comment = await this.commentRepo.create({
@@ -79,7 +81,14 @@ class CommentService {
 
       // Mention notifications: @handles in the comment text notify the mentioned
       // users (never the comment author or the post owner — the owner already
-      // gets the COMMENT notification above).
+      // gets the COMMENT notification above). Handles both the plain `@user`
+      // form and the composer's structured `{@}[user](id)` form.
+      const mentionedIds = new Set();
+      const structuredMatches = content.match(/\{@\}\[[^\]]+\]\([^)]+\)/g) || [];
+      structuredMatches.forEach((m) => {
+        const idMatch = m.match(/\{@\}\[[^\]]+\]\(([^)]+)\)/);
+        if (idMatch && idMatch[1]) mentionedIds.add(idMatch[1]);
+      });
       const mentionMatches = content.match(/@(\w+)/g) || [];
       const mentionedUsernames = [...new Set(mentionMatches.map(m => m.slice(1)))];
       for (const username of mentionedUsernames) {
@@ -97,6 +106,37 @@ class CommentService {
           }
         }).catch(e => console.error(`Failed to find user ${username}`, e));
       }
+      for (const id of mentionedIds) {
+        if (id === authorId || id === post.author_id) continue;
+        this.notifSvc.create({
+          type: 'MENTION',
+          recipientId: id,
+          senderId: user.id,
+          resourceId: post.id,
+          resourceType: 'post',
+          title: 'New mention',
+          // The comment id rides in the message (| <id> suffix, same pattern
+          // as game invites) so the app can deep-link and auto-scroll to the
+          // exact comment that mentioned the user.
+          message: `${user.name} mentioned you in a comment | ${comment.id}`,
+        }).catch(e => console.error('Failed to notify mentioned user', e));
+      }
+
+      // Reply notification: ping the PARENT comment's author when someone
+      // replies to their comment. Skipped when the reply is their own, and when
+      // the parent author IS the post owner (they already got the COMMENT
+      // notification above) — no duplicate pings.
+      if (parentComment && parentComment.author_id !== authorId && parentComment.author_id !== postAuthorId) {
+        this.notifSvc.create({
+          type: 'REPLY',
+          recipientId: parentComment.author_id,
+          senderId: user.id,
+          resourceId: post.id,
+          resourceType: 'post',
+          title: 'New reply',
+          message: `${user.name} replied to your comment`,
+        }).catch(e => console.error('Failed to notify comment reply', e));
+      }
 
       this.feedSvc.updatePreferences({userId: authorId, categories: post.category || [], tags: post.tags || []});
       return CommentModel.format(comment);
@@ -105,7 +145,7 @@ class CommentService {
     }
   }
 
-  async getComments({ postId, userId, parentId, limit, offset }) {
+  async getComments({ postId, userId, parentId, limit, offset, sort }) {
     try {
       const post = await this.postRepo.findById(postId);
       if (!post) throw createError('Post not found', 404);
@@ -126,8 +166,21 @@ class CommentService {
           throw createError("You must follow the post author to access this post comment", 403);
       }
 
-      const { rows, total } = await this.commentRepo.findByPost(postId, limit, offset, parentId, userId);
+      const { rows, total } = await this.commentRepo.findByPost(postId, limit, offset, parentId, userId, sort);
       return { comments: rows.map(CommentModel.format), total };
+    } catch (error) {
+      throw error;
+    }
+  }
+
+  // Single comment (for deep-linking a mention/reply straight to it). Returns
+  // the formatted comment so the client can scroll to it (and its parent if it
+  // is a nested reply).
+  async getComment({ commentId }) {
+    try {
+      const comment = await this.commentRepo.findById(commentId);
+      if (!comment) throw createError('Comment not found', 404);
+      return CommentModel.format(comment);
     } catch (error) {
       throw error;
     }

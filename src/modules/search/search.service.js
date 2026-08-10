@@ -91,6 +91,18 @@ class SearchService {
         this.searchRepo.getHashtags(query),
       ]);
 
+      // Ordered section list. The app renders the "All" tab in EXACTLY this
+      // order (and repeats a type verbatim if a section ever appears twice), so
+      // the server owns the layout — the client never reorders or merges.
+      const sections = [
+        { type: 'people', items: people.rows },
+        { type: 'communities', items: communities.rows },
+        { type: 'events', items: events.rows },
+        { type: 'games', items: games.rows },
+        { type: 'posts', items: posts.rows },
+        { type: 'hashtags', items: hashtags },
+      ].filter((s) => Array.isArray(s.items) && s.items.length > 0);
+
       return {
         dataType: 'all',
         data: {
@@ -100,6 +112,7 @@ class SearchService {
           games: games.rows,
           posts: posts.rows,
           hashtags: hashtags,
+          sections,
         },
         total: people.total + communities.total + events.total + games.total + posts.total,
       };
@@ -120,6 +133,15 @@ class SearchService {
         this.getHashtags(),
       ]);
 
+      const sections = [
+        { type: 'people', items: people.data },
+        { type: 'communities', items: communities.data },
+        { type: 'events', items: events.data },
+        { type: 'games', items: games.data },
+        { type: 'posts', items: posts.data },
+        { type: 'hashtags', items: hashtags },
+      ].filter((s) => Array.isArray(s.items) && s.items.length > 0);
+
       return {
         dataType: 'all',
         data: {
@@ -129,6 +151,7 @@ class SearchService {
           games: games.data,
           posts: posts.data,
           hashtags: hashtags,
+          sections,
         },
         total: people.total + communities.total + events.total + games.total + posts.total,
       };

@@ -5,6 +5,7 @@ const emailJobProcessor = require('../email/email.jobprocessor');
 const notificationJobProcessor = require('../notification/notification.jobprocessor');
 const videoJobProcessor = require('../video/video.jobprocessor');
 const smsJobProcessor = require('../sms/sms.jobprocessor');
+const streakJobProcessor = require('../streak/streak.jobprocessor');
 
 const jobProcessor = async (job) => {
       logger.info(`[JobWorker] Processing job: ${job.name}`, { id: job.id });
@@ -23,6 +24,9 @@ const jobProcessor = async (job) => {
           break;
         case 'sms':
           await smsJobProcessor(job);
+          break;
+        case 'streak':
+          await streakJobProcessor(job);
           break;
         default:
           logger.warn(`[JobWorker] Unknown job type: ${job.name}`);

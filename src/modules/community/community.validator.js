@@ -54,6 +54,14 @@ const communityIdAndUserIdParamsSchema = z.object({
   userId: z.string().uuid({ message: 'Invalid user ID format' })
 }).strict();
 
+const updateMemberRoleSchema = z.object({
+  role: z.enum(['admin', 'member'])
+}).strict();
+
+const transferOwnershipSchema = z.object({
+  userId: z.string().uuid({ message: 'Invalid user ID format' })
+}).strict();
+
 const paginationQuerySchema = z.object({
   page: z.coerce
     .number({ invalid_type_error: 'Page must be a number' })
@@ -67,6 +75,10 @@ const paginationQuerySchema = z.object({
     .positive({ message: 'Limit must be greater than zero' })
     .max(100, 'Maximum limit allowed is 100')
     .default(10).optional(),
+
+  search: z.string().trim().max(60, 'Search too long').optional(),
+
+  mine: z.enum(['true', 'false', '1', '0']).optional(),
 }).strict();
 
-module.exports = { createCommunitySchema, updateCommunitySchema, updateAvatarSchema, updateBannerSchema, slugParamsSchema, communityIdParamsSchema, communityIdAndUserIdParamsSchema, paginationQuerySchema };
+module.exports = { createCommunitySchema, updateCommunitySchema, updateAvatarSchema, updateBannerSchema, slugParamsSchema, communityIdParamsSchema, communityIdAndUserIdParamsSchema, updateMemberRoleSchema, transferOwnershipSchema, paginationQuerySchema };

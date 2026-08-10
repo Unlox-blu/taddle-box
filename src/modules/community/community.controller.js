@@ -34,8 +34,12 @@ class CommunityController {
     try {
       const userId = req.userId
       const { limit, offset, page } = getPaginationParams(req.query);
-      const {communities, total} = await this.communitySvc.discoverCommunity({userId, limit, offset});
-      res.json(apiResponse(communities, 'Community fetched successfully', paginationMeta(total, page, limit)));
+      const search = req.query.search ? String(req.query.search).trim() : null
+      const mine = req.query.mine === 'true' || req.query.mine === '1'
+      const {communities, total, sections} = await this.communitySvc.discoverCommunity({userId, limit, offset, search, mine});
+      // sections rides alongside the paginated flat list — the client splits
+      // the list by its own rules but renders in the server-provided order.
+      res.json({...apiResponse(communities, 'Community fetched successfully', paginationMeta(total, page, limit)), sections});
     } catch (error) {
       next(error);
     }
@@ -124,8 +128,41 @@ class CommunityController {
       const { communityId } = req.params;
       const userId = req.userId;
       const { limit, offset, page } = getPaginationParams(req.query);
-      const { rows, total } = await this.communitySvc.getMembers({ communityId, userId, limit, offset });
-      res.json(apiResponse(rows, 'Members fetched', paginationMeta(total, page, limit)));
+      const { rows, total, ownerId, viewerRole } = await this.communitySvc.getMembers({ communityId, userId, limit, offset });
+      // ownerId + viewerRole ride alongside so the app can show the right
+      // per-member actions (make/remove admin, transfer ownership, kick).
+      res.json({ ...apiResponse(rows, 'Members fetched', paginationMeta(total, page, limit)), ownerId, viewerRole });
+    } catch (error) {
+      next(error);
+    }
+  };
+
+  updateMemberRole = async (req, res, next) => {
+    try {
+      const { communityId, userId: targetUserId } = req.params;
+      const { role } = req.body;
+      const result = await this.communitySvc.updateMemberRole({
+        communityId,
+        targetUserId,
+        userId: req.userId,
+        role,
+      });
+      res.json(apiResponse(result, 'Member role updated'));
+    } catch (error) {
+      next(error);
+    }
+  };
+
+  transferOwnership = async (req, res, next) => {
+    try {
+      const { communityId } = req.params;
+      const { userId: targetUserId } = req.body;
+      const community = await this.communitySvc.transferOwnership({
+        communityId,
+        userId: req.userId,
+        targetUserId,
+      });
+      res.json(apiResponse(community, 'Ownership transferred'));
     } catch (error) {
       next(error);
     }
@@ -162,6 +199,18 @@ class CommunityController {
       const userRole = req.userRole;
       await this.communitySvc.approveMember({communityId, targetUserId, userId, userRole});
       res.json(apiResponse(null, 'Member approved'));
+    } catch (error) {
+      next(error);
+    }
+  };
+
+  getModerationLog = async (req, res, next) => {
+    try {
+      const { communityId } = req.params;
+      const userId = req.userId;
+      const { limit, offset, page } = getPaginationParams(req.query);
+      const { rows, total } = await this.communitySvc.getModerationLog({ communityId, userId, limit, offset });
+      res.json(apiResponse(rows, 'Moderation log fetched', paginationMeta(total, page, limit)));
     } catch (error) {
       next(error);
     }

@@ -120,6 +120,27 @@ const DEFAULT_NOTIFICATION_DEFINITIONS = {
     priority: PRIORITY.LOW,
     category: 'social',
   },
+  // Streak is about to break / a 24-hour restore window is open — urgent
+  // enough to push immediately so the user comes back to save the streak.
+  STREAK_AT_RISK: {
+    save: true,
+    socket: true,
+    push: true,
+    batch: false,
+    delay: 0,
+    priority: PRIORITY.HIGH,
+    category: 'system',
+  },
+  // Milestone reward earned (every 7th day) — celebratory.
+  STREAK_REWARD: {
+    save: true,
+    socket: true,
+    push: true,
+    batch: false,
+    delay: 0,
+    priority: PRIORITY.MEDIUM,
+    category: 'rewards',
+  },
 };
 
 const TYPE_ALIASES = {

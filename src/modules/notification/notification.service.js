@@ -68,12 +68,13 @@ class NotificationService {
     return total;
   }
 
-  async getAll({ userId, limit, offset, unreadOnly }) {
+  async getAll({ userId, limit, offset, unreadOnly, type }) {
     const { notifications, total } = await this.notifRepo.findByUser(
       userId,
       limit,
       offset,
-      unreadOnly
+      unreadOnly,
+      type || null
     );
     const unreadCount = await this.notifRepo.getUnreadCount(userId);
 
@@ -109,6 +110,66 @@ class NotificationService {
         const rel = await followersRepository.findByFollowerIdAndFollowingId(n.senderId, userId);
         n.requestActive = !!(rel && rel.status === 'pending');
       }
+    }
+
+    // Thumbnail enrichment: give the app a small preview image for rows that
+    // reference content (post media, community avatar, game cover) so the list
+    // renders a proper thumbnail instead of an empty gap. One batched query per
+    // resource kind — never N+1 — and any failure just skips the thumbnail.
+    try {
+      const pool = require('../../config/database');
+      const postRows = notifications.filter(
+        (n) => n.resourceType === 'post' && n.resourceId
+      );
+      if (postRows.length > 0) {
+        const ids = [...new Set(postRows.map((n) => n.resourceId))];
+        const { rows } = await pool.query(
+          `SELECT DISTINCT ON (m.post_id) m.post_id, m.cloudfront_url
+           FROM media m
+           WHERE m.post_id = ANY($1::uuid[]) AND (m.media_type IS NULL OR m.media_type <> 'audio')
+           ORDER BY m.post_id, m.created_at ASC`,
+          [ids]
+        );
+        const thumbByPost = Object.fromEntries(
+          rows.map((r) => [r.post_id, r.cloudfront_url])
+        );
+        postRows.forEach((n) => { n.thumbnailUrl = thumbByPost[n.resourceId] || null; });
+      }
+
+      const communityRows = notifications.filter(
+        (n) => n.resourceType === 'community' && n.resourceId
+      );
+      if (communityRows.length > 0) {
+        const ids = [...new Set(communityRows.map((n) => n.resourceId))];
+        const { rows } = await pool.query(
+          `SELECT c.id, m.cloudfront_url AS avatar_url
+           FROM communities c
+           LEFT JOIN media m ON m.id = c.avatar_url
+           WHERE c.id = ANY($1::uuid[]) AND c.deleted_at IS NULL`,
+          [ids]
+        );
+        const thumbByCommunity = Object.fromEntries(
+          rows.map((r) => [r.id, r.avatar_url])
+        );
+        communityRows.forEach((n) => { n.thumbnailUrl = thumbByCommunity[n.resourceId] || null; });
+      }
+
+      const gameRows = notifications.filter(
+        (n) => n.resourceType === 'game_lobby' && n.resourceId
+      );
+      if (gameRows.length > 0) {
+        const ids = [...new Set(gameRows.map((n) => n.resourceId))];
+        const { rows } = await pool.query(
+          `SELECT id, thumbnail FROM game WHERE id = ANY($1::uuid[])`,
+          [ids]
+        );
+        const thumbByGame = Object.fromEntries(
+          rows.map((r) => [r.id, r.thumbnail])
+        );
+        gameRows.forEach((n) => { n.thumbnailUrl = thumbByGame[n.resourceId] || null; });
+      }
+    } catch (e) {
+      // Enrichment failure must never break the notifications list.
     }
 
     return { notifications, total, unreadCount };

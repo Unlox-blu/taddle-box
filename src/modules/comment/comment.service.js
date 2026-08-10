@@ -31,14 +31,14 @@ class CommentService {
 
       const author = await this.userRepo.findById(postAuthorId);
 
-      if (post.community_id && post.community_privacy !== 'public') {
+      if (post.community_id && post.community_privacy !== 'public' && postAuthorId !== authorId) {
         //do authorization
         const isMember = await this.communityRepo.isMember(post.community_id, authorId);
 
         if (!isMember || isMember.status !== 'active') {
           throw createError("You are not allowed to comment on this community post", 403);
         }
-      } else if (author.privacy !== 'public') {
+      } else if (author.privacy !== 'public' && postAuthorId !== authorId) {
         const isFollow = await this.followerRepo.findByFollowerIdAndFollowingId(authorId, postAuthorId);
         if (!isFollow || isFollow.status !== 'active')
           throw createError("You must follow the post author to access this post", 403);
@@ -113,14 +113,14 @@ class CommentService {
 
       const author = await this.userRepo.findById(authorId);
 
-      if (post.community_id && post.community_privacy !== 'public') {
+      if (post.community_id && post.community_privacy !== 'public' && userId !== authorId) {
         //do authorization
         const isMember = await this.communityRepo.isMember(post.community_id, authorId);
 
         if (!isMember || isMember.status !== 'active') {
           throw createError("You are not allowed to get the comment of this community post", 403);
         }
-      } else if (author.privacy !== 'public') {
+      } else if (author.privacy !== 'public' && userId !== authorId) {
         const isFollow = await this.followerRepo.findByFollowerIdAndFollowingId(userId, authorId);
         if (!isFollow || isFollow.status !== 'active')
           throw createError("You must follow the post author to access this post comment", 403);

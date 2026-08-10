@@ -114,8 +114,18 @@ const SEARCH_POSt_ALGORITHM = `SELECT
                                 AND (
                                     p.visibility = 'public'
                                     OR (
-                                        p.visibility = 'community'
-                                        AND c.privacy <> 'private'
+                                        p.visibility = 'community_only'
+                                        AND c.privacy != 'private'
+                                    )
+                                    OR (
+                                        p.visibility = 'community_only'
+                                        OR EXISTS (
+                                        SELECT 1
+                                        FROM community_members cm
+                                        WHERE 
+                                            cm.community_id = p.community_id 
+                                            AND cm.user_id = $4
+                                    )
                                     )
                                 )
                                 AND (
@@ -416,18 +426,24 @@ const DISCOVER_PEOPLE_ALGORITHM = `
                                     `                                        
 
 const HASHTAGS_ALGORITHM = `SELECT
-                                LOWER(t.tag) AS hashtag,
-                                COUNT(*) AS count
+                                LOWER(TRIM(t.tag)) AS hashtag,
+                                COUNT(DISTINCT p.id) AS count,
+                                MAX(p.published_at) AS latest_post_at
                             FROM posts p
                             CROSS JOIN LATERAL unnest(p.tags) AS t(tag)
                             WHERE
                                 p.tags IS NOT NULL
                                 AND p.deleted_at IS NULL
                                 AND p.status = 'published'
-                                AND p.visibility = 'public'
-                                AND t.tag ILIKE $1
-                            GROUP BY LOWER(t.tag)
-                            ORDER BY count DESC, hashtag
+                                AND (
+                                    $1 = ''
+                                    OR LOWER(TRIM(t.tag)) ILIKE '%' || LOWER(TRIM($1)) || '%'
+                                )
+                            GROUP BY LOWER(TRIM(t.tag))
+                            ORDER BY
+                                CASE WHEN $1 = '' THEN MAX(p.published_at) END DESC,
+                                count DESC,
+                                hashtag ASC
                             LIMIT 15;`         
                     
 module.exports = {SEARCH_USER_ALGORITHM, SEARCH_COMMUNITY_ALGORITHM, SEARCH_POSt_ALGORITHM, SEARCH_EVENT_ALGORITHM, SEARCH_GAMES_ALGORITHM, DISCOVER_POSTS_ALGORITHM, DISCOVER_COMMUNITY_ALGORITHM, DISCOVER_PEOPLE_ALGORITHM, HASHTAGS_ALGORITHM}                            

@@ -295,8 +295,36 @@ const setupGameSocket = (io) => {
     let state;
     try {
       const players = [...(socket.matchPlayers || [])];
-      // Inject lobby bots (AUTO/CUSTOM flow) so the engine includes them as players
+      // Inject lobby bots (AUTO/CUSTOM flow) so the engine includes them as
+      // players. This runs BEFORE the seat reorder so bots pick up their
+      // assigned color (setupBotPlayer/_assignBotColor) — the reorder below
+      // then just moves entries around.
       botHandler.setupBotPlayer(socket, players);
+      // SEAT ORDER: matchmaking already randomizes playerSnapshots (a per-match
+      // corner/color rotation in game.repository.js). Apply that SAME order to
+      // the engine players so the board placement actually follows it —
+      // otherwise the engine seats players by join order and the host is
+      // always the first seat (red in ludo). The snapshots include the lobby
+      // bots, so the full seating (real + bot) stays in sync with the client's
+      // identity extraction (which reads the same playerSnapshots).
+      const seatSnaps = socket.matchMetadata?.playerSnapshots;
+      if (Array.isArray(seatSnaps) && seatSnaps.length > 0) {
+        const byId = new Map(players.map((p) => [String(p.userId ?? p.id), p]));
+        const ordered = seatSnaps
+          .map((s) => byId.get(String(s.id)))
+          .filter((p) => !!p);
+        // Append any player not covered by the snapshots (defensive) so the
+        // seating count stays exact.
+        const seen = new Set(ordered.map((p) => String(p.userId ?? p.id)));
+        players.forEach((p) => {
+          if (!seen.has(String(p.userId ?? p.id))) {
+            ordered.push(p);
+            seen.add(String(p.userId ?? p.id));
+          }
+        });
+        players.length = 0;
+        players.push(...ordered);
+      }
       // Keep the enriched list on the socket so READY detects bot matches correctly
       socket.matchPlayers = players;
 

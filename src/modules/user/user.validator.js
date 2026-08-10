@@ -10,10 +10,19 @@ const usernameRules = z
 
 const transformToLowerCase = (val) => typeof val === 'string' ? val.trim().toLowerCase() : val
 
+// Every editable profile field the users table exposes — matches the signup
+// form so users can change anything they set at registration.
 const updateProfileSchema = z.object({
   name: z.string().min(2).max(100).optional(),
   bio: z.string().max(500, 'Bio cannot exceed 500 characters').optional(),
   websiteUrl: z.string().url('Invalid URL').optional().or(z.literal('')),
+  location: z.string().max(255, 'Location is too long').optional().or(z.literal('')),
+  organization: z.string().max(255, 'Organization is too long').optional().or(z.literal('')),
+  occupation: z.enum(['Student', 'Working Professional', 'Self-employed / Freelancer', 'Other'], { errorMap: () => ({ message: 'Invalid occupation' }) }).optional(),
+  gender: z.enum(['male', 'female', 'other'], { errorMap: () => ({ message: 'Invalid gender' }) }).optional(),
+  // 'YYYY-MM-DD' — validated as a real calendar date, not just any string.
+  dateOfBirth: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Invalid date of birth').optional(),
+  interests: z.array(z.string().max(60, 'Interest is too long')).max(30, 'Too many interests').optional(),
 }).strict();
 
 const updateUsernameSchema = z.object({

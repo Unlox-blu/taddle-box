@@ -40,6 +40,12 @@ class BotSession {
         // Seeded RNG for this session
         // Using matchId and botId to ensure deterministic but unique randomness per match
         this.rng = seedrandom(`${matchId}-${botId}`);
+
+        // One-action-at-a-time guard: true while the bot has a turn action
+        // scheduled (or in flight). Duplicate onTurn drives (e.g. a
+        // pause/resume or reconnect re-driving the same bot) are dropped so a
+        // bot never machine-guns ROLL + MOVE back-to-back.
+        this.busy = false;
     }
 
     // Helper for bots to get a seeded random number
@@ -50,6 +56,9 @@ class BotSession {
     setTimeout(fn, delay) {
         const id = setTimeout(() => {
             this.timers.delete(id);
+            // The scheduled action is firing — the bot is free to be driven
+            // again for its next action.
+            this.busy = false;
             fn();
         }, delay);
         this.timers.add(id);
@@ -73,6 +82,9 @@ class BotSession {
     }
 
     submitMove(move) {
+        // A submitted action releases the guard (covers bots that act
+        // synchronously inside onTurn without a timer).
+        this.busy = false;
         if (this.engineCallback) {
             this.engineCallback(this.botId, move);
         }
@@ -130,7 +142,19 @@ class BotManager {
 
     onTurn(matchId, gameSlug, state, botId, engineCallback) {
         const session = this._getOrCreateSession(matchId, gameSlug, botId, engineCallback);
+        // One action at a time per bot. If a turn is already scheduled (a
+        // pause/resume or reconnect can re-drive the same bot's turn while the
+        // previous action is still pending), drop the duplicate so the bot's
+        // pacing (e.g. Ludo's 2s roll → move → roll cadence) never collapses
+        // into simultaneous rolls + moves.
+        if (session.busy) return;
+        session.busy = true;
+        const timersBefore = session.timers.size;
         this._invokePlugin(gameSlug, 'onTurn', session, state);
+        // A no-op turn (no timer scheduled, no move submitted — e.g. a plugin
+        // branch that has nothing to do yet) must not wedge the bot: release
+        // the guard so a later drive can still act.
+        if (session.busy && session.timers.size === timersBefore) session.busy = false;
     }
 
     onReconnect(matchId, gameSlug, state, botId) {
@@ -143,7 +167,11 @@ class BotManager {
     onPause(matchId, gameSlug, state, botId) {
         const matchSessions = this.sessions.get(matchId);
         if (matchSessions && matchSessions.has(botId)) {
-            this._invokePlugin(gameSlug, 'onPause', matchSessions.get(botId), state);
+            const session = matchSessions.get(botId);
+            // Release the guard so the plugin's onPause can cancel the pending
+            // action and resume re-drives the bot with a fresh one.
+            session.busy = false;
+            this._invokePlugin(gameSlug, 'onPause', session, state);
         }
     }
 

@@ -2,11 +2,13 @@
 
 const GamePlugin = require('../GamePlugin');
 
-const START_POSITIONS = { 0: 0, 1: 13, 2: 26, 3: 39 }; // Step on the path
 // Length of the SHARED track loop (mirrors the client's LUDO_PATH — 52 cells,
-// 13 per player, starts at 0/13/26/39). Absolute positions on the loop are
-// always modulo this value. Positions 52–56 are each player's exclusive home
-// column (never shared, never captured); 57 is home.
+// 13 per player). Token positions are RELATIVE to the player's own start:
+// pos 0 is their start square, pos 51 is the last loop cell before their home
+// column, and the ABSOLUTE loop index is (START_POSITIONS[pi] + pos) % 52.
+// The client renders the same way (PLAYER_PATH_OFFSET + pos), so keeping
+// positions relative keeps the board, home-lane entry and captures in sync.
+const START_POSITIONS = { 0: 0, 1: 13, 2: 26, 3: 39 }; // absolute loop index of each player's start
 const LOOP_LEN = 52;
 // Absolute loop indices of the safe cells — the four start cells plus the four
 // middle-cross cells — where a capture cannot happen. Mirrors the client's
@@ -110,7 +112,11 @@ class LudoPlugin extends GamePlugin {
       const token = newTokens[userId].find(t => t.id === tokenId);
 
       if (token.pos === -1 && diceValue === 6) {
-        token.pos = START_POSITIONS[playerIndex];
+        // Enter at the player's OWN start square (relative pos 0). The client
+        // renders (PLAYER_PATH_OFFSET[pi] + pos), so absolute starts (13/26/39)
+        // used to displace every non-red player to the wrong loop segment and
+        // teleport coins diagonally across the board at the home-lane entry.
+        token.pos = 0;
       } else if (token.pos >= 0) {
         token.pos = Math.min(57, token.pos + diceValue);
       }

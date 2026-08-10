@@ -700,7 +700,7 @@ const joinMatchmaking = async ({ userId, game, mode, tournamentId, targetPlayers
       [lobby.id]
     );
 
-    const playerSnapshots = playersRes.rows.map((r, index) => ({
+    let playerSnapshots = playersRes.rows.map((r, index) => ({
       id: r.user_id,
       username: r.username,
       displayName: r.name,
@@ -881,7 +881,7 @@ const fillMatchmakingLobby = async ({ userId, ticketId, overrideLobbyId, fillBot
       [lobby.id]
     );
 
-    const playerSnapshots = playersRes.rows.map((r, index) => ({
+    let playerSnapshots = playersRes.rows.map((r, index) => ({
       id: r.user_id,
       username: r.username,
       displayName: r.name,

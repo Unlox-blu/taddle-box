@@ -59,6 +59,14 @@ router.delete(
   postController.deletePost
 );
 
+// Record a post impression — called when a post thread is opened. Fire-and-
+// forget server-side; never throws on a deleted post.
+router.post(
+  '/:postId/view',
+  verifyToken,
+  validateRequest({ params: postIdParamsSchema }),
+  postController.recordView
+);
 router.post(
   '/:postId/like',
   verifyToken,

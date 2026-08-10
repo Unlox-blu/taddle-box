@@ -189,7 +189,12 @@ class PostService {
       const isOwner = post.author_id === userId;
       const isMod = ['admin', 'moderator', 'superadmin'].includes(userRole);
       if (!isOwner && !isMod) throw createError('Not authorized to delete this post', 403);
-      await this.postRepo.setRepostNull(postId);
+      // NOTE: repost rows intentionally KEEP their repost_of_id link to the
+      // soft-deleted original. Detaching it (setRepostNull) turns every repost
+      // of a deleted post into a bare, content-less card; keeping the link lets
+      // the app resolve the original, get a 404, and show "Original post is
+      // unavailable" — the expected UX. softDelete hides the row from all
+      // queries (findById filters deleted_at IS NULL) so nothing leaks.
       await this.postRepo.softDelete(postId);
       this.userRepo.decrementPostCount(post.author_id).catch(err => console.error('User post decrement failed:', err));
       if (post.community_id) {
@@ -198,6 +203,19 @@ class PostService {
 
     } catch (error) {
       throw error;
+    }
+  }
+
+  // Record a post impression (thread opened). Idempotent-per-call: each open
+  // counts once. Fire-and-forget friendly — never throws on a missing post so
+  // a stale deep link can't 500 the thread screen.
+  async recordView({postId}) {
+    try {
+      const post = await this.postRepo.findById(postId);
+      if (!post) return;
+      await this.postRepo.incrementViewCount(postId);
+    } catch (error) {
+      console.error('Failed to record post view:', error);
     }
   }
 

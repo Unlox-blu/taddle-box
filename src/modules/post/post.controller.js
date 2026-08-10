@@ -69,6 +69,16 @@ class PostController {
     }
   };
 
+  recordView = async (req, res, next) => {
+    try {
+      const { postId } = req.params;
+      await this.postSvc.recordView({ postId });
+      res.json(apiResponse(null, 'View recorded'));
+    } catch (error) {
+      next(error);
+    }
+  };
+
   likePost = async (req, res, next) => {
     try {
       const { postId } = req.params;

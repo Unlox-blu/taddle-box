@@ -43,12 +43,25 @@ const findByIdPrivate = async (id) => {
 
 const updateProfile = async (userId, fields) => {
   try {
-    const allowedFields = ['name', 'bio', 'website_url'];
+    // Every editable column on users — mirror of the signup form.
+    const allowedFields = ['name', 'bio', 'website_url', 'location', 'organization', 'occupation', 'gender', 'date_of_birth', 'interests'];
     const updates = [];
     const values = [];
     Object.entries(fields).forEach(([k, v]) => {
       const col = k.replace(/([A-Z])/g, '_$1').toLowerCase();
       if (allowedFields.includes(col)) {
+        // Empty-string clears a nullable text field (keeps it in the SET list
+        // so the column actually becomes NULL instead of staying stale).
+        if (v === '' && col !== 'interests') {
+          values.push(null);
+          updates.push(`${col} = $${values.length}`);
+          return;
+        }
+        if (col === 'interests') {
+          values.push(JSON.stringify(v));
+          updates.push(`${col} = $${values.length}`);
+          return;
+        }
         values.push(v);
         updates.push(`${col} = $${values.length}`);
       }

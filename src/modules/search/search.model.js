@@ -25,14 +25,14 @@ const EVENT_FIELDS = [
 ].join(', ');
 
 const POST_FIELDS = [
-  'p.id', 'p.author_id', 'p.community_id', 'p.title', 'p.content',
+  'p.id', 'p.author_id', 'p.community_id', 'p.title', 'p.content', 'p.repost_of_id',
   'p.media', 'p.tags', 'p.status', 'p.visibility',
   'p.likes_count', 'p.comments_count', 'p.shares_count', 'p.views_count',
   'p.is_pinned', 'p.published_at', 'p.created_at',
   'u.name AS author_name', 'u.username AS author_username',
   'ua.cloudfront_url AS author_avatar',
   'c.name AS community_name', 'c.slug   AS community_slug', 'c.privacy AS community_privacy',
-  'ca.cloudfront_url AS community_avatar',
+  'ca.cloudfront_url AS community_avatar', 'repost_data'
 ].join(', ');
 
 // Games are returned as-is (matches game module's formatGame shape) so the app

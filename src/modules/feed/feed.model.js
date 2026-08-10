@@ -36,49 +36,166 @@ const sanitize = (row) => {
   return safe;
 };
 
+// const format = (row) => {
+//   if (!row) return null;
+//   return {
+//     id: row.id,
+//     title: row.title,
+//     content: row.content,
+//     media: row.media || [],
+//     tags: row.tags || [],
+//     category: row.category || [],
+//     status: row.status,
+//     visibility: row.visibility,
+//     repostOfId: row.repost_of_id,
+//     repostedByMe: row.is_reposted || false,
+//     likesCount: row.likes_count,
+//     commentsCount: row.comments_count,
+//     sharesCount: row.shares_count,
+//     viewsCount: row.views_count,
+//     isPinned: row.is_pinned,
+//     isLiked: row.is_liked || false,
+//     isSaved: row.is_bookmarked || false,
+//     isXpClaimed: row.is_xp_claimed || false,
+//     pollData: row.poll_data || null,
+//     linkData: row.link_data || null,
+//     author: {
+//       id: row.author_id,
+//       name: row.author_name,
+//       username: row.author_username,
+//       avatarUrl: row.author_avatar,
+//       isVerified: row.author_is_verified,
+//       repostsEnabled: row.author_reposts_enabled !== false,
+//     },
+//     community: row.community_id ? {
+//       id: row.community_id,
+//       name: row.community_name,
+//       slug: row.community_slug,
+//       avatarUrl: row.community_avatar,
+//       privacy: row.community_privacy,
+//     } : null,
+//     publishedAt: row.published_at,
+//     createdAt: row.created_at,
+//     updatedAt: row.updated_at,
+//   };
+// };
+
+
 const format = (row) => {
   if (!row) return null;
+
+  const formatRepostData = (repost) => {
+    if (!repost) return null;
+
+    return {
+      id: repost.id,
+
+      title: repost.title,
+      content: repost.content,
+
+      media: repost.media || [],
+      tags: repost.tags || [],
+      category: repost.category || [],
+
+      status: repost.status,
+      visibility: repost.visibility,
+
+      repostOfId: repost.repost_of_id,
+
+      likesCount: repost.likes_count || 0,
+      commentsCount: repost.comments_count || 0,
+      sharesCount: repost.shares_count || 0,
+      viewsCount: repost.views_count || 0,
+
+      isPinned: repost.is_pinned || false,
+
+      publishedAt: repost.published_at,
+      createdAt: repost.created_at,
+      updatedAt: repost.updated_at,
+
+      author: repost.author
+        ? {
+            id: repost.author.id,
+            name: repost.author.name,
+            username: repost.author.username,
+            avatarUrl: repost.author.avatarUrl,
+            isVerified: repost.author.isVerified || false,
+            repostsEnabled: repost.author.repostsEnabled !== false,
+          }
+        : null,
+
+      community: repost.community
+        ? {
+            id: repost.community.id,
+            name: repost.community.name,
+            slug: repost.community.slug,
+            avatarUrl: repost.community.avatarUrl,
+            privacy: repost.community.privacy,
+          }
+        : null,
+    };
+  };
+
   return {
     id: row.id,
+
     title: row.title,
     content: row.content,
+
     media: row.media || [],
     tags: row.tags || [],
     category: row.category || [],
+
     status: row.status,
     visibility: row.visibility,
+
     repostOfId: row.repost_of_id,
+
+    // Original / parent post
+    repostData: formatRepostData(row.repost_data),
+
     repostedByMe: row.is_reposted || false,
-    likesCount: row.likes_count,
-    commentsCount: row.comments_count,
-    sharesCount: row.shares_count,
-    viewsCount: row.views_count,
-    isPinned: row.is_pinned,
+
+    likesCount: row.likes_count || 0,
+    commentsCount: row.comments_count || 0,
+    sharesCount: row.shares_count || 0,
+    viewsCount: row.views_count || 0,
+
+    isPinned: row.is_pinned || false,
+
     isLiked: row.is_liked || false,
     isSaved: row.is_bookmarked || false,
     isXpClaimed: row.is_xp_claimed || false,
+
     pollData: row.poll_data || null,
     linkData: row.link_data || null,
+
     author: {
       id: row.author_id,
       name: row.author_name,
       username: row.author_username,
       avatarUrl: row.author_avatar,
-      isVerified: row.author_is_verified,
+      isVerified: row.author_is_verified || false,
       repostsEnabled: row.author_reposts_enabled !== false,
     },
-    community: row.community_id ? {
-      id: row.community_id,
-      name: row.community_name,
-      slug: row.community_slug,
-      avatarUrl: row.community_avatar,
-      privacy: row.community_privacy,
-    } : null,
+
+    community: row.community_id
+      ? {
+          id: row.community_id,
+          name: row.community_name,
+          slug: row.community_slug,
+          avatarUrl: row.community_avatar,
+          privacy: row.community_privacy,
+        }
+      : null,
+
     publishedAt: row.published_at,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   };
 };
+
+
 
 module.exports = {
   TABLE, LIKES_TABLE, VIEWS_TABLE,

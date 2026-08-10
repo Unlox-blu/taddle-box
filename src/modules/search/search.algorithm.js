@@ -313,7 +313,105 @@ const DISCOVER_POSTS_ALGORITHM = `WITH ranked_posts AS (
                                     
                                             LEFT JOIN media m 
                                                 ON p.id = m.post_id
-                                    
+                                            
+                                            /*
+                                            * Parent post.
+                                            *
+                                            * IMPORTANT:
+                                            * There are NO privacy/status/community visibility checks here.
+                                            * We simply fetch the post referenced by repost_of_id.
+                                            */
+                                            LEFT JOIN LATERAL (
+                                                SELECT
+                                                    jsonb_build_object(
+
+                                                        'id', parent.id,
+                                                        'author_id', parent.author_id,
+                                                        'community_id', parent.community_id,
+                                                        'repost_of_id', parent.repost_of_id,
+
+                                                        'title', parent.title,
+                                                        'content', parent.content,
+
+                                                        'media', COALESCE(
+                                                            (
+                                                                SELECT json_agg(
+                                                                    json_build_object(
+                                                                        'id', pm.id,
+                                                                        'media_type', pm.media_type,
+                                                                        'cloudfront_url', pm.cloudfront_url,
+                                                                        'width', pm.width,
+                                                                        'height', pm.height,
+                                                                        's3_key', pm.s3_key,
+                                                                        'processing_status', pm.processing_status
+                                                                    )
+                                                                    ORDER BY pm.created_at ASC
+                                                                )
+                                                                FROM media pm
+                                                                WHERE pm.post_id = parent.id
+                                                                AND pm.deleted_at IS NULL
+                                                            ),
+                                                            '[]'::json
+                                                        ),
+
+                                                        'tags', parent.tags,
+                                                        'category', parent.category,
+
+                                                        'status', parent.status,
+                                                        'visibility', parent.visibility,
+
+                                                        'likes_count', parent.likes_count,
+                                                        'comments_count', parent.comments_count,
+                                                        'shares_count', parent.shares_count,
+                                                        'views_count', parent.views_count,
+
+                                                        'is_pinned', parent.is_pinned,
+                                                        'published_at', parent.published_at,
+                                                        'created_at', parent.created_at,
+                                                        'updated_at', parent.updated_at,
+
+                                                        'author', json_build_object(
+                                                            'id', parent.author_id,
+                                                            'name', parent_user.name,
+                                                            'username', parent_user.username,
+                                                            'avatarUrl', parent_author_avatar.cloudfront_url,
+                                                            'isVerified', parent_user.is_verified
+                                                        ),
+
+                                                        'community',
+                                                            CASE
+                                                                WHEN parent.community_id IS NOT NULL THEN
+                                                                    json_build_object(
+                                                                        'id', parent.community_id,
+                                                                        'name', parent_community.name,
+                                                                        'slug', parent_community.slug,
+                                                                        'avatarUrl',
+                                                                            parent_community_avatar.cloudfront_url,
+                                                                        'privacy', parent_community.privacy
+                                                                    )
+                                                                ELSE NULL
+                                                            END
+
+                                                    ) AS repost_data
+
+                                                FROM posts parent
+
+                                                LEFT JOIN users parent_user
+                                                    ON parent_user.id = parent.author_id
+
+                                                LEFT JOIN media parent_author_avatar
+                                                    ON parent_user.avatar_url = parent_author_avatar.id
+
+                                                LEFT JOIN communities parent_community
+                                                    ON parent.community_id = parent_community.id
+
+                                                LEFT JOIN media parent_community_avatar
+                                                    ON parent_community.avatar_url = parent_community_avatar.id
+
+                                                WHERE parent.id = p.repost_of_id
+
+                                            ) rp
+                                                ON TRUE
                                             WHERE
                                     
                                                 p.deleted_at IS NULL
@@ -334,7 +432,7 @@ const DISCOVER_POSTS_ALGORITHM = `WITH ranked_posts AS (
                                     
                                                 )
 
-                                            GROUP BY p.id, u.id, ua.id, c.id, ca.id
+                                            GROUP BY p.id, u.id, ua.id, c.id, ca.id, rp.repost_data
                                     
                                             )
                                     

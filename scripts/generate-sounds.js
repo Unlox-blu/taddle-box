@@ -1,7 +1,7 @@
 /**
  * Generates the game sound-effect WAV files used by gameSound.ts.
  * Pure Node — no dependencies. Run:  node scripts/generate-sounds.js
- * Output: assets/sounds/{tick,go,turn,win,loss,tap,correct,error}.wav
+ * Output: assets/sounds/{tick,go,turn,win,loss,tap,correct,error,hop}.wav
  */
 const fs = require("fs");
 const path = require("path");
@@ -124,6 +124,11 @@ const sounds = {
   ),
   // Low buzz for invalid word / wrong move
   error: buzz(150, 210, { volume: 0.35, decay: 0.14 }),
+  // Bouncy two-note hop for a coin starting its walk (D5 → A5 chirp)
+  hop: concat(
+    tone(587.33, 60, { volume: 0.38, decay: 0.03, harmonics: [[2, 0.25]] }),
+    tone(880, 90, { volume: 0.4, decay: 0.06, harmonics: [[2, 0.3]] }),
+  ),
 };
 
 for (const [name, samples] of Object.entries(sounds)) {

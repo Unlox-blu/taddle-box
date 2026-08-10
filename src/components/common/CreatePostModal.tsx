@@ -29,7 +29,7 @@ import { useCreatePost } from "../../mutations/posts";
 import { mediaService } from "../../services/media.service";
 import { hashtagService } from "../../services/hashtag.service";
 import { userService } from "../../services/user.service";
-import { useCommunities } from "../../context/CommunityContext";
+import { useMyCommunities } from "../../queries/communities";
 import type { Post } from "../../types";
 import SmartInput from "./SmartInput";
 import { appLockBypass } from "../../utils/appLockBypass";
@@ -125,7 +125,9 @@ export default function CreatePostModal({
   const { mutateAsync: createPostAsync } = useCreatePost();
   const { wallet } = useWallet();
   const insets = useSafeAreaInsets();
-  const { communities } = useCommunities();
+  // Joined + owned communities for the audience picker — backed by the
+  // react-query cache (the legacy CommunityContext is never mounted).
+  const communities = useMyCommunities();
   const colors = useThemeColors(); // ← dynamic theme colors
   const styles = React.useMemo(() => makeStyles(colors), [colors]);
   const [title, setTitle] = useState("");

@@ -233,9 +233,30 @@ export default function SmartInput({
     return null;
   };
 
+  // MentionInput always passes `children` (the parsed mention markup) into the
+  // native TextInput. On Android a TextInput with children suppresses the native
+  // placeholder entirely — so the create-post title/content fields showed no
+  // hint text in either theme. We render our own placeholder layer instead:
+  // it's shown only while the raw value is empty, styled like the input text,
+  // and pointer-transparent so taps always reach the field underneath.
+  const showOverlayPlaceholder = !!placeholder && !value;
+
   return (
     <View style={[styles.container, containerStyle]}>
       {suggestionPosition === "top" && renderSuggestions()}
+      {showOverlayPlaceholder && (
+        <Text
+          pointerEvents="none"
+          numberOfLines={multiline ? undefined : 1}
+          style={[
+            styles.placeholderOverlay,
+            style,
+            { color: placeholderTextColor },
+          ]}
+        >
+          {placeholder}
+        </Text>
+      )}
       <MentionInput
         style={style}
         placeholder={placeholder}
@@ -260,6 +281,13 @@ const styles = StyleSheet.create({
   container: {
     position: "relative",
     zIndex: 1,
+  },
+  placeholderOverlay: {
+    position: "absolute",
+    top: 0,
+    left: 0,
+    right: 0,
+    zIndex: 0,
   },
   suggestionBox: {
     backgroundColor: colors.bg.elevated,

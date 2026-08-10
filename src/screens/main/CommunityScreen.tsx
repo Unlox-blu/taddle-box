@@ -832,6 +832,9 @@ export default function CommunityScreen() {
                   onToggleJoin={(id, isCurrentlyMember, isPending) =>
                     toggleJoin({ communityId: id, isCurrentlyMember, isPending })
                   }
+                  // Admins must never see a Leave/Join button on their own
+                  // community — the Created tab would otherwise show Leave.
+                  isOwner={c.ownerId === authUser?.id}
                 />
               ))
             )}

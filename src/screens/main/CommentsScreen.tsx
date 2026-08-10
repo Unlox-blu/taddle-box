@@ -16,6 +16,7 @@ import { commentService, Comment } from '../../services/comment.service';
 import { usePosts } from '../../context/PostsContext';
 import { useQueryClient } from '@tanstack/react-query';
 import PresenceDot from '../../components/common/PresenceDot';
+import { postsService } from '../../services/posts.service';
 
 type Props = NativeStackScreenProps<HomeStackParamList, 'Comments'>;
 
@@ -190,7 +191,10 @@ export default function CommentsScreen({ navigation, route }: Props) {
 
   useEffect(() => {
     fetchComments();
-  }, [fetchComments]);
+    // Opening the thread counts as a view — fire-and-forget so a slow/failed
+    // request can never block the screen.
+    postsService.recordView(post.id).catch(() => {});
+  }, [fetchComments, post.id]);
 
   const handleSend = async () => {
     const trimmed = text.trim();

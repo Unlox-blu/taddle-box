@@ -24,6 +24,13 @@ export const postsService = {
     return response.data;
   },
 
+  // Record a post impression (thread opened). Fire-and-forget — the server
+  // never fails this for a deleted post, so the caller can ignore errors.
+  recordView: async (postId: string) => {
+    const response = await apiClient.post(`/posts/${postId}/view`);
+    return response.data;
+  },
+
   // Paginated list of users who liked a post, each with the viewer's follow
   // state (isFollowing / isFollower) for Follow/Unfollow buttons.
   getLikers: async (

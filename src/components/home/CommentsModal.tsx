@@ -14,6 +14,7 @@ import { useNavigation } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import type { HomeStackParamList, Post } from '../../types';
 import { commentService, Comment } from '../../services/comment.service';
+import { postsService } from '../../services/posts.service';
 import { usePosts } from '../../context/PostsContext';
 
 const { height: SCREEN_H } = Dimensions.get('window');
@@ -164,6 +165,8 @@ export default function CommentsModal({ visible, onClose, post }: Props) {
     if (visible && post) {
       Animated.spring(translateY, { toValue: 0, useNativeDriver: true, bounciness: 0 }).start();
       fetchTopLevelComments();
+      // Opening the thread counts as a post view — fire-and-forget.
+      postsService.recordView(post.id).catch(() => {});
     } else {
       Animated.timing(translateY, { toValue: SCREEN_H, duration: 250, useNativeDriver: true }).start();
     }

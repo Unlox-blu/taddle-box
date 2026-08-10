@@ -23,7 +23,8 @@ export type SoundName =
   | "correct"
   | "error"
   | "snake"
-  | "ladder";
+  | "ladder"
+  | "hop";
 
 const SOUND_SOURCES: Record<SoundName, number> = {
   tick: require("../../assets/sounds/tick.wav"),
@@ -36,6 +37,7 @@ const SOUND_SOURCES: Record<SoundName, number> = {
   error: require("../../assets/sounds/error.wav"),
   snake: require("../../assets/sounds/snake.wav"),
   ladder: require("../../assets/sounds/ladder.wav"),
+  hop: require("../../assets/sounds/hop.wav"),
 };
 
 const SOUND_KEY = "game_soundEnabled";
@@ -119,6 +121,11 @@ export const gameSound = {
   /** Countdown number tick (3, 2, 1) */
   playTick: () => {
     play("tick");
+    haptic("light");
+  },
+  /** Bouncy hop — a coin starting its walk (synced with the walk ticks) */
+  playHop: () => {
+    play("hop");
     haptic("light");
   },
   /** GO! launch */

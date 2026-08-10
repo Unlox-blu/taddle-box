@@ -674,9 +674,10 @@ export default function SharedProfile({
 
   // Instagram-style "Followed by x, y and N others" — backend computes the
   // mutuals for the logged-in viewer; mutuals are GLOBAL (shown even on
-  // private accounts without a follow request, and on the viewer's own page).
-  const mutualUsers = (user?.mutuals?.users || []).slice(0, 2);
-  const mutualCount = user?.mutuals?.count || mutualUsers.length;
+  // private accounts without a follow request). Hidden on the viewer's OWN
+  // profile: "Followed by" makes no sense when the viewer IS the account.
+  const mutualUsers = isOwnProfile ? [] : (user?.mutuals?.users || []).slice(0, 2);
+  const mutualCount = isOwnProfile ? 0 : user?.mutuals?.count || mutualUsers.length;
 
   const profileHeader = (
     <View>
@@ -847,8 +848,7 @@ export default function SharedProfile({
           </TouchableOpacity>
         )}
         {/* Instagram-style "Followed by…" — under the bio, shown on every
-            account (private or not, even the viewer's own) because mutuals
-            are the viewer's own connections, not the target's follower list. */}
+            account (private or not) EXCEPT the viewer's own profile. */}
         {mutualUsers.length > 0 && (
           <TouchableOpacity
             style={styles.mutualRow}

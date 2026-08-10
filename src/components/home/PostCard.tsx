@@ -32,7 +32,7 @@ import { userService } from "../../services/user.service";
 import { queryKeys } from "../../lib/queryKeys";
 import PresenceDot from "../common/PresenceDot";
 import SmartInput from "../common/SmartInput";
-import { useCommunities } from "../../context/CommunityContext";
+import { useMyCommunities } from "../../queries/communities";
 
 const CARD_W = Dimensions.get("window").width - spacing.lg * 2;
 const claimedPosts = new Set<string>();
@@ -329,8 +329,9 @@ export default function PostCard({
   }, [post]);
 
   // Destination communities for reposts — same list as the create-post
-  // audience picker (joined + owned).
-  const { communities: myCommunities } = useCommunities();
+  // audience picker (joined + owned). Backed by the react-query cache (the
+  // CommunityContext was never mounted, so this used to be always empty).
+  const myCommunities = useMyCommunities();
   const repostCommunities = myCommunities.filter(
     (c) => c.isJoined || c.ownerId === currentUser?.id,
   );
@@ -356,12 +357,18 @@ export default function PostCard({
   const [likersVisible, setLikersVisible] = React.useState(false);
   const [repostersVisible, setRepostersVisible] = React.useState(false);
   // For reposts, the action bar shows the ORIGINAL post's engagement counts
-  // (what the user sees on the thread), not the repost's own numbers.
-  // RepostedPostCard reports them here once its root fetch lands.
-  const [origCounts, setOrigCounts] = React.useState<{ likes: number; comments: number } | null>(null);
+  // (what the user sees on the thread), not the repost's own numbers — a repost
+  // row's own shares/likes/comments are always ~0 and meaningless. RepostedPostCard
+  // reports them here once its root fetch lands.
+  const [origCounts, setOrigCounts] = React.useState<{ likes: number; comments: number; shares: number } | null>(null);
+  // True once the embedded preview resolves and finds the ORIGINAL post is
+  // gone (deleted/404) — hides the Repost action so nobody can reshare
+  // unavailable content (the button is meaningless there anyway).
+  const [origUnavailable, setOrigUnavailable] = React.useState(false);
   const isRepost = !!(post as any).repostOfId;
   const displayLikes = isRepost && origCounts ? origCounts.likes : (post.likes ?? (post as any).likesCount ?? 0);
   const displayComments = isRepost && origCounts ? origCounts.comments : (post.comments ?? (post as any).commentsCount ?? 0);
+  const displayShares = isRepost && origCounts ? origCounts.shares : (post.shares ?? (post as any).sharesCount ?? 0);
   const [quoteVisible, setQuoteVisible] = React.useState(false);
   const [quoteText, setQuoteText] = React.useState("");
   const [repostBusy, setRepostBusy] = React.useState(false);
@@ -1013,14 +1020,20 @@ export default function PostCard({
             postId={(post as any).repostOfId}
             isActive={isActive ?? true}
             onOpen={(orig) => openPostThread(orig as Post)}
-            onOrigCounts={(likes, comments) =>
+            onOrigCounts={(likes, comments, shares) =>
               setOrigCounts(prev => {
-                const next = { likes, comments };
+                const next = { likes, comments, shares };
                 // Avoid re-render churn on repeated reports with identical values.
-                if (prev && prev.likes === likes && prev.comments === comments) return prev;
+                if (
+                  prev &&
+                  prev.likes === likes &&
+                  prev.comments === comments &&
+                  prev.shares === shares
+                ) return prev;
                 return next;
               })
             }
+            onOrigUnavailable={() => setOrigUnavailable(true)}
           />
           ) : null}
         </View>
@@ -1261,6 +1274,7 @@ export default function PostCard({
             author disabled "Allow Reposting" (unless you already reposted it,
             so you can still take it down). */}
         {author.id !== currentUser?.id &&
+          !origUnavailable &&
           (author.repostsEnabled !== false || post.repostedByMe) && (
           <TouchableOpacity
             style={styles.action}
@@ -1295,7 +1309,7 @@ export default function PostCard({
               post.repostedByMe && { color: colors.primaryLight, fontWeight: "700" },
             ]}
           >
-            {(post.shares ?? (post as any).sharesCount ?? 0).toLocaleString()}
+            {displayShares.toLocaleString()}
           </Text>
         </TouchableOpacity>
 
@@ -1609,30 +1623,42 @@ export default function PostCard({
 }
 
 // Module-level cache so a long feed of reposts doesn't re-fetch the same
-// originals over and over.
-const repostCache = new Map<string, any>();
+// originals over and over. Entries expire after REPOST_CACHE_TTL_MS so a post
+// deleted mid-session stops showing stale content within a couple of minutes
+// (the original's author deleting it would otherwise keep it alive here).
+const repostCache = new Map<string, { data: any; ts: number }>();
+const REPOST_CACHE_TTL_MS = 2 * 60 * 1000;
 
 // A repost can point at another repost (repost-of-repost). Walk the chain to
 // the ROOT original so the preview shows real content/media. Bounded to avoid
-// pathological chains.
+// pathological chains. Returns null when the root is unreachable (deleted,
+// 404, private) so callers render the "Original post is unavailable" state.
 const resolveRootPost = async (startId: string): Promise<any | null> => {
   let current = startId;
   for (let hop = 0; hop < 5; hop++) {
-    if (repostCache.has(current)) {
-      const cached = repostCache.get(current);
-      if (!cached) return null;
-      if (!cached.repostOfId) return cached;
-      current = cached.repostOfId;
+    const cached = repostCache.get(current);
+    if (cached && Date.now() - cached.ts < REPOST_CACHE_TTL_MS) {
+      if (!cached.data) return null;
+      if (!cached.data.repostOfId) return cached.data;
+      current = cached.data.repostOfId;
       continue;
     }
-    const res = await postsService.getPost(current);
-    const data = res?.data || null;
-    repostCache.set(current, data);
+    let data: any = null;
+    try {
+      const res = await postsService.getPost(current);
+      data = res?.data || null;
+    } catch (e) {
+      data = null;
+    }
+    // Cache BOTH hits and misses — a miss (deleted original) stays cached so
+    // a long feed of reposts of the same deleted post doesn't hammer the API.
+    repostCache.set(current, { data, ts: Date.now() });
     if (!data) return null;
     if (!data.repostOfId) return data;
     current = data.repostOfId;
   }
-  return repostCache.get(current) || null;
+  const tail = repostCache.get(current);
+  return tail?.data || null;
 };
 
 function RepostedPostCard({
@@ -1640,19 +1666,25 @@ function RepostedPostCard({
   isActive,
   onOpen,
   onOrigCounts,
+  onOrigUnavailable,
 }: {
   postId: string;
   isActive?: boolean;
   onOpen?: (orig: any) => void;
   /** Report the ORIGINAL post's engagement counts once the root loads, so the
       outer card's action bar can show them instead of the repost's own. */
-  onOrigCounts?: (likes: number, comments: number) => void;
+  onOrigCounts?: (likes: number, comments: number, shares: number) => void;
+  /** Fired when the original is unreachable (deleted/404) — the outer card
+      hides its Repost action so unavailable content can't be reshared. */
+  onOrigUnavailable?: () => void;
 }) {
   const colors = useThemeColors();
   const [orig, setOrig] = React.useState<any>(() => {
-    // Prime from cache only when the cached value is a resolved root.
+    // Prime from cache only when the cached value is a fresh resolved root.
     const cached = repostCache.get(postId);
-    return cached && !cached?.repostOfId ? cached : undefined;
+    return cached && cached.data && !cached.data.repostOfId
+      ? cached.data
+      : undefined;
   });
   const [loaded, setLoaded] = React.useState(!!orig);
   const [mediaPage, setMediaPage] = React.useState(0);
@@ -1668,13 +1700,17 @@ function RepostedPostCard({
           onOrigCounts?.(
             root.likesCount ?? root.likes ?? 0,
             root.commentsCount ?? root.comments ?? 0,
+            root.sharesCount ?? root.shares ?? 0,
           );
+        } else {
+          onOrigUnavailable?.();
         }
       })
       .catch(() => {
         if (cancelled) return;
         setOrig(null);
         setLoaded(true);
+        onOrigUnavailable?.();
       });
     return () => {
       cancelled = true;
@@ -1790,30 +1826,10 @@ function RepostedPostCard({
         </Text>
       ) : null}
 
-      {/* The ORIGINAL post's own engagement counts — a peek at the thread.
-          Tapping the card opens the original; the outer repost card keeps its
-          own like/comment buttons for interacting with the repost itself. */}
-      {((orig as any).likesCount ?? 0) + ((orig as any).commentsCount ?? 0) >
-      0 && (
-        <View style={{ flexDirection: "row", alignItems: "center", gap: 14 }}>
-          <View style={{ flexDirection: "row", alignItems: "center", gap: 4 }}>
-            <Ionicons name="heart-outline" size={13} color={colors.text.muted} />
-            <Text style={{ fontSize: 11, color: colors.text.muted }}>
-              {(orig as any).likesCount ?? 0}
-            </Text>
-          </View>
-          <View style={{ flexDirection: "row", alignItems: "center", gap: 4 }}>
-            <Ionicons
-              name="chatbubble-outline"
-              size={12}
-              color={colors.text.muted}
-            />
-            <Text style={{ fontSize: 11, color: colors.text.muted }}>
-              {(orig as any).commentsCount ?? 0}
-            </Text>
-          </View>
-        </View>
-      )}
+      {/* NOTE: the ORIGINAL's engagement counts are intentionally NOT shown
+          here — the outer card's action bar already renders them (via
+          onOrigCounts), so duplicating them in the preview made counts appear
+          twice on every repost card. */}
 
       {/* Full-width original media carousel — images + playable videos */}
       {visual.length > 0 && (

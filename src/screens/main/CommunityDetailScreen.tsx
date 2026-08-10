@@ -11,8 +11,8 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { StatusBar } from 'expo-status-bar';
 import { fontSizes, spacing, radii, type ColorPalette } from '../../theme';
 import { useTheme, useThemeColors } from '../../context/ThemeContext';
-import { useCommunities } from '../../context/CommunityContext';
 import { usePosts }        from '../../context/PostsContext';
+import { useJoinCommunity } from '../../mutations/communities';
 import { communityService } from '../../services/community.service';
 import { postsService }     from '../../services/posts.service';
 import PostCard             from '../../components/home/PostCard';
@@ -202,18 +202,19 @@ export default function CommunityDetailScreen() {
   const colors     = useThemeColors();
   const styles     = useMemo(() => makeStyles(colors), [colors]);
 
-  const { communities, toggleJoin } = useCommunities();
+  // Join/leave/request is driven by the react-query mutation (the same one the
+  // community LIST screen uses). The old CommunityContext is never mounted, so
+  // its toggleJoin was a silent no-op and the button did nothing on this page.
+  const { mutateAsync: toggleJoinMutate } = useJoinCommunity();
   // Removed usePosts since we'll handle likes/saves locally for community posts
 
-  // Initial state comes from the context ONLY if it's populated (the community
-  // list screen uses react-query, so the context may be empty) — otherwise we
+  // Always fetch the full detail + membership state from the API (the legacy
+  // CommunityContext that used to seed this is never mounted) — otherwise we
   // show a proper loading state instead of a blank screen.
-  const initialCommunity =
-    communities.find(c => c.slug === communitySlug) || null;
-  const [community, setCommunity] = useState<Community | null>(initialCommunity);
+  const [community, setCommunity] = useState<Community | null>(null);
   const [communityPosts, setCommunityPosts] = useState<Post[]>([]);
   const [loadingPosts, setLoadingPosts] = useState(true);
-  const [loadingDetail, setLoadingDetail] = useState(!initialCommunity);
+  const [loadingDetail, setLoadingDetail] = useState(true);
   const [detailError, setDetailError] = useState<string | null>(null);
 
   const [filter, setFilter]         = useState<FeedFilter>('All');
@@ -225,10 +226,10 @@ export default function CommunityDetailScreen() {
   const isAdmin = community?.memberRole === 'admin' || community?.memberRole === 'moderator';
   const isOwner = community?.ownerId === authUser?.id;
 
-  // Join/Leave on this screen. Always works: updates this screen's local state
-  // immediately, then asks the context to sync the API (the context also works
-  // when the community isn't in its loaded list — it uses the object passed
-  // here as the source of truth).
+  // Join/Leave on this screen. Updates local state instantly for a responsive
+  // button, then calls the real join/leave/request API via the mutation. The
+  // mutation's optimistic cache update keeps the community LIST in sync, and
+  // loadData() re-syncs this page from the server when it settles.
   const handleToggleJoin = async () => {
     if (!community) return;
     const target = community;
@@ -236,7 +237,7 @@ export default function CommunityDetailScreen() {
     const wasPending = target.isPending || false;
     const isPrivate = target.privacy === 'private';
     const delta = wasJoined ? -1 : 1;
-    // Local optimistic flip — instant UI, regardless of context state.
+    // Local optimistic flip — instant UI.
     setCommunity(prev => prev ? {
       ...prev,
       isJoined: wasPending ? false : (isPrivate ? prev.isJoined : !prev.isJoined),
@@ -244,7 +245,15 @@ export default function CommunityDetailScreen() {
       memberCount: wasPending ? prev.memberCount : Math.max(0, (prev.memberCount || 0) + delta),
     } : prev);
     try {
-      await toggleJoin(target);
+      await toggleJoinMutate({
+        communityId: target.id,
+        isCurrentlyMember: wasJoined,
+        isPending: wasPending,
+      });
+      // Re-fetch detail + posts so the page reflects server truth (member
+      // count, isJoined, and — for private — whether the request was accepted
+      // immediately vs pending review).
+      loadData();
     } catch (e) {
       // Roll back on failure.
       setCommunity(prev => prev ? {
@@ -253,6 +262,7 @@ export default function CommunityDetailScreen() {
         isPending: wasPending,
         memberCount: wasPending ? prev.memberCount : Math.max(0, (prev.memberCount || 0) - delta),
       } : prev);
+      console.error('Failed to toggle community membership:', e);
     }
   };
 
@@ -294,7 +304,7 @@ export default function CommunityDetailScreen() {
 
   // Fetch full details and posts on mount
   useEffect(() => {
-    if (!initialCommunity) loadData();
+    loadData();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [communitySlug]);
 
@@ -307,29 +317,6 @@ export default function CommunityDetailScreen() {
     }
   };
 
-  // Sync isJoined/isPending status from global context to reflect toggleJoin instantly
-  useEffect(() => {
-    if (community) {
-      const contextComm = communities.find(c => c.id === community.id);
-      if (
-        contextComm &&
-        (contextComm.isJoined !== community.isJoined ||
-          contextComm.memberCount !== community.memberCount ||
-          contextComm.isPending !== community.isPending)
-      ) {
-        setCommunity(prev =>
-          prev
-            ? {
-                ...prev,
-                isJoined: contextComm.isJoined,
-                isPending: contextComm.isPending,
-                memberCount: contextComm.memberCount,
-              }
-            : prev,
-        );
-      }
-    }
-  }, [communities, community?.id]);
 
   // Loading / error states — never render a silent blank screen.
   if (loadingDetail && !community) {

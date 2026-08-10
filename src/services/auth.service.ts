@@ -74,7 +74,19 @@ export const authService = {
     return response.data;
   },
 
-  updateProfile: async (data: { name?: string; bio?: string; websiteUrl?: string }) => {
+  // Every editable profile field the API accepts — mirrors the signup form so
+  // users can change anything they set at registration.
+  updateProfile: async (data: {
+    name?: string;
+    bio?: string;
+    websiteUrl?: string;
+    location?: string;
+    organization?: string;
+    occupation?: string;
+    gender?: 'male' | 'female' | 'other';
+    dateOfBirth?: string; // 'YYYY-MM-DD'
+    interests?: string[];
+  }) => {
     const response = await apiClient.patch('/users/update-profile', data);
     return response.data;
   },

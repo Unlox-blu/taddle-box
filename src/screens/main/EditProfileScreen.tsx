@@ -1,32 +1,117 @@
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useMemo } from 'react';
 import {
   View, Text, TextInput, TouchableOpacity, ScrollView, Image,
-  StyleSheet, Alert, ActivityIndicator, KeyboardAvoidingView, Platform,
+  StyleSheet, Alert, ActivityIndicator, KeyboardAvoidingView, Platform, Modal,
 } from 'react-native';
 import * as ImagePicker from 'expo-image-picker';
 import * as FileSystem from 'expo-file-system/legacy';
+import DateTimePicker from '@react-native-community/datetimepicker';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { useNavigation } from '@react-navigation/native';
 import { useAuth } from '../../context/AuthContext';
-import { useThemeColors } from '../../context/ThemeContext';
+import { useThemeColors, useTheme } from '../../context/ThemeContext';
 import { authService } from '../../services/auth.service';
 import { mediaService } from '../../services/media.service';
 import { fontSizes, spacing, radii } from '../../theme';
 import { appLockBypass } from '../../utils/appLockBypass';
 
+const OCCUPATION_OPTIONS = [
+  "Student",
+  "Working Professional",
+  "Self-employed / Freelancer",
+  "Other",
+];
+
+const GENDER_OPTIONS = [
+  { label: 'Male', value: 'male' },
+  { label: 'Female', value: 'female' },
+  { label: 'Other', value: 'other' },
+];
+
+const INTEREST_OPTIONS = [
+  "🎮 Gaming",
+  "💻 Coding",
+  "🎨 Design",
+  "📚 Study",
+  "🏆 Sports",
+  "🎵 Music",
+  "🚀 Startups",
+  "🤖 AI/ML",
+  "📱 Mobile Dev",
+  "🌐 Web Dev",
+  "🔒 Cybersecurity",
+  "☁️ Cloud",
+];
+
+// Keep only the emoji+name part when storing/sending (matches signup payload).
+const stripInterestEmoji = (i: string) => i.replace(/^\S+\s/, '').trim();
+
 export default function EditProfileScreen() {
   const navigation = useNavigation<any>();
   const colors     = useThemeColors();
+  const { isDark } = useTheme();
   const { user, updateUser, refreshUser } = useAuth();
 
   const [name,       setName]       = useState<string>(user?.name       ?? '');
   const [username,   setUsername]   = useState<string>(user?.username   ?? '');
   const [bio,        setBio]        = useState<string>(user?.bio        ?? '');
   const [website,    setWebsite]    = useState<string>(user?.websiteUrl ?? '');
+  const [location,   setLocation]   = useState<string>((user as any)?.location   ?? '');
+  const [organization, setOrganization] = useState<string>((user as any)?.organization ?? '');
+  const [occupation, setOccupation] = useState<string>((user as any)?.occupation ?? '');
+  const [gender,     setGender]     = useState<string>((user as any)?.gender     ?? '');
+  const [dateOfBirth, setDateOfBirth] = useState<string>((user as any)?.dateOfBirth
+    ? String((user as any).dateOfBirth).slice(0, 10)
+    : '');
+  const [interests,  setInterests]  = useState<string[]>(
+    Array.isArray((user as any)?.interests) ? (user as any).interests : [],
+  );
   const [avatarAsset, setAvatarAsset] = useState<ImagePicker.ImagePickerAsset | null>(null);
   const [bannerAsset, setBannerAsset] = useState<ImagePicker.ImagePickerAsset | null>(null);
   const [saving,     setSaving]     = useState(false);
+
+  // ── Date of birth picker (iOS spinner modal, Android native dialog) ──
+  const [showDobPicker, setShowDobPicker] = useState(false);
+  const dobDate = useMemo(() => {
+    const d = new Date(dateOfBirth || '2000-01-01');
+    return isNaN(d.getTime()) ? new Date(2000, 0, 1) : d;
+  }, [dateOfBirth]);
+  const onChangeDate = (event: any, selected?: Date) => {
+    if (Platform.OS === 'android') setShowDobPicker(false);
+    if (event?.type === 'dismissed' || !selected) return;
+    const yyyy = selected.getFullYear();
+    const mm = String(selected.getMonth() + 1).padStart(2, '0');
+    const dd = String(selected.getDate()).padStart(2, '0');
+    setDateOfBirth(`${yyyy}-${mm}-${dd}`);
+  };
+
+  // ── Username availability (on the go, while typing) ──
+  const originalUsername = user?.username ?? '';
+  const [usernameStatus, setUsernameStatus] = useState<'idle' | 'loading' | 'available' | 'taken'>('idle');
+  const [usernameMsg, setUsernameMsg] = useState('');
+  const usernameValid = /^[a-zA-Z0-9_]{3,30}$/.test(username);
+  React.useEffect(() => {
+    // No check needed when unchanged, too short, or invalid format.
+    if (username === originalUsername || !usernameValid) {
+      setUsernameStatus('idle');
+      setUsernameMsg('');
+      return;
+    }
+    setUsernameStatus('loading');
+    setUsernameMsg('');
+    const timer = setTimeout(async () => {
+      try {
+        await authService.checkUsername(username);
+        setUsernameStatus('available');
+        setUsernameMsg('Username is available');
+      } catch (e: any) {
+        setUsernameStatus('taken');
+        setUsernameMsg(e?.response?.data?.message || 'Username is already taken');
+      }
+    }, 500);
+    return () => clearTimeout(timer);
+  }, [username, originalUsername, usernameValid]);
 
   // Keyboard responsiveness: keep the focused field visible above the keyboard.
   const scrollRef = useRef<ScrollView>(null);
@@ -50,15 +135,27 @@ export default function EditProfileScreen() {
     username: user?.username   ?? '',
     bio:      user?.bio        ?? '',
     website:  user?.websiteUrl ?? '',
+    location: (user as any)?.location      ?? '',
+    organization: (user as any)?.organization ?? '',
+    occupation: (user as any)?.occupation  ?? '',
+    gender:   (user as any)?.gender        ?? '',
+    dateOfBirth: (user as any)?.dateOfBirth ? String((user as any).dateOfBirth).slice(0, 10) : '',
+    interests: Array.isArray((user as any)?.interests) ? (user as any).interests : [],
   });
 
   const avatarPreviewUri = avatarAsset?.uri || user?.avatarUrl;
   const bannerPreviewUri = bannerAsset?.uri || user?.bannerUrl;
   const hasChanges =
-    name     !== originalRef.current.name     ||
-    username !== originalRef.current.username ||
-    bio      !== originalRef.current.bio      ||
-    website  !== originalRef.current.website ||
+    name          !== originalRef.current.name          ||
+    username      !== originalRef.current.username      ||
+    bio           !== originalRef.current.bio           ||
+    website       !== originalRef.current.website       ||
+    location      !== originalRef.current.location      ||
+    organization  !== originalRef.current.organization  ||
+    occupation    !== originalRef.current.occupation    ||
+    gender        !== originalRef.current.gender        ||
+    dateOfBirth   !== originalRef.current.dateOfBirth   ||
+    JSON.stringify(interests) !== JSON.stringify(originalRef.current.interests) ||
     !!avatarAsset ||
     !!bannerAsset;
 
@@ -166,23 +263,46 @@ export default function EditProfileScreen() {
   const handleSave = async () => {
     if (!hasChanges) { returnToProfile(); return; }
     if (!name.trim()) { Alert.alert('Validation', 'Name cannot be empty.'); return; }
+    if (username !== originalUsername && !usernameValid) {
+      Alert.alert('Validation', 'Username can only contain letters, numbers and underscores (3–30 chars).');
+      return;
+    }
+    if (usernameStatus === 'taken') {
+      Alert.alert('Validation', 'That username is already taken.');
+      return;
+    }
 
     setSaving(true);
     pendingMediaRef.current = [];
     try {
       const tasks: Promise<any>[] = [];
 
-      // Profile fields (name, bio, websiteUrl)
+      // Profile fields (all editable fields the API supports)
       const profileChanged =
-        name.trim()    !== originalRef.current.name     ||
-        bio.trim()     !== originalRef.current.bio      ||
-        website.trim() !== originalRef.current.website;
+        name.trim()          !== originalRef.current.name          ||
+        bio.trim()           !== originalRef.current.bio           ||
+        website.trim()       !== originalRef.current.website       ||
+        location.trim()      !== originalRef.current.location      ||
+        organization.trim()  !== originalRef.current.organization  ||
+        occupation           !== originalRef.current.occupation    ||
+        gender               !== originalRef.current.gender        ||
+        dateOfBirth          !== originalRef.current.dateOfBirth   ||
+        JSON.stringify(interests) !== JSON.stringify(originalRef.current.interests);
 
       if (profileChanged) {
         tasks.push(authService.updateProfile({
           name:       name.trim(),
           bio:        bio.trim()     || undefined,
           websiteUrl: website.trim() || undefined,
+          location:   location.trim()    || undefined,
+          organization: organization.trim() || undefined,
+          occupation: occupation || undefined,
+          gender:     (gender as any) || undefined,
+          dateOfBirth: dateOfBirth || undefined,
+          // Always send interests (even an empty array) so clearing them
+          // actually clears them server-side instead of silently keeping the
+          // old list.
+          interests:  interests.map(stripInterestEmoji),
         }));
       }
 
@@ -238,7 +358,7 @@ export default function EditProfileScreen() {
     label: string,
     value: string,
     onChange: (v: string) => void,
-    opts?: { multiline?: boolean; placeholder?: string; keyboardType?: any; autoCapitalize?: any }
+    opts?: { multiline?: boolean; placeholder?: string; keyboardType?: any; autoCapitalize?: any; trailing?: React.ReactNode }
   ) => (
     <View
       style={styles.fieldWrap}
@@ -247,26 +367,115 @@ export default function EditProfileScreen() {
       }}
     >
       <Text style={[styles.fieldLabel, { color: colors.text.muted }]}>{label}</Text>
-      <TextInput
-        value={value}
-        onChangeText={onChange}
-        onFocus={() => scrollToField(label)}
-        style={[
-          styles.fieldInput,
-          {
-            color:           colors.text.primary,
-            borderColor:     colors.border,
-            backgroundColor: colors.bg.card,
-          },
-          opts?.multiline && { height: 90, textAlignVertical: 'top' },
-        ]}
-        placeholderTextColor={colors.text.muted}
-        placeholder={opts?.placeholder ?? ''}
-        multiline={opts?.multiline}
-        keyboardType={opts?.keyboardType ?? 'default'}
-        autoCapitalize={opts?.autoCapitalize ?? 'sentences'}
-        numberOfLines={opts?.multiline ? 4 : 1}
-      />
+      <View style={styles.inputShell}>
+        <TextInput
+          value={value}
+          onChangeText={onChange}
+          onFocus={() => scrollToField(label)}
+          style={[
+            styles.fieldInput,
+            {
+              color:           colors.text.primary,
+              borderColor:     colors.border,
+              backgroundColor: colors.bg.card,
+            },
+            opts?.multiline && { height: 90, textAlignVertical: 'top' },
+          ]}
+          placeholderTextColor={colors.text.muted}
+          placeholder={opts?.placeholder ?? ''}
+          multiline={opts?.multiline}
+          keyboardType={opts?.keyboardType ?? 'default'}
+          autoCapitalize={opts?.autoCapitalize ?? 'sentences'}
+          numberOfLines={opts?.multiline ? 4 : 1}
+        />
+        {opts?.trailing}
+      </View>
+    </View>
+  );
+
+  const selectChips = (
+    label: string,
+    options: { label: string; value: string }[],
+    selected: string,
+    onSelect: (v: string) => void,
+  ) => (
+    <View
+      style={styles.fieldWrap}
+      onLayout={(e) => {
+        fieldYRef.current[label] = e.nativeEvent.layout.y;
+      }}
+    >
+      <Text style={[styles.fieldLabel, { color: colors.text.muted }]}>{label}</Text>
+      <View style={styles.chipRow}>
+        {options.map((opt) => {
+          const active = selected === opt.value;
+          return (
+            <TouchableOpacity
+              key={opt.value}
+              onPress={() => onSelect(active ? '' : opt.value)}
+              style={[
+                styles.chip,
+                {
+                  borderColor: active ? colors.primary : colors.border,
+                  backgroundColor: active ? 'rgba(124,58,237,0.12)' : colors.bg.card,
+                },
+              ]}
+            >
+              <Text
+                style={[
+                  styles.chipText,
+                  { color: active ? colors.primaryLight : colors.text.secondary },
+                ]}
+              >
+                {opt.label}
+              </Text>
+            </TouchableOpacity>
+          );
+        })}
+      </View>
+    </View>
+  );
+
+  const interestChips = (
+    <View
+      style={styles.fieldWrap}
+      onLayout={(e) => {
+        fieldYRef.current['Interests'] = e.nativeEvent.layout.y;
+      }}
+    >
+      <Text style={[styles.fieldLabel, { color: colors.text.muted }]}>Interests</Text>
+      <View style={styles.chipRow}>
+        {INTEREST_OPTIONS.map((opt) => {
+          const value = stripInterestEmoji(opt);
+          const active = interests.includes(value);
+          return (
+            <TouchableOpacity
+              key={opt}
+              onPress={() =>
+                setInterests((prev) =>
+                  active ? prev.filter((i) => i !== value) : [...prev, value],
+                )
+              }
+              style={[
+                styles.chip,
+                {
+                  borderColor: active ? colors.primary : colors.border,
+                  backgroundColor: active ? 'rgba(124,58,237,0.12)' : colors.bg.card,
+                },
+              ]}
+            >
+              <Text
+                style={[
+                  styles.chipText,
+                  { color: active ? colors.primaryLight : colors.text.secondary },
+                ]}
+              >
+                {opt}
+              </Text>
+            </TouchableOpacity>
+          );
+        })}
+      </View>
     </View>
   );
 
@@ -349,15 +558,151 @@ export default function EditProfileScreen() {
           </View>
 
           {field('Name',       name,     setName,     { placeholder: 'Your display name', autoCapitalize: 'words' })}
-          {field('Username',   username, setUsername, { placeholder: 'username', autoCapitalize: 'none' })}
+
+          {/* Username with live availability */}
+          <View
+            style={styles.fieldWrap}
+            onLayout={(e) => {
+              fieldYRef.current['Username'] = e.nativeEvent.layout.y;
+            }}
+          >
+            <Text style={[styles.fieldLabel, { color: colors.text.muted }]}>Username</Text>
+            <View style={styles.inputShell}>
+              <TextInput
+                value={username}
+                onChangeText={setUsername}
+                onFocus={() => scrollToField('Username')}
+                style={[
+                  styles.fieldInput,
+                  {
+                    color:           colors.text.primary,
+                    borderColor:     colors.border,
+                    backgroundColor: colors.bg.card,
+                  },
+                ]}
+                placeholderTextColor={colors.text.muted}
+                placeholder="username"
+                autoCapitalize="none"
+              />
+              {username !== originalUsername && usernameValid && (
+                <View style={styles.usernameStatus}>
+                  {usernameStatus === 'loading' ? (
+                    <ActivityIndicator size={14} color={colors.text.muted} />
+                  ) : (
+                    <Ionicons
+                      name={usernameStatus === 'available' ? 'checkmark-circle' : 'close-circle'}
+                      size={18}
+                      color={usernameStatus === 'available' ? '#22c55e' : '#ef4444'}
+                    />
+                  )}
+                </View>
+              )}
+            </View>
+            {username !== originalUsername && (
+              <Text
+                style={[
+                  styles.fieldHint,
+                  {
+                    color:
+                      usernameStatus === 'available'
+                        ? '#22c55e'
+                        : usernameStatus === 'taken'
+                          ? '#ef4444'
+                          : colors.text.muted,
+                  },
+                ]}
+              >
+                {usernameStatus === 'loading'
+                  ? 'Checking…'
+                  : usernameStatus === 'available'
+                    ? 'Username is available'
+                    : usernameStatus === 'taken'
+                      ? usernameMsg
+                      : 'Username can only contain letters, numbers and underscores (3–30 chars).'}
+              </Text>
+            )}
+          </View>
+
           {field('Bio',        bio,      setBio,      { placeholder: 'Tell the world about yourself…', multiline: true })}
           {field('Website',    website,  setWebsite,  { placeholder: 'https://yourwebsite.com', keyboardType: 'url', autoCapitalize: 'none' })}
+          {field('Location',   location, setLocation, { placeholder: 'e.g. Bangalore, India' })}
+          {field('Organization / College', organization, setOrganization, { placeholder: 'Where do you work or study?' })}
+
+          {selectChips('Occupation', OCCUPATION_OPTIONS.map(o => ({ label: o, value: o })), occupation, setOccupation)}
+          {selectChips('Gender', GENDER_OPTIONS, gender, setGender)}
+
+          {/* Date of birth */}
+          <View
+            style={styles.fieldWrap}
+            onLayout={(e) => {
+              fieldYRef.current['Date of Birth'] = e.nativeEvent.layout.y;
+            }}
+          >
+            <Text style={[styles.fieldLabel, { color: colors.text.muted }]}>Date of Birth</Text>
+            <TouchableOpacity
+              onPress={() => setShowDobPicker(true)}
+              style={[
+                styles.fieldInput,
+                {
+                  borderColor: colors.border,
+                  backgroundColor: colors.bg.card,
+                  justifyContent: 'center',
+                },
+              ]}
+            >
+              <Text style={{ color: dateOfBirth ? colors.text.primary : colors.text.muted, fontSize: fontSizes.md }}>
+                {dateOfBirth || 'Select your date of birth'}
+              </Text>
+            </TouchableOpacity>
+          </View>
+
+          {interestChips}
 
           <Text style={[styles.hint, { color: colors.text.muted }]}>
-            Username can only contain letters, numbers and underscores (3–30 chars).
+            Interests show up on your profile and help personalize your feed.
           </Text>
         </ScrollView>
       </KeyboardAvoidingView>
+
+      {/* ── iOS date picker modal ── */}
+      {Platform.OS === 'ios' && (
+        <Modal visible={showDobPicker} transparent animationType="slide">
+          <TouchableOpacity
+            style={styles.dateBackdrop}
+            activeOpacity={1}
+            onPress={() => setShowDobPicker(false)}
+          >
+            <View style={[styles.dateSheet, { backgroundColor: colors.bg.card }]}>
+              <View style={[styles.dateHeader, { borderBottomColor: colors.border }]}>
+                <TouchableOpacity onPress={() => setShowDobPicker(false)}>
+                  <Text style={{ color: colors.primaryLight, fontWeight: '700', fontSize: 16 }}>
+                    Done
+                  </Text>
+                </TouchableOpacity>
+              </View>
+              <DateTimePicker
+                value={dobDate}
+                mode="date"
+                display="spinner"
+                themeVariant={isDark ? 'dark' : 'light'}
+                maximumDate={new Date()}
+                onChange={onChangeDate}
+                style={{ height: 200 }}
+              />
+            </View>
+          </TouchableOpacity>
+        </Modal>
+      )}
+      {/* Android native dialog */}
+      {Platform.OS === 'android' && showDobPicker && (
+        <DateTimePicker
+          value={dobDate}
+          mode="date"
+          display="default"
+          maximumDate={new Date()}
+          onChange={onChangeDate}
+        />
+      )}
     </SafeAreaView>
   );
 }
@@ -390,6 +735,15 @@ const styles = StyleSheet.create({
   changePhotoText: { fontSize: fontSizes.sm, fontWeight: '700' },
   fieldWrap:   { gap: 6 },
   fieldLabel:  { fontSize: fontSizes.xs, fontWeight: '700', textTransform: 'uppercase', letterSpacing: 0.5 },
+  inputShell:  { position: 'relative' },
   fieldInput:  { borderWidth: 1, borderRadius: radii.md, paddingHorizontal: spacing.md, paddingVertical: 11, fontSize: fontSizes.md },
+  usernameStatus: { position: 'absolute', right: 12, top: 0, bottom: 0, justifyContent: 'center' },
+  fieldHint:   { fontSize: fontSizes.xs, lineHeight: 16 },
+  chipRow:     { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
+  chip:        { borderWidth: 1, borderRadius: radii.full, paddingVertical: 7, paddingHorizontal: 14 },
+  chipText:    { fontSize: fontSizes.sm, fontWeight: '600' },
   hint:        { fontSize: fontSizes.xs, marginTop: spacing.sm, lineHeight: 18 },
+  dateBackdrop: { flex: 1, backgroundColor: 'rgba(0,0,0,0.45)', justifyContent: 'flex-end' },
+  dateSheet:   { borderTopLeftRadius: radii.lg, borderTopRightRadius: radii.lg, paddingBottom: 24 },
+  dateHeader:  { flexDirection: 'row', justifyContent: 'flex-end', paddingHorizontal: spacing.lg, paddingVertical: 12, borderBottomWidth: 1 },
 });

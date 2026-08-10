@@ -16,6 +16,18 @@ export function useCommunities() {
   });
 }
 
+/**
+ * Flat list of every community the current user can post to (joined + owned).
+ * Used by the create-post audience picker and the repost destination chips —
+ * both previously read a CommunityContext that is never mounted, so they
+ * always rendered an empty list. Shares the react-query cache with the
+ * community tab (same queryKey), so visiting Communities first warms it.
+ */
+export function useMyCommunities() {
+  const query = useCommunities();
+  return (query.data?.pages || []).flat() || [];
+}
+
 export function useCommunity(id: string) {
   return useQuery({
     queryKey: queryKeys.community(id),

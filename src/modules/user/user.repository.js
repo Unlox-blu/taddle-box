@@ -58,6 +58,7 @@ const updateProfile = async (userId, fields) => {
           return;
         }
         if (col === 'interests') {
+          if(v.length === 0) return
           values.push(JSON.stringify(v));
           updates.push(`${col} = $${values.length}`);
           return;

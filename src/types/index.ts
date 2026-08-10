@@ -169,6 +169,8 @@ export interface Community {
   /** True when the current user has a PENDING join request (private community). */
   isPending?: boolean;
   memberRole?: 'member' | 'moderator' | 'admin' | null;
+  /** Community "Allow Reposting" toggle — owner-controlled, false blocks new reposts of the community's posts. */
+  allowReposts?: boolean;
 }
 
 export interface Event {
@@ -230,6 +232,14 @@ export interface Notification {
   avatarUrl?: string;
   /** Server-enriched preview image (post media / community avatar / game cover). */
   thumbnailUrl?: string;
+  /** How many distinct actors this stacked notification aggregates (Instagram-style "A and N others"). */
+  actorCount?: number;
+  /** Display names of all stacked actors (first = sender). */
+  actorNames?: string[];
+  /** Community identity for community notifications (enriched server-side). */
+  communityName?: string;
+  communityAvatarUrl?: string;
+  communityBannerUrl?: string;
   actor: string;
   text: string;
   time: string;

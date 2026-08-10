@@ -399,12 +399,24 @@ export default function CommentsThread({
     try {
       const res = await commentService.createComment(post.id, trimmed, parentId);
       // Replace the optimistic row with the server row so the id is real
-      // (enables future reply/delete on it).
+      // (enables future reply/delete on it). Safety net: if the server
+      // response ever lacks the author join, fill it from the current user so
+      // the comment never renders nameless / icon-only until the next fetch.
       if (res?.data) {
+        const serverRow: Comment = res.data;
+        const enriched: Comment = {
+          ...serverRow,
+          author: {
+            id: serverRow.author?.id || CURRENT_USER?.id || '',
+            name: serverRow.author?.name || CURRENT_USER?.name || 'User',
+            username: serverRow.author?.username || CURRENT_USER?.username || 'user',
+            avatarUrl: serverRow.author?.avatarUrl || CURRENT_USER?.avatarUrl,
+          },
+        };
         setComments((prev) => {
           const replace = (list: Comment[]): Comment[] =>
             list.map((c) => {
-              if (c.id === optimisticComment.id) return res.data;
+              if (c.id === optimisticComment.id) return enriched;
               if ((c as any).subComments) {
                 return { ...c, subComments: replace((c as any).subComments) };
               }

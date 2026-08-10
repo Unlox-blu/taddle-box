@@ -106,12 +106,31 @@ function makeStyles(c: ColorPalette) {
       alignItems: 'center', justifyContent: 'center',
       borderWidth: 2, borderColor: c.bg.base,
     },
+    // Instagram-style "+N" stacking badge on the avatar — how many MORE
+    // actors beyond the sender this aggregated notification covers.
+    stackBadge: {
+      position: 'absolute', bottom: -3, left: -6,
+      minWidth: 20, height: 20, borderRadius: 10,
+      paddingHorizontal: 5,
+      backgroundColor: c.bg.elevated,
+      borderWidth: 1.5, borderColor: c.primaryLight,
+      alignItems: 'center', justifyContent: 'center',
+    },
+    stackBadgeText: { fontSize: 10, fontWeight: '800', color: c.primaryLight },
 
     content: { flex: 1, justifyContent: 'center' },
     notifText: { fontSize: fontSizes.sm, color: c.text.secondary, lineHeight: 20 },
     actor:     { fontWeight: '800', color: c.text.primary, fontSize: fontSizes.md, marginBottom: 2 },
     notifBody: { fontWeight: '500' },
     time:      { fontSize: fontSizes.xs, color: c.text.muted, marginTop: 4, fontWeight: '600' },
+
+    // Slim community banner strip for community notifications — the community's
+    // identity visual (enriched server-side from resource_id).
+    communityBanner: {
+      width: '100%', height: 46, borderRadius: 10,
+      backgroundColor: c.bg.elevated, borderWidth: 1, borderColor: c.border,
+      marginBottom: 8,
+    },
 
     unreadDot: {
       width: 10, height: 10, borderRadius: 5,
@@ -701,9 +720,24 @@ export default function NotificationsScreen({ navigation }: Props) {
                         size={13}
                         style={{ top: -3, right: 4, bottom: undefined }}
                       />
+                      {/* Stacked aggregation badge ("A and 2 others...") — shows
+                          how many MORE actors beyond the sender. */}
+                      {typeof notif.actorCount === 'number' && notif.actorCount > 2 && (
+                        <View style={styles.stackBadge}>
+                          <Text style={styles.stackBadgeText}>+{notif.actorCount - 1}</Text>
+                        </View>
+                      )}
                     </View>
 
                     <View style={styles.content}>
+                      {/* Community identity banner for community notifications. */}
+                      {notif.type === 'community' && notif.communityBannerUrl ? (
+                        <Image
+                          source={{ uri: notif.communityBannerUrl }}
+                          style={styles.communityBanner}
+                          resizeMode="cover"
+                        />
+                      ) : null}
                       <Text style={styles.actor} numberOfLines={1}>{notif.actor}</Text>
                       <Text style={styles.notifText} numberOfLines={2}>
                         <Text style={styles.notifBody}>{notif.text}</Text>

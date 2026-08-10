@@ -110,6 +110,11 @@ function makeStyles(c: ColorPalette) {
     backdrop: {
       ...StyleSheet.absoluteFillObject,
       backgroundColor: 'rgba(0,0,0,0.55)',
+      // The card is a child of this full-screen layer (not of the flex
+      // wrapper), so it must center itself here — otherwise it sits at the
+      // top of the screen instead of the middle.
+      justifyContent: 'center',
+      alignItems: 'center',
     },
     card: {
       width: '84%',

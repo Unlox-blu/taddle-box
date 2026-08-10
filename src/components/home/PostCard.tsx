@@ -376,6 +376,24 @@ export default function PostCard({
       ? (post.community as any)?.privacy
       : undefined;
 
+  // Community "Allow Reposting" toggle (owner-controlled). Defaults to true
+  // when the payload doesn't carry it (non-community posts / older payloads).
+  const communityRepostsEnabled =
+    typeof post.community !== "object" || !post.community
+      ? true
+      : (post.community as any)?.repostsEnabled !== false;
+
+  // A NEW repost (verbatim or quote) is only possible when BOTH the author
+  // and the community allow reposting — unless the viewer already reposted
+  // this post (then the sheet renders Remove instead). Mirrors the feed
+  // button's gate exactly, so the sheet's submit can never offer something
+  // the button wouldn't have shown. Kept as a sheet-level guard (defense in
+  // depth): a stale payload or a toggle flipped while the sheet is open can't
+  // sneak a submit past it.
+  const canSubmitNewRepost =
+    (author.repostsEnabled !== false || post.repostedByMe) &&
+    (communityRepostsEnabled || post.repostedByMe);
+
   // Destination picker for reposts — Feed or one of the user's communities,
   // same as the create-post flow. No destination is pre-selected: the user must
   // explicitly choose (Feed or a community) before Repost/Post works, and a
@@ -564,6 +582,8 @@ export default function PostCard({
         .forEach(apply);
       queryClient.getQueryCache().findAll({ queryKey: ['community'] })
         .forEach(apply);
+      queryClient.getQueryCache().findAll({ queryKey: ['search'] })
+        .forEach(apply);
     },
     [queryClient, postId],
   );
@@ -624,7 +644,12 @@ export default function PostCard({
     } catch (e) {
       // Roll back the optimistic flip so the icon doesn't stay desynced.
       flipRepostInCaches(false, -1);
-      themedAlert("Error", "Failed to repost. Please try again.");
+      // Surface the server's real reason (e.g. "This community has disabled
+      // reposting on its posts") instead of a generic failure — a stale card
+      // that still offers Repost needs to explain the 403.
+      const msg =
+        (e as any)?.response?.data?.message || "Failed to repost. Please try again.";
+      themedAlert("Error", msg);
       console.warn("Repost failed", e);
     } finally {
       setRepostBusy(false);
@@ -640,10 +665,18 @@ export default function PostCard({
       flipRepostInCaches(false, -1);
       onReposted?.(null);
       queryClient.invalidateQueries({ queryKey: queryKeys.feed });
+      // Close ONLY after the server confirms — the "Removing…" label gives
+      // visible feedback, and a failure keeps the sheet open for retry
+      // instead of silently doing nothing.
+      setRepostSheetVisible(false);
+      setQuoteText("");
     } catch (e) {
       // Roll back the optimistic flip so the icon doesn't stay desynced.
       flipRepostInCaches(true, 1);
-      themedAlert("Error", "Failed to remove repost. Please try again.");
+      // Surface the server's real reason instead of a generic failure.
+      const msg =
+        (e as any)?.response?.data?.message || "Failed to remove repost. Please try again.";
+      themedAlert("Error", msg);
       console.warn("Unrepost failed", e);
     } finally {
       setRepostBusy(false);
@@ -1477,7 +1510,8 @@ export default function PostCard({
             informational: tap opens the reposters list. */}
         {!post.repostOfId &&
           !origUnavailable &&
-          (author.repostsEnabled !== false || post.repostedByMe) && (
+          (author.repostsEnabled !== false || post.repostedByMe) &&
+          (communityRepostsEnabled || post.repostedByMe) && (
           <TouchableOpacity
             style={styles.action}
             onPress={
@@ -1497,6 +1531,11 @@ export default function PostCard({
                   color={colors.success}
                   style={{ marginLeft: -6, marginTop: -8 }}
                 />
+                {/* Count stays visible in the reposted state too — the tick
+                    confirms the action, the number stays next to the icon. */}
+                <Text style={[styles.actionText, { color: colors.primaryLight }]}>
+                  {displayShares.toLocaleString()}
+                </Text>
               </View>
             ) : (
               <View style={{ flexDirection: "row", alignItems: "center", gap: 2 }}>
@@ -1631,44 +1670,46 @@ export default function PostCard({
                 </TouchableOpacity>
               </View>
 
-              {/* Quote input — same as create post's content field (# and @
-                  supported). Leaving it empty is a verbatim repost; typing
-                  turns it into a quote repost. */}
-              <SmartInput
-                style={[sheetStyles.composerInput, { color: colors.text.primary }]}
-                containerStyle={[
-                  sheetStyles.composerInputWrap,
-                  { backgroundColor: colors.bg.surface },
-                ]}
-                placeholder="Quote something..."
-                placeholderTextColor={colors.text.muted}
-                multiline
-                value={quoteText}
-                onChange={setQuoteText}
-                maxLength={500}
-                suggestionPosition="top"
-              />
+              {/* Quote input + audience — only when creating a NEW repost.
+                  An existing repost opens the sheet in Remove-only mode:
+                  there is nothing to quote or choose a destination for, and
+                  showing those controls makes Remove look broken/irrelevant. */}
+              {!post.repostedByMe && (
+                <>
+                  <SmartInput
+                    style={[sheetStyles.composerInput, { color: colors.text.primary }]}
+                    containerStyle={[
+                      sheetStyles.composerInputWrap,
+                      { backgroundColor: colors.bg.surface },
+                    ]}
+                    placeholder="Quote something..."
+                    placeholderTextColor={colors.text.muted}
+                    multiline
+                    value={quoteText}
+                    onChange={setQuoteText}
+                    maxLength={500}
+                    suggestionPosition="top"
+                  />
 
-              {/* Audience — where this repost goes. Required, like create post:
-                  nothing is pre-selected, and Repost/Post shows a pill error
-                  until a destination is chosen. */}
-              {renderAudienceSection()}
+                  {/* Audience — where this repost goes. Required, like create
+                      post: nothing is pre-selected, and Repost/Post shows a
+                      pill error until a destination is chosen. */}
+                  {renderAudienceSection()}
+                </>
+              )}
 
               {post.repostedByMe ? (
                 <TouchableOpacity
                   style={[sheetStyles.primaryBtn, { backgroundColor: "#ef4444" }]}
                   disabled={repostBusy}
-                  onPress={() => {
-                    setRepostSheetVisible(false);
-                    doUnrepost();
-                  }}
+                  onPress={doUnrepost}
                 >
                   <Ionicons name="trash-outline" size={18} color="#fff" />
                   <Text style={sheetStyles.primaryBtnText}>
                     {repostBusy ? "Removing…" : "Remove Repost"}
                   </Text>
                 </TouchableOpacity>
-              ) : (
+              ) : canSubmitNewRepost ? (
                 <TouchableOpacity
                   style={[sheetStyles.primaryBtn, { backgroundColor: colors.primary }]}
                   disabled={repostBusy}
@@ -1683,6 +1724,24 @@ export default function PostCard({
                         : "Repost"}
                   </Text>
                 </TouchableOpacity>
+              ) : (
+                // Community (or author) disabled reposting and the viewer has
+                // no existing repost — there is nothing to submit. Show a
+                // notice instead of the Repost/Post button so a stale payload
+                // or a mid-session toggle can't produce a dead-end submit.
+                <View
+                  style={[
+                    sheetStyles.disabledRepostNote,
+                    { backgroundColor: colors.bg.surface, borderColor: colors.border },
+                  ]}
+                >
+                  <Ionicons name="ban-outline" size={15} color={colors.text.muted} />
+                  <Text style={[sheetStyles.disabledRepostNoteText, { color: colors.text.secondary }]}>
+                    {typeof post.community === "object" && post.community
+                      ? "Reposting is disabled for this community's posts"
+                      : "The author has disabled reposting on their posts"}
+                  </Text>
+                </View>
               )}
             </View>
           </View>
@@ -1816,6 +1875,9 @@ function RepostedPostCard({
   const visual = media.filter(
     (m: any) => m.media_type !== "audio" && m.type !== "audio"
   );
+  const origHasAudio = media.some(
+    (m: any) => m.media_type === "audio" || m.type === "audio"
+  );
   const previewW = CARD_W - spacing.md * 2;
   // Aspect-aware height from the first visual item; capped so tall images
   // don't blow up the card.
@@ -1845,12 +1907,16 @@ function RepostedPostCard({
         gap: 8,
       }}
     >
+      {/* Same author header as the outer card: avatar + name on top, then the
+          @username → posted time → Original Audio meta rows stacked below and
+          rolling one-by-one (RollingText) so the preview matches the main
+          card's identity line. */}
       <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
         <View
           style={{
-            width: 22,
-            height: 22,
-            borderRadius: 11,
+            width: 26,
+            height: 26,
+            borderRadius: 13,
             backgroundColor: colors.bg.elevated,
             overflow: "hidden",
           }}
@@ -1858,33 +1924,78 @@ function RepostedPostCard({
           {author.avatarUrl ? (
             <Image
               source={{ uri: author.avatarUrl }}
-              style={{ width: 22, height: 22 }}
+              style={{ width: 26, height: 26 }}
             />
           ) : (
-            <Text style={{ fontSize: 11 }}>👾</Text>
+            <Text style={{ fontSize: 13 }}>👾</Text>
           )}
         </View>
-        <Text
-          style={{
-            fontSize: 12,
-            fontWeight: "700",
-            color: colors.text.primary,
-            flexShrink: 1,
-          }}
-          numberOfLines={1}
-        >
-          {author.name || author.username}
-        </Text>
-        <Text
-          style={{
-            fontSize: 11,
-            color: colors.text.muted,
-            flexShrink: 2,
-          }}
-          numberOfLines={1}
-        >
-          @{author.username}
-        </Text>
+        <View style={{ flex: 1 }}>
+          <Text
+            style={{
+              fontSize: 12,
+              fontWeight: "700",
+              color: colors.text.primary,
+            }}
+            numberOfLines={1}
+          >
+            {author.name || author.username}
+          </Text>
+          <RollingText
+            isActive={isActive}
+            items={[
+              <Text
+                key="username"
+                style={{
+                  fontSize: 11,
+                  color: colors.text.muted,
+                  fontWeight: "500",
+                }}
+              >
+                @{author.username}
+              </Text>,
+              <Text
+                key="time"
+                style={{
+                  fontSize: 11,
+                  color: colors.text.muted,
+                  fontWeight: "500",
+                }}
+              >
+                {formatInstagramTime(
+                  (orig as any).createdAt || (orig as any).publishedAt,
+                )}
+              </Text>,
+              ...(origHasAudio
+                ? [
+                    <View
+                      key="audio"
+                      style={{
+                        flexDirection: "row",
+                        alignItems: "center",
+                        gap: 4,
+                      }}
+                    >
+                      <Ionicons
+                        name="musical-notes"
+                        size={12}
+                        color={colors.text.muted}
+                      />
+                      <Text
+                        style={{
+                          color: colors.text.muted,
+                          fontSize: fontSizes.xs,
+                          fontWeight: "500",
+                        }}
+                      >
+                        Original Audio
+                      </Text>
+                    </View>,
+                  ]
+                : []),
+            ]}
+          />
+        </View>
       </View>
 
       {/* Full original content (no truncation) */}
@@ -2399,6 +2510,19 @@ const sheetStyles = StyleSheet.create({
     marginTop: 4,
   },
   primaryBtnText: { color: "#fff", fontSize: fontSizes.md, fontWeight: "800" },
+  // Replaces the Repost/Post submit when the community or author disabled
+  // reposting and the viewer has no existing repost to remove.
+  disabledRepostNote: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 7,
+    paddingVertical: 13,
+    borderRadius: radii.full,
+    borderWidth: 1,
+    marginTop: 4,
+  },
+  disabledRepostNoteText: { fontSize: fontSizes.sm, fontWeight: "600" },
   secondaryBtn: {
     flexDirection: "row",
     alignItems: "center",

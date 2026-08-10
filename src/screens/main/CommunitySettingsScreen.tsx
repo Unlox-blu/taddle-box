@@ -102,6 +102,7 @@ export default function CommunitySettingsScreen() {
   const [name, setName] = useState('');
   const [desc, setDesc] = useState('');
   const [isPrivate, setIsPrivate] = useState(false);
+  const [allowReposts, setAllowReposts] = useState(true);
   
   // Media State
   const [avatarAsset, setAvatarAsset] = useState<ImagePicker.ImagePickerAsset | null>(null);
@@ -119,6 +120,7 @@ export default function CommunitySettingsScreen() {
       setName(c.name || '');
       setDesc(c.description || '');
       setIsPrivate(c.privacy === 'private');
+      setAllowReposts(c.allowReposts ?? true);
     } catch (e) {
       themedAlert('Error', 'Failed to load community details');
       navigation.goBack();
@@ -184,6 +186,7 @@ export default function CommunitySettingsScreen() {
       if (name.trim() !== community.name) updates.name = name.trim();
       if (desc.trim() !== community.description) updates.description = desc.trim();
       if ((isPrivate ? 'private' : 'public') !== community.privacy) updates.privacy = isPrivate ? 'private' : 'public';
+      if (allowReposts !== (community.allowReposts ?? true)) updates.allowReposts = allowReposts;
 
       const tasks: Promise<any>[] = [];
       if (Object.keys(updates).length > 0) {
@@ -309,6 +312,27 @@ export default function CommunitySettingsScreen() {
           </View>
           <View style={[styles.toggle, isPrivate && styles.toggleOn]}>
             <View style={[styles.toggleThumb, isPrivate && styles.toggleThumbOn]} />
+          </View>
+        </TouchableOpacity>
+
+        {/* Community-level "Allow Reposting" toggle — when OFF, nobody can
+            create new reposts of posts in this community (server-enforced). */}
+        <TouchableOpacity
+          style={styles.privacyRow}
+          activeOpacity={0.8}
+          onPress={() => setAllowReposts(!allowReposts)}
+        >
+          <View style={styles.privacyLeft}>
+            <Ionicons name="repeat" size={22} color={allowReposts ? colors.primaryLight : colors.text.muted} />
+            <View>
+              <Text style={styles.privacyLabel}>Allow Reposting</Text>
+              <Text style={styles.privacyDesc}>
+                {allowReposts ? "Members can repost this community's posts" : "Reposting this community's posts is disabled"}
+              </Text>
+            </View>
+          </View>
+          <View style={[styles.toggle, allowReposts && styles.toggleOn]}>
+            <View style={[styles.toggleThumb, allowReposts && styles.toggleThumbOn]} />
           </View>
         </TouchableOpacity>
 

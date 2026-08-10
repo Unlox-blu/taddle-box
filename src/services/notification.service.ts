@@ -127,6 +127,10 @@ export const notificationService = {
         payload = { ...(payload || {}), commentId: commentMentionMatch[2] };
       }
 
+      // Stacked-notification metadata (Instagram-style aggregation): how many
+      // actors and who, so the row can render the +N badge and stacked copy.
+      const meta = n.meta && typeof n.meta === 'object' ? n.meta : {};
+
       return {
         id: n.id,
         type: mappedType,
@@ -136,6 +140,13 @@ export const notificationService = {
         // Server-enriched preview image (post media / community avatar / game
         // cover) — rendered as a thumbnail on the right side of the row.
         thumbnailUrl: n.thumbnailUrl || undefined,
+        // Aggregation metadata for stacked rows ("A and B / A and N others").
+        actorCount: typeof meta.actorCount === 'number' ? meta.actorCount : undefined,
+        actorNames: Array.isArray(meta.actorNames) ? meta.actorNames : undefined,
+        // Community identity for community notifications (enriched server-side).
+        communityName: n.communityName || undefined,
+        communityAvatarUrl: n.communityAvatarUrl || undefined,
+        communityBannerUrl: n.communityBannerUrl || undefined,
         actor: n.senderName || n.title || 'Notification',
         text: text,
         time: timeStr,
@@ -157,6 +168,14 @@ export const notificationService = {
           // the post can't be fetched (deleted / private / legacy NULL
           // resource_id rows).
           username: n.senderUsername || undefined,
+          // Community rows carry the full community identity for rendering.
+          ...(mappedType === 'community'
+            ? {
+                communityName: n.communityName || undefined,
+                communityAvatarUrl: n.communityAvatarUrl || undefined,
+                communityBannerUrl: n.communityBannerUrl || undefined,
+              }
+            : {}),
         },
       };
     });

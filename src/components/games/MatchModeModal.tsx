@@ -10,7 +10,7 @@ import React, {
 } from "react";
 import {
   ActivityIndicator,
-
+  AppState,
   Animated,
   Easing,
   Image,
@@ -143,7 +143,12 @@ export default function MatchModeModal({
   // Self-heal: socket events can be missed (e.g. the client socket reconnects
   // mid-queue after a server restart), leaving the user stuck on "Searching...".
   // This poll checks the lobby's server state and starts the game when it's READY.
+  // It is a FALLBACK ONLY: it idles (zero API calls) while the socket is
+  // delivering matchmaking events, and backs off exponentially when it isn't.
   const lobbyPollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  // Tear-down for the active poll (interval + its socket listeners), so every
+  // cancel/close path removes exactly what startLobbyPoll registered.
+  const stopLobbyPollRef = useRef<(() => void) | null>(null);
   // Always points at the latest _handleMatched so the poll interval (created
   // once) never calls a stale closure with an outdated mode/game.
   const handleMatchedRef = useRef<(r: any) => void>(() => {});
@@ -180,8 +185,7 @@ export default function MatchModeModal({
     lobbyIdRef.current = null;
     if (fallbackTimerRef.current) clearInterval(fallbackTimerRef.current);
     fallbackTimerRef.current = null;
-    if (lobbyPollRef.current) clearInterval(lobbyPollRef.current);
-    lobbyPollRef.current = null;
+    stopLobbyPollRef.current?.();
     if (matchBeatRef.current) clearTimeout(matchBeatRef.current);
     matchBeatRef.current = null;
   }
@@ -287,13 +291,55 @@ export default function MatchModeModal({
   // Poll the lobby on the server so a missed matchmaking:matched event can't
   // leave the user stuck on the queue screen forever (e.g. after a server
   // restart reconnects the socket mid-queue). Stops on cancel/match.
+  //
+  // The real-time channel is the socket (matchmaking:lobbyUpdated / matched /
+  // timedOut); this poll is ONLY a safety net, so it never runs at full speed
+  // while the socket is healthy:
+  //   - socket connected + delivering recently → ZERO API calls (local tick idles)
+  //   - socket silent / offline → exponential backoff 2s → 4s → 8s → 16s (cap)
+  //   - app backgrounded → no requests; a self-heal poll fires on foreground
   const startLobbyPoll = useCallback((lobbyId: string) => {
-    if (lobbyPollRef.current) clearInterval(lobbyPollRef.current);
+    // Tear down any previous poll (interval + socket listeners).
+    stopLobbyPollRef.current?.();
+
+    let backoffMs = 2000;
+    const BACKOFF_CAP_MS = 16000;
+    // A socket matchmaking event inside this window proves the push channel is
+    // alive → the poll stays quiet.
+    const SOCKET_STALE_MS = 8000;
+    let nextPollAt = Date.now(); // first poll fires immediately
+    let inFlight = false;
+    let lastSocketEvent = Date.now();
+
+    const onSocketActivity = () => {
+      lastSocketEvent = Date.now();
+      backoffMs = 2000;
+      nextPollAt = Date.now();
+    };
+    socketClient.events.on("matchmaking:lobbyUpdated", onSocketActivity);
+    socketClient.events.on("matchmaking:matched", onSocketActivity);
+    socketClient.events.on("matchmaking:timedOut", onSocketActivity);
+
+    const stop = () => {
+      if (lobbyPollRef.current) { clearInterval(lobbyPollRef.current); lobbyPollRef.current = null; }
+      socketClient.events.off("matchmaking:lobbyUpdated", onSocketActivity);
+      socketClient.events.off("matchmaking:matched", onSocketActivity);
+      socketClient.events.off("matchmaking:timedOut", onSocketActivity);
+      stopLobbyPollRef.current = null;
+    };
+    stopLobbyPollRef.current = stop;
+
     lobbyPollRef.current = setInterval(async () => {
-      if (matchedRef.current || cancelledRef.current) {
-        if (lobbyPollRef.current) { clearInterval(lobbyPollRef.current); lobbyPollRef.current = null; }
-        return;
-      }
+      if (matchedRef.current || cancelledRef.current) { stop(); return; }
+      // Never burn requests while backgrounded — the queue/state resume on return.
+      if (AppState.currentState !== "active") return;
+
+      const now = Date.now();
+      const socketHealthy =
+        !!socketClient.socket?.connected && now - lastSocketEvent < SOCKET_STALE_MS;
+      if (socketHealthy || now < nextPollAt || inFlight) return;
+
+      inFlight = true;
       try {
         const res = await apiClient.get(`/game/lobbies/${lobbyId}`);
         const d = (res as any).data?.data ?? (res as any).data;
@@ -312,7 +358,7 @@ export default function MatchModeModal({
         }
         if (d?.settings?.targetPlayers) setLobbyMaxPlayers(d.settings.targetPlayers);
         if (d?.state?.status === "READY") {
-          if (lobbyPollRef.current) { clearInterval(lobbyPollRef.current); lobbyPollRef.current = null; }
+          stop();
           // Build a MATCHED-shaped response from the lobby DTO so the flow is
           // identical to the socket path (players + matchGroupId).
           const players = (Array.isArray(d.players) ? d.players : []).map((p: any) => ({
@@ -337,17 +383,26 @@ export default function MatchModeModal({
               teamsLocked: !!(d.settings?.teamsLocked),
             },
           });
+          return;
         }
+        // The socket is still suspect after a poll → back off.
+        backoffMs = Math.min(backoffMs * 2, BACKOFF_CAP_MS);
+        nextPollAt = Date.now() + backoffMs;
       } catch {
-        // Lobby not found / offline — keep polling; the socket path or cancel handles it.
+        // Lobby not found / offline — keep polling with backoff; the socket
+        // path or cancel handles it.
+        backoffMs = Math.min(backoffMs * 2, BACKOFF_CAP_MS);
+        nextPollAt = Date.now() + backoffMs;
+      } finally {
+        inFlight = false;
       }
-    }, 2000);
+    }, 1000);
   }, []);
 
   function _handleMatched(response: any) {
     if (matchedRef.current || cancelledRef.current) return;
     matchedRef.current = true;
-    if (lobbyPollRef.current) { clearInterval(lobbyPollRef.current); lobbyPollRef.current = null; }
+    stopLobbyPollRef.current?.();
     setQueuePhase("matched");
     setStatusText("Match found! Starting game...");
     if (fallbackTimerRef.current) clearInterval(fallbackTimerRef.current);
@@ -748,7 +803,7 @@ export default function MatchModeModal({
   const hardCancelQueue = useCallback(async () => {
     cancelledRef.current = true;
     if (fallbackTimerRef.current) { clearInterval(fallbackTimerRef.current); fallbackTimerRef.current = null; }
-    if (lobbyPollRef.current) { clearInterval(lobbyPollRef.current); lobbyPollRef.current = null; }
+    stopLobbyPollRef.current?.();
     if (matchBeatRef.current) { clearTimeout(matchBeatRef.current); matchBeatRef.current = null; }
     const id = lobbyIdRef.current;
     if (mode === "CUSTOM" && id) {
@@ -777,7 +832,7 @@ export default function MatchModeModal({
         // host's ticket (that would kick them out of their own lobby). Also
         // stop the READY poll, or a lobby that filled between ticks could
         // still resolve and drag the host into a match while on the lobby.
-        if (lobbyPollRef.current) { clearInterval(lobbyPollRef.current); lobbyPollRef.current = null; }
+        stopLobbyPollRef.current?.();
         if (matchBeatRef.current) { clearTimeout(matchBeatRef.current); matchBeatRef.current = null; }
         await apiClient.post(`/game/lobbies/${id}/queue`, { active: false });
         cancelledRef.current = false;

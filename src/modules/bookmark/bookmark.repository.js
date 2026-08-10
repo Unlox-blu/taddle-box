@@ -93,6 +93,7 @@ const findByUserId = async ({userId, limit, offset}) => {
                   'name', c.name,
                   'slug', c.slug,
                   'privacy', c.privacy,
+                  'reposts_enabled', COALESCE(c.allow_reposts, TRUE),
                   'avatar_url', 
                   CASE
                       WHEN c.avatar_url IS NULL THEN NULL

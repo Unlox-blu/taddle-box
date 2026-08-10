@@ -29,10 +29,51 @@ const initializeSockets = (httpServer) => {
   // Auth middleware — runs before every connection
   io.use(socketAuthMiddleware);
 
+  // Best-effort: re-send the user's live matchmaking state so the queue
+  // screen restores instantly after a socket (re)connect — the client treats
+  // matchmaking:lobbyUpdated / matchmaking:matched as the live channel and only
+  // falls back to polling when this event stream is silent. Never blocks the
+  // handshake, and any failure (expired lobby, DB hiccup) is absorbed here.
+  const replayActiveLobby = (socket) => {
+    setTimeout(async () => {
+      try {
+        const gameRepo = require('../modules/game/game.repository');
+        // 1) A match created while offline starts instantly — replay the
+        //    MATCHED payload exactly as the live channel would have emitted it.
+        const matched = await gameRepo.findActiveMatchedMatch({ userId: socket.userId });
+        if (matched) {
+          io.to(`user:${socket.userId}`).emit('matchmaking:matched', matched);
+          return;
+        }
+        // 2) Still queued — replay the lobby state so the player list restores.
+        //    Tournament tickets ride the same WAITING path (long-TTL lobby, real
+        //    players only), so a mid-queue drop in a tournament restores exactly
+        //    like an AUTO queue — with the tournamentId attached so the client
+        //    knows which tournament the restored queue belongs to.
+        const queued = await gameRepo.findActiveQueuedLobby({ userId: socket.userId });
+        if (!queued?.lobbyId) return;
+        const lobby = await gameRepo.getLobby({ userId: socket.userId, lobbyId: queued.lobbyId });
+        if (lobby) {
+          io.to(`user:${socket.userId}`).emit('matchmaking:lobbyUpdated', {
+            ...lobby,
+            mode: queued.mode,
+            tournamentId: queued.tournamentId,
+          });
+        }
+      } catch (e) {
+        // Lobby not found / expired / DB hiccup — the client's backoff poll
+        // covers any gap.
+      }
+    }, 250);
+  };
+
   io.on('connection', (socket) => {
     // Join personal room for targeted notifications
     socket.join(`user:${socket.userId}`);
     console.info(`[Socket] Connected: ${socket.userId} (${socket.id})`);
+
+    // Re-deliver the active lobby state after any (re)connect.
+    replayActiveLobby(socket);
 
     socket.on('disconnect', (reason) => {
       console.info(`[Socket] Disconnected: ${socket.userId} — ${reason}`);

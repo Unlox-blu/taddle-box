@@ -432,6 +432,16 @@ class PostService {
         throw createError('This user has disabled reposting on their posts', 403);
       }
 
+      // Community-level "Allow Reposting" toggle — when the ORIGINAL post was
+      // published in a community whose owner turned reposting OFF, no NEW
+      // reposts of it can be created, regardless of who reposts or where.
+      if (original.community_id) {
+        const community = await this.communityRepo.findById(original.community_id);
+        if (community && community.allowReposts === false) {
+          throw createError('This community has disabled reposting on its posts', 403);
+        }
+      }
+
       const contentText = (content || '').trim();
       // Hashtags: prefer the client's parsed list, else extract from text.
       let postTags = Array.isArray(tags) ? tags.map(t => String(t).replace(/^#/, '').toLowerCase()) : [];

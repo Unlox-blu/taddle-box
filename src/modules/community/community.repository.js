@@ -125,6 +125,7 @@ const update = async (communityId, fields) => {
       'banner_url',
       'category',
       'rules',
+      'allow_reposts',
     ];
     const updates = [];
     const values = [];
@@ -264,6 +265,45 @@ const updateOwner = async (communityId, ownerId) => {
     );
   } catch (error) {
     throw error;
+  }
+};
+
+// Atomic ownership hand-over: swap owner_id AND fix up the old owner's role in
+// ONE transaction so a mid-transfer failure can never strand the old owner
+// (owner swapped but their membership row never adjusted). The community's
+// allow_reposts column is untouched — the toggle rides with the community,
+// not the owner. updated_at is stamped because a transfer is a real edit.
+const transferOwnership = async ({ communityId, newOwnerId, oldOwnerId }) => {
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    await client.query(
+      `UPDATE ${CommunityModel.TABLE} SET owner_id = $1, updated_at = NOW() WHERE id = $2`,
+      [newOwnerId, communityId]
+    );
+    // Old owner auto-becomes an admin (re-insert the row if it ever went
+    // missing so they're never left outside their own community).
+    const { rows } = await client.query(
+      `SELECT 1 FROM ${CommunityModel.MEMBERS_TABLE} WHERE community_id = $1 AND user_id = $2`,
+      [communityId, oldOwnerId]
+    );
+    if (rows[0]) {
+      await client.query(
+        `UPDATE ${CommunityModel.MEMBERS_TABLE} SET role = 'admin', status = 'active' WHERE community_id = $1 AND user_id = $2`,
+        [communityId, oldOwnerId]
+      );
+    } else {
+      await client.query(
+        `INSERT INTO ${CommunityModel.MEMBERS_TABLE} (community_id, user_id, role, status) VALUES ($1, $2, 'admin', 'active') ON CONFLICT DO NOTHING`,
+        [communityId, oldOwnerId]
+      );
+    }
+    await client.query('COMMIT');
+  } catch (error) {
+    await client.query('ROLLBACK');
+    throw error;
+  } finally {
+    client.release();
   }
 };
 
@@ -446,6 +486,7 @@ module.exports = {
   logModeration,
   getModerationLog,
   updateOwner,
+  transferOwnership,
   incrementMemberCount,
   decrementMemberCount,
   incrementPostCount,

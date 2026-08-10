@@ -5,13 +5,13 @@ const MEMBERS_TABLE = 'community_members';
 
 const LIST_FIELDS = [
   'c.id', 'c.name', 'c.slug', 'c.description', 'c.avatar_url',
-  'c.privacy', 'c.category', 'c.owner_id', 'c.member_count', 'c.post_count', 'c.is_verified', 'c.created_at',
+  'c.privacy', 'c.category', 'c.owner_id', 'c.member_count', 'c.post_count', 'c.is_verified', 'c.allow_reposts', 'c.created_at',
 ].join(', ');
 
 const DETAIL_FIELDS = [
   'c.id', 'c.name', 'c.slug', 'c.description', 'c.avatar_url', 'c.banner_url',
   'c.privacy', 'c.category', 'c.rules', 'c.owner_id', 'c.member_count',
-  'c.post_count', 'c.is_active', 'c.is_verified', 'c.metadata', 'c.created_at', 'c.updated_at',
+  'c.post_count', 'c.is_active', 'c.is_verified', 'c.metadata', 'c.allow_reposts', 'c.created_at', 'c.updated_at',
 ].join(', ');
 
 const MEDIA_FIELDS = [
@@ -47,6 +47,9 @@ const format = (row) => {
     postCount: row.post_count,
     isVerified: row.is_verified,
     isActive: row.is_active,
+    // Community "Allow Reposting" toggle (owner-controlled). False blocks new
+    // reposts of the community's posts server-side and hides the button in UI.
+    allowReposts: row.allow_reposts !== false,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
     isJoined: Boolean(row.is_joined),

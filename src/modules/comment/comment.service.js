@@ -139,7 +139,23 @@ class CommentService {
       }
 
       this.feedSvc.updatePreferences({userId: authorId, categories: post.category || [], tags: post.tags || []});
-      return CommentModel.format(comment);
+
+      // The INSERT row has no author JOIN, so format() leaves author.name /
+      // username / avatarUrl undefined — that would render a nameless, icon-only
+      // comment the moment the client swaps its optimistic row for this
+      // response. Merge the commenter's profile so the created comment is fully
+      // populated (same shape the list endpoints return).
+      const created = CommentModel.format(comment);
+      if (created && user) {
+        created.author = {
+          id: user.id,
+          name: user.name,
+          username: user.username,
+          avatarUrl: user.avatarUrl || null,
+          isVerified: user.isVerified || false,
+        };
+      }
+      return created;
     } catch (error) {
       throw error;
     }

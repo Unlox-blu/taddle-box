@@ -198,6 +198,73 @@ async function resolveExpiredLobbies() {
 }
 
 /**
+ * Expires MATCHED tickets whose match was created but the player never
+ * entered it — the mirror image of the socket reconnect replay
+ * (findActiveMatchedMatch), which only replays matches younger than 10
+ * minutes. Once a match is older than that window and still has no result,
+ * the user is never coming back to it, so the stale ticket and match row
+ * are terminal'd (ticket → EXPIRED, match → ABANDONED) instead of piling up
+ * forever.
+ *
+ * Safety guard: a match group with a PENDING game_session is actively being
+ * played — never expire those (a long game can legitimately outlive the
+ * 10-minute creation window). Rows whose group has a session but no result
+ * yet are left alone until the session resolves.
+ */
+async function resolveExpiredMatches() {
+  const client = await pool.connect();
+  client.on('error', err => console.error('Expired matches client error:', err));
+  try {
+    const { rows: stale } = await client.query(`
+      SELECT t.id AS ticket_id, gm.id AS match_id
+      FROM ${gameModel.GAME_MATCHMAKING_TICKET_TABLE} t
+      JOIN ${gameModel.GAME_MATCH_TABLE} gm ON gm.id = t.user_match_id
+      -- 11 minutes, not 10: the reconnect replay's freshness window is 10
+      -- minutes, so this 1-minute buffer guarantees the sweep can never race
+      -- a just-in-time replay at the exact boundary.
+      WHERE t.status = 'MATCHED'
+        AND gm.result IS NULL
+        AND gm.created_at <= NOW() - INTERVAL '11 minutes'
+        AND NOT EXISTS (
+          SELECT 1 FROM ${gameModel.GAME_SESSION_TABLE} gs
+          WHERE gs.metadata->>'matchGroupId' = gm.metadata->>'matchGroupId'
+            AND gs.status = 'PENDING'
+        )
+    `);
+
+    if (!stale.length) return;
+
+    const matchIds = stale.map(r => r.match_id);
+    const ticketIds = stale.map(r => r.ticket_id);
+
+    // Mark the match rows abandoned, then flip the tickets — both guarded so
+    // a concurrent process (e.g. a just-in-time replay entering the match)
+    // that resolved them in the meantime is never overwritten.
+    await client.query(
+      `UPDATE ${gameModel.GAME_MATCH_TABLE}
+       SET result = 'ABANDONED', updated_at = NOW()
+       WHERE id = ANY($1::uuid[]) AND result IS NULL`,
+      [matchIds]
+    );
+
+    await client.query(
+      `UPDATE ${gameModel.GAME_MATCHMAKING_TICKET_TABLE}
+       SET status = 'EXPIRED', updated_at = NOW()
+       WHERE id = ANY($1::uuid[]) AND status = 'MATCHED'`,
+      [ticketIds]
+    );
+
+    if (stale.length) {
+      console.info(`[Game] Expired ${stale.length} stale matched ticket(s) (match abandoned, player never reconnected)`);
+    }
+  } catch (err) {
+    console.error('Error sweeping expired matches', err);
+  } finally {
+    client.release();
+  }
+}
+
+/**
  * Gradual bot-fill for matchmaking lobbies (AUTO/PRACTICE + queued CUSTOM).
  *
  * During the 30s matchmaking window, real players get the first 15s to join.
@@ -452,5 +519,6 @@ module.exports = {
   resolveAbandonedMatches,
   resolveTournaments,
   resolveExpiredLobbies,
+  resolveExpiredMatches,
   resolveBotFillingLobbies
 };

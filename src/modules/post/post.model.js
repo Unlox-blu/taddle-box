@@ -75,6 +75,9 @@ const format = (row) => {
       slug: row.community_slug,
       avatarUrl: row.community_avatar,
       privacy: row.community_privacy,
+      // False when the community owner turned "Allow Reposting" off — the UI
+      // hides the repost button, and repostPost enforces it server-side.
+      repostsEnabled: row.community_reposts_enabled !== false,
     } : null,
     publishedAt: row.published_at,
     createdAt: row.created_at,

@@ -142,16 +142,27 @@ class NotificationService {
       if (communityRows.length > 0) {
         const ids = [...new Set(communityRows.map((n) => n.resourceId))];
         const { rows } = await pool.query(
-          `SELECT c.id, m.cloudfront_url AS avatar_url
+          `SELECT c.id, c.name,
+                  av.cloudfront_url AS avatar_url,
+                  bm.cloudfront_url AS banner_url
            FROM communities c
-           LEFT JOIN media m ON m.id = c.avatar_url
+           LEFT JOIN media av ON av.id = c.avatar_url
+           LEFT JOIN media bm ON bm.id = c.banner_url
            WHERE c.id = ANY($1::uuid[]) AND c.deleted_at IS NULL`,
           [ids]
         );
-        const thumbByCommunity = Object.fromEntries(
-          rows.map((r) => [r.id, r.avatar_url])
+        const communityById = Object.fromEntries(
+          rows.map((r) => [r.id, r])
         );
-        communityRows.forEach((n) => { n.thumbnailUrl = thumbByCommunity[n.resourceId] || null; });
+        communityRows.forEach((n) => {
+          const c = communityById[n.resourceId];
+          n.thumbnailUrl = c?.avatar_url || null;
+          // Full community identity for the app: name renders in the row,
+          // banner/avatar as the visual.
+          n.communityName = c?.name || null;
+          n.communityAvatarUrl = c?.avatar_url || null;
+          n.communityBannerUrl = c?.banner_url || null;
+        });
       }
 
       const gameRows = notifications.filter(
@@ -246,6 +257,10 @@ class NotificationService {
     const {recipientId, senderId, type, title, resourceType, resourceId} = payload
 
     if (policy.batch) {
+      // Aggregation lives in Redis (batch hash + ordered actor list); the emit
+      // worker turns it into ONE real notification row with stacked copy and
+      // actor meta. The batch_notifications TABLE is vestigial (the worker and
+      // the list endpoint never read it), so it is intentionally not written.
       const { key, isNew } = await this.batchService.addToBatch({
         recipientId: event.recipientId,
         senderId: event.senderId,
@@ -256,8 +271,6 @@ class NotificationService {
       });
 
       if (isNew) {
-        await this.notifRepo.createBatchNotification({recipientId, senderId:[senderId], type, title, resourceType, resourceId})
-
         await addJob(
           'notification:emit',
         {
@@ -268,9 +281,6 @@ class NotificationService {
             delay: policy.delay
         }
         );
-      }
-      else {
-        await this.notifRepo.addToBatchNotification({recipientId, senderId, resourceId})
       }
     } else {
       let notif;

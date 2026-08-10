@@ -94,6 +94,7 @@ const findById = async (postId, currentUserId = null) => {
           WHERE rp.repost_of_id = p.id AND rp.author_id = $2 AND rp.deleted_at IS NULL
         ) AS is_reposted,
         COALESCE(s.allow_reposts, TRUE) AS author_reposts_enabled,
+        COALESCE(c.allow_reposts, TRUE) AS community_reposts_enabled,
         COALESCE(
             json_agg(
                 json_build_object(
@@ -150,6 +151,7 @@ const findManyByUser = async (authorId, limit, offset, currentUserId = null, typ
           WHERE rp.repost_of_id = p.id AND rp.author_id = $4 AND rp.deleted_at IS NULL
         ) AS is_reposted,
         COALESCE(s.allow_reposts, TRUE) AS author_reposts_enabled,
+        COALESCE(c.allow_reposts, TRUE) AS community_reposts_enabled,
         COALESCE(
             json_agg(
                 json_build_object(
@@ -202,6 +204,7 @@ const findManyByCommunity = async (communityId, limit, offset, currentUserId = n
           WHERE rp.repost_of_id = p.id AND rp.author_id = $4 AND rp.deleted_at IS NULL
         ) AS is_reposted,
         COALESCE(s.allow_reposts, TRUE) AS author_reposts_enabled,
+        COALESCE(c.allow_reposts, TRUE) AS community_reposts_enabled,
       COALESCE(
             json_agg(
                 json_build_object(
@@ -506,7 +509,8 @@ const search = async (query, limit, offset, currentUserId = null) => {
           SELECT 1 FROM posts rp
           WHERE rp.repost_of_id = p.id AND rp.author_id = $4 AND rp.deleted_at IS NULL
         ) AS is_reposted,
-        COALESCE(s.allow_reposts, TRUE) AS author_reposts_enabled
+        COALESCE(s.allow_reposts, TRUE) AS author_reposts_enabled,
+        COALESCE(c.allow_reposts, TRUE) AS community_reposts_enabled
      FROM ${PostModel.TABLE} p
      JOIN users u ON u.id = p.author_id
      LEFT JOIN media AS ua ON u.avatar_url = ua.id

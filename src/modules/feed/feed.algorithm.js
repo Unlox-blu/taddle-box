@@ -5,6 +5,13 @@ const FEED_ALGORITHM =  `WITH ranked_posts AS (
                                 SELECT
                                     ${PostModel.LIST_FIELDS},
 
+                                    -- Repost toggles: author-level (settings) and
+                                    -- community-level (owner-controlled). Both ride
+                                    -- every feed row so cards can hide the repost
+                                    -- button when either is off.
+                                    COALESCE(s.allow_reposts, TRUE) AS author_reposts_enabled,
+                                    COALESCE(c.allow_reposts, TRUE) AS community_reposts_enabled,
+
                                     EXISTS(
                                         SELECT 1 FROM post_likes pl 
                                         WHERE pl.post_id = p.id AND pl.user_id = $1
@@ -118,6 +125,9 @@ const FEED_ALGORITHM =  `WITH ranked_posts AS (
                                 LEFT JOIN communities c
                                     ON p.community_id = c.id
 
+                                LEFT JOIN settings AS s
+                                    ON s.user_id = u.id
+
                                 LEFT JOIN media AS ua 
                                     ON u.avatar_url = ua.id
 
@@ -173,7 +183,7 @@ const FEED_ALGORITHM =  `WITH ranked_posts AS (
                                     OR p.tags @> ARRAY[$8::text]
 
                                 )
-                                GROUP BY p.id, u.id, ua.id, c.id, ca.id
+                                GROUP BY p.id, u.id, ua.id, c.id, ca.id, s.user_id
 
                             )
 

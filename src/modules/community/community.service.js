@@ -165,7 +165,7 @@ class CommunityService {
           resourceType: 'community',
           resourceId: communityId,
           title: 'Join request',
-          message: `${user.name} requested to join the community`,
+          message: `${user.name} requested to join ${community.name}`,
         })
       }else {
         await this.communityRepo.incrementMemberCount(communityId);
@@ -307,16 +307,17 @@ class CommunityService {
       if (target.status !== 'active')
         throw createError('Only active members can receive ownership', 400);
 
-      // 1) Hand over the community.
-      await this.communityRepo.updateOwner(communityId, targetUserId);
-      // 2) Old owner auto-becomes an admin (re-insert the row if it ever
-      //    went missing so they're never stranded outside their community).
-      const oldOwnerMember = await this.communityRepo.getMember(communityId, userId);
-      if (oldOwnerMember) {
-        await this.communityRepo.updateMemberRole(communityId, userId, 'admin');
-      } else {
-        await this.communityRepo.addMember(communityId, userId, 'admin');
-      }
+      // Atomic hand-over: swap owner_id, demote the old owner to admin (re-
+      // inserting their membership row if it ever went missing), and stamp
+      // updated_at — all in ONE transaction so a mid-transfer failure can
+      // never strand the old owner outside their own community. The
+      // community's allow_reposts column is untouched: the toggle rides with
+      // the community, not the owner, so a transfer never resets it.
+      await this.communityRepo.transferOwnership({
+        communityId,
+        newOwnerId: targetUserId,
+        oldOwnerId: userId,
+      });
 
       const targetUser = await this.userRepo.findById(targetUserId);
       await this.communityRepo.logModeration({

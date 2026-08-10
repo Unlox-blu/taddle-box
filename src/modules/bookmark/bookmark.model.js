@@ -53,6 +53,9 @@ const format = (row) => {
       slug: row.community.slug,
       avatarUrl: row.community.avatar_url?.cloudfront_url,
       privacy: row.community.privacy,
+      // Community owner "Allow Reposting" toggle — false hides the repost
+      // button on bookmarked cards too.
+      repostsEnabled: row.community.reposts_enabled !== false,
     } : null,
     publishedAt: row.published_at,
   };

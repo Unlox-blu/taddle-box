@@ -25,6 +25,10 @@ const createPostSchema = z.object({
   pollData: z.record(z.unknown()).optional(),
   linkData: z.record(z.unknown()).optional(),
   media: z.array(z.record(z.unknown())).max(5, "Maximum 5 media files allowed").optional(),
+  // Confirmed @mention ids from the composer — used to notify mentioned users
+  // (the content itself carries the structured {@}[name](id) syntax, which the
+  // plain-text @handle scan below also covers as a fallback).
+  mentions: z.preprocess(typeCheck ,z.array(z.string().uuid('Invalid mention id')).max(20).default([])),
 }).refine((d) => d.content || d.title || d.pollData || d.linkData, {
   message: 'Post must have content, title, poll data, or link data',
 });

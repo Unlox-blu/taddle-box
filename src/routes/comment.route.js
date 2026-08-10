@@ -8,6 +8,7 @@ const { validateRequest }          = require('../middlewares/validator.middlewar
 const { createCommentSchema, updateCommentSchema, postIdParamsSchema, commentIdParamsSchema } = require('../modules/comment/comment.validator');
 
 router.post('/',                     verifyToken, validateRequest({body: createCommentSchema}),                                    commentController.create);
+router.get('/single/:commentId',     verifyToken, validateRequest({params: commentIdParamsSchema}),                                  commentController.getComment);
 router.get('/:postId',               verifyToken, validateRequest({params: postIdParamsSchema}),                                    commentController.getComments);
 router.patch('/:commentId',          verifyToken, validateRequest({body: updateCommentSchema, params:commentIdParamsSchema}),      commentController.update);
 router.delete('/:commentId',         verifyToken, validateRequest({params: commentIdParamsSchema}),                                 commentController.delete);

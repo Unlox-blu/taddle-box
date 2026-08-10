@@ -133,6 +133,18 @@ const FEED_ALGORITHM =  `WITH ranked_posts AS (
 
                                 AND p.status = 'published'
 
+                                -- Reposts whose ORIGINAL is gone (deleted /
+                                -- unpublished) are hidden — nothing to show.
+                                AND (
+                                    p.repost_of_id IS NULL
+                                    OR EXISTS (
+                                        SELECT 1 FROM posts orig
+                                        WHERE orig.id = p.repost_of_id
+                                          AND orig.deleted_at IS NULL
+                                          AND orig.status = 'published'
+                                    )
+                                )
+
                                 AND (
 
                                     p.community_id IS NULL

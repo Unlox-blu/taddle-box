@@ -19,8 +19,17 @@ const findById = async (commentId) => {
   }
 };
 
-const findByPost = async (postId, limit, offset, parentId = null, userId = null) => {
+const findByPost = async (postId, limit, offset, parentId = null, userId = null, sort = null) => {
   try {
+    // 'top'    → most liked first (ties: oldest first)
+    // 'newest' → most recent first
+    // default  → oldest first (classic thread order)
+    const orderBy =
+      sort === 'top'
+        ? 'ORDER BY c.likes_count DESC, c.created_at ASC'
+        : sort === 'newest'
+          ? 'ORDER BY c.created_at DESC'
+          : 'ORDER BY c.created_at ASC';
     const { rows } = await pool.query(
       `SELECT ${CommentModel.LIST_FIELDS}, COUNT(*) OVER() AS total,
        EXISTS(SELECT 1 FROM ${CommentModel.LIKES_TABLE} cl WHERE cl.comment_id = c.id AND cl.user_id = $5) as is_liked,
@@ -30,7 +39,7 @@ const findByPost = async (postId, limit, offset, parentId = null, userId = null)
      LEFT JOIN media ua ON u.avatar_url = ua.id
      WHERE c.post_id = $1 AND c.deleted_at IS NULL
        AND ($2::uuid IS NULL AND c.parent_id IS NULL OR c.parent_id = $2::uuid)
-     ORDER BY c.created_at ASC
+     ${orderBy}
      LIMIT $3 OFFSET $4`,
       [postId, parentId, limit, offset, userId]
     );

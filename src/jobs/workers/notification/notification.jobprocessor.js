@@ -169,11 +169,21 @@ const notificationJobProcessor = async (job) => {
           logger.info(`[NotifDeliveryWorker] Processing: ${payload.type}`, { id: job.id, recipientId: payload.recipientId });
           if (!payload.recipientId) return null;
           
+          // Comment-mention messages carry the exact comment id ("... | <id>")
+          // — surface it in the push data so a tray tap can deep-link straight
+          // to the mentioned comment on the post page.
+          const commentIdMatch = String(payload.message || '').match(/\|\s*([0-9a-fA-F-]{36})$/);
           return pushService.sendToUser({
           userId: payload.recipientId,
           title: payload.title,
           message: payload.message || "Push notification" ,
-          data: { senderId: payload.senderId, type: payload.type, resourceId: payload.resourceId },
+          data: {
+            senderId: payload.senderId,
+            type: payload.type,
+            resourceId: payload.resourceId,
+            resourceType: payload.resourceType,
+            commentId: commentIdMatch ? commentIdMatch[1] : undefined,
+          },
         });
           break;
         }

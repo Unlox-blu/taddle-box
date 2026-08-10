@@ -67,25 +67,37 @@ class PostService {
         sourceType: `create_post_${post.id}`
       }).catch(err => console.error('XP credit failed:', err));
 
-      // Handle mentions
+      // Handle mentions — explicit ids from the composer (data.mentions) plus
+      // @handles in the content, in BOTH the plain `@user` form and the
+      // composer's structured `{@}[user](id)` form (which plain regexes miss).
       const content = data.content || '';
+      const mentionedIds = new Set(Array.isArray(data.mentions) ? data.mentions.filter(Boolean) : []);
+      const structuredMatches = content.match(/\{@\}\[[^\]]+\]\([^)]+\)/g) || [];
+      structuredMatches.forEach((m) => {
+        const idMatch = m.match(/\{@\}\[[^\]]+\]\(([^)]+)\)/);
+        if (idMatch && idMatch[1]) mentionedIds.add(idMatch[1]);
+      });
       const mentionMatches = content.match(/@(\w+)/g) || [];
       const mentionedUsernames = [...new Set(mentionMatches.map(m => m.slice(1)))];
-      
-      for (const username of mentionedUsernames) {
-        this.userRepo.findByUsername(username).then(user => {
-          if (user && user.id !== authorId) {
-            this.notifSvc.create({
-              recipientId: user.id,
-              senderId: authorId,
-              type: 'MENTION',
-              title: 'New mention',
-              message: `mentioned you in a post`,
-              resourceType: 'post',
-              resourceId: post.id,
-            }).catch(e => console.error(`Failed to notify mentioned user ${username}`, e));
-          }
-        }).catch(e => console.error(`Failed to find user ${username}`, e));
+      const mentionUsers = await Promise.all(
+        mentionedUsernames.map((username) =>
+          this.userRepo.findByUsername(username).catch(() => null)
+        )
+      );
+      mentionUsers.forEach((user) => {
+        if (user && user.id !== authorId) mentionedIds.add(user.id);
+      });
+      for (const id of mentionedIds) {
+        if (id === authorId) continue;
+        this.notifSvc.create({
+          recipientId: id,
+          senderId: authorId,
+          type: 'MENTION',
+          title: 'New mention',
+          message: 'mentioned you in a post',
+          resourceType: 'post',
+          resourceId: post.id,
+        }).catch(e => console.error('Failed to notify mentioned user', e));
       }
 
       // Fan-out: notify the author's followers that they published a post.
@@ -188,7 +200,19 @@ class PostService {
       if (!post) throw createError('Post not found', 404);
       const isOwner = post.author_id === userId;
       const isMod = ['admin', 'moderator', 'superadmin'].includes(userRole);
-      if (!isOwner && !isMod) throw createError('Not authorized to delete this post', 403);
+      if (!isOwner && !isMod) {
+        // Community owner/admins can delete posts inside their community.
+        if (post.community_id) {
+          const community = await this.communityRepo.findById(post.community_id);
+          const member = await this.communityRepo.getMember(post.community_id, userId);
+          const isCommunityOwner = community?.ownerId === userId;
+          const isCommunityAdmin = member?.role === 'admin' || member?.role === 'moderator';
+          if (!isCommunityOwner && !isCommunityAdmin)
+            throw createError('Not authorized to delete this post', 403);
+        } else {
+          throw createError('Not authorized to delete this post', 403);
+        }
+      }
       // NOTE: repost rows intentionally KEEP their repost_of_id link to the
       // soft-deleted original. Detaching it (setRepostNull) turns every repost
       // of a deleted post into a bare, content-less card; keeping the link lets
@@ -199,6 +223,17 @@ class PostService {
       this.userRepo.decrementPostCount(post.author_id).catch(err => console.error('User post decrement failed:', err));
       if (post.community_id) {
         this.communityRepo.decrementPostCount(post.community_id).catch(err => console.error('Community post decrement failed:', err));
+        // A moderator/admin deleting someone else's post inside the community
+        // is a moderation action — record it (author self-deletes are not).
+        if (!isOwner) {
+          this.communityRepo.logModeration({
+            communityId: post.community_id,
+            actorId: userId,
+            action: 'delete_post',
+            targetUserId: post.author_id,
+            postId,
+          }).catch(err => console.error('Moderation log write failed:', err));
+        }
       }
 
     } catch (error) {

@@ -1,6 +1,7 @@
 'use strict';
 
 const {activeStatusService} = require('../modules/activestatus/activestatus.container')
+const {userService} = require('../modules/user/user.container')
 const redis = require('../config/redis')
 
 let _io = null;
@@ -39,6 +40,35 @@ const broadcastPresence = async (userId, payload) => {
   }
 };
 
+// On connect, push the viewer's OWN follow-list presence over the socket so
+// followed users' dots are live immediately with zero REST calls — the same
+// push model Insta/FB use. getPresenceBatch reuses the REST authz rules
+// (self + followed, gated by each target's Activity Status setting).
+//
+// The snapshot is BOUNDED: for users following 1,000+ people we only push the
+// most recently followed SNAPSHOT_LIMIT so the emit + Redis lookups can't
+// stall the socket handshake. Everyone beyond the cap still gets their dot via
+// the client's on-demand REST backfill (which the freshness window keeps
+// cheap), and live presence:changed events keep the recent ones current.
+const SNAPSHOT_LIMIT = 200;
+const sendPresenceSnapshot = async (socket) => {
+  try {
+    const pool = require('../config/database');
+    const { rows } = await pool.query(
+      `SELECT following_id FROM followers
+       WHERE follower_id = $1 AND status = 'active'
+       ORDER BY created_at DESC LIMIT $2`,
+      [socket.userId, SNAPSHOT_LIMIT]
+    );
+    const ids = rows.map((r) => r.following_id);
+    if (ids.length === 0) return;
+    const snapshot = await userService.getPresenceBatch({ userId: socket.userId, userIds: ids });
+    socket.emit('presence:snapshot', snapshot);
+  } catch (error) {
+    console.error('Failed to send presence snapshot', error);
+  }
+};
+
 const setupActiveStatus = (io) => {
   _io = io;
 
@@ -53,6 +83,9 @@ const setupActiveStatus = (io) => {
 
         // Followers see the user go online in real time.
         await broadcastPresence(socket.userId, { userId: socket.userId, online: true, lastSeen: null });
+
+        // The viewer's own follow-list presence, pushed over the socket.
+        await sendPresenceSnapshot(socket);
     } catch (error) {
         console.error(error);
     }

@@ -8,6 +8,7 @@ import {
   StyleProp,
   ViewStyle,
   Image,
+  Platform,
 } from "react-native";
 import { MentionInput } from "react-native-controlled-mentions";
 import { colors, fontSizes, radii, spacing } from "../../theme";
@@ -234,12 +235,14 @@ export default function SmartInput({
   };
 
   // MentionInput always passes `children` (the parsed mention markup) into the
-  // native TextInput. On Android a TextInput with children suppresses the native
+  // native TextInput. On ANDROID a TextInput with children suppresses the native
   // placeholder entirely — so the create-post title/content fields showed no
-  // hint text in either theme. We render our own placeholder layer instead:
-  // it's shown only while the raw value is empty, styled like the input text,
-  // and pointer-transparent so taps always reach the field underneath.
-  const showOverlayPlaceholder = !!placeholder && !value;
+  // hint text in either theme. On iOS the native placeholder is unaffected, so
+  // we render the fallback ONLY on Android to avoid drawing the hint twice.
+  // The layer is shown only while the raw value is empty, styled like the input
+  // text, and pointer-transparent so taps always reach the field underneath.
+  const showOverlayPlaceholder =
+    Platform.OS === "android" && !!placeholder && !value;
 
   return (
     <View style={[styles.container, containerStyle]}>

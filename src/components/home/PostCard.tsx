@@ -1628,6 +1628,21 @@ export default function PostCard({
 // (the original's author deleting it would otherwise keep it alive here).
 const repostCache = new Map<string, { data: any; ts: number }>();
 const REPOST_CACHE_TTL_MS = 2 * 60 * 1000;
+// Hard cap so a very long session (or a feed of thousands of reposts) can't
+// grow this module-level map forever — when exceeded, the oldest entries are
+// dropped first.
+const REPOST_CACHE_MAX = 400;
+
+const cacheRepost = (id: string, data: any) => {
+  repostCache.set(id, { data, ts: Date.now() });
+  if (repostCache.size > REPOST_CACHE_MAX) {
+    const oldest = [...repostCache.entries()]
+      .sort((a, b) => a[1].ts - b[1].ts)
+      .slice(0, repostCache.size - REPOST_CACHE_MAX)
+      .map(([k]) => k);
+    oldest.forEach((k) => repostCache.delete(k));
+  }
+};
 
 // A repost can point at another repost (repost-of-repost). Walk the chain to
 // the ROOT original so the preview shows real content/media. Bounded to avoid
@@ -1652,7 +1667,7 @@ const resolveRootPost = async (startId: string): Promise<any | null> => {
     }
     // Cache BOTH hits and misses — a miss (deleted original) stays cached so
     // a long feed of reposts of the same deleted post doesn't hammer the API.
-    repostCache.set(current, { data, ts: Date.now() });
+    cacheRepost(current, data);
     if (!data) return null;
     if (!data.repostOfId) return data;
     current = data.repostOfId;

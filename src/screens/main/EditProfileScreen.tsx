@@ -296,8 +296,11 @@ export default function EditProfileScreen() {
           websiteUrl: website.trim() || undefined,
           location:   location.trim()    || undefined,
           organization: organization.trim() || undefined,
-          occupation: occupation || undefined,
-          gender:     (gender as any) || undefined,
+          // Raw value INCLUDING '' — the API treats empty string as "clear
+          // this field" (persists NULL), so clearing a previously-set
+          // occupation/gender actually sticks.
+          occupation: occupation,
+          gender:     gender as any,
           dateOfBirth: dateOfBirth || undefined,
           // Always send interests (even an empty array) so clearing them
           // actually clears them server-side instead of silently keeping the

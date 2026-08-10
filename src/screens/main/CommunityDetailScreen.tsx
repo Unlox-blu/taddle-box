@@ -19,6 +19,8 @@ import PostCard             from '../../components/home/PostCard';
 import CreatePostModal      from '../../components/common/CreatePostModal';
 import SharedFeed           from '../../components/common/SharedFeed';
 import { useAuth }          from '../../context/AuthContext';
+import { useQueryClient }   from '@tanstack/react-query';
+import { queryKeys }        from '../../lib/queryKeys';
 import type { CommunityStackParamList, Post, Community } from '../../types';
 
 
@@ -221,8 +223,12 @@ export default function CommunityDetailScreen() {
   const [showCreate, setShowCreate]  = useState(false);
   const [showRequests, setShowRequests] = useState(false);
   const [showMembers, setShowMembers] = useState(false);
+  // Guards against double-tapping Join/Leave — two rapid taps would fire two
+  // mutations and the second would 409 on the server, flipping the UI back.
+  const [joinBusy, setJoinBusy] = useState(false);
   
   const { user: authUser } = useAuth();
+  const queryClient = useQueryClient();
   const isAdmin = community?.memberRole === 'admin' || community?.memberRole === 'moderator';
   const isOwner = community?.ownerId === authUser?.id;
 
@@ -231,19 +237,27 @@ export default function CommunityDetailScreen() {
   // mutation's optimistic cache update keeps the community LIST in sync, and
   // loadData() re-syncs this page from the server when it settles.
   const handleToggleJoin = async () => {
-    if (!community) return;
+    if (!community || joinBusy) return;
     const target = community;
     const wasJoined = target.isJoined || false;
     const wasPending = target.isPending || false;
     const isPrivate = target.privacy === 'private';
     const delta = wasJoined ? -1 : 1;
     // Local optimistic flip — instant UI.
+    setJoinBusy(true);
     setCommunity(prev => prev ? {
       ...prev,
       isJoined: wasPending ? false : (isPrivate ? prev.isJoined : !prev.isJoined),
       isPending: wasPending ? false : isPrivate,
       memberCount: wasPending ? prev.memberCount : Math.max(0, (prev.memberCount || 0) + delta),
     } : prev);
+    const rollback = () =>
+      setCommunity(prev => prev ? {
+        ...prev,
+        isJoined: wasJoined,
+        isPending: wasPending,
+        memberCount: wasPending ? prev.memberCount : Math.max(0, (prev.memberCount || 0) - delta),
+      } : prev);
     try {
       await toggleJoinMutate({
         communityId: target.id,
@@ -252,22 +266,27 @@ export default function CommunityDetailScreen() {
       });
       // Re-fetch detail + posts so the page reflects server truth (member
       // count, isJoined, and — for private — whether the request was accepted
-      // immediately vs pending review).
-      loadData();
+      // immediately vs pending review). If the re-fetch FAILS we can't confirm
+      // the server state, so roll the optimistic flip back rather than leave
+      // the button claiming a membership we can't verify.
+      const refreshed = await loadData();
+      if (!refreshed) {
+        rollback();
+        queryClient.invalidateQueries({ queryKey: queryKeys.communities });
+      }
     } catch (e) {
       // Roll back on failure.
-      setCommunity(prev => prev ? {
-        ...prev,
-        isJoined: wasJoined,
-        isPending: wasPending,
-        memberCount: wasPending ? prev.memberCount : Math.max(0, (prev.memberCount || 0) - delta),
-      } : prev);
+      rollback();
       console.error('Failed to toggle community membership:', e);
+    } finally {
+      setJoinBusy(false);
     }
   };
 
+  // Resolves true only when the detail re-fetch succeeded — callers use the
+  // boolean to decide whether an optimistic membership flip can be trusted.
   const loadData = useMemo(
-    () => async () => {
+    () => async (): Promise<boolean> => {
       setLoadingDetail(true);
       setDetailError(null);
       try {
@@ -287,14 +306,16 @@ export default function CommunityDetailScreen() {
           } finally {
             setLoadingPosts(false);
           }
-        } else {
-          setDetailError("Community not found.");
+          return true;
         }
+        setDetailError("Community not found.");
+        return false;
       } catch (e: any) {
         console.log("Failed to load community details", e);
         setDetailError(
           e?.response?.data?.message || "Could not load this community.",
         );
+        return false;
       } finally {
         setLoadingDetail(false);
       }

@@ -18,10 +18,24 @@ const updateProfileSchema = z.object({
   websiteUrl: z.string().url('Invalid URL').optional().or(z.literal('')),
   location: z.string().max(255, 'Location is too long').optional().or(z.literal('')),
   organization: z.string().max(255, 'Organization is too long').optional().or(z.literal('')),
-  occupation: z.enum(['Student', 'Working Professional', 'Self-employed / Freelancer', 'Other'], { errorMap: () => ({ message: 'Invalid occupation' }) }).optional(),
-  gender: z.enum(['male', 'female', 'other'], { errorMap: () => ({ message: 'Invalid gender' }) }).optional(),
-  // 'YYYY-MM-DD' — validated as a real calendar date, not just any string.
-  dateOfBirth: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Invalid date of birth').optional(),
+  // Empty string is an explicit "clear this field" — the repository maps it
+  // to NULL so a cleared occupation/gender actually persists.
+  occupation: z.enum(['Student', 'Working Professional', 'Self-employed / Freelancer', 'Other'], { errorMap: () => ({ message: 'Invalid occupation' }) }).optional().or(z.literal('')),
+  gender: z.enum(['male', 'female', 'other'], { errorMap: () => ({ message: 'Invalid gender' }) }).optional().or(z.literal('')),
+  // 'YYYY-MM-DD' — validated as a REAL calendar date (2023-13-45 or 2023-02-31
+  // must be rejected here, not left for the DB DATE cast to 500 on).
+  dateOfBirth: z.string()
+    .regex(/^\d{4}-\d{2}-\d{2}$/, 'Invalid date of birth')
+    .refine((s) => {
+      const [y, m, d] = s.split('-').map(Number);
+      const dt = new Date(Date.UTC(y, m - 1, d));
+      return (
+        dt.getUTCFullYear() === y &&
+        dt.getUTCMonth() === m - 1 &&
+        dt.getUTCDate() === d
+      );
+    }, 'Invalid date of birth')
+    .optional(),
   interests: z.array(z.string().max(60, 'Interest is too long')).max(30, 'Too many interests').optional(),
 }).strict();
 

@@ -72,7 +72,8 @@ class PostController {
   recordView = async (req, res, next) => {
     try {
       const { postId } = req.params;
-      await this.postSvc.recordView({ postId });
+      const userId = req.userId;
+      await this.postSvc.recordView({ postId, userId });
       res.json(apiResponse(null, 'View recorded'));
     } catch (error) {
       next(error);

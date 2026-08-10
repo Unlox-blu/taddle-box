@@ -58,4 +58,23 @@ const locationCaptureLimiter = rateLimit({
   message: { success: false, message: 'Location capture rate limited. Try again shortly.' },
 });
 
-module.exports = { globalRateLimiter, authRateLimiter, otpRateLimiter, uploadRateLimiter, locationCaptureLimiter };
+// 120 view records per 10 min, keyed by USER (falls back to IP for
+// unauthenticated callers). Defense-in-depth on top of the per-user dedup in
+// recordView: a scripted client can still only add ONE view per post per
+// account, but this stops it from sweeping the whole post table (or any future
+// window-based logic) and from hammering the DB with insert attempts.
+const postViewLimiter = rateLimit({
+  windowMs: 10 * 60 * 1000,
+  max: 120,
+  standardHeaders: true,
+  legacyHeaders: false,
+  store: makeStore('rl:view:'),
+  skipFailedRequests: true,
+  // verifyToken runs BEFORE this middleware and sets req.userId, so the budget
+  // is per account — shared NAT IPs don't throttle each other, and one user's
+  // devices share a single budget.
+  keyGenerator: (req) => req.userId || req.ip || 'anon',
+  message: { success: false, message: 'Too many post views. Please try again later.' },
+});
+
+module.exports = { globalRateLimiter, authRateLimiter, otpRateLimiter, uploadRateLimiter, locationCaptureLimiter, postViewLimiter };

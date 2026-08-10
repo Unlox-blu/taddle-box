@@ -6,6 +6,7 @@ const { postController } = require('../modules/post/post.container');
 const { verifyToken, optionalAuth } = require('../middlewares/auth.middleware');
 const { authorize } = require('../middlewares/authorized.middleware');
 const { validateRequest } = require('../middlewares/validator.middleware');
+const { postViewLimiter } = require('../middlewares/rate-limiter.middleware');
 const {
   createPostSchema,
   updatePostSchema,
@@ -60,10 +61,12 @@ router.delete(
 );
 
 // Record a post impression — called when a post thread is opened. Fire-and-
-// forget server-side; never throws on a deleted post.
+// forget server-side; never throws on a deleted post. Rate-limited per user
+// (120/10 min) as defense-in-depth over the per-user unique-view dedup.
 router.post(
   '/:postId/view',
   verifyToken,
+  postViewLimiter,
   validateRequest({ params: postIdParamsSchema }),
   postController.recordView
 );

@@ -206,14 +206,18 @@ class PostService {
     }
   }
 
-  // Record a post impression (thread opened). Idempotent-per-call: each open
-  // counts once. Fire-and-forget friendly — never throws on a missing post so
-  // a stale deep link can't 500 the thread screen.
-  async recordView({postId}) {
+  // Record a post impression (thread opened) as a UNIQUE viewer. Fire-and-
+  // forget friendly — never throws on a missing post so a stale deep link
+  // can't 500 the thread screen.
+  async recordView({postId, userId}) {
     try {
       const post = await this.postRepo.findById(postId);
       if (!post) return;
-      await this.postRepo.incrementViewCount(postId);
+      // Only the FIRST view by this user bumps the counter (post_views has a
+      // partial unique index on (post_id, user_id)); re-opens are no-ops so
+      // views_count measures unique viewers, not raw impressions.
+      const isNewView = await this.postRepo.recordView(postId, userId);
+      if (isNewView) await this.postRepo.incrementViewCount(postId);
     } catch (error) {
       console.error('Failed to record post view:', error);
     }
@@ -316,6 +320,13 @@ class PostService {
         const root = await this.postRepo.findById(original.repost_of_id);
         if (!root) break;
         original = root;
+      }
+      // If the walk ended with repost_of_id still set, the next hop resolved
+      // to a soft-deleted/nonexistent post — the root content is gone. Creating
+      // a new repost here would produce a card that only ever shows "Original
+      // post is unavailable", so refuse (the client hides the button too).
+      if (original.repost_of_id) {
+        throw createError('The original post is no longer available to repost', 410);
       }
       const targetId = original.id;
 

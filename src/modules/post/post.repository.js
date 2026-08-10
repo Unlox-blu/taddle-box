@@ -472,6 +472,24 @@ const incrementViewCount = async (id) => {
   }
 };
 
+// Record a UNIQUE viewer for a post. The partial unique index on
+// (post_id, user_id) makes re-views by the same user no-ops, so callers can
+// bump views_count exactly when this returns true. Returns false for a repeat
+// view by the same user.
+const recordView = async (postId, userId) => {
+  try {
+    const { rowCount } = await pool.query(
+      `INSERT INTO ${PostModel.VIEWS_TABLE} (post_id, user_id)
+       VALUES ($1, $2)
+       ON CONFLICT (post_id, user_id) WHERE user_id IS NOT NULL DO NOTHING`,
+      [postId, userId || null]
+    );
+    return (rowCount || 0) > 0;
+  } catch (error) {
+    throw error;
+  }
+};
+
 const search = async (query, limit, offset, currentUserId = null) => {
   try {
     const q = query || '';
@@ -533,6 +551,7 @@ module.exports = {
   incrementShareCount,
   decrementShareCount,
   incrementViewCount,
+  recordView,
   search,
   findLikers,
   findReposters,

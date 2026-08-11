@@ -3,7 +3,7 @@
 const router = require('express').Router();
 const { authController } = require('../modules/auth/auth.container');
 const { verifyToken } = require('../middlewares/auth.middleware');
-const { otpRateLimiter, authRateLimiter } = require('../middlewares/rate-limiter.middleware');
+const { otpRateLimiter, otpTargetRateLimiter, authRateLimiter } = require('../middlewares/rate-limiter.middleware');
 const { validateRequest } = require('../middlewares/validator.middleware');
 const {
   usernameSchema,
@@ -53,6 +53,7 @@ router.post(
 router.post(
   '/send-otp',
   otpRateLimiter,
+  otpTargetRateLimiter,
   validateRequest({ body: sendOtpSchema }),
   authController.sendOtp
 );

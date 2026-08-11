@@ -1,5 +1,5 @@
 import React, { useState, useRef, useCallback } from 'react';
-import { FlatList, View, Text, Share, Image, RefreshControl, DeviceEventEmitter } from 'react-native';
+import { FlatList, View, Text, Share, Image, DeviceEventEmitter } from 'react-native';
 import { useNavigation, useScrollToTop } from '@react-navigation/native';
 import PostCard from '../home/PostCard';
 import CommentsModal from '../home/CommentsModal';
@@ -7,6 +7,7 @@ import { postsService } from '../../services/posts.service';
 import { useAuth } from '../../context/AuthContext';
 import type { Post } from '../../types';
 import { themedAlert } from './ThemedAlert';
+import AppRefreshControl from './AppRefreshControl';
 
 interface SharedFeedProps {
   posts: Post[];
@@ -210,12 +211,7 @@ export default function SharedFeed({
         showsVerticalScrollIndicator={false}
         contentContainerStyle={contentContainerStyle}
         refreshControl={
-          <RefreshControl
-            refreshing={refreshing || false}
-            onRefresh={onRefresh}
-            tintColor="transparent"
-            colors={["#7C3AED"]}
-          />
+          <AppRefreshControl refreshing={refreshing || false} onRefresh={onRefresh} />
         }
         // iOS only: without this, a short list (few posts / short bookmarks /
         // profile with a handful of posts) can't be pulled down at all, so the

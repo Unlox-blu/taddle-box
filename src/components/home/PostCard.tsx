@@ -725,11 +725,12 @@ export default function PostCard({
         clearTimeout(tapNavTimer.current);
         tapNavTimer.current = null;
       }
+      lastTapTime.current = 0; // reset so a 3rd tap doesn't re-trigger
       handleDoubleTap();
       return;
     }
-    // First tap — wait briefly to see if a second tap follows. Inside the
-    // post's own detail page the single tap is a no-op (nothing to navigate).
+    // First tap — record time, then wait briefly to see if a second tap follows.
+    lastTapTime.current = now;
     if (disableTapNavigation) return;
     if (tapNavTimer.current) clearTimeout(tapNavTimer.current);
     tapNavTimer.current = setTimeout(() => {
@@ -739,28 +740,23 @@ export default function PostCard({
   };
 
   const handleDoubleTap = () => {
-    const now = Date.now();
-    if (now - lastTapTime.current < 300) {
-      if (!post.isLiked) {
-        handleLike();
-      }
-      
-      doubleTapAnim.setValue(1);
-      Animated.sequence([
-        Animated.spring(doubleTapAnim, {
-          toValue: 1.5,
-          friction: 3,
-          useNativeDriver: true,
-        }),
-        Animated.timing(doubleTapAnim, {
-          toValue: 0,
-          duration: 200,
-          delay: 400,
-          useNativeDriver: true,
-        })
-      ]).start();
+    if (!post.isLiked) {
+      handleLike();
     }
-    lastTapTime.current = now;
+    doubleTapAnim.setValue(1);
+    Animated.sequence([
+      Animated.spring(doubleTapAnim, {
+        toValue: 1.5,
+        friction: 3,
+        useNativeDriver: true,
+      }),
+      Animated.timing(doubleTapAnim, {
+        toValue: 0,
+        duration: 200,
+        delay: 400,
+        useNativeDriver: true,
+      })
+    ]).start();
   };
 
   // Sync mute state when post becomes active
@@ -917,7 +913,7 @@ export default function PostCard({
       <Text style={baseStyle} numberOfLines={lines}>
         {text
           .split(
-            /(\{@\}\[[^\]]+\]\([^)]+\)|\{#\}\[[^\]]+\]\([^)]+\)|@\w+|#\w+)/g,
+            /(\{@\}\[[^\]]+\]\([^)]+\)|\{#\}\[[^\]]+\]\([^)]+\)|<mark>[^<]+<\/mark>|@\w+|#\w+)/g,
           )
           .map((part: string, i: number) => {
             const mentionMatch = part.match(/^\{@\}\[([^\]]+)\]\(([^)]+)\)$/);
@@ -985,6 +981,14 @@ export default function PostCard({
                   }
                 >
                   {part}
+                </Text>
+              );
+            }
+
+            if (part.startsWith("<mark>") && part.endsWith("</mark>")) {
+              return (
+                <Text key={i} style={{ backgroundColor: colors.primaryLight + "40", fontWeight: "700" }}>
+                  {part.slice(6, -7)}
                 </Text>
               );
             }
@@ -1259,7 +1263,7 @@ export default function PostCard({
         <View style={[styles.body, { paddingTop: 0 }]}>
           {!!(post as any).title &&
             renderParsedText((post as any).title, styles.title, isExpanded ? undefined : 2)}
-          {!!post.content && renderParsedText(post.content, styles.content, isExpanded ? undefined : contentLimitLines)}
+          {!!post.content && renderParsedText((post as any).highlight_content || post.content, styles.content, isExpanded ? undefined : contentLimitLines)}
 
           {!isExpanded && Boolean(((post as any).title && (post as any).title.length > 80) || (post.content && post.content.length > contentCharLimit)) && (
             <TouchableOpacity onPress={() => setIsExpanded(true)} style={{ marginTop: -4, marginBottom: 8 }} activeOpacity={0.7}>
@@ -1271,6 +1275,7 @@ export default function PostCard({
           {(post as any).repostOfId ? (
           <RepostedPostCard
             postId={(post as any).repostOfId}
+            wrapperId={post.id}
             isActive={isActive ?? true}
             onOpen={(orig) => openPostThread(orig as Post)}
             onOrigUnavailable={() => setOrigUnavailable(true)}
@@ -1788,7 +1793,7 @@ const cacheRepost = (id: string, data: any) => {
 // the ROOT original so the preview shows real content/media. Bounded to avoid
 // pathological chains. Returns null when the root is unreachable (deleted,
 // 404, private) so callers render the "Original post is unavailable" state.
-const resolveRootPost = async (startId: string): Promise<any | null> => {
+const resolveRootPost = async (startId: string, wrapperId?: string): Promise<any | null> => {
   let current = startId;
   for (let hop = 0; hop < 5; hop++) {
     const cached = repostCache.get(current);
@@ -1800,7 +1805,8 @@ const resolveRootPost = async (startId: string): Promise<any | null> => {
     }
     let data: any = null;
     try {
-      const res = await postsService.getPost(current);
+      const config = hop === 0 && wrapperId ? { viaRepostId: wrapperId } : undefined;
+      const res = await postsService.getPost(current, config);
       data = res?.data || null;
     } catch (e) {
       data = null;
@@ -1818,11 +1824,13 @@ const resolveRootPost = async (startId: string): Promise<any | null> => {
 
 function RepostedPostCard({
   postId,
+  wrapperId,
   isActive,
   onOpen,
   onOrigUnavailable,
 }: {
   postId: string;
+  wrapperId?: string;
   isActive?: boolean;
   onOpen?: (orig: any) => void;
   /** Fired when the original is unreachable (deleted/404) — the outer card
@@ -1853,7 +1861,7 @@ function RepostedPostCard({
 
   React.useEffect(() => {
     let cancelled = false;
-    resolveRootPost(postId)
+    resolveRootPost(postId, wrapperId)
       .then((root) => {
         if (cancelled) return;
         setOrig(root);
@@ -2055,11 +2063,10 @@ function RepostedPostCard({
         </Text>
       ) : null}
 
-      {/* Full-width original media carousel — images + playable videos. Also
-          renders for audio-only originals (slim "Original Audio" bar) so the
-          preview always surfaces the original's sound; the mute/unmute
-          speaker lives in the counts row below, like the main card. */}
-      {(visual.length > 0 || origHasAudio) && (
+      {/* Full-width original media carousel — images + playable videos only.
+          Audio is handled by the rolling stack; we never render an audio
+          player or audio-only bar inside the embedded preview. */}
+      {visual.length > 0 && (
         <View style={{ position: "relative" }}>
           {visual.length > 0 && (
             <ScrollView
@@ -2117,51 +2124,6 @@ function RepostedPostCard({
                 );
               })}
             </ScrollView>
-          )}
-
-          {/* Invisible audio playback for the original's audio track */}
-          {origAudioMedia.length > 0 && (
-            <View style={{ position: "absolute", opacity: 0, width: 0, height: 0 }}>
-              {origAudioMedia.map((m: any, idx: number) => {
-                const url = m.cloudfront_url || m.url || m.uri;
-                return url ? (
-                  <Video
-                    key={`prev-audio-${idx}`}
-                    source={{ uri: url }}
-                    shouldPlay={isActive}
-                    isLooping={false}
-                    isMuted={isMuted}
-                    style={{ width: 0, height: 0 }}
-                  />
-                ) : null;
-              })}
-            </View>
-          )}
-
-          {/* Audio-only originals: a slim bar so the track is visible */}
-          {visual.length === 0 && origHasAudio && (
-            <View
-              style={{
-                flexDirection: "row",
-                alignItems: "center",
-                gap: 6,
-                paddingVertical: 8,
-                paddingHorizontal: 10,
-                borderRadius: radii.sm,
-                backgroundColor: colors.bg.elevated,
-              }}
-            >
-              <Ionicons name="musical-notes" size={14} color={colors.text.muted} />
-              <Text
-                style={{
-                  fontSize: 12,
-                  color: colors.text.secondary,
-                  fontWeight: "600",
-                }}
-              >
-                Original Audio
-              </Text>
-            </View>
           )}
 
           {/* Pagination dots */}

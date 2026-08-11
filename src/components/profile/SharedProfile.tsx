@@ -10,8 +10,7 @@ import {
   FlatList,
   Image,
 
-  RefreshControl,
-} from "react-native";
+  } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import { LinearGradient } from "expo-linear-gradient";
@@ -23,6 +22,7 @@ import XPProgressBar from "../home/XPProgressBar";
 import { useNavigation, useFocusEffect } from "@react-navigation/native";
 import { WebView } from "react-native-webview";
 import SharedFeed from "../common/SharedFeed";
+import AppRefreshControl from "../common/AppRefreshControl";
 import { postsService } from "../../services/posts.service";
 import { presenceIndicator } from "../../context/PresenceContext";
 import CommentsModal from "../home/CommentsModal";
@@ -819,7 +819,7 @@ export default function SharedProfile({
   }, [loadProfile, loadMentions, user?.id, isOwnProfile, followed, profileTab]);
 
   const refreshControl = (
-    <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={colors.primary} />
+    <AppRefreshControl refreshing={refreshing} onRefresh={onRefresh} />
   );
 
   const openFollowList = (type: "followers" | "following") => {

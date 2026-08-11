@@ -19,8 +19,12 @@ export const postsService = {
     return response.data;
   },
 
-  getPost: async (postId: string): Promise<{ data: Post }> => {
-    const response = await apiClient.get(`/posts/${postId}`);
+  getPost: async (postId: string, config?: { viaRepostId?: string }): Promise<{ data: Post }> => {
+    let url = `/posts/${postId}`;
+    if (config?.viaRepostId) {
+      url += `?via_repost=${encodeURIComponent(config.viaRepostId)}`;
+    }
+    const response = await apiClient.get(url);
     return response.data;
   },
 

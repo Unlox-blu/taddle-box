@@ -8,12 +8,12 @@ import {
   ActivityIndicator,
 
   Image,
-  RefreshControl,
-} from "react-native";
+  } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useNavigation } from "@react-navigation/native";
 import { Ionicons } from "@expo/vector-icons";
 import { useTheme, useThemeColors } from "../../context/ThemeContext";
+import AppRefreshControl from '../../components/common/AppRefreshControl';
 import { StatusBar } from "expo-status-bar";
 import { fontSizes, spacing, radii, type ColorPalette } from "../../theme";
 import { userService } from "../../services/user.service";
@@ -229,7 +229,7 @@ export default function FollowRequestsScreen() {
           keyExtractor={(item) => item.id}
           contentContainerStyle={styles.listContent}
           refreshControl={
-            <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={colors.primary} />
+            <AppRefreshControl refreshing={refreshing} onRefresh={onRefresh} />
           }
           ListEmptyComponent={
             <View style={styles.empty}>

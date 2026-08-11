@@ -64,7 +64,7 @@ export default function MainHeader({ showBack = false }: { showBack?: boolean })
             // opens pre-scoped to that person's content.
             let scopeCommunity: string | undefined;
             let authorFilter: string | undefined;
-            let source: 'bookmarks' | 'settings' | undefined;
+            let source: 'bookmarks' | 'settings' | 'notifications' | undefined;
             if (route.name === 'HomeMain') tab = 'all';
             else if (route.name === 'Profile') {
               tab = 'posts';
@@ -92,6 +92,10 @@ export default function MainHeader({ showBack = false }: { showBack?: boolean })
             else if (route.name === 'Settings') {
               tab = 'posts';
               source = 'settings';
+            }
+            else if (route.name === 'Notifications') {
+              tab = 'posts';
+              source = 'notifications';
             }
             else tab = 'posts'; // fallback
 

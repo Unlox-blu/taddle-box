@@ -11,8 +11,7 @@ import {
 
   Image,
   Dimensions,
-  RefreshControl,
-  Platform,
+    Platform,
   ActivityIndicator,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -23,6 +22,7 @@ import { LinearGradient } from "expo-linear-gradient";
 import { StatusBar } from "expo-status-bar";
 import { fontSizes, spacing, radii, type ColorPalette } from "../../theme";
 import { useTheme, useThemeColors } from "../../context/ThemeContext";
+import AppRefreshControl from '../../components/common/AppRefreshControl';
 import { useAuth } from "../../context/AuthContext";
 import { useCommunities } from "../../queries/communities";
 import {
@@ -750,11 +750,7 @@ export default function CommunityScreen() {
       <ScrollView
         showsVerticalScrollIndicator={false}
         refreshControl={
-          <RefreshControl
-            refreshing={isRefetching}
-            onRefresh={refetch}
-            tintColor={colors.primary}
-          />
+          <AppRefreshControl refreshing={isRefetching} onRefresh={refetch} />
         }
         onScroll={({ nativeEvent }) => {
           if (isCloseToBottom(nativeEvent) && hasNextPage) {

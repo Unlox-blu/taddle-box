@@ -1,6 +1,6 @@
 import React, { useMemo, useRef, useState, useEffect, useCallback } from 'react';
 import {
-  View, Text, TouchableOpacity,
+  View, Text, TouchableOpacity, Image,
   StyleSheet,  Platform, KeyboardAvoidingView, Share, BackHandler,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
@@ -16,6 +16,8 @@ import { postsService } from '../../services/posts.service';
 import PostCard from '../../components/home/PostCard';
 import CommentsThread from '../../components/home/CommentsThread';
 import { themedAlert } from '../../components/common/ThemedAlert';
+import { userService } from '../../services/user.service';
+import { communityService } from '../../services/community.service';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'PostDetail'>;
 
@@ -72,6 +74,11 @@ export default function PostDetailScreen({ navigation, route }: Props) {
   // The live post drives the card — its like/save/repost flags and counts must
   // stay current as the user interacts here and comments stream in below.
   const [livePost, setLivePost] = useState<any>(initialPost);
+  const [accessRestricted, setAccessRestricted] = useState<'private_user' | 'private_community' | null>(null);
+  const [isCheckingAccess, setIsCheckingAccess] = useState(true);
+  const [followRequested, setFollowRequested] = useState(false);
+  const [joinRequested, setJoinRequested] = useState(false);
+
   const livePostRef = useRef<any>(livePost);
   livePostRef.current = livePost;
   const composerRef = useRef<any>(null);
@@ -134,7 +141,19 @@ export default function PostDetailScreen({ navigation, route }: Props) {
           comments: fresh.comments ?? (fresh as any)?.commentsCount ?? prev.comments ?? 0,
         }));
       })
-      .catch(() => {});
+      .catch((err) => {
+        if (err.response?.status === 403) {
+          const msg = err.response?.data?.message || "";
+          if (msg.includes("private account") || msg.includes("follow the post author")) {
+            setAccessRestricted("private_user");
+          } else if (msg.includes("private community") || msg.includes("community post")) {
+            setAccessRestricted("private_community");
+          }
+        }
+      })
+      .finally(() => {
+        setIsCheckingAccess(false);
+      });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [initialPost.id]);
 
@@ -311,30 +330,138 @@ export default function PostDetailScreen({ navigation, route }: Props) {
           {/* Share lives in the card's own action row below — no duplicate here. */}
         </View>
 
-        {/* The app's own card (or reposted-card preview) + paginated thread */}
-        <CommentsThread
-          post={initialPost as any}
-          composerRef={composerRef}
-          focusCommentId={focusCommentId}
-          onCountChange={handleCountChange}
-          ListHeaderComponent={
-            <PostCard
-              post={livePost as any}
-              isActive
-              disableTapNavigation
-              fullBleed
-              onLike={handleLike}
-              onSave={handleSave}
-              onComment={handleComment}
-              onShare={handleShare}
-              onReposted={handleReposted}
-              onAuthorPress={handleAuthorPress}
-              onDelete={handleDelete}
-              onReport={handleReport}
-              showDelete={isOwnPost}
-            />
-          }
-        />
+        {isCheckingAccess ? (
+          <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center' }}>
+            {/* Loading placeholder while checking access */}
+          </View>
+        ) : accessRestricted ? (
+          <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', padding: spacing.xl }}>
+            
+            {/* Clickable Profile Block for private users */}
+            {accessRestricted === 'private_user' && (
+              <TouchableOpacity 
+                onPress={handleAuthorPress} 
+                style={{ alignItems: 'center', marginBottom: spacing.lg }}
+                activeOpacity={0.7}
+              >
+                <View style={{
+                  width: 80, height: 80, borderRadius: 40, backgroundColor: colors.bg.elevated, 
+                  alignItems: 'center', justifyContent: 'center', overflow: 'hidden', marginBottom: spacing.md,
+                  borderWidth: 1, borderColor: colors.border
+                }}>
+                  {author.avatarUrl ? (
+                    <Image source={{ uri: author.avatarUrl }} style={{ width: 80, height: 80 }} />
+                  ) : (
+                    <Text style={{ fontSize: 32 }}>{author.avatar}</Text>
+                  )}
+                </View>
+                <Text style={{ fontSize: fontSizes.xl, fontWeight: '700', color: colors.text.primary }}>
+                  {author.name}
+                </Text>
+                {author.username ? (
+                  <Text style={{ fontSize: fontSizes.md, color: colors.text.muted, marginTop: 4 }}>
+                    @{author.username}
+                  </Text>
+                ) : null}
+              </TouchableOpacity>
+            )}
+
+            <Ionicons name="lock-closed-outline" size={54} color={colors.border} />
+            
+            {accessRestricted === 'private_community' && (
+              <Text style={{ fontSize: fontSizes.xl, fontWeight: '700', color: colors.text.primary, marginTop: spacing.md, textAlign: 'center' }}>
+                Access Restricted
+              </Text>
+            )}
+
+            <Text style={{ fontSize: fontSizes.md, color: colors.text.muted, marginTop: spacing.sm, textAlign: 'center', lineHeight: 22, marginBottom: spacing.xl }}>
+              {accessRestricted === 'private_user' 
+                ? `This account is private. Follow @${author.username} to view and interact with their posts.`
+                : `This community is private. Join to view and interact with its posts.`}
+            </Text>
+
+            {accessRestricted === 'private_user' && (
+              <TouchableOpacity
+                style={{
+                  backgroundColor: followRequested ? colors.bg.elevated : colors.primary,
+                  paddingVertical: 12,
+                  paddingHorizontal: 24,
+                  borderRadius: 24,
+                  borderWidth: followRequested ? 1 : 0,
+                  borderColor: colors.border,
+                }}
+                disabled={followRequested || !author.username}
+                onPress={async () => {
+                  try {
+                    await userService.followUser(author.username);
+                    setFollowRequested(true);
+                  } catch (e) {
+                    themedAlert('Error', 'Failed to request follow.');
+                  }
+                }}
+              >
+                <Text style={{ color: followRequested ? colors.text.primary : '#fff', fontWeight: '700', fontSize: fontSizes.md }}>
+                  {followRequested ? 'Requested' : 'Request to Follow'}
+                </Text>
+              </TouchableOpacity>
+            )}
+
+            {accessRestricted === 'private_community' && (
+              <TouchableOpacity
+                style={{
+                  backgroundColor: joinRequested ? colors.bg.elevated : colors.primary,
+                  paddingVertical: 12,
+                  paddingHorizontal: 24,
+                  borderRadius: 24,
+                  borderWidth: joinRequested ? 1 : 0,
+                  borderColor: colors.border,
+                }}
+                disabled={joinRequested}
+                onPress={async () => {
+                  const communityId = typeof initialPost.community === 'object' ? (initialPost.community as any).id : typeof initialPost.community === 'string' ? initialPost.community : (initialPost as any).community_id;
+                  if (!communityId) {
+                    themedAlert('Error', 'Community info missing.');
+                    return;
+                  }
+                  try {
+                    await communityService.joinCommunity(communityId);
+                    setJoinRequested(true);
+                  } catch (e) {
+                    themedAlert('Error', 'Failed to request join.');
+                  }
+                }}
+              >
+                <Text style={{ color: joinRequested ? colors.text.primary : '#fff', fontWeight: '700', fontSize: fontSizes.md }}>
+                  {joinRequested ? 'Requested' : 'Request to Join'}
+                </Text>
+              </TouchableOpacity>
+            )}
+          </View>
+        ) : (
+          <CommentsThread
+            post={initialPost as any}
+            composerRef={composerRef}
+            focusCommentId={focusCommentId}
+            onCountChange={handleCountChange}
+            ListHeaderComponent={
+              <PostCard
+                post={livePost as any}
+                isActive
+                disableTapNavigation
+                fullBleed
+                onLike={handleLike}
+                onSave={handleSave}
+                onComment={handleComment}
+                onShare={handleShare}
+                onReposted={handleReposted}
+                onAuthorPress={handleAuthorPress}
+                onDelete={handleDelete}
+                onReport={handleReport}
+                showDelete={isOwnPost}
+              />
+            }
+          />
+        )}
       </View>
     </KeyboardAvoidingView>
   );

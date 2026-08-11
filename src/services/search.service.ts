@@ -42,6 +42,8 @@ export const searchService = {
     tag = "",
     bookmarked = "",
     mine = "",
+    sortBy = "",
+    postFilter = "",
   ): Promise<AllSearchResults> => {
     const res = await apiClient.get(
       `/search/all?q=${encodeURIComponent(q)}&limit=${limit}${
@@ -50,6 +52,8 @@ export const searchService = {
         tag ? `&tag=${encodeURIComponent(tag)}` : ""
       }${bookmarked ? `&bookmarked=${encodeURIComponent(bookmarked)}` : ""}${
         mine ? `&mine=${encodeURIComponent(mine)}` : ""
+      }${sortBy ? `&sortBy=${encodeURIComponent(sortBy)}` : ""}${
+        postFilter ? `&post_filter=${encodeURIComponent(postFilter)}` : ""
       }`,
     );
     // Response shape: { data: { dataType, data: { people, posts, ... } } }
@@ -79,6 +83,8 @@ export const searchService = {
     tag = "",
     bookmarked = "",
     mine = "",
+    sortBy = "",
+    postFilter = "",
   ): Promise<{ items: any[]; total: number; hasNext: boolean; page: number }> => {
     const res = await apiClient.get(
       `/search?type=${type}&q=${encodeURIComponent(q)}&page=${page}&limit=${limit}${
@@ -89,6 +95,8 @@ export const searchService = {
         tag ? `&tag=${encodeURIComponent(tag)}` : ""
       }${bookmarked ? `&bookmarked=${encodeURIComponent(bookmarked)}` : ""}${
         mine ? `&mine=${encodeURIComponent(mine)}` : ""
+      }${sortBy ? `&sortBy=${encodeURIComponent(sortBy)}` : ""}${
+        postFilter ? `&post_filter=${encodeURIComponent(postFilter)}` : ""
       }`,
     );
     const items = extractData(res).map((item: any) => ({ ...item, itemType: type }));

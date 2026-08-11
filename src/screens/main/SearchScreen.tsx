@@ -1,4 +1,10 @@
-import React, { useState, useEffect, useMemo, useCallback, useRef } from "react";
+import React, {
+  useState,
+  useEffect,
+  useMemo,
+  useCallback,
+  useRef,
+} from "react";
 import {
   View,
   Text,
@@ -8,12 +14,13 @@ import {
   StyleSheet,
   ActivityIndicator,
   Image,
-
   Share,
   RefreshControl,
+  Modal,
+  ScrollView,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { Ionicons } from "@expo/vector-icons";
+import { Ionicons, MaterialCommunityIcons } from "@expo/vector-icons";
 import { StatusBar } from "expo-status-bar";
 import { NativeStackScreenProps } from "@react-navigation/native-stack";
 import { fontSizes, spacing, radii, type ColorPalette } from "../../theme";
@@ -23,10 +30,13 @@ import { searchService, type SearchType } from "../../services/search.service";
 import { userService } from "../../services/user.service";
 import { communityService } from "../../services/community.service";
 import { hashtagService } from "../../services/hashtag.service";
+import { notificationService } from "../../services/notification.service";
 import type { HomeStackParamList, Post } from "../../types";
+import AppRefreshControl from "../../components/common/AppRefreshControl";
 import { useToggleLike, useToggleSave } from "../../mutations/posts";
 import PostCard from "../../components/home/PostCard";
-import { themedAlert } from '../../components/common/ThemedAlert';
+import { themedAlert } from "../../components/common/ThemedAlert";
+import AsyncStorage from "@react-native-async-storage/async-storage";
 
 type Props = NativeStackScreenProps<HomeStackParamList, "Search">;
 
@@ -45,7 +55,7 @@ const TABS: { key: SearchType; label: string }[] = [
 // `@user` scopes results to people involved, `c/community` scopes them to that
 // community's posts, `#tag` scopes them to posts carrying that hashtag — they
 // combine (e.g. "@pravin_viswa c/tvk #peaceful").
-const TOKEN_FILTER_RE = /^(@[^\s@]+|c\/[^\s/]+|#[^\s#]+)$/;
+const TOKEN_FILTER_RE = /^(@[^\s@]+|c\/[^\s/]+|#[^\s#]+|\.\/[a-z]+|p\/|g\/)$/i;
 
 // Filter-mode tabs — shown in place of the regular tabs while a PERSON filter
 // (@user) is active. Each narrows which involvement dimension matches; "All"
@@ -69,14 +79,55 @@ const BOOKMARK_TABS: { key: string; label: string }[] = [
   { key: "bm-events", label: "Events" },
 ];
 
+const POST_TABS: { key: string; label: string }[] = [
+  { key: "p-contents", label: "Contents" },
+  { key: "p-comments", label: "Comments" },
+  { key: "p-mentions", label: "Mentions" },
+];
+
+const NOTIF_TABS: { key: string; label: string }[] = [
+  { key: "n-all", label: "All" },
+  { key: "n-likes", label: "Likes" },
+  { key: "n-comments", label: "Comments" },
+  { key: "n-follows", label: "Follows" },
+];
+
+const SETTINGS_ITEMS = [
+  { id: "edit_profile", title: "Edit Profile", icon: "person-outline", route: "EditProfile", keywords: ["name", "avatar", "bio", "profile"] },
+  { id: "app_lock", title: "App Lock & PIN", icon: "lock-closed-outline", route: "Settings", keywords: ["security", "passcode", "fingerprint", "face id", "lock"] },
+  { id: "change_password", title: "Change Password", icon: "key-outline", route: "ChangePassword", keywords: ["security", "password"] },
+  { id: "phone", title: "Phone Number", icon: "call-outline", route: "ChangePhone", keywords: ["mobile", "phone"] },
+  { id: "email", title: "Email Address", icon: "mail-outline", route: "ChangeEmail", keywords: ["contact", "email"] },
+  { id: "notifications", title: "Notification Preferences", icon: "notifications-outline", route: "Settings", keywords: ["alerts", "push", "emails", "notifications"] },
+  { id: "privacy", title: "Account Privacy", icon: "eye-off-outline", route: "Settings", keywords: ["public", "private", "activity", "status", "privacy"] },
+  { id: "preferences", title: "App Preferences", icon: "options-outline", route: "Settings", keywords: ["theme", "dark mode", "language", "content", "safe search", "haptics", "sound", "preferences"] },
+  { id: "terms", title: "Terms of Service", icon: "document-text-outline", route: "Terms", keywords: ["legal", "rules", "terms"] },
+  { id: "privacy_policy", title: "Privacy Policy", icon: "shield-checkmark-outline", route: "Privacy", keywords: ["legal", "data", "privacy"] },
+  { id: "delete_account", title: "Delete Account", icon: "trash-outline", route: "Settings", keywords: ["remove", "close", "deactivate", "delete"] },
+  { id: "logout", title: "Log Out", icon: "log-out-outline", route: "Settings", keywords: ["sign out", "exit", "logout"] },
+];
+
 const normalizePostResult = (item: any): Post => {
   const author = item.author || {
     id: item.authorId || item.author_id || "",
     name: item.authorName || item.author_name || "Unknown User",
     username: item.authorUsername || item.author_username || "unknown",
     handle: item.authorUsername || item.author_username || "unknown",
-    avatarUrl: item.user_avatar || item.author_avatar || item.authorAvatar || item.avatar || item.avatarUrl || item.avatar_url,
-    avatar: item.user_avatar || item.author_avatar || item.authorAvatar || item.avatar || item.avatarUrl || item.avatar_url || '',
+    avatarUrl:
+      item.user_avatar ||
+      item.author_avatar ||
+      item.authorAvatar ||
+      item.avatar ||
+      item.avatarUrl ||
+      item.avatar_url,
+    avatar:
+      item.user_avatar ||
+      item.author_avatar ||
+      item.authorAvatar ||
+      item.avatar ||
+      item.avatarUrl ||
+      item.avatar_url ||
+      "",
     level: 1,
     xp: 0,
     xpToNext: 100,
@@ -110,7 +161,12 @@ const normalizePostResult = (item: any): Post => {
     // Backend returns is_liked / is_bookmarked (snake_case) — accept all
     // spellings so search results render the heart + bookmark icons correctly.
     isLiked: !!(item.isLiked ?? item.is_liked),
-    isSaved: !!(item.isSaved ?? item.is_saved ?? item.isBookmarked ?? item.is_bookmarked),
+    isSaved: !!(
+      item.isSaved ??
+      item.is_saved ??
+      item.isBookmarked ??
+      item.is_bookmarked
+    ),
     createdAt: item.createdAt || item.created_at,
     publishedAt: item.publishedAt || item.published_at,
     type: item.type || (item.media?.length ? "image" : "text"),
@@ -165,9 +221,50 @@ export default function SearchScreen({ navigation, route }: Props) {
   tagRef.current = tagFilters;
   // Source scope — opened from Bookmarks (search saved content) or Settings
   // (search own posts). Rendered as its own chip with an X.
-  const [source, setSource] = useState<string>((route.params as any)?.source || "");
+  const [source, setSource] = useState<string>(
+    (route.params as any)?.source || "",
+  );
   const sourceRef = useRef(source);
   sourceRef.current = source;
+
+  const [sortBy, setSortBy] = useState<string>("relevance");
+  const sortByRef = useRef(sortBy);
+  sortByRef.current = sortBy;
+
+  const [showFilters, setShowFilters] = useState(false);
+  const [filterType, setFilterType] = useState("relevance");
+  const [filterTime, setFilterTime] = useState("all_time");
+
+  // Search Context states
+  const [postMode, setPostMode] = useState(false);
+  const postModeRef = useRef(postMode);
+  postModeRef.current = postMode;
+
+  const [gameMode, setGameMode] = useState(false);
+  const gameModeRef = useRef(gameMode);
+  gameModeRef.current = gameMode;
+
+  const [postFilter, setPostFilter] = useState("contents");
+  const postFilterRef = useRef(postFilter);
+  postFilterRef.current = postFilter;
+
+  const [recentSearches, setRecentSearches] = useState<string[]>([]);
+  useEffect(() => {
+    AsyncStorage.getItem("@recent_searches").then((res) => {
+      if (res) setRecentSearches(JSON.parse(res));
+    });
+  }, []);
+
+  const saveRecentSearch = async (term: string) => {
+    const trimmed = term.trim();
+    if (!trimmed) return;
+    const updated = [
+      trimmed,
+      ...recentSearches.filter((s) => s !== trimmed),
+    ].slice(0, 10);
+    setRecentSearches(updated);
+    await AsyncStorage.setItem("@recent_searches", JSON.stringify(updated));
+  };
 
   // ── Reddit-style filter chips ──
   // A token typed in the box and completed with a space (or committed on
@@ -176,14 +273,30 @@ export default function SearchScreen({ navigation, route }: Props) {
   // "@pravin_viswa c/tvk" returns that person's posts inside that community —
   // and the free text left in the box is what's actually searched.
   const applyTokenFilter = (token: string) => {
-    if (token.startsWith("@")) {
+    const t = token.toLowerCase();
+    if (t.startsWith("@")) {
       const u = token.slice(1);
       setAuthorFilters((prev) => (prev.includes(u) ? prev : [...prev, u]));
-    } else if (token.startsWith("c/")) {
+    } else if (t.startsWith("c/")) {
       setScope(token.slice(2));
-    } else if (token.startsWith("#")) {
-      const t = token.slice(1);
-      setTagFilters((prev) => (prev.includes(t) ? prev : [...prev, t]));
+    } else if (t.startsWith("#")) {
+      const tag = token.slice(1);
+      setTagFilters((prev) => (prev.includes(tag) ? prev : [...prev, tag]));
+    } else if (t === "p/") {
+      setPostMode(true);
+      setActiveTab("p-contents"); // Custom tab for post mode
+    } else if (t === "g/") {
+      setGameMode(true);
+      setActiveTab("games");
+    } else if (t.startsWith("./")) {
+      const destination = t.slice(2);
+      if (destination === "settings") {
+        (navigation as any).navigate("Settings");
+      } else if (destination === "bookmarks") {
+        (navigation as any).navigate("Bookmarks");
+      } else if (destination === "notifications") {
+        (navigation as any).navigate("Notifications");
+      }
     }
   };
 
@@ -194,7 +307,9 @@ export default function SearchScreen({ navigation, route }: Props) {
   const commitFilterTokens = (text: string): string => {
     const tokens = text.split(/\s+/).filter(Boolean);
     const complete = text.endsWith(" ");
-    const commitCount = complete ? tokens.length : Math.max(0, tokens.length - 1);
+    const commitCount = complete
+      ? tokens.length
+      : Math.max(0, tokens.length - 1);
     let freeText = text;
     for (let i = 0; i < commitCount; i++) {
       const t = tokens[i];
@@ -215,6 +330,8 @@ export default function SearchScreen({ navigation, route }: Props) {
   const handleSubmit = () => {
     const next = commitFilterTokens(query + " ");
     if (next !== query) setQuery(next);
+    const searchToSave = next.trim() || query.trim();
+    saveRecentSearch(searchToSave);
   };
 
   // An uncommitted trailing @/c/ token isn't searched as plain text — strip
@@ -231,13 +348,16 @@ export default function SearchScreen({ navigation, route }: Props) {
     const tokens = query.split(/\s+/).filter(Boolean);
     return tokens[tokens.length - 1] || "";
   })();
-  const suggestionKind: "user" | "community" | "tag" | null = trailingRaw.startsWith("@")
-    ? "user"
-    : trailingRaw.startsWith("c/")
-      ? "community"
-      : trailingRaw.startsWith("#")
-        ? "tag"
-        : null;
+  const suggestionKind: "user" | "community" | "tag" | "nav" | null =
+    trailingRaw.startsWith("@")
+      ? "user"
+      : trailingRaw.startsWith("c/")
+        ? "community"
+        : trailingRaw.startsWith("#")
+          ? "tag"
+          : trailingRaw.startsWith("./")
+            ? "nav"
+            : null;
   const suggestionKeyword = trailingRaw.slice(
     suggestionKind === "user"
       ? 1
@@ -245,7 +365,9 @@ export default function SearchScreen({ navigation, route }: Props) {
         ? 2
         : suggestionKind === "tag"
           ? 1
-          : 0,
+          : suggestionKind === "nav"
+            ? 2
+            : 0,
   );
   // The API query — filter chips are sent separately, so only the free text
   // (the uncommitted prefix token is stripped too while suggestions show).
@@ -256,7 +378,7 @@ export default function SearchScreen({ navigation, route }: Props) {
 
   // ── @user / c/community suggestions (Reddit-style autocomplete) ──
   const [suggestions, setSuggestions] = useState<{
-    kind: "user" | "community" | "tag";
+    kind: "user" | "community" | "tag" | "nav";
     items: any[];
   }>({ kind: "user", items: [] });
   const [suggestionsVisible, setSuggestionsVisible] = useState(false);
@@ -274,8 +396,25 @@ export default function SearchScreen({ navigation, route }: Props) {
           const res = await userService.searchUsers(suggestionKeyword);
           items = res?.data || [];
         } else if (suggestionKind === "community") {
-          const res = await communityService.getCommunities(1, 20, suggestionKeyword);
+          const res = await communityService.getCommunities(
+            1,
+            20,
+            suggestionKeyword,
+          );
           items = res?.data || [];
+        } else if (suggestionKind === "nav") {
+          const routes = [
+            { id: "settings", title: "Settings", icon: "settings-outline" },
+            { id: "bookmarks", title: "Bookmarks", icon: "bookmark-outline" },
+            {
+              id: "notifications",
+              title: "Notifications",
+              icon: "notifications-outline",
+            },
+          ];
+          items = routes.filter((r) =>
+            r.id.startsWith(suggestionKeyword.toLowerCase()),
+          );
         } else {
           const res = await hashtagService.getHashtags(suggestionKeyword);
           items = (res?.data || []).map((h: any) =>
@@ -304,8 +443,20 @@ export default function SearchScreen({ navigation, route }: Props) {
     } else if (suggestionKind === "community") {
       setScope(item.slug);
     } else if (suggestionKind === "tag") {
-      const t = (item.hashtag || item.text || item.name || "").replace(/^#/, "");
+      const t = (item.hashtag || item.text || item.name || "").replace(
+        /^#/,
+        "",
+      );
       if (t) setTagFilters((prev) => (prev.includes(t) ? prev : [...prev, t]));
+    } else if (suggestionKind === "nav") {
+      if (item.id === "settings") (navigation as any).navigate("Settings");
+      else if (item.id === "bookmarks")
+        (navigation as any).navigate("Bookmarks");
+      else if (item.id === "notifications")
+        (navigation as any).navigate("Notifications");
+      setSuggestionsVisible(false);
+      setQuery("");
+      return;
     }
     const raw = trailingRaw;
     setQuery((q) => {
@@ -338,15 +489,23 @@ export default function SearchScreen({ navigation, route }: Props) {
         ? "f-all"
         : source === "bookmarks"
           ? "bm-all"
-          : "posts";
+          : source === "notifications"
+            ? "n-all"
+            : "posts";
       if (activeTab !== target) {
         if (hasPersonFilter) {
           // Arrive on the involvement tab set unless already inside it.
           if (!String(activeTab).startsWith("f-")) setActiveTab(target);
         } else if (source === "bookmarks") {
           if (!String(activeTab).startsWith("bm-")) setActiveTab(target);
-        } else if (String(activeTab).startsWith("f-") || String(activeTab).startsWith("bm-")) {
-          // Person/bookmark chips removed (community/tag/settings still on) →
+        } else if (source === "notifications") {
+          if (!String(activeTab).startsWith("n-")) setActiveTab(target);
+        } else if (
+          String(activeTab).startsWith("f-") ||
+          String(activeTab).startsWith("bm-") ||
+          String(activeTab).startsWith("n-")
+        ) {
+          // Person/bookmark/notification chips removed (community/tag/settings still on) →
           // plain Posts tab.
           setActiveTab("posts");
         }
@@ -354,7 +513,10 @@ export default function SearchScreen({ navigation, route }: Props) {
     } else if (filtersWereActiveRef.current) {
       const prev = prevTabBeforeFiltersRef.current;
       setActiveTab(
-        prev && !String(prev).startsWith("f-") && !String(prev).startsWith("bm-")
+        prev &&
+          !String(prev).startsWith("f-") &&
+          !String(prev).startsWith("bm-") &&
+          !String(prev).startsWith("n-")
           ? prev
           : "all",
       );
@@ -385,7 +547,13 @@ export default function SearchScreen({ navigation, route }: Props) {
       );
     if (p?.source !== undefined) setSource(p.source as string);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [(route.params as any)?.query, (route.params as any)?.tab, (route.params as any)?.scopeCommunity, (route.params as any)?.authorFilter, (route.params as any)?.source]);
+  }, [
+    (route.params as any)?.query,
+    (route.params as any)?.tab,
+    (route.params as any)?.scopeCommunity,
+    (route.params as any)?.authorFilter,
+    (route.params as any)?.source,
+  ]);
   // Track whether we've loaded discovery content at least once — prevents the
   // empty-state flash on the "all" tab when discovery data is already available.
   const [discoveryLoaded, setDiscoveryLoaded] = useState(false);
@@ -394,7 +562,9 @@ export default function SearchScreen({ navigation, route }: Props) {
   // Each tab keeps its own rows + pagination + scroll offset, so switching tabs
   // back and forth restores exactly where you left off instead of resetting to
   // page 1. The cache is invalidated only when the QUERY changes.
-  const [rowsByTab, setRowsByTab] = useState<Partial<Record<string, Row[]>>>({});
+  const [rowsByTab, setRowsByTab] = useState<Partial<Record<string, Row[]>>>(
+    {},
+  );
   const [loadingMore, setLoadingMore] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
   const tabPageRef = useRef<Record<string, number>>({});
@@ -469,12 +639,20 @@ export default function SearchScreen({ navigation, route }: Props) {
       const type = section.type as SearchType;
       let items = Array.isArray(section.items) ? section.items : [];
       if (!items.length) return;
-      out.push({ isHeader: true, title: sectionTitle(type, isDiscovery), type });
+      out.push({
+        isHeader: true,
+        title: sectionTitle(type, isDiscovery),
+        type,
+      });
       if (type === "hashtags") {
         // Don't duplicate the hashtag rows inline — they live on the dedicated
         // Hashtags tab. The section is a single doorway that jumps there and
         // runs the hashtag search (see renderItem's viewAll branch).
-        out.push({ isHeader: false, item: { viewAll: true, itemType: "hashtags" }, type });
+        out.push({
+          isHeader: false,
+          item: { viewAll: true, itemType: "hashtags" },
+          type,
+        });
         return;
       }
       items.forEach((item: any) =>
@@ -484,104 +662,150 @@ export default function SearchScreen({ navigation, route }: Props) {
     return out;
   };
 
-  const fetchResults = useCallback(async (
-    q: string,
-    tab: string,
-    pageToLoad = 1,
-    append = false,
-    // Pull-to-refresh: skip the full-screen loading spinner (the RefreshControl
-    // shows its own) so the list stays visible while it re-fetches.
-    silent = false,
-  ) => {
-    const reqId = ++searchReqRef.current;
-    if (!append && !silent) setLoading(true);
-    try {
-      if (tab === "all") {
-        // Discovery overview — one request with per-section previews. The "See
-        // all" buttons jump to the fully paginated individual tabs.
-        if (append) return;
-        const res = await searchService.searchAll(
-          q,
-          6,
-          scopeRef.current,
-          authorRef.current.join(","),
-          tagRef.current.join(","),
-          sourceRef.current === "bookmarks" ? "1" : "",
-          sourceRef.current === "settings" ? "1" : "",
-        );
-        const built = buildAllRows(res, !q.trim());
-        setRowsByTab((prev) => ({ ...prev, [tab]: built }));
-        if (!q.trim() && built.length > 0) setDiscoveryLoaded(true);
-      } else if (tab === "hashtags") {
-        if (append) return;
-        const hashtags = await searchService.getHashtags(q);
-        setRowsByTab((prev) => ({
-          ...prev,
-          [tab]: hashtags.map((h) => ({ isHeader: false, item: { text: h, itemType: "hashtags" }, type: "hashtags" as SearchType })),
-        }));
-      } else {
-        // Filter-mode tabs (f-*) always search posts, narrowed by the
-        // involvement dimension. Bookmarks tabs (bm-*) search saved posts
-        // (bm-all/bm-posts) or saved events (bm-events). Regular tabs search
-        // their own entity.
-        const isFilterTab = tab.startsWith("f-");
-        const isBookmarkTab = tab.startsWith("bm-");
-        const searchType = isFilterTab
-          ? "posts"
-          : isBookmarkTab
-            ? tab === "bm-events"
-              ? "events"
-              : "posts"
-            : tab;
-        const res = await searchService.searchByType(
-          searchType as any,
-          q,
-          pageToLoad,
-          10,
-          undefined,
-          scopeRef.current,
-          authorRef.current.join(","),
-          isFilterTab ? involvementOf(tab) : "",
-          tagRef.current.join(","),
-          sourceRef.current === "bookmarks" ? "1" : "",
-          sourceRef.current === "settings" ? "1" : "",
-        );
-        // A newer request (typing / tab switch) started after this one — drop it.
-        if (searchReqRef.current !== reqId) return;
-        tabHasMoreRef.current[tab] = res.hasNext;
-        tabPageRef.current[tab] = res.page;
-        const newRows: Row[] = res.items.map((item) => ({
-          isHeader: false as const,
-          item,
-          // searchType already maps f-*/bm-* tabs back to the entity they
-          // search (posts / events) so the right row component renders.
-          type: searchType as SearchType,
-        }));
-        setRowsByTab((prev) => {
-          const existing = prev[tab] || [];
-          return {
+  const fetchResults = useCallback(
+    async (
+      q: string,
+      tab: string,
+      pageToLoad = 1,
+      append = false,
+      // Pull-to-refresh: skip the full-screen loading spinner (the RefreshControl
+      // shows its own) so the list stays visible while it re-fetches.
+      silent = false,
+    ) => {
+      const reqId = ++searchReqRef.current;
+      if (!append && !silent) setLoading(true);
+      try {
+        if (sourceRef.current === "settings") {
+          const term = q.toLowerCase();
+          const filtered = SETTINGS_ITEMS.filter(s => s.title.toLowerCase().includes(term) || s.keywords.some(k => k.toLowerCase().includes(term)));
+          setRowsByTab((prev) => ({
             ...prev,
-            [tab]: append
-              ? [
-                  ...existing,
-                  ...newRows.filter(
-                    (row: any) => !existing.some((r: any) => !r.isHeader && r.item?.id === row.item?.id),
-                  ),
-                ]
-              : newRows,
-          };
-        });
+            [tab]: filtered.map(item => ({ isHeader: false, item, type: "settings_item" as SearchType }))
+          }));
+          setLoading(false);
+          return;
+        }
+
+        if (sourceRef.current === "notifications") {
+          const res = await notificationService.getNotifications(1, 100);
+          const term = q.toLowerCase();
+          let filtered = res.data.filter(n => n.text?.toLowerCase().includes(term) || n.actor?.toLowerCase().includes(term));
+          
+          if (tab === "n-likes") filtered = filtered.filter(n => n.type === "like");
+          else if (tab === "n-comments") filtered = filtered.filter(n => n.type === "comment");
+          else if (tab === "n-follows") filtered = filtered.filter(n => n.type === "follow");
+
+          setRowsByTab((prev) => ({
+            ...prev,
+            [tab]: filtered.map(item => ({ isHeader: false, item, type: "notification_item" as SearchType }))
+          }));
+          setLoading(false);
+          return;
+        }
+
+        if (tab === "all") {
+          // Discovery overview — one request with per-section previews. The "See
+          // all" buttons jump to the fully paginated individual tabs.
+          if (append) return;
+          const res = await searchService.searchAll(
+            q,
+            6,
+            scopeRef.current,
+            authorRef.current.join(","),
+            tagRef.current.join(","),
+            sourceRef.current === "bookmarks" ? "1" : "",
+            sourceRef.current === "settings" ? "1" : "",
+            sortByRef.current,
+            postFilterRef.current,
+          );
+          const built = buildAllRows(res, !q.trim());
+          setRowsByTab((prev) => ({ ...prev, [tab]: built }));
+          if (!q.trim() && built.length > 0) setDiscoveryLoaded(true);
+        } else if (tab === "hashtags") {
+          if (append) return;
+          const hashtags = await searchService.getHashtags(q);
+          setRowsByTab((prev) => ({
+            ...prev,
+            [tab]: hashtags.map((h) => ({
+              isHeader: false,
+              item: { text: h, itemType: "hashtags" },
+              type: "hashtags" as SearchType,
+            })),
+          }));
+        } else {
+          // Filter-mode tabs (f-*) always search posts, narrowed by the
+          // involvement dimension. Bookmarks tabs (bm-*) search saved posts
+          // (bm-all/bm-posts) or saved events (bm-events). Regular tabs search
+          // their own entity.
+          const isFilterTab = tab.startsWith("f-");
+          const isBookmarkTab = tab.startsWith("bm-");
+          const isPostTab = tab.startsWith("p-");
+          const searchType = isFilterTab
+            ? "posts"
+            : isBookmarkTab
+              ? tab === "bm-events"
+                ? "events"
+                : "posts"
+              : isPostTab
+                ? "posts"
+                : tab;
+          const res = await searchService.searchByType(
+            searchType as any,
+            q,
+            pageToLoad,
+            10,
+            undefined,
+            scopeRef.current,
+            authorRef.current.join(","),
+            isFilterTab ? involvementOf(tab) : "",
+            tagRef.current.join(","),
+            sourceRef.current === "bookmarks" ? "1" : "",
+            sourceRef.current === "settings" ? "1" : "",
+            sortByRef.current,
+            isPostTab ? postFilterRef.current : "",
+          );
+          // A newer request (typing / tab switch) started after this one — drop it.
+          if (searchReqRef.current !== reqId) return;
+          tabHasMoreRef.current[tab] = res.hasNext;
+          tabPageRef.current[tab] = res.page;
+          const newRows: Row[] = res.items.map((item) => ({
+            isHeader: false as const,
+            item,
+            // searchType already maps f-*/bm-* tabs back to the entity they
+            // search (posts / events) so the right row component renders.
+            type: searchType as SearchType,
+          }));
+          setRowsByTab((prev) => {
+            const existing = prev[tab] || [];
+            return {
+              ...prev,
+              [tab]: append
+                ? [
+                    ...existing,
+                    ...newRows.filter(
+                      (row: any) =>
+                        !existing.some(
+                          (r: any) =>
+                            !r.isHeader && r.item?.id === row.item?.id,
+                        ),
+                    ),
+                  ]
+                : newRows,
+            };
+          });
+        }
+      } catch (e) {
+        console.warn("Search failed", e);
+        if (!append) setRowsByTab((prev) => ({ ...prev, [tab]: [] }));
+      } finally {
+        if (searchReqRef.current === reqId) {
+          setLoading(false);
+          setLoadingMore(false);
+        }
       }
-    } catch (e) {
-      console.warn("Search failed", e);
-      if (!append) setRowsByTab((prev) => ({ ...prev, [tab]: [] }));
-    } finally {
-      if (searchReqRef.current === reqId) {
-        setLoading(false);
-        setLoadingMore(false);
-      }
-    }
-  }, []);
+    },
+    [],
+  );
 
   // Pull-to-refresh — re-fetch the ACTIVE tab's first page (replaces the rows
   // for that tab; other tabs keep their cached results + scroll offsets).
@@ -601,7 +825,12 @@ export default function SearchScreen({ navigation, route }: Props) {
     if (activeTab === "all" || activeTab === "hashtags") return;
     if (!tabHasMoreRef.current[activeTab] || loadingMore || loading) return;
     setLoadingMore(true);
-    fetchResults(effectiveQuery, activeTab, (tabPageRef.current[activeTab] || 1) + 1, true);
+    fetchResults(
+      effectiveQuery,
+      activeTab,
+      (tabPageRef.current[activeTab] || 1) + 1,
+      true,
+    );
   }, [activeTab, loadingMore, loading, effectiveQuery, fetchResults]);
 
   // Switching tabs saves the outgoing tab's scroll offset so it can be
@@ -609,11 +838,14 @@ export default function SearchScreen({ navigation, route }: Props) {
   // pre-filled in the input on every tab; the tab-switch effect below either
   // restores the incoming tab's cached rows + scroll (already fetched for this
   // query) or fetches its first page fresh.
-  const switchTab = useCallback((tab: string) => {
-    if (tab === activeTab) return;
-    scrollOffsetsRef.current[activeTab] = scrollOffsetCurrentRef.current;
-    setActiveTab(tab);
-  }, [activeTab]);
+  const switchTab = useCallback(
+    (tab: string) => {
+      if (tab === activeTab) return;
+      scrollOffsetsRef.current[activeTab] = scrollOffsetCurrentRef.current;
+      setActiveTab(tab);
+    },
+    [activeTab],
+  );
 
   // "See all" on an All-tab section header → deep-link to that section's tab
   // with the current query kept (shared state) and scroll restored by the
@@ -626,55 +858,74 @@ export default function SearchScreen({ navigation, route }: Props) {
   useEffect(() => {
     // A filter chip added/removed changes the search identity just like the
     // text does — compare both so the caches reset and results refetch.
-    const filtersKey = `${authorFilters.join(",")}|${scope || ""}|${tagFilters.join(",")}|${source || ""}`;
+    const filtersKey = `${authorFilters.join(",")}|${scope || ""}|${tagFilters.join(",")}|${source || ""}|${sortBy}`;
     const queryChanged =
       lastQueryRef.current !== effectiveQuery ||
       lastFiltersKeyRef.current !== filtersKey;
     lastQueryRef.current = effectiveQuery;
     lastFiltersKeyRef.current = filtersKey;
-    const handler = setTimeout(() => {
-      if (queryChanged) {
-        // New query → drop every tab's cache + pagination + scroll offsets.
-        setRowsByTab({});
-        tabPageRef.current = {};
-        tabHasMoreRef.current = {};
-        scrollOffsetsRef.current = {};
-        scrollOffsetCurrentRef.current = 0;
-      }
-      const cached = rowsByTabRef.current[activeTab];
-      if (!queryChanged && cached && cached.length > 0) {
-        // Already fetched for this query — just restore the scroll position
-        // (an offset of 0 — user was at the top — is still a valid restore).
-        const offset = scrollOffsetsRef.current[activeTab];
-        if (typeof offset === "number" && offset > 0 && listRef.current) {
-          requestAnimationFrame(() => {
-            listRef.current?.scrollToOffset({ offset, animated: false });
-          });
+    const handler = setTimeout(
+      () => {
+        if (queryChanged) {
+          // New query → drop every tab's cache + pagination + scroll offsets.
+          setRowsByTab({});
+          tabPageRef.current = {};
+          tabHasMoreRef.current = {};
+          scrollOffsetsRef.current = {};
+          scrollOffsetCurrentRef.current = 0;
         }
-        return;
-      }
-      fetchResults(effectiveQuery, activeTab);
-    }, queryChanged ? 300 : 0);
+        const cached = rowsByTabRef.current[activeTab];
+        if (!queryChanged && cached && cached.length > 0) {
+          // Already fetched for this query — just restore the scroll position
+          // (an offset of 0 — user was at the top — is still a valid restore).
+          const offset = scrollOffsetsRef.current[activeTab];
+          if (typeof offset === "number" && offset > 0 && listRef.current) {
+            requestAnimationFrame(() => {
+              listRef.current?.scrollToOffset({ offset, animated: false });
+            });
+          }
+          return;
+        }
+        fetchResults(effectiveQuery, activeTab);
+      },
+      queryChanged ? 300 : 0,
+    );
     return () => clearTimeout(handler);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [effectiveQuery, activeTab, authorFilters, scope, tagFilters, fetchResults]);
+  }, [
+    effectiveQuery,
+    activeTab,
+    authorFilters,
+    scope,
+    tagFilters,
+    sortBy,
+    fetchResults,
+  ]);
 
   // Open a games tab result inside the Games screen.
   const openGames = () => {
     (navigation as any).navigate("Main", { screen: "Games" });
   };
 
-  const renderTab = (tab: { key: string; label: string }) => (
-    <TouchableOpacity
-      style={[styles.tabBtn, activeTab === tab.key && styles.tabBtnActive]}
-      onPress={() => switchTab(tab.key)}
-      activeOpacity={0.8}
-    >
-      <Text style={[styles.tabText, activeTab === tab.key && styles.tabTextActive]}>
-        {tab.label}
-      </Text>
-    </TouchableOpacity>
-  );
+  const renderTab = (tab: { key: string; label: string }) => {
+    const isActive = activeTab === tab.key;
+    return (
+      <TouchableOpacity
+        style={[styles.tabBtn, isActive && styles.tabBtnActive]}
+        onPress={() => {
+          if (tab.key.startsWith("p-")) {
+            setPostFilter(tab.key.replace("p-", ""));
+          }
+          switchTab(tab.key);
+        }}
+        activeOpacity={0.8}
+      >
+        <Text style={[styles.tabText, isActive && styles.tabTextActive]}>
+          {tab.label}
+        </Text>
+      </TouchableOpacity>
+    );
+  };
 
   const renderItem = ({ item }: { item: Row }) => {
     if (item.isHeader) {
@@ -701,7 +952,9 @@ export default function SearchScreen({ navigation, route }: Props) {
           return {
             ...prev,
             posts: list.map((row) =>
-              row.isHeader || row.type !== "posts" || (row.item as any)?.id !== post.id
+              row.isHeader ||
+              row.type !== "posts" ||
+              (row.item as any)?.id !== post.id
                 ? row
                 : { ...row, item: { ...(row.item as any), ...patch } },
             ),
@@ -712,18 +965,25 @@ export default function SearchScreen({ navigation, route }: Props) {
         <PostCard
           post={post}
           onLike={() => {
-            toggleLike({ id: post.id, isCurrentlyLiked: post.isLiked || false });
+            toggleLike({
+              id: post.id,
+              isCurrentlyLiked: post.isLiked || false,
+            });
             patchPost({ isLiked: !post.isLiked });
           }}
           onSave={() => {
-            toggleSave({ id: post.id, isCurrentlySaved: post.isSaved || false });
+            toggleSave({
+              id: post.id,
+              isCurrentlySaved: post.isSaved || false,
+            });
             patchPost({ isSaved: !post.isSaved });
           }}
           onComment={(p: any) =>
             navigation.push("PostDetail", { post: p ?? post })
           }
           onShare={() => {
-            const shareTitle = (post as any)?.title || `${post.author?.name || "User"}'s Post`;
+            const shareTitle =
+              (post as any)?.title || `${post.author?.name || "User"}'s Post`;
             const appUrl = `https://taddlebox.com/post/${post.id}`;
             Share.share({
               message: `${shareTitle}\n\n${appUrl}`,
@@ -735,9 +995,14 @@ export default function SearchScreen({ navigation, route }: Props) {
             navigation.push("UserProfile", { user: post.author })
           }
           onReport={() =>
-            themedAlert("Reported", "Thank you. This post has been reported for review.")
+            themedAlert(
+              "Reported",
+              "Thank you. This post has been reported for review.",
+            )
           }
-          showDelete={!!currentUser && currentUser.id === (post as any)?.author?.id}
+          showDelete={
+            !!currentUser && currentUser.id === (post as any)?.author?.id
+          }
           onReposted={() => fetchResults(query, activeTab)}
         />
       );
@@ -774,9 +1039,15 @@ export default function SearchScreen({ navigation, route }: Props) {
           <View style={styles.peopleInfo}>
             <Text style={styles.peopleName}>{data.name}</Text>
             <Text style={styles.peopleHandle}>@{data.username}</Text>
-            <Text style={styles.peopleMeta}>{data.follower_count || 0} followers</Text>
+            <Text style={styles.peopleMeta}>
+              {data.follower_count || 0} followers
+            </Text>
           </View>
-          <Ionicons name="chevron-forward" size={16} color={colors.text.muted} />
+          <Ionicons
+            name="chevron-forward"
+            size={16}
+            color={colors.text.muted}
+          />
         </TouchableOpacity>
       );
     }
@@ -794,10 +1065,17 @@ export default function SearchScreen({ navigation, route }: Props) {
           activeOpacity={0.8}
         >
           <View style={styles.avatarBubble}>
-            {(data.community_avatar || data.avatar || data.avatarUrl || data.avatar_url) ? (
+            {data.community_avatar ||
+            data.avatar ||
+            data.avatarUrl ||
+            data.avatar_url ? (
               <Image
                 source={{
-                  uri: data.community_avatar || data.avatar || data.avatarUrl || data.avatar_url,
+                  uri:
+                    data.community_avatar ||
+                    data.avatar ||
+                    data.avatarUrl ||
+                    data.avatar_url,
                 }}
                 style={styles.avatarImg}
               />
@@ -815,7 +1093,11 @@ export default function SearchScreen({ navigation, route }: Props) {
               {data.member_count || 0} members
             </Text>
           </View>
-          <Ionicons name="chevron-forward" size={16} color={colors.text.muted} />
+          <Ionicons
+            name="chevron-forward"
+            size={16}
+            color={colors.text.muted}
+          />
         </TouchableOpacity>
       );
     }
@@ -828,7 +1110,9 @@ export default function SearchScreen({ navigation, route }: Props) {
       return (
         <TouchableOpacity
           style={styles.peopleRow}
-          onPress={() => (navigation as any).navigate("Main", { screen: "Events" })}
+          onPress={() =>
+            (navigation as any).navigate("Main", { screen: "Events" })
+          }
           activeOpacity={0.8}
         >
           <View style={styles.avatarBubble}>
@@ -845,10 +1129,15 @@ export default function SearchScreen({ navigation, route }: Props) {
             <Text style={styles.peopleName}>{data.title}</Text>
             <Text style={styles.peopleHandle}>{location}</Text>
             <Text style={styles.peopleMeta}>
-              {data.attendee_count || 0} attending · {data.event_type || "event"}
+              {data.attendee_count || 0} attending ·{" "}
+              {data.event_type || "event"}
             </Text>
           </View>
-          <Ionicons name="chevron-forward" size={16} color={colors.text.muted} />
+          <Ionicons
+            name="chevron-forward"
+            size={16}
+            color={colors.text.muted}
+          />
         </TouchableOpacity>
       );
     }
@@ -871,11 +1160,18 @@ export default function SearchScreen({ navigation, route }: Props) {
           <View style={styles.peopleInfo}>
             <Text style={styles.peopleName}>{data.name}</Text>
             <Text style={styles.peopleHandle}>
-              {[data.category, data.difficulty].filter(Boolean).join(" · ") || "Play now"}
+              {[data.category, data.difficulty].filter(Boolean).join(" · ") ||
+                "Play now"}
             </Text>
-            <Text style={styles.peopleMeta}>Up to {data.maxPlayers || 2} players</Text>
+            <Text style={styles.peopleMeta}>
+              Up to {data.maxPlayers || 2} players
+            </Text>
           </View>
-          <Ionicons name="chevron-forward" size={16} color={colors.text.muted} />
+          <Ionicons
+            name="chevron-forward"
+            size={16}
+            color={colors.text.muted}
+          />
         </TouchableOpacity>
       );
     }
@@ -891,10 +1187,18 @@ export default function SearchScreen({ navigation, route }: Props) {
             activeOpacity={0.8}
           >
             <View style={styles.hashIconBubble}>
-              <Ionicons name="pricetags-outline" size={15} color={colors.primaryLight} />
+              <Ionicons
+                name="pricetags-outline"
+                size={15}
+                color={colors.primaryLight}
+              />
             </View>
             <Text style={styles.hashtagText}>Browse all hashtags</Text>
-            <Ionicons name="chevron-forward" size={16} color={colors.text.muted} />
+            <Ionicons
+              name="chevron-forward"
+              size={16}
+              color={colors.text.muted}
+            />
           </TouchableOpacity>
         );
       }
@@ -916,6 +1220,56 @@ export default function SearchScreen({ navigation, route }: Props) {
       );
     }
 
+    if (type === ("settings_item" as any)) {
+      return (
+        <TouchableOpacity
+          style={styles.peopleRow}
+          onPress={() => {
+            if (data.action === "logout") {
+              // Not implementing log out directly here, navigate to settings
+              (navigation as any).navigate("Settings");
+            } else if (data.action === "delete") {
+              (navigation as any).navigate("Settings");
+            } else if (data.route) {
+              (navigation as any).navigate(data.route);
+            }
+          }}
+          activeOpacity={0.8}
+        >
+          <View style={[styles.avatarBubble, { backgroundColor: colors.bg.surface }]}>
+            <Ionicons name={data.icon as any} size={20} color={colors.text.secondary} />
+          </View>
+          <View style={styles.peopleInfo}>
+            <Text style={styles.peopleName}>{data.title}</Text>
+          </View>
+          <Ionicons name="chevron-forward" size={16} color={colors.text.muted} />
+        </TouchableOpacity>
+      );
+    }
+
+    if (type === ("notification_item" as any)) {
+      return (
+        <TouchableOpacity
+          style={styles.peopleRow}
+          onPress={() => (navigation as any).navigate("Notifications")}
+          activeOpacity={0.8}
+        >
+          <View style={styles.avatarBubble}>
+            {data.avatarUrl ? (
+              <Image source={{ uri: data.avatarUrl }} style={styles.avatarImg} />
+            ) : (
+              <Text style={{ fontSize: 18 }}>{data.avatar || "👾"}</Text>
+            )}
+          </View>
+          <View style={[styles.peopleInfo, { flex: 1 }]}>
+            <Text style={styles.peopleName} numberOfLines={1}>{data.actor}</Text>
+            <Text style={styles.peopleHandle} numberOfLines={2}>{data.text}</Text>
+          </View>
+          <Text style={{ fontSize: 12, color: colors.text.muted, marginLeft: 8 }}>{data.time}</Text>
+        </TouchableOpacity>
+      );
+    }
+
     return (
       <View style={styles.genericRow}>
         <Text style={{ color: colors.text.primary }}>
@@ -925,7 +1279,7 @@ export default function SearchScreen({ navigation, route }: Props) {
     );
   };
 
-  const isEmptyQuery = !query.trim();
+  const isEmptyQuery = !query.trim() && !filtersActive;
   const hasResults = rows.length > 0;
   // Friendly tab name for empty-state text (filter/bookmark tabs use prefixed
   // keys like f-* / bm-*).
@@ -934,10 +1288,62 @@ export default function SearchScreen({ navigation, route }: Props) {
     BOOKMARK_TABS.find((t) => t.key === activeTab)?.label ||
     activeTab;
 
-  // Show a discovery hint only on the "all" tab with no search query.
+  // Show a discovery hint when there's no search query.
   // Don't show the generic "type something" empty state when we already know
   // discovery content was loaded — it briefly flashes before rows populate.
-  const showSearchPrompt = isEmptyQuery && !hasResults && !loading && !discoveryLoaded && activeTab === "all";
+  const showSearchPrompt =
+    isEmptyQuery && !hasResults && !loading && !discoveryLoaded;
+
+  const renderEmptyStateHeader = () => (
+    <View style={{ flex: 1, paddingBottom: 20 }}>
+      {recentSearches.length > 0 && (
+        <View style={styles.recentSearchesContainer}>
+          <View style={styles.recentHeader}>
+            <Text style={styles.recentTitle}>Recent Searches</Text>
+            <TouchableOpacity
+              onPress={async () => {
+                setRecentSearches([]);
+                await AsyncStorage.removeItem("@recent_searches");
+              }}
+            >
+              <Text style={styles.recentClear}>Clear</Text>
+            </TouchableOpacity>
+          </View>
+          {recentSearches.map((term) => (
+            <TouchableOpacity
+              key={term}
+              style={styles.recentRow}
+              onPress={() => {
+                setQuery(term);
+                saveRecentSearch(term);
+              }}
+              activeOpacity={0.7}
+            >
+              <Ionicons
+                name="time-outline"
+                size={20}
+                color={colors.text.muted}
+              />
+              <Text style={styles.recentText}>{term}</Text>
+              <TouchableOpacity
+                onPress={async () => {
+                  const updated = recentSearches.filter((s) => s !== term);
+                  setRecentSearches(updated);
+                  await AsyncStorage.setItem(
+                    "@recent_searches",
+                    JSON.stringify(updated),
+                  );
+                }}
+                style={{ padding: 4 }}
+              >
+                <Ionicons name="close" size={16} color={colors.text.muted} />
+              </TouchableOpacity>
+            </TouchableOpacity>
+          ))}
+        </View>
+      )}
+    </View>
+  );
 
   return (
     <View style={[styles.container, { paddingTop: insets.top }]}>
@@ -953,85 +1359,272 @@ export default function SearchScreen({ navigation, route }: Props) {
         </TouchableOpacity>
         <View style={styles.searchBar}>
           <Ionicons name="search" size={20} color={colors.text.muted} />
-          {/* Reddit-style filter chips — @user (author) and c/community, each
-              with an X to drop it. Typing "@user c/community" in the box
-              produces the same chips; they combine when searching posts. */}
-          {authorFilters.map((u) => (
-            <TouchableOpacity
-              key={u}
-              style={[styles.filterChip, { backgroundColor: colors.primaryLight + "22" }]}
-              onPress={() => setAuthorFilters((prev) => prev.filter((x) => x !== u))}
-              activeOpacity={0.8}
-            >
-              <Text style={[styles.filterChipText, { color: colors.primaryLight }]} numberOfLines={1}>
-                @{u}
-              </Text>
-              <Ionicons name="close-circle" size={13} color={colors.primaryLight} />
-            </TouchableOpacity>
-          ))}
-          {scope ? (
-            <TouchableOpacity
-              style={[styles.filterChip, { backgroundColor: colors.cyanLight + "22" }]}
-              onPress={() => setScope("")}
-              activeOpacity={0.8}
-            >
-              <Text style={[styles.filterChipText, { color: colors.cyanLight }]} numberOfLines={1}>
-                c/{scope}
-              </Text>
-              <Ionicons name="close-circle" size={13} color={colors.cyanLight} />
-            </TouchableOpacity>
-          ) : null}
-          {source === "bookmarks" ? (
-            <TouchableOpacity
-              style={[styles.filterChip, { backgroundColor: colors.primary + "22" }]}
-              onPress={() => setSource("")}
-              activeOpacity={0.8}
-            >
-              <Ionicons name="bookmark" size={12} color={colors.primary} />
-              <Text style={[styles.filterChipText, { color: colors.primary }]} numberOfLines={1}>
-                Bookmarks
-              </Text>
-              <Ionicons name="close-circle" size={13} color={colors.primary} />
-            </TouchableOpacity>
-          ) : null}
-          {source === "settings" ? (
-            <TouchableOpacity
-              style={[styles.filterChip, { backgroundColor: colors.bg.elevated }]}
-              onPress={() => setSource("")}
-              activeOpacity={0.8}
-            >
-              <Ionicons name="settings-outline" size={12} color={colors.text.secondary} />
-              <Text style={[styles.filterChipText, { color: colors.text.secondary }]} numberOfLines={1}>
-                Settings
-              </Text>
-              <Ionicons name="close-circle" size={13} color={colors.text.secondary} />
-            </TouchableOpacity>
-          ) : null}
-          {tagFilters.map((t) => (
-            <TouchableOpacity
-              key={t}
-              style={[styles.filterChip, { backgroundColor: colors.xpGold + "22" }]}
-              onPress={() => setTagFilters((prev) => prev.filter((x) => x !== t))}
-              activeOpacity={0.8}
-            >
-              <Text style={[styles.filterChipText, { color: colors.xpGold }]} numberOfLines={1}>
-                #{t}
-              </Text>
-              <Ionicons name="close-circle" size={13} color={colors.xpGold} />
-            </TouchableOpacity>
-          ))}
-          <TextInput
-            style={styles.searchInput}
-            placeholder="Search Taddlebox... (@user c/community #tag)"
-            placeholderTextColor={colors.text.muted}
-            value={query}
-            onChangeText={handleQueryChange}
-            onSubmitEditing={handleSubmit}
-            autoFocus
-            returnKeyType="search"
-            autoCapitalize="none"
-          />
-          {(query.length > 0 || authorFilters.length > 0 || scope || tagFilters.length > 0 || source) && (
+          <ScrollView
+            horizontal
+            showsHorizontalScrollIndicator={false}
+            style={{ flex: 1, marginHorizontal: 8 }}
+            contentContainerStyle={{ alignItems: "center" }}
+            keyboardShouldPersistTaps="handled"
+          >
+            {/* Reddit-style filter chips — @user (author) and c/community, each
+                with an X to drop it. Typing "@user c/community" in the box
+                produces the same chips; they combine when searching posts. */}
+            {authorFilters.map((u) => (
+              <TouchableOpacity
+                key={u}
+                style={[
+                  styles.filterChip,
+                  {
+                    backgroundColor: colors.primaryLight + "22",
+                    marginLeft: 0,
+                    marginRight: 8,
+                  },
+                ]}
+                onPress={() =>
+                  setAuthorFilters((prev) => prev.filter((x) => x !== u))
+                }
+                activeOpacity={0.8}
+              >
+                <Text
+                  style={[
+                    styles.filterChipText,
+                    { color: colors.primaryLight },
+                  ]}
+                  numberOfLines={1}
+                >
+                  @{u}
+                </Text>
+                <Ionicons
+                  name="close-circle"
+                  size={13}
+                  color={colors.primaryLight}
+                />
+              </TouchableOpacity>
+            ))}
+            {postMode ? (
+              <TouchableOpacity
+                style={[
+                  styles.filterChip,
+                  {
+                    backgroundColor: colors.primary + "22",
+                    marginLeft: 0,
+                    marginRight: 8,
+                  },
+                ]}
+                onPress={() => {
+                  setPostMode(false);
+                  setActiveTab("all");
+                }}
+                activeOpacity={0.8}
+              >
+                <Text
+                  style={[styles.filterChipText, { color: colors.primary }]}
+                  numberOfLines={1}
+                >
+                  📝 Posts
+                </Text>
+                <Ionicons
+                  name="close-circle"
+                  size={13}
+                  color={colors.primary}
+                />
+              </TouchableOpacity>
+            ) : null}
+            {gameMode ? (
+              <TouchableOpacity
+                style={[
+                  styles.filterChip,
+                  {
+                    backgroundColor: colors.warning + "22",
+                    marginLeft: 0,
+                    marginRight: 8,
+                  },
+                ]}
+                onPress={() => {
+                  setGameMode(false);
+                  setActiveTab("all");
+                }}
+                activeOpacity={0.8}
+              >
+                <Text
+                  style={[styles.filterChipText, { color: colors.warning }]}
+                  numberOfLines={1}
+                >
+                  🎮 Games
+                </Text>
+                <Ionicons
+                  name="close-circle"
+                  size={13}
+                  color={colors.warning}
+                />
+              </TouchableOpacity>
+            ) : null}
+            {scope ? (
+              <TouchableOpacity
+                style={[
+                  styles.filterChip,
+                  {
+                    backgroundColor: colors.cyanLight + "22",
+                    marginLeft: 0,
+                    marginRight: 8,
+                  },
+                ]}
+                onPress={() => setScope("")}
+                activeOpacity={0.8}
+              >
+                <Text
+                  style={[styles.filterChipText, { color: colors.cyanLight }]}
+                  numberOfLines={1}
+                >
+                  c/{scope}
+                </Text>
+                <Ionicons
+                  name="close-circle"
+                  size={13}
+                  color={colors.cyanLight}
+                />
+              </TouchableOpacity>
+            ) : null}
+            {source === "bookmarks" ? (
+              <TouchableOpacity
+                style={[
+                  styles.filterChip,
+                  {
+                    backgroundColor: colors.primary + "22",
+                    marginLeft: 0,
+                    marginRight: 8,
+                  },
+                ]}
+                onPress={() => setSource("")}
+                activeOpacity={0.8}
+              >
+                <Ionicons name="bookmark" size={12} color={colors.primary} />
+                <Text
+                  style={[styles.filterChipText, { color: colors.primary }]}
+                  numberOfLines={1}
+                >
+                  Bookmarks
+                </Text>
+                <Ionicons
+                  name="close-circle"
+                  size={13}
+                  color={colors.primary}
+                />
+              </TouchableOpacity>
+            ) : null}
+            {source === "settings" ? (
+              <TouchableOpacity
+                style={[
+                  styles.filterChip,
+                  {
+                    backgroundColor: colors.bg.elevated,
+                    marginLeft: 0,
+                    marginRight: 8,
+                  },
+                ]}
+                onPress={() => setSource("")}
+                activeOpacity={0.8}
+              >
+                <Ionicons
+                  name="settings-outline"
+                  size={12}
+                  color={colors.text.secondary}
+                />
+                <Text
+                  style={[
+                    styles.filterChipText,
+                    { color: colors.text.secondary },
+                  ]}
+                  numberOfLines={1}
+                >
+                  Settings
+                </Text>
+                <Ionicons
+                  name="close-circle"
+                  size={13}
+                  color={colors.text.secondary}
+                />
+              </TouchableOpacity>
+            ) : null}
+            {source === "notifications" ? (
+              <TouchableOpacity
+                style={[
+                  styles.filterChip,
+                  {
+                    backgroundColor: colors.bg.elevated,
+                    marginLeft: 0,
+                    marginRight: 8,
+                  },
+                ]}
+                onPress={() => setSource("")}
+                activeOpacity={0.8}
+              >
+                <Ionicons
+                  name="notifications-outline"
+                  size={12}
+                  color={colors.text.secondary}
+                />
+                <Text
+                  style={[
+                    styles.filterChipText,
+                    { color: colors.text.secondary },
+                  ]}
+                  numberOfLines={1}
+                >
+                  Notifications
+                </Text>
+                <Ionicons
+                  name="close-circle"
+                  size={13}
+                  color={colors.text.secondary}
+                />
+              </TouchableOpacity>
+            ) : null}
+            {tagFilters.map((t) => (
+              <TouchableOpacity
+                key={t}
+                style={[
+                  styles.filterChip,
+                  {
+                    backgroundColor: colors.xpGold + "22",
+                    marginLeft: 0,
+                    marginRight: 8,
+                  },
+                ]}
+                onPress={() =>
+                  setTagFilters((prev) => prev.filter((x) => x !== t))
+                }
+                activeOpacity={0.8}
+              >
+                <Text
+                  style={[styles.filterChipText, { color: colors.xpGold }]}
+                  numberOfLines={1}
+                >
+                  #{t}
+                </Text>
+                <Ionicons name="close-circle" size={13} color={colors.xpGold} />
+              </TouchableOpacity>
+            ))}
+            <TextInput
+              style={[
+                styles.searchInput,
+                { marginLeft: 0, marginRight: 0, minWidth: 120 },
+              ]}
+              placeholder="Taddle the box…"
+              placeholderTextColor={colors.text.muted}
+              value={query}
+              onChangeText={handleQueryChange}
+              onSubmitEditing={handleSubmit}
+              autoFocus
+              returnKeyType="search"
+              autoCapitalize="none"
+            />
+          </ScrollView>
+          {(query.length > 0 ||
+            authorFilters.length > 0 ||
+            scope ||
+            tagFilters.length > 0 ||
+            source) && (
             <TouchableOpacity
               onPress={() => {
                 setQuery("");
@@ -1039,7 +1632,11 @@ export default function SearchScreen({ navigation, route }: Props) {
                 setScope("");
                 setTagFilters([]);
                 setSource("");
+                setPostMode(false);
+                setGameMode(false);
+                setActiveTab("all");
               }}
+              style={{ marginRight: 8 }}
             >
               <Ionicons
                 name="close-circle"
@@ -1048,6 +1645,14 @@ export default function SearchScreen({ navigation, route }: Props) {
               />
             </TouchableOpacity>
           )}
+          <TouchableOpacity onPress={() => setShowFilters(true)}>
+            <MaterialCommunityIcons
+              name="sort-variant"
+              size={24}
+              color={colors.text.secondary}
+              style={{ transform: [{ scaleX: -1 }] }}
+            />
+          </TouchableOpacity>
         </View>
       </View>
 
@@ -1059,22 +1664,72 @@ export default function SearchScreen({ navigation, route }: Props) {
               ? "People"
               : suggestionKind === "community"
                 ? "Communities"
-                : "Hashtags"}
+                : suggestionKind === "nav"
+                  ? "Navigation"
+                  : "Hashtags"}
           </Text>
           {suggestions.items.map((item, i) => {
-            const tag = (item.hashtag || item.text || item.name || "").replace(/^#/, "");
+            if (suggestionKind === "nav") {
+              return (
+                <TouchableOpacity
+                  key={item.id}
+                  style={styles.suggestionRow}
+                  onPress={() => selectSuggestion(item)}
+                  activeOpacity={0.7}
+                >
+                  <View
+                    style={[
+                      styles.suggestionAvatar,
+                      { backgroundColor: colors.bg.base },
+                    ]}
+                  >
+                    <Ionicons
+                      name={item.icon as any}
+                      size={18}
+                      color={colors.text.primary}
+                    />
+                  </View>
+                  <View style={{ flex: 1 }}>
+                    <Text style={styles.suggestionName} numberOfLines={1}>
+                      Navigate to {item.title}
+                    </Text>
+                    <Text style={styles.suggestionHandle} numberOfLines={1}>
+                      ./{item.id}
+                    </Text>
+                  </View>
+                  <Ionicons
+                    name="arrow-forward"
+                    size={18}
+                    color={colors.text.muted}
+                  />
+                </TouchableOpacity>
+              );
+            }
+
+            const tag = (item.hashtag || item.text || item.name || "").replace(
+              /^#/,
+              "",
+            );
             const avatar =
               suggestionKind === "user"
-                ? item.user_avatar || item.avatar || item.avatarUrl || item.avatar_url
+                ? item.user_avatar ||
+                  item.avatar ||
+                  item.avatarUrl ||
+                  item.avatar_url
                 : suggestionKind === "community"
-                  ? item.community_avatar || item.avatar || item.avatarUrl || item.avatar_url
+                  ? item.community_avatar ||
+                    item.avatar ||
+                    item.avatarUrl ||
+                    item.avatar_url
                   : "";
             const handle =
               suggestionKind === "user"
                 ? `@${item.username}`
                 : suggestionKind === "community"
                   ? `c/${item.slug}`
-                  : `posts tagged #${tag}`;
+                  : suggestionKind === "nav"
+                    ? `Navigate to ${item.title}`
+                    : `posts tagged #${tag}`;
             return (
               <TouchableOpacity
                 key={suggestionKind === "tag" ? tag : item.id || i}
@@ -1084,48 +1739,86 @@ export default function SearchScreen({ navigation, route }: Props) {
               >
                 <View style={styles.suggestionAvatar}>
                   {avatar ? (
-                    <Image source={{ uri: avatar }} style={styles.suggestionAvatarImg} />
+                    <Image
+                      source={{ uri: avatar }}
+                      style={styles.suggestionAvatarImg}
+                    />
                   ) : suggestionKind === "user" ? (
                     <Text style={{ fontSize: 16 }}>👾</Text>
                   ) : suggestionKind === "community" ? (
-                    <Ionicons name="people-outline" size={16} color={colors.text.muted} />
+                    <Ionicons
+                      name="people-outline"
+                      size={16}
+                      color={colors.text.muted}
+                    />
+                  ) : suggestionKind === "nav" ? (
+                    <Ionicons
+                      name={item.icon as any}
+                      size={16}
+                      color={colors.text.muted}
+                    />
                   ) : (
-                    <Text style={{ fontSize: 15, fontWeight: "800", color: colors.xpGold }}>#</Text>
+                    <Text
+                      style={{
+                        fontSize: 15,
+                        fontWeight: "800",
+                        color: colors.xpGold,
+                      }}
+                    >
+                      #
+                    </Text>
                   )}
                 </View>
                 <View style={{ flex: 1 }}>
                   <Text style={styles.suggestionName} numberOfLines={1}>
-                    {suggestionKind === "tag" ? `#${tag}` : item.name}
+                    {suggestionKind === "tag" ? `#${tag}` : (item.name || item.title)}
                   </Text>
                   <Text style={styles.suggestionHandle} numberOfLines={1}>
                     {handle}
                   </Text>
                 </View>
-                <Ionicons name="add-circle-outline" size={18} color={colors.text.muted} />
+                {suggestionKind === "nav" ? (
+                  <Ionicons
+                    name="chevron-forward"
+                    size={18}
+                    color={colors.text.muted}
+                  />
+                ) : (
+                  <Ionicons
+                    name="add-circle-outline"
+                    size={18}
+                    color={colors.text.muted}
+                  />
+                )}
               </TouchableOpacity>
             );
           })}
         </View>
       )}
 
-      {/* Tabs — involvement set with a person filter, All/Posts/Events while
-          scoped to bookmarks, the regular set otherwise. */}
-      <View>
-        <FlatList
-          horizontal
-          showsHorizontalScrollIndicator={false}
-          data={
-            hasPersonFilter
-              ? FILTER_TABS
-              : source === "bookmarks"
-                ? BOOKMARK_TABS
-                : TABS
-          }
-          keyExtractor={(item) => item.key}
-          contentContainerStyle={styles.tabsContainer}
-          renderItem={({ item }) => renderTab(item)}
-        />
-      </View>
+      {/* Tabs Row */}
+      {source !== "settings" && (
+        <View style={{ borderBottomWidth: 1, borderBottomColor: colors.border }}>
+          <FlatList
+            horizontal
+            showsHorizontalScrollIndicator={false}
+            data={
+              hasPersonFilter
+                ? FILTER_TABS
+                : source === "bookmarks"
+                  ? BOOKMARK_TABS
+                  : source === "notifications"
+                    ? NOTIF_TABS
+                    : postMode
+                      ? POST_TABS
+                      : TABS
+            }
+            keyExtractor={(item) => item.key}
+            contentContainerStyle={styles.tabsContainer}
+            renderItem={({ item }) => renderTab(item)}
+          />
+        </View>
+      )}
 
       {/* Results */}
       {loading ? (
@@ -1137,7 +1830,9 @@ export default function SearchScreen({ navigation, route }: Props) {
           ref={listRef}
           data={rows}
           keyExtractor={(row, index) =>
-            row.isHeader ? `header-${row.type}-${index}` : `${row.type}-${row.item.id || index}`
+            row.isHeader
+              ? `header-${row.type}-${index}`
+              : `${row.type}-${row.item.id || index}`
           }
           renderItem={renderItem}
           contentContainerStyle={[
@@ -1147,12 +1842,7 @@ export default function SearchScreen({ navigation, route }: Props) {
           ItemSeparatorComponent={() => <View style={{ height: 10 }} />}
           keyboardShouldPersistTaps="handled"
           refreshControl={
-            <RefreshControl
-              refreshing={refreshing}
-              onRefresh={onRefresh}
-              tintColor={colors.primaryLight}
-              colors={[colors.primaryLight]}
-            />
+            <AppRefreshControl refreshing={refreshing} onRefresh={onRefresh} />
           }
           // Track the live offset so switching tabs can save/restore it.
           onScroll={(e) => {
@@ -1171,21 +1861,19 @@ export default function SearchScreen({ navigation, route }: Props) {
             ) : null
           }
           ListHeaderComponent={
-            isEmptyQuery && activeTab === "all" ? (
-              <View style={styles.discoverBanner}>
-                <Ionicons name="sparkles" size={18} color={colors.xpGold} />
-                <Text style={styles.discoverText}>Discoveries — popular right now</Text>
+            isEmptyQuery ? (
+              <View>
+                {renderEmptyStateHeader()}
+                <View style={styles.discoverBanner}>
+                  <Ionicons name="sparkles" size={18} color={colors.xpGold} />
+                  <Text style={styles.discoverText}>Discoveries for You!</Text>
+                </View>
               </View>
             ) : null
           }
         />
       ) : showSearchPrompt ? (
-        <View style={styles.centerBox}>
-          <Ionicons name="search-outline" size={64} color={colors.border} />
-          <Text style={styles.emptyText}>
-            Type something to start searching, or explore the tabs above.
-          </Text>
-        </View>
+        renderEmptyStateHeader()
       ) : !isEmptyQuery ? (
         <View style={styles.centerBox}>
           <Text style={styles.emptyText}>
@@ -1202,6 +1890,103 @@ export default function SearchScreen({ navigation, route }: Props) {
           </Text>
         </View>
       )}
+
+      {/* Filter Modal */}
+      <Modal
+        visible={showFilters}
+        transparent
+        animationType="slide"
+        onRequestClose={() => setShowFilters(false)}
+      >
+        <TouchableOpacity
+          style={styles.modalOverlay}
+          activeOpacity={1}
+          onPress={() => setShowFilters(false)}
+        >
+          <View
+            style={styles.modalContent}
+            onStartShouldSetResponder={() => true}
+          >
+            <View style={styles.modalHeader}>
+              <Text style={styles.modalTitle}>Filters</Text>
+              <TouchableOpacity
+                onPress={() => setShowFilters(false)}
+                style={styles.modalCloseBtn}
+              >
+                <Ionicons name="close" size={24} color={colors.text.primary} />
+              </TouchableOpacity>
+            </View>
+
+            <View style={styles.filterGroup}>
+              <Text style={styles.filterGroupTitle}>TYPE</Text>
+              <View style={styles.filterRow}>
+                {[
+                  { id: "relevance", label: "Relevance" },
+                  { id: "top", label: "Top" },
+                  { id: "new", label: "New" },
+                  { id: "hot", label: "Hot" },
+                ].map((t) => (
+                  <TouchableOpacity
+                    key={t.id}
+                    style={[
+                      styles.sheetFilterChip,
+                      filterType === t.id && styles.sheetFilterChipActive,
+                    ]}
+                    onPress={() => setFilterType(t.id)}
+                  >
+                    <Text
+                      style={[
+                        styles.sheetFilterChipText,
+                        filterType === t.id && styles.sheetFilterChipTextActive,
+                      ]}
+                    >
+                      {t.label}
+                    </Text>
+                  </TouchableOpacity>
+                ))}
+              </View>
+            </View>
+
+            <View style={styles.filterGroup}>
+              <Text style={styles.filterGroupTitle}>TIME</Text>
+              <View style={styles.filterRow}>
+                {[
+                  { id: "recent", label: "Recent" },
+                  { id: "past_week", label: "Past Week" },
+                  { id: "past_month", label: "Past Month" },
+                  { id: "past_year", label: "Past Year" },
+                  { id: "all_time", label: "All Time" },
+                ].map((t) => (
+                  <TouchableOpacity
+                    key={t.id}
+                    style={[
+                      styles.sheetFilterChip,
+                      filterTime === t.id && styles.sheetFilterChipActive,
+                    ]}
+                    onPress={() => setFilterTime(t.id)}
+                  >
+                    <Text
+                      style={[
+                        styles.sheetFilterChipText,
+                        filterTime === t.id && styles.sheetFilterChipTextActive,
+                      ]}
+                    >
+                      {t.label}
+                    </Text>
+                  </TouchableOpacity>
+                ))}
+              </View>
+            </View>
+
+            <TouchableOpacity
+              style={styles.applyFilterBtn}
+              onPress={() => setShowFilters(false)}
+            >
+              <Text style={styles.applyFilterText}>Apply Filters</Text>
+            </TouchableOpacity>
+          </View>
+        </TouchableOpacity>
+      </Modal>
     </View>
   );
 }
@@ -1468,6 +2253,121 @@ function makeStyles(c: ColorPalette) {
       fontSize: fontSizes.md,
       fontWeight: "600",
       color: c.text.primary,
+    },
+    filterIconButton: {
+      padding: spacing.md,
+      justifyContent: "center",
+      alignItems: "center",
+    },
+    modalOverlay: {
+      flex: 1,
+      backgroundColor: "rgba(0,0,0,0.5)",
+      justifyContent: "flex-end",
+    },
+    modalContent: {
+      backgroundColor: c.bg.base,
+      borderTopLeftRadius: radii.xl,
+      borderTopRightRadius: radii.xl,
+      padding: spacing.lg,
+      paddingBottom: 40,
+    },
+    modalHeader: {
+      flexDirection: "row",
+      justifyContent: "space-between",
+      alignItems: "center",
+      marginBottom: spacing.lg,
+    },
+    modalTitle: {
+      fontSize: fontSizes.lg,
+      fontWeight: "800",
+      color: c.text.primary,
+    },
+    modalCloseBtn: {
+      padding: 4,
+      backgroundColor: c.bg.surface,
+      borderRadius: radii.full,
+    },
+    filterGroup: {
+      marginBottom: spacing.lg,
+    },
+    filterGroupTitle: {
+      fontSize: fontSizes.xs,
+      fontWeight: "700",
+      color: c.text.muted,
+      marginBottom: spacing.sm,
+      letterSpacing: 0.5,
+    },
+    filterRow: {
+      flexDirection: "row",
+      flexWrap: "wrap",
+      gap: 12,
+    },
+    sheetFilterChip: {
+      paddingVertical: 8,
+      paddingHorizontal: 16,
+      borderRadius: radii.full,
+      backgroundColor: c.bg.surface,
+      borderWidth: 1,
+      borderColor: c.border,
+    },
+    sheetFilterChipActive: {
+      backgroundColor: c.primaryLight,
+      borderColor: c.primaryLight,
+    },
+    sheetFilterChipText: {
+      fontSize: fontSizes.sm,
+      fontWeight: "600",
+      color: c.text.secondary,
+    },
+    sheetFilterChipTextActive: {
+      color: "#fff",
+    },
+    applyFilterBtn: {
+      backgroundColor: c.primaryLight,
+      borderRadius: radii.lg,
+      paddingVertical: 14,
+      alignItems: "center",
+      marginTop: spacing.md,
+    },
+    applyFilterText: {
+      color: "#fff",
+      fontSize: fontSizes.md,
+      fontWeight: "700",
+    },
+    recentSearchesContainer: {
+      paddingTop: spacing.lg,
+      paddingHorizontal: spacing.md,
+    },
+    recentHeader: {
+      flexDirection: "row",
+      justifyContent: "space-between",
+      alignItems: "center",
+      marginBottom: 12,
+    },
+    recentTitle: {
+      fontSize: fontSizes.sm,
+      fontWeight: "700",
+      color: c.text.muted,
+      textTransform: "uppercase",
+      letterSpacing: 0.5,
+    },
+    recentClear: {
+      fontSize: fontSizes.sm,
+      fontWeight: "600",
+      color: c.primaryLight,
+    },
+    recentRow: {
+      flexDirection: "row",
+      alignItems: "center",
+      paddingVertical: 12,
+      borderBottomWidth: StyleSheet.hairlineWidth,
+      borderBottomColor: c.border,
+    },
+    recentText: {
+      flex: 1,
+      fontSize: fontSizes.md,
+      color: c.text.primary,
+      marginLeft: 12,
     },
   });
 }

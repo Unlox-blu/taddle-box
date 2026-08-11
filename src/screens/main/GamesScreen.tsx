@@ -7,7 +7,6 @@ import React, {
 } from "react";
 import {
   ActivityIndicator,
-
   Animated,
   Easing,
   Image,
@@ -18,7 +17,6 @@ import {
   Text,
   TouchableOpacity,
   View,
-  RefreshControl,
   ImageBackground,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
@@ -30,6 +28,7 @@ import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
 import type { HomeStackParamList } from "../../types";
 import { fontSizes, radii, spacing, type ColorPalette } from "../../theme";
 import { useThemeColors } from "../../context/ThemeContext";
+import AppRefreshControl from "../../components/common/AppRefreshControl";
 import {
   useGames,
   type GameMatch,
@@ -61,7 +60,7 @@ import type { User } from "../../types";
 import { useAuth } from "../../context/AuthContext";
 import TournamentLeaderboardModal from "../../components/games/TournamentLeaderboardModal";
 import { gameSound, useGameSoundPrefs } from "../../services/gameSound";
-import { themedAlert } from '../../components/common/ThemedAlert';
+import { themedAlert } from "../../components/common/ThemedAlert";
 
 type ActiveTab = "games" | "tournaments" | "history";
 type ScreenModal = "none" | "history";
@@ -195,19 +194,26 @@ export default function GamesScreen() {
   const [activeSession, setActiveSession] = useState<ActiveSession | null>(
     null,
   );
-  
+
   const [leaderboardModalVisible, setLeaderboardModalVisible] = useState(false);
-  const [selectedTournament, setSelectedTournament] = useState<GameTournament | null>(null);
-  const [selectedTournamentId, setSelectedTournamentId] = useState<string | null>(null);
+  const [selectedTournament, setSelectedTournament] =
+    useState<GameTournament | null>(null);
+  const [selectedTournamentId, setSelectedTournamentId] = useState<
+    string | null
+  >(null);
   const [reconnectSession, setReconnectSession] = useState<any>(null);
   const [matchModalVisible, setMatchModalVisible] = useState(false);
   const [selectedGame, setSelectedGame] = useState<Game | null>(null);
-  const [incomingInviteCode, setIncomingInviteCode] = useState<string | null>(null);
+  const [incomingInviteCode, setIncomingInviteCode] = useState<string | null>(
+    null,
+  );
   // Rematch shortcut: when true, MatchModeModal skips mode-select and jumps
   // straight into the AUTO queue for the selected game.
   const [rematchAutoQueue, setRematchAutoQueue] = useState(false);
   // Which queue the rematch should land in (practice matches re-queue practice).
-  const [rematchInitialMode, setRematchInitialMode] = useState<"AUTO" | "PRACTICE">("AUTO");
+  const [rematchInitialMode, setRematchInitialMode] = useState<
+    "AUTO" | "PRACTICE"
+  >("AUTO");
   // Game-specific settings (sound + haptics) — a dedicated modal like Wallet's,
   // NOT the global Settings screen.
   const [gameSettingsVisible, setGameSettingsVisible] = useState(false);
@@ -239,7 +245,7 @@ export default function GamesScreen() {
   useFocusEffect(
     useCallback(() => {
       loadGamesData();
-    }, [loadGamesData])
+    }, [loadGamesData]),
   );
 
   useEffect(() => {
@@ -266,7 +272,7 @@ export default function GamesScreen() {
         setIncomingInvite(notif);
       }
     };
-    
+
     const handleSessionExpired = (data: any) => {
       setReconnectSession(null);
     };
@@ -318,20 +324,23 @@ export default function GamesScreen() {
       setRematchInitialMode("AUTO");
 
       const sessionMode =
-        request.mode === "tournament" ? "tournament"
-        : request.mode === "practice" ? "practice"
-        : request.mode === "invite" ? "custom"
-        : "auto";
+        request.mode === "tournament"
+          ? "tournament"
+          : request.mode === "practice"
+            ? "practice"
+            : request.mode === "invite"
+              ? "custom"
+              : "auto";
 
       // Pull matchGroupId from every possible location the server returns it
       // In the new lobby flow: lobbyId IS the match group identifier
       const matchGroupId =
-        response.matchMetadata?.matchGroupId
-        || response.matchMetadata?.lobbyId
-        || response.match?.metadata?.matchGroupId
-        || response.ticket?.matchGroupId
-        || (response as any).lobbyId
-        || null;
+        response.matchMetadata?.matchGroupId ||
+        response.matchMetadata?.lobbyId ||
+        response.match?.metadata?.matchGroupId ||
+        response.ticket?.matchGroupId ||
+        (response as any).lobbyId ||
+        null;
 
       gamesService
         .startGameSession(request.game.id, sessionMode, matchGroupId)
@@ -343,7 +352,8 @@ export default function GamesScreen() {
           let myTeam: number | undefined;
 
           // From matchMetadata.playerSnapshots (new lobby flow)
-          const snapshots: any[] = (response as any).matchMetadata?.playerSnapshots || [];
+          const snapshots: any[] =
+            (response as any).matchMetadata?.playerSnapshots || [];
           snapshots.forEach((p: any) => {
             if (p.id === user?.id) {
               myTeam = p.team;
@@ -363,8 +373,12 @@ export default function GamesScreen() {
           // Fallback: legacy opponent field
           if (players.length === 0 && response.opponent) {
             players.push({
-              id: response.opponent.id || response.opponent.userId || "opponent",
-              name: response.opponent.name || response.opponent.username || "Opponent",
+              id:
+                response.opponent.id || response.opponent.userId || "opponent",
+              name:
+                response.opponent.name ||
+                response.opponent.username ||
+                "Opponent",
               username: response.opponent.username,
               avatar: response.opponent.avatarUrl || response.opponent.avatar,
             });
@@ -388,10 +402,10 @@ export default function GamesScreen() {
                     ? "custom"
                     : "auto",
             matchId:
-              res.data?.ticket?.userMatchId
-              || res.data?.sessionId
-              || (response as any).matchMetadata?.playerSnapshots?.[0]?.id
-              || response.match?.id,
+              res.data?.ticket?.userMatchId ||
+              res.data?.sessionId ||
+              (response as any).matchMetadata?.playerSnapshots?.[0]?.id ||
+              response.match?.id,
             sessionId: res.data?.sessionId || response.match?.id,
             wsToken: res.data?.wsToken || res.data?.ticket?.token,
             players: players.length > 0 ? players : undefined,
@@ -403,7 +417,8 @@ export default function GamesScreen() {
         .catch((err: any) => {
           themedAlert(
             "Error",
-            err?.response?.data?.message || "Failed to initialize the game session.",
+            err?.response?.data?.message ||
+              "Failed to initialize the game session.",
           );
         });
     },
@@ -436,7 +451,7 @@ export default function GamesScreen() {
 
       <View style={styles.header}>
         <View>
-          <Text style={styles.title}>Game Zone</Text>
+          <Text style={styles.title}>Games Zone</Text>
           <Text style={styles.subtitle}>
             Compete, climb rankings, and earn XP.
           </Text>
@@ -512,7 +527,9 @@ export default function GamesScreen() {
               />
             </View>
             <Text style={styles.inviteBannerText}>
-              {(incomingInvite.message || "You have a new game invite!").split('|')[0].trim()}
+              {(incomingInvite.message || "You have a new game invite!")
+                .split("|")[0]
+                .trim()}
             </Text>
           </View>
           <View style={styles.inviteBannerActions}>
@@ -520,10 +537,14 @@ export default function GamesScreen() {
               style={styles.inviteJoinBtn}
               onPress={() => {
                 // Message format: "<text> | <lobbyId> | <inviteCode>"
-                const parts = (incomingInvite.message || "").split("|").map((s: string) => s.trim());
+                const parts = (incomingInvite.message || "")
+                  .split("|")
+                  .map((s: string) => s.trim());
                 const inviteCode = parts[2] || parts[1];
                 const gameId = incomingInvite.resourceId;
-                const game = realGamesRef.current.find((g) => g.id === gameId || g.slug === gameId);
+                const game = realGamesRef.current.find(
+                  (g) => g.id === gameId || g.slug === gameId,
+                );
 
                 if (inviteCode && game) {
                   setActiveTab("games");
@@ -552,14 +573,13 @@ export default function GamesScreen() {
         showsVerticalScrollIndicator={false}
         contentContainerStyle={styles.content}
         refreshControl={
-          <RefreshControl
+          <AppRefreshControl
             refreshing={refreshing}
             onRefresh={async () => {
               setRefreshing(true);
               await loadGamesData();
               setRefreshing(false);
             }}
-            tintColor={colors.primaryLight}
           />
         }
       >
@@ -568,44 +588,51 @@ export default function GamesScreen() {
             <SectionHeader title="Available Games" />
             <View style={styles.gameGrid}>
               {realGames.map((game) => {
-                const isRejoin = !!reconnectSession && reconnectSession.gameId === game.id;
-                const rejoinWindowMs = isRejoin ? reconnectSession.reconnectWindowMs : null;
+                const isRejoin =
+                  !!reconnectSession && reconnectSession.gameId === game.id;
+                const rejoinWindowMs = isRejoin
+                  ? reconnectSession.reconnectWindowMs
+                  : null;
                 return (
-                <GameCard
-                  key={game.id}
-                  game={{
-                    ...game,
-                    isHot:
-                      backendTrending?.includes(game.id) ||
-                      backendTrending?.includes(game.slug || "") ||
-                      false,
-                  }}
-                  isRejoin={isRejoin}
-                  rejoinWindowMs={rejoinWindowMs}
-                  onRejoinExpired={() => {
-                    // Window expired — drop the stale session so the card
-                    // reverts to a normal PLAY button.
-                    setReconnectSession(null);
-                    loadGamesData();
-                  }}
-                  onPlayClick={() => {
-                    if (isRejoin) {
-                      setActiveSession({ ...reconnectSession, isRejoin: true });
-                      setReconnectSession(null); // Clear from banner so it opens fresh
-                      return;
-                    }
-                    if (!user || user.xp < (game.entryFee || 0)) {
-                      themedAlert(
-                        "Insufficient XP",
-                        `You need ${game.entryFee || 0} XP to play ${game.name}.`,
-                      );
-                      return;
-                    }
-                    setSelectedGame(game);
-                    setMatchModalVisible(true);
-                  }}
-                />
-              )})}
+                  <GameCard
+                    key={game.id}
+                    game={{
+                      ...game,
+                      isHot:
+                        backendTrending?.includes(game.id) ||
+                        backendTrending?.includes(game.slug || "") ||
+                        false,
+                    }}
+                    isRejoin={isRejoin}
+                    rejoinWindowMs={rejoinWindowMs}
+                    onRejoinExpired={() => {
+                      // Window expired — drop the stale session so the card
+                      // reverts to a normal PLAY button.
+                      setReconnectSession(null);
+                      loadGamesData();
+                    }}
+                    onPlayClick={() => {
+                      if (isRejoin) {
+                        setActiveSession({
+                          ...reconnectSession,
+                          isRejoin: true,
+                        });
+                        setReconnectSession(null); // Clear from banner so it opens fresh
+                        return;
+                      }
+                      if (!user || user.xp < (game.entryFee || 0)) {
+                        themedAlert(
+                          "Insufficient XP",
+                          `You need ${game.entryFee || 0} XP to play ${game.name}.`,
+                        );
+                        return;
+                      }
+                      setSelectedGame(game);
+                      setMatchModalVisible(true);
+                    }}
+                  />
+                );
+              })}
             </View>
           </>
         )}
@@ -754,7 +781,7 @@ function GameCard({
   onRejoinExpired?: () => void;
 }) {
   const [timeLeft, setTimeLeft] = useState<number | null>(
-    rejoinWindowMs != null ? Math.floor(rejoinWindowMs / 1000) : null
+    rejoinWindowMs != null ? Math.floor(rejoinWindowMs / 1000) : null,
   );
 
   const formatTime = (seconds: number) => {
@@ -838,12 +865,13 @@ function GameCard({
         </Text>
         <Text style={styles.gameMeta}>Earn Up to {game.maxXp} XP</Text>
 
-        <TouchableOpacity
-          style={{ marginTop: 12 }}
-          onPress={onPlayClick}
-        >
+        <TouchableOpacity style={{ marginTop: 12 }} onPress={onPlayClick}>
           <LinearGradient
-            colors={isRejoin ? [colors.warning, "#FF8C00"] : [colors.primary, colors.cyanDark]}
+            colors={
+              isRejoin
+                ? [colors.warning, "#FF8C00"]
+                : [colors.primary, colors.cyanDark]
+            }
             style={styles.primaryButton}
           >
             {isRejoin ? (
@@ -899,16 +927,10 @@ function TournamentCard({
           </Text>
         </View>
         <View
-          style={[
-            styles.statusPill,
-            isUpcoming && styles.statusPillUpcoming,
-          ]}
+          style={[styles.statusPill, isUpcoming && styles.statusPillUpcoming]}
         >
           <Text
-            style={[
-              styles.statusText,
-              isUpcoming && styles.statusTextUpcoming,
-            ]}
+            style={[styles.statusText, isUpcoming && styles.statusTextUpcoming]}
           >
             {isUpcoming ? "UPCOMING" : tournament.status}
           </Text>
@@ -946,11 +968,7 @@ function TournamentCard({
         <View
           style={[styles.tournamentButton, styles.tournamentDisabledButton]}
         >
-          <Ionicons
-            name="time-outline"
-            size={18}
-            color={colors.text.muted}
-          />
+          <Ionicons name="time-outline" size={18} color={colors.text.muted} />
           <Text
             style={[styles.tournamentButtonText, { color: colors.text.muted }]}
           >
@@ -1026,13 +1044,13 @@ function GamePlayModal({
   // engine would never START and the waiting screen would deadlock).
   const canEngineConnect =
     NATIVE_GAME_SLUGS.has((session.game as any)?.slug) && !!session.wsToken;
-  const [phase, setPhase] = useState<
-    "prestart" | "playing" | "result"
-  >(
+  const [phase, setPhase] = useState<"prestart" | "playing" | "result">(
     session.isRejoin ? "playing" : "prestart",
   );
   const [score, setScore] = useState(0);
-  const [result, setResult] = useState<"win" | "loss" | "draw" | "pending">("pending");
+  const [result, setResult] = useState<"win" | "loss" | "draw" | "pending">(
+    "pending",
+  );
   const [xpEarned, setXpEarned] = useState(0);
   // Per-game breakdown (accuracy / longest streak) surfaced on the result overlay
   const [gameStats, setGameStats] = useState<{
@@ -1040,7 +1058,9 @@ function GamePlayModal({
     longestStreak?: number;
   }>({});
 
-  const [opponentPausedCountdown, setOpponentPausedCountdown] = useState<number | null>(null);
+  const [opponentPausedCountdown, setOpponentPausedCountdown] = useState<
+    number | null
+  >(null);
   const [pausedPlayerName, setPausedPlayerName] = useState<string>("Opponent");
   // Guards against double-completion: some games (e.g. TapRush) fire onComplete
   // from a local timer while the server also emits GAME_OVER, so completeGameSession
@@ -1051,22 +1071,25 @@ function GamePlayModal({
   const resultSoundPlayedRef = useRef(false);
 
   useEffect(() => {
-    const { DeviceEventEmitter } = require('react-native');
-    
+    const { DeviceEventEmitter } = require("react-native");
+
     const onPause = (event: any) => {
       if (event.matchId === session.matchId && event.data?.reconnectWindowMs) {
-        setOpponentPausedCountdown(Math.floor(event.data.reconnectWindowMs / 1000));
+        setOpponentPausedCountdown(
+          Math.floor(event.data.reconnectWindowMs / 1000),
+        );
         // Resolve the disconnected player's name from the session players list.
         // The server sends the userId in disconnectedPlayers[0]; fall back to
         // "Opponent" when absent (bot matches, legacy payloads).
-        const disconnectedId = event.data?.disconnectedPlayers?.[0] || event.data?.userId;
+        const disconnectedId =
+          event.data?.disconnectedPlayers?.[0] || event.data?.userId;
         const match = (session.players || []).find(
-          (p) => p.id === disconnectedId
+          (p) => p.id === disconnectedId,
         );
         setPausedPlayerName(match?.name || "Opponent");
       }
     };
-    
+
     const onResume = (event: any) => {
       if (event.matchId === session.matchId) {
         setOpponentPausedCountdown(null);
@@ -1080,10 +1103,10 @@ function GamePlayModal({
       }
     };
 
-    const sub1 = DeviceEventEmitter.addListener('GAME_ENGINE_PAUSE', onPause);
-    const sub2 = DeviceEventEmitter.addListener('GAME_ENGINE_RESUME', onResume);
-    const sub3 = DeviceEventEmitter.addListener('GAME_ENGINE_OVER', onResume);
-    const sub4 = DeviceEventEmitter.addListener('GAME_ENGINE_ACTIVE', onActive);
+    const sub1 = DeviceEventEmitter.addListener("GAME_ENGINE_PAUSE", onPause);
+    const sub2 = DeviceEventEmitter.addListener("GAME_ENGINE_RESUME", onResume);
+    const sub3 = DeviceEventEmitter.addListener("GAME_ENGINE_OVER", onResume);
+    const sub4 = DeviceEventEmitter.addListener("GAME_ENGINE_ACTIVE", onActive);
 
     return () => {
       sub1.remove();
@@ -1094,9 +1117,10 @@ function GamePlayModal({
   }, [session.matchId]);
 
   useEffect(() => {
-    if (opponentPausedCountdown === null || opponentPausedCountdown <= 0) return;
+    if (opponentPausedCountdown === null || opponentPausedCountdown <= 0)
+      return;
     const timer = setInterval(() => {
-      setOpponentPausedCountdown(prev => (prev && prev > 0 ? prev - 1 : 0));
+      setOpponentPausedCountdown((prev) => (prev && prev > 0 ? prev - 1 : 0));
     }, 1000);
     return () => clearInterval(timer);
   }, [opponentPausedCountdown]);
@@ -1257,7 +1281,10 @@ function GamePlayModal({
                 if (NativeGame && token) {
                   return (
                     <View
-                      style={[StyleSheet.absoluteFill, { opacity: phase === "playing" ? 1 : 0 }]}
+                      style={[
+                        StyleSheet.absoluteFill,
+                        { opacity: phase === "playing" ? 1 : 0 },
+                      ]}
                       pointerEvents={phase === "playing" ? "auto" : "none"}
                     >
                       <NativeGame
@@ -1266,12 +1293,16 @@ function GamePlayModal({
                         userId={uid}
                         wsToken={token}
                         players={session.players || []}
-                        externalPhase={phase === "playing" ? "playing" : "waiting"}
-                        myName={user?.username || user?.name || 'You'}
+                        externalPhase={
+                          phase === "playing" ? "playing" : "waiting"
+                        }
+                        myName={user?.username || user?.name || "You"}
                         myAvatar={user?.avatarUrl || user?.avatar || null}
                         myLevel={
                           user?.level ??
-                          (user?.totalXpEarned != null ? Math.floor(user.totalXpEarned / 1000) + 1 : undefined)
+                          (user?.totalXpEarned != null
+                            ? Math.floor(user.totalXpEarned / 1000) + 1
+                            : undefined)
                         }
                         opponentName={session.players?.[0]?.name || "Opponent"}
                         onComplete={handleComplete}
@@ -1299,10 +1330,13 @@ function GamePlayModal({
                   team: p.team,
                 }))}
                 modeLabel={
-                  session.mode === "tournament" ? "TOURNAMENT"
-                  : session.mode === "practice" ? "PRACTICE"
-                  : session.mode === "custom" ? "CUSTOM LOBBY"
-                  : "AUTO MATCH"
+                  session.mode === "tournament"
+                    ? "TOURNAMENT"
+                    : session.mode === "practice"
+                      ? "PRACTICE"
+                      : session.mode === "custom"
+                        ? "CUSTOM LOBBY"
+                        : "AUTO MATCH"
                 }
                 onDone={() => setPhase("playing")}
                 onExit={onClose}
@@ -1311,22 +1345,64 @@ function GamePlayModal({
           )}
 
           {opponentPausedCountdown !== null && phase !== "result" && (
-            <View style={[StyleSheet.absoluteFill, { backgroundColor: 'rgba(0,0,0,0.85)', justifyContent: 'center', alignItems: 'center', zIndex: 100 }]}>
+            <View
+              style={[
+                StyleSheet.absoluteFill,
+                {
+                  backgroundColor: "rgba(0,0,0,0.85)",
+                  justifyContent: "center",
+                  alignItems: "center",
+                  zIndex: 100,
+                },
+              ]}
+            >
               <Ionicons name="warning" size={64} color={colors.warning} />
-              <Text style={{ color: '#fff', fontSize: 24, fontWeight: 'bold', marginTop: 16 }}>
+              <Text
+                style={{
+                  color: "#fff",
+                  fontSize: 24,
+                  fontWeight: "bold",
+                  marginTop: 16,
+                }}
+              >
                 {pausedPlayerName} Disconnected
               </Text>
-              <Text style={{ color: colors.text.secondary, fontSize: 16, textAlign: 'center', marginHorizontal: 32, marginTop: 12 }}>
+              <Text
+                style={{
+                  color: colors.text.secondary,
+                  fontSize: 16,
+                  textAlign: "center",
+                  marginHorizontal: 32,
+                  marginTop: 12,
+                }}
+              >
                 Match paused — waiting for them to return…
               </Text>
-              <Text style={{ color: colors.primaryLight, fontSize: 36, fontWeight: '900', marginTop: 16 }}>
+              <Text
+                style={{
+                  color: colors.primaryLight,
+                  fontSize: 36,
+                  fontWeight: "900",
+                  marginTop: 16,
+                }}
+              >
                 {opponentPausedCountdown}s
               </Text>
               <TouchableOpacity
-                style={{ marginTop: 40, backgroundColor: colors.danger, paddingHorizontal: 32, paddingVertical: 14, borderRadius: 24 }}
+                style={{
+                  marginTop: 40,
+                  backgroundColor: colors.danger,
+                  paddingHorizontal: 32,
+                  paddingVertical: 14,
+                  borderRadius: 24,
+                }}
                 onPress={onClose}
               >
-                <Text style={{ color: '#fff', fontSize: 16, fontWeight: 'bold' }}>Exit Match</Text>
+                <Text
+                  style={{ color: "#fff", fontSize: 16, fontWeight: "bold" }}
+                >
+                  Exit Match
+                </Text>
               </TouchableOpacity>
             </View>
           )}
@@ -1341,9 +1417,12 @@ function GamePlayModal({
               longestStreak={gameStats.longestStreak}
               gameName={session.game.name}
               modeLabel={
-                session.mode === "tournament" ? "TOURNAMENT"
-                  : session.mode === "practice" ? "PRACTICE"
-                  : session.mode === "custom" ? "CUSTOM LOBBY"
+                session.mode === "tournament"
+                  ? "TOURNAMENT"
+                  : session.mode === "practice"
+                    ? "PRACTICE"
+                    : session.mode === "custom"
+                      ? "CUSTOM LOBBY"
                       : "AUTO MATCH"
               }
               opponentName={session.players?.[0]?.name}
@@ -1366,7 +1445,9 @@ function MatchRow({ match }: { match: GameMatch }) {
     id: match.gameId,
     name: match.gameName,
     emoji: match.gameEmoji,
-    gradient: GAME_ASSETS[match.gameSlug || ""]?.gradient || (["#7C3AED", "#0891B2"] as [string, string]),
+    gradient:
+      GAME_ASSETS[match.gameSlug || ""]?.gradient ||
+      (["#7C3AED", "#0891B2"] as [string, string]),
     logo: GAME_ASSETS[match.gameSlug || ""]?.logo,
     slug: match.gameSlug,
     maxXp: 0,
@@ -1487,7 +1568,11 @@ function GameSettingsModal({
           <View style={styles.settingsCard}>
             <View style={styles.settingsRow}>
               <View style={styles.settingsRowLeft}>
-                <Ionicons name="volume-high-outline" size={20} color={colors.primaryLight} />
+                <Ionicons
+                  name="volume-high-outline"
+                  size={20}
+                  color={colors.primaryLight}
+                />
                 <View style={{ flex: 1 }}>
                   <Text style={styles.settingsRowLabel}>Sound Effects</Text>
                   <Text style={styles.settingsRowDesc}>
@@ -1502,9 +1587,18 @@ function GameSettingsModal({
                 thumbColor={soundEnabled ? "#fff" : colors.text.muted}
               />
             </View>
-            <View style={[styles.settingsRow, { borderTopWidth: 1, borderTopColor: colors.border }]}>
+            <View
+              style={[
+                styles.settingsRow,
+                { borderTopWidth: 1, borderTopColor: colors.border },
+              ]}
+            >
               <View style={styles.settingsRowLeft}>
-                <Ionicons name="phone-portrait-outline" size={20} color={colors.primaryLight} />
+                <Ionicons
+                  name="phone-portrait-outline"
+                  size={20}
+                  color={colors.primaryLight}
+                />
                 <View style={{ flex: 1 }}>
                   <Text style={styles.settingsRowLabel}>Haptics</Text>
                   <Text style={styles.settingsRowDesc}>
@@ -1581,7 +1675,11 @@ function makeStyles(c: ColorPalette) {
       borderWidth: 1,
       borderColor: c.border,
     },
-    headerActions: { flexDirection: "row", alignItems: "center", gap: spacing.sm },
+    headerActions: {
+      flexDirection: "row",
+      alignItems: "center",
+      gap: spacing.sm,
+    },
     statsRow: {
       flexDirection: "row",
       paddingHorizontal: spacing.lg,
@@ -2029,9 +2127,22 @@ function makeStyles(c: ColorPalette) {
       justifyContent: "space-between",
       padding: spacing.md,
     },
-    settingsRowLeft: { flexDirection: "row", alignItems: "center", gap: 12, flex: 1 },
-    settingsRowLabel: { fontSize: fontSizes.sm, fontWeight: "600", color: c.text.primary },
-    settingsRowDesc: { fontSize: fontSizes.xs, color: c.text.muted, marginTop: 2 },
+    settingsRowLeft: {
+      flexDirection: "row",
+      alignItems: "center",
+      gap: 12,
+      flex: 1,
+    },
+    settingsRowLabel: {
+      fontSize: fontSizes.sm,
+      fontWeight: "600",
+      color: c.text.primary,
+    },
+    settingsRowDesc: {
+      fontSize: fontSizes.xs,
+      color: c.text.muted,
+      marginTop: 2,
+    },
     emptyBlock: {
       margin: spacing.lg,
       padding: spacing.xl,

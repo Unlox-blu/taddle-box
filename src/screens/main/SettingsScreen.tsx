@@ -76,12 +76,16 @@ const maskPhone = (phone?: string, countryCode?: string) => {
   const [allowReposts, setAllowReposts] = useState(true);
   const [showOnLeaderboard, setShowOnLeaderboard] = useState(true);
   const [appBiometric, setAppBiometric] = useState(false);
+  const [safeSearch, setSafeSearch] = useState("moderate");
 
   useFocusEffect(
     useCallback(() => {
       fetchWalletData();
       SecureStore.getItemAsync("app_biometricEnabled").then((val) => {
         setAppBiometric(val === "true");
+      });
+      SecureStore.getItemAsync("app_safeSearch").then((val) => {
+        if (val) setSafeSearch(val);
       });
       // Fetch user settings (privacy toggles)
       settingsService
@@ -162,6 +166,26 @@ const maskPhone = (phone?: string, countryCode?: string) => {
       ...options.map((o) => ({
         text: o.label,
         onPress: () => setThemePreference(o.value),
+      })),
+      { text: "Cancel", style: "cancel" as const },
+    ]);
+  };
+
+  const handleSafeSearchPicker = () => {
+    const options = [
+      { label: "Strict", value: "strict" },
+      { label: "Moderate", value: "moderate" },
+      { label: "Auto", value: "auto" },
+      { label: "Off", value: "off" },
+    ];
+    const current = options.find((o) => o.value === safeSearch)?.label ?? "Moderate";
+    themedAlert("Content Preference", `Currently: ${current}\n\nControls whether potentially sensitive or explicit content is filtered from your searches and feeds.`, [
+      ...options.map((o) => ({
+        text: o.label,
+        onPress: async () => {
+          setSafeSearch(o.value);
+          await SecureStore.setItemAsync("app_safeSearch", o.value);
+        },
       })),
       { text: "Cancel", style: "cancel" as const },
     ]);
@@ -578,6 +602,12 @@ const maskPhone = (phone?: string, countryCode?: string) => {
                   : "☀️ Light"
             }
             onPress={handleThemePicker}
+          />
+          <SettingsRow
+            icon="shield-checkmark-outline"
+            label="Content Preference"
+            value={safeSearch.charAt(0).toUpperCase() + safeSearch.slice(1)}
+            onPress={handleSafeSearchPicker}
           />
           <SettingsRow
             icon="language-outline"

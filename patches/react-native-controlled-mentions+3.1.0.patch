@@ -1,0 +1,46 @@
+diff --git a/node_modules/react-native-controlled-mentions/dist/hooks/use-mentions.js b/node_modules/react-native-controlled-mentions/dist/hooks/use-mentions.js
+index 3741f55..23434dd 100644
+--- a/node_modules/react-native-controlled-mentions/dist/hooks/use-mentions.js
++++ b/node_modules/react-native-controlled-mentions/dist/hooks/use-mentions.js
+@@ -35,8 +35,8 @@ const react_native_1 = require("react-native");
+  * @param triggersConfig
+  * @param patterns
+  */
+-const useMentions = ({ value, onChange, triggersConfig = _mention_utils_1.emptyObject, patternsConfig = _mention_utils_1.emptyObject, onSelectionChange, }) => {
+-    const [selection, setSelection] = (0, react_1.useState)({
++const useMentions = ({ value, onChange, triggersConfig = _mention_utils_1.emptyObject, patternsConfig = _mention_utils_1.emptyObject, onSelectionChange, containerStyle, suggestionPosition, ...rest }) => {
++        const [selection, setSelection] = (0, react_1.useState)({
+         start: 0,
+         end: 0,
+     });
+@@ -66,13 +66,29 @@ const useMentions = ({ value, onChange, triggersConfig = _mention_utils_1.emptyO
+      * Object with triggers and their current keyword state depending on current text and selection
+      */
+     const triggers = (0, react_1.useMemo)(() => (0, _mention_utils_1.getTriggerPartSuggestionKeywords)(mentionState, selection, triggersConfig, onChange), [mentionState, selection, triggersConfig, onChange]);
++    // PATCH (Codebuff): Android renders TextInput children as nested <Text>
++    // nodes that do NOT inherit the TextInput's `color` style (they default to
++    // black — invisible in dark mode). Resolve the input's color from its style
++    // and put it on the wrapper <Text> so plain (non-token) parts inherit it,
++    // while trigger tokens keep their own textStyle.
++    const __baseTextColor = (() => {
++        try {
++            const arr = Array.isArray(rest.style) ? rest.style : [rest.style];
++            for (let i = arr.length - 1; i >= 0; i--) {
++                if (arr[i] && arr[i].color) return arr[i].color;
++            }
++        }
++        catch (e) { /* ignore */ }
++        return undefined;
++    })();
+     /**
+      * `TextInput` props that we can provide to the `TextInput` component.
+      */
+     const textInputProps = {
++        ...rest,
+         onChangeText: handleTextChange,
+         onSelectionChange: handleSelectionChange,
+-        children: react_1.default.createElement(react_native_1.Text, null, mentionState.parts.map(({ text, config, data }, index) => {
++        children: react_1.default.createElement(react_native_1.Text, __baseTextColor ? { style: { color: __baseTextColor } } : null, mentionState.parts.map(({ text, config, data }, index) => {
+             var _a;
+             if (!config) {
+                 return react_1.default.createElement(react_native_1.Text, { key: index }, text);

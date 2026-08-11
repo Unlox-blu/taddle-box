@@ -3,7 +3,6 @@ import {
   ActivityIndicator,
   Animated,
   Image,
-  RefreshControl,
   ScrollView,
   StyleSheet,
   Text,
@@ -24,6 +23,7 @@ import {
   type WeeklyLeaderboards,
 } from '../../services/leaderboard.service';
 import type { HomeStackParamList } from '../../types';
+import AppRefreshControl from '../../components/common/AppRefreshControl';
 
 const TABS: { key: LeaderboardType; label: string; icon: keyof typeof Ionicons.glyphMap }[] = [
   { key: 'feed', label: 'Feed', icon: 'newspaper-outline' },
@@ -107,12 +107,7 @@ export default function LeaderboardsScreen() {
         showsVerticalScrollIndicator={false}
         contentContainerStyle={styles.content}
         refreshControl={
-          <RefreshControl
-            refreshing={refreshing}
-            onRefresh={onRefresh}
-            tintColor={colors.primaryLight}
-            colors={[colors.primaryLight]}
-          />
+          <AppRefreshControl refreshing={refreshing} onRefresh={onRefresh} />
         }
       >
         <View style={styles.tabRail}>

@@ -1,8 +1,9 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { View, Text, StyleSheet, FlatList, TouchableOpacity, ActivityIndicator, Image, RefreshControl } from 'react-native';
+import { View, Text, StyleSheet, FlatList, TouchableOpacity, ActivityIndicator, Image } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useNavigation, useRoute, type RouteProp } from '@react-navigation/native';
 import { Ionicons } from '@expo/vector-icons';
+import AppRefreshControl from '../../components/common/AppRefreshControl';
 import { useThemeColors } from '../../context/ThemeContext';
 import { fontSizes, spacing, radii } from '../../theme';
 import { communityService } from '../../services/community.service';
@@ -82,11 +83,7 @@ export default function CommunityModerationLogScreen() {
         keyExtractor={item => String(item.id)}
         contentContainerStyle={{ padding: spacing.lg, flexGrow: 1 }}
         refreshControl={
-          <RefreshControl
-            refreshing={refreshing}
-            onRefresh={() => { setRefreshing(true); load(1, true); }}
-            tintColor={colors.primary}
-          />
+          <AppRefreshControl refreshing={refreshing} onRefresh={() => { setRefreshing(true); load(1, true); }} />
         }
         onEndReached={() => { if (hasMore && !loading) load(page + 1); }}
         onEndReachedThreshold={0.4}

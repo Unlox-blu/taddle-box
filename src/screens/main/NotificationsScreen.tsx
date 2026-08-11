@@ -1,6 +1,6 @@
 import React, { useMemo, useState, useEffect } from 'react';
 import {
-  View, Text, ScrollView, TouchableOpacity, StyleSheet, ActivityIndicator, RefreshControl, Image, 
+  View, Text, ScrollView, TouchableOpacity, StyleSheet, ActivityIndicator, Image, 
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
@@ -17,6 +17,7 @@ import { postsService } from '../../services/posts.service';
 import { communityService } from '../../services/community.service';
 import { useNotifications } from '../../context/NotificationContext';
 import MainHeader from '../../components/common/MainHeader';
+import AppRefreshControl from '../../components/common/AppRefreshControl';
 import { notificationBus, NOTIF_EVENTS } from '../../lib/notificationBus';
 import { socketClient } from '../../services/socketClient';
 import PresenceDot from '../../components/common/PresenceDot';
@@ -126,19 +127,39 @@ function makeStyles(c: ColorPalette) {
     },
     stackBadgeText: { fontSize: 10, fontWeight: '800', color: c.primaryLight },
 
+    // Stacked (multi-actor) avatar cluster — two overlapping circles
+    // sitting side by side, like Instagram's multi-like row.
+    stackedAvatarWrap: {
+      width: 64, // slightly wider to accommodate the overlap
+      height: 48,
+      position: 'relative',
+    },
+    secondAvatar: {
+      position: 'absolute',
+      left: 18,
+      top: 0,
+      width: 36, height: 36, borderRadius: 18,
+      backgroundColor: c.bg.surface, borderWidth: 2, borderColor: c.bg.base,
+      alignItems: 'center', justifyContent: 'center',
+      zIndex: 1,
+    },
+    firstAvatarSmall: {
+      position: 'absolute',
+      left: 0,
+      top: 6,
+      width: 36, height: 36, borderRadius: 18,
+      backgroundColor: c.bg.surface, borderWidth: 2, borderColor: c.bg.base,
+      alignItems: 'center', justifyContent: 'center',
+      zIndex: 2,
+    },
+
     content: { flex: 1, justifyContent: 'center' },
     notifText: { fontSize: fontSizes.sm, color: c.text.secondary, lineHeight: 20 },
     actor:     { fontWeight: '800', color: c.text.primary, fontSize: fontSizes.md, marginBottom: 2 },
     notifBody: { fontWeight: '500' },
     time:      { fontSize: fontSizes.xs, color: c.text.muted, marginTop: 4, fontWeight: '600' },
 
-    // Slim community banner strip for community notifications — the community's
-    // identity visual (enriched server-side from resource_id).
-    communityBanner: {
-      width: '100%', height: 46, borderRadius: 10,
-      backgroundColor: c.bg.elevated, borderWidth: 1, borderColor: c.border,
-      marginBottom: 8,
-    },
+    // (Banner style removed because it was too prominent)
 
     unreadDot: {
       width: 10, height: 10, borderRadius: 5,
@@ -645,7 +666,7 @@ export default function NotificationsScreen({ navigation }: Props) {
           }}
           scrollEventThrottle={200}
           refreshControl={
-            <RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={colors.primary} />
+            <AppRefreshControl refreshing={refreshing} onRefresh={onRefresh} />
           }
         >
           {pendingRequestNotifs.length > 0 && (
@@ -691,58 +712,99 @@ export default function NotificationsScreen({ navigation }: Props) {
                     onPress={() => openNotification(notif)}
                     activeOpacity={0.7}
                   >
-                    <View style={styles.avatarWrap}>
-                      <View style={styles.avatar}>
-                        {notif.avatarUrl ? (
-                          <Image
-                            source={{ uri: notif.avatarUrl }}
-                            style={{ width: 48, height: 48, borderRadius: 24 }}
+                    {/* Avatar section — stacked (multi-actor) or single */}
+                    {(() => {
+                      const isStacked = typeof notif.actorCount === 'number' && notif.actorCount >= 2;
+                      if (isStacked) {
+                        return (
+                          <View style={styles.stackedAvatarWrap}>
+                            {/* Second actor behind */}
+                            <View style={styles.secondAvatar}>
+                              <LinearGradient
+                                colors={[colors.cyanDark, colors.primary]}
+                                start={{ x: 0, y: 0 }}
+                                end={{ x: 1, y: 1 }}
+                                style={{ width: 36, height: 36, borderRadius: 18, alignItems: 'center', justifyContent: 'center' }}
+                              >
+                                <Ionicons name="person" size={15} color="#fff" />
+                              </LinearGradient>
+                            </View>
+                            {/* First actor (sender) in front */}
+                            <View style={styles.firstAvatarSmall}>
+                              {notif.avatarUrl ? (
+                                <Image source={{ uri: notif.avatarUrl }} style={{ width: 36, height: 36, borderRadius: 18 }} />
+                              ) : (
+                                <LinearGradient
+                                  colors={[colors.primary, colors.cyanDark]}
+                                  start={{ x: 0, y: 0 }}
+                                  end={{ x: 1, y: 1 }}
+                                  style={{ width: 36, height: 36, borderRadius: 18, alignItems: 'center', justifyContent: 'center' }}
+                                >
+                                  <Ionicons name="person" size={15} color="#fff" />
+                                </LinearGradient>
+                              )}
+                            </View>
+                            {/* Type dot */}
+                            <View style={[styles.typeDot, { backgroundColor: notifColor[notif.type], bottom: -4, right: -4, zIndex: 3 }]}>
+                              <Ionicons name={NOTIF_ICON[notif.type] as any} size={10} color="#fff" />
+                            </View>
+                          </View>
+                        );
+                      }
+                      return (
+                        <View style={styles.avatarWrap}>
+                          <View style={styles.avatar}>
+                            {notif.avatarUrl ? (
+                              <Image
+                                source={{ uri: notif.avatarUrl }}
+                                style={{ width: 48, height: 48, borderRadius: 24 }}
+                              />
+                            ) : (
+                              <LinearGradient
+                                colors={[colors.primary, colors.cyanDark]}
+                                start={{ x: 0, y: 0 }}
+                                end={{ x: 1, y: 1 }}
+                                style={{ width: 48, height: 48, borderRadius: 24, alignItems: 'center', justifyContent: 'center' }}
+                              >
+                                <Ionicons name="person" size={20} color="#fff" />
+                              </LinearGradient>
+                            )}
+                          </View>
+                          <View style={[styles.typeDot, { backgroundColor: notifColor[notif.type] }]}>
+                            <Ionicons name={NOTIF_ICON[notif.type] as any} size={10} color="#fff" />
+                          </View>
+                          <PresenceDot
+                            userId={notif.senderId || notif.payload?.userId}
+                            size={13}
+                            style={{ top: -3, right: 4, bottom: undefined }}
                           />
-                        ) : (
-                          // Person placeholder — the sender's avatar is missing
-                          // (system events, legacy rows), so show a clean profile
-                          // icon instead of a bare letter.
-                          <LinearGradient
-                            colors={[colors.primary, colors.cyanDark]}
-                            start={{ x: 0, y: 0 }}
-                            end={{ x: 1, y: 1 }}
-                            style={{ width: 48, height: 48, borderRadius: 24, alignItems: 'center', justifyContent: 'center' }}
-                          >
-                            <Ionicons name="person" size={20} color="#fff" />
-                          </LinearGradient>
-                        )}
-                      </View>
-                      <View style={[styles.typeDot, { backgroundColor: notifColor[notif.type] }]}>
-                        <Ionicons name={NOTIF_ICON[notif.type] as any} size={10} color="#fff" />
-                      </View>
-                      {/* Online / recently-active dot on the sender avatar */}
-                      <PresenceDot
-                        userId={notif.senderId || notif.payload?.userId}
-                        size={13}
-                        style={{ top: -3, right: 4, bottom: undefined }}
-                      />
-                      {/* Stacked aggregation badge ("A and 2 others...") — shows
-                          how many MORE actors beyond the sender. */}
-                      {typeof notif.actorCount === 'number' && notif.actorCount > 2 && (
-                        <View style={styles.stackBadge}>
-                          <Text style={styles.stackBadgeText}>+{notif.actorCount - 1}</Text>
                         </View>
-                      )}
-                    </View>
+                      );
+                    })()}
 
                     <View style={styles.content}>
-                      {/* Community identity banner for community notifications. */}
-                      {notif.type === 'community' && notif.communityBannerUrl ? (
-                        <Image
-                          source={{ uri: notif.communityBannerUrl }}
-                          style={styles.communityBanner}
-                          resizeMode="cover"
-                        />
+                      {/* Community identity text for community notifications. */}
+                      {notif.type === 'community' && notif.communityName ? (
+                        <Text style={{ fontSize: fontSizes.xs, fontWeight: '700', color: colors.primary, marginBottom: 4 }} numberOfLines={1}>
+                          {notif.communityName}
+                        </Text>
                       ) : null}
-                      <Text style={styles.actor} numberOfLines={1}>{notif.actor}</Text>
-                      <Text style={styles.notifText} numberOfLines={2}>
-                        <Text style={styles.notifBody}>{notif.text}</Text>
-                      </Text>
+                      {/* For stacked (multi-actor) notifications render a single
+                          flowing line: "Rahul and 2 others liked your post".
+                          For single-actor rows keep the two-line layout. */}
+                      {typeof notif.actorCount === 'number' && notif.actorCount >= 2 ? (
+                        <Text style={[styles.notifText, { marginBottom: 2 }]} numberOfLines={3}>
+                          <Text style={[styles.actor, { fontSize: fontSizes.sm }]}>{notif.actor} </Text>
+                          <Text style={styles.notifBody}>{notif.text}</Text>
+                        </Text>
+                      ) : (
+                        <>
+                          <Text style={styles.actor} numberOfLines={1}>{notif.actor}</Text>
+                          <Text style={styles.notifText} numberOfLines={2}>
+                            <Text style={styles.notifBody}>{notif.text}</Text>
+                          </Text>
+                        </>
+                      )}
                       <Text style={styles.time}>{notif.time}</Text>
 
                       {notif.type === 'game_invite' && !notif.isRead && !isGameInviteExpired(notif) && (
@@ -945,7 +1007,7 @@ export default function NotificationsScreen({ navigation }: Props) {
                                   : isDone
                                     ? 'Following'
                                     : isPrivate
-                                      ? 'Request to Follow Back'
+                                      ? 'Request to Follow'
                                       : 'Follow Back'}
                             </Text>
                           </TouchableOpacity>

@@ -8,7 +8,7 @@ class SearchService {
     this.searchRepo = searchRepository;
   }
 
-  async search({type, query, filter, limit, offset, page, userId = null}) {
+  async search({type, query, filter, limit, offset, page, userId = null, community = null, author = null, involvement = null, tag = null, bookmarked = null, mine = null}) {
     try {
       switch(type){
         case 'people' : 
@@ -31,10 +31,10 @@ class SearchService {
 
         case 'events' :
           {
-            if(!query && !filter)
+            if(!query && !filter && !bookmarked)
               return await this.discoverEvents ({limit, offset});
 
-            const { rows, total } = await this.searchRepo.searchEvent(query, filter, limit, offset);
+            const { rows, total } = await this.searchRepo.searchEvent(query, filter, limit, offset, bookmarked, userId);
             return { dataType: type, data: rows, total };
           }
 
@@ -49,18 +49,18 @@ class SearchService {
 
         case 'all' :
           {
-            if(!query && !filter)
+            if(!query && !filter && !community && !author && !tag && !bookmarked && !mine)
               return this.discoverAll(limit = 10, offset = 0, page = 1, userId)
             
-            return this.searchAll(query, filter, limit, offset, userId);
+            return this.searchAll(query, filter, limit, offset, userId, community, author, involvement, tag, bookmarked, mine);
           }
         
         case 'posts' :
           {
-            if(!query)
+            if(!query && !community && !author && !tag && !bookmarked && !mine)
               return this.discoverPost ({userId, limit, offset});
 
-            const { rows, total } = await this.searchRepo.searchPost(query, limit, offset, userId);
+            const { rows, total } = await this.searchRepo.searchPost(query, limit, offset, userId, community, author, involvement, tag, bookmarked, mine);
             return { dataType: 'posts', data: rows, total };
           }
 
@@ -79,15 +79,15 @@ class SearchService {
   // and caps each group to a small preview count. When the query is empty the
   // individual searches already return their top/trending content, which the
   // app renders as a "Discoveries" landing for the search screen.
-  async searchAll(query, filter, limit = 10, offset = 0, userId = null) {
+  async searchAll(query, filter, limit = 10, offset = 0, userId = null, community = null, author = null, involvement = null, tag = null, bookmarked = null, mine = null) {
     try {
       const perTypeLimit = Math.min(Math.max(limit, 3), 8);
       const [people, communities, events, games, posts, hashtags] = await Promise.all([
         this.searchRepo.searchUser(query, perTypeLimit, offset),
         this.searchRepo.searchCommunity(query, filter, perTypeLimit, offset),
-        this.searchRepo.searchEvent(query, filter, perTypeLimit, offset),
+        this.searchRepo.searchEvent(query, filter, perTypeLimit, offset, bookmarked, userId),
         this.searchRepo.searchGame(query, perTypeLimit, offset),
-        this.searchRepo.searchPost(query, perTypeLimit, offset, userId),
+        this.searchRepo.searchPost(query, perTypeLimit, offset, userId, community, author, involvement, tag, bookmarked, mine),
         this.searchRepo.getHashtags(query),
       ]);
 

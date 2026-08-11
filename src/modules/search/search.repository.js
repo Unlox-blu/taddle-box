@@ -28,10 +28,20 @@ const searchCommunity = async (query, filter, limit, offset) => {
   }
 };
 
-const searchPost = async (query, limit, offset, userId = null) => {
+const searchPost = async (query, limit, offset, userId = null, community = null, author = null, involvement = null, tag = null, bookmarked = null, mine = null) => {
   try {
     const q = query || '';
-    const { rows } = await pool.query(SearchAlgo.SEARCH_POSt_ALGORITHM, [`%${q}%`, limit, offset, userId, q.trim() ] );
+    // Community-scoped search — a slug filters results to that community's
+    // posts (the algorithm's $6 slot); null means global search. Person-scoped
+    // search — an ARRAY of usernames ($7 slot) matches posts where ANY of them
+    // is involved (authored, mentioned, commented, reposted); $8 (involvement)
+    // narrows to one dimension, $9 (tag) filters by hashtag, $10 (bookmarked)
+    // restricts to the user's saved posts, and $11 (mine) to their own posts.
+    const authorArr = Array.isArray(author) && author.length ? author : null;
+    const tagArr = Array.isArray(tag) && tag.length ? tag : null;
+    const bmFlag = bookmarked === true || bookmarked === '1' || bookmarked === 1 ? true : null;
+    const mineFlag = mine === true || mine === '1' || mine === 1 ? true : null;
+    const { rows } = await pool.query(SearchAlgo.SEARCH_POSt_ALGORITHM, [`%${q}%`, limit, offset, userId, q.trim(), community || null, authorArr, involvement || null, tagArr, bmFlag, mineFlag ] );
     const total = rows[0]?.total || 0;
     return { rows, total: parseInt(total, 10) };
   } catch (error) {
@@ -40,11 +50,12 @@ const searchPost = async (query, limit, offset, userId = null) => {
 };
 
 
-const searchEvent = async (query, filter, limit, offset) => {
+const searchEvent = async (query, filter, limit, offset, bookmarked = null, userId = null) => {
   try {
     const q = query || '';
     const eventType = filter || null;
-    const { rows } = await pool.query(SearchAlgo.SEARCH_EVENT_ALGORITHM, [`%${q}%`, eventType, limit, offset] );
+    const bmFlag = bookmarked === true || bookmarked === '1' || bookmarked === 1 ? true : null;
+    const { rows } = await pool.query(SearchAlgo.SEARCH_EVENT_ALGORITHM, [`%${q}%`, eventType, limit, offset, bmFlag, userId || null] );
     const total = rows[0]?.total || 0;
     return { rows, total: parseInt(total, 10) };
   } catch (error) {

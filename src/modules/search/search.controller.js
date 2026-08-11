@@ -14,9 +14,23 @@ class SearchController {
       const type = req.query.type || 'posts'
       const query = req.query.q || ''
       const filter = req.query.filter || ''
+      const community = req.query.community || null
+      // Person filter — comma-separated usernames (@a @b in the search box).
+      const author = req.query.author
+        ? String(req.query.author).split(',').map(s => s.trim()).filter(Boolean)
+        : null
+      // Involvement dimension (authored | mentions | comments | reposts).
+      const involvement = req.query.involvement || null
+      // Hashtag filter — comma-separated tags (#a #b in the search box).
+      const tag = req.query.tag
+        ? String(req.query.tag).split(',').map(s => s.trim().replace(/^#/, '').toLowerCase()).filter(Boolean)
+        : null
+      // Bookmarks scope (saved posts) and own-posts (settings) scope.
+      const bookmarked = req.query.bookmarked || null
+      const mine = req.query.mine || null
       const { limit, offset, page } = getPaginationParams(req.query);
 
-      const {dataType, data, total} = await this.searchSvc.search({type, query, filter, limit, offset, page, userId});
+      const {dataType, data, total} = await this.searchSvc.search({type, query, filter, limit, offset, page, userId, community, author, involvement, tag, bookmarked, mine});
 
       res.json(apiResponse({dataType, data,}, `${dataType} fetched`, paginationMeta(total, page, limit)));
     } catch (error) {
@@ -31,9 +45,23 @@ class SearchController {
       const userId = req.userId;
       const query = req.query.q || ''
       const filter = req.query.filter || ''
+      const community = req.query.community || null
+      // Person filter — comma-separated usernames (@a @b in the search box).
+      const author = req.query.author
+        ? String(req.query.author).split(',').map(s => s.trim()).filter(Boolean)
+        : null
+      // Involvement dimension (authored | mentions | comments | reposts).
+      const involvement = req.query.involvement || null
+      // Hashtag filter — comma-separated tags (#a #b in the search box).
+      const tag = req.query.tag
+        ? String(req.query.tag).split(',').map(s => s.trim().replace(/^#/, '').toLowerCase()).filter(Boolean)
+        : null
+      // Bookmarks scope (saved posts) and own-posts (settings) scope.
+      const bookmarked = req.query.bookmarked || null
+      const mine = req.query.mine || null
       const { limit, offset, page } = getPaginationParams(req.query);
 
-      const {dataType, data, total} = await this.searchSvc.search({type: 'all', query, filter, limit, offset, userId});
+      const {dataType, data, total} = await this.searchSvc.search({type: 'all', query, filter, limit, offset, userId, community, author, involvement, tag, bookmarked, mine});
 
       res.json(apiResponse({dataType, data,}, `${dataType} fetched`, paginationMeta(total, page, limit)));
     } catch (error) {

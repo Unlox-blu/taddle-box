@@ -45,28 +45,37 @@ const findLikers = async (postId, currentUserId, limit, offset) => {
 // the app can reuse the same users-list modal for both.
 const findReposters = async (postId, currentUserId, limit, offset) => {
   try {
+    // MULTIPLE-REPOST semantics: one user can hold several repost rows of the
+    // same post, so the list DEDUPES by user (newest repost wins) and the
+    // total counts distinct users — a triple-reposter appears once, not thrice.
     const { rows } = await pool.query(
       `SELECT
-          u.id,
-          u.name,
-          u.username,
+          sub.id,
+          sub.name,
+          sub.username,
           avatar_media.cloudfront_url AS avatar_url,
           EXISTS(
             SELECT 1 FROM followers f
-            WHERE f.follower_id = $2 AND f.following_id = u.id AND f.status = 'active'
+            WHERE f.follower_id = $2 AND f.following_id = sub.id AND f.status = 'active'
           ) AS is_following,
           EXISTS(
             SELECT 1 FROM followers f
-            WHERE f.follower_id = u.id AND f.following_id = $2 AND f.status = 'active'
+            WHERE f.follower_id = sub.id AND f.following_id = $2 AND f.status = 'active'
           ) AS is_follower,
           COUNT(*) OVER() AS total
-       FROM ${PostModel.TABLE} rp
-       JOIN users u ON u.id = rp.author_id
-       LEFT JOIN media AS avatar_media ON avatar_media.id = u.avatar_url
-       WHERE rp.repost_of_id = $1
-         AND rp.deleted_at IS NULL
-         AND u.deleted_at IS NULL
-       ORDER BY rp.created_at DESC
+       FROM (
+         SELECT DISTINCT ON (rp.author_id)
+           u.id, u.name, u.username, u.avatar_url,
+           rp.created_at AS last_reposted_at
+         FROM ${PostModel.TABLE} rp
+         JOIN users u ON u.id = rp.author_id
+         WHERE rp.repost_of_id = $1
+           AND rp.deleted_at IS NULL
+           AND u.deleted_at IS NULL
+         ORDER BY rp.author_id, rp.created_at DESC
+       ) sub
+       LEFT JOIN media AS avatar_media ON avatar_media.id = sub.avatar_url
+       ORDER BY sub.last_reposted_at DESC
        LIMIT $3 OFFSET $4`,
       [postId, currentUserId, limit, offset]
     );

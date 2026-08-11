@@ -365,14 +365,15 @@ class PostService {
       }
       const targetId = original.id;
 
-      // Reposting your own post is meaningless (and inflates share counts) —
-      // enforced server-side, not just hidden in the UI.
-      if (original.author_id === userId)
-        throw createError('You cannot repost your own post', 400);
+      // Self-reposts are allowed — reposting your own post (e.g. cross-posting
+      // it into a community) is a legitimate share action, and the multiple-
+      // repost model keeps any count inflation bounded.
 
       // Don't repost a post that was itself deleted/hidden.
       const author = await this.userRepo.findById(original.author_id);
-      if (author && author.privacy !== 'public') {
+      // Private accounts gate reposts to approved followers — except the
+      // author themselves, who can always repost their own post (cross-post).
+      if (author && author.privacy !== 'public' && original.author_id !== userId) {
         const isFollow = await this.followerRepo.findByFollowerIdAndFollowingId(userId, original.author_id);
         if (!isFollow || isFollow.status !== 'active')
           throw createError("You don't have permission to repost posts from this private account", 403);
@@ -398,30 +399,12 @@ class PostService {
         }
       }
 
-      // Idempotent: if the user already reposted this post, don't create a
-      // duplicate. A verbatim re-repost returns the existing row; a quote with
-      // new thoughts REPLACES the existing quote (quote-repost toggle).
-      const existing = await this.postRepo.findMyRepost(targetId, userId);
-      if (existing) {
-        const contentText = (content || '').trim();
-        if (contentText) {
-          const postTags = Array.isArray(tags)
-            ? tags.map(t => String(t).replace(/^#/, '').toLowerCase())
-            : Array.from(contentText.matchAll(/(?:^|\s)(#[a-z0-9_]+)/gi)).map(m => m[1].replace('#', '').toLowerCase());
-          await this.postRepo.update(existing.id, { content: contentText, tags: postTags });
-        }
-        // Destination change (feed → community or community → feed): MOVE the
-        // existing repost instead of creating a duplicate row.
-        const destVisibility = communityId ? 'community_only' : repostVisibility;
-        if ((existing.community_id || null) !== (communityId || null)) {
-          await this.postRepo.update(existing.id, {
-            community_id: communityId || null,
-            visibility: destVisibility,
-          });
-        }
-        const populated = await this.postRepo.findById(existing.id, userId);
-        return PostModel.format(populated);
-      }
+      // MULTIPLE-REPOST semantics: every repost action creates a NEW repost
+      // row. The repost button exists purely to repost again (each repost
+      // picks ONE audience) — there is no "edit my repost" flow; changing or
+      // removing a repost is done from the profile's Reposts tab. Each new
+      // repost also bumps the original's share count, so N reposts = N
+      // shares (the client's optimistic count mirrors this).
 
       // Respect the ORIGINAL author's "Allow Reposting" toggle — when it's
       // OFF, no NEW reposts of their posts can be created. Users who already

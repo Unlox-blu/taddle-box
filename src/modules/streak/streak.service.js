@@ -91,7 +91,9 @@ class StreakService {
 
       const now = new Date();
       const gap = daysBetween(new Date(evaluated.streak.endDate), now);
-      if (gap === 0) throw createError("Streak is already updated", 400);
+      if (gap === 0) {
+        return { ...this.#buildResponse(evaluated), rewardEarned: false, rewardXp: 0 };
+      }
 
       // Normal continuation → count + 1.
       const updated = await this.streakRepo.updateById(evaluated.streak.id);

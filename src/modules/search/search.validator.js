@@ -21,6 +21,8 @@ const searchQuerySchema = z.object({
   bookmarked: z.string().optional(),
   // Own-posts scope — restrict posts to the viewer's own content.
   mine: z.string().optional(),
+  sortBy: z.string().optional(),
+  post_filter: z.string().optional(),
   page: z.coerce
     .number({ invalid_type_error: 'Page must be a number' })
     .int({ message: 'Page must be an integer' })

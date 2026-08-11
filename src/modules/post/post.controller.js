@@ -24,8 +24,9 @@ class PostController {
   getPost = async (req, res, next) => {
     try {
       const { postId } = req.params;
+      const { via_repost: viaRepostId } = req.query;
       const userId = req.userId;
-      const post = await this.postSvc.getPost({postId, userId});
+      const post = await this.postSvc.getPost({postId, userId, viaRepostId});
       res.json(apiResponse(post, 'Post fetched successfully!'));
     } catch (error) {
       next(error);

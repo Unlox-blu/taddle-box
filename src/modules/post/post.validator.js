@@ -73,4 +73,8 @@ const paginationQuerySchema = z.object({
   type: z.enum(['all', 'posts', 'reposts']).optional().default('all'),
 }).strict();
 
-module.exports = { createPostSchema, updatePostSchema, postIdParamsSchema, authorIdParamsSchema, paginationQuerySchema };
+const getPostQuerySchema = z.object({
+  via_repost: z.string().uuid({ message: 'Invalid via_repost ID format' }).optional()
+}).strict();
+
+module.exports = { createPostSchema, updatePostSchema, postIdParamsSchema, authorIdParamsSchema, paginationQuerySchema, getPostQuerySchema };

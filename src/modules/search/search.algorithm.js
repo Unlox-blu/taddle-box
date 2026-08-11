@@ -64,6 +64,9 @@ const SEARCH_POSt_ALGORITHM = `SELECT
                                     ),
                                     '[]'::json
                                 ) AS media,
+                                CASE WHEN $5 != '' THEN
+                                  ts_headline('english', p.content, plainto_tsquery('english', $5), 'StartSel=<mark>, StopSel=</mark>')
+                                ELSE NULL END AS highlight_content,
                                 (
                                     -- Exact title
                                     CASE
@@ -82,8 +85,9 @@ const SEARCH_POSt_ALGORITHM = `SELECT
                                         THEN 4000
                                         ELSE 0
                                     END
-                                    -- Content
+                                    -- Content FTS
                                     + CASE
+                                        WHEN p.search_vector @@ plainto_tsquery('english', $5) THEN ts_rank(p.search_vector, plainto_tsquery('english', $5)) * 3000
                                         WHEN p.content ILIKE $1 THEN 2500
                                         ELSE 0
                                     END
@@ -145,63 +149,95 @@ const SEARCH_POSt_ALGORITHM = `SELECT
                                 )
                                 AND (
                                     p.visibility = 'public'
+                                    OR p.visibility = 'community_only'
                                     OR (
-                                        p.visibility = 'community_only'
-                                        AND c.privacy != 'private'
-                                    )
-                                    OR (
-                                        p.visibility = 'community_only'
-                                        OR EXISTS (
-                                        SELECT 1
-                                        FROM community_members cm
-                                        WHERE 
-                                            cm.community_id = p.community_id 
-                                            AND cm.user_id = $4
-                                    )
+                                        p.visibility = 'followers'
+                                        AND (
+                                            p.author_id = $4
+                                            OR EXISTS (
+                                                SELECT 1 FROM followers f
+                                                WHERE f.follower_id = $4 AND f.following_id = p.author_id AND f.status = 'active'
+                                            )
+                                        )
                                     )
                                 )
                                 AND (
-                                    $1 = ''
-                                    OR p.title ILIKE $1
-                                    OR p.content ILIKE $1
+                                    c.id IS NULL 
+                                    OR c.privacy != 'private'
                                     OR EXISTS (
                                         SELECT 1
-                                        FROM unnest(COALESCE(p.tags, ARRAY[]::text[])) t
-                                        WHERE t ILIKE $1
+                                        FROM community_members cm
+                                        WHERE cm.community_id = p.community_id 
+                                          AND cm.user_id = $4
+                                          AND cm.status = 'active'
                                     )
-                                    -- A repost matches when the ORIGINAL's text
-                                    -- matches too: a verbatim repost carries no
-                                    -- content of its own, so the embedded post's
-                                    -- text is what the search should surface.
-                                    -- Walks the repost-of-repost chain (bounded
-                                    -- to 5 hops, like the app's root resolver)
-                                    -- so a repost of a repost still finds the
-                                    -- root original's text.
+                                )
+                                AND (
+                                    $5 = ''
                                     OR (
-                                        p.repost_of_id IS NOT NULL
-                                        AND EXISTS (
-                                            WITH RECURSIVE chain AS (
-                                                SELECT rp.id, rp.repost_of_id, rp.deleted_at, rp.status, rp.title, rp.content, rp.tags, 1 AS depth
-                                                FROM posts rp
-                                                WHERE rp.id = p.repost_of_id
-                                                UNION ALL
-                                                SELECT r2.id, r2.repost_of_id, r2.deleted_at, r2.status, r2.title, r2.content, r2.tags, chain.depth + 1
-                                                FROM posts r2
-                                                JOIN chain ON r2.id = chain.repost_of_id
-                                                WHERE chain.repost_of_id IS NOT NULL AND chain.depth < 5
+                                        ($13::text IS NULL OR $13 = 'all' OR $13 = 'contents')
+                                        AND (
+                                            p.search_vector @@ plainto_tsquery('english', $5)
+                                            OR p.title ILIKE $1
+                                            OR p.content ILIKE $1
+                                            OR EXISTS (
+                                                SELECT 1
+                                                FROM unnest(COALESCE(p.tags, ARRAY[]::text[])) t
+                                                WHERE t ILIKE $1
                                             )
-                                            SELECT 1 FROM chain
-                                            WHERE chain.deleted_at IS NULL
-                                              AND chain.status = 'published'
-                                              AND (
-                                                  chain.title ILIKE $1
-                                                  OR chain.content ILIKE $1
-                                                  OR EXISTS (
-                                                      SELECT 1
-                                                      FROM unnest(COALESCE(chain.tags, ARRAY[]::text[])) t
-                                                      WHERE t ILIKE $1
-                                                  )
-                                              )
+                                            -- A repost matches when the ORIGINAL's text
+                                            -- matches too: a verbatim repost carries no
+                                            -- content of its own, so the embedded post's
+                                            -- text is what the search should surface.
+                                            -- Walks the repost-of-repost chain (bounded
+                                            -- to 5 hops, like the app's root resolver)
+                                            -- so a repost of a repost still finds the
+                                            -- root original's text.
+                                            OR (
+                                                p.repost_of_id IS NOT NULL
+                                                AND EXISTS (
+                                                    WITH RECURSIVE chain AS (
+                                                        SELECT rp.id, rp.repost_of_id, rp.deleted_at, rp.status, rp.title, rp.content, rp.tags, 1 AS depth
+                                                        FROM posts rp
+                                                        WHERE rp.id = p.repost_of_id
+                                                        UNION ALL
+                                                        SELECT r2.id, r2.repost_of_id, r2.deleted_at, r2.status, r2.title, r2.content, r2.tags, chain.depth + 1
+                                                        FROM posts r2
+                                                        JOIN chain ON r2.id = chain.repost_of_id
+                                                        WHERE chain.repost_of_id IS NOT NULL AND chain.depth < 5
+                                                    )
+                                                    SELECT 1 FROM chain
+                                                    WHERE chain.deleted_at IS NULL
+                                                      AND chain.status = 'published'
+                                                      AND (
+                                                          chain.title ILIKE $1
+                                                          OR chain.content ILIKE $1
+                                                          OR EXISTS (
+                                                              SELECT 1
+                                                              FROM unnest(COALESCE(chain.tags, ARRAY[]::text[])) t
+                                                              WHERE t ILIKE $1
+                                                          )
+                                                      )
+                                                )
+                                            )
+                                        )
+                                    )
+                                    OR (
+                                        $13 = 'comments'
+                                        AND EXISTS (
+                                            SELECT 1 FROM comments cm
+                                            WHERE cm.post_id = p.id
+                                              AND cm.deleted_at IS NULL
+                                              AND cm.status = 'active'
+                                              AND cm.content ILIKE $1
+                                        )
+                                    )
+                                    OR (
+                                        $13 = 'mentions'
+                                        AND (
+                                            p.title ILIKE '%{@}[' || $5 || ']%'
+                                            OR p.content ILIKE '%{@}[' || $5 || ']%'
+                                            OR p.content ~ ('@' || $5 || '([^a-z0-9_]|$)')
                                         )
                                     )
                                 )
@@ -312,8 +348,9 @@ const SEARCH_POSt_ALGORITHM = `SELECT
                                 c.id,
                                 ca.id
                             ORDER BY
-                                CASE
-                                    WHEN $5 = '' THEN
+                                CASE WHEN $12 = 'latest' THEN p.created_at END DESC,
+                                CASE WHEN $12 = 'top' THEN (p.likes_count * 2 + p.comments_count * 3) END DESC,
+                                CASE WHEN ($12 = 'relevance' OR $12 IS NULL) AND $5 = '' THEN
                                         (p.likes_count * 2 + p.comments_count * 3)
                                     ELSE
                                         (
@@ -365,7 +402,7 @@ const SEARCH_POSt_ALGORITHM = `SELECT
                                                 0
                                             )
                                         )
-                                END DESC,
+                                END DESC NULLS LAST,
                                 p.created_at DESC
                             LIMIT $2
                             OFFSET $3;`   

@@ -111,15 +111,43 @@ class PostService {
     }
   }
 
-  async getPost({postId, userId}) {
+  async getPost({postId, userId, viaRepostId}) {
     try {
       const post = await this.postRepo.findById(postId, userId);
       if (!post) throw createError('Post not found', 404);
       const { community_id: communityId, author_id: authorId } = post;
 
-      
       if(userId === authorId){
         return PostModel.format(post);
+      }
+
+      // If requested via a wrapper repost, check authorization against the wrapper instead
+      if (viaRepostId) {
+        const wrapper = await this.postRepo.findById(viaRepostId, userId);
+        if (wrapper && wrapper.repost_of_id === postId) {
+          let wrapperAuthorized = true;
+          
+          if (wrapper.community_id) {
+            const wCommunity = await this.communityRepo.findById(wrapper.community_id);
+            if (wCommunity.privacy === 'private') {
+              if (!userId) wrapperAuthorized = false;
+              else {
+                const wMember = await this.communityRepo.isMember(wrapper.community_id, userId);
+                if (!wMember || wMember.status !== 'active') wrapperAuthorized = false;
+              }
+            }
+          } else {
+            const wAuthor = await this.userRepo.findById(wrapper.author_id);
+            if (wAuthor.privacy !== 'public' && wrapper.author_id !== userId) {
+              const wFollow = await this.followerRepo.findByFollowerIdAndFollowingId(userId, wrapper.author_id);
+              if (!wFollow || wFollow.status !== 'active') wrapperAuthorized = false;
+            }
+          }
+          
+          if (wrapperAuthorized) {
+            return PostModel.format(post);
+          }
+        }
       }
 
       const author = await this.userRepo.findById(authorId)

@@ -28,9 +28,27 @@ class SearchController {
       // Bookmarks scope (saved posts) and own-posts (settings) scope.
       const bookmarked = req.query.bookmarked || null
       const mine = req.query.mine || null
+      const sortBy = req.query.sortBy || req.query.sort_by || 'relevance';
+      const postFilter = req.query.post_filter || 'all';
       const { limit, offset, page } = getPaginationParams(req.query);
 
-      const {dataType, data, total} = await this.searchSvc.search({type, query, filter, limit, offset, page, userId, community, author, involvement, tag, bookmarked, mine});
+      const {dataType, data, total} = await this.searchSvc.search({
+        type, 
+        query, 
+        filter, 
+        limit, 
+        offset, 
+        page, 
+        userId, 
+        community, 
+        author, 
+        involvement, 
+        tag, 
+        bookmarked, 
+        mine, 
+        sortBy,
+        postFilter
+      });
 
       res.json(apiResponse({dataType, data,}, `${dataType} fetched`, paginationMeta(total, page, limit)));
     } catch (error) {
@@ -59,9 +77,11 @@ class SearchController {
       // Bookmarks scope (saved posts) and own-posts (settings) scope.
       const bookmarked = req.query.bookmarked || null
       const mine = req.query.mine || null
+      const sortBy = req.query.sortBy || req.query.sort_by || 'relevance';
+      const postFilter = req.query.post_filter || 'all';
       const { limit, offset, page } = getPaginationParams(req.query);
 
-      const {dataType, data, total} = await this.searchSvc.search({type: 'all', query, filter, limit, offset, userId, community, author, involvement, tag, bookmarked, mine});
+      const {dataType, data, total} = await this.searchSvc.search({type: 'all', query, filter, limit, offset, userId, community, author, involvement, tag, bookmarked, mine, sortBy, postFilter});
 
       res.json(apiResponse({dataType, data,}, `${dataType} fetched`, paginationMeta(total, page, limit)));
     } catch (error) {

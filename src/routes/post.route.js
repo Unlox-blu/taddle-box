@@ -13,6 +13,7 @@ const {
   postIdParamsSchema,
   authorIdParamsSchema,
   paginationQuerySchema,
+  getPostQuerySchema,
 } = require('../modules/post/post.validator');
 
 router.post(
@@ -24,7 +25,7 @@ router.post(
 router.get(
   '/:postId',
   optionalAuth,
-  validateRequest({ params: postIdParamsSchema }),
+  validateRequest({ params: postIdParamsSchema, query: getPostQuerySchema }),
   postController.getPost
 );
 // Paginated list of users who liked a post (with viewer follow state).

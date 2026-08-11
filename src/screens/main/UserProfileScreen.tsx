@@ -15,6 +15,7 @@ import { userService } from '../../services/user.service';
 import { postsService } from '../../services/posts.service';
 import type { HomeStackParamList, User, Post } from '../../types';
 import SharedProfile from '../../components/profile/SharedProfile';
+import MainHeader from '../../components/common/MainHeader';
 
 type Props = NativeStackScreenProps<HomeStackParamList, 'UserProfile'>;
 
@@ -142,16 +143,10 @@ export default function UserProfileScreen({ navigation, route }: Props) {
   const colors     = useThemeColors();
   const { user: authUser } = useAuth();
   
+  // Main header everywhere: logo + global search + notifications, with a back
+  // arrow in place of the drawer menu on this pushed profile screen.
   const headerComponent = (
-    <View style={{ flexDirection: 'row', alignItems: 'center', paddingHorizontal: spacing.lg, paddingVertical: 10 }}>
-      <TouchableOpacity onPress={() => navigation.goBack()} style={{ width: 36, height: 36, borderRadius: 18, alignItems: 'center', justifyContent: 'center' }}>
-        <Ionicons name="arrow-back" size={22} color={colors.text.primary} />
-      </TouchableOpacity>
-      <Text style={{ flex: 1, textAlign: 'center', fontSize: fontSizes.sm, fontWeight: '700', color: colors.text.secondary }}>
-        @{initialUser?.username || 'user'}
-      </Text>
-      <View style={{ width: 36 }} />
-    </View>
+    <MainHeader showBack />
   );
 
   return (

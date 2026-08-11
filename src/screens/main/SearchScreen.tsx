@@ -20,6 +20,9 @@ import { fontSizes, spacing, radii, type ColorPalette } from "../../theme";
 import { useTheme, useThemeColors } from "../../context/ThemeContext";
 import { useAuth } from "../../context/AuthContext";
 import { searchService, type SearchType } from "../../services/search.service";
+import { userService } from "../../services/user.service";
+import { communityService } from "../../services/community.service";
+import { hashtagService } from "../../services/hashtag.service";
 import type { HomeStackParamList, Post } from "../../types";
 import { useToggleLike, useToggleSave } from "../../mutations/posts";
 import PostCard from "../../components/home/PostCard";
@@ -36,6 +39,34 @@ const TABS: { key: SearchType; label: string }[] = [
   { key: "events", label: "Events" },
   { key: "games", label: "Games" },
   { key: "hashtags", label: "Hashtags" },
+];
+
+// Reddit-style filter-token pattern: a boxed token becomes a removable chip.
+// `@user` scopes results to people involved, `c/community` scopes them to that
+// community's posts, `#tag` scopes them to posts carrying that hashtag — they
+// combine (e.g. "@pravin_viswa c/tvk #peaceful").
+const TOKEN_FILTER_RE = /^(@[^\s@]+|c\/[^\s/]+|#[^\s#]+)$/;
+
+// Filter-mode tabs — shown in place of the regular tabs while a PERSON filter
+// (@user) is active. Each narrows which involvement dimension matches; "All"
+// keeps everything involving the tagged people.
+const FILTER_TABS: { key: string; label: string }[] = [
+  { key: "f-all", label: "All" },
+  { key: "f-authored", label: "Posts" },
+  { key: "f-mentions", label: "Mentions" },
+  { key: "f-comments", label: "Comments" },
+  { key: "f-reposts", label: "Reposts" },
+];
+// "f-all" → no narrowing; every other filter tab maps to its dimension.
+const involvementOf = (key: string) => (key === "f-all" ? "" : key.slice(2));
+
+// Bookmarks-mode tabs — shown while the search is scoped to saved content
+// (opened from the Bookmarks screen). All/Posts search saved posts; Events
+// searches saved events.
+const BOOKMARK_TABS: { key: string; label: string }[] = [
+  { key: "bm-all", label: "All" },
+  { key: "bm-posts", label: "Posts" },
+  { key: "bm-events", label: "Events" },
 ];
 
 const normalizePostResult = (item: any): Post => {
@@ -57,6 +88,20 @@ const normalizePostResult = (item: any): Post => {
     // Search returns the raw snake_case column — carry it as the camelCase
     // key PostCard checks so the embedded original preview renders for reposts.
     repostOfId: item.repostOfId ?? item.repost_of_id ?? null,
+    // Search returns the community as flat columns (community_name, slug, …) —
+    // rebuild the nested object PostCard renders as the "• c/name" badge on
+    // community posts.
+    community:
+      item.community ||
+      (item.community_id
+        ? {
+            id: item.community_id,
+            name: item.community_name || item.communityName,
+            slug: item.community_slug || item.communitySlug,
+            privacy: item.community_privacy,
+            avatarUrl: item.community_avatar,
+          }
+        : undefined),
     media: item.media || [],
     hashtags: item.hashtags || item.tags || [],
     likes: item.likes ?? item.likesCount ?? item.likes_count ?? 0,
@@ -83,12 +128,241 @@ export default function SearchScreen({ navigation, route }: Props) {
   const styles = useMemo(() => makeStyles(colors), [colors]);
 
   // If passed from hashtag click or header context
-  const initialQuery = (route.params as any)?.query || "";
+  const initialQuery: string = (route.params as any)?.query || "";
   const initialTab = (route.params as any)?.tab || "all";
+  // Reddit-style community scoping — opened from a community detail page,
+  // results are limited to that community's posts. Local state so the chip's
+  // X can clear the scope.
+  const initialScope = (route.params as any)?.scopeCommunity || "";
+  // Reddit-style author scoping — opened from a profile page, results are
+  // limited to that user's posts (@username pre-applied as a chip). May be
+  // comma-separated (e.g. "me,originalAuthor" from the repost sheet's
+  // "View my reposts") — each becomes its own @user chip.
+  const initialAuthor = (route.params as any)?.authorFilter || "";
 
   const [query, setQuery] = useState(initialQuery);
-  const [activeTab, setActiveTab] = useState<SearchType>(initialTab);
+  // Filter-mode tabs use keys outside SearchType (f-all, f-mentions, …).
+  const [activeTab, setActiveTab] = useState<string>(initialTab);
   const [loading, setLoading] = useState(false);
+  const [scope, setScope] = useState(initialScope);
+  const scopeRef = useRef(scope);
+  scopeRef.current = scope;
+  // Multiple people can be tagged (@a @b) — each becomes its own chip and the
+  // API gets them comma-joined; any one of them being involved matches.
+  const [authorFilters, setAuthorFilters] = useState<string[]>(
+    initialAuthor
+      ? String(initialAuthor)
+          .split(",")
+          .map((s: string) => s.trim())
+          .filter(Boolean)
+      : [],
+  );
+  const authorRef = useRef(authorFilters);
+  authorRef.current = authorFilters;
+  // Hashtags can be tagged too (#tag) — each becomes its own chip.
+  const [tagFilters, setTagFilters] = useState<string[]>([]);
+  const tagRef = useRef(tagFilters);
+  tagRef.current = tagFilters;
+  // Source scope — opened from Bookmarks (search saved content) or Settings
+  // (search own posts). Rendered as its own chip with an X.
+  const [source, setSource] = useState<string>((route.params as any)?.source || "");
+  const sourceRef = useRef(source);
+  sourceRef.current = source;
+
+  // ── Reddit-style filter chips ──
+  // A token typed in the box and completed with a space (or committed on
+  // submit) becomes a removable chip: `@user` scopes to that author's posts,
+  // `c/community` scopes to that community's posts. They combine — e.g.
+  // "@pravin_viswa c/tvk" returns that person's posts inside that community —
+  // and the free text left in the box is what's actually searched.
+  const applyTokenFilter = (token: string) => {
+    if (token.startsWith("@")) {
+      const u = token.slice(1);
+      setAuthorFilters((prev) => (prev.includes(u) ? prev : [...prev, u]));
+    } else if (token.startsWith("c/")) {
+      setScope(token.slice(2));
+    } else if (token.startsWith("#")) {
+      const t = token.slice(1);
+      setTagFilters((prev) => (prev.includes(t) ? prev : [...prev, t]));
+    }
+  };
+
+  // Commit every complete filter token in `text` (all tokens except the
+  // trailing one, which may still be mid-typing) and return the free text
+  // that remains. When the text ends with a space the last token is complete
+  // too, so it's committed as well.
+  const commitFilterTokens = (text: string): string => {
+    const tokens = text.split(/\s+/).filter(Boolean);
+    const complete = text.endsWith(" ");
+    const commitCount = complete ? tokens.length : Math.max(0, tokens.length - 1);
+    let freeText = text;
+    for (let i = 0; i < commitCount; i++) {
+      const t = tokens[i];
+      if (TOKEN_FILTER_RE.test(t)) {
+        applyTokenFilter(t);
+        freeText = freeText.replace(t, "").trim();
+      }
+    }
+    return freeText;
+  };
+
+  const handleQueryChange = (text: string) => {
+    setQuery(commitFilterTokens(text));
+  };
+
+  // Pressing search commits a trailing filter token (e.g. "@foo" with no
+  // space) so it still applies instead of being searched as plain text.
+  const handleSubmit = () => {
+    const next = commitFilterTokens(query + " ");
+    if (next !== query) setQuery(next);
+  };
+
+  // An uncommitted trailing @/c/ token isn't searched as plain text — strip
+  // it until it's completed (space) and committed as a chip.
+  const trailingToken = (() => {
+    const tokens = query.split(/\s+/).filter(Boolean);
+    const last = tokens[tokens.length - 1];
+    return last && TOKEN_FILTER_RE.test(last) ? last : "";
+  })();
+  // Suggestions while typing: the trailing token may still be mid-typing
+  // ("@", "@fo", "c/tv") — detect it by prefix so matching users (@) and
+  // communities (c/) can be offered to tap-and-commit as a chip.
+  const trailingRaw = (() => {
+    const tokens = query.split(/\s+/).filter(Boolean);
+    return tokens[tokens.length - 1] || "";
+  })();
+  const suggestionKind: "user" | "community" | "tag" | null = trailingRaw.startsWith("@")
+    ? "user"
+    : trailingRaw.startsWith("c/")
+      ? "community"
+      : trailingRaw.startsWith("#")
+        ? "tag"
+        : null;
+  const suggestionKeyword = trailingRaw.slice(
+    suggestionKind === "user"
+      ? 1
+      : suggestionKind === "community"
+        ? 2
+        : suggestionKind === "tag"
+          ? 1
+          : 0,
+  );
+  // The API query — filter chips are sent separately, so only the free text
+  // (the uncommitted prefix token is stripped too while suggestions show).
+  const effectiveQuery =
+    trailingToken || suggestionKind
+      ? query.replace(trailingToken || trailingRaw, "").trim()
+      : query;
+
+  // ── @user / c/community suggestions (Reddit-style autocomplete) ──
+  const [suggestions, setSuggestions] = useState<{
+    kind: "user" | "community" | "tag";
+    items: any[];
+  }>({ kind: "user", items: [] });
+  const [suggestionsVisible, setSuggestionsVisible] = useState(false);
+
+  useEffect(() => {
+    if (!suggestionKind) {
+      setSuggestionsVisible(false);
+      return;
+    }
+    let cancelled = false;
+    const handler = setTimeout(async () => {
+      try {
+        let items: any[] = [];
+        if (suggestionKind === "user") {
+          const res = await userService.searchUsers(suggestionKeyword);
+          items = res?.data || [];
+        } else if (suggestionKind === "community") {
+          const res = await communityService.getCommunities(1, 20, suggestionKeyword);
+          items = res?.data || [];
+        } else {
+          const res = await hashtagService.getHashtags(suggestionKeyword);
+          items = (res?.data || []).map((h: any) =>
+            typeof h === "string" ? { hashtag: h } : h,
+          );
+        }
+        if (cancelled) return;
+        setSuggestions({ kind: suggestionKind, items });
+        setSuggestionsVisible(items.length > 0);
+      } catch (e) {
+        if (!cancelled) setSuggestionsVisible(false);
+      }
+    }, 250);
+    return () => {
+      cancelled = true;
+      clearTimeout(handler);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [suggestionKind, suggestionKeyword]);
+
+  // Tap a suggestion → commit it as a filter chip and drop the typed token.
+  const selectSuggestion = (item: any) => {
+    if (suggestionKind === "user") {
+      const u = item.username;
+      setAuthorFilters((prev) => (prev.includes(u) ? prev : [...prev, u]));
+    } else if (suggestionKind === "community") {
+      setScope(item.slug);
+    } else if (suggestionKind === "tag") {
+      const t = (item.hashtag || item.text || item.name || "").replace(/^#/, "");
+      if (t) setTagFilters((prev) => (prev.includes(t) ? prev : [...prev, t]));
+    }
+    const raw = trailingRaw;
+    setQuery((q) => {
+      const idx = q.lastIndexOf(raw);
+      return idx >= 0
+        ? (q.slice(0, idx) + q.slice(idx + raw.length)).trim()
+        : q.trim();
+    });
+    setSuggestionsVisible(false);
+  };
+
+  // Content filters are active → the results ARE content. A PERSON filter
+  // (@user) swaps the tab bar for the involvement tabs (All/Posts/Mentions/
+  // Comments/Reposts) and opens on "All"; community/tag-only filters stay on
+  // the plain Posts tab. Removing all chips restores the tab the user was on.
+  const filtersActive =
+    authorFilters.length > 0 || !!scope || tagFilters.length > 0 || !!source;
+  const hasPersonFilter = authorFilters.length > 0;
+  const prevTabBeforeFiltersRef = useRef<string | null>(null);
+  const filtersWereActiveRef = useRef(false);
+  useEffect(() => {
+    if (filtersActive) {
+      if (!filtersWereActiveRef.current) {
+        prevTabBeforeFiltersRef.current = activeTab;
+        filtersWereActiveRef.current = true;
+      }
+      // Bookmarks → the All/Posts/Events tab set; Settings → plain Posts;
+      // person chips → the involvement tab set (wins over the others).
+      const target = hasPersonFilter
+        ? "f-all"
+        : source === "bookmarks"
+          ? "bm-all"
+          : "posts";
+      if (activeTab !== target) {
+        if (hasPersonFilter) {
+          // Arrive on the involvement tab set unless already inside it.
+          if (!String(activeTab).startsWith("f-")) setActiveTab(target);
+        } else if (source === "bookmarks") {
+          if (!String(activeTab).startsWith("bm-")) setActiveTab(target);
+        } else if (String(activeTab).startsWith("f-") || String(activeTab).startsWith("bm-")) {
+          // Person/bookmark chips removed (community/tag/settings still on) →
+          // plain Posts tab.
+          setActiveTab("posts");
+        }
+      }
+    } else if (filtersWereActiveRef.current) {
+      const prev = prevTabBeforeFiltersRef.current;
+      setActiveTab(
+        prev && !String(prev).startsWith("f-") && !String(prev).startsWith("bm-")
+          ? prev
+          : "all",
+      );
+      prevTabBeforeFiltersRef.current = null;
+      filtersWereActiveRef.current = false;
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [filtersActive, hasPersonFilter, source]);
 
   // Hashtag taps navigate to Search with { query, tab: 'hashtags' }. When the
   // Search screen is ALREADY in the stack, navigate() pops back to the existing
@@ -98,9 +372,20 @@ export default function SearchScreen({ navigation, route }: Props) {
   useEffect(() => {
     const p = route.params as any;
     if (p?.query !== undefined) setQuery(p.query);
-    if (p?.tab) setActiveTab(p.tab as SearchType);
+    if (p?.tab) setActiveTab(p.tab as string);
+    if (p?.scopeCommunity !== undefined) setScope(p.scopeCommunity);
+    if (p?.authorFilter !== undefined)
+      setAuthorFilters(
+        p.authorFilter
+          ? String(p.authorFilter)
+              .split(",")
+              .map((s: string) => s.trim())
+              .filter(Boolean)
+          : [],
+      );
+    if (p?.source !== undefined) setSource(p.source as string);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [(route.params as any)?.query, (route.params as any)?.tab]);
+  }, [(route.params as any)?.query, (route.params as any)?.tab, (route.params as any)?.scopeCommunity, (route.params as any)?.authorFilter, (route.params as any)?.source]);
   // Track whether we've loaded discovery content at least once — prevents the
   // empty-state flash on the "all" tab when discovery data is already available.
   const [discoveryLoaded, setDiscoveryLoaded] = useState(false);
@@ -109,7 +394,7 @@ export default function SearchScreen({ navigation, route }: Props) {
   // Each tab keeps its own rows + pagination + scroll offset, so switching tabs
   // back and forth restores exactly where you left off instead of resetting to
   // page 1. The cache is invalidated only when the QUERY changes.
-  const [rowsByTab, setRowsByTab] = useState<Partial<Record<SearchType, Row[]>>>({});
+  const [rowsByTab, setRowsByTab] = useState<Partial<Record<string, Row[]>>>({});
   const [loadingMore, setLoadingMore] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
   const tabPageRef = useRef<Record<string, number>>({});
@@ -121,6 +406,10 @@ export default function SearchScreen({ navigation, route }: Props) {
   const rowsByTabRef = useRef(rowsByTab);
   rowsByTabRef.current = rowsByTab;
   const lastQueryRef = useRef(query);
+  // Filters (author / community chips) count as part of the search identity:
+  // a chip added or removed must invalidate the per-tab caches like a query
+  // change does.
+  const lastFiltersKeyRef = useRef("");
   // Per-tab scroll offsets — saved on leave, restored on return.
   const scrollOffsetsRef = useRef<Record<string, number>>({});
   const scrollOffsetCurrentRef = useRef(0);
@@ -197,7 +486,7 @@ export default function SearchScreen({ navigation, route }: Props) {
 
   const fetchResults = useCallback(async (
     q: string,
-    tab: SearchType,
+    tab: string,
     pageToLoad = 1,
     append = false,
     // Pull-to-refresh: skip the full-screen loading spinner (the RefreshControl
@@ -211,7 +500,15 @@ export default function SearchScreen({ navigation, route }: Props) {
         // Discovery overview — one request with per-section previews. The "See
         // all" buttons jump to the fully paginated individual tabs.
         if (append) return;
-        const res = await searchService.searchAll(q, 6);
+        const res = await searchService.searchAll(
+          q,
+          6,
+          scopeRef.current,
+          authorRef.current.join(","),
+          tagRef.current.join(","),
+          sourceRef.current === "bookmarks" ? "1" : "",
+          sourceRef.current === "settings" ? "1" : "",
+        );
         const built = buildAllRows(res, !q.trim());
         setRowsByTab((prev) => ({ ...prev, [tab]: built }));
         if (!q.trim() && built.length > 0) setDiscoveryLoaded(true);
@@ -223,7 +520,32 @@ export default function SearchScreen({ navigation, route }: Props) {
           [tab]: hashtags.map((h) => ({ isHeader: false, item: { text: h, itemType: "hashtags" }, type: "hashtags" as SearchType })),
         }));
       } else {
-        const res = await searchService.searchByType(tab, q, pageToLoad, 10);
+        // Filter-mode tabs (f-*) always search posts, narrowed by the
+        // involvement dimension. Bookmarks tabs (bm-*) search saved posts
+        // (bm-all/bm-posts) or saved events (bm-events). Regular tabs search
+        // their own entity.
+        const isFilterTab = tab.startsWith("f-");
+        const isBookmarkTab = tab.startsWith("bm-");
+        const searchType = isFilterTab
+          ? "posts"
+          : isBookmarkTab
+            ? tab === "bm-events"
+              ? "events"
+              : "posts"
+            : tab;
+        const res = await searchService.searchByType(
+          searchType as any,
+          q,
+          pageToLoad,
+          10,
+          undefined,
+          scopeRef.current,
+          authorRef.current.join(","),
+          isFilterTab ? involvementOf(tab) : "",
+          tagRef.current.join(","),
+          sourceRef.current === "bookmarks" ? "1" : "",
+          sourceRef.current === "settings" ? "1" : "",
+        );
         // A newer request (typing / tab switch) started after this one — drop it.
         if (searchReqRef.current !== reqId) return;
         tabHasMoreRef.current[tab] = res.hasNext;
@@ -231,7 +553,9 @@ export default function SearchScreen({ navigation, route }: Props) {
         const newRows: Row[] = res.items.map((item) => ({
           isHeader: false as const,
           item,
-          type: tab as SearchType,
+          // searchType already maps f-*/bm-* tabs back to the entity they
+          // search (posts / events) so the right row component renders.
+          type: searchType as SearchType,
         }));
         setRowsByTab((prev) => {
           const existing = prev[tab] || [];
@@ -264,11 +588,11 @@ export default function SearchScreen({ navigation, route }: Props) {
   const onRefresh = useCallback(async () => {
     setRefreshing(true);
     try {
-      await fetchResults(query, activeTab, 1, false, true);
+      await fetchResults(effectiveQuery, activeTab, 1, false, true);
     } finally {
       setRefreshing(false);
     }
-  }, [query, activeTab, fetchResults]);
+  }, [effectiveQuery, activeTab, fetchResults]);
 
   // Infinite scroll — appends the next page on individual tabs (posts, people,
   // communities, events, games) using that tab's own pagination refs. The
@@ -277,15 +601,15 @@ export default function SearchScreen({ navigation, route }: Props) {
     if (activeTab === "all" || activeTab === "hashtags") return;
     if (!tabHasMoreRef.current[activeTab] || loadingMore || loading) return;
     setLoadingMore(true);
-    fetchResults(query, activeTab, (tabPageRef.current[activeTab] || 1) + 1, true);
-  }, [activeTab, loadingMore, loading, query, fetchResults]);
+    fetchResults(effectiveQuery, activeTab, (tabPageRef.current[activeTab] || 1) + 1, true);
+  }, [activeTab, loadingMore, loading, effectiveQuery, fetchResults]);
 
   // Switching tabs saves the outgoing tab's scroll offset so it can be
   // restored exactly on return. The QUERY is shared state, so it stays
   // pre-filled in the input on every tab; the tab-switch effect below either
   // restores the incoming tab's cached rows + scroll (already fetched for this
   // query) or fetches its first page fresh.
-  const switchTab = useCallback((tab: SearchType) => {
+  const switchTab = useCallback((tab: string) => {
     if (tab === activeTab) return;
     scrollOffsetsRef.current[activeTab] = scrollOffsetCurrentRef.current;
     setActiveTab(tab);
@@ -300,8 +624,14 @@ export default function SearchScreen({ navigation, route }: Props) {
   // and the active tab refetches; on a TAB switch the cached rows (if any) are
   // kept and only scrolled back into place — no reset to page 1.
   useEffect(() => {
-    const queryChanged = lastQueryRef.current !== query;
-    lastQueryRef.current = query;
+    // A filter chip added/removed changes the search identity just like the
+    // text does — compare both so the caches reset and results refetch.
+    const filtersKey = `${authorFilters.join(",")}|${scope || ""}|${tagFilters.join(",")}|${source || ""}`;
+    const queryChanged =
+      lastQueryRef.current !== effectiveQuery ||
+      lastFiltersKeyRef.current !== filtersKey;
+    lastQueryRef.current = effectiveQuery;
+    lastFiltersKeyRef.current = filtersKey;
     const handler = setTimeout(() => {
       if (queryChanged) {
         // New query → drop every tab's cache + pagination + scroll offsets.
@@ -323,18 +653,18 @@ export default function SearchScreen({ navigation, route }: Props) {
         }
         return;
       }
-      fetchResults(query, activeTab);
+      fetchResults(effectiveQuery, activeTab);
     }, queryChanged ? 300 : 0);
     return () => clearTimeout(handler);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [query, activeTab, fetchResults]);
+  }, [effectiveQuery, activeTab, authorFilters, scope, tagFilters, fetchResults]);
 
   // Open a games tab result inside the Games screen.
   const openGames = () => {
     (navigation as any).navigate("Main", { screen: "Games" });
   };
 
-  const renderTab = (tab: { key: SearchType; label: string }) => (
+  const renderTab = (tab: { key: string; label: string }) => (
     <TouchableOpacity
       style={[styles.tabBtn, activeTab === tab.key && styles.tabBtnActive]}
       onPress={() => switchTab(tab.key)}
@@ -597,6 +927,12 @@ export default function SearchScreen({ navigation, route }: Props) {
 
   const isEmptyQuery = !query.trim();
   const hasResults = rows.length > 0;
+  // Friendly tab name for empty-state text (filter/bookmark tabs use prefixed
+  // keys like f-* / bm-*).
+  const activeTabLabel =
+    FILTER_TABS.find((t) => t.key === activeTab)?.label ||
+    BOOKMARK_TABS.find((t) => t.key === activeTab)?.label ||
+    activeTab;
 
   // Show a discovery hint only on the "all" tab with no search query.
   // Don't show the generic "type something" empty state when we already know
@@ -617,18 +953,94 @@ export default function SearchScreen({ navigation, route }: Props) {
         </TouchableOpacity>
         <View style={styles.searchBar}>
           <Ionicons name="search" size={20} color={colors.text.muted} />
+          {/* Reddit-style filter chips — @user (author) and c/community, each
+              with an X to drop it. Typing "@user c/community" in the box
+              produces the same chips; they combine when searching posts. */}
+          {authorFilters.map((u) => (
+            <TouchableOpacity
+              key={u}
+              style={[styles.filterChip, { backgroundColor: colors.primaryLight + "22" }]}
+              onPress={() => setAuthorFilters((prev) => prev.filter((x) => x !== u))}
+              activeOpacity={0.8}
+            >
+              <Text style={[styles.filterChipText, { color: colors.primaryLight }]} numberOfLines={1}>
+                @{u}
+              </Text>
+              <Ionicons name="close-circle" size={13} color={colors.primaryLight} />
+            </TouchableOpacity>
+          ))}
+          {scope ? (
+            <TouchableOpacity
+              style={[styles.filterChip, { backgroundColor: colors.cyanLight + "22" }]}
+              onPress={() => setScope("")}
+              activeOpacity={0.8}
+            >
+              <Text style={[styles.filterChipText, { color: colors.cyanLight }]} numberOfLines={1}>
+                c/{scope}
+              </Text>
+              <Ionicons name="close-circle" size={13} color={colors.cyanLight} />
+            </TouchableOpacity>
+          ) : null}
+          {source === "bookmarks" ? (
+            <TouchableOpacity
+              style={[styles.filterChip, { backgroundColor: colors.primary + "22" }]}
+              onPress={() => setSource("")}
+              activeOpacity={0.8}
+            >
+              <Ionicons name="bookmark" size={12} color={colors.primary} />
+              <Text style={[styles.filterChipText, { color: colors.primary }]} numberOfLines={1}>
+                Bookmarks
+              </Text>
+              <Ionicons name="close-circle" size={13} color={colors.primary} />
+            </TouchableOpacity>
+          ) : null}
+          {source === "settings" ? (
+            <TouchableOpacity
+              style={[styles.filterChip, { backgroundColor: colors.bg.elevated }]}
+              onPress={() => setSource("")}
+              activeOpacity={0.8}
+            >
+              <Ionicons name="settings-outline" size={12} color={colors.text.secondary} />
+              <Text style={[styles.filterChipText, { color: colors.text.secondary }]} numberOfLines={1}>
+                Settings
+              </Text>
+              <Ionicons name="close-circle" size={13} color={colors.text.secondary} />
+            </TouchableOpacity>
+          ) : null}
+          {tagFilters.map((t) => (
+            <TouchableOpacity
+              key={t}
+              style={[styles.filterChip, { backgroundColor: colors.xpGold + "22" }]}
+              onPress={() => setTagFilters((prev) => prev.filter((x) => x !== t))}
+              activeOpacity={0.8}
+            >
+              <Text style={[styles.filterChipText, { color: colors.xpGold }]} numberOfLines={1}>
+                #{t}
+              </Text>
+              <Ionicons name="close-circle" size={13} color={colors.xpGold} />
+            </TouchableOpacity>
+          ))}
           <TextInput
             style={styles.searchInput}
-            placeholder="Search Taddlebox..."
+            placeholder="Search Taddlebox... (@user c/community #tag)"
             placeholderTextColor={colors.text.muted}
             value={query}
-            onChangeText={setQuery}
+            onChangeText={handleQueryChange}
+            onSubmitEditing={handleSubmit}
             autoFocus
             returnKeyType="search"
             autoCapitalize="none"
           />
-          {query.length > 0 && (
-            <TouchableOpacity onPress={() => setQuery("")}>
+          {(query.length > 0 || authorFilters.length > 0 || scope || tagFilters.length > 0 || source) && (
+            <TouchableOpacity
+              onPress={() => {
+                setQuery("");
+                setAuthorFilters([]);
+                setScope("");
+                setTagFilters([]);
+                setSource("");
+              }}
+            >
               <Ionicons
                 name="close-circle"
                 size={18}
@@ -639,12 +1051,76 @@ export default function SearchScreen({ navigation, route }: Props) {
         </View>
       </View>
 
-      {/* Tabs */}
+      {/* @user / c/community / #tag suggestions — tap one to commit it as a chip */}
+      {suggestionsVisible && suggestionKind && (
+        <View style={styles.suggestionBox}>
+          <Text style={styles.suggestionLabel}>
+            {suggestionKind === "user"
+              ? "People"
+              : suggestionKind === "community"
+                ? "Communities"
+                : "Hashtags"}
+          </Text>
+          {suggestions.items.map((item, i) => {
+            const tag = (item.hashtag || item.text || item.name || "").replace(/^#/, "");
+            const avatar =
+              suggestionKind === "user"
+                ? item.user_avatar || item.avatar || item.avatarUrl || item.avatar_url
+                : suggestionKind === "community"
+                  ? item.community_avatar || item.avatar || item.avatarUrl || item.avatar_url
+                  : "";
+            const handle =
+              suggestionKind === "user"
+                ? `@${item.username}`
+                : suggestionKind === "community"
+                  ? `c/${item.slug}`
+                  : `posts tagged #${tag}`;
+            return (
+              <TouchableOpacity
+                key={suggestionKind === "tag" ? tag : item.id || i}
+                style={styles.suggestionRow}
+                onPress={() => selectSuggestion(item)}
+                activeOpacity={0.7}
+              >
+                <View style={styles.suggestionAvatar}>
+                  {avatar ? (
+                    <Image source={{ uri: avatar }} style={styles.suggestionAvatarImg} />
+                  ) : suggestionKind === "user" ? (
+                    <Text style={{ fontSize: 16 }}>👾</Text>
+                  ) : suggestionKind === "community" ? (
+                    <Ionicons name="people-outline" size={16} color={colors.text.muted} />
+                  ) : (
+                    <Text style={{ fontSize: 15, fontWeight: "800", color: colors.xpGold }}>#</Text>
+                  )}
+                </View>
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.suggestionName} numberOfLines={1}>
+                    {suggestionKind === "tag" ? `#${tag}` : item.name}
+                  </Text>
+                  <Text style={styles.suggestionHandle} numberOfLines={1}>
+                    {handle}
+                  </Text>
+                </View>
+                <Ionicons name="add-circle-outline" size={18} color={colors.text.muted} />
+              </TouchableOpacity>
+            );
+          })}
+        </View>
+      )}
+
+      {/* Tabs — involvement set with a person filter, All/Posts/Events while
+          scoped to bookmarks, the regular set otherwise. */}
       <View>
         <FlatList
           horizontal
           showsHorizontalScrollIndicator={false}
-          data={TABS}
+          data={
+            hasPersonFilter
+              ? FILTER_TABS
+              : source === "bookmarks"
+                ? BOOKMARK_TABS
+                : TABS
+          }
           keyExtractor={(item) => item.key}
           contentContainerStyle={styles.tabsContainer}
           renderItem={({ item }) => renderTab(item)}
@@ -713,7 +1189,7 @@ export default function SearchScreen({ navigation, route }: Props) {
       ) : !isEmptyQuery ? (
         <View style={styles.centerBox}>
           <Text style={styles.emptyText}>
-            No results found for "{query}" in {activeTab}
+            No results found for "{query}" in {activeTabLabel}
           </Text>
         </View>
       ) : (
@@ -759,6 +1235,71 @@ function makeStyles(c: ColorPalette) {
       marginRight: spacing.sm,
       borderWidth: 1,
       borderColor: c.border,
+    },
+    // Suggestion dropdown — @user / c/community autocomplete while typing.
+    suggestionBox: {
+      marginHorizontal: spacing.sm,
+      marginTop: 4,
+      backgroundColor: c.bg.surface,
+      borderRadius: radii.lg,
+      borderWidth: 1,
+      borderColor: c.border,
+      overflow: "hidden",
+    },
+    suggestionLabel: {
+      fontSize: fontSizes.xs,
+      fontWeight: "700",
+      color: c.text.muted,
+      textTransform: "uppercase",
+      letterSpacing: 0.5,
+      paddingHorizontal: 14,
+      paddingTop: 10,
+      paddingBottom: 4,
+    },
+    suggestionRow: {
+      flexDirection: "row",
+      alignItems: "center",
+      gap: 10,
+      paddingHorizontal: 14,
+      paddingVertical: 10,
+      borderTopWidth: 1,
+      borderTopColor: c.border,
+    },
+    suggestionAvatar: {
+      width: 36,
+      height: 36,
+      borderRadius: 18,
+      backgroundColor: c.bg.elevated,
+      alignItems: "center",
+      justifyContent: "center",
+      overflow: "hidden",
+    },
+    suggestionAvatarImg: { width: "100%", height: "100%" },
+    suggestionName: {
+      fontSize: fontSizes.sm,
+      fontWeight: "700",
+      color: c.text.primary,
+    },
+    suggestionHandle: {
+      fontSize: fontSizes.xs,
+      color: c.text.muted,
+      marginTop: 1,
+    },
+    // Chip inside the search bar — @user / c/community filter chips.
+    filterChip: {
+      flexDirection: "row",
+      alignItems: "center",
+      gap: 4,
+      borderRadius: radii.full,
+      paddingHorizontal: 8,
+      paddingVertical: 4,
+      marginLeft: 8,
+      maxWidth: 130,
+    },
+    filterChipText: {
+      fontSize: fontSizes.xs,
+      fontWeight: "700",
+      flexShrink: 1,
     },
     searchInput: {
       flex: 1,

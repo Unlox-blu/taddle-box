@@ -18,6 +18,7 @@ import { fontSizes, spacing, radii, type ColorPalette } from "../../theme";
 import { useWallet } from "../../context/WalletContext";
 import { useTheme, useThemeColors } from "../../context/ThemeContext";
 import { useAuth } from "../../context/AuthContext";
+import MainHeader from "../../components/common/MainHeader";
 import { userService } from "../../services/user.service";
 import { authService } from "../../services/auth.service";
 import { appConfigService } from "../../services/appConfig.service";
@@ -289,22 +290,9 @@ const maskPhone = (phone?: string, countryCode?: string) => {
         { paddingTop: insets.top, backgroundColor: colors.bg.base },
       ]}
     >
-      {/* Header */}
-      <View style={[styles.header, { borderBottomColor: colors.border }]}>
-        <TouchableOpacity
-          style={[
-            styles.backBtn,
-            { backgroundColor: colors.bg.card, borderColor: colors.border },
-          ]}
-          onPress={() => navigation.goBack()}
-        >
-          <Ionicons name="arrow-back" size={22} color={colors.text.primary} />
-        </TouchableOpacity>
-        <Text style={[styles.headerTitle, { color: colors.text.primary }]}>
-          Settings
-        </Text>
-        <View style={{ width: 38 }} />
-      </View>
+      {/* Main header — logo, global search, notifications; back arrow instead
+          of the drawer menu on this pushed screen. */}
+      <MainHeader showBack />
 
       <ScrollView
         showsVerticalScrollIndicator={false}

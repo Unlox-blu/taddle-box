@@ -297,6 +297,13 @@ const SmartInput = React.forwardRef<any, SmartInputProps>(function SmartInput(
             styles.placeholderOverlay,
             style,
             { color: placeholderTextColor },
+            // Android centers single-line EditText content vertically, so the
+            // hint must be centered in the input's box too — with only top:0 it
+            // floats above where typed text lands. Multiline fields keep top
+            // alignment, matching their textAlignVertical.
+            !multiline
+              ? styles.placeholderOverlaySingle
+              : { textAlignVertical: "top" },
           ]}
         >
           {placeholder}
@@ -340,6 +347,13 @@ const styles = StyleSheet.create({
     left: 0,
     right: 0,
     zIndex: 0,
+  },
+  placeholderOverlaySingle: {
+    // Stretch to the input's box and center the hint vertically so it lands
+    // exactly where the (vertically-centered) native text will appear.
+    bottom: 0,
+    justifyContent: "center",
+    textAlignVertical: "center",
   },
   suggestionBox: {
     backgroundColor: colors.bg.elevated,

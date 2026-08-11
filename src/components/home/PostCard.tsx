@@ -383,16 +383,16 @@ export default function PostCard({
       ? true
       : (post.community as any)?.repostsEnabled !== false;
 
-  // A NEW repost (verbatim or quote) is only possible when BOTH the author
-  // and the community allow reposting — unless the viewer already reposted
-  // this post (then the sheet renders Remove instead). Mirrors the feed
-  // button's gate exactly, so the sheet's submit can never offer something
-  // the button wouldn't have shown. Kept as a sheet-level guard (defense in
-  // depth): a stale payload or a toggle flipped while the sheet is open can't
-  // sneak a submit past it.
+  // A repost (verbatim or quote) is only possible when BOTH the author and
+  // the community allow reposting. There is NO manage/edit flow — reposting
+  // always creates a NEW repost row (multiple reposts allowed, one audience
+  // each); changing or removing a repost is done from the profile's Reposts
+  // tab. Mirrors the feed button's gate exactly, so the sheet's submit can
+  // never offer something the button wouldn't have shown. Kept as a sheet-
+  // level guard (defense in depth): a stale payload or a toggle flipped
+  // while the sheet is open can't sneak a submit past it.
   const canSubmitNewRepost =
-    (author.repostsEnabled !== false || post.repostedByMe) &&
-    (communityRepostsEnabled || post.repostedByMe);
+    author.repostsEnabled !== false && communityRepostsEnabled;
 
   // Destination picker for reposts — Feed or one of the user's communities,
   // same as the create-post flow. No destination is pre-selected: the user must
@@ -638,6 +638,9 @@ export default function PostCard({
       setRepostSheetVisible(false);
       setQuoteText("");
       // Optimistic flip — icon shows reposted state before any refetch.
+      // MULTIPLE-REPOST semantics: every repost creates a NEW row and bumps
+      // the original's share count by one, so the flip is +1 even when the
+      // viewer already reposted.
       flipRepostInCaches(true, 1);
       onReposted?.(res?.data || null);
       queryClient.invalidateQueries({ queryKey: queryKeys.feed });
@@ -656,43 +659,42 @@ export default function PostCard({
     }
   };
 
-  const doUnrepost = async () => {
-    if (repostBusy) return;
-    setRepostBusy(true);
-    try {
-      await postsService.unrepostPost(postId);
-      // Optimistic flip back.
-      flipRepostInCaches(false, -1);
-      onReposted?.(null);
-      queryClient.invalidateQueries({ queryKey: queryKeys.feed });
-      // Close ONLY after the server confirms — the "Removing…" label gives
-      // visible feedback, and a failure keeps the sheet open for retry
-      // instead of silently doing nothing.
-      setRepostSheetVisible(false);
-      setQuoteText("");
-    } catch (e) {
-      // Roll back the optimistic flip so the icon doesn't stay desynced.
-      flipRepostInCaches(true, 1);
-      // Surface the server's real reason instead of a generic failure.
-      const msg =
-        (e as any)?.response?.data?.message || "Failed to remove repost. Please try again.";
-      themedAlert("Error", msg);
-      console.warn("Unrepost failed", e);
-    } finally {
-      setRepostBusy(false);
-    }
-  };
-
-  // Always open the repost sheet — it offers Remove (when already reposted),
-  // verbatim Repost, or a Quote via the "Quote something..." input at the top
-  // (which supports #tags/@mentions), so quoting is never blocked by an
-  // existing repost.
+  // Always open the repost sheet — verbatim Repost or a Quote via the
+  // "Quote something..." input at the top (which supports #tags/@mentions).
+  // Reposting always creates a NEW repost row (multiple reposts allowed);
+  // managing or removing existing reposts is done from the profile's Reposts
+  // tab.
   const handleRepostToggle = () => {
     setRepostCommunityId(null);
     setRepostCommunityName(null);
     setAudienceExpanded(false);
     setRepostAudienceError(null);
     setRepostSheetVisible(true);
+  };
+
+  // "View my reposts" — the viewer has already reposted this post somewhere,
+  // so open Search pre-scoped exactly like a manual query: @me + @author pills
+  // (each its own chip) and the original post's title as the free text. The
+  // backend matches repost rows via their ORIGINAL's text, so the result set
+  // is every repost the viewer made of this post (across all communities) plus
+  // the original itself. Same chip/query mechanism as manual typing, so the
+  // pills can be edited or removed and the search adapts.
+  const handleViewMyReposts = () => {
+    setRepostSheetVisible(false);
+    // Skip the "unknown" placeholder when the payload carried no author info.
+    const people = [
+      currentUser?.username,
+      author.username && author.username !== "unknown" ? author.username : "",
+    ].filter(Boolean);
+    const params: any = { tab: "f-all" };
+    if (people.length) params.authorFilter = people.join(",");
+    // Strip mention/hashtag markup out of the title so it lands as plain text.
+    const text = String((post as any)?.title || "")
+      .replace(/\{#\}\[([^\]]+)\]\([^)]+\)/g, "#$1")
+      .replace(/\{@\}\[([^\]]+)\]\([^)]+\)/g, "@$1")
+      .trim();
+    if (text) params.query = text;
+    navigation.navigate("Search", params);
   };
 
   // Single tap opens this post's DETAIL page (Instagram-style); a quick second
@@ -1506,21 +1508,18 @@ export default function PostCard({
         </TouchableOpacity>
         {/* Repost — icon + count together, gap:2 so they're close. Hidden on
             reposted cards (reposts can't be reposted themselves) and when the
-            author disabled reposting. On your OWN posts the button is
-            informational: tap opens the reposters list. */}
+            author disabled reposting. Uniform interaction on every post, own
+            or not: PRESS opens the repost sheet (repost / repost-again /
+            quote), LONG-PRESS opens the reposters list. */}
         {!post.repostOfId &&
           !origUnavailable &&
           (author.repostsEnabled !== false || post.repostedByMe) &&
           (communityRepostsEnabled || post.repostedByMe) && (
           <TouchableOpacity
             style={styles.action}
-            onPress={
-              author.id === currentUser?.id
-                ? () => setRepostersVisible(true)
-                : handleRepostToggle
-            }
+            onPress={handleRepostToggle}
             onLongPress={() => setRepostersVisible(true)}
-            disabled={author.id === currentUser?.id ? false : repostBusy}
+            disabled={repostBusy}
           >
             {post.repostedByMe ? (
               <View style={{ flexDirection: "row", alignItems: "center", gap: 2 }}>
@@ -1670,11 +1669,10 @@ export default function PostCard({
                 </TouchableOpacity>
               </View>
 
-              {/* Quote input + audience — only when creating a NEW repost.
-                  An existing repost opens the sheet in Remove-only mode:
-                  there is nothing to quote or choose a destination for, and
-                  showing those controls makes Remove look broken/irrelevant. */}
-              {!post.repostedByMe && (
+              {/* Quote input + audience — for ANY post the viewer can repost
+                  (including their own — cross-posting into a community is
+                  allowed). Every repost is a NEW row with one audience. */}
+              {(
                 <>
                   <SmartInput
                     style={[sheetStyles.composerInput, { color: colors.text.primary }]}
@@ -1698,18 +1696,11 @@ export default function PostCard({
                 </>
               )}
 
-              {post.repostedByMe ? (
-                <TouchableOpacity
-                  style={[sheetStyles.primaryBtn, { backgroundColor: "#ef4444" }]}
-                  disabled={repostBusy}
-                  onPress={doUnrepost}
-                >
-                  <Ionicons name="trash-outline" size={18} color="#fff" />
-                  <Text style={sheetStyles.primaryBtnText}>
-                    {repostBusy ? "Removing…" : "Remove Repost"}
-                  </Text>
-                </TouchableOpacity>
-              ) : canSubmitNewRepost ? (
+              {canSubmitNewRepost ? (
+                // The one job of this button: create a NEW repost — even when
+                // the viewer already reposted (multiple reposts allowed, one
+                // audience each). There is no edit-repost flow; changing or
+                // removing a repost happens in the profile's Reposts tab.
                 <TouchableOpacity
                   style={[sheetStyles.primaryBtn, { backgroundColor: colors.primary }]}
                   disabled={repostBusy}
@@ -1725,10 +1716,10 @@ export default function PostCard({
                   </Text>
                 </TouchableOpacity>
               ) : (
-                // Community (or author) disabled reposting and the viewer has
-                // no existing repost — there is nothing to submit. Show a
-                // notice instead of the Repost/Post button so a stale payload
-                // or a mid-session toggle can't produce a dead-end submit.
+                // Community (or author) disabled reposting — nothing to submit.
+                // Show a notice instead of a dead-end Repost/Post button (the
+                // icon itself stays visible so an existing repost's tick isn't
+                // lost; the profile's Reposts tab handles management).
                 <View
                   style={[
                     sheetStyles.disabledRepostNote,
@@ -1742,6 +1733,25 @@ export default function PostCard({
                       : "The author has disabled reposting on their posts"}
                   </Text>
                 </View>
+              )}
+
+              {/* The viewer already reposted this post somewhere — jump to
+                  Search scoped to @me + @originalAuthor + the post's title to
+                  see every repost they made of it. Only meaningful when a
+                  repost exists, so it's gated on repostedByMe. */}
+              {post.repostedByMe && (
+                <TouchableOpacity
+                  style={[
+                    sheetStyles.secondaryBtn,
+                    { backgroundColor: colors.bg.surface, borderColor: colors.border },
+                  ]}
+                  onPress={handleViewMyReposts}
+                >
+                  <Ionicons name="repeat" size={16} color={colors.primaryLight} />
+                  <Text style={[sheetStyles.secondaryBtnText, { color: colors.primaryLight }]}>
+                    View my reposts
+                  </Text>
+                </TouchableOpacity>
               )}
             </View>
           </View>
@@ -1829,6 +1839,17 @@ function RepostedPostCard({
   });
   const [loaded, setLoaded] = React.useState(!!orig);
   const [mediaPage, setMediaPage] = React.useState(0);
+  // Audio mute state mirrors the main card: shared module-level flag so
+  // unmuting the preview unmutes every card, local state for the icon.
+  const [isMuted, setIsMuted] = React.useState(globalIsMuted);
+  React.useEffect(() => {
+    setIsMuted(globalIsMuted);
+  }, []);
+  const toggleMute = () => {
+    const newMuted = !globalIsMuted;
+    globalIsMuted = newMuted;
+    setIsMuted(newMuted);
+  };
 
   React.useEffect(() => {
     let cancelled = false;
@@ -1871,12 +1892,27 @@ function RepostedPostCard({
     );
 
   const author = orig.author || {};
+  // Community badge for the preview header — mirrors the main card: when the
+  // original lives in a community, show "• c/name" (with a lock for private
+  // communities) next to the @username in the rolling identity line.
+  const comm = (orig as any).community;
+  const commName =
+    typeof comm === "object" && comm
+      ? comm.name || comm.slug
+      : typeof comm === "string"
+        ? comm
+        : "";
+  const commPrivacy = typeof comm === "object" ? (comm as any)?.privacy : undefined;
   const media = (orig as any).media || [];
   const visual = media.filter(
     (m: any) => m.media_type !== "audio" && m.type !== "audio"
   );
-  const origHasAudio = media.some(
+  const origAudioMedia = media.filter(
     (m: any) => m.media_type === "audio" || m.type === "audio"
+  );
+  const origHasAudio = origAudioMedia.length > 0;
+  const origHasVideo = visual.some(
+    (m: any) => m.media_type === "video" || m.type === "video"
   );
   const previewW = CARD_W - spacing.md * 2;
   // Aspect-aware height from the first visual item; capped so tall images
@@ -1953,6 +1989,14 @@ function RepostedPostCard({
                 }}
               >
                 @{author.username}
+                {commName ? (
+                  <Text style={{ color: colors.primaryLight, fontWeight: "700" }}>
+                    {commPrivacy === "private" && (
+                      <Ionicons name="lock-closed" size={10} color={colors.text.muted} />
+                    )}{" "}
+                    • c/{commName}
+                  </Text>
+                ) : null}
               </Text>,
               <Text
                 key="time"
@@ -2011,61 +2055,114 @@ function RepostedPostCard({
         </Text>
       ) : null}
 
-      {/* Full-width original media carousel — images + playable videos */}
-      {visual.length > 0 && (
+      {/* Full-width original media carousel — images + playable videos. Also
+          renders for audio-only originals (slim "Original Audio" bar) so the
+          preview always surfaces the original's sound; the mute/unmute
+          speaker lives in the counts row below, like the main card. */}
+      {(visual.length > 0 || origHasAudio) && (
         <View style={{ position: "relative" }}>
-          <ScrollView
-            horizontal
-            pagingEnabled
-            showsHorizontalScrollIndicator={false}
-            snapToInterval={previewW}
-            decelerationRate="fast"
-            onScroll={(e) => {
-              const x = e.nativeEvent.contentOffset.x;
-              const page = Math.max(
-                0,
-                Math.min(visual.length - 1, Math.round(x / previewW)),
-              );
-              if (page !== mediaPage) setMediaPage(page);
-            }}
-            scrollEventThrottle={16}
-          >
-            {visual.map((m: any, idx: number) => {
-              const url = m.cloudfront_url || m.url || m.uri;
-              const isVid =
-                m.media_type === "video" || m.type === "video";
-              if (!url) return null;
-              return (
-                <View
-                  key={idx}
-                  style={{
-                    width: previewW,
-                    height: mediaH,
-                    borderRadius: radii.sm,
-                    overflow: "hidden",
-                    backgroundColor: "#000",
-                  }}
-                >
-                  {isVid ? (
-                    <Video
-                      source={{ uri: url }}
-                      style={{ width: previewW, height: mediaH }}
-                      resizeMode={ResizeMode.CONTAIN}
-                      shouldPlay={isActive}
-                      isLooping
-                      isMuted
-                    />
-                  ) : (
-                    <Image
-                      source={{ uri: url }}
-                      style={{ width: previewW, height: mediaH }}
-                      resizeMode="cover"
-                    />
-                  )}
-                </View>
-              );
-            })}
-          </ScrollView>
+          {visual.length > 0 && (
+            <ScrollView
+              horizontal
+              pagingEnabled
+              showsHorizontalScrollIndicator={false}
+              snapToInterval={previewW}
+              decelerationRate="fast"
+              onScroll={(e) => {
+                const x = e.nativeEvent.contentOffset.x;
+                const page = Math.max(
+                  0,
+                  Math.min(visual.length - 1, Math.round(x / previewW)),
+                );
+                if (page !== mediaPage) setMediaPage(page);
+              }}
+              scrollEventThrottle={16}
+            >
+              {visual.map((m: any, idx: number) => {
+                const url = m.cloudfront_url || m.url || m.uri;
+                const isVid =
+                  m.media_type === "video" || m.type === "video";
+                if (!url) return null;
+                return (
+                  <View
+                    key={idx}
+                    style={{
+                      width: previewW,
+                      height: mediaH,
+                      borderRadius: radii.sm,
+                      overflow: "hidden",
+                      backgroundColor: "#000",
+                    }}
+                  >
+                    {isVid ? (
+                      <Video
+                        source={{ uri: url }}
+                        style={{ width: previewW, height: mediaH }}
+                        resizeMode={ResizeMode.CONTAIN}
+                        shouldPlay={isActive}
+                        isLooping
+                        // Video sound stays off when the original carries its
+                        // own audio track (that plays instead) — mirrors the
+                        // main card's `isMuted || hasAudioTrack`.
+                        isMuted={isMuted || origHasAudio}
+                      />
+                    ) : (
+                      <Image
+                        source={{ uri: url }}
+                        style={{ width: previewW, height: mediaH }}
+                        resizeMode="cover"
+                      />
+                    )}
+                  </View>
+                );
+              })}
+            </ScrollView>
+          )}
+
+          {/* Invisible audio playback for the original's audio track */}
+          {origAudioMedia.length > 0 && (
+            <View style={{ position: "absolute", opacity: 0, width: 0, height: 0 }}>
+              {origAudioMedia.map((m: any, idx: number) => {
+                const url = m.cloudfront_url || m.url || m.uri;
+                return url ? (
+                  <Video
+                    key={`prev-audio-${idx}`}
+                    source={{ uri: url }}
+                    shouldPlay={isActive}
+                    isLooping={false}
+                    isMuted={isMuted}
+                    style={{ width: 0, height: 0 }}
+                  />
+                ) : null;
+              })}
+            </View>
+          )}
+
+          {/* Audio-only originals: a slim bar so the track is visible */}
+          {visual.length === 0 && origHasAudio && (
+            <View
+              style={{
+                flexDirection: "row",
+                alignItems: "center",
+                gap: 6,
+                paddingVertical: 8,
+                paddingHorizontal: 10,
+                borderRadius: radii.sm,
+                backgroundColor: colors.bg.elevated,
+              }}
+            >
+              <Ionicons name="musical-notes" size={14} color={colors.text.muted} />
+              <Text
+                style={{
+                  fontSize: 12,
+                  color: colors.text.secondary,
+                  fontWeight: "600",
+                }}
+              >
+                Original Audio
+              </Text>
+            </View>
+          )}
 
           {/* Pagination dots */}
           {visual.length > 1 && (
@@ -2094,15 +2191,19 @@ function RepostedPostCard({
               ))}
             </View>
           )}
+
         </View>
       )}
 
       {/* The ORIGINAL's engagement counts as a preview peek — pinned at the
           BOTTOM of the embedded preview. The repost card above carries its
           OWN counts; this row just shows what the original looks like.
-          Tapping the preview opens the original's full thread. */}
+          Tapping the preview opens the original's full thread. The mute /
+          unmute speaker sits at the END of this row (right-aligned) so the
+          audio control lives with the counts, not on top of the media. */}
       {((orig as any).likesCount ?? 0) + ((orig as any).commentsCount ?? 0) +
-       ((orig as any).sharesCount ?? (orig as any).shares ?? 0) > 0 && (
+       ((orig as any).sharesCount ?? (orig as any).shares ?? 0) > 0 ||
+        (isActive && (origHasAudio || origHasVideo)) ? (
         <View style={{ flexDirection: "row", alignItems: "center", gap: 14 }}>
           <View style={{ flexDirection: "row", alignItems: "center", gap: 2 }}>
             <Ionicons name="heart-outline" size={13} color={colors.text.muted} />
@@ -2126,8 +2227,34 @@ function RepostedPostCard({
               {(orig as any).sharesCount ?? (orig as any).shares ?? 0}
             </Text>
           </View>
+
+          <View style={{ flex: 1 }} />
+
+          {/* Mute/unmute speaker — audio tracks AND video originals. Only
+              shown while the preview is on screen (that's when sound plays). */}
+          {isActive && (origHasAudio || origHasVideo) && (
+            <TouchableOpacity
+              style={{
+                width: 24,
+                height: 24,
+                borderRadius: 12,
+                backgroundColor: colors.bg.elevated,
+                alignItems: "center",
+                justifyContent: "center",
+              }}
+              onPress={toggleMute}
+              activeOpacity={0.7}
+              hitSlop={{ top: 4, bottom: 4, left: 4, right: 4 }}
+            >
+              <Ionicons
+                name={isMuted ? "volume-mute" : "volume-high"}
+                size={13}
+                color={colors.text.secondary}
+              />
+            </TouchableOpacity>
+          )}
         </View>
-      )}
+      ) : null}
     </TouchableOpacity>
   );
 }

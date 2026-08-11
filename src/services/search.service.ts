@@ -31,10 +31,26 @@ const extractData = (res: any): any[] => {
 };
 
 export const searchService = {
-  /** One request for everything (people, communities, events, games, posts, hashtags). */
-  searchAll: async (q = "", limit = 6): Promise<AllSearchResults> => {
+  /** One request for everything (people, communities, events, games, posts, hashtags).
+      `community` (a slug) scopes the POSTS section to that community, and
+      `author` (a username) scopes it to that user's posts — they combine. */
+  searchAll: async (
+    q = "",
+    limit = 6,
+    community = "",
+    author = "",
+    tag = "",
+    bookmarked = "",
+    mine = "",
+  ): Promise<AllSearchResults> => {
     const res = await apiClient.get(
-      `/search/all?q=${encodeURIComponent(q)}&limit=${limit}`,
+      `/search/all?q=${encodeURIComponent(q)}&limit=${limit}${
+        community ? `&community=${encodeURIComponent(community)}` : ""
+      }${author ? `&author=${encodeURIComponent(author)}` : ""}${
+        tag ? `&tag=${encodeURIComponent(tag)}` : ""
+      }${bookmarked ? `&bookmarked=${encodeURIComponent(bookmarked)}` : ""}${
+        mine ? `&mine=${encodeURIComponent(mine)}` : ""
+      }`,
     );
     // Response shape: { data: { dataType, data: { people, posts, ... } } }
     const data = res?.data?.data?.data || res?.data?.data || {};
@@ -57,10 +73,22 @@ export const searchService = {
     page = 1,
     limit = 10,
     filter = "",
+    community = "",
+    author = "",
+    involvement = "",
+    tag = "",
+    bookmarked = "",
+    mine = "",
   ): Promise<{ items: any[]; total: number; hasNext: boolean; page: number }> => {
     const res = await apiClient.get(
       `/search?type=${type}&q=${encodeURIComponent(q)}&page=${page}&limit=${limit}${
         filter ? `&filter=${encodeURIComponent(filter)}` : ""
+      }${community ? `&community=${encodeURIComponent(community)}` : ""}${
+        author ? `&author=${encodeURIComponent(author)}` : ""
+      }${involvement ? `&involvement=${encodeURIComponent(involvement)}` : ""}${
+        tag ? `&tag=${encodeURIComponent(tag)}` : ""
+      }${bookmarked ? `&bookmarked=${encodeURIComponent(bookmarked)}` : ""}${
+        mine ? `&mine=${encodeURIComponent(mine)}` : ""
       }`,
     );
     const items = extractData(res).map((item: any) => ({ ...item, itemType: type }));

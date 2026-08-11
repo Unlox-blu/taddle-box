@@ -16,6 +16,7 @@ import { useJoinCommunity } from '../../mutations/communities';
 import { communityService } from '../../services/community.service';
 import { postsService }     from '../../services/posts.service';
 import PostCard             from '../../components/home/PostCard';
+import MainHeader           from '../../components/common/MainHeader';
 import CreatePostModal      from '../../components/common/CreatePostModal';
 import SharedFeed           from '../../components/common/SharedFeed';
 import { useAuth }          from '../../context/AuthContext';
@@ -51,11 +52,6 @@ function makeStyles(c: ColorPalette) {
   return StyleSheet.create({
     container: { flex: 1, backgroundColor: c.bg.base },
 
-    topBar: {
-      flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center',
-      paddingHorizontal: spacing.lg, paddingVertical: 10,
-      position: 'absolute', top: 0, left: 0, right: 0, zIndex: 10,
-    },
     backBtn: {
       width: 36, height: 36, borderRadius: 18,
       backgroundColor: 'rgba(7,7,20,0.6)',
@@ -403,6 +399,25 @@ export default function CommunityDetailScreen() {
         {community.bannerUrl ? (
           <Image source={{ uri: community.bannerUrl }} style={styles.bannerImage} />
         ) : null}
+        {/* Owner settings + share — anchored INSIDE the banner (top-right) so
+            they stick to it and scroll away with it, instead of floating over
+            the feed below. */}
+        <View style={{ position: 'absolute', top: 10, right: 12, flexDirection: 'row', gap: 10, zIndex: 2 }}>
+          {/* Only the OWNER can edit the community / manage admins — admins get
+              their powers (kick, delete posts, requests) from the member menu. */}
+          {isOwner && (
+            <TouchableOpacity style={styles.shareBtn} onPress={() => {
+              (navigation as any).navigate('CommunitySettings', { communitySlug: community.slug });
+            }}>
+              <Ionicons name="settings-outline" size={20} color="#fff" />
+            </TouchableOpacity>
+          )}
+          <TouchableOpacity style={styles.shareBtn} onPress={() =>
+            Share.share({ message: `Check out ${community.name} on TADDLEBOX!` })
+          }>
+            <Ionicons name="share-outline" size={20} color="#fff" />
+          </TouchableOpacity>
+        </View>
         {community.privacy === 'private' && (
           <View style={styles.privateBadge}>
             <Ionicons name="lock-closed" size={11} color="#fff" />
@@ -532,27 +547,10 @@ export default function CommunityDetailScreen() {
     <View style={[styles.container, { paddingTop: insets.top }]}>
       <StatusBar style={isDark ? 'light' : 'dark'} />
 
-      <View style={[styles.topBar, { top: Math.max(10, insets.top) }]}>
-        <TouchableOpacity style={styles.backBtn} onPress={() => navigation.goBack()}>
-          <Ionicons name="arrow-back" size={22} color="#fff" />
-        </TouchableOpacity>
-        <View style={{ flexDirection: 'row', gap: 10 }}>
-          {/* Only the OWNER can edit the community / manage admins — admins get
-              their powers (kick, delete posts, requests) from the member menu. */}
-          {isOwner && (
-            <TouchableOpacity style={styles.shareBtn} onPress={() => {
-              (navigation as any).navigate('CommunitySettings', { communitySlug: community.slug });
-            }}>
-              <Ionicons name="settings-outline" size={20} color="#fff" />
-            </TouchableOpacity>
-          )}
-          <TouchableOpacity style={styles.shareBtn} onPress={() =>
-            Share.share({ message: `Check out ${community.name} on TADDLEBOX!` })
-          }>
-            <Ionicons name="share-outline" size={20} color="#fff" />
-          </TouchableOpacity>
-        </View>
-      </View>
+      {/* Main header — logo, global search (scoped to THIS community, so the
+          search box opens pre-scoped to c/slug), notifications. Back arrow
+          replaces the drawer menu on this pushed screen. */}
+      <MainHeader showBack />
 
       <SharedFeed
         posts={communityPosts}

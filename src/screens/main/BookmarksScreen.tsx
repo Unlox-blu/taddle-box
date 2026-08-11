@@ -10,6 +10,7 @@ import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { fontSizes, spacing, radii, type ColorPalette } from '../../theme';
 import { useThemeColors } from '../../context/ThemeContext';
 import SharedFeed from '../../components/common/SharedFeed';
+import MainHeader from '../../components/common/MainHeader';
 import { useBookmarks } from '../../queries/feed';
 import { useToggleLike, useToggleSave } from '../../mutations/posts';
 import type { HomeStackParamList, Post } from '../../types';
@@ -88,19 +89,9 @@ export default function BookmarksScreen() {
 
   return (
     <View style={[styles.container, { paddingTop: insets.top }]}>
-      <View style={styles.header}>
-        <TouchableOpacity style={styles.backBtn} onPress={() => navigation.goBack()}>
-          <Ionicons name="arrow-back" size={22} color={colors.text.primary} />
-        </TouchableOpacity>
-        <Text style={styles.headerTitle}>Bookmarks</Text>
-        <View style={styles.headerRight}>
-          {saved.length > 0 && (
-            <View style={styles.countBadge}>
-              <Text style={styles.countText}>{saved.length}</Text>
-            </View>
-          )}
-        </View>
-      </View>
+      {/* Main header — logo, global search, notifications; back arrow instead
+          of the drawer menu on this pushed screen. */}
+      <MainHeader showBack />
 
       {saved.length === 0 ? (
         <View style={styles.empty}>

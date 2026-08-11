@@ -16,6 +16,7 @@ import { userService } from '../../services/user.service';
 import { postsService } from '../../services/posts.service';
 import { communityService } from '../../services/community.service';
 import { useNotifications } from '../../context/NotificationContext';
+import MainHeader from '../../components/common/MainHeader';
 import { notificationBus, NOTIF_EVENTS } from '../../lib/notificationBus';
 import { socketClient } from '../../services/socketClient';
 import PresenceDot from '../../components/common/PresenceDot';
@@ -70,6 +71,13 @@ function makeStyles(c: ColorPalette) {
     badgeText: { fontSize: fontSizes.xs, color: '#fff', fontWeight: '700' },
     markAll:    { fontSize: fontSizes.xs, color: c.primaryLight, fontWeight: '600' },
     markAllDim: { color: c.text.muted },
+    markAllRow: {
+      flexDirection: 'row',
+      justifyContent: 'flex-end',
+      paddingHorizontal: spacing.xl,
+      paddingTop: 8,
+      paddingBottom: 2,
+    },
 
     groupLabel: {
       fontSize: fontSizes.xs, fontWeight: '700', color: c.text.muted,
@@ -602,20 +610,13 @@ export default function NotificationsScreen({ navigation }: Props) {
     <View style={[styles.container, { paddingTop: insets.top }]}>
       <StatusBar style={isDark ? 'light' : 'dark'} />
 
-      {/* Header */}
-      <View style={styles.header}>
-        <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backBtn}>
-          <Ionicons name="arrow-back" size={22} color={colors.text.primary} />
-        </TouchableOpacity>
-        <View style={styles.headerCenter}>
-          <Text style={styles.title}>Notifications</Text>
-          {unreadCount > 0 && (
-            <View style={styles.badge}>
-              <Text style={styles.badgeText}>{unreadCount}</Text>
-            </View>
-          )}
-        </View>
-        <TouchableOpacity onPress={markAllRead} disabled={unreadCount === 0}>
+      {/* Main header — logo, global search, notifications (with live unread
+          badge); back arrow instead of the drawer menu on this pushed screen. */}
+      <MainHeader showBack />
+
+      {/* "Mark all read" survives the header swap as a slim right-aligned row. */}
+      <View style={styles.markAllRow}>
+        <TouchableOpacity onPress={markAllRead} disabled={unreadCount === 0} hitSlop={{ top: 6, bottom: 6, left: 6, right: 6 }}>
           <Text style={[styles.markAll, unreadCount === 0 && styles.markAllDim]}>
             Mark all read
           </Text>

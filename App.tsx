@@ -28,6 +28,7 @@ import { PresenceProvider } from './src/context/PresenceContext';
 import { useAuth } from './src/context/AuthContext';
 import { locationService } from './src/services/location.service';
 import { initGameSound }     from './src/services/gameSound';
+import AppErrorBoundary from './src/components/common/AppErrorBoundary';
 
 SplashScreen.preventAutoHideAsync();
 
@@ -77,6 +78,7 @@ function LocationTracker() {
 
 export default function App() {
   return (
+    <AppErrorBoundary>
     <QueryClientProvider client={queryClient}>
       <ThemeProvider>
         <AuthProvider>
@@ -96,5 +98,6 @@ export default function App() {
         </AuthProvider>
       </ThemeProvider>
     </QueryClientProvider>
+    </AppErrorBoundary>
   );
 }

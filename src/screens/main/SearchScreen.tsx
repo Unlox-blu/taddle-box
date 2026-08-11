@@ -153,6 +153,17 @@ const normalizePostResult = (item: any): Post => {
             avatarUrl: item.community_avatar,
           }
         : undefined),
+    // Search returns raw latitude/longitude/place columns — rebuild the
+    // nested location object PostCard's rolling text reads.
+    location:
+      item.location ||
+      (item.latitude != null && item.longitude != null
+        ? {
+            lat: Number(item.latitude),
+            lon: Number(item.longitude),
+            place: item.place || "",
+          }
+        : null),
     media: item.media || [],
     hashtags: item.hashtags || item.tags || [],
     likes: item.likes ?? item.likesCount ?? item.likes_count ?? 0,
@@ -1727,9 +1738,8 @@ export default function SearchScreen({ navigation, route }: Props) {
                 ? `@${item.username}`
                 : suggestionKind === "community"
                   ? `c/${item.slug}`
-                  : suggestionKind === "nav"
-                    ? `Navigate to ${item.title}`
-                    : `posts tagged #${tag}`;
+                  // nav rows return above — only tag rows reach here.
+                  : `posts tagged #${tag}`;
             return (
               <TouchableOpacity
                 key={suggestionKind === "tag" ? tag : item.id || i}
@@ -1748,12 +1758,6 @@ export default function SearchScreen({ navigation, route }: Props) {
                   ) : suggestionKind === "community" ? (
                     <Ionicons
                       name="people-outline"
-                      size={16}
-                      color={colors.text.muted}
-                    />
-                  ) : suggestionKind === "nav" ? (
-                    <Ionicons
-                      name={item.icon as any}
                       size={16}
                       color={colors.text.muted}
                     />
@@ -1777,19 +1781,12 @@ export default function SearchScreen({ navigation, route }: Props) {
                     {handle}
                   </Text>
                 </View>
-                {suggestionKind === "nav" ? (
-                  <Ionicons
-                    name="chevron-forward"
-                    size={18}
-                    color={colors.text.muted}
-                  />
-                ) : (
-                  <Ionicons
-                    name="add-circle-outline"
-                    size={18}
-                    color={colors.text.muted}
-                  />
-                )}
+                {/* nav rows return above — remaining rows get the commit icon. */}
+                <Ionicons
+                  name="add-circle-outline"
+                  size={18}
+                  color={colors.text.muted}
+                />
               </TouchableOpacity>
             );
           })}

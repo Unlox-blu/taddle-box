@@ -20,6 +20,7 @@ import Button from "../../components/common/Button";
 import Input from "../../components/common/Input";
 import type { AuthStackParamList } from "../../types";
 import { authService } from "../../services/auth.service";
+import { getReferralRewards } from "../../services/appConfig.service";
 import * as Location from "expo-location";
 import DateTimePicker from "@react-native-community/datetimepicker";
 import axios from "axios";
@@ -120,6 +121,8 @@ export default function RegisterScreen({ navigation, route }: Props) {
   const [phone, setPhone] = useState("");
   const [password, setPassword] = useState("");
   const [referralCode, setReferralCode] = useState("");
+  // Backend-controlled referral bonus amount — never hardcoded.
+  const [referralBonusXp, setReferralBonusXp] = useState<number | null>(null);
 
   const [usernameStatus, setUsernameStatus] = useState<
     "idle" | "loading" | "available" | "taken"
@@ -167,6 +170,13 @@ export default function RegisterScreen({ navigation, route }: Props) {
 
   // Step 2 — Interests
   const [interests, setInterests] = useState<string[]>([]);
+
+  // Referral bonus amount is backend-controlled — fetch it once on mount.
+  useEffect(() => {
+    getReferralRewards()
+      .then((rewards) => setReferralBonusXp(rewards?.joinerXp ?? null))
+      .catch(() => setReferralBonusXp(null));
+  }, []);
 
   useEffect(() => {
     if (username.length < 3) {
@@ -644,12 +654,26 @@ export default function RegisterScreen({ navigation, route }: Props) {
                   passwordRules="minlength: 8; required: lower; required: upper; required: digit; required: [-];"
                   error={fieldErrors.password}
                 />
+                {referralBonusXp != null && (
+                  <View style={styles.referralBanner}>
+                    <Text style={styles.referralBannerIcon}>🎁</Text>
+                    <Text style={styles.referralBannerText}>
+                      Use a friend's referral code and get{" "}
+                      <Text style={styles.referralBannerXp}>+{referralBonusXp} XP</Text>{" "}
+                      when you join!
+                    </Text>
+                  </View>
+                )}
                 <Input
-                  label="Referral Code (Optional)"
+                  label="Referral Code"
                   icon="gift-outline"
                   value={referralCode}
                   onChangeText={(text) => setReferralCode(text.toUpperCase())}
-                  placeholder="e.g. 8A2F9C4B — get 500 XP bonus"
+                  placeholder={
+                    referralBonusXp != null
+                      ? `e.g. 8A2F9C4B — get ${referralBonusXp} XP bonus`
+                      : "e.g. 8A2F9C4B — get a signup XP bonus"
+                  }
                   autoCapitalize="characters"
                   autoCorrect={false}
                   maxLength={12}
@@ -871,7 +895,7 @@ export default function RegisterScreen({ navigation, route }: Props) {
                           ? "What is your school, college, or university?"
                           : occupation === "Working Professional"
                             ? "What company do you work for?"
-                            : "Occupation / Title (Optional)"
+                            : "Occupation / Title"
                       }
                       icon={
                         occupation === "Student"
@@ -1058,6 +1082,28 @@ const styles = StyleSheet.create({
     marginBottom: 24,
   },
   form: { gap: 2 },
+  referralBanner: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+    backgroundColor: "rgba(251,191,36,0.10)",
+    borderWidth: 1,
+    borderColor: "rgba(251,191,36,0.28)",
+    borderRadius: radii.md,
+    paddingVertical: 10,
+    paddingHorizontal: 12,
+    marginTop: 4,
+    marginBottom: 10,
+  },
+  referralBannerIcon: { fontSize: 16 },
+  referralBannerText: {
+    flex: 1,
+    fontSize: fontSizes.xs,
+    color: colors.text.secondary,
+    lineHeight: 18,
+  },
+  referralBannerXp: { color: colors.xpGold, fontWeight: "800" },
+
   interestsGrid: {
     flexDirection: "row",
     flexWrap: "wrap",

@@ -21,6 +21,7 @@ import { fontSizes, spacing, radii } from "../../theme";
 import { useThemeColors } from "../../context/ThemeContext";
 import { useAuth } from "../../context/AuthContext";
 import { xpService } from "../../services/xp.service";
+import { getReferralRewards } from "../../services/appConfig.service";
 import XPProgressBar from "./XPProgressBar";
 import { themedAlert } from '../common/ThemedAlert';
 
@@ -40,6 +41,8 @@ type MenuRow = {
   icon: keyof typeof Ionicons.glyphMap;
   label: string;
   badge?: string;
+  /** Small muted line under the label (e.g. the referral XP reward). */
+  subtitle?: string;
   onPress: () => void;
   purple?: boolean;
 };
@@ -57,6 +60,8 @@ export default function SideDrawer({
 
   const [localXP, setLocalXP] = useState(0);
   const [totalXP, setTotalXP] = useState(0);
+  // Backend-controlled referral reward (joiner side) — never hardcoded.
+  const [referralXp, setReferralXp] = useState<number | null>(null);
 
   const slideX = useRef(new Animated.Value(-DRAWER_W)).current;
   const backdrop = useRef(new Animated.Value(0)).current;
@@ -90,6 +95,11 @@ export default function SideDrawer({
           }
         })
         .catch((err) => console.error("Failed to fetch XP for drawer", err));
+
+      // Referral reward amount lives in the backend — pull it for display.
+      getReferralRewards()
+        .then((rewards) => setReferralXp(rewards?.joinerXp ?? null))
+        .catch(() => setReferralXp(null));
     }
   }, [visible]);
 
@@ -118,8 +128,9 @@ export default function SideDrawer({
       return;
     }
     onClose();
+    const reward = referralXp != null ? `get ${referralXp} XP free` : "get bonus XP";
     const message =
-      `🎮 Join me on TaddleBox! Use my referral code ${code} at signup and get 500 XP free. Let's play, post and win together! 🚀`;
+      `🎮 Join me on TaddleBox! Use my referral code ${code} at signup and ${reward}. Let's play, post and win together! 🚀`;
     setTimeout(() => {
       Share.share({ message }).catch(() => {});
     }, CLOSE_DELAY);
@@ -129,6 +140,10 @@ export default function SideDrawer({
     {
       icon: "gift-outline",
       label: "Share Referral",
+      subtitle:
+        referralXp != null
+          ? `You & your friend get ${referralXp} XP each`
+          : "You & your friend get XP when they join",
       purple: true,
       onPress: shareReferral,
     },
@@ -317,6 +332,7 @@ function DrawerRow({
   icon,
   label,
   badge,
+  subtitle,
   onPress,
   purple,
   colors,
@@ -342,14 +358,24 @@ function DrawerRow({
           color={purple ? colors.primaryLight : colors.text.secondary}
         />
       </View>
-      <Text
-        style={[
-          styles.menuLabel,
-          { color: purple ? colors.text.primary : colors.text.secondary },
-        ]}
-      >
-        {label}
-      </Text>
+      <View style={styles.menuLabelWrap}>
+        <Text
+          style={[
+            styles.menuLabel,
+            { color: purple ? colors.text.primary : colors.text.secondary },
+          ]}
+        >
+          {label}
+        </Text>
+        {subtitle !== undefined && (
+          <Text
+            numberOfLines={1}
+            style={[styles.menuSubtitle, { color: colors.text.muted }]}
+          >
+            {subtitle}
+          </Text>
+        )}
+      </View>
       {badge !== undefined && (
         <View style={[styles.badge, { backgroundColor: colors.primary }]}>
           <Text style={styles.badgeText}>{badge}</Text>
@@ -447,7 +473,9 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
   },
-  menuLabel: { flex: 1, fontSize: fontSizes.md, fontWeight: "600" },
+  menuLabelWrap: { flex: 1, gap: 1 },
+  menuLabel: { fontSize: fontSizes.md, fontWeight: "600" },
+  menuSubtitle: { fontSize: fontSizes.xs },
   badge: { borderRadius: radii.full, paddingHorizontal: 8, paddingVertical: 2 },
   badgeText: { fontSize: fontSizes.xs, color: "#fff", fontWeight: "700" },
   footer: {

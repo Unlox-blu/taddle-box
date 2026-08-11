@@ -4,7 +4,7 @@ import {
   StyleSheet, Share, FlatList, Image,  ActivityIndicator
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { useNavigation, useRoute, type RouteProp } from '@react-navigation/native';
+import { useNavigation, useRoute, useFocusEffect, type RouteProp } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
@@ -335,11 +335,46 @@ export default function CommunityDetailScreen() {
     [communitySlug, loadPosts],
   );
 
-  // Fetch full details and posts on mount
+  // Fetch full details and posts whenever the screen gains focus (mount, or
+  // returning to it) — so an approval granted while the user was elsewhere
+  // shows up without a manual pull-to-refresh.
+  useFocusEffect(
+    useCallback(() => {
+      loadData();
+    }, [loadData]),
+  );
+
+  // While a join request is pending on a private community, poll the detail
+  // endpoint so the moment an admin approves, posts appear immediately
+  // instead of waiting for a manual refresh. Stops once membership is active.
   useEffect(() => {
-    loadData();
+    if (!community || community.privacy !== 'private' || !community.isPending) {
+      return;
+    }
+    const timer = setInterval(async () => {
+      try {
+        const res = await communityService.getCommunityDetail(communitySlug);
+        const fresh = res.data;
+        if (!fresh) return;
+        if (fresh.isJoined && !fresh.isPending) {
+          // Approved — refresh posts right away and stop polling.
+          clearInterval(timer);
+          setCommunity(fresh);
+          setLoadingPosts(true);
+          await loadPosts(fresh.id, 1, true);
+        } else if (
+          fresh.isPending !== community.isPending ||
+          fresh.memberCount !== community.memberCount
+        ) {
+          setCommunity(fresh);
+        }
+      } catch (e) {
+        // transient failure — try again on the next tick
+      }
+    }, 10000);
+    return () => clearInterval(timer);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [communitySlug]);
+  }, [community?.isPending, community?.id, communitySlug, loadPosts]);
 
   const handleDeletePost = async (post: Post) => {
     try {
@@ -591,20 +626,46 @@ export default function CommunityDetailScreen() {
         ListHeaderComponent={renderHeader()}
         ListEmptyComponent={
           !loadingPosts ? (
-            <View style={styles.emptyState}>
-              <Ionicons name="chatbubbles-outline" size={48} color={colors.text.muted} style={{ marginBottom: 8 }} />
-              <Text style={styles.emptyTitle}>No posts yet</Text>
-              <Text style={styles.emptyDesc}>
-                {community.isJoined
-                  ? 'Be the first to post in this community!'
-                  : 'Join this community to see and create posts.'}
-              </Text>
-              {community.isJoined && (
-                <TouchableOpacity style={styles.emptyBtn} onPress={() => setShowCreate(true)}>
-                  <Text style={styles.emptyBtnText}>Create First Post</Text>
-                </TouchableOpacity>
-              )}
-            </View>
+            community.privacy === 'private' && !community.isJoined ? (
+              /* Locked — private community and the user isn't an approved
+                 member yet. The 403 on posts lands here; explain + join CTA
+                 instead of a misleading "No posts yet". */
+              <View style={styles.emptyState}>
+                <Ionicons name="lock-closed" size={48} color={colors.text.muted} style={{ marginBottom: 8 }} />
+                <Text style={styles.emptyTitle}>Join to view posts</Text>
+                <Text style={styles.emptyDesc}>
+                  {community.isPending
+                    ? "Your request is pending — an admin will review it. Posts appear here once you're approved."
+                    : 'This is a private community. Request to join to see its posts.'}
+                </Text>
+                {!community.isPending && (
+                  <TouchableOpacity
+                    style={[styles.emptyBtn, { marginTop: 12 }]}
+                    onPress={handleToggleJoin}
+                    disabled={joinBusy}
+                  >
+                    <Text style={styles.emptyBtnText}>
+                      {joinBusy ? 'Please wait…' : 'Request to Join'}
+                    </Text>
+                  </TouchableOpacity>
+                )}
+              </View>
+            ) : (
+              <View style={styles.emptyState}>
+                <Ionicons name="chatbubbles-outline" size={48} color={colors.text.muted} style={{ marginBottom: 8 }} />
+                <Text style={styles.emptyTitle}>No posts yet</Text>
+                <Text style={styles.emptyDesc}>
+                  {community.isJoined
+                    ? 'Be the first to post in this community!'
+                    : 'This community has no posts yet.'}
+                </Text>
+                {community.isJoined && (
+                  <TouchableOpacity style={styles.emptyBtn} onPress={() => setShowCreate(true)}>
+                    <Text style={styles.emptyBtnText}>Create First Post</Text>
+                  </TouchableOpacity>
+                )}
+              </View>
+            )
           ) : (
             <View style={[styles.emptyState, { marginTop: 40 }]}>
                <Text style={[styles.emptyTitle, { color: colors.text.muted }]}>Loading posts...</Text>

@@ -14,6 +14,7 @@ import { MentionInput } from "react-native-controlled-mentions";
 import { colors, fontSizes, radii, spacing } from "../../theme";
 import { hashtagService } from "../../services/hashtag.service";
 import { userService } from "../../services/user.service";
+import { communityService } from "../../services/community.service";
 
 interface SmartInputProps {
   value: string;
@@ -42,6 +43,11 @@ const MENTION_AND_HASHTAG_CONFIG = {
     allowedSpacesCount: 0,
     textStyle: { color: colors.primaryLight, fontWeight: "700" as const },
   },
+  "c/": {
+    trigger: "c/",
+    allowedSpacesCount: 0,
+    textStyle: { color: colors.cyanLight, fontWeight: "700" as const },
+  },
 };
 
 const SmartInput = React.forwardRef<any, SmartInputProps>(function SmartInput(
@@ -65,10 +71,12 @@ const SmartInput = React.forwardRef<any, SmartInputProps>(function SmartInput(
   const [triggers, setTriggers] = useState<any>();
   const [dynamicTags, setDynamicTags] = useState<string[]>([]);
   const [dynamicUsers, setDynamicUsers] = useState<any[]>([]);
+  const [dynamicCommunities, setDynamicCommunities] = useState<any[]>([]);
 
   const activeTrigger = useMemo(() => {
     if (triggers?.["#"]?.keyword != null) return "#";
     if (triggers?.["@"]?.keyword != null) return "@";
+    if (triggers?.["c/"]?.keyword != null) return "c/";
     return null;
   }, [triggers]);
 
@@ -80,6 +88,11 @@ const SmartInput = React.forwardRef<any, SmartInputProps>(function SmartInput(
   const activeMentionQuery = useMemo(() => {
     let keyword = triggers?.["@"]?.keyword || "";
     return keyword.toLowerCase();
+  }, [triggers]);
+
+  const activeCommunityQuery = useMemo(() => {
+    let keyword = triggers?.["c/"]?.keyword || "";
+    return keyword.toLowerCase().replace(/[^a-z0-9_]/g, "");
   }, [triggers]);
 
   useEffect(() => {
@@ -98,14 +111,21 @@ const SmartInput = React.forwardRef<any, SmartInputProps>(function SmartInput(
             if (res?.data) setDynamicUsers(res.data);
           })
           .catch((e) => console.error("Failed to fetch users", e));
+      } else if (activeTrigger === "c/") {
+        communityService
+          .getCommunities(1, 10, activeCommunityQuery)
+          .then((res) => {
+            if (res?.data) setDynamicCommunities(res.data);
+          })
+          .catch((e) => console.error("Failed to fetch communities", e));
       }
     }, 200);
 
     return () => clearTimeout(handler);
-  }, [activeHashtagQuery, activeMentionQuery, activeTrigger]);
+  }, [activeHashtagQuery, activeMentionQuery, activeCommunityQuery, activeTrigger]);
 
   const formatTagsOnSpace = React.useCallback(
-    (text: string, currentUsers: any[]) => {
+    (text: string, currentUsers: any[], currentCommunities: any[]) => {
       let fixedText = text.replace(
         /\{#\}\[([^\]]+)\]\([^)]+\)([a-z0-9_]+)/gi,
         (match, name, appended) => `#${name}${appended}`,
@@ -114,6 +134,11 @@ const SmartInput = React.forwardRef<any, SmartInputProps>(function SmartInput(
       fixedText = fixedText.replace(
         /\{@\}\[([^\]]+)\]\([^)]+\)([a-z0-9_]+)/gi,
         (match, name, appended) => `@${name}${appended}`,
+      );
+
+      fixedText = fixedText.replace(
+        /\{c\/\}\[([^\]]+)\]\([^)]+\)([a-z0-9_]+)/gi,
+        (match, name, appended) => `c/${name}${appended}`,
       );
 
       fixedText = fixedText.replace(
@@ -129,6 +154,20 @@ const SmartInput = React.forwardRef<any, SmartInputProps>(function SmartInput(
           );
           if (user) {
             return `${prefix}{@}[${user.username}](${user.id})`;
+          }
+          return match;
+        },
+      );
+
+      fixedText = fixedText.replace(
+        /(^|\s)c\/([a-z0-9_]+)(?=\s)/gi,
+        (match, prefix, slug) => {
+          const community = currentCommunities.find(
+            (c) => (c.slug || c.name || "").toLowerCase() === slug.toLowerCase(),
+          );
+          if (community) {
+            const name = community.slug || community.name;
+            return `${prefix}{c/}[${name}](${community.id})`;
           }
           return match;
         },
@@ -178,7 +217,7 @@ const SmartInput = React.forwardRef<any, SmartInputProps>(function SmartInput(
   };
 
   const handleChange = (val: string) => {
-    const formatted = formatTagsOnSpace(val, dynamicUsers);
+    const formatted = formatTagsOnSpace(val, dynamicUsers, dynamicCommunities);
     let next = formatted;
     if (Platform.OS === "android" && multiline && enterPendingRef.current) {
       enterPendingRef.current = false;
@@ -273,49 +312,80 @@ const SmartInput = React.forwardRef<any, SmartInputProps>(function SmartInput(
         </View>
       );
     }
+
+    if (activeTrigger === "c/") {
+      let keyword = triggers?.["c/"]?.keyword;
+      let onSelect = triggers?.["c/"]?.onSelect;
+
+      if (keyword == null || !onSelect) return null;
+
+      const q = activeCommunityQuery;
+      let communities = dynamicCommunities.filter(
+        (c: any) =>
+          (c.slug || "").toLowerCase() !== q &&
+          (c.name || "").toLowerCase() !== q,
+      );
+
+      if (communities.length === 0) return null;
+
+      return (
+        <View style={[styles.suggestionBox, suggestionPosition === "top" ? styles.suggestionBoxTop : styles.suggestionBoxBottom]}>
+          <ScrollView keyboardShouldPersistTaps="handled">
+            {communities.map((c: any) => {
+              const name = c.slug || c.name;
+              return (
+                <TouchableOpacity
+                  key={c.id}
+                  style={styles.suggestionRow}
+                  onPress={() => onSelect!({ id: c.id, name })}
+                >
+                  <View style={styles.avatarBubble}>
+                    {c.avatarUrl || c.avatar ? (
+                      <Image
+                        source={{ uri: c.avatarUrl || c.avatar }}
+                        style={{ width: 24, height: 24, borderRadius: 12 }}
+                      />
+                    ) : (
+                      <Text style={{ fontSize: 11 }}>🏘️</Text>
+                    )}
+                  </View>
+                  <Text numberOfLines={1} style={styles.suggestionText}>
+                    <Text style={{ color: colors.cyanLight, fontWeight: "700" }}>c/</Text>
+                    {name}{" "}
+                    <Text style={styles.suggestionSubText}>
+                      {c.memberCount ? `${c.memberCount} members` : c.privacy || ""}
+                    </Text>
+                  </Text>
+                </TouchableOpacity>
+              );
+            })}
+          </ScrollView>
+        </View>
+      );
+    }
     return null;
   };
 
   // MentionInput always passes `children` (the parsed mention markup) into the
-  // native TextInput. On ANDROID a TextInput with children suppresses the native
-  // placeholder entirely — so the create-post title/content fields showed no
-  // hint text in either theme. On iOS the native placeholder is unaffected, so
-  // we render the fallback ONLY on Android to avoid drawing the hint twice.
-  // The layer is shown only while the raw value is empty, styled like the input
-  // text, and pointer-transparent so taps always reach the field underneath.
-  const showOverlayPlaceholder =
-    Platform.OS === "android" && !!placeholder && !value;
-
+  // native TextInput. On ANDROID a TextInput whose children render any content
+  // suppresses the native placeholder — so the create-post title/content fields
+  // showed no hint text in either theme, and a JS <Text> overlay was used
+  // instead. That overlay could never match the EditText's metrics (native
+  // includeFontPadding + line layout), which is why the placeholder landed a
+  // few px off the caret. The native hint, by contrast, is drawn by the
+  // platform exactly where typed text/caret go (ReactEditText.setPlaceholder →
+  // EditText.hint), so alignment is guaranteed on both platforms.
+  //
+  // Fix: when the raw value is empty we pass NO children — an empty EditText
+  // shows its native hint, perfectly aligned. Once there is text, children
+  // render again so @/# tokens keep their highlight.
   return (
     <View style={[styles.container, containerStyle]}>
       {suggestionPosition === "top" && renderSuggestions()}
-      {showOverlayPlaceholder && (
-        <Text
-          pointerEvents="none"
-          numberOfLines={multiline ? undefined : 1}
-          style={[
-            styles.placeholderOverlay,
-            style,
-            { color: placeholderTextColor },
-            // Android centers single-line EditText content vertically, so the
-            // hint must be centered in the input's box too — with only top:0 it
-            // floats above where typed text lands. Multiline fields keep top
-            // alignment, matching their textAlignVertical.
-            !multiline
-              ? styles.placeholderOverlaySingle
-              : { textAlignVertical: "top" },
-          ]}
-        >
-          {placeholder}
-        </Text>
-      )}
       <MentionInput
         ref={ref}
         style={style}
-        // When the Android overlay placeholder is active, suppress the native
-        // one so the hint never renders twice (children sometimes don't
-        // suppress it on Android).
-        placeholder={showOverlayPlaceholder ? undefined : placeholder}
+        placeholder={placeholder}
         placeholderTextColor={placeholderTextColor}
         multiline={multiline}
         value={value}
@@ -340,20 +410,6 @@ const styles = StyleSheet.create({
   container: {
     position: "relative",
     zIndex: 1,
-  },
-  placeholderOverlay: {
-    position: "absolute",
-    top: 0,
-    left: 0,
-    right: 0,
-    zIndex: 0,
-  },
-  placeholderOverlaySingle: {
-    // Stretch to the input's box and center the hint vertically so it lands
-    // exactly where the (vertically-centered) native text will appear.
-    bottom: 0,
-    justifyContent: "center",
-    textAlignVertical: "center",
   },
   suggestionBox: {
     backgroundColor: colors.bg.elevated,

@@ -53,6 +53,13 @@ apiClient.interceptors.response.use(
             res.data?.data?.accessToken || res.data?.accessToken;
           if (newAccessToken) {
             await SecureStore.setItemAsync("accessToken", newAccessToken);
+            // The backend ROTATES the refresh token on every refresh — persist
+            // the new one too, or the next refresh fails against the DB hash.
+            const newRefreshToken =
+              res.data?.data?.refreshToken || res.data?.refreshToken;
+            if (newRefreshToken) {
+              await SecureStore.setItemAsync("refreshToken", newRefreshToken);
+            }
             originalRequest.headers.Authorization = `Bearer ${newAccessToken}`;
             return apiClient(originalRequest);
           }

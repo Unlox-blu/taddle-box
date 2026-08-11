@@ -292,7 +292,7 @@ export default function ChangePasswordScreen({ navigation }: Props) {
                 </View>
                 <View style={{ flex: 0.7 }}>
                   <Input
-                    label="Registered Phone (optional)"
+                    label="Registered Phone"
                     value={phone}
                     onChangeText={(text) => { setPhone(text); setError(''); }}
                     keyboardType="phone-pad"

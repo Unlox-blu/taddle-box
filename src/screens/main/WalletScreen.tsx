@@ -18,6 +18,8 @@ import MainHeader from '../../components/common/MainHeader';
 import PinPad from '../../components/common/PinPad';
 import { authService } from '../../services/auth.service';
 import * as LocalAuthentication from '../../utils/localAuth';
+import { getReferralRewards } from '../../services/appConfig.service';
+import * as Clipboard from 'expo-clipboard';
 import * as SecureStore from 'expo-secure-store';
 import type { Transaction } from '../../types';
 import { themedAlert } from '../../components/common/ThemedAlert';
@@ -44,7 +46,7 @@ const QUICK_XP      = [500, 1000, 5000];
 export default function WalletScreen() {
   const insets     = useSafeAreaInsets();
   const navigation = useNavigation();
-  const { wallet, withdraw, convertXP, recharge, convertCashToXP, linkUPI, toggleSetting, fetchWalletData } = useWallet();
+  const { wallet, withdraw, convertXP, recharge, convertCashToXP, linkUPI, toggleSetting, fetchWalletData, loadMoreTransactions } = useWallet();
   const { user } = useAuth();
   const colors = useThemeColors();
   const styles = useMemo(() => makeStyles(colors), [colors]);
@@ -102,9 +104,39 @@ export default function WalletScreen() {
   const earnActions = [
     { icon: 'game-controller', label: 'Win Games',     xp: '+50–150 XP', tab: 'Games'  },
     { icon: 'document-text',   label: 'Post Content',  xp: '+10–75 XP',  tab: 'Home'   },
-    { icon: 'calendar',        label: 'Attend Events', xp: '+100–500 XP',tab: 'Events' },
     { icon: 'flame',           label: 'Daily Streak',  xp: '+25–100 XP', tab: 'Home'   },
   ];
+
+  // ── Referral (replaces the old "Attend Events" tile) ──
+  const referralCode = (user as any)?.referralCode || (user as any)?.referral_code || '';
+  const [referralXp, setReferralXp] = useState<{ joiner: number | null; referrer: number | null }>({ joiner: null, referrer: null });
+  useEffect(() => {
+    getReferralRewards()
+      .then((r) => setReferralXp({ joiner: r?.joinerXp ?? null, referrer: r?.referrerXp ?? null }))
+      .catch(() => setReferralXp({ joiner: null, referrer: null }));
+  }, []);
+
+  const copyReferralCode = () => {
+    if (!referralCode) {
+      themedAlert('Referral Unavailable', "Your referral code isn't ready yet. Please try again in a moment.");
+      return;
+    }
+    Clipboard.setStringAsync(referralCode).then(() =>
+      themedAlert('Code Copied', `Your referral code ${referralCode} was copied to the clipboard.`)
+    );
+  };
+
+  const shareReferral = async () => {
+    const code = referralCode;
+    if (!code) {
+      themedAlert('Referral Unavailable', "Your referral code isn't ready yet. Please try again in a moment.");
+      return;
+    }
+    const reward = referralXp.joiner != null ? `get ${referralXp.joiner} XP free` : 'get bonus XP';
+    const message =
+      `🎮 Join me on TaddleBox! Use my referral code ${code} at signup and ${reward}. Let's play, post and win together! 🚀`;
+    await Share.share({ message }).catch(() => {});
+  };
 
   const handleShareWallet = async () => {
     await Share.share({ message: `I've earned ₹${wallet.totalEarned.toLocaleString()} on TADDLEBOX! 🎮⚡ Join me and start earning today.` });
@@ -326,6 +358,48 @@ export default function WalletScreen() {
           </View>
         </View>
 
+        {/* ── Referral Card ── */}
+        <View style={styles.sectionCard}>
+          <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
+            <Text style={styles.cardTitle}>Refer & Earn 🎁</Text>
+            <View style={styles.referralChip}>
+              <Text style={styles.referralChipText}>{(referralXp.joiner ?? referralXp.referrer) != null
+                ? `Up to +${Math.max(referralXp.joiner ?? 0, referralXp.referrer ?? 0)} XP`
+                : 'Free XP'}</Text>
+            </View>
+          </View>
+          <View style={styles.referralRow}>
+            <View style={styles.referralPerson}>
+              <Ionicons name="person-add" size={20} color={colors.xpGold} />
+              <Text style={styles.referralPersonLabel}>Friend joins</Text>
+              <Text style={styles.referralPersonXp}>
+                {referralXp.joiner != null ? `+${referralXp.joiner} XP` : 'XP reward'}
+              </Text>
+            </View>
+            <Ionicons name="add" size={16} color={colors.text.muted} />
+            <View style={styles.referralPerson}>
+              <Ionicons name="person" size={20} color={colors.primaryLight} />
+              <Text style={styles.referralPersonLabel}>You get</Text>
+              <Text style={styles.referralPersonXp}>
+                {referralXp.referrer != null ? `+${referralXp.referrer} XP` : 'XP reward'}
+              </Text>
+            </View>
+          </View>
+          <View style={styles.referralCodeRow}>
+            <Text style={styles.referralCodeBox} numberOfLines={1}>
+              {referralCode || '—'}
+            </Text>
+            <TouchableOpacity style={styles.referralBtn} onPress={copyReferralCode} activeOpacity={0.8}>
+              <Ionicons name="copy-outline" size={14} color="#fff" />
+              <Text style={styles.referralBtnText}>Copy</Text>
+            </TouchableOpacity>
+            <TouchableOpacity style={[styles.referralBtn, { backgroundColor: 'rgba(251,191,36,0.85)' }]} onPress={shareReferral} activeOpacity={0.8}>
+              <Ionicons name="share-social-outline" size={14} color="#1a1a2e" />
+              <Text style={[styles.referralBtnText, { color: '#1a1a2e' }]}>Share</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+
         {/* ── Conversion Rate Info ── */}
         <TouchableOpacity style={styles.rateCard} onPress={() => openModal('convert')} activeOpacity={0.85}>
           <LinearGradient
@@ -448,6 +522,8 @@ export default function WalletScreen() {
       <HistoryModal
         visible={activeModal === 'history'}
         transactions={wallet.transactions}
+        hasMore={wallet.hasMoreTxns}
+        onLoadMore={loadMoreTransactions}
         onClose={closeModal}
       />
       <SettingsModal
@@ -515,10 +591,30 @@ export default function WalletScreen() {
                 setPayuHtml(null);
               }}
               onNavigationStateChange={(state) => {
-                // Backend redirect target after PayU checkout
+                // Backend redirect target after PayU checkout — the result page
+                // also posts the outcome via the bridge (onMessage below), so
+                // this only serves as a fallback if the bridge never fires.
                 if (state.url.includes('/wallet/recharge/result')) {
                   setPayuHtml(null);
                   fetchWalletData();
+                }
+              }}
+              onMessage={(event) => {
+                try {
+                  const msg = JSON.parse(event.nativeEvent.data);
+                  if (msg?.kind === 'rechargeResult') {
+                    // Close the checkout, refresh the balance, and confirm.
+                    setPayuHtml(null);
+                    fetchWalletData();
+                    themedAlert(
+                      msg.ok ? 'Payment Successful' : 'Payment Failed',
+                      msg.message || (msg.ok
+                        ? 'Your wallet balance has been updated.'
+                        : 'No money was deducted. You can try again.')
+                    );
+                  }
+                } catch (e) {
+                  console.warn('PayU bridge message parse failed', e);
                 }
               }}
             />
@@ -1283,10 +1379,12 @@ function BuyXPModal({
 type HistFilter = 'All' | 'Earned' | 'Spent' | 'XP' | 'Cash';
 
 function HistoryModal({
-  visible, transactions, onClose,
+  visible, transactions, hasMore, onLoadMore, onClose,
 }: {
   visible:      boolean;
   transactions: Transaction[];
+  hasMore:      boolean;
+  onLoadMore:   () => void;
   onClose:      () => void;
 }) {
   const insets = useSafeAreaInsets();
@@ -1360,6 +1458,16 @@ function HistoryModal({
                 </View>
               </View>
             ))
+          )}
+          {hasMore && (
+            <TouchableOpacity
+              style={styles.loadMoreBtn}
+              onPress={onLoadMore}
+              activeOpacity={0.75}
+            >
+              <Ionicons name="chevron-down" size={16} color={colors.primaryLight} />
+              <Text style={styles.loadMoreText}>Load more transactions</Text>
+            </TouchableOpacity>
           )}
           <View style={{ height: 60 }} />
         </ScrollView>
@@ -1723,6 +1831,31 @@ function makeStyles(c: ColorPalette) {
   earnLabel: { fontSize: fontSizes.xs, color: c.text.secondary, textAlign: 'center' },
   earnXp:    { fontSize: fontSizes.xs, color: c.xpGold, fontWeight: '700' },
 
+  // Referral card
+  referralChip: {
+    backgroundColor: 'rgba(251,191,36,0.14)', borderWidth: 1, borderColor: 'rgba(251,191,36,0.3)',
+    borderRadius: radii.full, paddingHorizontal: 10, paddingVertical: 3, marginBottom: 12,
+  },
+  referralChipText: { fontSize: fontSizes.xs, fontWeight: '800', color: c.xpGold },
+  referralRow: {
+    flexDirection: 'row', alignItems: 'center', gap: 10,
+    backgroundColor: c.bg.elevated, borderRadius: radii.md, padding: 12, marginBottom: 12,
+  },
+  referralPerson: { flex: 1, alignItems: 'center', gap: 3 },
+  referralPersonLabel: { fontSize: fontSizes.xs, color: c.text.secondary, fontWeight: '600' },
+  referralPersonXp: { fontSize: fontSizes.sm, color: c.xpGold, fontWeight: '800' },
+  referralCodeRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  referralCodeBox: {
+    flex: 1, backgroundColor: c.bg.elevated, borderWidth: 1, borderColor: c.border,
+    borderRadius: radii.md, paddingVertical: 10, paddingHorizontal: 12,
+    fontSize: fontSizes.sm, fontWeight: '800', color: c.text.primary, letterSpacing: 1.5,
+  },
+  referralBtn: {
+    flexDirection: 'row', alignItems: 'center', gap: 5,
+    backgroundColor: c.primary, borderRadius: radii.md, paddingVertical: 10, paddingHorizontal: 14,
+  },
+  referralBtnText: { fontSize: fontSizes.xs, fontWeight: '700', color: '#fff' },
+
   // Rate card
   rateCard: { marginHorizontal: spacing.lg, marginBottom: spacing.md, borderRadius: radii.lg, overflow: 'hidden' },
   rateCardInner: {
@@ -1755,6 +1888,13 @@ function makeStyles(c: ColorPalette) {
   txnChipActive:    { backgroundColor: c.primary, borderColor: c.primary },
   txnChipText:      { fontSize: fontSizes.xs, color: c.text.muted, fontWeight: '600' },
   txnChipTextActive: { color: '#fff', fontWeight: '800' },
+  loadMoreBtn: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6,
+    marginHorizontal: spacing.lg, marginTop: spacing.md,
+    paddingVertical: 12, borderRadius: radii.md,
+    borderWidth: 1, borderColor: 'rgba(124,58,237,0.35)', backgroundColor: 'rgba(124,58,237,0.08)',
+  },
+  loadMoreText: { fontSize: fontSizes.xs, fontWeight: '700', color: c.primaryLight },
   txnList: {
     marginHorizontal: spacing.lg,
     backgroundColor: c.bg.card,

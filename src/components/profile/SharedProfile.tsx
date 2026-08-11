@@ -518,11 +518,13 @@ export default function SharedProfile({
   const [hasMoreMentions, setHasMoreMentions] = useState(false);
   const [loadingMoreMentions, setLoadingMoreMentions] = useState(false);
   const mentionsReqRef = useRef(0);
-  // Mentions list is conditionally rendered (unmounts when switching to the
-  // posts/reposts tabs), so its scroll offset is captured here and restored
-  // when the tab is re-entered — otherwise it always bounces back to the top.
+  // The Mentions list is conditionally rendered (unmounts when switching to
+  // the posts/reposts tabs) and the posts list remounts when coming back from
+  // Mentions — so the scroll offset is captured here from whichever list is
+  // active and restored on the freshly mounted list, keeping the profile
+  // header + tab bar in place instead of snapping to the top on tab switch.
   const mentionsListRef = useRef<any>(null);
-  const mentionsScrollOffset = useRef(0);
+  const profileScrollOffset = useRef(0);
   // Deep-link: a notification tapped through to a post inside this profile.
   const [openCommentPost, setOpenCommentPost] = useState<any>(null);
   const [openCommentVisible, setOpenCommentVisible] = useState(false);
@@ -704,13 +706,14 @@ export default function SharedProfile({
     }, [loadProfile, loadPosts, loadMentions, profileTab, user?.id])
   );
 
-  // Re-entering the Mentions tab remounts its FlatList — restore the saved
-  // scroll offset once the list is back on screen so the position is kept.
+  // Re-entering the Mentions tab remounts its FlatList — restore the offset
+  // captured from the previous tab (posts/reposts) so the header and tab bar
+  // stay exactly where they were instead of snapping to the top.
   useEffect(() => {
     if (profileTab !== 'mentions' || loadingMentions || mentions.length === 0) return;
     const t = setTimeout(() => {
       mentionsListRef.current?.scrollToOffset({
-        offset: mentionsScrollOffset.current,
+        offset: profileScrollOffset.current,
         animated: false,
       });
     }, 30);
@@ -1383,7 +1386,7 @@ export default function SharedProfile({
             contentContainerStyle={{ paddingBottom: 24 }}
             refreshControl={refreshControl}
             onScroll={(e: any) => {
-              mentionsScrollOffset.current = e.nativeEvent.contentOffset.y;
+              profileScrollOffset.current = e.nativeEvent.contentOffset.y;
             }}
             scrollEventThrottle={16}
             renderItem={({ item }: any) => renderMentionRow(item)}
@@ -1442,6 +1445,11 @@ export default function SharedProfile({
           // View counts are shown ONLY on the profile page, never in the
           // main feed / community feeds.
           showViews
+          // Keep the header + tab bar at the same scroll spot when this list
+          // remounts after a visit to the Mentions tab (it unmounts during
+          // mentions, and a fresh mount starts at the top).
+          onScroll={(y) => { profileScrollOffset.current = y; }}
+          initialScrollOffset={profileScrollOffset.current}
         />
       )}
 
@@ -1829,8 +1837,10 @@ function BioText({
   // URLs, @username mentions and c/community-slug references render as
   // tappable links — Instagram-style bio. @mentions resolve to a user first
   // and fall back to a community with that slug.
+  // Both plain "@user / c/community" text AND the composer's structured
+  // markup ({@}[name](id) / {c/}[name](id)) render as tappable links.
   const parts = text.split(
-    /(https?:\/\/[^\s]+|@[A-Za-z0-9_]+|c\/[A-Za-z0-9_]+)/g,
+    /(https?:\/\/[^\s]+|\{@\}\[[^\]]+\]\([^)]+\)|\{c\/\}\[[^\]]+\]\([^)]+\)|@[A-Za-z0-9_]+|c\/[A-Za-z0-9_]+)/g,
   );
 
   const openMention = async (handle: string) => {
@@ -1863,6 +1873,37 @@ function BioText({
               onPress={() => onLinkPress(normalizeUrl(part))}
             >
               {part}
+            </Text>
+          );
+        }
+        if (part.startsWith("{@}")) {
+          const match = part.match(/^\{@\}\[([^\]]+)\]\(([^)]+)\)$/);
+          const handle = match ? match[1] : part.slice(3);
+          return (
+            <Text
+              key={i}
+              style={{ color: colors.primaryLight, fontWeight: "700" }}
+              onPress={() => openMention(handle)}
+            >
+              @{handle}
+            </Text>
+          );
+        }
+        if (part.startsWith("{c/}")) {
+          const match = part.match(/^\{c\/\}\[([^\]]+)\]\(([^)]+)\)$/);
+          const slug = match ? match[1] : part.slice(4);
+          return (
+            <Text
+              key={i}
+              style={{ color: colors.cyanLight, fontWeight: "700" }}
+              onPress={() =>
+                navigation.navigate("Community" as any, {
+                  screen: "CommunityDetail",
+                  params: { communitySlug: slug },
+                } as any)
+              }
+            >
+              c/{slug}
             </Text>
           );
         }

@@ -133,6 +133,8 @@ export interface Post {
   /** Whether the current user already reposted this post. */
   repostedByMe?: boolean;
   repostOfId?: string | null;
+  /** Optional place tag captured at creation — shown in the card's rolling text. */
+  location?: { lat: number; lon: number; place?: string } | null;
   type: 'text' | 'image' | 'video' | 'poll';
 }
 

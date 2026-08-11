@@ -1,4 +1,4 @@
-import React, { useState, useRef } from "react";
+import React, { useState, useRef, useEffect } from "react";
 import {
   Modal,
   View,
@@ -19,6 +19,8 @@ import { LinearGradient } from "expo-linear-gradient";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import * as ImagePicker from "expo-image-picker";
 import * as DocumentPicker from "expo-document-picker";
+import * as Location from "expo-location";
+import axios from "axios";
 import { Video, Audio, ResizeMode } from "expo-av";
 import * as FileSystem from "expo-file-system/legacy";
 import { colors as staticColors, fontSizes, spacing, radii } from "../../theme";
@@ -141,6 +143,26 @@ export default function CreatePostModal({
     preselectedCommunityId ?? null,
   );
   const [showPicker, setShowPicker] = useState(false);
+
+  // ── Location tag (lat / lon / place) shown in the card's rolling text ──
+  const [postLocation, setPostLocation] = useState<{
+    lat: number;
+    lon: number;
+    place?: string;
+  } | null>(null);
+  const [locationLoading, setLocationLoading] = useState(false);
+  // Location picker — type-to-search with suggestions, or auto-detect (same
+  // behaviour as the signup page).
+  const [showLocationInput, setShowLocationInput] = useState(false);
+  const [locationQuery, setLocationQuery] = useState("");
+  const [locationResults, setLocationResults] = useState<
+    { name: string; lat: number; lon: number }[]
+  >([]);
+  const [locationSearching, setLocationSearching] = useState(false);
+  const [locationDropdownVisible, setLocationDropdownVisible] =
+    useState(false);
+  const [isTypingLocation, setIsTypingLocation] = useState(false);
+
   const [showHashtagInput, setShowHashtagInput] = useState(false);
   const [hashtagInput, setHashtagInput] = useState("");
   const [validationError, setValidationError] = useState<string | null>(null);
@@ -150,7 +172,7 @@ export default function CreatePostModal({
   // ── Hashtags & Mentions ─────────────────────────────────────────
   const [hashtags, setHashtags] = useState<string[]>([]);
   const [activeInput, setActiveInput] = useState<
-    "title" | "content" | "hashtag" | null
+    "title" | "content" | "hashtag" | "location" | null
   >(null);
 
   // Media state
@@ -184,6 +206,12 @@ export default function CreatePostModal({
       setPostType(preselectedCommunityId ? "community" : null);
       setSelComId(preselectedCommunityId ?? null);
       setShowPicker(false);
+      setPostLocation(null);
+      setShowLocationInput(false);
+      setLocationQuery("");
+      setLocationResults([]);
+      setLocationDropdownVisible(false);
+      setIsTypingLocation(false);
       setActiveInput(null);
     } else {
       setPostType(preselectedCommunityId ? "community" : null);
@@ -484,6 +512,113 @@ export default function CreatePostModal({
     setMediaItems((prev) => prev.filter((_, i) => i !== index));
   };
 
+  // ── Location picker ───────────────────────────────────────
+  // Same behaviour as the signup page: type to search (nominatim
+  // suggestions) or auto-detect the current position. The chosen tag
+  // (lat / lon / place) rides in the post payload and shows in the card's
+  // rolling text; place falls back to the coordinates offline.
+  const applyLocation = (
+    loc: { lat: number; lon: number; place?: string },
+    keepPanelOpen = false,
+  ) => {
+    setPostLocation(loc);
+    setLocationQuery(
+      loc.place || `${loc.lat.toFixed(4)}, ${loc.lon.toFixed(4)}`,
+    );
+    setIsTypingLocation(false);
+    setLocationDropdownVisible(false);
+    if (!keepPanelOpen) setShowLocationInput(false);
+  };
+
+  // Captures the current position (lat/lon) and reverse-geocodes it to a
+  // human-readable place name ("Bengaluru, Karnataka"). Pass keepPanelOpen
+  // when called from the input's onFocus so the detected place lands in the
+  // field (like signup) instead of closing the picker.
+  const captureLocation = async (keepPanelOpen = false) => {
+    setLocationLoading(true);
+    appLockBypass.beginNativeFlow();
+    try {
+      const { status } =
+        await Location.requestForegroundPermissionsAsync();
+      if (status !== "granted") {
+        themedAlert(
+          "Permission needed",
+          "Allow location access to tag your post with a place.",
+        );
+        return;
+      }
+      const pos = await Location.getCurrentPositionAsync({
+        accuracy: Location.Accuracy.Balanced,
+      });
+      let place: string | undefined;
+      try {
+        const [addr] = await Location.reverseGeocodeAsync(pos.coords);
+        if (addr) {
+          place = [addr.city, addr.region, addr.country]
+            .filter(Boolean)
+            .join(", ");
+        }
+      } catch (e) {
+        place = undefined;
+      }
+      applyLocation(
+        {
+          lat: pos.coords.latitude,
+          lon: pos.coords.longitude,
+          place: place || undefined,
+        },
+        keepPanelOpen,
+      );
+    } catch (e) {
+      console.warn("Failed to capture location", e);
+      themedAlert("Error", "Could not fetch your location. Try again.");
+    } finally {
+      appLockBypass.endNativeFlow();
+      setLocationLoading(false);
+    }
+  };
+
+  // Live place search — mirrors the signup page's nominatim lookup.
+  useEffect(() => {
+    if (!isTypingLocation || locationQuery.length < 3) {
+      setLocationResults([]);
+      setLocationSearching(false);
+      return;
+    }
+    setLocationSearching(true);
+    const timer = setTimeout(async () => {
+      try {
+        const res = await axios.get(
+          `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(
+            locationQuery,
+          )}&limit=5`,
+          { headers: { "User-Agent": "TaddleBoxApp/1.0" } },
+        );
+        const uniqueItems = res.data
+          .map((item: any) => ({
+            name: item.display_name
+              .split(",")
+              .slice(0, 3)
+              .join(",")
+              .trim(),
+            lat: parseFloat(item.lat),
+            lon: parseFloat(item.lon),
+          }))
+          .filter(
+            (v: any, i: number, a: any[]) =>
+              a.findIndex((t) => t.name === v.name) === i,
+          );
+        setLocationResults(uniqueItems);
+        setLocationDropdownVisible(true);
+      } catch (e) {
+        console.log("Location search error", e);
+      } finally {
+        setLocationSearching(false);
+      }
+    }, 400);
+    return () => clearTimeout(timer);
+  }, [locationQuery, isTypingLocation]);
+
   // ── GIF helpers ─────────────────────────────────────────────────
   const fetchGifs = async (query: string = "") => {
     setGifLoading(true);
@@ -734,6 +869,7 @@ export default function CreatePostModal({
               : "public",
         status: "published",
         media: uploadedMedia,
+        location: postLocation ?? undefined,
       };
 
       // Publish post via mutation
@@ -1299,6 +1435,43 @@ export default function CreatePostModal({
                 )}
               </View>
 
+              {/* Location toggle — sits right after @, opens the picker below */}
+              <View style={styles.toolbarBtn}>
+                <TouchableOpacity
+                  onPress={() => {
+                    if (!showLocationInput && postLocation) {
+                      setLocationQuery(
+                        postLocation.place ||
+                          `${postLocation.lat.toFixed(4)}, ${postLocation.lon.toFixed(4)}`,
+                      );
+                    }
+                    setShowLocationInput((v) => !v);
+                  }}
+                  disabled={locationLoading}
+                  hitSlop={{ top: 6, bottom: 6, left: 6, right: 6 }}
+                >
+                  <Ionicons
+                    name={postLocation ? "location" : "location-outline"}
+                    size={24}
+                    color={
+                      locationLoading
+                        ? colors.text.muted
+                        : colors.primaryLight
+                    }
+                  />
+                </TouchableOpacity>
+                {postLocation && (
+                  <View
+                    style={[
+                      styles.toolbarCountBadge,
+                      { bottom: -2, left: -2, top: "auto", right: "auto" },
+                    ]}
+                  >
+                    <Ionicons name="location" size={8} color="#fff" />
+                  </View>
+                )}
+              </View>
+
               {/* Hashtag Toggle */}
               <Animated.View
                 style={{ transform: [{ translateX: shakeHashtagAnim }] }}
@@ -1328,6 +1501,184 @@ export default function CreatePostModal({
               </Animated.View>
             </View>
           </View>
+
+          {/* ── Location picker ── */}
+          {showLocationInput && (
+            <View style={styles.section}>
+              <Text style={styles.sectionLabel}>
+                Location{" "}
+              </Text>
+              <View
+                style={{
+                  position: "relative",
+                  zIndex: activeInput === "location" ? 100 : 1,
+                  elevation: activeInput === "location" ? 100 : 1,
+                }}
+              >
+                <View style={styles.hashInputPill}>
+                  <Ionicons
+                    name="location"
+                    size={14}
+                    color={colors.primaryLight}
+                  />
+                  <TextInput
+                    style={[styles.hashInputPillInput, { flex: 1 }]}
+                    placeholder="Search a place…"
+                    placeholderTextColor={colors.text.muted}
+                    value={locationQuery}
+                    onFocus={() => {
+                      setActiveInput("location");
+                      setLocationDropdownVisible(true);
+                      // Same as signup: auto-detect when opened empty,
+                      // filling the field rather than closing the picker.
+                      if (!locationQuery.trim() && !postLocation) {
+                        captureLocation(true);
+                      }
+                    }}
+                    onChangeText={(text) => {
+                      setLocationQuery(text);
+                      setIsTypingLocation(true);
+                      setLocationDropdownVisible(true);
+                    }}
+                    onBlur={() =>
+                      setTimeout(() => setLocationDropdownVisible(false), 250)
+                    }
+                    autoCapitalize="words"
+                    returnKeyType="search"
+                  />
+                  <TouchableOpacity
+                    onPress={() => captureLocation()}
+                    disabled={locationLoading}
+                    hitSlop={{ top: 6, bottom: 6, left: 6, right: 6 }}
+                  >
+                    <Ionicons
+                      name={locationLoading ? "sync" : "locate"}
+                      size={18}
+                      color={colors.primaryLight}
+                    />
+                  </TouchableOpacity>
+                </View>
+
+                {locationDropdownVisible && (
+                  <View style={styles.locationDropdown}>
+                    <ScrollView
+                      keyboardShouldPersistTaps="handled"
+                      style={{ maxHeight: 240 }}
+                    >
+                      <TouchableOpacity
+                        style={styles.locationDropdownItem}
+                        onPress={() => captureLocation()}
+                      >
+                        <Ionicons
+                          name="locate"
+                          size={16}
+                          color={colors.primaryLight}
+                        />
+                        <Text
+                          style={[
+                            styles.locationDropdownText,
+                            {
+                              color: colors.primaryLight,
+                              fontWeight: "700",
+                            },
+                          ]}
+                        >
+                          Auto-detect my location
+                        </Text>
+                      </TouchableOpacity>
+                      {locationQuery.length < 3 ? (
+                        <View style={styles.locationDropdownHint}>
+                          <Text
+                            style={[
+                              styles.locationDropdownHintText,
+                              { color: colors.text.muted },
+                            ]}
+                          >
+                            Type at least 3 letters to search…
+                          </Text>
+                        </View>
+                      ) : locationSearching ? (
+                        <View style={styles.locationDropdownHint}>
+                          <Text
+                            style={[
+                              styles.locationDropdownHintText,
+                              { color: colors.text.muted },
+                            ]}
+                          >
+                            Searching…
+                          </Text>
+                        </View>
+                      ) : locationResults.length === 0 ? (
+                        <View style={styles.locationDropdownHint}>
+                          <Text
+                            style={[
+                              styles.locationDropdownHintText,
+                              { color: colors.text.muted },
+                            ]}
+                          >
+                            No locations found for "{locationQuery}"
+                          </Text>
+                        </View>
+                      ) : (
+                        locationResults.map((item, idx) => (
+                          <TouchableOpacity
+                            key={idx}
+                            style={styles.locationDropdownItem}
+                            onPress={() =>
+                              applyLocation({
+                                lat: item.lat,
+                                lon: item.lon,
+                                place: item.name,
+                              })
+                            }
+                          >
+                            <Ionicons
+                              name="location-outline"
+                              size={16}
+                              color={colors.text.muted}
+                            />
+                            <Text style={styles.locationDropdownText}>
+                              {item.name}
+                            </Text>
+                          </TouchableOpacity>
+                        ))
+                      )}
+                    </ScrollView>
+                  </View>
+                )}
+              </View>
+            </View>
+          )}
+
+          {/* ── Location ── */}
+          {postLocation && (
+            <View style={styles.section}>
+              <Text style={styles.sectionLabel}>Location</Text>
+              <View style={styles.hashtagChips}>
+                <View style={styles.hashChip}>
+                  <Ionicons
+                    name="location"
+                    size={13}
+                    color={colors.primaryLight}
+                  />
+                  <Text
+                    style={[styles.hashChipText, { flexShrink: 1 }]}
+                    numberOfLines={1}
+                  >
+                    {postLocation.place ||
+                      `${postLocation.lat.toFixed(4)}, ${postLocation.lon.toFixed(4)}`}
+                  </Text>
+                  <TouchableOpacity onPress={() => setPostLocation(null)}>
+                    <Ionicons
+                      name="close-circle"
+                      size={13}
+                      color={colors.primaryLight}
+                    />
+                  </TouchableOpacity>
+                </View>
+              </View>
+            </View>
+          )}
 
           {/* ── Hashtags ── */}
           {(showHashtagInput ||
@@ -1928,6 +2279,44 @@ function makeStyles(colors: ReturnType<typeof useThemeColors>) {
       marginLeft: 2,
       paddingVertical: 0,
       minWidth: 50,
+    },
+
+    // Location picker dropdown (type-to-search suggestions)
+    locationDropdown: {
+      position: "absolute",
+      top: "100%",
+      left: 0,
+      right: 0,
+      zIndex: 100,
+      elevation: 100,
+      marginTop: 4,
+      backgroundColor: colors.bg.elevated,
+      borderWidth: 1,
+      borderColor: colors.border,
+      borderRadius: radii.md,
+      overflow: "hidden",
+    },
+    locationDropdownItem: {
+      flexDirection: "row",
+      alignItems: "center",
+      gap: 8,
+      paddingVertical: 12,
+      paddingHorizontal: 14,
+      borderBottomWidth: 1,
+      borderBottomColor: colors.border,
+    },
+    locationDropdownText: {
+      fontSize: fontSizes.sm,
+      color: colors.text.primary,
+      flex: 1,
+    },
+    locationDropdownHint: {
+      paddingVertical: 14,
+      paddingHorizontal: 14,
+      alignItems: "center",
+    },
+    locationDropdownHintText: {
+      fontSize: fontSizes.sm,
     },
 
     // Community picker

@@ -697,9 +697,12 @@ export default function PostCard({
     navigation.navigate("Search", params);
   };
 
-  // Single tap opens this post's DETAIL page (Instagram-style); a quick second
-  // tap is a double-tap → like. The 300ms window matches handleDoubleTap's own
-  // threshold, so the two never fight.
+  // Single tap runs the given action (Instagram-style); a quick second tap is a
+  // double-tap → like. The 300ms window matches handleDoubleTap's own
+  // threshold, so the two never fight. registerTap (below) is the shared
+  // detector — the body text/media AND the embedded repost preview both route
+  // their taps through it, so double-tap-to-like works even where the preview's
+  // own touchable would otherwise swallow both taps.
   const tapNavTimer = React.useRef<any>(null);
   const openPostDetail = React.useCallback(() => {
     // push (not navigate): see openPostThread — a detail page may already be
@@ -717,26 +720,14 @@ export default function PostCard({
     openPostDetail();
   };
 
+  // Body text / media tap — single opens the detail page, double likes.
   const handleBodyTap = () => {
-    const now = Date.now();
-    if (now - lastTapTime.current < 300) {
-      // Double tap → like (cancel any pending single-tap navigation).
-      if (tapNavTimer.current) {
-        clearTimeout(tapNavTimer.current);
-        tapNavTimer.current = null;
-      }
-      lastTapTime.current = 0; // reset so a 3rd tap doesn't re-trigger
-      handleDoubleTap();
-      return;
-    }
-    // First tap — record time, then wait briefly to see if a second tap follows.
-    lastTapTime.current = now;
-    if (disableTapNavigation) return;
-    if (tapNavTimer.current) clearTimeout(tapNavTimer.current);
-    tapNavTimer.current = setTimeout(() => {
-      tapNavTimer.current = null;
+    // Inside the post's own detail page single-tap navigation is disabled,
+    // but double-tap to like still works (registerTap records the first tap).
+    registerTap(() => {
+      if (disableTapNavigation) return;
       openPostDetail();
-    }, 300);
+    });
   };
 
   const handleDoubleTap = () => {
@@ -758,6 +749,31 @@ export default function PostCard({
       })
     ]).start();
   };
+
+  // Shared double-tap detector — first tap schedules onSingleTap after 300ms;
+  // a second tap inside the window cancels it and likes instead. Both the body
+  // and the embedded repost preview route through here so the two areas stay
+  // in sync (e.g. first tap on the body, second on the preview still counts).
+  const registerTap = React.useCallback((onSingleTap: () => void) => {
+    const now = Date.now();
+    if (now - lastTapTime.current < 300) {
+      // Double tap → like (cancel any pending single-tap navigation).
+      if (tapNavTimer.current) {
+        clearTimeout(tapNavTimer.current);
+        tapNavTimer.current = null;
+      }
+      lastTapTime.current = 0; // reset so a 3rd tap doesn't re-trigger
+      handleDoubleTap();
+      return;
+    }
+    // First tap — record time, then wait briefly to see if a second tap follows.
+    lastTapTime.current = now;
+    if (tapNavTimer.current) clearTimeout(tapNavTimer.current);
+    tapNavTimer.current = setTimeout(() => {
+      tapNavTimer.current = null;
+      onSingleTap();
+    }, 300);
+  }, [handleDoubleTap]);
 
   // Sync mute state when post becomes active
   React.useEffect(() => {
@@ -913,7 +929,7 @@ export default function PostCard({
       <Text style={baseStyle} numberOfLines={lines}>
         {text
           .split(
-            /(\{@\}\[[^\]]+\]\([^)]+\)|\{#\}\[[^\]]+\]\([^)]+\)|<mark>[^<]+<\/mark>|@\w+|#\w+)/g,
+            /(\{@\}\[[^\]]+\]\([^)]+\)|\{#\}\[[^\]]+\]\([^)]+\)|\{c\/\}\[[^\]]+\]\([^)]+\)|<mark>[^<]+<\/mark>|@\w+|#\w+|c\/\w+)/g,
           )
           .map((part: string, i: number) => {
             const mentionMatch = part.match(/^\{@\}\[([^\]]+)\]\(([^)]+)\)$/);
@@ -956,6 +972,45 @@ export default function PostCard({
                   onPress={() => navigation.navigate("Search", { query: tag, tab: "hashtags" })}
                 >
                   #{tag}
+                </Text>
+              );
+            }
+
+            const communityMatch = part.match(/^\{c\/\}\[([^\]]+)\]\(([^)]+)\)$/);
+            if (communityMatch) {
+              const name = communityMatch[1];
+              const id = communityMatch[2];
+              return (
+                <Text
+                  key={i}
+                  style={{ color: colors.cyanLight, fontWeight: "700" }}
+                  onPress={() =>
+                    navigation.navigate("Community" as any, {
+                      screen: "CommunityDetail",
+                      params: { communitySlug: name },
+                    } as any)
+                  }
+                >
+                  c/{name}
+                </Text>
+              );
+            }
+
+            const plainCommunityMatch = part.match(/^c\/([a-z0-9_]+)$/i);
+            if (plainCommunityMatch) {
+              const slug = plainCommunityMatch[1];
+              return (
+                <Text
+                  key={i}
+                  style={{ color: colors.cyanLight, fontWeight: "700" }}
+                  onPress={() =>
+                    navigation.navigate("Community" as any, {
+                      screen: "CommunityDetail",
+                      params: { communitySlug: slug },
+                    } as any)
+                  }
+                >
+                  c/{slug}
                 </Text>
               );
             }
@@ -1198,13 +1253,6 @@ export default function PostCard({
                         }
                       }}
                     >
-                      {communityPrivacy === 'private' && (
-                        <Ionicons
-                          name="lock-closed"
-                          size={11}
-                          color={colors.text.muted}
-                        />
-                      )}
                       {" "}• c/{typeof post.community === 'object' ? ((post.community as any).name || (post.community as any).slug) : post.community}
                     </Text>
                   ) : null}
@@ -1225,6 +1273,42 @@ export default function PostCard({
                   )}
                 </Text>,
               ];
+              // Optional place tag — pin + place name (or coordinates offline).
+              // Reposts intentionally do NOT show it here: the embedded preview
+              // inside the card already shows the ORIGINAL post's location in
+              // its own rolling text, so repeating it in the outer line would be
+              // duplicate. The backend still carries the original's location on
+              // the repost row (detail view, bookmarks, search all read it) —
+              // only this rolling line skips it.
+              if ((post as any).location && !(post as any).repostOfId) {
+                rollItems.push(
+                  <View
+                    key="location"
+                    style={{
+                      flexDirection: "row",
+                      alignItems: "center",
+                      gap: 4,
+                    }}
+                  >
+                    <Ionicons
+                      name="location"
+                      size={12}
+                      color={colors.text.muted}
+                    />
+                    <Text
+                      style={{
+                        color: colors.text.muted,
+                        fontSize: fontSizes.xs,
+                        fontWeight: "500",
+                      }}
+                      numberOfLines={1}
+                    >
+                      {(post as any).location?.place ||
+                        `${((post as any).location?.lat ?? 0).toFixed(4)}, ${((post as any).location?.lon ?? 0).toFixed(4)}`}
+                    </Text>
+                  </View>,
+                );
+              }
               if (hasAudio) {
                 rollItems.push(
                   <View
@@ -1279,6 +1363,10 @@ export default function PostCard({
             isActive={isActive ?? true}
             onOpen={(orig) => openPostThread(orig as Post)}
             onOrigUnavailable={() => setOrigUnavailable(true)}
+            // Route the preview's taps through the SAME double-tap detector
+            // as the body/media — otherwise the preview's own touchable
+            // swallows both taps and double-tap-to-like dies on repost cards.
+            onTap={(singleTap) => registerTap(singleTap)}
           />
           ) : null}
         </View>
@@ -1828,6 +1916,7 @@ function RepostedPostCard({
   isActive,
   onOpen,
   onOrigUnavailable,
+  onTap,
 }: {
   postId: string;
   wrapperId?: string;
@@ -1836,6 +1925,9 @@ function RepostedPostCard({
   /** Fired when the original is unreachable (deleted/404) — the outer card
       hides its Repost action so unavailable content can't be reshared. */
   onOrigUnavailable?: () => void;
+  /** Double-tap-aware tap router from the outer card: pass it the single-tap
+      action (open the original) and it decides single-tap vs double-tap→like. */
+  onTap?: (singleTap: () => void) => void;
 }) {
   const colors = useThemeColors();
   const [orig, setOrig] = React.useState<any>(() => {
@@ -1910,7 +2002,6 @@ function RepostedPostCard({
       : typeof comm === "string"
         ? comm
         : "";
-  const commPrivacy = typeof comm === "object" ? (comm as any)?.privacy : undefined;
   const media = (orig as any).media || [];
   const visual = media.filter(
     (m: any) => m.media_type !== "audio" && m.type !== "audio"
@@ -1919,6 +2010,10 @@ function RepostedPostCard({
     (m: any) => m.media_type === "audio" || m.type === "audio"
   );
   const origHasAudio = origAudioMedia.length > 0;
+  const origLoc = (orig as any)?.location as
+    | { lat: number; lon: number; place?: string }
+    | null
+    | undefined;
   const origHasVideo = visual.some(
     (m: any) => m.media_type === "video" || m.type === "video"
   );
@@ -1935,11 +2030,15 @@ function RepostedPostCard({
   const openOriginal = () => {
     if (orig?.id) onOpen?.(orig);
   };
+  // Single tap opens the ORIGINAL's thread; a quick second tap is a double-tap
+  // → like, routed through the outer card's shared detector. Without onTap the
+  // preview's own touchable would swallow both taps and the like never fires.
+  const handlePreviewPress = onTap ? () => onTap(openOriginal) : openOriginal;
 
   return (
     <TouchableOpacity
       activeOpacity={0.85}
-      onPress={openOriginal}
+      onPress={handlePreviewPress}
       style={{
         borderLeftWidth: 3,
         borderLeftColor: "rgba(124,58,237,0.45)",
@@ -1992,17 +2091,14 @@ function RepostedPostCard({
                 key="username"
                 style={{
                   fontSize: 11,
-                  color: colors.text.muted,
+                  color: colors.text.secondary,
                   fontWeight: "500",
                 }}
               >
                 @{author.username}
                 {commName ? (
                   <Text style={{ color: colors.primaryLight, fontWeight: "700" }}>
-                    {commPrivacy === "private" && (
-                      <Ionicons name="lock-closed" size={10} color={colors.text.muted} />
-                    )}{" "}
-                    • c/{commName}
+                    {" "}• c/{commName}
                   </Text>
                 ) : null}
               </Text>,
@@ -2010,7 +2106,7 @@ function RepostedPostCard({
                 key="time"
                 style={{
                   fontSize: 11,
-                  color: colors.text.muted,
+                  color: colors.text.secondary,
                   fontWeight: "500",
                 }}
               >
@@ -2031,16 +2127,45 @@ function RepostedPostCard({
                       <Ionicons
                         name="musical-notes"
                         size={12}
-                        color={colors.text.muted}
+                        color={colors.text.secondary}
                       />
                       <Text
                         style={{
-                          color: colors.text.muted,
+                          color: colors.text.secondary,
                           fontSize: fontSizes.xs,
                           fontWeight: "500",
                         }}
                       >
                         Original Audio
+                      </Text>
+                    </View>,
+                  ]
+                : []),
+              ...(origLoc
+                ? [
+                    <View
+                      key="location"
+                      style={{
+                        flexDirection: "row",
+                        alignItems: "center",
+                        gap: 4,
+                      }}
+                    >
+                      <Ionicons
+                        name="location"
+                        size={12}
+                        color={colors.text.secondary}
+                      />
+                      <Text
+                        style={{
+                          color: colors.text.secondary,
+                          fontSize: 11,
+                          fontWeight: "500",
+                        }}
+                        numberOfLines={1}
+                      >
+                        {origLoc.place ||
+                          `${origLoc.lat.toFixed(4)}, ${origLoc.lon.toFixed(4)}`}
                       </Text>
                     </View>,
                   ]

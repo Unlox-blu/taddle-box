@@ -381,7 +381,12 @@ export default function HomeScreen() {
 
       <SharedFeed
         posts={filteredPosts}
-        refreshing={isRefetching || refreshing}
+        // Only the actual pull gesture (or the tab-double-tap refresh) should
+        // show the refresh indicator. Feeding isRefetching in here made EVERY
+        // background refetch (like/save/repost/focus) flash the spinner and
+        // yank the list — visible as a card jerk on iOS and a blank list on
+        // Android.
+        refreshing={refreshing}
         onRefresh={onRefresh}
         onLike={(id) =>
           toggleLike({

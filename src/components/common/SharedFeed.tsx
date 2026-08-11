@@ -1,4 +1,4 @@
-import React, { useState, useRef, useCallback } from 'react';
+import React, { useState, useRef, useCallback, useEffect } from 'react';
 import { FlatList, View, Text, Share, Image, DeviceEventEmitter } from 'react-native';
 import { useNavigation, useScrollToTop } from '@react-navigation/native';
 import PostCard from '../home/PostCard';
@@ -30,6 +30,13 @@ interface SharedFeedProps {
   ListFooterComponent?: React.ReactElement | null;
   scrollEnabled?: boolean;
   contentContainerStyle?: any;
+  /** Reports the list's current vertical scroll offset (the profile uses it to
+      preserve scroll position across Posts/Reposts/Mentions tab switches). */
+  onScroll?: (offsetY: number) => void;
+  /** Scroll the list to this offset once, after its first content arrives — a
+      freshly remounted list starts at 0, and this puts it back where the user
+      was (e.g. switching back to the Posts tab from Mentions). */
+  initialScrollOffset?: number;
 }
 
 export default function SharedFeed({
@@ -50,7 +57,9 @@ export default function SharedFeed({
   ListEmptyComponent,
   ListFooterComponent,
   scrollEnabled = true,
-  contentContainerStyle
+  contentContainerStyle,
+  onScroll,
+  initialScrollOffset
 }: SharedFeedProps) {
   // A string slipped into a List*Component (a caller passing "No posts" as a
   // literal instead of a <View>) would be rendered directly inside a host View
@@ -70,6 +79,18 @@ export default function SharedFeed({
 
   const flatListRef = useRef<any>(null);
   useScrollToTop(flatListRef);
+
+  // A remounted list (profile tab switch back to Posts/Reposts) starts at
+  // offset 0 — hop back to the saved position once its first content is in.
+  const restoredOffsetRef = useRef(false);
+  useEffect(() => {
+    if (!initialScrollOffset || restoredOffsetRef.current || posts.length === 0) return;
+    restoredOffsetRef.current = true;
+    const t = setTimeout(() => {
+      flatListRef.current?.scrollToOffset({ offset: initialScrollOffset, animated: false });
+    }, 30);
+    return () => clearTimeout(t);
+  }, [initialScrollOffset, posts.length]);
 
   React.useEffect(() => {
     const sub = DeviceEventEmitter.addListener('homeDoubleTap', () => {
@@ -208,10 +229,21 @@ export default function SharedFeed({
         ref={flatListRef}
         data={posts}
         keyExtractor={item => item.id}
+        // Android's default removeClippedSubviews detaches off-screen cards
+        // while the feed is being scrolled; when the data array is replaced
+        // (refetch) the re-attached cards can render blank/white. Keeping the
+        // views mounted avoids that glitch — FlatList still virtualizes.
+        removeClippedSubviews={false}
         showsVerticalScrollIndicator={false}
         contentContainerStyle={contentContainerStyle}
+        onScroll={(e) => onScroll?.(e.nativeEvent.contentOffset.y)}
+        scrollEventThrottle={16}
         refreshControl={
-          <AppRefreshControl refreshing={refreshing || false} onRefresh={onRefresh} />
+          <AppRefreshControl
+            refreshing={refreshing || false}
+            // onRefresh is optional here — AppRefreshControl requires a handler.
+            onRefresh={onRefresh || (() => {})}
+          />
         }
         // iOS only: without this, a short list (few posts / short bookmarks /
         // profile with a handful of posts) can't be pulled down at all, so the

@@ -16,6 +16,7 @@ import { mediaService } from '../../services/media.service';
 import { fontSizes, spacing, radii } from '../../theme';
 import { appLockBypass } from '../../utils/appLockBypass';
 import { themedAlert } from '../../components/common/ThemedAlert';
+import SmartInput from '../../components/common/SmartInput';
 
 const OCCUPATION_OPTIONS = [
   "Student",
@@ -375,7 +376,7 @@ export default function EditProfileScreen() {
     label: string,
     value: string,
     onChange: (v: string) => void,
-    opts?: { multiline?: boolean; placeholder?: string; keyboardType?: any; autoCapitalize?: any; trailing?: React.ReactNode }
+    opts?: { multiline?: boolean; placeholder?: string; keyboardType?: any; autoCapitalize?: any; trailing?: React.ReactNode; mentionsInput?: boolean }
   ) => (
     <View
       style={styles.fieldWrap}
@@ -385,26 +386,47 @@ export default function EditProfileScreen() {
     >
       <Text style={[styles.fieldLabel, { color: colors.text.muted }]}>{label}</Text>
       <View style={styles.inputShell}>
-        <TextInput
-          value={value}
-          onChangeText={onChange}
-          onFocus={() => scrollToField(label)}
-          style={[
-            styles.fieldInput,
-            {
-              color:           colors.text.primary,
-              borderColor:     colors.border,
-              backgroundColor: colors.bg.card,
-            },
-            opts?.multiline && { height: 90, textAlignVertical: 'top' },
-          ]}
-          placeholderTextColor={colors.text.muted}
-          placeholder={opts?.placeholder ?? ''}
-          multiline={opts?.multiline}
-          keyboardType={opts?.keyboardType ?? 'default'}
-          autoCapitalize={opts?.autoCapitalize ?? 'sentences'}
-          numberOfLines={opts?.multiline ? 4 : 1}
-        />
+        {opts?.mentionsInput ? (
+          <SmartInput
+            value={value}
+            onChange={onChange}
+            onFocus={() => scrollToField(label)}
+            style={[
+              styles.fieldInput,
+              {
+                color:           colors.text.primary,
+                borderColor:     colors.border,
+                backgroundColor: colors.bg.card,
+              },
+              { height: 90, textAlignVertical: 'top' },
+            ]}
+            placeholderTextColor={colors.text.muted}
+            placeholder={opts?.placeholder ?? ''}
+            multiline
+            suggestionPosition="top"
+          />
+        ) : (
+          <TextInput
+            value={value}
+            onChangeText={onChange}
+            onFocus={() => scrollToField(label)}
+            style={[
+              styles.fieldInput,
+              {
+                color:           colors.text.primary,
+                borderColor:     colors.border,
+                backgroundColor: colors.bg.card,
+              },
+              opts?.multiline && { height: 90, textAlignVertical: 'top' },
+            ]}
+            placeholderTextColor={colors.text.muted}
+            placeholder={opts?.placeholder ?? ''}
+            multiline={opts?.multiline}
+            keyboardType={opts?.keyboardType ?? 'default'}
+            autoCapitalize={opts?.autoCapitalize ?? 'sentences'}
+            numberOfLines={opts?.multiline ? 4 : 1}
+          />
+        )}
         {opts?.trailing}
       </View>
     </View>
@@ -640,7 +662,7 @@ export default function EditProfileScreen() {
             )}
           </View>
 
-          {field('Bio',        bio,      setBio,      { placeholder: 'Tell the world about yourself…', multiline: true })}
+          {field('Bio',        bio,      setBio,      { placeholder: 'Tell the world about yourself…', multiline: true, mentionsInput: true })}
           {field('Website',    website,  setWebsite,  { placeholder: 'https://yourwebsite.com', keyboardType: 'url', autoCapitalize: 'none' })}
           {field('Location',   location, setLocation, { placeholder: 'e.g. Bangalore, India' })}
           {field('Organization / College', organization, setOrganization, { placeholder: 'Where do you work or study?' })}

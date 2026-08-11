@@ -24,41 +24,47 @@ export function useToggleLike() {
     },
     onMutate: async ({ id, isCurrentlyLiked }) => {
       await queryClient.cancelQueries({ queryKey: queryKeys.feed });
-      
-      const previousFeed = queryClient.getQueryData(queryKeys.feed);
-      
-      queryClient.setQueryData(queryKeys.feed, (old: any) => {
-        if (!old) return old;
-        return {
-          ...old,
-          pages: old.pages.map((page: Post[]) =>
-            page.map((post) => {
-              if (post.id === id) {
-                const currentLikes = post.likes ?? (post as any).likesCount ?? 0;
-                const newLikes = isCurrentlyLiked ? Math.max(0, currentLikes - 1) : currentLikes + 1;
-                return {
-                  ...post,
-                  isLiked: !isCurrentlyLiked,
-                  likes: newLikes,
-                  likesCount: newLikes,
-                };
-              }
-              return post;
-            })
-          ),
-        };
+
+      // Patch EVERY feed variant (['feed'], ['feed', hashtag], …) so the heart
+      // flips instantly everywhere. Patching only the bare ['feed'] key would
+      // miss the active ['feed', hashtag] queries — which is why the old code
+      // had to refetch the whole feed after every like (that refetch is what
+      // flashed the pull-to-refresh spinner and yanked/blanked the list).
+      const previous: [readonly unknown[], unknown][] = [];
+      queryClient.getQueryCache().findAll({ queryKey: queryKeys.feed }).forEach((query) => {
+        previous.push([query.queryKey, queryClient.getQueryData(query.queryKey)]);
+        queryClient.setQueryData(query.queryKey, (old: any) => {
+          if (!old) return old;
+          return {
+            ...old,
+            pages: old.pages.map((page: Post[]) =>
+              page.map((post) => {
+                if (post.id === id) {
+                  const currentLikes = post.likes ?? (post as any).likesCount ?? 0;
+                  const newLikes = isCurrentlyLiked ? Math.max(0, currentLikes - 1) : currentLikes + 1;
+                  return {
+                    ...post,
+                    isLiked: !isCurrentlyLiked,
+                    likes: newLikes,
+                    likesCount: newLikes,
+                  };
+                }
+                return post;
+              })
+            ),
+          };
+        });
       });
-      
-      return { previousFeed };
+
+      return { previous };
     },
     onError: (err, variables, context: any) => {
-      if (context?.previousFeed) {
-        queryClient.setQueryData(queryKeys.feed, context.previousFeed);
-      }
+      context?.previous?.forEach(([key, data]: [readonly unknown[], unknown]) => {
+        queryClient.setQueryData(key, data);
+      });
     },
-    onSettled: () => {
-      queryClient.invalidateQueries({ queryKey: queryKeys.feed });
-    },
+    // No onSettled refetch — the optimistic patch above already reflects the
+    // change everywhere, and refetching here was the cause of the list jerk.
   });
 }
 
@@ -109,7 +115,10 @@ export function useToggleSave() {
       }
     },
     onSettled: () => {
-      queryClient.invalidateQueries({ queryKey: queryKeys.feed });
+      // Only the bookmarks list needs a refetch (a newly saved post must appear
+      // there; flipping isSaved in the cache can't add rows). The feed variants
+      // were already patched optimistically in onMutate — refetching them is
+      // what caused the list to jerk/blank on every save.
       queryClient.invalidateQueries({ queryKey: BOOKMARKS_KEY });
     },
   });

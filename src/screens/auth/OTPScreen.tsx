@@ -1,7 +1,7 @@
 import React, { useState, useRef, useEffect } from 'react';
 import {
   View, Text, TextInput, TouchableOpacity, StyleSheet,
-  Animated, Dimensions, KeyboardAvoidingView, Platform, ScrollView
+  Animated, Dimensions, KeyboardAvoidingView, Platform, ScrollView, Image
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { NativeStackScreenProps } from '@react-navigation/native-stack';
@@ -12,6 +12,14 @@ import Button from '../../components/common/Button';
 import type { AuthStackParamList } from '../../types';
 import { useAuth } from '../../context/AuthContext';
 import { authService } from '../../services/auth.service';
+import { getReferralRewards } from '../../services/appConfig.service';
+
+interface ReferrerInfo {
+  id?: string;
+  name?: string;
+  username?: string;
+  avatarUrl?: string;
+}
 
 const OTP_LENGTH = 6;
 type Props = NativeStackScreenProps<AuthStackParamList, 'OTP'>;
@@ -33,10 +41,14 @@ export default function OTPScreen({ navigation, route }: Props) {
   const [verified, setVerified] = useState(false);
   const [timer, setTimer]       = useState(30);
   const [errorMsg, setErrorMsg] = useState('');
+  const [referrer, setReferrer] = useState<ReferrerInfo | null>(null);
+  const [welcomeName, setWelcomeName] = useState('');
+  const [referralXp, setReferralXp] = useState<number | null>(null);
   
   const emailRefs = useRef<(TextInput | null)[]>([]);
   const phoneRefs = useRef<(TextInput | null)[]>([]);
   const checkAnim = useRef(new Animated.Value(0)).current;
+  const giftAnim = useRef(new Animated.Value(0)).current;
 
   // Reset state
   useEffect(() => {
@@ -132,6 +144,28 @@ export default function OTPScreen({ navigation, route }: Props) {
       
       setVerified(true);
       Animated.spring(checkAnim, { toValue: 1, useNativeDriver: true, tension: 50 }).start();
+
+      // Welcome-screen data: the referrer (if a referral code was used) and
+      // the backend-controlled joiner reward amount.
+      const payload = res.data || res;
+      const ref = (payload as any)?.referrer;
+      setReferrer(ref?.username ? ref : null);
+      setWelcomeName((payload as any)?.user?.name || signupData.name || '');
+      if (ref?.username) {
+        getReferralRewards()
+          .then((r) => {
+            const xp = r?.joinerXp ?? null;
+            setReferralXp(xp);
+            if (xp != null) {
+              Animated.sequence([
+                Animated.spring(giftAnim, { toValue: 1, useNativeDriver: true, friction: 3, tension: 90 }),
+                Animated.timing(giftAnim, { toValue: 0, useNativeDriver: true, duration: 350 }),
+                Animated.spring(giftAnim, { toValue: 1, useNativeDriver: true, friction: 4, tension: 80 }),
+              ]).start();
+            }
+          })
+          .catch(() => {});
+      }
       
       const accessToken = res.data?.sessionData?.accessToken || res.sessionData?.accessToken || res.data?.accessToken;
       const refreshToken = res.data?.sessionData?.refreshToken || res.sessionData?.refreshToken || res.data?.refreshToken;
@@ -202,10 +236,68 @@ export default function OTPScreen({ navigation, route }: Props) {
         <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
           {verified ? (
             <Animated.View style={[styles.successWrap, { transform: [{ scale: checkScale }] }]}>
-              <LinearGradient colors={[colors.success, '#059669']} style={styles.successCircle}>
-                <Ionicons name="checkmark" size={44} color="#fff" />
-              </LinearGradient>
-              <Text style={styles.successText}>Verified! 🎉</Text>
+              <Text style={styles.successEyebrow}>Welcome to TaddleBox</Text>
+              <Text style={styles.successText}>
+                {welcomeName ? `Hey, ${welcomeName.split(' ')[0]}! 👋` : 'You\'re in! 🎉'}
+              </Text>
+
+              {referrer ? (
+                <>
+                  {/* Gift-box animation — shakes open when the joiner bonus lands. */}
+                  <Animated.View
+                    style={{
+                      transform: [
+                        {
+                          rotate: giftAnim.interpolate({
+                            inputRange: [0, 0.25, 0.5, 0.75, 1],
+                            outputRange: ['0deg', '-12deg', '8deg', '-6deg', '0deg'],
+                          }),
+                        },
+                        {
+                          scale: giftAnim.interpolate({
+                            inputRange: [0, 1],
+                            outputRange: [1, 1.12],
+                          }),
+                        },
+                      ],
+                    }}
+                  >
+                    <LinearGradient colors={[colors.primary, colors.primaryDark]} style={styles.giftBox}>
+                      <Ionicons name="gift" size={46} color="#fff" />
+                      <View style={styles.giftRibbon} />
+                    </LinearGradient>
+                  </Animated.View>
+
+                  <View style={styles.referralCard}>
+                    <View style={styles.referrerAvatar}>
+                      {referrer.avatarUrl ? (
+                        <Image source={{ uri: referrer.avatarUrl }} style={styles.referrerAvatarImg} />
+                      ) : (
+                        <Text style={styles.referrerAvatarEmoji}>🎁</Text>
+                      )}
+                    </View>
+                    <View style={{ flex: 1 }}>
+                      <Text style={styles.referralCardTitle}>
+                        {referralXp != null ? `+${referralXp} XP bonus unlocked!` : 'Referral bonus unlocked!'}
+                      </Text>
+                      <Text style={styles.referralCardSub}>
+                        Gift from <Text style={styles.referralCardName}>{referrer.name || `@${referrer.username}`}</Text>
+                        {referrer.username && referrer.name ? ` (@${referrer.username})` : ''}
+                      </Text>
+                    </View>
+                  </View>
+                </>
+              ) : (
+                <LinearGradient colors={[colors.success, '#059669']} style={styles.successCircle}>
+                  <Ionicons name="checkmark" size={44} color="#fff" />
+                </LinearGradient>
+              )}
+
+              <Text style={styles.successSub}>
+                {referrer
+                  ? 'Your account is ready — explore, post and start earning!'
+                  : 'Your account is verified. Let\'s get started!'}
+              </Text>
             </Animated.View>
           ) : (
             <>
@@ -369,11 +461,49 @@ const styles = StyleSheet.create({
   resendRow: { marginTop: 10, marginBottom: 28 },
   timerText: { fontSize: fontSizes.sm, color: colors.text.muted },
   resendText: { fontSize: fontSizes.sm, color: colors.primaryLight, fontWeight: '700' },
-  successWrap: { alignItems: 'center', gap: 16, paddingTop: 60 },
+  successWrap: { alignItems: 'center', gap: 16, paddingTop: 60, paddingHorizontal: 24 },
+  successEyebrow: {
+    fontSize: fontSizes.xs, fontWeight: '700', color: colors.primaryLight,
+    textTransform: 'uppercase', letterSpacing: 1.5,
+  },
   successCircle: {
     width: 100, height: 100,
     borderRadius: 50,
     alignItems: 'center', justifyContent: 'center',
   },
-  successText: { fontSize: fontSizes.xxl, fontWeight: '800', color: colors.text.primary },
+  successText: { fontSize: fontSizes.xxl, fontWeight: '800', color: colors.text.primary, textAlign: 'center' },
+  successSub: {
+    fontSize: fontSizes.sm, color: colors.text.muted, textAlign: 'center', lineHeight: 20,
+  },
+  giftBox: {
+    width: 110, height: 110, borderRadius: 28,
+    alignItems: 'center', justifyContent: 'center',
+    marginTop: 8, overflow: 'hidden',
+    shadowColor: '#7C3AED', shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.4, shadowRadius: 16, elevation: 10,
+  },
+  giftRibbon: {
+    position: 'absolute', top: 0, bottom: 0, width: 26,
+    backgroundColor: 'rgba(255,255,255,0.22)',
+  },
+  referralCard: {
+    flexDirection: 'row', alignItems: 'center', gap: 12,
+    backgroundColor: colors.bg.card, borderWidth: 1, borderColor: colors.border,
+    borderRadius: radii.lg, padding: 14, marginTop: 4,
+    width: '100%', maxWidth: 340,
+  },
+  referrerAvatar: {
+    width: 46, height: 46, borderRadius: 23,
+    backgroundColor: colors.bg.elevated, alignItems: 'center', justifyContent: 'center',
+    overflow: 'hidden',
+  },
+  referrerAvatarImg: { width: 46, height: 46, borderRadius: 23 },
+  referrerAvatarEmoji: { fontSize: 20 },
+  referralCardTitle: {
+    fontSize: fontSizes.sm, fontWeight: '800', color: colors.xpGold,
+  },
+  referralCardSub: {
+    fontSize: fontSizes.xs, color: colors.text.secondary, marginTop: 3, lineHeight: 17,
+  },
+  referralCardName: { color: colors.primaryLight, fontWeight: '700' },
 });

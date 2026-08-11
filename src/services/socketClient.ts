@@ -8,9 +8,17 @@ const localhost = debuggerHost?.split(':')[0];
 const fallbackIp = Platform.OS === "android" ? "10.0.2.2" : "localhost";
 const currentIp = localhost || fallbackIp;
 
-const SOCKET_URL = process.env.EXPO_PUBLIC_BACKEND_URL 
-  ? process.env.EXPO_PUBLIC_BACKEND_URL 
-  : `http://${currentIp}:8080`;
+// Same policy as apiClient: dev builds talk to the Metro host; production
+// builds must carry EXPO_PUBLIC_BACKEND_URL, otherwise fall back to the
+// production domain instead of a device-unreachable emulator address.
+const SOCKET_URL = process.env.EXPO_PUBLIC_BACKEND_URL
+  ? process.env.EXPO_PUBLIC_BACKEND_URL
+  : __DEV__
+    ? `http://${currentIp}:8080`
+    : (() => {
+        console.warn('[socketClient] EXPO_PUBLIC_BACKEND_URL is not set in this production build — sockets will connect to https://taddlebox.com. Set it in eas.json before publishing.');
+        return 'https://taddlebox.com';
+      })();
 
 class SimpleEventEmitter {
   private listeners: { [event: string]: Function[] } = {};

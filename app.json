@@ -45,6 +45,19 @@
           "sounds": []
         }
       ],
+      [
+        "expo-location",
+        {
+          "locationWhenInUsePermission": "Allow $(PRODUCT_NAME) to access your location so you can add it to your posts and discover nearby content."
+        }
+      ],
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "Allow $(PRODUCT_NAME) to access your photos so you can attach images to your posts and profile.",
+          "cameraPermission": "Allow $(PRODUCT_NAME) to access your camera so you can take photos for your posts and profile."
+        }
+      ],
       "expo-asset",
       "expo-secure-store"
     ]

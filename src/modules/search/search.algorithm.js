@@ -25,7 +25,7 @@ const SEARCH_COMMUNITY_ALGORITHM = `SELECT
                                     WHERE 
                                         c.deleted_at IS NULL 
                                         AND c.is_active = TRUE 
-                                        AND c.privacy IN ('public', 'restricted')
+                                        -- Private communities are discoverable (their content is gated on the detail screen)
                                         AND ($1 = '' OR c.name ILIKE $1 OR c.description ILIKE $1)
                                         AND ($2::text IS NULL OR $2 = ANY(c.category))
                                     ORDER BY c.member_count DESC
@@ -125,6 +125,10 @@ const SEARCH_POSt_ALGORITHM = `SELECT
                             FROM posts p
                             JOIN users u
                                 ON u.id = p.author_id
+                            LEFT JOIN posts orig
+                                ON orig.id = p.repost_of_id
+                                AND orig.deleted_at IS NULL
+                                AND orig.status = 'published'
                             LEFT JOIN media ua
                                 ON u.avatar_url = ua.id
                             LEFT JOIN communities c
@@ -346,7 +350,8 @@ const SEARCH_POSt_ALGORITHM = `SELECT
                                 u.id,
                                 ua.id,
                                 c.id,
-                                ca.id
+                                ca.id,
+                                orig.id
                             ORDER BY
                                 CASE WHEN $12 = 'latest' THEN p.created_at END DESC,
                                 CASE WHEN $12 = 'top' THEN (p.likes_count * 2 + p.comments_count * 3) END DESC,
@@ -523,6 +528,11 @@ const DISCOVER_POSTS_ALGORITHM = `WITH ranked_posts AS (
                                             JOIN users u
                                                 ON u.id = p.author_id
                                     
+                                            LEFT JOIN posts orig
+                                                ON orig.id = p.repost_of_id
+                                                AND orig.deleted_at IS NULL
+                                                AND orig.status = 'published'
+                                    
                                             LEFT JOIN communities c
                                                 ON p.community_id = c.id
                                     
@@ -566,7 +576,7 @@ const DISCOVER_POSTS_ALGORITHM = `WITH ranked_posts AS (
                                     
                                                 )
 
-                                            GROUP BY p.id, u.id, ua.id, c.id, ca.id
+                                            GROUP BY p.id, u.id, ua.id, c.id, ca.id, orig.id
                                     
                                             )
                                     

@@ -83,7 +83,7 @@ class AuthController {
       const phone = req.phone;
       const socialToken = userData.socialToken; // Extract from userData
       
-      const { user, sessionData, COOKIE_OPTS } = await this.authSvc.signUp({email, countryCode, phone, userData, socialToken});
+      const { user, sessionData, referrer, COOKIE_OPTS } = await this.authSvc.signUp({email, countryCode, phone, userData, socialToken});
 
       res.clearCookie('verification_token', {...COOKIE_OPTS});
       res.cookie('access_token', sessionData.accessToken, {
@@ -94,7 +94,7 @@ class AuthController {
         ...sessionData.cookieOpts,
         maxAge: config.REFRESH_TOKEN_COOKIE_MAX_AGE_SECONDS
       });
-      res.json(apiResponse({user, sessionData}, 'Account created.'));
+      res.json(apiResponse({user, sessionData, referrer}, 'Account created.'));
     } catch (error) {
       next(error);
     }
@@ -303,17 +303,25 @@ class AuthController {
 
   refreshToken = async (req, res, next) => {
     try {
-      const { refresh_token: refreshToken } = req.cookies;
+      // Accept the refresh token from the body (mobile app keeps tokens in
+      // SecureStore, not cookies) or the cookie (web). The service result
+      // carries the new tokens under sessionData.
+      const refreshToken = req.body?.refreshToken || req.cookies?.refresh_token;
       const result = await this.authSvc.refreshToken({refreshToken});
-      res.cookie('access_token', result.accessToken, {
-        ...result.cookieOpts,
+      const { accessToken, refreshToken: nextRefreshToken, cookieOpts } = result.sessionData;
+      res.cookie('access_token', accessToken, {
+        ...cookieOpts,
         maxAge: config.ACCESS_TOKEN_COOKIE_MAX_AGE_SECONDS
       });
-      res.cookie('refresh_token', result.refreshToken, {
-        ...result.cookieOpts,
+      res.cookie('refresh_token', nextRefreshToken, {
+        ...cookieOpts,
         maxAge: config.REFRESH_TOKEN_COOKIE_MAX_AGE_SECONDS
       });
-      res.json(apiResponse(null, 'Token refreshed'));
+      // ALSO return the tokens in the body so API clients (the app, which
+      // stores them in SecureStore) can rotate them — without this the app's
+      // interceptor reads res.data.data.accessToken and gets nothing, so every
+      // expired session silently fails to refresh.
+      res.json(apiResponse({ accessToken, refreshToken: nextRefreshToken }, 'Token refreshed'));
     } catch (error) {
       next(error);
     }

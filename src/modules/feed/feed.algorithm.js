@@ -116,11 +116,24 @@ const FEED_ALGORITHM =  `WITH ranked_posts AS (
                                     ) ORDER BY m.created_at ASC 
                                     ) FILTER (WHERE m.id IS NOT NULL AND m.deleted_at IS NULL), 
                                     '[]'::json
-                                ) AS media
+                                ) AS media,
+
+                                -- Location: repost rows carry no place of their
+                                -- own, so fall back to the ORIGINAL post's
+                                -- lat/lon/place (the card's rolling text shows
+                                -- the original's tag on reposts).
+                                COALESCE(orig.latitude,  p.latitude)  AS latitude,
+                                COALESCE(orig.longitude, p.longitude) AS longitude,
+                                COALESCE(orig.place,     p.place)     AS place
 
                                 FROM posts p
                                 JOIN users u
                                     ON u.id = p.author_id
+
+                                LEFT JOIN posts orig
+                                    ON orig.id = p.repost_of_id
+                                       AND orig.deleted_at IS NULL
+                                       AND orig.status = 'published'
 
                                 LEFT JOIN communities c
                                     ON p.community_id = c.id
@@ -183,7 +196,7 @@ const FEED_ALGORITHM =  `WITH ranked_posts AS (
                                     OR p.tags @> ARRAY[$8::text]
 
                                 )
-                                GROUP BY p.id, u.id, ua.id, c.id, ca.id, s.user_id
+                                GROUP BY p.id, u.id, ua.id, c.id, ca.id, s.user_id, orig.id
 
                             )
 

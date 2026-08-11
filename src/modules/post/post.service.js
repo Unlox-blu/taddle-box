@@ -470,6 +470,12 @@ class PostService {
         visibility: communityId ? 'community_only' : repostVisibility,
         status: 'published',
         media: [],
+        // Carry the ORIGINAL's place onto the repost row so every read path
+        // (feed, detail, profile, bookmarks, search) shows the location tag
+        // in the rolling text without needing to resolve the original.
+        location: original.latitude != null && original.longitude != null
+          ? { lat: original.latitude, lon: original.longitude, place: original.place || undefined }
+          : undefined,
       });
 
       // Mention notifications: explicit ids from the composer + @handles in text.

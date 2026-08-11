@@ -67,9 +67,11 @@ const findManyCommunity = async ({limit, offset, userId = null, search = null, m
       LEFT JOIN media AS banner_media ON banner_media.id = banner_url
       -- Soft-deleted/inactive communities must not appear in the list (clicking
       -- them 404s on the detail screen). Membership alone can't resurrect one.
+      -- Private communities ARE listed (discovery/trending/filters) so people
+      -- can find them and request to join; the detail/posts endpoints gate
+      -- their content to members. The mine=true flag (audience picker) below
+      -- still restricts to communities the user can actually post to.
       WHERE c.deleted_at IS NULL AND c.is_active = TRUE
-        AND (privacy = 'public' OR c.owner_id = $3
-          OR EXISTS (SELECT 1 FROM ${CommunityModel.MEMBERS_TABLE} cm WHERE cm.community_id = c.id AND cm.user_id = $3 AND cm.status = 'active'))
         -- Name search (audience picker) — case-insensitive substring.
         AND ($4::text IS NULL OR c.name ILIKE '%' || $4 || '%')
         -- mine=true → only communities the user can post to (joined or owned),
@@ -440,7 +442,9 @@ const search = async (query, filter, limit, offset) => {
     const { rows } = await pool.query(
       `SELECT ${CommunityModel.LIST_FIELDS}, COUNT(*) OVER() AS total
      FROM ${CommunityModel.TABLE}
-     WHERE deleted_at IS NULL AND is_active = TRUE AND privacy IN ('public', 'restricted')
+     -- Private communities are discoverable too — the detail screen gates
+     -- their posts/members to approved members.
+     WHERE deleted_at IS NULL AND is_active = TRUE
        AND ($1 = '' OR name ILIKE $1 OR description ILIKE $1)
        AND ($2::text IS NULL OR $2 = ANY(category))
      ORDER BY member_count DESC

@@ -8,8 +8,13 @@ const XP_FIELDS = [
 ].join(', ');
 
 const TRANSACTION_FIELDS = [
-  'id', 'xp_id', 'xp', 'transaction_type', 'source_type',
-  'balance_before', 'balance_after', 'status', 'created_at', 'updated_at'
+  'xt.id', 'xt.xp_id', 'xt.xp', 'xt.transaction_type', 'xt.source_type',
+  'xt.balance_before', 'xt.balance_after', 'xt.status', 'xt.created_at', 'xt.updated_at',
+  // Game-name enrichment: LEFT JOINs in getUserTransactions resolve the game
+  // behind game_session_<id> / game_match_<id> / session_<slug> XP entries so
+  // the wallet can name the game instead of showing a generic "Game Reward".
+  'gsg.slug AS game_slug',
+  'gsg.name AS game_name',
 ].join(', ');
 
 const TRANSACTION_TYPES = ['earned', 'spent', 'bonus'];
@@ -35,6 +40,8 @@ const formatTransaction = (row) => {
     xp: row.xp,
     transactionType: row.transaction_type,
     sourceType: row.source_type,
+    gameSlug: row.game_slug || null,
+    gameName: row.game_name || null,
     balanceBefore: row.balance_before,
     balanceAfter: row.balance_after,
     status: row.status,

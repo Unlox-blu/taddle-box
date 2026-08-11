@@ -107,9 +107,19 @@ const getUserTransactions = async (xpId, limit, offset) => {
   const { rows } = await pool.query(
     `
     SELECT ${XpModel.TRANSACTION_FIELDS}
-    FROM ${XpModel.TRANSACTIONS_TABLE}
-    WHERE xp_id = $1
-    ORDER BY created_at DESC
+    FROM ${XpModel.TRANSACTIONS_TABLE} xt
+    -- Resolve the game behind game XP entries so the wallet can name it:
+    --   game_session_<sessionId>      -> game_sessions.id (via session id)
+    --   game_match_<matchId>          -> game_match.id
+    --   session_<slug> (entry fee)    -> game.slug
+    LEFT JOIN game_sessions gs ON gs.id::text = split_part(xt.source_type, '_', 3)
+        AND xt.source_type LIKE 'game_session_%'
+    LEFT JOIN game_match gm ON gm.id::text = split_part(xt.source_type, '_', 3)
+        AND xt.source_type LIKE 'game_match_%'
+    LEFT JOIN game gsg ON gsg.id = COALESCE(gs.game_id, gm.game_id)
+        OR (xt.source_type LIKE 'session_%' AND gsg.slug = split_part(xt.source_type, '_', 2))
+    WHERE xt.xp_id = $1
+    ORDER BY xt.created_at DESC
     LIMIT $2 OFFSET $3
     `,
     [xpId, limit, offset]

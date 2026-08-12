@@ -29,6 +29,7 @@ import CommentsModal from "../home/CommentsModal";
 import PresenceDot from "../common/PresenceDot";
 import { notificationService } from "../../services/notification.service";
 import { themedAlert } from '../common/ThemedAlert';
+import BioText, { normalizeUrl } from "../common/BioText";
 
 const { width } = Dimensions.get("window");
 
@@ -1813,131 +1814,5 @@ function FollowListModal({
         </View>
       </View>
     </View>
-  );
-}
-
-// ─── Bio with tappable links ─────────────────────────────────────────────────
-const normalizeUrl = (url: string) => {
-  const trimmed = (url || "").trim();
-  return /^https?:\/\//i.test(trimmed) ? trimmed : `https://${trimmed}`;
-};
-
-function BioText({
-  text,
-  style,
-  colors,
-  onLinkPress,
-}: {
-  text: string;
-  style: any;
-  colors: any;
-  onLinkPress: (url: string) => void;
-}) {
-  const navigation = useNavigation<any>();
-  // URLs, @username mentions and c/community-slug references render as
-  // tappable links — Instagram-style bio. @mentions resolve to a user first
-  // and fall back to a community with that slug.
-  // Both plain "@user / c/community" text AND the composer's structured
-  // markup ({@}[name](id) / {c/}[name](id)) render as tappable links.
-  const parts = text.split(
-    /(https?:\/\/[^\s]+|\{@\}\[[^\]]+\]\([^)]+\)|\{c\/\}\[[^\]]+\]\([^)]+\)|@[A-Za-z0-9_]+|c\/[A-Za-z0-9_]+)/g,
-  );
-
-  const openMention = async (handle: string) => {
-    try {
-      const res = await userService.getProfile(handle);
-      navigation.push("UserProfile", {
-        user: {
-          username: handle,
-          name: handle,
-          avatarUrl: res?.data?.avatarUrl || "",
-        } as any,
-      });
-    } catch (e) {
-      // Not a user account — treat it as a community slug.
-      navigation.navigate("Community" as any, {
-        screen: "CommunityDetail",
-        params: { communitySlug: handle },
-      } as any);
-    }
-  };
-
-  return (
-    <Text style={style}>
-      {parts.map((part, i) => {
-        if (part.startsWith("http")) {
-          return (
-            <Text
-              key={i}
-              style={{ color: colors.primaryLight, fontWeight: "600" }}
-              onPress={() => onLinkPress(normalizeUrl(part))}
-            >
-              {part}
-            </Text>
-          );
-        }
-        if (part.startsWith("{@}")) {
-          const match = part.match(/^\{@\}\[([^\]]+)\]\(([^)]+)\)$/);
-          const handle = match ? match[1] : part.slice(3);
-          return (
-            <Text
-              key={i}
-              style={{ color: colors.primaryLight, fontWeight: "700" }}
-              onPress={() => openMention(handle)}
-            >
-              @{handle}
-            </Text>
-          );
-        }
-        if (part.startsWith("{c/}")) {
-          const match = part.match(/^\{c\/\}\[([^\]]+)\]\(([^)]+)\)$/);
-          const slug = match ? match[1] : part.slice(4);
-          return (
-            <Text
-              key={i}
-              style={{ color: colors.cyanLight, fontWeight: "700" }}
-              onPress={() =>
-                navigation.navigate("Community" as any, {
-                  screen: "CommunityDetail",
-                  params: { communitySlug: slug },
-                } as any)
-              }
-            >
-              c/{slug}
-            </Text>
-          );
-        }
-        if (part.startsWith("@")) {
-          const handle = part.slice(1);
-          return (
-            <Text
-              key={i}
-              style={{ color: colors.primaryLight, fontWeight: "700" }}
-              onPress={() => openMention(handle)}
-            >
-              {part}
-            </Text>
-          );
-        }
-        if (part.startsWith("c/")) {
-          const slug = part.slice(2);
-          return (
-            <Text
-              key={i}
-              style={{ color: colors.cyanLight, fontWeight: "700" }}
-              onPress={() =>
-                navigation.navigate("Community" as any, {
-                  screen: "CommunityDetail",
-                  params: { communitySlug: slug },
-                } as any)
-              }
-            >
-              {part}
-            </Text>
-          );
-        }
-        return <Text key={i}>{part}</Text>;
-      })}
-    </Text>
   );
 }

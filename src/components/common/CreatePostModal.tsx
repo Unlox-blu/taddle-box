@@ -190,6 +190,15 @@ export default function CreatePostModal({
     }
   }, [preselectedCommunityId, preselectedCommunity, CURRENT_USER?.id]);
 
+  // The preselection prop carries the community SLUG (from the detail screen
+  // and the FAB). The detail fetch above validates it and returns the real
+  // id, which is what the create-post payload requires (the backend validates
+  // communityId as a UUID).
+  const resolvedComId =
+    selectedComId === preselectedCommunityId && preselectedCommunity?.id
+      ? preselectedCommunity.id
+      : selectedComId;
+
   // ── Location tag (lat / lon / place) shown in the card's rolling text ──
   const [postLocation, setPostLocation] = useState<{
     lat: number;
@@ -217,6 +226,10 @@ export default function CreatePostModal({
 
   // ── Hashtags & Mentions ─────────────────────────────────────────
   const [hashtags, setHashtags] = useState<string[]>([]);
+  // ── Poll composer state ──
+  const [pollEnabled, setPollEnabled] = useState(false);
+  const [pollQuestion, setPollQuestion] = useState("");
+  const [pollOptions, setPollOptions] = useState<string[]>(["", ""]);
   const [activeInput, setActiveInput] = useState<
     "title" | "content" | "hashtag" | "location" | null
   >(null);
@@ -264,6 +277,9 @@ export default function CreatePostModal({
       setLocationDropdownVisible(false);
       setIsTypingLocation(false);
       setActiveInput(null);
+      setPollEnabled(false);
+      setPollQuestion("");
+      setPollOptions(["", ""]);
     } else {
       setPostType(preselectedCommunityId ? "community" : null);
       setSelComId(preselectedCommunityId ?? null);
@@ -438,6 +454,7 @@ export default function CreatePostModal({
   const shakeHashtagAnim = useRef(new Animated.Value(0)).current;
   const shakeTitleAnim = useRef(new Animated.Value(0)).current;
   const shakeContentAnim = useRef(new Animated.Value(0)).current;
+  const shakePollAnim = useRef(new Animated.Value(0)).current;
 
   const shake = (anim: Animated.Value) => {
     anim.setValue(0);
@@ -847,10 +864,17 @@ export default function CreatePostModal({
       shake(shakeTitleAnim);
       showValidationPop("Add a title to your post");
       hasValidationError = true;
-    } else if (!hasContent) {
+    } else if (!hasContent && !pollEnabled) {
       shake(shakeContentAnim);
       shake(shakeMediaAnim);
-      showValidationPop("Add some text or media to your post");
+      showValidationPop("Add some text, media, or a poll to your post");
+      hasValidationError = true;
+    } else if (
+      pollEnabled &&
+      (!pollQuestion.trim() || pollOptions.filter((o) => o.trim()).length < 2)
+    ) {
+      shake(shakePollAnim);
+      showValidationPop("Add a poll question and at least 2 options");
       hasValidationError = true;
     } else if (!postType) {
       shake(shakeAudienceAnim);
@@ -921,7 +945,7 @@ export default function CreatePostModal({
       const postPayload = {
         title: title.trim(),
         content: content.trim(),
-        communityId: postType === "community" ? selectedComId : undefined,
+        communityId: postType === "community" ? resolvedComId : undefined,
         tags: Array.from(new Set([...autoHashtags, ...hashtags])).map((t) =>
           t.startsWith("#") ? t.substring(1) : t,
         ),
@@ -935,6 +959,16 @@ export default function CreatePostModal({
         status: "published",
         media: uploadedMedia,
         location: postLocation ?? undefined,
+        // Poll posts carry the question + options in poll_data; the backend
+        // treats them as a valid post even without body text.
+        pollData: pollEnabled
+          ? {
+              question: pollQuestion.trim(),
+              options: pollOptions
+                .filter((o) => o.trim().length > 0)
+                .map((o) => ({ text: o.trim(), votes: 0 })),
+            }
+          : undefined,
       };
 
       // Publish post via mutation
@@ -1416,6 +1450,18 @@ export default function CreatePostModal({
               </TouchableOpacity>
             </Animated.View>
 
+            {/* Poll toggle — filled when a poll is attached */}
+            <TouchableOpacity
+              onPress={() => setPollEnabled((v) => !v)}
+              style={styles.toolbarBtn}
+            >
+              <Ionicons
+                name={pollEnabled ? "bar-chart" : "bar-chart-outline"}
+                size={24}
+                color={colors.primaryLight}
+              />
+            </TouchableOpacity>
+
             {audioItem ? (
               <View
                 style={[
@@ -1564,6 +1610,112 @@ export default function CreatePostModal({
               </Animated.View>
             </View>
           </View>
+
+          {/* ── Poll composer — preview under the media, matches the card
+              layout (media leads, poll sits below it) ── */}
+          {pollEnabled && (
+            <Animated.View
+              style={[
+                styles.section,
+                {
+                  // A little extra room below the media preview above it.
+                  marginTop: spacing.md,
+                  transform: [{ translateX: shakePollAnim }],
+                },
+              ]}
+            >
+              <View
+                style={{
+                  flexDirection: "row",
+                  justifyContent: "space-between",
+                  alignItems: "center",
+                }}
+              >
+                <Text style={styles.sectionLabel}>Poll</Text>
+                <TouchableOpacity
+                  onPress={() => setPollEnabled(false)}
+                  hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                >
+                  <Ionicons
+                    name="close-circle-outline"
+                    size={20}
+                    color={colors.text.muted}
+                  />
+                </TouchableOpacity>
+              </View>
+
+              <TextInput
+                style={styles.pollInput}
+                placeholder="Poll question"
+                placeholderTextColor={colors.text.muted}
+                value={pollQuestion}
+                onChangeText={setPollQuestion}
+                maxLength={300}
+              />
+
+              {pollOptions.map((opt, i) => (
+                <View key={i} style={styles.pollOptionRow}>
+                  {/* flex: 1 keeps the pill inside the card — without it,
+                      long option text grows the row and pushes the remove
+                      button past the screen edge. */}
+                  <View style={[styles.hashInputPill, { flex: 1 }]}>
+                    <Text
+                      style={{
+                        color: colors.text.muted,
+                        fontSize: 12,
+                        fontWeight: "700",
+                        width: 18,
+                      }}
+                    >
+                      {i + 1}.
+                    </Text>
+                    <TextInput
+                      style={[styles.hashInputPillInput, { flex: 1 }]}
+                      placeholder={`Option ${i + 1}`}
+                      placeholderTextColor={colors.text.muted}
+                      value={opt}
+                      onChangeText={(t) =>
+                        setPollOptions((prev) =>
+                          prev.map((o, idx) => (idx === i ? t : o)),
+                        )
+                      }
+                      maxLength={120}
+                    />
+                  </View>
+                  {pollOptions.length > 2 && (
+                    <TouchableOpacity
+                      onPress={() =>
+                        setPollOptions((prev) =>
+                          prev.filter((_, idx) => idx !== i),
+                        )
+                      }
+                      hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                    >
+                      <Ionicons
+                        name="remove-circle-outline"
+                        size={20}
+                        color={colors.text.muted}
+                      />
+                    </TouchableOpacity>
+                  )}
+                </View>
+              ))}
+
+              {pollOptions.length < 6 && (
+                <TouchableOpacity
+                  onPress={() => setPollOptions((prev) => [...prev, ""])}
+                  style={styles.pollAddBtn}
+                >
+                  <Ionicons
+                    name="add-circle-outline"
+                    size={16}
+                    color={colors.primaryLight}
+                  />
+                  <Text style={styles.pollAddText}>Add option</Text>
+                </TouchableOpacity>
+              )}
+            </Animated.View>
+          )}
 
           {/* ── Location picker ── */}
           {showLocationInput && (
@@ -2156,6 +2308,35 @@ function makeStyles(colors: ReturnType<typeof useThemeColors>) {
       color: colors.text.muted,
       fontWeight: "400",
       textTransform: "none",
+    },
+
+    // Poll composer
+    pollInput: {
+      backgroundColor: colors.bg.card,
+      borderWidth: 1,
+      borderColor: colors.border,
+      borderRadius: radii.md,
+      paddingHorizontal: spacing.md,
+      paddingVertical: 10,
+      color: colors.text.primary,
+      fontSize: fontSizes.md,
+    },
+    pollOptionRow: {
+      flexDirection: "row",
+      alignItems: "center",
+      gap: spacing.sm,
+    },
+    pollAddBtn: {
+      flexDirection: "row",
+      alignItems: "center",
+      gap: 6,
+      alignSelf: "flex-start",
+      paddingVertical: 6,
+    },
+    pollAddText: {
+      color: colors.primaryLight,
+      fontSize: fontSizes.sm,
+      fontWeight: "700",
     },
 
     // Media type buttons (before pick)

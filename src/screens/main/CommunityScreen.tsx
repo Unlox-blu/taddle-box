@@ -37,6 +37,8 @@ import * as FileSystem from "expo-file-system";
 import { mediaService } from "../../services/media.service";
 import { appLockBypass } from "../../utils/appLockBypass";
 import { themedAlert } from '../../components/common/ThemedAlert';
+import SmartInput from "../../components/common/SmartInput";
+import BioText from "../../components/common/BioText";
 
 type Nav = NativeStackNavigationProp<CommunityStackParamList, "CommunityList">;
 
@@ -99,18 +101,26 @@ function makeStyles(c: ColorPalette) {
       paddingTop: 16,
       paddingBottom: 12,
     },
-    heroTitle: {
-      fontSize: fontSizes.display,
+    title: {
+      fontSize: fontSizes.xxl,
       fontWeight: "900",
       color: c.text.primary,
       letterSpacing: -1,
-      marginBottom: 8,
     },
     subtitle: {
       fontSize: fontSizes.sm,
-      color: c.text.secondary,
-      marginTop: 4,
-      fontWeight: "500",
+      color: c.text.muted,
+      marginTop: 2,
+    },
+    iconButton: {
+      width: 36,
+      height: 36,
+      borderRadius: 18,
+      backgroundColor: c.bg.card,
+      borderWidth: 1,
+      borderColor: c.border,
+      alignItems: "center",
+      justifyContent: "center",
     },
 
     createBtnWrap: {
@@ -215,8 +225,7 @@ function makeStyles(c: ColorPalette) {
 
     /* Featured Horizontal Card */
     featCard: {
-      width: CARD_WIDTH * 1,
-      height: CARD_WIDTH * 1,
+      width: CARD_WIDTH,
       marginLeft: spacing.xl,
       backgroundColor: c.bg.card,
       borderRadius: radii.xl || 24,
@@ -695,18 +704,19 @@ export default function CommunityScreen() {
 
       <View style={styles.header}>
         <View>
-          <Text style={[styles.heroTitle, { fontSize: 20 }]}>Communities</Text>
+          <Text style={styles.title}>Communities</Text>
           <Text style={styles.subtitle}>Find your tribe.</Text>
         </View>
-        <View style={{ flexDirection: "row", alignItems: "center", gap: 12 }}>
+        <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
           <TouchableOpacity
+            style={styles.iconButton}
             onPress={() =>
               navigation.navigate("Leaderboards", { initialTab: "Community" })
             }
           >
             <Ionicons
               name="trophy-outline"
-              size={22}
+              size={20}
               color={colors.text.secondary}
             />
           </TouchableOpacity>
@@ -913,7 +923,7 @@ function FeaturedCommunityCard({
           {c.name}
         </Text>
         <Text style={styles.featDesc} numberOfLines={2}>
-          {c.description}
+          <BioText text={c.description || ""} style={undefined} />
         </Text>
 
         <View style={styles.featFoot}>
@@ -1352,15 +1362,22 @@ function CreateCommunityModal({
           <Text style={styles.fieldLabel}>
             Description <Text style={styles.required}>*</Text>
           </Text>
-          <TextInput
-            style={[styles.fieldInput, styles.fieldInputMulti]}
+          {/* SmartInput gives @mention / #hashtag suggestions like the profile
+              bio — saved text keeps the structured {@}/{#} markup that the
+              view renderers (BioText) turn back into tappable links. */}
+          <SmartInput
+            value={desc}
+            onChange={setDesc}
             placeholder="What is this community about?"
             placeholderTextColor={colors.text.muted}
             multiline
-            value={desc}
-            onChangeText={setDesc}
             maxLength={200}
-            textAlignVertical="top"
+            style={[
+              styles.fieldInput,
+              styles.fieldInputMulti,
+              { textAlignVertical: "top" },
+            ]}
+            containerStyle={{ marginBottom: 4 }}
           />
 
           <Text style={styles.fieldLabel}>Category</Text>

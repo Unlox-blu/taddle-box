@@ -18,6 +18,7 @@ import { mediaService } from '../../services/media.service';
 import { appLockBypass } from '../../utils/appLockBypass';
 import type { CommunityStackParamList } from '../../types';
 import { themedAlert } from '../../components/common/ThemedAlert';
+import SmartInput from '../../components/common/SmartInput';
 
 type Route = RouteProp<CommunityStackParamList, 'CommunitySettings'>;
 
@@ -288,13 +289,16 @@ export default function CommunitySettingsScreen() {
 
         <View style={styles.inputWrap}>
           <Text style={styles.label}>Description</Text>
-          <TextInput
-            style={[styles.input, styles.inputMulti]}
+          {/* @mention / #hashtag suggestions like the profile bio — saved text
+              carries the structured {@}/{#} markup the view renders as
+              tappable links. */}
+          <SmartInput
             value={desc}
-            onChangeText={setDesc}
+            onChange={setDesc}
             placeholder="What is this community about?"
             placeholderTextColor={colors.text.muted}
             multiline
+            style={[styles.input, styles.inputMulti, { textAlignVertical: 'top' }]}
           />
         </View>
 

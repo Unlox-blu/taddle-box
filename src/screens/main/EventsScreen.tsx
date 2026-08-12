@@ -1,4 +1,4 @@
-import React, { useMemo, useState, useEffect } from "react";
+import React, { useMemo, useState, useEffect, useRef } from "react";
 import {
   View,
   Text,
@@ -7,6 +7,10 @@ import {
   StyleSheet,
   Image,
   ImageBackground,
+  FlatList,
+  ActivityIndicator,
+  DeviceEventEmitter,
+  Dimensions,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useNavigation, useFocusEffect } from "@react-navigation/native";
@@ -24,8 +28,14 @@ import type { Event } from "../../types";
 import { useEvents } from "../../queries/events";
 import { useToggleEventRegister } from "../../mutations/events";
 import { themedAlert } from "../../components/common/ThemedAlert";
+import EventJoinModal from "../../components/events/EventJoinModal";
 
-const FILTERS = ["All", "Live", "Online", "Offline", "Contest"];
+const TABS = [
+  { label: "All", key: "all" },
+  { label: "Joined", key: "joined" },
+  { label: "Upcoming", key: "upcoming" },
+  { label: "Featured", key: "featured" },
+];
 
 type TypeMeta = {
   iconName: string;
@@ -77,14 +87,21 @@ function makeStyles(c: ColorPalette) {
       alignItems: "center",
       justifyContent: "space-between",
       paddingHorizontal: spacing.xl,
-      paddingVertical: 12,
+      paddingTop: 16,
+      paddingBottom: 12,
     },
     title: {
       fontSize: fontSizes.xxl,
-      fontWeight: "800",
+      fontWeight: "900",
       color: c.text.primary,
+      letterSpacing: -1,
     },
-    calendarBtn: {
+    subtitle: {
+      fontSize: fontSizes.sm,
+      color: c.text.muted,
+      marginTop: 2,
+    },
+    iconButton: {
       width: 36,
       height: 36,
       borderRadius: 18,
@@ -94,28 +111,34 @@ function makeStyles(c: ColorPalette) {
       alignItems: "center",
       justifyContent: "center",
     },
-    filterScroll: {
+    // Top Tabs (Communities style)
+    tabsScroll: {
       paddingHorizontal: spacing.xl,
-      paddingBottom: spacing.md,
-      gap: 8,
+      paddingTop: 16,
+      paddingBottom: 8,
+      gap: 12,
     },
-    filterChip: {
-      paddingVertical: 6,
-      paddingHorizontal: 16,
+    tabChip: {
+      paddingVertical: 10,
+      paddingHorizontal: 20,
       borderRadius: radii.full,
+      backgroundColor: c.bg.card,
       borderWidth: 1,
-      borderColor: c.borderHover,
+      borderColor: c.border,
+      flexDirection: "row",
+      alignItems: "center",
     },
-    filterChipActive: {
-      backgroundColor: "rgba(124,58,237,0.18)",
+    tabChipActive: {
       borderColor: c.primary,
+      backgroundColor: "rgba(124,58,237,0.15)",
     },
-    filterText: {
+    tabText: {
       fontSize: fontSizes.sm,
-      color: c.text.secondary,
+      color: c.text.muted,
       fontWeight: "600",
     },
-    filterTextActive: { color: c.primaryLight },
+    tabTextActive: { color: c.primaryLight, fontWeight: "800" },
+
     featCard: {
       marginHorizontal: spacing.lg,
       marginBottom: spacing.md,
@@ -317,23 +340,23 @@ function makeStyles(c: ColorPalette) {
       backgroundColor: c.primaryLight,
     },
     calLegendText: { fontSize: fontSizes.xs, color: c.text.muted },
-    calHeader: { flexDirection: "row", marginBottom: 4 },
+    calHeader: { flexDirection: "row", marginBottom: 4, justifyContent: "space-between" },
     calWeekDay: {
-      width: "14.28%",
+      width: "14.2%",
       textAlign: "center",
       fontSize: fontSizes.xs,
       color: c.text.muted,
       fontWeight: "700",
     },
-    calGrid: { flexDirection: "row", flexWrap: "wrap" },
+    calGrid: { flexDirection: "row", flexWrap: "wrap", justifyContent: "space-between" },
     calDay: {
-      width: "14.28%",
+      width: "14.2%",
       aspectRatio: 1,
       alignItems: "center",
       justifyContent: "center",
       borderRadius: 20,
     },
-    calDayEmpty: { width: "14.28%", aspectRatio: 1 },
+    calDayEmpty: { width: "14.2%", aspectRatio: 1 },
     calDayText: {
       fontSize: fontSizes.sm,
       color: c.text.primary,
@@ -511,12 +534,31 @@ export default function EventsScreen() {
   const styles = useMemo(() => makeStyles(colors), [colors]);
   const TYPE_META = useMemo(() => getTypeMeta(colors), [colors]);
 
-  const [filter, setFilter] = useState("All");
+  const [activeTab, setActiveTab] = useState("all");
   const [showCalendar, setShowCalendar] = useState(false);
   const [selectedDate, setSelectedDate] = useState<string | null>(null);
 
-  const { data: events = [], refetch, isRefetching } = useEvents();
+  const {
+    data: allEventsData,
+    refetch,
+    isRefetching,
+    fetchNextPage,
+    hasNextPage,
+    isFetchingNextPage
+  } = useEvents('', null, activeTab);
+
+  const events = useMemo(() => allEventsData?.pages?.flatMap(p => p) || [], [allEventsData]);
+
   const { mutate: toggleEventRegister } = useToggleEventRegister();
+
+  const [joinModalVisible, setJoinModalVisible] = useState(false);
+
+  useEffect(() => {
+    const sub = DeviceEventEmitter.addListener('openEventMatchmaking', () => {
+      setJoinModalVisible(true);
+    });
+    return () => sub.remove();
+  }, []);
 
   // Refresh whenever the tab regains focus so live status, registrations and
   // XP prices stay current without a manual pull-to-refresh.
@@ -530,22 +572,39 @@ export default function EventsScreen() {
     if (selectedDate) {
       if (!e.rawDate || !e.rawDate.startsWith(selectedDate)) return false;
     }
-    if (filter === "All") return true;
-    if (filter === "Live") return e.isLive;
-    if (filter === "Online") return e.location === "Online";
-    if (filter === "Offline") return e.location !== "Online";
-    if (filter === "Contest")
-      return e.type === "hackathon" || e.type === "competition";
     return true;
   });
 
   const participated = displayEvents.filter((e: any) => e.isRegistered);
-  const featured = displayEvents.find(
+  const featuredList = displayEvents.filter(
     (e: any) => e.isFeatured && !e.isRegistered,
   );
-  const rest = displayEvents.filter(
-    (e: any) => !e.isRegistered && !e.isFeatured && e.id !== featured?.id,
+
+  const featuredScrollRef = useRef<ScrollView>(null);
+
+  useEffect(() => {
+    if (activeTab === "all" && featuredList.length > 1) {
+      let currentIndex = 0;
+      const interval = setInterval(() => {
+        currentIndex = (currentIndex + 1) % featuredList.length;
+        const cardWidth = Dimensions.get('window').width * 0.85;
+        const snapInterval = cardWidth + spacing.lg;
+        
+        featuredScrollRef.current?.scrollTo({
+          x: currentIndex * snapInterval,
+          animated: true,
+        });
+      }, 4000);
+      return () => clearInterval(interval);
+    }
+  }, [activeTab, featuredList.length]);
+
+  const featuredIds = new Set(featuredList.map((e: any) => e.id));
+  const unregUnfeat = displayEvents.filter(
+    (e: any) => !e.isRegistered && !e.isFeatured && !featuredIds.has(e.id),
   );
+  const upcomingList = unregUnfeat.slice(0, 3);
+  const discoverList = unregUnfeat.slice(3);
 
   const toggleRegister = async (id: string) => {
     const ev = events.find((e: any) => e.id === id);
@@ -594,25 +653,22 @@ export default function EventsScreen() {
   return (
     <View style={[styles.container, { paddingTop: insets.top }]}>
       <StatusBar style={isDark ? "light" : "dark"} />
+      
+      <EventJoinModal 
+        visible={joinModalVisible} 
+        onClose={() => setJoinModalVisible(false)} 
+      />
 
       <MainHeader />
 
       <View style={styles.header}>
-        <Text style={styles.title}>Events Zone</Text>
-        <View style={{ flexDirection: "row", alignItems: "center", gap: 16 }}>
+        <View>
+          <Text style={styles.title}>Events Zone</Text>
+          <Text style={styles.subtitle}>Discover what's happening.</Text>
+        </View>
+        <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
           <TouchableOpacity
-            onPress={() =>
-              navigation.navigate("Leaderboards", { initialTab: "Events" })
-            }
-          >
-            <Ionicons
-              name="trophy-outline"
-              size={22}
-              color={colors.text.secondary}
-            />
-          </TouchableOpacity>
-          <TouchableOpacity
-            style={styles.calendarBtn}
+            style={styles.iconButton}
             onPress={() => setShowCalendar((s) => !s)}
           >
             <Ionicons
@@ -621,250 +677,283 @@ export default function EventsScreen() {
               color={colors.text.secondary}
             />
           </TouchableOpacity>
+          <TouchableOpacity
+            style={styles.iconButton}
+            onPress={() =>
+              navigation.navigate("Leaderboards", { initialTab: "Events" })
+            }
+          >
+            <Ionicons
+              name="trophy-outline"
+              size={20}
+              color={colors.text.secondary}
+            />
+          </TouchableOpacity>
         </View>
       </View>
 
-      <ScrollView
+      <FlatList
+        data={activeTab === "all" ? discoverList : displayEvents}
+        keyExtractor={(item) => item.id}
         showsVerticalScrollIndicator={false}
-        refreshControl={
-          <AppRefreshControl refreshing={isRefetching} onRefresh={refetch} />
-        }
-      >
-        <ScrollView
-          horizontal
-          showsHorizontalScrollIndicator={false}
-          contentContainerStyle={styles.filterScroll}
-        >
-          {FILTERS.map((f) => (
-            <TouchableOpacity
-              key={f}
-              onPress={() => setFilter(f)}
-              style={[
-                styles.filterChip,
-                filter === f && styles.filterChipActive,
-              ]}
+        refreshControl={<AppRefreshControl refreshing={isRefetching} onRefresh={refetch} />}
+        onEndReached={() => {
+          if (hasNextPage && !isFetchingNextPage) {
+            fetchNextPage();
+          }
+        }}
+        onEndReachedThreshold={0.5}
+        ListHeaderComponent={
+          <>
+            {/* Top Tabs (All, Joined, Upcoming, Featured) */}
+            <ScrollView
+              horizontal
+              showsHorizontalScrollIndicator={false}
+              contentContainerStyle={styles.tabsScroll}
             >
-              <Text
-                style={[
-                  styles.filterText,
-                  filter === f && styles.filterTextActive,
-                ]}
-              >
-                {f}
-              </Text>
-            </TouchableOpacity>
-          ))}
-        </ScrollView>
+              {TABS.map((t) => (
+                <TouchableOpacity
+                  key={t.key}
+                  onPress={() => setActiveTab(t.key)}
+                  style={[
+                    styles.tabChip,
+                    activeTab === t.key && styles.tabChipActive,
+                  ]}
+                >
+                  <Text
+                    style={[
+                      styles.tabText,
+                      activeTab === t.key && styles.tabTextActive,
+                    ]}
+                  >
+                    {t.label}
+                  </Text>
+                </TouchableOpacity>
+              ))}
+            </ScrollView>
 
-        {showCalendar && (
-          <CalendarView
-            selectedDate={selectedDate}
-            onSelectDate={setSelectedDate}
-            events={events}
+            {showCalendar && (
+              <CalendarView
+                selectedDate={selectedDate}
+                onSelectDate={setSelectedDate}
+                events={events}
+                styles={styles}
+              />
+            )}
+
+            {selectedDate && (
+              <View style={styles.dateBar}>
+                <Ionicons name="calendar" size={14} color={colors.primaryLight} />
+                <Text style={styles.dateBarText}>
+                  {formatSelDate(selectedDate)}
+                </Text>
+                <TouchableOpacity
+                  style={styles.dateBarClear}
+                  onPress={() => setSelectedDate(null)}
+                  hitSlop={{ top: 6, bottom: 6, left: 6, right: 6 }}
+                >
+                  <Ionicons name="close" size={12} color="#fff" />
+                </TouchableOpacity>
+              </View>
+            )}
+
+            {activeTab === "all" && featuredList.length > 0 && (
+              <ScrollView ref={featuredScrollRef} horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ paddingHorizontal: spacing.lg, paddingBottom: 16 }} snapToInterval={Dimensions.get('window').width * 0.85 + spacing.lg} decelerationRate="fast">
+                {featuredList.map((featured: any) => (
+                  <TouchableOpacity key={featured.id} activeOpacity={0.9} style={[styles.featCard, { width: Dimensions.get('window').width * 0.85, marginHorizontal: 0, marginRight: spacing.lg }]} onPress={() => navigation.navigate("EventDetail", { event: featured })}>
+                    {featured.banner ? (
+                  <ImageBackground
+                    source={{ uri: featured.banner }}
+                    style={styles.featBanner}
+                    imageStyle={{
+                      borderTopLeftRadius: 16,
+                      borderTopRightRadius: 16,
+                    }}
+                  >
+                    <LinearGradient
+                      colors={["transparent", "rgba(0,0,0,0.6)"]}
+                      style={StyleSheet.absoluteFillObject}
+                    />
+                    {featured.isLive && (
+                      <View style={styles.livePill}>
+                        <View style={styles.liveDot} />
+                        <Text style={styles.livePillText}>LIVE</Text>
+                      </View>
+                    )}
+                    <View style={styles.featTopRight}>
+                      <View style={styles.featFeaturedPill}>
+                        <Text style={styles.featFeaturedText}>★ FEATURED</Text>
+                      </View>
+                      {featured.xpReward > 0 && (
+                        <View style={styles.xpPill}>
+                          <Text style={styles.xpPillText}>
+                            ⚡ {featured.xpReward} XP
+                          </Text>
+                        </View>
+                      )}
+                    </View>
+                  </ImageBackground>
+                ) : (
+                  <LinearGradient
+                    colors={["rgba(124,58,237,0.38)", "rgba(6,182,212,0.28)"]}
+                    start={{ x: 0, y: 0 }}
+                    end={{ x: 1, y: 1 }}
+                    style={styles.featBanner}
+                  >
+                    <Text style={styles.featBannerEmoji}>🚀</Text>
+                    {featured.isLive && (
+                      <View style={styles.livePill}>
+                        <View style={styles.liveDot} />
+                        <Text style={styles.livePillText}>LIVE</Text>
+                      </View>
+                    )}
+                    <View style={styles.featTopRight}>
+                      <View style={styles.featFeaturedPill}>
+                        <Text style={styles.featFeaturedText}>★ FEATURED</Text>
+                      </View>
+                      {featured.xpReward > 0 && (
+                        <View style={styles.xpPill}>
+                          <Text style={styles.xpPillText}>
+                            ⚡ {featured.xpReward} XP
+                          </Text>
+                        </View>
+                      )}
+                    </View>
+                  </LinearGradient>
+                )}
+
+                <View style={styles.featBody}>
+                  <Text style={styles.featType}>
+                    {(
+                      TYPE_META[featured.type] || TYPE_META["meetup"]
+                    ).label.toUpperCase()}{" "}
+                    · NATIONAL LEVEL
+                  </Text>
+                  <Text style={styles.featTitle}>{featured.title}</Text>
+                  <View style={styles.featMeta}>
+                    <View style={styles.metaItem}>
+                      <Ionicons
+                        name="calendar-outline"
+                        size={12}
+                        color={colors.text.muted}
+                      />
+                      <Text style={styles.metaText}>{featured.date}</Text>
+                    </View>
+                    <View style={styles.metaItem}>
+                      <Ionicons
+                        name="people-outline"
+                        size={12}
+                        color={colors.text.muted}
+                      />
+                      <Text style={styles.metaText}>
+                        {(featured.registrations || 0).toLocaleString()} registered
+                      </Text>
+                    </View>
+                    {featured.cashPrize ? (
+                      <View style={styles.metaItem}>
+                        <Ionicons
+                          name="trophy-outline"
+                          size={12}
+                          color={colors.text.muted}
+                        />
+                        <Text style={styles.metaText}>
+                          ₹{(featured.cashPrize / 1000).toFixed(0)}k prize
+                        </Text>
+                      </View>
+                    ) : null}
+                  </View>
+                  <Button
+                    label={
+                      featured.isRegistered
+                        ? "✓ Participated"
+                        : featured.isFree || !featured.xpPrice
+                          ? "Join Free"
+                          : `Join • ${featured.xpPrice.toLocaleString()} XP`
+                    }
+                    onPress={() => toggleRegister(featured.id)}
+                    variant={featured.isRegistered ? "ghost" : "primary"}
+                    fullWidth
+                  />
+                </View>
+              </TouchableOpacity>
+                ))}
+              </ScrollView>
+            )}
+
+            {activeTab === "all" && participated.length > 0 && (
+              <>
+                <Text style={{ ...styles.sectionLabel, marginTop: 8 }}>
+                  My Participated Events
+                </Text>
+                {participated.map((ev: any) => (
+                  <EventCard
+                    key={ev.id}
+                    event={ev}
+                    onRegister={toggleRegister}
+                    styles={styles}
+                    colors={colors}
+                    typeMeta={TYPE_META}
+                  />
+                ))}
+              </>
+            )}
+
+            {(activeTab === "all" && displayEvents.length === 0 && selectedDate) || (activeTab !== "all" && displayEvents.length === 0) ? (
+              <View style={styles.emptyState}>
+                <Ionicons
+                  name={activeTab === "joined" ? "ticket-outline" : "calendar-outline"}
+                  size={40}
+                  color={colors.text.muted}
+                />
+                <Text style={styles.emptyText}>
+                  {activeTab === "joined" ? "No participated events yet" : "No events found"}
+                </Text>
+                <Text style={styles.emptySubtext}>
+                  {activeTab === "joined" ? "Join events to see them here" : "Try a different date or filter"}
+                </Text>
+              </View>
+            ) : null}
+
+            {activeTab === "all" && upcomingList.length > 0 && (
+              <>
+                <Text style={{ ...styles.sectionLabel, marginTop: 16 }}>
+                  Upcoming Events
+                </Text>
+                {upcomingList.map((ev: any) => (
+                  <EventCard
+                    key={ev.id}
+                    event={ev}
+                    onRegister={toggleRegister}
+                    styles={styles}
+                    colors={colors}
+                    typeMeta={TYPE_META}
+                  />
+                ))}
+              </>
+            )}
+
+            {activeTab === "all" && discoverList.length > 0 && (
+              <Text style={{ ...styles.sectionLabel, marginTop: 16 }}>
+                Discover Events
+              </Text>
+            )}
+          </>
+        }
+        renderItem={({ item }) => (
+          <EventCard
+            event={item}
+            onRegister={toggleRegister}
             styles={styles}
+            colors={colors}
+            typeMeta={TYPE_META}
           />
         )}
-
-        {/* Active date filter — clearable chip under the calendar */}
-        {selectedDate && (
-          <View style={styles.dateBar}>
-            <Ionicons name="calendar" size={14} color={colors.primaryLight} />
-            <Text style={styles.dateBarText}>
-              {formatSelDate(selectedDate)}
-            </Text>
-            <TouchableOpacity
-              style={styles.dateBarClear}
-              onPress={() => setSelectedDate(null)}
-              hitSlop={{ top: 6, bottom: 6, left: 6, right: 6 }}
-            >
-              <Ionicons name="close" size={12} color="#fff" />
-            </TouchableOpacity>
+        ListFooterComponent={
+          <View style={{ height: 100, alignItems: 'center', justifyContent: 'center' }}>
+            {isFetchingNextPage && <ActivityIndicator size="small" color={colors.primary} />}
           </View>
-        )}
-
-        {featured && (
-          <View style={styles.featCard}>
-            {featured.banner ? (
-              <ImageBackground
-                source={{ uri: featured.banner }}
-                style={styles.featBanner}
-                imageStyle={{
-                  borderTopLeftRadius: 16,
-                  borderTopRightRadius: 16,
-                }}
-              >
-                <LinearGradient
-                  colors={["transparent", "rgba(0,0,0,0.6)"]}
-                  style={StyleSheet.absoluteFillObject}
-                />
-                {featured.isLive && (
-                  <View style={styles.livePill}>
-                    <View style={styles.liveDot} />
-                    <Text style={styles.livePillText}>LIVE</Text>
-                  </View>
-                )}
-                <View style={styles.featTopRight}>
-                  <View style={styles.featFeaturedPill}>
-                    <Text style={styles.featFeaturedText}>★ FEATURED</Text>
-                  </View>
-                  {featured.xpReward > 0 && (
-                    <View style={styles.xpPill}>
-                      <Text style={styles.xpPillText}>
-                        ⚡ {featured.xpReward} XP
-                      </Text>
-                    </View>
-                  )}
-                </View>
-              </ImageBackground>
-            ) : (
-              <LinearGradient
-                colors={["rgba(124,58,237,0.38)", "rgba(6,182,212,0.28)"]}
-                start={{ x: 0, y: 0 }}
-                end={{ x: 1, y: 1 }}
-                style={styles.featBanner}
-              >
-                <Text style={styles.featBannerEmoji}>🚀</Text>
-                {featured.isLive && (
-                  <View style={styles.livePill}>
-                    <View style={styles.liveDot} />
-                    <Text style={styles.livePillText}>LIVE</Text>
-                  </View>
-                )}
-                <View style={styles.featTopRight}>
-                  <View style={styles.featFeaturedPill}>
-                    <Text style={styles.featFeaturedText}>★ FEATURED</Text>
-                  </View>
-                  {featured.xpReward > 0 && (
-                    <View style={styles.xpPill}>
-                      <Text style={styles.xpPillText}>
-                        ⚡ {featured.xpReward} XP
-                      </Text>
-                    </View>
-                  )}
-                </View>
-              </LinearGradient>
-            )}
-
-            <View style={styles.featBody}>
-              <Text style={styles.featType}>
-                {(
-                  TYPE_META[featured.type] || TYPE_META["meetup"]
-                ).label.toUpperCase()}{" "}
-                · NATIONAL LEVEL
-              </Text>
-              <Text style={styles.featTitle}>{featured.title}</Text>
-              <View style={styles.featMeta}>
-                <View style={styles.metaItem}>
-                  <Ionicons
-                    name="calendar-outline"
-                    size={12}
-                    color={colors.text.muted}
-                  />
-                  <Text style={styles.metaText}>{featured.date}</Text>
-                </View>
-                <View style={styles.metaItem}>
-                  <Ionicons
-                    name="people-outline"
-                    size={12}
-                    color={colors.text.muted}
-                  />
-                  <Text style={styles.metaText}>
-                    {featured.registrations.toLocaleString()} registered
-                  </Text>
-                </View>
-                {featured.cashPrize ? (
-                  <View style={styles.metaItem}>
-                    <Ionicons
-                      name="trophy-outline"
-                      size={12}
-                      color={colors.text.muted}
-                    />
-                    <Text style={styles.metaText}>
-                      ₹{(featured.cashPrize / 1000).toFixed(0)}k prize
-                    </Text>
-                  </View>
-                ) : null}
-              </View>
-              <Button
-                label={
-                  featured.isRegistered
-                    ? "✓ Participated"
-                    : featured.isFree || !featured.xpPrice
-                      ? "Join Free"
-                      : `Join • ${featured.xpPrice.toLocaleString()} XP`
-                }
-                onPress={() => toggleRegister(featured.id)}
-                variant={featured.isRegistered ? "ghost" : "primary"}
-                fullWidth
-              />
-            </View>
-          </View>
-        )}
-
-        {/* Participated Events First */}
-        <Text style={{ ...styles.sectionLabel, marginTop: 8 }}>
-          My Participated Events
-        </Text>
-        {participated.length === 0 ? (
-          <View style={styles.emptyState}>
-            <Ionicons
-              name="ticket-outline"
-              size={40}
-              color={colors.text.muted}
-            />
-            <Text style={styles.emptyText}>No participated events yet</Text>
-            <Text style={styles.emptySubtext}>
-              Join events below to see them here
-            </Text>
-          </View>
-        ) : (
-          participated.map((ev: any) => (
-            <EventCard
-              key={ev.id}
-              event={ev}
-              onRegister={toggleRegister}
-              styles={styles}
-              colors={colors}
-              typeMeta={TYPE_META}
-            />
-          ))
-        )}
-
-        {/* Upcoming Events Below */}
-        {displayEvents.length === 0 && selectedDate ? (
-          <View style={styles.emptyState}>
-            <Ionicons
-              name="calendar-outline"
-              size={40}
-              color={colors.text.muted}
-            />
-            <Text style={styles.emptyText}>No events on this date</Text>
-            <Text style={styles.emptySubtext}>
-              Try selecting a different day
-            </Text>
-          </View>
-        ) : (
-          <>
-            {displayEvents.length > 0 && (
-              <Text style={{ ...styles.sectionLabel, marginTop: 16 }}>
-                Upcoming Events
-              </Text>
-            )}
-            {rest.map((ev: any) => (
-              <EventCard
-                key={ev.id}
-                event={ev}
-                onRegister={toggleRegister}
-                styles={styles}
-                colors={colors}
-                typeMeta={TYPE_META}
-              />
-            ))}
-          </>
-        )}
-
-        <View style={{ height: 100 }} />
-      </ScrollView>
+        }
+      />
     </View>
   );
 }
@@ -882,9 +971,10 @@ function EventCard({
   colors: ColorPalette;
   typeMeta: Record<string, TypeMeta>;
 }) {
+  const navigation = useNavigation<NativeStackNavigationProp<any>>();
   const meta = typeMeta[e.type] || typeMeta["meetup"];
   return (
-    <View style={styles.evCard}>
+    <TouchableOpacity activeOpacity={0.8} style={styles.evCard} onPress={() => navigation.navigate("EventDetail", { event: e })}>
       <View style={styles.evCardInner}>
         {e.banner ? (
           <Image source={{ uri: e.banner }} style={styles.evThumb} />
@@ -982,6 +1072,6 @@ function EventCard({
               : `Join • ${e.xpPrice.toLocaleString()} XP`}
         </Text>
       </TouchableOpacity>
-    </View>
+    </TouchableOpacity>
   );
 }

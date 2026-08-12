@@ -2,6 +2,7 @@ import React, { useMemo, useState, useEffect } from 'react';
 import {
   View, Text, TouchableOpacity, FlatList, TextInput,
   StyleSheet, Modal, ActivityIndicator, Image,
+  KeyboardAvoidingView, Platform,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -302,26 +303,36 @@ export default function AudiencePicker({
 
   return (
     <Modal visible={visible} transparent animationType="fade" onRequestClose={onClose}>
-      <View style={styles.backdrop}>
-        <View style={[styles.sheet, { paddingBottom: Math.max(insets.bottom, 16) }]}>
-          <View style={styles.dragHandle} />
-          <View style={styles.header}>
-            <Text style={styles.title}>{title}</Text>
-            <TouchableOpacity style={styles.closeBtn} onPress={onClose}>
-              <Ionicons name="close" size={18} color={colors.text.secondary} />
-            </TouchableOpacity>
+      {/* RN Modal content gets no keyboard avoidance on iOS, so the
+          bottom-anchored sheet stays put and the keyboard covers the
+          community search results. KAV lifts the sheet instead. Android
+          resizes the window (softwareKeyboardLayoutMode: resize), so it
+          needs no extra behavior — height here would double-shrink. */}
+      <KeyboardAvoidingView
+        style={{ flex: 1 }}
+        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+      >
+        <View style={styles.backdrop}>
+          <View style={[styles.sheet, { paddingBottom: Math.max(insets.bottom, 16) }]}>
+            <View style={styles.dragHandle} />
+            <View style={styles.header}>
+              <Text style={styles.title}>{title}</Text>
+              <TouchableOpacity style={styles.closeBtn} onPress={onClose}>
+                <Ionicons name="close" size={18} color={colors.text.secondary} />
+              </TouchableOpacity>
+            </View>
+            {/* key forces a fresh list (search cleared) each time it opens */}
+            <AudiencePickerList
+              key={visible ? 'open' : 'closed'}
+              selectedId={selectedId}
+              onSelect={onSelect}
+              feedLabel={feedLabel}
+              feedMeta={feedMeta}
+              feedIcon={feedIcon}
+            />
           </View>
-          {/* key forces a fresh list (search cleared) each time it opens */}
-          <AudiencePickerList
-            key={visible ? 'open' : 'closed'}
-            selectedId={selectedId}
-            onSelect={onSelect}
-            feedLabel={feedLabel}
-            feedMeta={feedMeta}
-            feedIcon={feedIcon}
-          />
         </View>
-      </View>
+      </KeyboardAvoidingView>
     </Modal>
   );
 }

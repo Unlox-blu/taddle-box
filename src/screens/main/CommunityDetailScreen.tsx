@@ -24,6 +24,7 @@ import { useQueryClient }   from '@tanstack/react-query';
 import { queryKeys }        from '../../lib/queryKeys';
 import type { CommunityStackParamList, Post, Community } from '../../types';
 import { themedAlert } from '../../components/common/ThemedAlert';
+import BioText from '../../components/common/BioText';
 
 
 
@@ -523,7 +524,11 @@ export default function CommunityDetailScreen() {
         </View>
 
         <Text style={styles.commName}>{community.name}</Text>
-        <Text style={styles.commDesc}>{community.description}</Text>
+        {/* Tappable description — @mentions, #hashtags, c/communities and
+            URLs resolve like the profile bio. */}
+        {community.description ? (
+          <BioText text={community.description} style={styles.commDesc} colors={colors} />
+        ) : null}
 
         {community.isPending && (
           <Text style={{ fontSize: fontSizes.xs, color: '#FBBF24', fontWeight: '600', marginBottom: spacing.sm }}>
@@ -677,7 +682,7 @@ export default function CommunityDetailScreen() {
       <CreatePostModal
         visible={showCreate}
         onClose={() => setShowCreate(false)}
-        preselectedCommunityId={community.id}
+        preselectedCommunityId={community.slug}
       />
 
       <ManageRequestsModal

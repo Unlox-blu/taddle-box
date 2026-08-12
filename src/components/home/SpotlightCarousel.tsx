@@ -218,6 +218,7 @@ export default function SpotlightCarousel() {
         subtitle: h.description || '',
         type: h.type,
         sourceId: h.sourceId,
+        sourceSlug: h.sourceSlug,
         tag: h.type === 'event' ? 'Featured Event' : 'Spotlight',
         tagColor: h.type === 'event' ? '#F59E0B' : '#8B5CF6',
         emoji: h.type === 'event' ? '🎉' : '✨',
@@ -361,9 +362,12 @@ export default function SpotlightCarousel() {
     } else if (item.type === "event") {
       navigation.navigate("Events");
     } else if (item.type === "community") {
+      // sourceId is the community's UUID; the backend also returns the slug
+      // so the detail route can resolve it (the /communities/:slug endpoint
+      // only accepts slugs).
       navigation.navigate("Community", {
         screen: "CommunityDetail",
-        params: { communitySlug: item.sourceId },
+        params: { communitySlug: item.sourceSlug || item.sourceId },
       });
     } else if (item.type === "post") {
       // If there's a specific post, it would be ideal to go to Comments/Details,

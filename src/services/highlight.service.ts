@@ -11,6 +11,8 @@ export interface Highlight {
   gradient: [string, string];
   type?: string;
   sourceId?: string;
+  /** Community spotlights: the community slug (sourceId is the UUID). */
+  sourceSlug?: string;
   imageUrl?: string;
   /** Native artwork from the backend (event cover / community banner). */
   description?: string;

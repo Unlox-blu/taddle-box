@@ -82,6 +82,7 @@ export type RootStackParamList = {
       full-screen post page and pushed profiles — the Home-stack copy still
       handles search inside the tab. */
   Search: HomeStackParamList['Search'];
+  EventDetail: { event: any };
 };
 
 // ── Data models ─────────────────────────────────────────────────
@@ -135,6 +136,17 @@ export interface Post {
   repostOfId?: string | null;
   /** Optional place tag captured at creation — shown in the card's rolling text. */
   location?: { lat: number; lon: number; place?: string } | null;
+  /** Poll attached to the post: question + options with their vote tallies. */
+  pollData?: {
+    question: string;
+    options: { text: string; votes: number }[];
+    totalVotes?: number;
+    /** Author closed the poll — no further votes are accepted. */
+    closed?: boolean;
+    closedAt?: string;
+  } | null;
+  /** Index of the poll option the current user voted for (null = not voted). */
+  myPollVote?: number | null;
   type: 'text' | 'image' | 'video' | 'poll';
 }
 
@@ -211,6 +223,8 @@ export interface Game {
   maxPlayers?: number;
   entryFee?: number;
   prize?: number;
+  /** Human-friendly average playtime ("3 min") — from local assets or backend. */
+  averageDurationLabel?: string;
 }
 
 export interface Transaction {

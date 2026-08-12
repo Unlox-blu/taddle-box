@@ -11,6 +11,7 @@ import ForceUpdateScreen from '../screens/main/ForceUpdateScreen';
 import PostDetailScreen from '../screens/main/PostDetailScreen';
 import UserProfileScreen from '../screens/main/UserProfileScreen';
 import SearchScreen from '../screens/main/SearchScreen';
+import EventDetailScreen from '../screens/events/EventDetailScreen';
 import UpdateAvailableModal from '../components/common/UpdateAvailableModal';
 
 const Stack = createNativeStackNavigator<RootStackParamList>();
@@ -68,6 +69,11 @@ export default function AppNavigator() {
               name="Search"
               component={SearchScreen}
               options={{ animation: 'slide_from_right' }}
+            />
+            <Stack.Screen
+              name="EventDetail"
+              component={EventDetailScreen}
+              options={{ animation: 'slide_from_bottom' }}
             />
           </>
         ) : (

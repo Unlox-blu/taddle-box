@@ -39,6 +39,12 @@ const DEFAULT_DATA: WeeklyLeaderboards = {
   community: [],
   games: [],
   events: [],
+  currentUser: {
+    feed: null,
+    community: null,
+    games: null,
+    events: null,
+  },
 };
 
 type LeaderboardScreenRouteProp = RouteProp<HomeStackParamList, 'Leaderboards'>;
@@ -148,6 +154,22 @@ export default function LeaderboardsScreen() {
           </View>
         )}
       </ScrollView>
+
+      {/* Pinned Current User Card */}
+      {!loading && (
+        <View style={[styles.currentUserPinned, { paddingBottom: Math.max(insets.bottom, spacing.lg) + spacing.md }]}>
+          <Text style={styles.currentUserTitle}>Your Position</Text>
+          {data.currentUser?.[activeTab] ? (
+            <View style={styles.currentUserCard}>
+              <LeaderboardRow entry={data.currentUser[activeTab]!} />
+            </View>
+          ) : (
+            <View style={styles.unrankedCard}>
+              <Text style={styles.unrankedText}>Unranked. Join in to get on the board!</Text>
+            </View>
+          )}
+        </View>
+      )}
     </View>
   );
 }
@@ -306,7 +328,7 @@ function makeStyles(c: ColorPalette) {
     headerText: { flex: 1 },
     title: { fontSize: fontSizes.xl, fontWeight: '900', color: c.text.primary },
     subtitle: { marginTop: 2, fontSize: fontSizes.sm, color: c.text.muted },
-    content: { paddingVertical: spacing.md, paddingBottom: 60 },
+    content: { paddingVertical: spacing.md, paddingBottom: 140 },
     stackButton: {
       width: 160,
       height: 104,
@@ -350,23 +372,33 @@ function makeStyles(c: ColorPalette) {
     infoStat: { flex: 1, alignItems: 'center', padding: 10, borderRadius: radii.md, backgroundColor: c.bg.card, borderWidth: 1, borderColor: c.border },
     infoValue: { color: c.xpGold, fontSize: fontSizes.sm, fontWeight: '900' },
     infoLabel: { marginTop: 2, color: c.text.muted, fontSize: 10, fontWeight: '700' },
-    listPanel: { marginTop: spacing.md },
-    row: {
-      marginHorizontal: spacing.lg,
-      marginBottom: spacing.sm,
-      padding: spacing.md,
-      borderRadius: radii.md,
+    listPanel: {
       backgroundColor: c.bg.card,
+      marginHorizontal: spacing.lg,
+      marginTop: spacing.md,
+      borderRadius: radii.xl,
+      overflow: 'hidden',
       borderWidth: 1,
       borderColor: c.border,
+      marginBottom: 32,
+    },
+    row: {
+      padding: spacing.md,
       flexDirection: 'row',
       alignItems: 'center',
       gap: spacing.sm,
+      backgroundColor: c.bg.card,
+      borderBottomWidth: 1,
+      borderBottomColor: c.border,
     },
     rank: { width: 24, textAlign: 'center', fontSize: fontSizes.md, fontWeight: '900' },
     avatar: { width: 42, height: 42, borderRadius: 21, backgroundColor: c.bg.elevated, alignItems: 'center', justifyContent: 'center', overflow: 'hidden' },
     avatarImage: { width: '100%', height: '100%' },
-    avatarText: { color: c.text.primary, fontWeight: '900' },
+    avatarText: {
+      color: '#fff',
+      fontWeight: '800',
+      fontSize: 16,
+    },
     rowBody: { flex: 1 },
     rowTitle: { color: c.text.primary, fontSize: fontSizes.sm, fontWeight: '900' },
     rowSub: { marginTop: 2, color: c.text.muted, fontSize: fontSizes.xs },
@@ -374,6 +406,50 @@ function makeStyles(c: ColorPalette) {
     score: { color: c.text.primary, fontSize: fontSizes.sm, fontWeight: '900' },
     metricLabel: { color: c.text.muted, fontSize: 9, marginTop: 1 },
     reward: { color: c.xpGold, fontSize: 10, fontWeight: '900', marginTop: 3 },
+    currentUserPinned: {
+      position: 'absolute',
+      bottom: 0,
+      left: 0,
+      right: 0,
+      backgroundColor: c.bg.elevated,
+      borderTopWidth: 1,
+      borderTopColor: c.border,
+      paddingHorizontal: spacing.lg,
+      paddingTop: spacing.md,
+      shadowColor: '#000',
+      shadowOffset: { width: 0, height: -4 },
+      shadowOpacity: 0.1,
+      shadowRadius: 10,
+      elevation: 10,
+    },
+    currentUserTitle: {
+      fontSize: fontSizes.sm,
+      fontWeight: '800',
+      color: c.primaryLight,
+      marginBottom: 8,
+      textTransform: 'uppercase',
+      letterSpacing: 0.5,
+    },
+    unrankedCard: {
+      padding: spacing.md,
+      backgroundColor: c.bg.card,
+      borderRadius: radii.lg,
+      borderWidth: 1,
+      borderColor: c.border,
+      alignItems: 'center',
+    },
+    currentUserCard: {
+      backgroundColor: c.bg.card,
+      borderRadius: radii.lg,
+      borderWidth: 1,
+      borderColor: c.border,
+      overflow: 'hidden',
+    },
+    unrankedText: {
+      color: c.text.muted,
+      fontSize: fontSizes.sm,
+      fontWeight: '600',
+    },
     emptyPanel: {
       margin: spacing.lg,
       padding: spacing.xl,

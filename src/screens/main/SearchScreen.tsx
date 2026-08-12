@@ -11,7 +11,6 @@ import {
   TextInput,
   TouchableOpacity,
   FlatList,
-  StyleSheet,
   ActivityIndicator,
   Image,
   Share,
@@ -24,7 +23,6 @@ import { Ionicons, MaterialCommunityIcons } from "@expo/vector-icons";
 import { StatusBar } from "expo-status-bar";
 import { NativeStackScreenProps } from "@react-navigation/native-stack";
 import { useIsFocused } from "@react-navigation/native";
-import { fontSizes, spacing, radii, type ColorPalette } from "../../theme";
 import { useTheme, useThemeColors } from "../../context/ThemeContext";
 import { useAuth } from "../../context/AuthContext";
 import { searchService, type SearchType } from "../../services/search.service";
@@ -37,8 +35,13 @@ import { xpService } from "../../services/xp.service";
 import type { HomeStackParamList, Post, Transaction } from "../../types";
 import AppRefreshControl from "../../components/common/AppRefreshControl";
 import { useToggleLike, useToggleSave } from "../../mutations/posts";
-import PostCard from "../../components/home/PostCard";
 import { themedAlert } from "../../components/common/ThemedAlert";
+import { makeStyles } from "../../components/search/searchStyles";
+import {
+  ROW_RENDERERS,
+  GenericRow,
+  type RowCtx,
+} from "../../components/search/SearchRows";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 
 type Props = NativeStackScreenProps<HomeStackParamList, "Search">;
@@ -86,86 +89,9 @@ const SETTINGS_ITEMS = [
   { id: "logout", title: "Log Out", icon: "log-out-outline", route: "Settings", keywords: ["sign out", "exit", "logout"] },
 ];
 
-const normalizePostResult = (item: any): Post => {
-  const author = item.author || {
-    id: item.authorId || item.author_id || "",
-    name: item.authorName || item.author_name || "Unknown User",
-    username: item.authorUsername || item.author_username || "unknown",
-    handle: item.authorUsername || item.author_username || "unknown",
-    avatarUrl:
-      item.user_avatar ||
-      item.author_avatar ||
-      item.authorAvatar ||
-      item.avatar ||
-      item.avatarUrl ||
-      item.avatar_url,
-    avatar:
-      item.user_avatar ||
-      item.author_avatar ||
-      item.authorAvatar ||
-      item.avatar ||
-      item.avatarUrl ||
-      item.avatar_url ||
-      "",
-    level: 1,
-    xp: 0,
-    xpToNext: 100,
-  };
-
-  return {
-    ...item,
-    author,
-    // Search returns the raw snake_case column — carry it as the camelCase
-    // key PostCard checks so the embedded original preview renders for reposts.
-    repostOfId: item.repostOfId ?? item.repost_of_id ?? null,
-    // Search returns the community as flat columns (community_name, slug, …) —
-    // rebuild the nested object PostCard renders as the "• c/name" badge on
-    // community posts.
-    community:
-      item.community ||
-      (item.community_id
-        ? {
-            id: item.community_id,
-            name: item.community_name || item.communityName,
-            slug: item.community_slug || item.communitySlug,
-            privacy: item.community_privacy,
-            avatarUrl: item.community_avatar,
-          }
-        : undefined),
-    // Search returns raw latitude/longitude/place columns — rebuild the
-    // nested location object PostCard's rolling text reads.
-    location:
-      item.location ||
-      (item.latitude != null && item.longitude != null
-        ? {
-            lat: Number(item.latitude),
-            lon: Number(item.longitude),
-            place: item.place || "",
-          }
-        : null),
-    media: item.media || [],
-    hashtags: item.hashtags || item.tags || [],
-    likes: item.likes ?? item.likesCount ?? item.likes_count ?? 0,
-    comments: item.comments ?? item.commentsCount ?? item.comments_count ?? 0,
-    shares: item.shares ?? item.sharesCount ?? item.shares_count ?? 0,
-    // Backend returns is_liked / is_bookmarked (snake_case) — accept all
-    // spellings so search results render the heart + bookmark icons correctly.
-    isLiked: !!(item.isLiked ?? item.is_liked),
-    isSaved: !!(
-      item.isSaved ??
-      item.is_saved ??
-      item.isBookmarked ??
-      item.is_bookmarked
-    ),
-    createdAt: item.createdAt || item.created_at,
-    publishedAt: item.publishedAt || item.published_at,
-    type: item.type || (item.media?.length ? "image" : "text"),
-  } as Post;
-};
-
 // Result kinds the unified search can return, plus the legacy SearchType tabs
 // still used by bookmarks/settings/notifications scopes.
-type ResultType = SearchType | "comments" | "media" | "text";
+type ResultType = SearchType | "polls" | "comments" | "media" | "text";
 type Row =
   | { isHeader: true; title: string; type: ResultType }
   | { isHeader: false; item: any; type: ResultType };
@@ -498,7 +424,12 @@ export default function SearchScreen({ navigation, route }: Props) {
   // Settings → plain "all" (filtered locally). Only runs when the source
   // changes so a user's n-* tab selection is preserved.
   useEffect(() => {
-    if (!source) return;
+    if (!source) {
+      // Scope chip removed (or opened without one) → back to the unified
+      // "all" view; the n-* tabs belong only to the notifications scope.
+      setActiveTab("all");
+      return;
+    }
     setActiveTab((prev) => {
       if (source === "notifications" && String(prev).startsWith("n-"))
         return prev;
@@ -511,6 +442,11 @@ export default function SearchScreen({ navigation, route }: Props) {
   // instance instead of mounting a fresh one — its useState initializers won't
   // re-run, so sync params → state here to pick up the new query/tab. The query
   // change then flows through the normal cache-reset + fetch path below.
+  //
+  // Scope params (source / scopeCommunity / authorFilter / type) are also
+  // CLEARED when a navigation arrives without them, so an auto-applied scope
+  // (e.g. the Notifications chip) never sticks around on a later, plain search
+  // that reuses this mounted screen.
   useEffect(() => {
     const p = route.params as any;
     if (p?.query !== undefined) setQuery(p.query);
@@ -529,6 +465,7 @@ export default function SearchScreen({ navigation, route }: Props) {
               .filter(Boolean)
           : [],
       );
+    else if (p) setCommunityFilters([]);
     if (p?.authorFilter !== undefined)
       setAuthorFilters(
         p.authorFilter
@@ -538,8 +475,11 @@ export default function SearchScreen({ navigation, route }: Props) {
               .filter(Boolean)
           : [],
       );
-    if (p?.source !== undefined) setSource(p.source as string);
+    else if (p) setAuthorFilters([]);
+    if (p?.source !== undefined) setSource(p.source || "");
+    else if (p) setSource("");
     if (p?.type !== undefined) setResultType(String(p.type) || "all");
+    else if (p) setResultType("all");
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [
     (route.params as any)?.query,
@@ -898,6 +838,7 @@ export default function SearchScreen({ navigation, route }: Props) {
     authorFilters,
     communityFilters,
     tagFilters,
+    source,
     sortBy,
     timeWindow,
     resultType,
@@ -905,8 +846,105 @@ export default function SearchScreen({ navigation, route }: Props) {
   ]);
 
   // Open a games tab result inside the Games screen.
-  const openGames = () => {
+  const openGames = useCallback(() => {
     (navigation as any).navigate("Main", { screen: "Games" });
+  }, [navigation]);
+
+  // Optimistically flip a post row's like/save state in the cached rows so the
+  // icon updates instantly. Patches EVERY tab carrying the post (the unified
+  // view keeps rows under "all") — search results aren't react-query cached,
+  // so the mutation cache updates can't reach them.
+  const patchPost = useCallback((postId: string, patch: Partial<Post>) => {
+    setRowsByTab((prev) => {
+      let changed = false;
+      const next: Partial<Record<string, Row[]>> = {};
+      for (const tab of Object.keys(prev)) {
+        const list = prev[tab] || [];
+        const mapped = list.map((row) =>
+          row.isHeader ||
+          row.type !== "posts" ||
+          (row.item as any)?.id !== postId
+            ? row
+            : { ...row, item: { ...(row.item as any), ...patch } },
+        );
+        if (mapped !== list) changed = true;
+        next[tab] = mapped;
+      }
+      return changed ? next : prev;
+    });
+  }, []);
+
+  // Everything the per-type row renderers need, bundled once per render so the
+  // ROW_RENDERERS map stays pure and stateless.
+  const rowCtx = useMemo<RowCtx>(() => {
+    return {
+      styles,
+      colors,
+      navigation,
+      isFocused,
+      activePostId,
+      currentUserId: currentUser?.id,
+      toggleLike: (id, isCurrentlyLiked) => toggleLike({ id, isCurrentlyLiked }),
+      toggleSave: (id, isCurrentlySaved) => toggleSave({ id, isCurrentlySaved }),
+      patchPost,
+      sharePost: (post) => {
+        const shareTitle =
+          (post as any)?.title || `${post.author?.name || "User"}'s Post`;
+        const appUrl = `https://taddlebox.com/post/${post.id}`;
+        Share.share({
+          message: `${shareTitle}\n\n${appUrl}`,
+          url: appUrl,
+          title: shareTitle,
+        }).catch(() => {});
+      },
+      reportPost: () =>
+        themedAlert(
+          "Reported",
+          "Thank you. This post has been reported for review.",
+        ),
+      refresh: () => fetchResults(query, activeTab),
+      openPost: (post) => navigation.push("PostDetail", { post }),
+      openUser: (user) => navigation.push("UserProfile", { user }),
+      openCommunity: (slug) =>
+        (navigation as any).navigate("Community", {
+          screen: "CommunityDetail",
+          params: { communitySlug: slug },
+        }),
+      openGames,
+      openEvents: () => (navigation as any).navigate("Main", { screen: "Events" }),
+      openSettings: () => (navigation as any).navigate("Settings"),
+      openNotifications: () => (navigation as any).navigate("Notifications"),
+      addHashtag: (tag) => {
+        setTagFilters((prev) => (prev.includes(tag) ? prev : [...prev, tag]));
+        setResultType("all");
+      },
+    };
+    // fetchResults identity changes on query/filter changes; query + activeTab
+    // already capture the parts the rows actually re-run on.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [
+    styles,
+    colors,
+    navigation,
+    isFocused,
+    activePostId,
+    currentUser?.id,
+    toggleLike,
+    toggleSave,
+    patchPost,
+    openGames,
+    query,
+    activeTab,
+  ]);
+
+  const renderItem = ({ item }: { item: Row }) => {
+    // Section headers are no longer produced — the server returns a flat,
+    // ordered list; the pill row under the search bar handles type filtering.
+    if (item.isHeader) return null;
+    // Declarative dispatch: each backend result kind maps to its own row
+    // component (ROW_RENDERERS); unknown kinds fall back to the generic row.
+    const RowComponent = ROW_RENDERERS[item.type] ?? GenericRow;
+    return <RowComponent data={item.item} ctx={rowCtx} />;
   };
 
   // Result-type pills the SERVER returns for the current query — the unified
@@ -957,510 +995,6 @@ export default function SearchScreen({ navigation, route }: Props) {
     );
   };
 
-  const renderItem = ({ item }: { item: Row }) => {
-    // Section headers are no longer produced — the server returns a flat,
-    // ordered list; the pill row under the search bar handles type filtering.
-    if (item.isHeader) return null;
-    const { item: data, type } = item;
-
-    if (type === "posts") {
-      const post = normalizePostResult(data);
-      // Patch the row in local state so the icon flips instantly and stays
-      // consistent across re-renders (search results aren't react-query
-      // cached, so the useToggleSave/useToggleLike cache updates miss them).
-      const patchPost = (patch: Partial<Post>) => {
-        setRowsByTab((prev) => {
-          const list = prev.posts || [];
-          return {
-            ...prev,
-            posts: list.map((row) =>
-              row.isHeader ||
-              row.type !== "posts" ||
-              (row.item as any)?.id !== post.id
-                ? row
-                : { ...row, item: { ...(row.item as any), ...patch } },
-            ),
-          };
-        });
-      };
-      return (
-        <PostCard
-          post={post}
-          isActive={isFocused && post.id === activePostId}
-          onLike={() => {
-            toggleLike({
-              id: post.id,
-              isCurrentlyLiked: post.isLiked || false,
-            });
-            patchPost({ isLiked: !post.isLiked });
-          }}
-          onSave={() => {
-            toggleSave({
-              id: post.id,
-              isCurrentlySaved: post.isSaved || false,
-            });
-            patchPost({ isSaved: !post.isSaved });
-          }}
-          onComment={(p: any) =>
-            navigation.push("PostDetail", { post: p ?? post })
-          }
-          onShare={() => {
-            const shareTitle =
-              (post as any)?.title || `${post.author?.name || "User"}'s Post`;
-            const appUrl = `https://taddlebox.com/post/${post.id}`;
-            Share.share({
-              message: `${shareTitle}\n\n${appUrl}`,
-              url: appUrl,
-              title: shareTitle,
-            }).catch(() => {});
-          }}
-          onAuthorPress={() =>
-            navigation.push("UserProfile", { user: post.author })
-          }
-          onReport={() =>
-            themedAlert(
-              "Reported",
-              "Thank you. This post has been reported for review.",
-            )
-          }
-          showDelete={
-            !!currentUser && currentUser.id === (post as any)?.author?.id
-          }
-          onReposted={() => fetchResults(query, activeTab)}
-        />
-      );
-    }
-
-    if (type === "people") {
-      return (
-        <TouchableOpacity
-          style={styles.peopleRow}
-          onPress={() => navigation.push("UserProfile", { user: data })}
-          activeOpacity={0.8}
-        >
-          <View style={styles.avatarBubble}>
-            {data.user_avatar ||
-            data.avatar ||
-            data.avatarUrl ||
-            data.avatar_url ||
-            data.profile_image ? (
-              <Image
-                source={{
-                  uri:
-                    data.user_avatar ||
-                    data.avatar ||
-                    data.avatarUrl ||
-                    data.avatar_url ||
-                    data.profile_image,
-                }}
-                style={styles.avatarImg}
-              />
-            ) : (
-              <Text style={{ fontSize: 18 }}>👾</Text>
-            )}
-          </View>
-          <View style={styles.peopleInfo}>
-            <Text style={styles.peopleName}>{data.name}</Text>
-            <Text style={styles.peopleHandle}>@{data.username}</Text>
-            <Text style={styles.peopleMeta}>
-              {data.follower_count || 0} followers
-            </Text>
-          </View>
-          <Ionicons
-            name="chevron-forward"
-            size={16}
-            color={colors.text.muted}
-          />
-        </TouchableOpacity>
-      );
-    }
-
-    if (type === "communities") {
-      return (
-        <TouchableOpacity
-          style={styles.peopleRow}
-          onPress={() =>
-            (navigation as any).navigate("Community", {
-              screen: "CommunityDetail",
-              params: { communitySlug: data.slug },
-            })
-          }
-          activeOpacity={0.8}
-        >
-          <View style={styles.avatarBubble}>
-            {data.community_avatar ||
-            data.avatar ||
-            data.avatarUrl ||
-            data.avatar_url ? (
-              <Image
-                source={{
-                  uri:
-                    data.community_avatar ||
-                    data.avatar ||
-                    data.avatarUrl ||
-                    data.avatar_url,
-                }}
-                style={styles.avatarImg}
-              />
-            ) : (
-              <Ionicons
-                name="people-outline"
-                size={18}
-                color={colors.text.muted}
-              />
-            )}
-          </View>
-          <View style={styles.peopleInfo}>
-            <Text style={styles.peopleName}>{data.name}</Text>
-            <Text style={styles.peopleHandle}>
-              {data.member_count || 0} members
-            </Text>
-          </View>
-          <Ionicons
-            name="chevron-forward"
-            size={16}
-            color={colors.text.muted}
-          />
-        </TouchableOpacity>
-      );
-    }
-
-    if (type === "events") {
-      const location =
-        typeof data.location === "object"
-          ? data.location?.address || "Online"
-          : data.location || "Online";
-      return (
-        <TouchableOpacity
-          style={styles.peopleRow}
-          onPress={() =>
-            (navigation as any).navigate("Main", { screen: "Events" })
-          }
-          activeOpacity={0.8}
-        >
-          <View style={styles.avatarBubble}>
-            {data.cover_image_url ? (
-              <Image
-                source={{ uri: data.cover_image_url }}
-                style={styles.avatarImg}
-              />
-            ) : (
-              <Text style={{ fontSize: 18 }}>📅</Text>
-            )}
-          </View>
-          <View style={styles.peopleInfo}>
-            <Text style={styles.peopleName}>{data.title}</Text>
-            <Text style={styles.peopleHandle}>{location}</Text>
-            <Text style={styles.peopleMeta}>
-              {data.attendee_count || 0} attending ·{" "}
-              {data.event_type || "event"}
-            </Text>
-          </View>
-          <Ionicons
-            name="chevron-forward"
-            size={16}
-            color={colors.text.muted}
-          />
-        </TouchableOpacity>
-      );
-    }
-
-    if (type === "games") {
-      const thumbnail = data.thumbnail;
-      return (
-        <TouchableOpacity
-          style={styles.peopleRow}
-          onPress={openGames}
-          activeOpacity={0.8}
-        >
-          <View style={styles.avatarBubble}>
-            {thumbnail ? (
-              <Image source={{ uri: thumbnail }} style={styles.avatarImg} />
-            ) : (
-              <Text style={{ fontSize: 18 }}>🎮</Text>
-            )}
-          </View>
-          <View style={styles.peopleInfo}>
-            <Text style={styles.peopleName}>{data.name}</Text>
-            <Text style={styles.peopleHandle}>
-              {[data.category, data.difficulty].filter(Boolean).join(" · ") ||
-                "Play now"}
-            </Text>
-            <Text style={styles.peopleMeta}>
-              Up to {data.maxPlayers || 2} players
-            </Text>
-          </View>
-          <Ionicons
-            name="chevron-forward"
-            size={16}
-            color={colors.text.muted}
-          />
-        </TouchableOpacity>
-      );
-    }
-
-    if (type === "comments") {
-      // A comment matched (or lives on a matched post) — show the comment with
-      // its parent post as context; tapping opens the post's detail.
-      return (
-        <TouchableOpacity
-          style={styles.peopleRow}
-          onPress={() =>
-            // PostDetail re-fetches the full post by id on mount, so a
-            // minimal { id } payload is enough to deep-link.
-            navigation.push("PostDetail", {
-              post: { id: data.post_id } as Post,
-            })
-          }
-          activeOpacity={0.8}
-        >
-          <View style={styles.avatarBubble}>
-            {data.author_avatar ? (
-              <Image
-                source={{ uri: data.author_avatar }}
-                style={styles.avatarImg}
-              />
-            ) : (
-              <Text style={{ fontSize: 18 }}>💬</Text>
-            )}
-          </View>
-          <View style={styles.peopleInfo}>
-            <View style={{ flexDirection: "row", alignItems: "baseline" }}>
-              <Text style={styles.peopleName} numberOfLines={1}>
-                {data.author_name || "User"}
-              </Text>
-              <Text style={styles.peopleHandle} numberOfLines={1}>
-                {"  ·  "}
-                {data.community_name || data.community_slug || "comment"}
-              </Text>
-            </View>
-            <Text
-              style={styles.commentContent}
-              numberOfLines={3}
-            >
-              {data.content}
-            </Text>
-            <Text style={styles.peopleMeta} numberOfLines={1}>
-              on “{data.post_title || "a post"}” ·{" "}
-              {data.likes_count || 0} likes
-            </Text>
-          </View>
-          <Ionicons
-            name="chevron-forward"
-            size={16}
-            color={colors.text.muted}
-          />
-        </TouchableOpacity>
-      );
-    }
-
-    if (type === "media") {
-      // A media item from a matched post — thumbnail + post context; tapping
-      // opens the post's detail.
-      const mediaUri =
-        data.cloudfront_url ||
-        data.vimeo_thumbnail_url ||
-        data.vimeo_player_url ||
-        data.vimeo_uri ||
-        "";
-      return (
-        <TouchableOpacity
-          style={styles.peopleRow}
-          onPress={() =>
-            // PostDetail re-fetches the full post by id on mount, so a
-            // minimal { id } payload is enough to deep-link.
-            navigation.push("PostDetail", {
-              post: { id: data.post_id } as Post,
-            })
-          }
-          activeOpacity={0.8}
-        >
-          <View style={styles.mediaThumbWrap}>
-            {mediaUri ? (
-              <Image source={{ uri: mediaUri }} style={styles.mediaThumb} />
-            ) : (
-              <Ionicons
-                name={
-                  data.media_type === "video"
-                    ? "videocam"
-                    : data.media_type === "audio"
-                      ? "musical-notes"
-                      : "image"
-                }
-                size={18}
-                color={colors.text.muted}
-              />
-            )}
-          </View>
-          <View style={styles.peopleInfo}>
-            <Text style={styles.peopleName} numberOfLines={1}>
-              {data.post_title || "Media post"}
-            </Text>
-            <Text style={styles.peopleHandle} numberOfLines={1}>
-              {data.author_name || "User"}
-              {data.community_name ? ` · ${data.community_name}` : ""}
-            </Text>
-            <Text style={styles.peopleMeta} numberOfLines={1}>
-              {(data.media_type || "media").toUpperCase()}
-              {data.width && data.height
-                ? ` · ${data.width}×${data.height}`
-                : ""}
-            </Text>
-          </View>
-          <Ionicons
-            name="chevron-forward"
-            size={16}
-            color={colors.text.muted}
-          />
-        </TouchableOpacity>
-      );
-    }
-
-    if (type === "text") {
-      // A text row from the server — currently matched hashtags. Tapping
-      // commits it as a #tag filter chip and searches.
-      return (
-        <TouchableOpacity
-          style={styles.hashtagRow}
-          onPress={() => {
-            const t = String(data.text || "").replace(/^#/, "");
-            if (t) {
-              setTagFilters((prev) =>
-                prev.includes(t) ? prev : [...prev, t],
-              );
-              setResultType("all");
-            }
-          }}
-          activeOpacity={0.8}
-        >
-          <View style={styles.hashIconBubble}>
-            <Text style={styles.hashIcon}>#</Text>
-          </View>
-          <Text style={styles.hashtagText}>{data.text}</Text>
-        </TouchableOpacity>
-      );
-    }
-
-    if (type === ("settings_item" as any)) {
-      return (
-        <TouchableOpacity
-          style={styles.peopleRow}
-          onPress={() => {
-            if (data.action === "logout") {
-              // Not implementing log out directly here, navigate to settings
-              (navigation as any).navigate("Settings");
-            } else if (data.action === "delete") {
-              (navigation as any).navigate("Settings");
-            } else if (data.route) {
-              (navigation as any).navigate(data.route);
-            }
-          }}
-          activeOpacity={0.8}
-        >
-          <View style={[styles.avatarBubble, { backgroundColor: colors.bg.surface }]}>
-            <Ionicons name={data.icon as any} size={20} color={colors.text.secondary} />
-          </View>
-          <View style={styles.peopleInfo}>
-            <Text style={styles.peopleName}>{data.title}</Text>
-          </View>
-          <Ionicons name="chevron-forward" size={16} color={colors.text.muted} />
-        </TouchableOpacity>
-      );
-    }
-
-    if (type === ("notification_item" as any)) {
-      return (
-        <TouchableOpacity
-          style={styles.peopleRow}
-          onPress={() => (navigation as any).navigate("Notifications")}
-          activeOpacity={0.8}
-        >
-          <View style={styles.avatarBubble}>
-            {data.avatarUrl ? (
-              <Image source={{ uri: data.avatarUrl }} style={styles.avatarImg} />
-            ) : (
-              <Text style={{ fontSize: 18 }}>{data.avatar || "👾"}</Text>
-            )}
-          </View>
-          <View style={[styles.peopleInfo, { flex: 1 }]}>
-            <Text style={styles.peopleName} numberOfLines={1}>{data.actor}</Text>
-            <Text style={styles.peopleHandle} numberOfLines={2}>{data.text}</Text>
-          </View>
-          <Text style={{ fontSize: 12, color: colors.text.muted, marginLeft: 8 }}>{data.time}</Text>
-        </TouchableOpacity>
-      );
-    }
-
-    if (type === ("transaction_item" as any)) {
-      // Wallet scope — a cash/XP transaction row. Matches the wallet tab's
-      // styling (amount + currency color, type badge).
-      const txn = data as Transaction;
-      const isXP = txn.currency === "XP";
-      const isNeg =
-        txn.amount < 0 || txn.type === "spend" || txn.type === "withdraw";
-      const displayAmount = Math.abs(txn.amount || 0);
-      return (
-        <View style={styles.peopleRow}>
-          <View
-            style={[
-              styles.avatarBubble,
-              { backgroundColor: colors.bg.surface },
-            ]}
-          >
-            <Ionicons
-              name={isXP ? "flash-outline" : "wallet-outline"}
-              size={20}
-              color={isXP ? colors.xpGold : colors.text.secondary}
-            />
-          </View>
-          <View style={styles.peopleInfo}>
-            <Text style={styles.peopleName} numberOfLines={1}>
-              {txn.title}
-            </Text>
-            <Text style={styles.peopleHandle} numberOfLines={1}>
-              {txn.date}
-              {txn.status === "pending"
-                ? " · Pending"
-                : txn.status === "failed"
-                  ? " · Failed"
-                  : ""}
-            </Text>
-          </View>
-          <View style={{ alignItems: "flex-end" }}>
-            <Text
-              style={{
-                fontSize: fontSizes.md,
-                fontWeight: "700",
-                color: isXP
-                  ? colors.xpGold
-                  : isNeg
-                    ? colors.danger
-                    : colors.success,
-              }}
-            >
-              {isXP
-                ? `${isNeg ? "-" : "+"}${displayAmount.toLocaleString()} XP`
-                : isNeg
-                  ? `-₹${displayAmount.toLocaleString()}`
-                  : `+₹${displayAmount.toLocaleString()}`}
-            </Text>
-            <Text style={[styles.peopleMeta, { fontSize: 11 }]}>
-              {txn.type}
-            </Text>
-          </View>
-        </View>
-      );
-    }
-
-    return (
-      <View style={styles.genericRow}>
-        <Text style={{ color: colors.text.primary }}>
-          {data.name || data.title || "Result"}
-        </Text>
-      </View>
-    );
-  };
-
   const isEmptyQuery = !query.trim() && !filtersActive;
   const hasResults = rows.length > 0;
   // Friendly tab name for empty-state text — the active result pill's label
@@ -1480,7 +1014,7 @@ export default function SearchScreen({ navigation, route }: Props) {
     isEmptyQuery && !hasResults && !loading && !discoveryLoaded;
 
   const renderEmptyStateHeader = () => (
-    <View style={{ flex: 1, paddingBottom: 20 }}>
+    <View style={{ flex: 1, paddingBottom: 10 }}>
       {recentSearches.length > 0 && (
         <View style={styles.recentSearchesContainer}>
           <View style={styles.recentHeader}>
@@ -2027,12 +1561,16 @@ export default function SearchScreen({ navigation, route }: Props) {
             ) : null
           }
           ListHeaderComponent={
-            isEmptyQuery ? (
+            // The discovery label belongs to the discovery CONTENT — only
+            // render it once discovery rows actually exist (empty query AND
+            // rows), right where the feed starts. It never appears as a
+            // standalone banner above the pill row / empty area.
+            isEmptyQuery && hasResults ? (
               <View>
                 {renderEmptyStateHeader()}
                 <View style={styles.discoverBanner}>
-                  <Ionicons name="sparkles" size={18} color={colors.xpGold} />
-                  <Text style={styles.discoverText}>Discoveries for You!</Text>
+                  <Ionicons name="sparkles" size={16} color={colors.xpGold} />
+                  <Text style={styles.discoverText}>Discover</Text>
                 </View>
               </View>
             ) : null
@@ -2166,388 +1704,3 @@ export default function SearchScreen({ navigation, route }: Props) {
   );
 }
 
-function makeStyles(c: ColorPalette) {
-  return StyleSheet.create({
-    container: {
-      flex: 1,
-      backgroundColor: c.bg.base,
-    },
-    header: {
-      flexDirection: "row",
-      alignItems: "center",
-      paddingHorizontal: spacing.sm,
-      paddingVertical: 10,
-      borderBottomWidth: 1,
-      borderBottomColor: c.border,
-      backgroundColor: c.bg.surface,
-    },
-    backBtn: {
-      padding: spacing.sm,
-    },
-    searchBar: {
-      flex: 1,
-      flexDirection: "row",
-      alignItems: "center",
-      backgroundColor: c.bg.elevated,
-      borderRadius: radii.full,
-      paddingHorizontal: 12,
-      paddingVertical: 8,
-      marginRight: spacing.sm,
-      borderWidth: 1,
-      borderColor: c.border,
-    },
-    // Suggestion dropdown — @user / c/community autocomplete while typing.
-    suggestionBox: {
-      marginHorizontal: spacing.sm,
-      marginTop: 4,
-      backgroundColor: c.bg.surface,
-      borderRadius: radii.lg,
-      borderWidth: 1,
-      borderColor: c.border,
-      overflow: "hidden",
-    },
-    suggestionLabel: {
-      fontSize: fontSizes.xs,
-      fontWeight: "700",
-      color: c.text.muted,
-      textTransform: "uppercase",
-      letterSpacing: 0.5,
-      paddingHorizontal: 14,
-      paddingTop: 10,
-      paddingBottom: 4,
-    },
-    suggestionRow: {
-      flexDirection: "row",
-      alignItems: "center",
-      gap: 10,
-      paddingHorizontal: 14,
-      paddingVertical: 10,
-      borderTopWidth: 1,
-      borderTopColor: c.border,
-    },
-    suggestionAvatar: {
-      width: 36,
-      height: 36,
-      borderRadius: 18,
-      backgroundColor: c.bg.elevated,
-      alignItems: "center",
-      justifyContent: "center",
-      overflow: "hidden",
-    },
-    suggestionAvatarImg: { width: "100%", height: "100%" },
-    suggestionName: {
-      fontSize: fontSizes.sm,
-      fontWeight: "700",
-      color: c.text.primary,
-    },
-    suggestionHandle: {
-      fontSize: fontSizes.xs,
-      color: c.text.muted,
-      marginTop: 1,
-    },
-    // Chip inside the search bar — @user / c/community filter chips.
-    filterChip: {
-      flexDirection: "row",
-      alignItems: "center",
-      gap: 4,
-      borderRadius: radii.full,
-      paddingHorizontal: 8,
-      paddingVertical: 4,
-      marginLeft: 8,
-      maxWidth: 130,
-    },
-    filterChipText: {
-      fontSize: fontSizes.xs,
-      fontWeight: "700",
-      flexShrink: 1,
-    },
-    searchInput: {
-      flex: 1,
-      marginLeft: 8,
-      marginRight: 8,
-      fontSize: fontSizes.md,
-      color: c.text.primary,
-    },
-    tabsContainer: {
-      paddingHorizontal: spacing.md,
-      paddingVertical: 12,
-      gap: 12,
-      borderBottomWidth: 1,
-      borderBottomColor: c.border,
-    },
-    tabBtn: {
-      paddingVertical: 6,
-      paddingHorizontal: 14,
-      borderRadius: radii.full,
-      backgroundColor: c.bg.elevated,
-      borderWidth: 1,
-      borderColor: c.border,
-    },
-    tabBtnActive: {
-      backgroundColor: c.primaryLight,
-      borderColor: c.primaryLight,
-    },
-    tabText: {
-      fontSize: fontSizes.sm,
-      fontWeight: "600",
-      color: c.text.secondary,
-    },
-    tabTextActive: {
-      color: "#fff",
-    },
-    listContent: {
-      paddingVertical: spacing.md,
-      gap: 4,
-    },
-    discoverBanner: {
-      flexDirection: "row",
-      alignItems: "center",
-      gap: 8,
-      marginHorizontal: spacing.md,
-      marginBottom: 6,
-      paddingVertical: 8,
-      paddingHorizontal: 12,
-      borderRadius: radii.md,
-      backgroundColor: "rgba(251,191,36,0.08)",
-      borderWidth: 1,
-      borderColor: "rgba(251,191,36,0.22)",
-    },
-    discoverText: {
-      fontSize: fontSizes.sm,
-      fontWeight: "700",
-      color: c.xpGold,
-    },
-    centerBox: {
-      flex: 1,
-      alignItems: "center",
-      justifyContent: "center",
-      paddingTop: 60,
-      paddingHorizontal: spacing.xl,
-    },
-    emptyText: {
-      marginTop: 16,
-      fontSize: fontSizes.md,
-      color: c.text.muted,
-      textAlign: "center",
-    },
-    peopleRow: {
-      flexDirection: "row",
-      alignItems: "center",
-      backgroundColor: c.bg.card,
-      padding: spacing.md,
-      marginHorizontal: spacing.md,
-      borderRadius: radii.lg,
-      borderWidth: 1,
-      borderColor: c.border,
-    },
-    avatarBubble: {
-      width: 44,
-      height: 44,
-      borderRadius: 22,
-      backgroundColor: c.bg.elevated,
-      borderWidth: 1,
-      borderColor: c.border,
-      alignItems: "center",
-      justifyContent: "center",
-      marginRight: 12,
-      overflow: "hidden",
-    },
-    avatarImg: {
-      width: "100%",
-      height: "100%",
-    },
-    peopleInfo: {
-      flex: 1,
-    },
-    peopleName: {
-      fontSize: fontSizes.md,
-      fontWeight: "700",
-      color: c.text.primary,
-    },
-    peopleHandle: {
-      fontSize: fontSizes.sm,
-      color: c.text.muted,
-      marginTop: 2,
-    },
-    peopleMeta: {
-      fontSize: fontSizes.xs,
-      color: c.text.muted,
-      marginTop: 2,
-      opacity: 0.8,
-    },
-    // Comment result row — quote the comment text below the author line.
-    commentContent: {
-      fontSize: fontSizes.sm,
-      color: c.text.primary,
-      marginTop: 4,
-      lineHeight: 20,
-    },
-    mediaThumbWrap: {
-      width: 44,
-      height: 44,
-      borderRadius: 10,
-      backgroundColor: c.bg.elevated,
-      borderWidth: 1,
-      borderColor: c.border,
-      alignItems: "center",
-      justifyContent: "center",
-      marginRight: 12,
-      overflow: "hidden",
-    },
-    mediaThumb: {
-      width: "100%",
-      height: "100%",
-    },
-    genericRow: {
-      backgroundColor: c.bg.card,
-      padding: spacing.md,
-      marginHorizontal: spacing.md,
-      borderRadius: radii.lg,
-      borderWidth: 1,
-      borderColor: c.border,
-    },
-    hashtagRow: {
-      flexDirection: "row",
-      alignItems: "center",
-      backgroundColor: c.bg.card,
-      padding: spacing.md,
-      marginHorizontal: spacing.md,
-      borderRadius: radii.lg,
-      borderWidth: 1,
-      borderColor: c.border,
-    },
-    hashIconBubble: {
-      width: 32,
-      height: 32,
-      borderRadius: 16,
-      backgroundColor: c.bg.surface,
-      alignItems: "center",
-      justifyContent: "center",
-      marginRight: 12,
-    },
-    hashIcon: {
-      color: c.text.secondary,
-      fontWeight: "bold",
-    },
-    hashtagText: {
-      fontSize: fontSizes.md,
-      fontWeight: "600",
-      color: c.text.primary,
-    },
-    filterIconButton: {
-      padding: spacing.md,
-      justifyContent: "center",
-      alignItems: "center",
-    },
-    modalOverlay: {
-      flex: 1,
-      backgroundColor: "rgba(0,0,0,0.5)",
-      justifyContent: "flex-end",
-    },
-    modalContent: {
-      backgroundColor: c.bg.base,
-      borderTopLeftRadius: radii.xl,
-      borderTopRightRadius: radii.xl,
-      padding: spacing.lg,
-      paddingBottom: 40,
-    },
-    modalHeader: {
-      flexDirection: "row",
-      justifyContent: "space-between",
-      alignItems: "center",
-      marginBottom: spacing.lg,
-    },
-    modalTitle: {
-      fontSize: fontSizes.lg,
-      fontWeight: "800",
-      color: c.text.primary,
-    },
-    modalCloseBtn: {
-      padding: 4,
-      backgroundColor: c.bg.surface,
-      borderRadius: radii.full,
-    },
-    filterGroup: {
-      marginBottom: spacing.lg,
-    },
-    filterGroupTitle: {
-      fontSize: fontSizes.xs,
-      fontWeight: "700",
-      color: c.text.muted,
-      marginBottom: spacing.sm,
-      letterSpacing: 0.5,
-    },
-    filterRow: {
-      flexDirection: "row",
-      flexWrap: "wrap",
-      gap: 12,
-    },
-    sheetFilterChip: {
-      paddingVertical: 8,
-      paddingHorizontal: 16,
-      borderRadius: radii.full,
-      backgroundColor: c.bg.surface,
-      borderWidth: 1,
-      borderColor: c.border,
-    },
-    sheetFilterChipActive: {
-      backgroundColor: c.primaryLight,
-      borderColor: c.primaryLight,
-    },
-    sheetFilterChipText: {
-      fontSize: fontSizes.sm,
-      fontWeight: "600",
-      color: c.text.secondary,
-    },
-    sheetFilterChipTextActive: {
-      color: "#fff",
-    },
-    applyFilterBtn: {
-      backgroundColor: c.primaryLight,
-      borderRadius: radii.lg,
-      paddingVertical: 14,
-      alignItems: "center",
-      marginTop: spacing.md,
-    },
-    applyFilterText: {
-      color: "#fff",
-      fontSize: fontSizes.md,
-      fontWeight: "700",
-    },
-    recentSearchesContainer: {
-      paddingTop: spacing.lg,
-      paddingHorizontal: spacing.md,
-    },
-    recentHeader: {
-      flexDirection: "row",
-      justifyContent: "space-between",
-      alignItems: "center",
-      marginBottom: 12,
-    },
-    recentTitle: {
-      fontSize: fontSizes.sm,
-      fontWeight: "700",
-      color: c.text.muted,
-      textTransform: "uppercase",
-      letterSpacing: 0.5,
-    },
-    recentClear: {
-      fontSize: fontSizes.sm,
-      fontWeight: "600",
-      color: c.primaryLight,
-    },
-    recentRow: {
-      flexDirection: "row",
-      alignItems: "center",
-      paddingVertical: 12,
-      borderBottomWidth: StyleSheet.hairlineWidth,
-      borderBottomColor: c.border,
-    },
-    recentText: {
-      flex: 1,
-      fontSize: fontSizes.md,
-      color: c.text.primary,
-      marginLeft: 12,
-    },
-  });
-}

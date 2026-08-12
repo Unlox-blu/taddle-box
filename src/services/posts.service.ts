@@ -19,6 +19,24 @@ export const postsService = {
     return response.data;
   },
 
+  // Cast (or move) the current user's vote on a post poll. The server enforces
+  // one vote per user; a re-vote on a different option moves the tally.
+  castPollVote: async (
+    postId: string,
+    optionIndex: number,
+  ): Promise<{ data: { pollData: Post['pollData']; myVote: number; changed: boolean } }> => {
+    const response = await apiClient.post(`/posts/${postId}/poll/vote`, { optionIndex });
+    return response.data;
+  },
+
+  // The poll author stops further votes (server enforces authorship).
+  closePoll: async (
+    postId: string,
+  ): Promise<{ data: { pollData: Post['pollData']; closed: boolean } }> => {
+    const response = await apiClient.post(`/posts/${postId}/poll/close`);
+    return response.data;
+  },
+
   getPost: async (postId: string, config?: { viaRepostId?: string }): Promise<{ data: Post }> => {
     let url = `/posts/${postId}`;
     if (config?.viaRepostId) {
@@ -57,6 +75,22 @@ export const postsService = {
   ): Promise<{ data: any[] }> => {
     const response = await apiClient.get(
       `/posts/${postId}/reposts?page=${page}&limit=${limit}`,
+    );
+    return response.data;
+  },
+
+  // Paginated list of users who voted for ONE option of a post poll — same
+  // shape as getLikers so the same users-list modal renders it, with
+  // privacy + followRequested so the Follow button can become
+  // "Request to Follow" for private accounts.
+  getPollVoters: async (
+    postId: string,
+    optionIndex: number,
+    page = 1,
+    limit = 20,
+  ): Promise<{ data: any[] }> => {
+    const response = await apiClient.get(
+      `/posts/${postId}/poll/voters?option=${optionIndex}&page=${page}&limit=${limit}`,
     );
     return response.data;
   },

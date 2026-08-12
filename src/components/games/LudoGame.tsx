@@ -148,35 +148,28 @@ const PLAYER_PATH_OFFSET = [0, 13, 26, 39];
 function getTokenPos(pi: number, tokenId: number, pos: number, cell: number): { x: number; y: number } {
   // Pin geometry — the coin's DOWN TIP is the placement point. The pin tip
   // renders HEAD_CENTER (PIN_H/3) BELOW the anim anchor, so every anchor is
-  // pulled UP by PIN_H/3 to plant the tip exactly on the spot center — yard
-  // rings, track cells AND home-lane cells all alike, so coins read as pins
+  // Yard rings, track cells AND home-lane cells all alike, so coins read as pins
   // standing on their spots everywhere (tip on the centre, head above it).
   const PIN_W = Math.max(14, cell * 0.76);
-  const PIN_H = PIN_W * 1.35;
-  const TIP = PIN_H / 3;
   if (pos === -1) {
     // Yard slot — tip on the ring centre, head rides above it.
     const [col, row] = HOME_SLOTS[pi % 4][tokenId % 4];
-    return { x: col * cell, y: row * cell - TIP };
+    return { x: col * cell, y: row * cell };
   }
   if (pos === 57) {
-    // Finished — tip on the centre-triangle spot, head rides above it (the
-    // same alignment as every other coin); a small fan keeps several finished
-    // coins apart instead of stacking exactly.
+    // Finished — tip on the centre-triangle spot
     const [hx, hy] = HOME_SPOTS[pi % 4];
     const ox = tokenId % 2 === 0 ? -0.28 : 0.28;
     const oy = tokenId < 2 ? -0.28 : 0.28;
-    return { x: (hx + ox) * cell, y: (hy + oy) * cell - TIP };
+    return { x: (hx + ox) * cell, y: (hy + oy) * cell };
   }
   if (pos >= 52) {
-    // Guarded (engine clamps at 57) so an unexpected pos can never index
-    // past the 5 home-column cells.
     const [col, row] = HOME_COLS[pi % 4][Math.min(56, pos) - 52];
-    return { x: (col + 0.5) * cell, y: (row + 0.5) * cell - TIP };
+    return { x: (col + 0.5) * cell, y: (row + 0.5) * cell };
   }
   const idx = (PLAYER_PATH_OFFSET[pi % 4] + pos) % LUDO_PATH.length;
   const [col, row] = LUDO_PATH[idx];
-  return { x: (col + 0.5) * cell, y: (row + 0.5) * cell - TIP };
+  return { x: (col + 0.5) * cell, y: (row + 0.5) * cell };
 }
 
 // ── Coin stacking ─────────────────────────────────────────────────────────────
@@ -1672,7 +1665,7 @@ export default function LudoGame({
             // the head (with the avatar) rides above it, so tokens read as
             // pins planted on their cell/ring.
             left: Animated.add(anim.x, new Animated.Value(-PIN_W / 2)),
-            top:  Animated.add(anim.y, new Animated.Value(-PIN_H + HEAD_CENTER)),
+            top:  Animated.add(anim.y, new Animated.Value(-PIN_H)),
             zIndex: canMove ? 30 : isMe ? 20 : 10,
             alignItems: 'center',
           }}>

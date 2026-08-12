@@ -98,6 +98,10 @@ export default function CustomTabBar({ state, navigation }: BottomTabBarProps) {
     } else if (activeRoute?.name === 'CommunityDetail') {
       setPreselectedCommunityId(activeRoute.params?.communitySlug || activeRoute.params?.id); // The param is usually communitySlug or id
       setCreateVisible(true);
+    } else if (activeRoute?.name === 'Games') {
+      DeviceEventEmitter.emit('openGamesMatchmaking');
+    } else if (activeRoute?.name === 'Events') {
+      DeviceEventEmitter.emit('openEventMatchmaking');
     } else {
       setPreselectedCommunityId(undefined);
       setCreateVisible(true);

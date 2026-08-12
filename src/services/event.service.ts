@@ -2,12 +2,13 @@ import { apiClient } from './apiClient';
 import type { Event } from '../types';
 
 export const eventService = {
-  discoverEvents: async (params?: { q?: string; filter?: string; limit?: number; page?: number }) => {
+  discoverEvents: async (params?: { q?: string; filter?: string; limit?: number; page?: number; scope?: string }) => {
     const query = new URLSearchParams();
     if (params?.q) query.append('q', params.q);
     if (params?.filter) query.append('filter', params.filter);
     if (params?.limit) query.append('limit', String(params.limit));
     if (params?.page) query.append('page', String(params.page));
+    if (params?.scope) query.append('scope', params.scope);
 
     const response = await apiClient.get(`/events/discover?${query.toString()}`);
     const data = response.data;

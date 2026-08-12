@@ -33,6 +33,7 @@ import { postsService } from "../../services/posts.service";
 import { userService } from "../../services/user.service";
 import { queryKeys } from "../../lib/queryKeys";
 import PresenceDot from "../common/PresenceDot";
+import PollBlock from "../common/PollBlock";
 import SmartInput from "../common/SmartInput";
 import { useMyCommunities } from "../../queries/communities";
 import { themedAlert } from '../common/ThemedAlert';
@@ -129,6 +130,29 @@ function makeStyles(c: ColorPalette) {
       borderRadius: radii.full,
     },
     xpText: { fontSize: fontSizes.xs, fontWeight: "800", color: c.xpGold },
+    toastOverlay: {
+      flex: 1,
+      alignItems: "center",
+      paddingTop: 64, // clear the header / status bar
+    },
+    toastPill: {
+      flexDirection: "row",
+      alignItems: "center",
+      gap: 8,
+      paddingHorizontal: 16,
+      paddingVertical: 10,
+      borderRadius: radii.full,
+      borderWidth: 1,
+      shadowColor: "#000",
+      shadowOpacity: 0.18,
+      shadowRadius: 8,
+      shadowOffset: { width: 0, height: 2 },
+      elevation: 4,
+    },
+    toastText: {
+      fontSize: fontSizes.sm,
+      fontWeight: "600",
+    },
     imageBanner: {
       height: 180,
       backgroundColor: c.bg.elevated,
@@ -375,6 +399,137 @@ export default function PostCard({
 
   const [currentMediaPage, setCurrentMediaPage] = React.useState(0);
   const postId = String(post?.id || "");
+
+  // ── Poll state ─────────────────────────────────────────────────────────
+  // Tally + the user's selection live here so a vote updates the bars
+  // immediately; the server response is the source of truth. Lists don't
+  // carry myPollVote (only the detail query joins it), so the highlight
+  // appears right after the user votes in this session.
+  const [pollData, setPollData] = useState((post as any)?.pollData || null);
+  const [myPollVote, setMyPollVote] = useState<number | null>(
+    (post as any)?.myPollVote ?? null,
+  );
+  // Flat lists recycle card instances — reset when the card is reused.
+  useEffect(() => {
+    setPollData((post as any)?.pollData || null);
+    setMyPollVote((post as any)?.myPollVote ?? null);
+  }, [postId]);
+
+  const handlePollVote = useCallback(
+    async (optionIndex: number) => {
+      if (!postId || !pollData) return;
+      try {
+        const res = await postsService.castPollVote(postId, optionIndex);
+        const data = res?.data;
+        if (data?.pollData) setPollData(data.pollData);
+        // myVote is null when the tap toggled the vote OFF — clear the
+        // highlight in that case too (not just when a new vote lands).
+        setMyPollVote(data?.myVote ?? null);
+      } catch (e: any) {
+        themedAlert(
+          "Vote Error",
+          e?.response?.data?.message || "Could not record your vote.",
+        );
+      }
+    },
+    [postId, pollData],
+  );
+
+  // ── Toast ──────────────────────────────────────────────────────────────
+  // Brief confirmations for async actions (e.g. "Poll closed"). Modal-based
+  // so the pill floats above the list no matter where the card is scrolled.
+  const [toastMsg, setToastMsg] = useState<string | null>(null);
+  const toastOpacity = useRef(new Animated.Value(0)).current;
+  const showToast = useCallback(
+    (msg: string) => {
+      setToastMsg(msg);
+      Animated.sequence([
+        Animated.timing(toastOpacity, {
+          toValue: 1,
+          duration: 180,
+          useNativeDriver: true,
+        }),
+        Animated.delay(1800),
+        Animated.timing(toastOpacity, {
+          toValue: 0,
+          duration: 220,
+          useNativeDriver: true,
+        }),
+      ]).start(({ finished }) => {
+        if (finished) setToastMsg(null);
+      });
+    },
+    [toastOpacity],
+  );
+
+  // Only the poll author can close it — the server enforces this too. Always
+  // confirm first: closing is permanent and locks out every voter.
+  const handleClosePoll = useCallback(() => {
+    if (!postId || !pollData) return;
+    themedAlert(
+      "Close poll?",
+      `Voting will be locked — ${pollData.options?.length || 0} option(s) keep their current tallies and nobody can vote anymore. This can't be undone.`,
+      [
+        { text: "Cancel", style: "cancel" },
+        {
+          text: "Close poll",
+          style: "destructive",
+          onPress: async () => {
+            try {
+              const res = await postsService.closePoll(postId);
+              if (res?.data?.pollData) setPollData(res.data.pollData);
+              showToast("Poll closed");
+            } catch (e: any) {
+              themedAlert(
+                "Error",
+                e?.response?.data?.message || "Could not close the poll.",
+              );
+            }
+          },
+        },
+      ],
+    );
+  }, [postId, pollData, showToast]);
+
+  // Overflow menu contents: Close poll (author, open poll) + the existing
+  // Delete / Report action. Rendered in PostMenuSheet, a bottom sheet.
+  const menuOptions = useMemo(() => {
+    const opts: {
+      icon: string;
+      label: string;
+      color?: string;
+      onPress: () => void;
+    }[] = [];
+    const postAuthorId =
+      (post as any)?.author?.id ||
+      (post as any)?.authorId ||
+      (post as any)?.author_id ||
+      "";
+    const isAuthor =
+      !!postAuthorId && String(postAuthorId) === String(currentUser?.id);
+    if (pollData && !pollData.closed && isAuthor) {
+      opts.push({
+        icon: "bar-chart-outline",
+        label: "Close poll",
+        onPress: () => handleClosePoll(),
+      });
+    }
+    if (showDelete) {
+      opts.push({
+        icon: "trash-outline",
+        label: "Delete",
+        color: "#ef4444",
+        onPress: () => onDelete?.(post),
+      });
+    } else {
+      opts.push({
+        icon: "flag-outline",
+        label: "Report",
+        onPress: () => onReport?.(post),
+      });
+    }
+    return opts;
+  }, [pollData, showDelete, currentUser?.id, handleClosePoll, post, onDelete, onReport]);
   // Full-bleed (detail page) media spans the whole screen; otherwise the card
   // width (screen minus side margins) drives it.
   const mediaW = fullBleed ? SCREEN_W : CARD_W;
@@ -559,6 +714,9 @@ export default function PostCard({
   const [audienceExpanded, setAudienceExpanded] = React.useState(false);
   const [likersVisible, setLikersVisible] = React.useState(false);
   const [repostersVisible, setRepostersVisible] = React.useState(false);
+  // Poll option whose voters list is open (null = closed). Kept as the index
+  // so long-pressing a different option swaps the list cleanly.
+  const [votersOption, setVotersOption] = React.useState<number | null>(null);
   // The repost CARD keeps its OWN engagement — every repost row carries its
   // own likes/comments/shares counters (the original's numbers live only in the
   // embedded preview below, as a peek; tapping the preview opens the original).
@@ -1225,54 +1383,6 @@ export default function PostCard({
                 >
                   <Ionicons name="ellipsis-vertical" size={15} color={colors.text.muted} />
                 </TouchableOpacity>
-                {showMenu && (
-                  <TouchableOpacity
-                    onPress={() => {
-                      setShowMenu(false);
-                      if (showDelete) {
-                        onDelete?.(post);
-                      } else {
-                        onReport?.(post);
-                      }
-                    }}
-                    style={{
-                      position: 'absolute',
-                      top: 20,
-                      right: 0,
-                      width: 100,
-                      backgroundColor: colors.bg.surface,
-                      paddingVertical: 8,
-                      paddingHorizontal: 12,
-                      borderRadius: 8,
-                      borderWidth: 1,
-                      borderColor: colors.border,
-                      zIndex: 100,
-                      flexDirection: 'row',
-                      alignItems: 'center',
-                      gap: 6,
-                      shadowColor: '#000',
-                      shadowOffset: { width: 0, height: 2 },
-                      shadowOpacity: 0.1,
-                      shadowRadius: 4,
-                      elevation: 5,
-                    }}
-                  >
-                    <Ionicons 
-                      name={showDelete ? "trash-outline" : "flag-outline"} 
-                      size={14} 
-                      color={showDelete ? "#ef4444" : colors.text.primary} 
-                    />
-                    <Text 
-                      style={{ 
-                        fontSize: 13, 
-                        color: showDelete ? '#ef4444' : colors.text.primary, 
-                        fontWeight: '600' 
-                      }}
-                    >
-                      {showDelete ? 'Delete' : 'Report'}
-                    </Text>
-                  </TouchableOpacity>
-                )}
               </View>
             </View>
             {(() => {
@@ -1602,6 +1712,21 @@ export default function PostCard({
         );
       })()}
 
+      {/* Poll (question + options + vote bars) — BELOW the media, so the
+          visual content leads and the poll sits at the bottom of the card.
+          Poll taps register a vote directly on the card — nested
+          TouchableOpacity wins over the body's single/double-tap detector. */}
+      {pollData ? (
+        <PollBlock
+          poll={pollData}
+          myVote={myPollVote}
+          onVote={handlePollVote}
+          onShowVoters={setVotersOption}
+          embedded
+          inset
+        />
+      ) : null}
+
       {/* Actions — the row itself is tappable (empty space opens the detail
           page); each button inside still handles its own press. */}
       <TouchableWithoutFeedback onPress={handleFooterTap}>
@@ -1776,6 +1901,21 @@ export default function PostCard({
         onClose={() => setRepostersVisible(false)}
       />
 
+      {/* ── Poll voters: who voted for one option (long-press the option).
+          Mounted only while open so switching options reloads the list. */}
+      {votersOption != null && pollData?.options?.[votersOption] ? (
+        <UsersModal
+          visible
+          postId={postId}
+          title={`Voters · ${(pollData.options[votersOption]?.text || `Option ${votersOption + 1}`).slice(0, 24)}`}
+          emptyText="No votes on this option yet."
+          fetchPage={(id, page, limit) =>
+            postsService.getPollVoters(id, votersOption, page, limit)
+          }
+          onClose={() => setVotersOption(null)}
+        />
+      ) : null}
+
       {/* ── Repost sheet: repost verbatim or quote ── */}
       <Modal
         visible={repostSheetVisible}
@@ -1902,6 +2042,47 @@ export default function PostCard({
         </KeyboardAvoidingView>
       </Modal>
 
+      {/* Post overflow menu — bottom sheet (Close poll / Delete / Report).
+          Modal lifts it above the list so the sheet overlays the screen. */}
+      {showMenu && (
+        <Modal
+          transparent
+          visible
+          animationType="fade"
+          onRequestClose={() => setShowMenu(false)}
+        >
+          <PostMenuSheet
+            visible
+            onClose={() => setShowMenu(false)}
+            options={menuOptions}
+          />
+        </Modal>
+      )}
+
+      {/* Action toast — transient confirmation (e.g. "Poll closed").
+          pointerEvents="none" so it never blocks the feed underneath. */}
+      {toastMsg != null && (
+        <Modal transparent visible animationType="none" onRequestClose={() => {}}>
+          <View style={styles.toastOverlay} pointerEvents="none">
+            <Animated.View
+              style={[
+                styles.toastPill,
+                {
+                  opacity: toastOpacity,
+                  backgroundColor: colors.bg.elevated,
+                  borderColor: colors.border,
+                },
+              ]}
+            >
+              <Ionicons name="checkmark-circle" size={16} color={colors.primary} />
+              <Text style={[styles.toastText, { color: colors.text.primary }]}>
+                {toastMsg}
+              </Text>
+            </Animated.View>
+          </View>
+        </Modal>
+      )}
+
     </View>
   );
 }
@@ -2001,6 +2182,15 @@ function RepostedPostCard({
     globalIsMuted = newMuted;
     setIsMuted(newMuted);
   };
+
+  // ── Poll state (the original may be a poll post) ────────────────────────
+  const [pollData, setPollData] = React.useState<any>(null);
+  const [myPollVote, setMyPollVote] = React.useState<number | null>(null);
+  // Sync when the resolved original arrives (async) or the card is reused.
+  React.useEffect(() => {
+    setPollData((orig as any)?.pollData || null);
+    setMyPollVote((orig as any)?.myPollVote ?? null);
+  }, [(orig as any)?.id]);
 
   React.useEffect(() => {
     let cancelled = false;
@@ -2356,6 +2546,15 @@ function RepostedPostCard({
         </View>
       )}
 
+      {/* Poll of the original — display-only preview (question + options +
+          vote bars, and the viewer's saved vote highlighted) BELOW the media.
+          No onVote: the options are not tappable here, so taps fall through
+          to the preview's own tap handler and open the ORIGINAL post, where
+          voting happens. */}
+      {pollData ? (
+        <PollBlock poll={pollData} myVote={myPollVote} embedded />
+      ) : null}
+
       {/* The ORIGINAL's engagement counts as a preview peek — pinned at the
           BOTTOM of the embedded preview. The repost card above carries its
           OWN counts; this row just shows what the original looks like.
@@ -2476,28 +2675,50 @@ function UsersModal({
   }, [visible, postId]);
 
   // Optimistic toggle so Follow/Following flips instantly and stays synced
-  // with every other surface.
+  // with every other surface. PRIVATE accounts create a follow REQUEST
+  // server-side — the button shows "Request to Follow" / "Requested" and
+  // tapping a pending request cancels it (same semantics as the profile
+  // screen).
   const toggleFollow = async (user: any) => {
-    const next = !user.isFollowing;
+    const isPrivate = user.privacy === "private";
+    const isRequest = isPrivate && !user.isFollowing && !user.followRequested;
+    const cancelRequest = isPrivate && !user.isFollowing && user.followRequested;
+    const next: any = { ...user };
+    if (user.isFollowing) {
+      next.isFollowing = false;
+    } else if (cancelRequest) {
+      next.followRequested = false;
+    } else if (isRequest) {
+      next.followRequested = true;
+    } else {
+      next.isFollowing = true;
+    }
     setUsers((prev) =>
-      prev.map((u) =>
-        u.id === user.id ? { ...u, isFollowing: next } : u,
-      ),
+      prev.map((u) => (u.id === user.id ? next : u)),
     );
     try {
-      if (next) {
-        await userService.followUser(user.username);
-      } else {
+      if (user.isFollowing || cancelRequest) {
         await userService.unfollowUser(user.username);
+      } else {
+        await userService.followUser(user.username);
       }
     } catch (e) {
       console.warn("Follow toggle failed", e);
       setUsers((prev) =>
-        prev.map((u) =>
-          u.id === user.id ? { ...u, isFollowing: !next } : u,
-        ),
+        prev.map((u) => (u.id === user.id ? user : u)),
       );
     }
+  };
+
+  // Follow button label — public accounts toggle Follow/Following; private
+  // accounts toggle Request to Follow / Requested (and stay "Requested"
+  // until the owner approves).
+  const followLabel = (user: any) => {
+    if (user.isFollowing) return "Following";
+    if (user.privacy === "private") {
+      return user.followRequested ? "Requested" : "Request to Follow";
+    }
+    return "Follow";
   };
 
   if (!visible) return null;
@@ -2606,7 +2827,7 @@ function UsersModal({
                     onPress={() => toggleFollow(item)}
                     style={[
                       sheetStyles.likersFollowBtn,
-                      item.isFollowing && {
+                      (item.isFollowing || item.followRequested) && {
                         backgroundColor: colors.bg.elevated,
                         borderWidth: 1,
                         borderColor: colors.border,
@@ -2616,10 +2837,12 @@ function UsersModal({
                     <Text
                       style={[
                         sheetStyles.likersFollowText,
-                        item.isFollowing && { color: colors.text.secondary },
+                        (item.isFollowing || item.followRequested) && {
+                          color: colors.text.secondary,
+                        },
                       ]}
                     >
-                      {item.isFollowing ? "Following" : "Follow"}
+                      {followLabel(item)}
                     </Text>
                   </TouchableOpacity>
                 )}

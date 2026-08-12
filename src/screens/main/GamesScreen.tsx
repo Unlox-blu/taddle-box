@@ -61,6 +61,7 @@ import { useAuth } from "../../context/AuthContext";
 import TournamentLeaderboardModal from "../../components/games/TournamentLeaderboardModal";
 import { gameSound, useGameSoundPrefs } from "../../services/gameSound";
 import { themedAlert } from "../../components/common/ThemedAlert";
+import GamesMatchmakingModal from "../../components/games/GamesMatchmakingModal";
 
 type ActiveTab = "games" | "tournaments" | "history";
 type ScreenModal = "none" | "history";
@@ -217,6 +218,27 @@ export default function GamesScreen() {
   // Game-specific settings (sound + haptics) — a dedicated modal like Wallet's,
   // NOT the global Settings screen.
   const [gameSettingsVisible, setGameSettingsVisible] = useState(false);
+  const [globalMatchModalVisible, setGlobalMatchModalVisible] = useState(false);
+
+  const handleGamePlay = useCallback((game: Game, isRejoin: boolean) => {
+    if (isRejoin) {
+      setActiveSession({
+        ...(reconnectSession as any),
+        isRejoin: true,
+      });
+      setReconnectSession(null);
+      return;
+    }
+    if (!user || user.xp < (game.entryFee || 0)) {
+      themedAlert(
+        "Insufficient XP",
+        `You need ${game.entryFee || 0} XP to play ${game.name}.`
+      );
+      return;
+    }
+    setSelectedGame(game);
+    setMatchModalVisible(true);
+  }, [reconnectSession, user]);
 
   const loadGamesData = useCallback(async () => {
     setLoading(true);
@@ -277,11 +299,16 @@ export default function GamesScreen() {
       setReconnectSession(null);
     };
 
+    const subGamesModal = require("react-native").DeviceEventEmitter.addListener("openGamesMatchmaking", () => {
+      setGlobalMatchModalVisible(true);
+    });
+
     socketClient.events.on("notification:new", handleNewNotif);
     socketClient.events.on("SESSION_EXPIRED", handleSessionExpired);
 
     return () => {
       sub.remove();
+      subGamesModal.remove();
       socketClient.events.off("notification:new", handleNewNotif);
       socketClient.events.off("SESSION_EXPIRED", handleSessionExpired);
     };
@@ -482,27 +509,33 @@ export default function GamesScreen() {
         </View>
       </View>
 
-      <View style={styles.tabRow}>
-        {(["games", "tournaments", "history"] as ActiveTab[]).map((tab) => (
-          <TouchableOpacity
-            key={tab}
-            onPress={() => setActiveTab(tab)}
-            style={[styles.tab, activeTab === tab && styles.tabActive]}
-          >
-            <Text
-              style={[
-                styles.tabText,
-                activeTab === tab && styles.tabTextActive,
-              ]}
+      <View style={{ backgroundColor: colors.bg.base, paddingVertical: 8 }}>
+        <ScrollView
+          horizontal
+          showsHorizontalScrollIndicator={false}
+          contentContainerStyle={styles.tabsScroll}
+        >
+          {(["games", "tournaments", "history"] as ActiveTab[]).map((tab) => (
+            <TouchableOpacity
+              key={tab}
+              onPress={() => setActiveTab(tab)}
+              style={[styles.tabChip, activeTab === tab && styles.tabChipActive]}
             >
-              {tab === "games"
-                ? "Games"
-                : tab === "tournaments"
-                  ? "Tournaments"
-                  : "History"}
-            </Text>
-          </TouchableOpacity>
-        ))}
+              <Text
+                style={[
+                  styles.tabText,
+                  activeTab === tab && styles.tabTextActive,
+                ]}
+              >
+                {tab === "games"
+                  ? "Games"
+                  : tab === "tournaments"
+                    ? "Tournaments"
+                    : "History"}
+              </Text>
+            </TouchableOpacity>
+          ))}
+        </ScrollView>
       </View>
 
       {incomingInvite && (
@@ -611,25 +644,7 @@ export default function GamesScreen() {
                       setReconnectSession(null);
                       loadGamesData();
                     }}
-                    onPlayClick={() => {
-                      if (isRejoin) {
-                        setActiveSession({
-                          ...reconnectSession,
-                          isRejoin: true,
-                        });
-                        setReconnectSession(null); // Clear from banner so it opens fresh
-                        return;
-                      }
-                      if (!user || user.xp < (game.entryFee || 0)) {
-                        themedAlert(
-                          "Insufficient XP",
-                          `You need ${game.entryFee || 0} XP to play ${game.name}.`,
-                        );
-                        return;
-                      }
-                      setSelectedGame(game);
-                      setMatchModalVisible(true);
-                    }}
+                    onPlayClick={() => handleGamePlay(game, isRejoin)}
                   />
                 );
               })}
@@ -695,6 +710,14 @@ export default function GamesScreen() {
           </>
         )}
       </ScrollView>
+
+      <GamesMatchmakingModal
+        visible={globalMatchModalVisible}
+        onClose={() => setGlobalMatchModalVisible(false)}
+        games={realGames}
+        reconnectSession={reconnectSession}
+        onPlayClick={handleGamePlay}
+      />
 
       <MatchModeModal
         visible={matchModalVisible}
@@ -1069,6 +1092,9 @@ function GamePlayModal({
   // Ensures the win/loss jingle fires exactly once per session even if both the
   // direct completion path and a MATCH_RESOLVED notification race each other.
   const resultSoundPlayedRef = useRef(false);
+  // Lets the engine-socket listeners (registered once per match) call the
+  // latest handleComplete without stale closures or effect re-subscription.
+  const handleCompleteRef = useRef<(r: HtmlGameResult) => void>(() => {});
 
   useEffect(() => {
     const { DeviceEventEmitter } = require("react-native");
@@ -1103,16 +1129,37 @@ function GamePlayModal({
       }
     };
 
+    // Reconnected to a match that already ENDED (forfeit / draw / we were
+    // offline when it finished). The engine only sends GAME_OVER live — on a
+    // reconnect it replies with CONNECT_ACK carrying the FINISHED state, which
+    // the game component would otherwise misread as "waiting" and hang on
+    // forever. Complete the session here so the result overlay appears.
+    const onConnect = (event: any) => {
+      if (event.matchId !== session.matchId) return;
+      const st = event.data?.state?.status;
+      if (st !== "FINISHED" && st !== "ARCHIVED") return;
+      const winnerId = event.data?.state?.pluginState?.winner;
+      const won = !!winnerId && String(winnerId) === String(user?.id);
+      handleCompleteRef.current({
+        score: won ? 1 : 0,
+        won,
+        xpEarned: 0,
+        durationSeconds: 0,
+      });
+    };
+
     const sub1 = DeviceEventEmitter.addListener("GAME_ENGINE_PAUSE", onPause);
     const sub2 = DeviceEventEmitter.addListener("GAME_ENGINE_RESUME", onResume);
     const sub3 = DeviceEventEmitter.addListener("GAME_ENGINE_OVER", onResume);
     const sub4 = DeviceEventEmitter.addListener("GAME_ENGINE_ACTIVE", onActive);
+    const sub5 = DeviceEventEmitter.addListener("GAME_ENGINE_CONNECT", onConnect);
 
     return () => {
       sub1.remove();
       sub2.remove();
       sub3.remove();
       sub4.remove();
+      sub5.remove();
     };
   }, [session.matchId]);
 
@@ -1210,21 +1257,45 @@ function GamePlayModal({
       }
       if (!session.wsToken) await addMatch(match);
     } catch (error: any) {
-      // Re-arm so a transient network error can be retried, but swallow the
-      // benign "already completed" double-fire from racing timers.
-      const msg = error?.response?.data?.message || "";
-      if (msg.toLowerCase().includes("already completed")) {
+      // The game is over either way. If the server rejected the completion
+      // (already resolved / session expired / session not found / match not
+      // finished), DON'T punish the player with an alert and a closed modal —
+      // fall back to the local game result and render the overlay. The server
+      // keeps its own authoritative record of the outcome.
+      const msg = String(error?.response?.data?.message || "").toLowerCase();
+      const benign =
+        msg.includes("already completed") ||
+        msg.includes("already resolved") ||
+        msg.includes("session expired") ||
+        msg.includes("session not found") ||
+        msg.includes("not finished");
+      if (benign) {
+        // Don't clobber a result the server already returned on an earlier call.
+        if (result === "pending") {
+          setScore(gameResult.score || 0);
+          setResult(gameResult.won ? "win" : "loss");
+          setXpEarned(gameResult.xpEarned || 0);
+          setGameStats({
+            accuracy: gameResult.accuracy,
+            longestStreak: gameResult.longestStreak,
+          });
+        }
         setPhase("result");
         return;
       }
+      // Genuine network/server failure — re-arm so the completion can be
+      // retried, but keep the player in the result screen rather than dumping
+      // them out of the game.
       completingRef.current = false;
       themedAlert(
         "Game Error",
         error.response?.data?.message || "Could not save your game result.",
       );
-      onClose();
     }
   };
+
+  // Keep the engine-socket listeners pointed at the latest handler.
+  handleCompleteRef.current = handleComplete;
 
   return (
     <Modal
@@ -1650,14 +1721,15 @@ function makeStyles(c: ColorPalette) {
       flexDirection: "row",
       alignItems: "center",
       justifyContent: "space-between",
-      paddingHorizontal: spacing.lg,
-      paddingTop: spacing.sm,
-      paddingBottom: spacing.md,
+      paddingHorizontal: spacing.xl,
+      paddingTop: 16,
+      paddingBottom: 12,
     },
     title: {
       fontSize: fontSizes.xxl,
-      fontWeight: "800",
+      fontWeight: "900",
       color: c.text.primary,
+      letterSpacing: -1,
     },
     subtitle: {
       maxWidth: 280,
@@ -1666,14 +1738,14 @@ function makeStyles(c: ColorPalette) {
       color: c.text.muted,
     },
     iconButton: {
-      width: 38,
-      height: 38,
-      borderRadius: radii.md,
-      alignItems: "center",
-      justifyContent: "center",
+      width: 36,
+      height: 36,
+      borderRadius: 18,
       backgroundColor: c.bg.card,
       borderWidth: 1,
       borderColor: c.border,
+      alignItems: "center",
+      justifyContent: "center",
     },
     headerActions: {
       flexDirection: "row",
@@ -1707,26 +1779,32 @@ function makeStyles(c: ColorPalette) {
       fontWeight: "700",
       color: c.success,
     },
-    tabRow: {
-      flexDirection: "row",
-      marginHorizontal: spacing.lg,
-      marginBottom: spacing.md,
-      padding: 3,
+    tabsScroll: {
+      paddingHorizontal: spacing.xl,
+      paddingTop: 8,
+      paddingBottom: 8,
+      gap: 12,
+    },
+    tabChip: {
+      paddingVertical: 10,
+      paddingHorizontal: 20,
+      borderRadius: radii.full,
       backgroundColor: c.bg.card,
-      borderRadius: radii.md,
       borderWidth: 1,
       borderColor: c.border,
-    },
-    tab: {
-      flex: 1,
-      height: 34,
+      flexDirection: "row",
       alignItems: "center",
-      justifyContent: "center",
-      borderRadius: radii.sm,
     },
-    tabActive: { backgroundColor: c.primary },
-    tabText: { fontSize: fontSizes.xs, color: c.text.muted, fontWeight: "700" },
-    tabTextActive: { color: "#fff" },
+    tabChipActive: {
+      borderColor: c.primary,
+      backgroundColor: "rgba(124,58,237,0.15)",
+    },
+    tabText: {
+      fontSize: fontSizes.sm,
+      color: c.text.muted,
+      fontWeight: "600",
+    },
+    tabTextActive: { color: c.primaryLight, fontWeight: "800" },
     content: { paddingBottom: 110 },
     sectionHeader: {
       flexDirection: "row",

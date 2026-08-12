@@ -21,6 +21,12 @@ export type WeeklyLeaderboards = {
   community: WeeklyLeaderboardEntry[];
   games: WeeklyLeaderboardEntry[];
   events: WeeklyLeaderboardEntry[];
+  currentUser: {
+    feed: WeeklyLeaderboardEntry | null;
+    community: WeeklyLeaderboardEntry | null;
+    games: WeeklyLeaderboardEntry | null;
+    events: WeeklyLeaderboardEntry | null;
+  };
 };
 
 export const leaderboardService = {

@@ -11,7 +11,6 @@ import ForceUpdateScreen from '../screens/main/ForceUpdateScreen';
 import PostDetailScreen from '../screens/main/PostDetailScreen';
 import UserProfileScreen from '../screens/main/UserProfileScreen';
 import SearchScreen from '../screens/main/SearchScreen';
-import LudoPathScreen from '../screens/main/LudoPathScreen';
 import UpdateAvailableModal from '../components/common/UpdateAvailableModal';
 
 const Stack = createNativeStackNavigator<RootStackParamList>();
@@ -68,13 +67,6 @@ export default function AppNavigator() {
             <Stack.Screen
               name="Search"
               component={SearchScreen}
-              options={{ animation: 'slide_from_right' }}
-            />
-            {/* Ludo path breakdown — reachable from the Games tab (in-match
-                info button), so it lives above the tabs like PostDetail. */}
-            <Stack.Screen
-              name="LudoPath"
-              component={LudoPathScreen}
               options={{ animation: 'slide_from_right' }}
             />
           </>

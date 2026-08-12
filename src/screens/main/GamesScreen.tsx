@@ -1039,10 +1039,6 @@ function GamePlayModal({
   const styles = useMemo(() => makeStyles(colors), [colors]);
   const { addMatch } = useGames();
   const { user } = useAuth();
-  // Pushes LudoPath (registered at the root stack) so the in-match info
-  // button can open the 57-step breakdown above the tabs.
-  const navigation =
-    useNavigation<NativeStackNavigationProp<HomeStackParamList>>();
   // Wait for players only when the native game can actually connect (it needs
   // a wsToken to open the engine socket that sends READY — without one the
   // engine would never START and the waiting screen would deadlock).
@@ -1253,19 +1249,6 @@ function GamePlayModal({
               <Text style={styles.scoreLabel}>Score</Text>
               <Text style={styles.scoreValue}>{score}</Text>
             </View>
-          ) : (session.game as any).slug === "ludo" ? (
-            /* The 57-Step Path Breakdown — opened from the in-match header so
-                players can check the board sections mid-game. */
-            <TouchableOpacity
-              style={styles.iconButton}
-              onPress={() => navigation.navigate("LudoPath")}
-            >
-              <Ionicons
-                name="information-circle-outline"
-                size={22}
-                color={colors.text.secondary}
-              />
-            </TouchableOpacity>
           ) : (
             <View style={{ width: 38 }} />
           )}

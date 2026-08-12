@@ -174,9 +174,6 @@ const format = (row) => {
 
     pollData: row.poll_data || null,
     linkData: row.link_data || null,
-<<<<<<< HEAD
-
-=======
     // Optional place tag (lat / lon / place name) attached at creation time
     // and shown in the card's rolling text.
     location: (row.latitude != null && row.longitude != null) ? {
@@ -184,7 +181,6 @@ const format = (row) => {
       lon: Number(row.longitude),
       place: row.place || '',
     } : null,
->>>>>>> aa52fa9b442b10ccddb462577c9910891bdd9ae7
     author: {
       id: row.author_id,
       name: row.author_name,
@@ -193,19 +189,6 @@ const format = (row) => {
       isVerified: row.author_is_verified || false,
       repostsEnabled: row.author_reposts_enabled !== false,
     },
-<<<<<<< HEAD
-
-    community: row.community_id
-      ? {
-          id: row.community_id,
-          name: row.community_name,
-          slug: row.community_slug,
-          avatarUrl: row.community_avatar,
-          privacy: row.community_privacy,
-        }
-      : null,
-
-=======
     community: row.community_id ? {
       id: row.community_id,
       name: row.community_name,
@@ -216,7 +199,6 @@ const format = (row) => {
       // hides the repost button, and repostPost enforces it server-side.
       repostsEnabled: row.community_reposts_enabled !== false,
     } : null,
->>>>>>> aa52fa9b442b10ccddb462577c9910891bdd9ae7
     publishedAt: row.published_at,
     createdAt: row.created_at,
     updatedAt: row.updated_at,

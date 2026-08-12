@@ -73,7 +73,7 @@ const signupSchema = z.object({
   email: z.preprocess(transformToLowerCase, z.string().email('Invalid email address')),
   countryCode: z.string().min(1, "Phone number is required").regex(/^\+[0-9]{1,4}$/, "Country code contain digits followed by + only"),
   phone: z.string().min(3, "Phone number is required").regex(/^[0-9]{3,15}$/, "Phone number must contain digits only minimum 3 digits"),
-  password: passwordRules,
+  password: z.string().optional(),
   dateOfBirth: z.coerce.date({ errorMap: () => ({ message: 'Invalid date of birth' }) }).max(ageLimit, `You must be at least ${minAge} years old`),
   location: z.string().min(1, "Location is required"),
   latitude: z.coerce.number({ required_error: 'Latitude is required' }),
@@ -82,13 +82,34 @@ const signupSchema = z.object({
   occupation: z.enum(['Student', 'Working Professional', 'Self-employed / Freelancer', 'Other'], { required_error: 'Occupation Type is required' }),
   organization: z.string().optional(),
   interests: z.preprocess(typeCheck, z.array(z.string()).min(3, "Please select at least 3 interests").default([])),
+  referralCode: z.string().trim().min(3).max(12).optional(),
   socialToken: z.string().optional(),
-}).strict();
+}).strict().superRefine((data, ctx) => {
+  if (!data.socialToken) {
+    const result = passwordRules.safeParse(data.password);
+    if (!result.success) {
+      result.error.issues.forEach(issue => {
+        ctx.addIssue({ ...issue, path: ['password'] });
+      });
+    }
+  }
+});
+
+const loginIdentifierSchema = z.preprocess(transformToLowerCase, z.string().min(1, 'Email, Phone or Username is required'));
 
 const loginSchema = z.object({
-  email: z.preprocess(transformToLowerCase, z.string().email('Invalid email address')),
+  identifier: loginIdentifierSchema.optional(),
+  email: loginIdentifierSchema.optional(),
   password: z.string('Password must be string').min(1, 'Password is required'),
-}).strict();
+}).strict().superRefine((data, ctx) => {
+  if (!data.identifier && !data.email) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ['identifier'],
+      message: 'Email, Phone or Username is required',
+    });
+  }
+});
 
 const loginPinSchema = z.object({
   pin: z.string().regex(/^[0-9]{4}$/, 'PIN must be exactly 4 digits').optional(),
@@ -98,7 +119,18 @@ const loginPinSchema = z.object({
 
 const googleAuthSchema = z.object({
   idToken: z.string().min(1, 'Google ID token is required'),
-});
+}).strict();
+
+const appleAuthSchema = z.object({
+  identityToken: z.string().min(1, 'Google ID token is required'),
+  fullName: z.string().min(1, 'Full Name must have at least 1 character').optional(),
+}).strict();
+
+const appleAuthCallbackSchema = z.object({
+  id_token: z.string().min(1, 'Google ID token is required'),
+  user: z.string().min(1, 'User must have at least 1 character').optional(),
+  state: z.string().min(1, 'State must have at least 1 character').optional(),
+}).strict();
 
 const changePasswordSchema = z.object({
   currentPassword: z.string().min(1, 'Current password is required'),
@@ -106,17 +138,62 @@ const changePasswordSchema = z.object({
 }).strict();
 
 const forgotPasswordSchema = z.object({
+  identifier: z.string().min(1, 'Email, Phone or Username is required'),
+}).strict();
+
+const verifyResetPasswordOtpSchema = z.object({
   email: z.preprocess(transformToLowerCase, z.string().email('Invalid email address')),
+  emailOtp: z.string().length(6, 'Email OTP must be 6 digits').regex(/^[0-9]+$/, 'Email OTP must be numeric'),
+  phoneOtp: z.string().length(6, 'Phone OTP must be 6 digits').regex(/^[0-9]+$/, 'Phone OTP must be numeric').optional(),
 }).strict();
 
 const resetPasswordSchema = z.object({
-  token: z.string('Token must be string').min(1, 'Reset token is required'),
+  token: z.string().min(1, 'Token is required'),
   password: passwordRules,
 }).strict();
 
+const verifyPasswordSchema = z.object({
+  password: z.string().min(1, 'Password is required'),
+  email: z.preprocess(transformToLowerCase, z.string().email('Invalid email address')).optional(),
+  countryCode: z.string().optional(),
+  phone: z.string().optional(),
+}).strict();
 
+const requestChangePasswordOtpSchema = z.object({
+  currentPassword: z.string().min(1, 'Current password is required'),
+  email: z.preprocess(transformToLowerCase, z.string().email('Invalid email address')),
+  countryCode: z.string().optional(),
+  phone: z.string().optional(),
+}).strict();
 
+const verifyChangePasswordOtpSchema = z.object({
+  emailOtp: z.string().length(6, 'Email OTP must be 6 digits').regex(/^[0-9]+$/, 'Email OTP must be numeric'),
+  phoneOtp: z.string().length(6, 'Phone OTP must be 6 digits').regex(/^[0-9]+$/, 'Phone OTP must be numeric').optional(),
+}).strict();
 
+const confirmChangePasswordSchema = z.object({
+  changeToken: z.string().min(1, 'Token is required'),
+  newPassword: passwordRules,
+}).strict();
+
+const requestChangePhoneOtpSchema = z.object({
+  newCountryCode: z.string().min(1).regex(/^\+[0-9]{1,4}$/),
+  newPhone: z.string().min(3).regex(/^[0-9]{3,15}$/),
+}).strict();
+
+const verifyChangePhoneOtpSchema = z.object({
+  emailOtp: z.string().length(6, 'Email OTP must be 6 digits').regex(/^[0-9]+$/, 'Email OTP must be numeric'),
+  phoneOtp: z.string().length(6, 'Phone OTP must be 6 digits').regex(/^[0-9]+$/, 'Phone OTP must be numeric'),
+}).strict();
+
+const requestChangeEmailOtpSchema = z.object({
+  newEmail: z.preprocess(transformToLowerCase, z.string().email()),
+}).strict();
+
+const verifyChangeEmailOtpSchema = z.object({
+  emailOtp: z.string().length(6, 'Email OTP must be 6 digits').regex(/^[0-9]+$/, 'Email OTP must be numeric'),
+  phoneOtp: z.string().length(6, 'Phone OTP must be 6 digits').regex(/^[0-9]+$/, 'Phone OTP must be numeric').optional(), // Optional if they don't have a phone linked
+}).strict();
 
 
 module.exports = {
@@ -129,7 +206,18 @@ module.exports = {
   loginSchema,
   loginPinSchema,
   googleAuthSchema,
+  appleAuthSchema,
+  appleAuthCallbackSchema,
   forgotPasswordSchema,
   resetPasswordSchema,
   changePasswordSchema,
+  verifyPasswordSchema,
+  requestChangePhoneOtpSchema,
+  verifyChangePhoneOtpSchema,
+  requestChangeEmailOtpSchema,
+  verifyChangeEmailOtpSchema,
+  requestChangePasswordOtpSchema,
+  verifyChangePasswordOtpSchema,
+  verifyResetPasswordOtpSchema,
+  confirmChangePasswordSchema,
 };

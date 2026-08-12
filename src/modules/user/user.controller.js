@@ -63,16 +63,59 @@ class UserController {
     }
   };
 
+  recordLocation = async (req, res, next) => {
+    try {
+      const userId = req.userId;
+      const result = await this.userSvc.recordLocation({ userId, body: req.body });
+      res.json(apiResponse(result, 'Location captured'));
+    } catch (error) {
+      next(error);
+    }
+  };
+
+  clearLocation = async (req, res, next) => {
+    try {
+      const userId = req.userId;
+      const result = await this.userSvc.clearLocationHistory({ userId });
+      res.json(apiResponse(result, 'Location data cleared'));
+    } catch (error) {
+      next(error);
+    }
+  };
+
+  getPresenceBatch = async (req, res, next) => {
+    try {
+      const userId = req.userId;
+      const userIds = req.body?.userIds || [];
+      const result = await this.userSvc.getPresenceBatch({ userId, userIds });
+      res.json(apiResponse(result, 'Presence fetched successfully'));
+    } catch (error) {
+      next(error);
+    }
+  };
+
   updatePrivacy = async (req, res, next) => {
     try {
       const userId = req.userId
       const {privacy} = req.body
-      await this.userSvc.updatePrivacy({userId, privacy});
-      res.json(apiResponse(null, 'Privacy updated successfully'));
+      const result = await this.userSvc.updatePrivacy({userId, privacy});
+      res.json(apiResponse(result, 'Privacy updated successfully'));
     } catch (error) {
       next(error)
     }
   }
+
+  getMutuals = async (req, res, next) => {
+    try {
+      const { limit, offset, page } = getPaginationParams(req.query);
+      const viewerId = req.userId;
+      const { username } = req.params;
+      const { users, total } = await this.userSvc.getMutuals({ viewerId, username, limit, offset });
+      res.json(apiResponse(users, 'Mutuals fetched successfully', paginationMeta(total, page, limit)));
+    } catch (error) {
+      next(error);
+    }
+  };
 
   getFollowers = async (req, res, next) => {
     try {
@@ -102,7 +145,6 @@ class UserController {
     try {
       const { limit, offset, page } = getPaginationParams(req.query);
       const userId = req.userId;
-      console.log('req.user', req.userId);
       const {bookmark, total} = await this.userSvc.getbookmarked({userId, limit, offset});
       res.json(apiResponse(bookmark, 'Bookmarked fetched successfully', paginationMeta(total, page, limit)));
     } catch (error) {
@@ -114,13 +156,44 @@ class UserController {
     try {
       const { limit, offset, page } = getPaginationParams(req.query);
       const userId = req.userId;
-      console.log('req.user', req.userId);
       const {saved, total} = await this.userSvc.getsaved({userId, limit, offset});
       res.json(apiResponse(saved, 'Saved fetched successfully', paginationMeta(total, page, limit)));
     } catch (error) {
       next(error);
     }
   }
+
+  getFollowRequests = async (req, res, next) => {
+    try {
+      const { limit, offset, page } = getPaginationParams(req.query);
+      const userId = req.userId;
+      const { requests, total } = await this.userSvc.getFollowRequests({userId, limit, offset});
+      res.json(apiResponse(requests, 'Follow requests fetched successfully', paginationMeta(total, page, limit)));
+    } catch (error) {
+      next(error);
+    }
+  };
+
+  rejectFollowRequest = async (req, res, next) => {
+    try {
+      const userId = req.userId;
+      const { followerId } = req.params;
+      const { message } = await this.userSvc.rejectFollowRequest({userId, followerId});
+      res.json(apiResponse(null, message));
+    } catch (error) {
+      next(error);
+    }
+  };
+
+  acceptAllFollowRequests = async (req, res, next) => {
+    try {
+      const userId = req.userId;
+      const { message, accepted } = await this.userSvc.acceptAllFollowRequests({userId});
+      res.json(apiResponse({ accepted }, message));
+    } catch (error) {
+      next(error);
+    }
+  };
 
   followUser = async (req, res, next) => {
     try {
@@ -171,6 +244,60 @@ class UserController {
       const userId = req.userId;
       const result = await this.userSvc.deleteAccount(userId);
       res.json(apiResponse(null, result.message));
+    } catch (error) {
+      next(error);
+    }
+  };
+  setupAppLock = async (req, res, next) => {
+    try {
+      const userId = req.userId;
+      const { pin, enableGlobal } = req.body;
+      const result = await this.userSvc.setupAppLock({ userId, pin, enableGlobal });
+      res.json(apiResponse(result, 'PIN setup successfully'));
+    } catch (error) {
+      next(error);
+    }
+  };
+
+  verifyAppLock = async (req, res, next) => {
+    try {
+      const userId = req.userId;
+      const { pin } = req.body;
+      const result = await this.userSvc.verifyAppLock({ userId, pin });
+      res.json(apiResponse(result, 'PIN verified'));
+    } catch (error) {
+      next(error);
+    }
+  };
+
+  resetAppLock = async (req, res, next) => {
+    try {
+      const userId = req.userId;
+      const { password, newPin } = req.body;
+      const result = await this.userSvc.resetAppLock({ userId, password, newPin });
+      res.json(apiResponse(result, 'PIN reset successfully'));
+    } catch (error) {
+      next(error);
+    }
+  };
+
+  toggleAppLock = async (req, res, next) => {
+    try {
+      const userId = req.userId;
+      const { pin, isEnabled } = req.body;
+      const result = await this.userSvc.toggleAppLockEnabled({ userId, pin, isEnabled });
+      res.json(apiResponse(result, `Global App Lock ${isEnabled ? 'enabled' : 'disabled'}`));
+    } catch (error) {
+      next(error);
+    }
+  };
+
+  removeAppLock = async (req, res, next) => {
+    try {
+      const userId = req.userId;
+      const { pin } = req.body;
+      const result = await this.userSvc.removeAppLock({ userId, pin });
+      res.json(apiResponse(result, 'PIN removed successfully'));
     } catch (error) {
       next(error);
     }

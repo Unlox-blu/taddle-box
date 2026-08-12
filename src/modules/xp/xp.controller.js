@@ -41,6 +41,16 @@ class XpController {
     }
   };
 
+  getDailyLoginStatus = async (req, res, next) => {
+    try {
+      const { date } = req.query;
+      const status = await this.xpSvc.getDailyLoginStatus({ userId: req.userId, date });
+      res.json(apiResponse(status, 'Daily login status fetched'));
+    } catch (error) {
+      next(error);
+    }
+  };
+
   creditXP = async (req, res, next) => {
     try {
       const userId = req.userId;

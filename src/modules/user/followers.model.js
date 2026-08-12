@@ -12,6 +12,7 @@ const format = (row) => {
   return {
     followerId: row.follower_id,
     followingId: row.following_id,
+    status: row.status,
     createdAt: row.created_at
   };
 };

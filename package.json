@@ -9,6 +9,7 @@
     "migrate": "node db/migrate.js",
     "seed": "node db/migrate.js --seed",
     "migrate:seed": "node db/migrate.js && node db/migrate.js --seed",
+    "reset:db": "node db/reset.js --force",
     "test": "jest --forceExit --detectOpenHandles",
     "test:watch": "jest --watch",
     "test:coverage": "jest --coverage --forceExit",
@@ -20,9 +21,11 @@
     "@aws-sdk/client-s3": "^3.600.0",
     "@aws-sdk/s3-request-presigner": "^3.600.0",
     "@ngrok/ngrok": "^1.7.0",
+    "@socket.io/redis-adapter": "^8.3.0",
     "@vimeo/vimeo": "^2.1.1",
     "bcryptjs": "^3.0.2",
     "bullmq": "^5.12.0",
+    "chess.js": "^1.4.0",
     "cloudinary": "^2.10.0",
     "cookie-parser": "^1.4.6",
     "cors": "^2.8.5",
@@ -38,11 +41,14 @@
     "ioredis": "^5.4.1",
     "jsonwebtoken": "^9.0.2",
     "multer": "^1.4.5-lts.1",
-    "nodemailer": "^8.0.10",
+    "nodemailer": "^9.0.5",
     "pg": "^8.12.0",
     "rate-limit-redis": "^4.2.0",
     "razorpay": "^2.9.2",
+    "redlock": "^5.0.0-beta.2",
+    "seedrandom": "^3.0.5",
     "socket.io": "^4.7.5",
+    "stockfish": "^18.0.8",
     "streamifier": "^0.1.1",
     "upload-files-express": "^0.4.0",
     "uuid": "^14.0.0",
@@ -58,5 +64,14 @@
   },
   "engines": {
     "node": ">=20.0.0"
+  },
+  "overrides": {
+    "gaxios": {
+      "uuid": "^11.1.1"
+    }
+  },
+  "allowScripts": {
+    "msgpackr-extract@3.0.4": true,
+    "stockfish@18.0.8": true
   }
 }

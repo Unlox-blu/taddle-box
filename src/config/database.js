@@ -18,9 +18,13 @@ const config = require('./app.config');
 const pool = new Pool({
   connectionString: config.DB.connectionString,
   max: config.DB.max,
-  idleTimeoutMillis: 50000,
-  connectionTimeoutMillis: 5000,
+  idleTimeoutMillis: 30000,
+  connectionTimeoutMillis: 10000,
   ssl: config.DB.ssl ? { rejectUnauthorized: false } : false,
+  keepAlive: true,
+  keepAliveInitialDelayMillis: 10000,
+  statement_timeout: 15000,
+  query_timeout: 15000,
 });
 
 pool.on('error', (err) => {

@@ -43,12 +43,26 @@ const findByIdPrivate = async (id) => {
 
 const updateProfile = async (userId, fields) => {
   try {
-    const allowedFields = ['name', 'bio', 'website_url'];
+    // Every editable column on users — mirror of the signup form.
+    const allowedFields = ['name', 'bio', 'website_url', 'location', 'organization', 'occupation', 'gender', 'date_of_birth', 'interests'];
     const updates = [];
     const values = [];
     Object.entries(fields).forEach(([k, v]) => {
       const col = k.replace(/([A-Z])/g, '_$1').toLowerCase();
       if (allowedFields.includes(col)) {
+        // Empty-string clears a nullable text field (keeps it in the SET list
+        // so the column actually becomes NULL instead of staying stale).
+        if (v === '' && col !== 'interests') {
+          values.push(null);
+          updates.push(`${col} = $${values.length}`);
+          return;
+        }
+        if (col === 'interests') {
+          if(v.length === 0) return
+          values.push(JSON.stringify(v));
+          updates.push(`${col} = $${values.length}`);
+          return;
+        }
         values.push(v);
         updates.push(`${col} = $${values.length}`);
       }
@@ -190,6 +204,28 @@ const decrementFollowingCount = async (userId) => {
   }
 };
 
+const incrementPostCount = async (userId) => {
+  try {
+    await pool.query(
+      `UPDATE ${UserModel.TABLE} SET post_count = post_count + 1 WHERE id = $1`,
+      [userId]
+    );
+  } catch (error) {
+    throw error;
+  }
+};
+
+const decrementPostCount = async (userId) => {
+  try {
+    await pool.query(
+      `UPDATE ${UserModel.TABLE} SET post_count = GREATEST(0, post_count - 1) WHERE id = $1`,
+      [userId]
+    );
+  } catch (error) {
+    throw error;
+  }
+};
+
 
 
 
@@ -239,13 +275,28 @@ const createWithGoogle = async ({ name, username, email, googleId, googleAvatar 
   }
 };
 
-const updateAppLock = async (userId, pin) => {
+const updateAppLock = async (userId, pin, enableGlobal = null) => {
   try {
+    // If enableGlobal is true/false, it will set app_lock_enabled to that value.
+    // If enableGlobal is null, it preserves the existing app_lock_enabled state.
     await pool.query(
       `UPDATE ${UserModel.TABLE} 
-      SET app_lock = $1, app_lock_enabled = TRUE, updated_at = NOW() 
+      SET app_lock = $1, app_lock_enabled = COALESCE($3, app_lock_enabled), updated_at = NOW() 
       WHERE id = $2`,
-      [pin, userId]
+      [pin, userId, enableGlobal]
+    )
+  } catch (error) {
+    throw error
+  }
+}
+
+const toggleAppLockEnabled = async (userId, isEnabled) => {
+  try {
+    await pool.query(
+      `UPDATE ${UserModel.TABLE}
+       SET app_lock_enabled = $1, updated_at = NOW()
+       WHERE id = $2`,
+      [isEnabled, userId]
     )
   } catch (error) {
     throw error
@@ -264,6 +315,18 @@ const removeAppLock = async (userId, pin) => {
     throw error
   }
 }
+
+const getAppLock = async (userId) => {
+  try {
+    const { rows } = await pool.query(
+      `SELECT app_lock FROM ${UserModel.TABLE} WHERE id = $1`,
+      [userId]
+    );
+    return rows[0]?.app_lock;
+  } catch (error) {
+    throw error;
+  }
+};
 
 
 
@@ -506,6 +569,36 @@ const updatePassword = async (userId, passwordHash) => {
   }
 };
 
+// Last-known device location (only ever sent when the user granted permission).
+// GEO location telemetry — append a row to the history table (one row per
+// capture). Distinct from the user's declared PROFILE location (users.location).
+// `place` is an optional free-text reverse-geocoded place name.
+const insertLocationCapture = async (userId, { lat, lng, accuracy, place }) => {
+  try {
+    await pool.query(
+      `INSERT INTO location_history (user_id, lat, lng, accuracy, place)
+       VALUES ($1, $2, $3, $4, $5)`,
+      [userId, lat, lng, accuracy || null, place || null]
+    );
+  } catch (error) {
+    throw error;
+  }
+};
+
+// Privacy: wipe every captured location row for the user (Settings → Clear
+// location data). Does NOT touch the declared profile location.
+const clearLocationHistory = async (userId) => {
+  try {
+    const { rowCount } = await pool.query(
+      `DELETE FROM location_history WHERE user_id = $1`,
+      [userId]
+    );
+    return rowCount || 0;
+  } catch (error) {
+    throw error;
+  }
+};
+
 module.exports = {
   findById,
   findByIdPrivate,
@@ -517,6 +610,8 @@ module.exports = {
   createWithGoogle,
   updateProfile,
   updateAppLock,
+  toggleAppLockEnabled,
+  getAppLock,
   removeAppLock,
   findAvatarAndBanner,
   updateAvatar,
@@ -539,9 +634,13 @@ module.exports = {
   decrementFollowerCount,
   incrementFollowingCount,
   decrementFollowingCount,
+  incrementPostCount,
+  decrementPostCount,
   softDelete,
   hardDelete,
   search,
   isEmailExist,
   isUsernameExist,
+  insertLocationCapture,
+  clearLocationHistory,
 };

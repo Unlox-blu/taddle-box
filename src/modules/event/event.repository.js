@@ -15,22 +15,27 @@ const findById = async (eventId) => {
   }
 };
 
-const search = async (query, filter, limit, offset) => {
+const search = async (query, filter, limit, offset, userId = null) => {
   try {
     const q = query || '';
     const eventType = filter || null;
     const { rows } = await pool.query(
-      `SELECT ${EventModel.LIST_FIELDS}, COUNT(*) OVER() AS total
-     FROM ${EventModel.TABLE}
-     WHERE deleted_at IS NULL AND status IN ('upcoming', 'ongoing')
-       AND ($1 = '' OR title ILIKE $1 OR description ILIKE $1)
-       AND ($2::text IS NULL OR event_type = $2)
-     ORDER BY start_time ASC
+      `SELECT e.*, COUNT(*) OVER() AS total
+       ${userId ? `, EXISTS(SELECT 1 FROM ${EventModel.ATTENDEES_TABLE} ea WHERE ea.event_id = e.id AND ea.user_id = $5 AND ea.status IN ('registered', 'waitlisted')) AS is_registered` : ''}
+     FROM ${EventModel.TABLE} e
+     WHERE e.deleted_at IS NULL AND e.status IN ('upcoming', 'ongoing')
+       AND ($1 = '' OR e.title ILIKE $1 OR e.description ILIKE $1)
+       AND ($2::text IS NULL OR e.event_type = $2)
+     ORDER BY e.start_time ASC
      LIMIT $3 OFFSET $4`,
-      [`%${q}%`, eventType, limit, offset]
+      userId ? [`%${q}%`, eventType, limit, offset, userId] : [`%${q}%`, eventType, limit, offset]
     );
     const total = rows[0]?.total || 0;
-    const event = rows.length > 0 ? rows.map(EventModel.format) : []
+    const event = rows.length > 0 ? rows.map(row => {
+      const formatted = EventModel.format(row);
+      if (userId) formatted.isRegistered = row.is_registered;
+      return formatted;
+    }) : []
     return { event, total: parseInt(total, 10) };
   } catch (error) {
     throw error;

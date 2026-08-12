@@ -7,7 +7,12 @@ const { emitNotification } = require('../../../sockets/notification.socket');
 const NotificationModel = require('../../../modules/notification/notification.model');
 const { logger } = require('../../../middlewares/logger.middleware');
 const { getPromotionalNotificationByUserId } = require('../../../modules/settings/settings.repository');
+<<<<<<< HEAD
 const {pushService} = require('../../../modules/push/push.container')
+=======
+const { pushService } = require('../../../modules/push/push.container');
+const emitNotificationBatch = require('../../../modules/notification/notification.worker');
+>>>>>>> 5b2004b6cdc754160b22e5fe51fcab9b80dbb0b2
 
 const notificationJobProcessor = async (job) => {
       logger.info(`[NotifWorker] Processing: ${job.name}`, { id: job.id });
@@ -33,7 +38,7 @@ const notificationJobProcessor = async (job) => {
 
         case 'new_follower': {
           const { followingId, followerId, followerName, followerUsername } = job.data;
-          const notif = await notificationRepository.create({
+            const notif = await notificationRepository.createNotification({
             recipientId: followingId,
             senderId: followerId,
             type: 'follow',
@@ -49,7 +54,7 @@ const notificationJobProcessor = async (job) => {
         case 'request_to_follow': {
           const { followingId, followerId, followerName, followerUsername } = job.data;
           // Create notification records for each follower and emit socket events
-          const notif = await notificationRepository.create({
+            const notif = await notificationRepository.createNotification({
             recipientId: followingId,
             senderId: followerId,
             type: 'request_to_follow',
@@ -64,7 +69,7 @@ const notificationJobProcessor = async (job) => {
 
         case 'approved_to_follow': {
           const { followerId, followingId, followingName, followingname } = job.data;
-          const notif = await notificationRepository.create({
+            const notif = await notificationRepository.createNotification({
             recipientId: followerId,
             senderId: followingId,
             type: 'approved_to_follow',
@@ -80,7 +85,7 @@ const notificationJobProcessor = async (job) => {
         case 'post_like': {
           const { postId, recipientId, emiterName, emiterUsername, emiterId } = job.data;
           // Create notification records for each follower and emit socket events
-            const notif = await notificationRepository.create({
+              const notif = await notificationRepository.createNotification({
             recipientId,
             senderId: emiterId,
             type: 'post_liked',
@@ -95,7 +100,7 @@ const notificationJobProcessor = async (job) => {
 
         case 'post_comment': {
           const { postId, recipientId, emiterName, emiterUsername, emiterId, comment } = job.data;
-            const notif = await notificationRepository.create({
+              const notif = await notificationRepository.createNotification({
             recipientId,
             senderId: emiterId,
             type: 'post_comment',
@@ -111,7 +116,7 @@ const notificationJobProcessor = async (job) => {
         case 'new_member_join_community': {
           const { communityId, userId, userName, userUsername, adminsId = [] } = job.data;
           for (const recipientId of adminsId) {
-            const notif = await notificationRepository.create({
+              const notif = await notificationRepository.createNotification({
               recipientId,
               senderId: userId,
               type: 'new_member_join_community',
@@ -128,7 +133,7 @@ const notificationJobProcessor = async (job) => {
         case 'request_to_join_community': {
           const { communityId, userId, userName, userUsername, adminsId = [] } = job.data;
           for (const recipientId of adminsId) {
-            const notif = await notificationRepository.create({
+              const notif = await notificationRepository.createNotification({
               recipientId,
               senderId: userId,
               type: 'request_to_join_community',
@@ -144,7 +149,7 @@ const notificationJobProcessor = async (job) => {
 
         case 'approved_to_join_community': {
           const { communityId, userId, userName, userUsername, approvalId  } = job.data;
-            const notif = await notificationRepository.create({
+              const notif = await notificationRepository.createNotification({
               recipientId: userId,
               senderId: approvalId,
               type: 'approved_to_join_community',
@@ -168,7 +173,7 @@ const notificationJobProcessor = async (job) => {
           )).filter(Boolean);
 
           for (const id of recipientIds) {
-            const notif = await notificationRepository.create({
+            const notif = await notificationRepository.createNotification({
               recipientId: id,
               senderId: senderId,
               type: 'promotional',
@@ -179,6 +184,37 @@ const notificationJobProcessor = async (job) => {
             });
             emitNotification(id, NotificationModel.format(notif));
           }  
+          break;
+        }
+
+        case 'push': {
+          const payload = job.data || {};
+          logger.info(`[NotifDeliveryWorker] Processing: ${payload.type}`, { id: job.id, recipientId: payload.recipientId });
+          if (!payload.recipientId) return null;
+          
+          // Comment-mention messages carry the exact comment id ("... | <id>")
+          // — surface it in the push data so a tray tap can deep-link straight
+          // to the mentioned comment on the post page.
+          const commentIdMatch = String(payload.message || '').match(/\|\s*([0-9a-fA-F-]{36})$/);
+          return pushService.sendToUser({
+          userId: payload.recipientId,
+          title: payload.title,
+          message: payload.message || "Push notification" ,
+          data: {
+            senderId: payload.senderId,
+            type: payload.type,
+            resourceId: payload.resourceId,
+            resourceType: payload.resourceType,
+            commentId: commentIdMatch ? commentIdMatch[1] : undefined,
+          },
+        });
+          break;
+        }
+
+        case 'emit': {
+          const payload = job.data || {};
+          logger.info(`[EmitNotificationWorker] Processing: notification`, { id: job.id, recipientId: payload.recipientId });
+          await emitNotificationBatch(payload)
           break;
         }
 

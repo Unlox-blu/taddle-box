@@ -70,6 +70,7 @@ const findByIdUser = async ({userId}) => {
 
 const findByEmailUser = async ({email}) => {
   try {
+    console.log('findByEmailUser received email:', email);
     const { rows } = await pool.query(
       `SELECT ${AuthModel.USER_DETAIL},
       avatar_media.cloudfront_url AS avatar_media_url,
@@ -77,8 +78,42 @@ const findByEmailUser = async ({email}) => {
       FROM ${AuthModel.USER_TABLE} u 
       LEFT JOIN media AS avatar_media ON avatar_media.id = u.avatar_url
       LEFT JOIN media AS banner_media ON banner_media.id = u.banner_url
-      WHERE u.email = $1 AND u.deleted_at IS NULL`,
+      WHERE LOWER(u.email) = LOWER($1) AND u.deleted_at IS NULL`,
       [email]
+    );
+    console.log('findByEmailUser DB rows:', rows);
+    const safe = rows[0] ? AuthModel.sanitize(rows[0]) : null
+    const result = safe ? AuthModel.format(safe) : null;
+    console.log('findByEmailUser returning:', result);
+    return result;
+  } catch (error) {
+    console.error('findByEmailUser error:', error);
+    throw error;
+  }
+};
+
+const findPhoneByEmail = async ({ email }) => {
+  try {
+    const { rows } = await pool.query(
+      `SELECT id, phone_number AS phone, country_code AS "countryCode"
+       FROM ${AuthModel.USER_TABLE}
+       WHERE email = $1 AND deleted_at IS NULL`,
+      [email]
+    );
+    return rows[0] || null;
+  } catch (error) {
+    throw error;
+  }
+};
+
+
+const create = async ({name, username, email, countryCode, phone, passwordHash, dateOfBirth, gender, location, latitude, longitude, occupation, organization, interests, googleId, appleId, avatarUrl, referralCode, referredBy}) => {
+  try {
+    const { rows } = await pool.query(
+      `INSERT INTO ${AuthModel.USER_TABLE} (name, username, email, country_code, phone_number, password_hash, date_of_birth, gender, location, latitude, longitude, occupation, organization, interests, google_id, apple_id, avatar_url, referral_code, referred_by)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19)
+       RETURNING ${AuthModel.RETURNING_USER_FIELDS}`,
+      [name, username, email, countryCode, phone, passwordHash, dateOfBirth, gender, location, latitude, longitude, occupation, organization, JSON.stringify(interests) || '[]', googleId, appleId, avatarUrl, referralCode || null, referredBy || null]
     );
     const safe = rows[0] ? AuthModel.sanitize(rows[0]) : null
     return safe ? AuthModel.format(safe) : null;
@@ -87,16 +122,15 @@ const findByEmailUser = async ({email}) => {
   }
 };
 
-
-const create = async ({name, username, email, countryCode, phone, passwordHash, dateOfBirth, gender, location, latitude, longitude, occupation, organization, interests, googleId, appleId, avatarUrl}) => {
+const findByReferralCode = async ({ referralCode }) => {
   try {
     const { rows } = await pool.query(
-      `INSERT INTO ${AuthModel.USER_TABLE} (name, username, email, country_code, phone_number, password_hash, date_of_birth, gender, location, latitude, longitude, occupation, organization, interests, google_id, apple_id, avatar_url)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17)
-       RETURNING ${AuthModel.RETURNING_USER_FIELDS}`,
-      [name, username, email, countryCode, phone, passwordHash, dateOfBirth, gender, location, latitude, longitude, occupation, organization, JSON.stringify(interests) || '[]', googleId, appleId, avatarUrl]
+      `SELECT ${AuthModel.PRIVATE_FIELDS}
+      FROM ${AuthModel.USER_TABLE} u
+      WHERE UPPER(u.referral_code) = UPPER($1) AND u.deleted_at IS NULL`,
+      [referralCode]
     );
-    const safe = rows[0] ? AuthModel.sanitize(rows[0]) : null
+    const safe = rows[0] ? AuthModel.sanitize(rows[0]) : null;
     return safe ? AuthModel.format(safe) : null;
   } catch (error) {
     throw error;
@@ -176,11 +210,37 @@ const findByEmailLogin = async ({email}) => {
   }
 };
 
+const findByIdentifierLogin = async ({ identifier }) => {
+  try {
+    const cleanId = identifier.trim();
+    const normalizedPhone = cleanId.replace(/\D/g, '');
+    const { rows } = await pool.query(
+      `SELECT ${AuthModel.LOGIN},
+      avatar_media.cloudfront_url AS avatar_media_url,
+      banner_media.cloudfront_url AS banner_media_url
+      FROM ${AuthModel.USER_TABLE} u 
+      LEFT JOIN media AS avatar_media ON avatar_media.id = u.avatar_url
+      LEFT JOIN media AS banner_media ON banner_media.id = u.banner_url
+      WHERE (
+        LOWER(u.email) = LOWER($1) OR
+        LOWER(u.username) = LOWER($1) OR
+        u.phone_number = $2 OR
+        (u.country_code || u.phone_number) = $1 OR
+        (REGEXP_REPLACE(u.country_code, '\\D', '', 'g') || u.phone_number) = $2
+      ) AND u.deleted_at IS NULL`,
+      [cleanId, normalizedPhone]
+    );
+    return rows[0] ? AuthModel.format(rows[0]) : null;
+  } catch (error) {
+    throw error;
+  }
+};
+
 
 const findByIdSecure = async ({userId}) => {
   try {
     const { rows } = await pool.query(
-      `SELECT ${AuthModel.SECURE_FIELDS} 
+      `SELECT u.* 
       FROM ${AuthModel.USER_TABLE} u 
       WHERE u.id = $1 AND u.deleted_at IS NULL`,
       [userId]
@@ -188,8 +248,8 @@ const findByIdSecure = async ({userId}) => {
     return rows[0] ? AuthModel.format(rows[0]) : null;
   } catch (error) {
     throw error;
-}
-}
+  }
+};
 
 const findByIdPrivate = async ({userId}) => {
   try {
@@ -271,6 +331,19 @@ const updatePhone = async (userId, countryCode, phoneNumber) => {
       SET country_code = $1, phone_number = $2, updated_at = NOW() 
       WHERE id = $3`,
       [countryCode, phoneNumber, userId]
+    );
+  } catch (error) {
+    throw error;
+  }
+};
+
+const updateEmail = async (userId, email) => {
+  try {
+    await pool.query(
+      `UPDATE ${AuthModel.USER_TABLE} 
+      SET email = $1, updated_at = NOW() 
+      WHERE id = $2`,
+      [email, userId]
     );
   } catch (error) {
     throw error;
@@ -415,13 +488,51 @@ const findByEmailVerifyToken = async (ResetToken) => {
   }
 };
 
+const findByIdentifier = async (identifier) => {
+  try {
+    const cleanId = identifier.trim();
+    const query = `
+      SELECT ${AuthModel.USER_DETAIL},
+      avatar_media.cloudfront_url AS avatar_media_url,
+      banner_media.cloudfront_url AS banner_media_url
+      FROM ${AuthModel.USER_TABLE} u
+      LEFT JOIN media AS avatar_media ON avatar_media.id = u.avatar_url
+      LEFT JOIN media AS banner_media ON banner_media.id = u.banner_url
+      WHERE (
+        LOWER(u.email) = LOWER($1) OR
+        LOWER(u.username) = LOWER($1) OR
+        u.phone_number = $1 OR
+        (u.country_code || u.phone_number) = $1
+      ) AND u.deleted_at IS NULL
+    `;
+    const { rows } = await pool.query(query, [cleanId]);
+    const safe = rows[0] ? AuthModel.sanitize(rows[0]) : null;
+    return safe ? AuthModel.format(safe) : null;
+  } catch (error) {
+    throw error;
+  }
+};
 
+const findPhoneByUserId = async (userId) => {
+  try {
+    const { rows } = await pool.query(
+      `SELECT id, phone_number AS phone, country_code AS "countryCode"
+       FROM ${AuthModel.USER_TABLE}
+       WHERE id = $1 AND deleted_at IS NULL`,
+      [userId]
+    );
+    return rows[0] || null;
+  } catch (error) {
+    throw error;
+  }
+};
 
 module.exports = {
-  findByIdPrivate, findByEmail, getFlagByID, verifyEmail, verifyPhone, findByEmailLogin, create, setAppLock,
+  findByIdPrivate, findByEmail, getFlagByID, verifyEmail, verifyPhone, findByEmailLogin, findByIdentifierLogin, create, setAppLock,
   removeAppLock, updatePhone, updatePrivacy, updateRefreshToken,
   getRefreshTokenById, updateEmailVerifyToken, findByEmailVerifyToken,
   updatePasswordResetToken, findByPasswordResetToken, getPasswordByUserId,
   updatePassword, updateLastLogin, softDelete, isEmailExist, isPhoneExist, isUsernameExist,
-  findByIdSecure, findByIdAppLock, findByEmailUser, findByIdUser, updateAvatar,
+  findByIdSecure, findByIdAppLock, findByEmailUser, findByIdUser, updateAvatar, updateEmail, findPhoneByEmail,
+  findByIdentifier, findPhoneByUserId, findByReferralCode,
 };

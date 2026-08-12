@@ -42,6 +42,50 @@ class WalletController {
     }
   };
 
+  initiateRecharge = async (req, res, next) => {
+    try {
+      const userId = req.userId;
+      const { amountCents } = req.body;
+      const data = await this.walletSvc.initiateRecharge({ userId, amountCents });
+      res.json(apiResponse(data, 'Recharge initiated.'));
+    } catch (error) {
+      next(error);
+    }
+  };
+
+  // Public route hit by PayU's redirect — renders an HTML page for the WebView.
+  completeRecharge = async (req, res, next) => {
+    try {
+      const { txnid } = req.query;
+      const data = await this.walletSvc.completeRecharge({ txnid, params: req.query });
+      res.type('html').send(data.html);
+    } catch (error) {
+      next(error);
+    }
+  };
+
+  convertCashToXp = async (req, res, next) => {
+    try {
+      const userId = req.userId;
+      const { amountCents } = req.body;
+      const data = await this.walletSvc.convertCashToXp({ userId, amountCents });
+      res.json(apiResponse(data, 'Cash converted to XP successfully.'));
+    } catch (error) {
+      next(error);
+    }
+  };
+
+  linkUPI = async (req, res, next) => {
+    try {
+      const userId = req.userId;
+      const { upiId } = req.body;
+      const data = await this.walletSvc.linkUPI({ userId, upiId });
+      res.json(apiResponse(data, 'UPI linked successfully.'));
+    } catch (error) {
+      next(error);
+    }
+  };
+
   initiateWithdrawal = async (req, res, next) => {
     try {
       const userId = req.userId;
@@ -55,11 +99,23 @@ class WalletController {
 
   confirmWithdrawalWebhook = async (req, res, next) => {
     try {
-      // In production, this route should be authenticated via API KEY or Webhook Signature
-      // For now, assuming the external backend securely passed userId
+      // Auth: the route-level middleware compares X-Webhook-Secret to the
+      // env-configured shared secret, and the service re-verifies it too.
+      const webhookSecret = req.headers['x-webhook-secret'];
       const { userId, amountCents, externalTxId } = req.body;
-      const data = await this.walletSvc.confirmWithdrawalWebhook({ userId, amountCents, externalTxId });
+      const data = await this.walletSvc.confirmWithdrawalWebhook({ userId, amountCents, externalTxId, webhookSecret });
       res.json(apiResponse(data, 'Withdrawal confirmed and deducted.'));
+    } catch (error) {
+      next(error);
+    }
+  };
+
+  rejectWithdrawalWebhook = async (req, res, next) => {
+    try {
+      const webhookSecret = req.headers['x-webhook-secret'];
+      const { userId, externalTxId } = req.body;
+      const data = await this.walletSvc.rejectWithdrawalWebhook({ userId, externalTxId, webhookSecret });
+      res.json(apiResponse(data, 'Withdrawal rejected and refunded.'));
     } catch (error) {
       next(error);
     }

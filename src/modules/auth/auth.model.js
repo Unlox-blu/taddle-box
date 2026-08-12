@@ -70,6 +70,10 @@ const PRIVATE_FIELDS = [
   'u.banner_url',
   'u.bio',
   'u.website_url',
+  'u.occupation',
+  'u.organization',
+  'u.location',
+  'u.interests',
   'u.role',
   'u.flags',
   'u.is_active',
@@ -84,6 +88,8 @@ const PRIVATE_FIELDS = [
   'u.updated_at',
   'u.privacy',
   'u.theme',
+  'u.referral_code',
+  'u.referred_by',
 ].join(', ');
 
 const TOKEN = ['u.id', 'u.role', 'u.is_active', 'u.is_banned', 'u.flags', 'u.privacy'].join(
@@ -174,6 +180,8 @@ const PRIVATE_PROFILE = [
   'u.last_login_at',
   'u.created_at',
   'u.updated_at',
+  'u.referral_code',
+  'u.referred_by',
 ].join(', ');
 
 const FEED_AUTHOR = ['u.id', 'u.name', 'u.username', 'u.avatar_url', 'u.flags'].join(', ');
@@ -235,6 +243,10 @@ const format = (row) => {
     bannerUrl: row.banner_media_url || row.banner_url,
     bio: row.bio,
     websiteUrl: row.website_url,
+    occupation: row.occupation,
+    organization: row.organization,
+    location: row.location,
+    interests: row.interests,
     role: row.role,
     flags: row.flags,
     isActive: row.is_active,
@@ -262,10 +274,13 @@ const format = (row) => {
     theme: row.theme,
     countryCode: row.country_code,
     phoneNumber: row.phone_number,
+    phone: row.phone_number,
     dateOfBirth: row.date_of_birth,
     gender: row.gender,
     appLock: row.app_lock,
     appLockEnabled: row.app_lock_enabled,
+    referralCode: row.referral_code,
+    referredBy: row.referred_by,
   };
 };
 

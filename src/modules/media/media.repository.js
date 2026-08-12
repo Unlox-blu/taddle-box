@@ -8,8 +8,8 @@ const create = async (data) => {
   try {
     const { rows } = await pool.query(
       `INSERT INTO ${MediaModel.MEDIA_TABLE}
-       (post_id, uploader_id, media_type, s3_key, vimeo_uri, mime_type, size_bytes, processing_status)
-      VALUES ($1,$2,$3,$4,$5,$6,$7,$8)
+       (post_id, uploader_id, media_type, s3_key, vimeo_uri, mime_type, size_bytes, processing_status, width, height)
+      VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)
       RETURNING id`,
       [
         data.postId || null,
@@ -20,6 +20,8 @@ const create = async (data) => {
         data.mimeType,
         data.sizeBytes,
         data.processingStatus || 'pending',
+        data.width || null,
+        data.height || null,
       ]
     );
     return MediaModel.format(rows[0]);
@@ -78,13 +80,13 @@ const findByUserId = async (uploaderId, limit, offset) => {
   }
 }
 
-const updateStatus = async (mediaId, status, cloudfrontUrl) => {
+const updateStatus = async (mediaId, status, cloudfrontUrl, s3Key = null) => {
   try {
     await pool.query(
       `UPDATE ${MediaModel.MEDIA_TABLE} 
-      SET processing_status = $1, cloudfront_url = COALESCE($2, cloudfront_url), updated_at = NOW()
-      WHERE id = $3`,
-      [status, cloudfrontUrl || null, mediaId]
+      SET processing_status = $1, cloudfront_url = COALESCE($2, cloudfront_url), s3_key = COALESCE($3, s3_key), updated_at = NOW()
+      WHERE id = $4`,
+      [status, cloudfrontUrl || null, s3Key, mediaId]
     );
   } catch (error) {
     throw error;

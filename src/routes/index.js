@@ -11,6 +11,7 @@ router.use('/posts',         require('./post.route'));
 router.use('/communities',   require('./community.route'));
 router.use('/comments',      require('./comment.route'));
 router.use('/events',        require('./event.route'));
+router.use('/payments',      require('./payment.route'));
 router.use('/task',          require('./task.route'));
 router.use('/wallet',        require('./wallet.route'));
 router.use('/xp',            require('./xp.route'));
@@ -28,6 +29,7 @@ router.use('/app-config',    require('./appconfig.route'));
 router.use('/bookmark',      require('./bookmark.route'));
 router.use('/save',          require('./save.route'));
 router.use('/game',          require('./game.route'));
+router.use('/leaderboards',  require('./leaderboard.route'));
 
 // Expose auth-only router (used by app.js for stricter rate limiting)
 router.authOnly = authRoute;

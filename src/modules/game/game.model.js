@@ -3,6 +3,10 @@
 const GAME_TABLE = 'game';
 const GAME_MATCH_TABLE = 'game_match';
 const GAME_STATS_TABLE = 'game_stats';
+const GAME_TOURNAMENT_TABLE = 'game_tournament';
+const GAME_TOURNAMENT_ENTRY_TABLE = 'game_tournament_entry';
+const GAME_MATCHMAKING_TICKET_TABLE = 'game_matchmaking_ticket';
+const GAME_SESSION_TABLE = 'game_sessions';
 
 const GAME_FIELDS = [
     'id', 'name', 'slug', 'description', 'thumbnail', 'category', 
@@ -14,10 +18,39 @@ const GAME_MATCH_FIELDS = [
     'category', 'difficulty', 'metadata', 'created_at', 'updated_at'
 ].join(', ');
 
+
 const GAME_STATS_FIELDS = [
     'id', 'user_id', 'games_played', 'wins', 'losses', 'draws', 'current_streak', 'best_streak', 
     'total_xp', 'created_at', 'updated_at'
 ].join(', ');
+
+// Natural player capacity per game. Used as the fallback when AUTO matchmaking
+// has no explicit targetPlayers so 4-player games (ludo, snake-ladder) don't
+// default to a 1v1 queue. Prefer row.metadata.maxPlayers if the game defines it.
+const GAME_MAX_PLAYERS = {
+  'ludo': 4,
+  'snake-ladder': 4,
+  'tap-rush': 2,
+  'memory-grid': 2,
+  'scribble': 2,
+  'chess': 2,
+  'word-rush': 2,
+};
+
+// Resolve a game's natural player capacity: explicit metadata wins, then the
+// per-game map (ludo/snake-ladder = 4), then a default of 2 (1v1).
+const resolveNaturalMaxPlayers = (game) =>
+  Number(game?.metadata?.maxPlayers || (game && GAME_MAX_PLAYERS[game.slug]) || 2);
+
+// Normalize a match mode for storage. game_match.mode has a CHECK constraint
+// that only allows uppercase AUTO/CUSTOM/TOURNAMENT/PRACTICE — the app sends
+// lowercase ('auto', 'custom', 'tournament', 'practice'). Map to the canonical
+// uppercase set so history inserts never fail; anything unknown defaults to AUTO.
+const normalizeMatchMode = (mode) => {
+  const m = String(mode || 'AUTO').toUpperCase();
+  if (['AUTO', 'CUSTOM', 'TOURNAMENT', 'PRACTICE'].includes(m)) return m;
+  return 'AUTO';
+};
 
 const formatGame = (row) => {
   if (!row) return null;
@@ -31,6 +64,8 @@ const formatGame = (row) => {
     difficulty: row.difficulty,
     isActive: row.is_active,
     metadata: row.metadata,
+    maxXp: Number(row.metadata?.maxXp || 25),
+    maxPlayers: resolveNaturalMaxPlayers(row),
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   };
@@ -39,10 +74,12 @@ const formatGame = (row) => {
 const formatGameMatch = (row) => {
   if (!row) return null;
   return {
-    id: row.id,
-    userId: row.user_id,
-    gameId: row.game_id,
-    mode: row.mode,
+	    id: row.id,
+	    userId: row.user_id,
+	    gameId: row.game_id,
+	    gameName: row.game_name,
+	    gameSlug: row.game_slug,
+	    mode: row.mode,
     result: row.result,
     score: row.score,
     duration: row.duration,
@@ -73,8 +110,62 @@ const formatGameStats = (row) => {
   };
 };
 
+const formatTournament = (row) => {
+  if (!row) return null;
+  return {
+    id: row.id,
+    gameId: row.game_id,
+    gameName: row.game_name,
+    gameSlug: row.game_slug,
+    title: row.title,
+    description: row.description,
+    entryFeeXP: row.entry_fee_xp,
+    prizeXP: row.prize_xp,
+    maxPlayers: row.max_players,
+    playerCount: Number(row.player_count || 0),
+    isJoined: Boolean(row.is_joined),
+    // Current user's own stats inside this tournament (null when not joined).
+    myScore: row.my_score != null ? Number(row.my_score) : null,
+    myRank: row.my_rank != null ? Number(row.my_rank) : null,
+    startsAt: row.starts_at,
+    endsAt: row.ends_at,
+    status: row.status,
+    metadata: row.metadata,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+  };
+};
+
+const formatMatchmakingTicket = (row) => {
+  if (!row) return null;
+  return {
+    id: row.id,
+    userId: row.user_id,
+    gameId: row.game_id,
+    tournamentId: row.tournament_id,
+    mode: row.mode,
+    status: row.status,
+    opponentUserId: row.opponent_user_id,
+    opponentName: row.opponent_name,
+    opponentUsername: row.opponent_username,
+    userMatchId: row.user_match_id,
+    opponentMatchId: row.opponent_match_id,
+    matchGroupId: row.match_group_id,
+    lobbyId: row.lobby_id,
+    settings: row.settings,
+    metadata: row.metadata,
+    matchedAt: row.matched_at,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+  };
+};
+
 module.exports = {
-  GAME_TABLE, GAME_MATCH_TABLE, GAME_STATS_TABLE, 
+  GAME_TABLE, GAME_MATCH_TABLE, GAME_STATS_TABLE,
+  GAME_TOURNAMENT_TABLE, GAME_TOURNAMENT_ENTRY_TABLE, GAME_MATCHMAKING_TICKET_TABLE, GAME_SESSION_TABLE,
   GAME_FIELDS, GAME_MATCH_FIELDS, GAME_STATS_FIELDS,
-  formatGame, formatGameMatch, formatGameStats
+  GAME_MAX_PLAYERS,
+  resolveNaturalMaxPlayers,
+  normalizeMatchMode,
+  formatGame, formatGameMatch, formatGameStats, formatTournament, formatMatchmakingTicket
 }

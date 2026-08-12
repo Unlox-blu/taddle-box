@@ -1,6 +1,6 @@
 'use strict';
 
-const TABLE = 'device_tokens';
+const TABLE = 'device_notification';
 
 const LIST_FIELDS = [
     'id', 'user_id', 'token', 'notifications_enabled',

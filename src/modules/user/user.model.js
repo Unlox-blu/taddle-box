@@ -4,24 +4,24 @@ const TABLE = 'users';
 
 const PUBLIC_FIELDS = [
   'u.id', 'u.name', 'u.username', 'u.avatar_url', 'u.banner_url', 
-  'u.bio', 'u.website_url', 'u.follower_count', 'u.following_count',
-  'u.post_count', 'u.is_verified', 'u.created_at', 'u.privacy',
+  'u.bio', 'u.website_url', 'u.location', 'u.follower_count', 'u.following_count',
+  'u.post_count', 'u.created_at', 'u.privacy',
 ].join(', ');
 
 const PRIVATE_FIELDS = [
-  'u.date_of_birth', 'u.avatar_url', 'u.banner_url', 'u.bio', 'u.website_url', 'u.role', 
-  'u.is_verified', 'u.is_active', 'u.follower_count', 'u.following_count', 'u.post_count',
+  'u.id', 'u.name', 'u.username', 'u.email', 'u.date_of_birth', 'u.avatar_url', 'u.banner_url', 'u.bio', 'u.website_url', 'u.role', 
+ 'u.is_active', 'u.follower_count', 'u.following_count', 'u.post_count',
   'u.email_verified_at', 'u.last_login_at', 'u.google_id', 'u.created_at', 'u.updated_at',
-  'u.privacy', 'u.theme', 'u.apple_refresh_token', 'u.occupation', 'u.organization', 'u.location', 'u.interests'
+  'u.privacy', 'u.theme', 'u.apple_refresh_token', 'u.occupation', 'u.organization', 'u.location', 'u.interests', 'u.phone_number', 'u.country_code'
 ].join(', ');
 
 const AUTH_FIELDS = [
   'u.id', 'u.email', 'u.name', 'u.username', 'u.password_hash', 'u.role', 'u.app_lock_enabled', 'u.app_lock',
-  'u.is_verified', 'u.is_active', 'u.is_banned', 'u.google_id', 'u.refresh_token_hash', 'u.apple_refresh_token'
+  'u.is_verified', 'u.is_active', 'u.is_banned', 'u.google_id', 'u.refresh_token_hash',
 ].join(', ');
 
 const SEARCH_FIELDS = [
-  'u.id', 'u.name', 'u.username', 'u.avatar_url', 'u.is_verified', 'u.follower_count', 'u.following_count',
+  'u.id', 'u.name', 'u.username', 'u.avatar_url', 'u.follower_count', 'u.following_count',
 ].join(', ');
 
 const MEDIA_FIELDS = [
@@ -66,6 +66,9 @@ const format = (row) => {
     isActive: row.is_active,
     followerCount: row.follower_count,
     followingCount: row.following_count,
+    followerId: row.follower_id,
+    followingId: row.following_id,
+    status: row.status,
     postCount: row.post_count,
     emailVerifiedAt: row.email_verified_at,
     lastLoginAt: row.last_login_at,
@@ -87,6 +90,7 @@ const format = (row) => {
     theme: row.theme,
     countryCode: row.country_code,
     phoneNumber: row.phone_number,
+    phone: row.phone_number,
     dateOfBirth: row.date_of_birth,
     gender: row.gender,
     appLock: row.app_lock,

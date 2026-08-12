@@ -1,5 +1,7 @@
 'use strict';
 
+const config = require('../../config/app.config');
+
 const TABLE = 'events';
 const ATTENDEES_TABLE = 'event_attendees';
 
@@ -7,14 +9,14 @@ const LIST_FIELDS = [
   'id', 'organizer_id', 'community_id', 'title', 'cover_image_url', 'description',
   'event_type', 'status', 'start_time', 'end_time', 'timezone',
   'location', 'is_free', 'ticket_price_cents', 'currency', 'registration_deadline',
-  'attendee_count', 'max_attendees', 'tags', 'is_featured',
+  'attendee_count', 'max_attendees', 'tags', 'is_featured', 'xp_reward', 'cash_prize_cents',
 ].join(', ');
 
 const DETAIL_FIELDS = [
   'id', 'organizer_id', 'community_id', 'title', 'description', 'cover_image_url',
   'event_type', 'status', 'start_time', 'end_time', 'timezone', 'location',
   'is_free', 'ticket_price_cents', 'currency', 'registration_deadline',
-  'attendee_count', 'max_attendees', 'tags', 'is_featured', 'metadata',
+  'attendee_count', 'max_attendees', 'tags', 'is_featured', 'xp_reward', 'cash_prize_cents', 'metadata',
   'created_at', 'updated_at',
 ].join(', ');
 
@@ -44,7 +46,16 @@ const format = (row) => {
     maxAttendees: row.max_attendees,
     tags: row.tags || [],
     isFeatured: row.is_featured,
+    // xp_reward / cash_prize_cents are optional DB fields — keep them as
+    // numbers (never null) so the app can simply check `> 0` before showing
+    // reward pills. 0 means "not configured for this event".
+    xpReward: row.xp_reward ?? 0,
+    cashPrizeCents: row.cash_prize_cents ?? 0,
     registrationDeadline: row.registration_deadline,
+    // Paid events are payable in XP — same XP_PER_RUPEE rate as the wallet.
+    xpPrice: row.is_free
+      ? 0
+      : Math.round(((row.ticket_price_cents || 0) / 100) * config.XP_PER_RUPEE),
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   };

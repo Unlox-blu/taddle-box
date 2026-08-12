@@ -2,6 +2,7 @@ CREATE TABLE IF NOT EXISTS xp (
   id              UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
   user_id         UUID NOT NULL unique REFERENCES users(id) ON DELETE CASCADE,
   xp              INT NOT NULL DEFAULT 1 CHECK (xp >= 0),
+  total_xp_earned INTEGER NOT NULL DEFAULT 0,
   created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   updated_at      TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );

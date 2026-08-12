@@ -9,7 +9,7 @@ CREATE TABLE IF NOT EXISTS users (
                               CHECK (country_code ~ '^\+[0-9]{1,4}$'),
   phone_number              VARCHAR(20)  UNIQUE
                               CHECK (phone_number ~ '^[0-9]{3,15}$'),
-  date_of_birth             DATE
+  date_of_birth             DATE,
   gender                    VARCHAR(20) 
                               CHECK (gender IN ('male', 'female', 'other')),
   password_hash             TEXT,
@@ -47,7 +47,7 @@ CREATE TABLE IF NOT EXISTS users (
   email_verified_at         TIMESTAMPTZ,
   last_login_at             TIMESTAMPTZ,
   deleted_at                TIMESTAMPTZ,
-  app_lock                  VARCHAR(4)   CHECK (length(app_lock) = 4),
+  app_lock                  TEXT,
   app_lock_enabled          BOOLEAN      NOT NULL DEFAULT FALSE,
   created_at                TIMESTAMPTZ  NOT NULL DEFAULT NOW(),
   updated_at                TIMESTAMPTZ  NOT NULL DEFAULT NOW()

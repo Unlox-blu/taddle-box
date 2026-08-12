@@ -7,8 +7,8 @@ const LIST_FIELDS = [
   'c.id', 'c.post_id', 'c.parent_id', 'c.content', 'c.depth',
   'c.path', 'c.likes_count', 'c.status', 'c.created_at', 'c.updated_at',
   'u.id AS author_id', 'u.name AS author_name',
-  'u.username AS author_username', 'u.avatar_url AS author_avatar',
-  'u.is_verified AS author_is_verified',
+  'u.username AS author_username', 'ua.cloudfront_url AS author_avatar',
+
 ].join(', ');
 
 const sanitize = (row) => {
@@ -37,6 +37,8 @@ const format = (row) => {
     },
     createdAt: row.created_at,
     updatedAt: row.updated_at,
+    isLiked: !!row.is_liked,
+    replies: parseInt(row.replies_count || 0, 10),
   };
 };
 

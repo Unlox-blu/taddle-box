@@ -8,8 +8,8 @@ const XpModel = require('./xp.model');
 const create = async (userId, xp = 0) => {
   const { rows } = await pool.query(
     `
-    INSERT INTO ${XpModel.TABLE} (user_id, xp)
-    VALUES ($1, $2)
+    INSERT INTO ${XpModel.TABLE} (user_id, xp, total_xp_earned)
+    VALUES ($1, $2, $2)
     RETURNING ${XpModel.XP_FIELDS}
     `,
     [userId, xp]
@@ -35,6 +35,7 @@ const incrementXp = async (userId, amount, client) => {
     `
     UPDATE ${XpModel.TABLE}
     SET xp = xp + $2,
+        total_xp_earned = total_xp_earned + $2,
         updated_at = NOW()
     WHERE user_id = $1
     RETURNING ${XpModel.XP_FIELDS}
@@ -65,7 +66,7 @@ const createTransaction = async (data, client) => {
   const db = client || pool;
   const { rows } = await db.query(
     `
-    INSERT INTO ${XpModel.TRANSACTIONS_TABLE} (
+    INSERT INTO ${XpModel.TRANSACTIONS_TABLE} AS xt (
     xp_id,
     xp,
     transaction_type,
@@ -94,7 +95,7 @@ const findTransactionById = async (id) => {
   const { rows } = await pool.query(
     `
     SELECT ${XpModel.TRANSACTION_FIELDS}
-    FROM ${XpModel.TRANSACTIONS_TABLE}
+    FROM ${XpModel.TRANSACTIONS_TABLE} AS xt
     WHERE id = $1
     `,
     [id]
@@ -105,37 +106,80 @@ const findTransactionById = async (id) => {
 const getUserTransactions = async (xpId, limit, offset) => {
   const { rows } = await pool.query(
     `
-    SELECT ${XpModel.TRANSACTION_FIELDS}
-    FROM ${XpModel.TRANSACTIONS_TABLE}
-    WHERE xp_id = $1
-    ORDER BY created_at DESC
+    SELECT ${XpModel.TRANSACTION_FIELDS}, ${XpModel.GAME_ENRICH_FIELDS}
+    FROM ${XpModel.TRANSACTIONS_TABLE} xt
+    -- Resolve the game behind game XP entries so the wallet can name it:
+    --   game_session_<sessionId>      -> game_sessions.id (via session id)
+    --   game_match_<matchId>          -> game_match.id
+    --   session_<slug> (entry fee)    -> game.slug
+    LEFT JOIN game_sessions gs ON gs.id::text = split_part(xt.source_type, '_', 3)
+        AND xt.source_type LIKE 'game_session_%'
+    LEFT JOIN game_match gm ON gm.id::text = split_part(xt.source_type, '_', 3)
+        AND xt.source_type LIKE 'game_match_%'
+    LEFT JOIN game gsg ON gsg.id = COALESCE(gs.game_id, gm.game_id)
+        OR (xt.source_type LIKE 'session_%' AND gsg.slug = split_part(xt.source_type, '_', 2))
+    WHERE xt.xp_id = $1
+    ORDER BY xt.created_at DESC
     LIMIT $2 OFFSET $3
     `,
     [xpId, limit, offset]
   );
-  const total = rows.length ? rows[0] : null
+  const totalRes = await pool.query(
+    `SELECT COUNT(*) FROM ${XpModel.TRANSACTIONS_TABLE} WHERE xp_id = $1`,
+    [xpId]
+  );
+  const total = parseInt(totalRes.rows[0].count, 10);
   return {rows: rows.map(XpModel.formatTransaction), total};
 };
 
-const getTransactionsBySource = async (userId, sourceType) => {
+const getTransactionsBySource = async (xpId, sourceType) => {
   const { rows } = await pool.query(
     `
     SELECT ${XpModel.TRANSACTION_FIELDS}
-    FROM ${XpModel.TRANSACTIONS_TABLE}
-    WHERE user_id = $1
+    FROM ${XpModel.TRANSACTIONS_TABLE} AS xt
+    WHERE xp_id = $1
     AND source_type = $2
     ORDER BY created_at DESC
     `,
-    [userId, sourceType]
+    [xpId, sourceType]
   );
 
   return rows.map(XpModel.formatTransaction);
 };
 
+const checkRecentTransactionBySource = async (xpId, sourceType, hours) => {
+  const { rows } = await pool.query(
+    `
+    SELECT id
+    FROM ${XpModel.TRANSACTIONS_TABLE}
+    WHERE xp_id = $1
+    AND source_type = $2
+    AND created_at >= NOW() - INTERVAL '1 hour' * $3
+    LIMIT 1
+    `,
+    [xpId, sourceType, hours]
+  );
+  return rows.length > 0;
+};
+
+const checkDailyTransactionBySource = async (xpId, sourceType) => {
+  const { rows } = await pool.query(
+    `
+    SELECT id
+    FROM ${XpModel.TRANSACTIONS_TABLE}
+    WHERE xp_id = $1
+    AND source_type = $2
+    LIMIT 1
+    `,
+    [xpId, sourceType]
+  );
+  return rows.length > 0;
+};
+
 const updateTransactionStatus = async (id, status) => {
   const { rows } = await pool.query(
     `
-    UPDATE ${XpModel.TRANSACTIONS_TABLE}
+    UPDATE ${XpModel.TRANSACTIONS_TABLE} AS xt
     SET status = $2,
     updated_at = NOW()
     WHERE id = $1
@@ -168,5 +212,7 @@ module.exports = {
   getUserTransactions,
   getTransactionsBySource,
   updateTransactionStatus,
+  checkRecentTransactionBySource,
+  checkDailyTransactionBySource,
   getTransactionCount,
 };

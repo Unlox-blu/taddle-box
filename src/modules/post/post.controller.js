@@ -24,8 +24,9 @@ class PostController {
   getPost = async (req, res, next) => {
     try {
       const { postId } = req.params;
+      const { via_repost: viaRepostId } = req.query;
       const userId = req.userId;
-      const post = await this.postSvc.getPost({postId, userId});
+      const post = await this.postSvc.getPost({postId, userId, viaRepostId});
       res.json(apiResponse(post, 'Post fetched successfully!'));
     } catch (error) {
       next(error);
@@ -37,7 +38,8 @@ class PostController {
       const { authorId } = req.params;
       const userId = req.userId;
       const { limit, offset, page } = getPaginationParams(req.query);
-      const { posts, total } = await this.postSvc.getUserPosts({authorId, userId, limit, offset});
+      const type = req.query.type || 'all';
+      const { posts, total } = await this.postSvc.getUserPosts({authorId, userId, limit, offset, type});
       res.json(apiResponse(posts, 'Posts fetched successfully', paginationMeta(total, page, limit)));
     } catch (error) {
       next(error);
@@ -68,12 +70,47 @@ class PostController {
     }
   };
 
+  recordView = async (req, res, next) => {
+    try {
+      const { postId } = req.params;
+      const userId = req.userId;
+      await this.postSvc.recordView({ postId, userId });
+      res.json(apiResponse(null, 'View recorded'));
+    } catch (error) {
+      next(error);
+    }
+  };
+
   likePost = async (req, res, next) => {
     try {
       const { postId } = req.params;
       const userId = req.userId;
       await this.postSvc.likePost({postId, userId});
       res.json(apiResponse(null, 'Post liked'));
+    } catch (error) {
+      next(error);
+    }
+  };
+
+  getLikers = async (req, res, next) => {
+    try {
+      const { postId } = req.params;
+      const userId = req.userId;
+      const { limit, offset, page } = getPaginationParams(req.query);
+      const { likers, total } = await this.postSvc.getLikers({ postId, userId, limit, offset });
+      res.json(apiResponse(likers, 'Likers fetched', paginationMeta(total, page, limit)));
+    } catch (error) {
+      next(error);
+    }
+  };
+
+  getReposters = async (req, res, next) => {
+    try {
+      const { postId } = req.params;
+      const userId = req.userId;
+      const { limit, offset, page } = getPaginationParams(req.query);
+      const { reposters, total } = await this.postSvc.getReposters({ postId, userId, limit, offset });
+      res.json(apiResponse(reposters, 'Reposters fetched', paginationMeta(total, page, limit)));
     } catch (error) {
       next(error);
     }
@@ -96,6 +133,29 @@ class PostController {
       const { postId } = req.params;
       await this.postSvc.sharePost({userId, postId});
       res.json(apiResponse(null, 'Post shared'));
+    } catch (error) {
+      next(error);
+    }
+  };
+
+  repostPost = async (req, res, next) => {
+    try {
+      const userId = req.userId;
+      const { postId } = req.params;
+      const { content, tags, mentions, communityId } = req.body || {};
+      const post = await this.postSvc.repostPost({userId, postId, content, tags, mentions, communityId});
+      res.status(201).json(apiResponse(post, 'Post reposted successfully'));
+    } catch (error) {
+      next(error);
+    }
+  };
+
+  unrepostPost = async (req, res, next) => {
+    try {
+      const userId = req.userId;
+      const { postId } = req.params;
+      const result = await this.postSvc.unrepostPost({userId, postId});
+      res.json(apiResponse(result, 'Repost removed'));
     } catch (error) {
       next(error);
     }

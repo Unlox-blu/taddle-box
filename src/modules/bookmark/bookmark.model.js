@@ -19,46 +19,51 @@ const format = (row) => {
     id: row.id,
     title: row.title,
     content: row.content,
-    postType: row.post_type,
-    tags: row.tags || [],
-    categories: row.category || [],
-    likes: row.likes_count ?? 0,
-    comments: row.comments_count ?? 0,
-    shares: row.shares_count ?? 0,
-    views: row.views_count ?? 0,
-    publishedAt: row.published_at,
-
-    author: row.author && {
-      id: row.author.id,
-      username: row.author.username,
-      avatar: row.author.avatar_url
-        ? {
-            url: row.author.avatar_url.cloudfront_url,
-          }
-        : null,
-    },
-
-    community: row.community
-      ? {
-          id: row.community.id,
-          name: row.community.name,
-          slug: row.community.slug,
-          avatar: row.community.avatar_url 
-          ? {
-            url: row.community.avatar_url.cloudfront_url,
-            }
-          : null,
-        }
-        : null,
-
     media: (row.media || []).map((item) => ({
       id: item.id,
-      type: item.media_type,
-      url: item.cloudfront_url,
-      thumbnail: item.vimeo_thumbnail_url,
-      vimeoUri: item.vimeo_uri,
-      duration: item.duration_seconds,
+      media_type: item.media_type,
+      cloudfront_url: item.cloudfront_url,
+      vimeo_thumbnail_url: item.vimeo_thumbnail_url,
+      vimeo_uri: item.vimeo_uri,
+      duration_seconds: item.duration_seconds,
     })),
+    tags: row.tags || [],
+    category: row.category || [],
+    status: row.status,
+    visibility: row.visibility,
+    repostOfId: row.repost_of_id,
+    repostedByMe: row.is_reposted || false,
+    likesCount: row.likes_count ?? 0,
+    commentsCount: row.comments_count ?? 0,
+    sharesCount: row.shares_count ?? 0,
+    viewsCount: row.views_count ?? 0,
+    isPinned: row.is_pinned || false,
+    isLiked: row.is_liked || false,
+    isSaved: true,  // It's in the bookmark list, so it's saved
+    // Optional place tag (lat / lon / place name) — shown in the rolling text.
+    location: (row.latitude != null && row.longitude != null) ? {
+      lat: Number(row.latitude),
+      lon: Number(row.longitude),
+      place: row.place || '',
+    } : null,
+    author: row.author && {
+      id: row.author.id,
+      name: row.author.name || row.author.username, // fallbacks
+      username: row.author.username,
+      avatarUrl: row.author.avatar_url?.cloudfront_url,
+      repostsEnabled: row.author.reposts_enabled !== false,
+    },
+    community: row.community ? {
+      id: row.community.id,
+      name: row.community.name,
+      slug: row.community.slug,
+      avatarUrl: row.community.avatar_url?.cloudfront_url,
+      privacy: row.community.privacy,
+      // Community owner "Allow Reposting" toggle — false hides the repost
+      // button on bookmarked cards too.
+      repostsEnabled: row.community.reposts_enabled !== false,
+    } : null,
+    publishedAt: row.published_at,
   };
 };
 

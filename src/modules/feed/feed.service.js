@@ -2,70 +2,38 @@
 
 const redis = require('../../config/redis');
 const PostModel = require('./feed.model');
+const { getPaginationParams, paginationMeta } = require('../../utils/pagination.util');
 
 class FeedService {
-  constructor({ feedRepository, postRepository, followerRepository }) {
+  constructor({ feedRepository, postRepository, followerRepository, xpService }) {
     this.feedRepo = feedRepository;
     this.postRepo = postRepository;
-    this.followerRepo = followerRepository
+    this.followerRepo = followerRepository;
+    this.xpSvc = xpService;
   }
 
-  async getPersonalizedFeed({userId, limit, offset, page}) {
+  async getPersonalizedFeed({userId, limit, offset, page, hashtag}) {
     try {
-
-      const follow = await this.followerRepo.findByFollowerId(userId, 100, 0)
-      const followingId = follow.followings.map(ele => ele.following_id)
-
-
-      const visitedKey = `visitedfeed:${userId}`;
-      const cacheKey = `feed:${userId}:${page}`;
-
-      // If fetching the first page (refreshing feed), clear the visited cache
-      if (page === 1) {
-        await redis.del(visitedKey);
-        await redis.del(cacheKey); // Optional: clear this page's cache to get fresh results
-      }
-
-      // Try Redis cache first
-      const cached = await redis.get(cacheKey);
       
-      if (cached) {
-        return { posts: JSON.parse(cached), total: null, fromCache: true };
-      }
-
-      const visited = await redis.get(visitedKey);
-      const seenPost = visited ? JSON.parse(visited) : [];
-
-
-      // Fetch user preferences
-      const prefs = await this.feedRepo.getUserPreferences(userId);
-      const prefCategory = prefs.preferred_categories
-      const prefTags = prefs.preferred_tags
-
-      // Personalized query with scoring
-      const { rows, total } = await this.feedRepo.getPersonalizedPosts(
-        userId,
-        followingId,
-        prefCategory,
-        prefTags,
-        seenPost,
-        limit,
-        offset
-      );
+      const followingId = await this.getFollowingUserIds({userId, page})
+      const communityId = await this.getFollowingCommunityIds({userId, page})
+      const {prefCategory, prefTags, interests} = await this.getPreferences({userId})
+      const seenPostId = [];
+      const { rows, total } = await this.feedRepo.getPersonalizedPosts({
+        userId, followingId, communityId, 
+        prefCategory, prefTags, interests, 
+        seenPostId, hashtag: hashtag ? hashtag.replace(/^#/, '') : null, 
+        limit, offset
+      });
+      
       const posts = rows.map(PostModel.format);
-      const seenIds = rows.map(ele => ele.id)
-
-      if(seenPost.length) seenIds.push(...seenPost)
-
-      // Cache for 60s
-      await redis.setex(visitedKey, 60*5, JSON.stringify(seenIds))
-      await redis.setex(cacheKey, 60, JSON.stringify(posts));
-
       return { posts, total, fromCache: false };
     } catch (error) {
       throw error;
     }
   }
+
+  
 
   async recordInteraction(userId, postId, interactionType) {
     try {
@@ -80,6 +48,21 @@ class FeedService {
     }
   }
 
+  async recordPostViewXP(userId, postId) {
+    try {
+      if (!this.xpSvc) return;
+      // xpService.creditXP already deduplicates by sourceType
+      await this.xpSvc.creditXP({
+        userId,
+        xp: 2,
+        transactionType: 'earned',
+        sourceType: `view_post_${postId}`,
+      });
+    } catch (error) {
+      // swallow — non-critical
+    }
+  }
+
   async updatePreferences({userId, categories, tags}) {
     try {
       await this.feedRepo.upsertUserPreferences(userId, categories, tags);
@@ -88,6 +71,41 @@ class FeedService {
       if (keys.length) await redis.del(...keys);
     } catch (error) {
       throw error;
+    }
+  }
+
+  async getPreferences({userId}) {
+    try {
+      const {category, tags} = await this.feedRepo.getUserPreferences(userId)
+      const userInterests = await this.feedRepo.getUserInterests(userId)
+      const interests = userInterests.map(item =>  item.replace(/^\p{Extended_Pictographic}\s*/u, ''));
+      const prefCategory = category
+      const prefTags = tags
+      return {prefCategory, prefTags, interests}
+    } catch (error) {
+      throw error
+    }
+  }
+
+  async getFollowingUserIds({userId, page}) {
+    try {
+      const { limit, offset } = getPaginationParams({page})
+      const {total, followings} = await this.feedRepo.findFollowers(userId, limit, offset)
+      const followingId = followings.map(ele => ele.followingid)
+      return followingId
+    } catch (error) {
+      throw error
+    }
+  }
+
+  async getFollowingCommunityIds({userId, page}) {
+    try {
+      const { limit, offset } = getPaginationParams({page})
+      const {total, communities} = await this.feedRepo.findFollowingCommunity(userId, limit, offset)
+      const communityId = communities.map(ele => ele.communityid)
+      return communityId
+    } catch (error) {
+      throw error
     }
   }
 }

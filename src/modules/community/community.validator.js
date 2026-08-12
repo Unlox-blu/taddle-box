@@ -16,11 +16,20 @@ const typeCheck = (val) => {
   }
 
 const createCommunitySchema = z.object({
-  name: z.string().min(1, 'Name must have at least 1 characters').max(100),
+  // Username-style names: letters, numbers, underscores only (no spaces or
+  // hyphens) — matches the frontend rule so names and slugs stay consistent.
+  name: z
+    .string()
+    .min(1, 'Name must have at least 1 characters')
+    .max(100)
+    .regex(/^[a-zA-Z0-9_]+$/, 'Community names can only contain letters, numbers and underscores (no spaces or hyphens)'),
   description: z.string().max(1000).optional(),
   privacy: z.enum(PRIVACY_TYPES).default('public'),
+  allowReposts: z.boolean().optional(),
   category: z.preprocess(typeCheck ,z.array(z.string().max(50)).max(5).default([])),
   rules: z.preprocess(typeCheck, z.array(z.object({ title: z.string(), description: z.string() })).max(20)).optional(),
+  avatarMediaId: z.preprocess(val => val === '' ? undefined : val, z.string().uuid({ message: 'Invalid avatar media ID format' }).optional()),
+  bannerMediaId: z.preprocess(val => val === '' ? undefined : val, z.string().uuid({ message: 'Invalid banner media ID format' }).optional()),
 }).strict();
 
 const updateCommunitySchema = createCommunitySchema.partial();
@@ -46,6 +55,14 @@ const communityIdAndUserIdParamsSchema = z.object({
   userId: z.string().uuid({ message: 'Invalid user ID format' })
 }).strict();
 
+const updateMemberRoleSchema = z.object({
+  role: z.enum(['admin', 'member'])
+}).strict();
+
+const transferOwnershipSchema = z.object({
+  userId: z.string().uuid({ message: 'Invalid user ID format' })
+}).strict();
+
 const paginationQuerySchema = z.object({
   page: z.coerce
     .number({ invalid_type_error: 'Page must be a number' })
@@ -59,6 +76,10 @@ const paginationQuerySchema = z.object({
     .positive({ message: 'Limit must be greater than zero' })
     .max(100, 'Maximum limit allowed is 100')
     .default(10).optional(),
+
+  search: z.string().trim().max(60, 'Search too long').optional(),
+
+  mine: z.enum(['true', 'false', '1', '0']).optional(),
 }).strict();
 
-module.exports = { createCommunitySchema, updateCommunitySchema, updateAvatarSchema, updateBannerSchema, slugParamsSchema, communityIdParamsSchema, communityIdAndUserIdParamsSchema, paginationQuerySchema };
+module.exports = { createCommunitySchema, updateCommunitySchema, updateAvatarSchema, updateBannerSchema, slugParamsSchema, communityIdParamsSchema, communityIdAndUserIdParamsSchema, updateMemberRoleSchema, transferOwnershipSchema, paginationQuerySchema };

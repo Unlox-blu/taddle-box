@@ -20,10 +20,17 @@ class SettingsService {
     }
   }
 
+  async _getOrCreateSettings(userId) {
+    let settings = await this.settingsRepo.findByUserId(userId);
+    if (!settings) {
+      settings = await this.settingsRepo.create(userId);
+    }
+    return settings;
+  }
+
   async getSettings({ userId }) {
     try {
-      const settings = await this.settingsRepo.findByUserId(userId);
-      if (!settings) throw createError('settings not found', 404);
+      const settings = await this._getOrCreateSettings(userId);
       return settings;
     } catch (error) {
       throw error;
@@ -32,14 +39,8 @@ class SettingsService {
 
   async setTheme({ userId, theme }) {
     try {
-      const settings = await this.settingsRepo.findByUserId(userId);
-
-      if (!settings) {
-        throw createError('settings not found', 404);
-      }
-
+      await this._getOrCreateSettings(userId);
       const newTheme = await this.settingsRepo.setTheme(userId, theme);
-
       return newTheme;
     } catch (error) {
       throw error;
@@ -48,14 +49,8 @@ class SettingsService {
 
   async toggleSystemNotification({ userId }) {
     try {
-      const settings = await this.settingsRepo.findByUserId(userId);
-
-      if (!settings) {
-        throw createError('settings not found', 404);
-      }
-
+      await this._getOrCreateSettings(userId);
       const notification = await this.settingsRepo.toggleSystemNotification(userId);
-
       return notification;
     } catch (error) {
       throw error;
@@ -64,15 +59,81 @@ class SettingsService {
 
   async togglePromotionalNotification({ userId }) {
     try {
-      const settings = await this.settingsRepo.findByUserId(userId);
-
-      if (!settings) {
-        throw createError('settings not found', 404);
-      }
-
+      await this._getOrCreateSettings(userId);
       const notification = await this.settingsRepo.togglePromotionalNotification(userId);
-
       return notification;
+    } catch (error) {
+      throw error;
+    }
+  }
+
+  async toggleNotifXP({ userId }) {
+    try {
+      await this._getOrCreateSettings(userId);
+      return await this.settingsRepo.toggleNotifXP(userId);
+    } catch (error) {
+      throw error;
+    }
+  }
+
+  async toggleNotifWithdraw({ userId }) {
+    try {
+      await this._getOrCreateSettings(userId);
+      return await this.settingsRepo.toggleNotifWithdraw(userId);
+    } catch (error) {
+      throw error;
+    }
+  }
+
+  async toggleNotifPromos({ userId }) {
+    try {
+      await this._getOrCreateSettings(userId);
+      return await this.settingsRepo.toggleNotifPromos(userId);
+    } catch (error) {
+      throw error;
+    }
+  }
+
+  async togglePublicAccount({ userId }) {
+    try {
+      await this._getOrCreateSettings(userId);
+      return await this.settingsRepo.togglePublicAccount(userId);
+    } catch (error) {
+      throw error;
+    }
+  }
+
+  async toggleActivityStatus({ userId }) {
+    try {
+      await this._getOrCreateSettings(userId);
+      return await this.settingsRepo.toggleActivityStatus(userId);
+    } catch (error) {
+      throw error;
+    }
+  }
+
+  async toggleAllowTagging({ userId }) {
+    try {
+      await this._getOrCreateSettings(userId);
+      return await this.settingsRepo.toggleAllowTagging(userId);
+    } catch (error) {
+      throw error;
+    }
+  }
+
+  async toggleAllowReposts({ userId }) {
+    try {
+      await this._getOrCreateSettings(userId);
+      return await this.settingsRepo.toggleAllowReposts(userId);
+    } catch (error) {
+      throw error;
+    }
+  }
+
+  async toggleShowOnLeaderboard({ userId }) {
+    try {
+      await this._getOrCreateSettings(userId);
+      return await this.settingsRepo.toggleShowOnLeaderboard(userId);
     } catch (error) {
       throw error;
     }

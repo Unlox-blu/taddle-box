@@ -9,6 +9,7 @@ const { paginationQuerySchema } = require('../modules/streak/streak.validator');
 
 
 router.post('/',        verifyToken,                                                        streakController.createOrUpdate)
+router.post('/restore', verifyToken,                                                        streakController.restoreStreak)
 router.get('/',         verifyToken,                                                        streakController.getCurrentStreak)
 router.get('/history',  verifyToken,    validateRequest({query: paginationQuerySchema}),    streakController.getStreakHistory)
 

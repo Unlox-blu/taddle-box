@@ -8,6 +8,8 @@ const LIST_FIELDS = [
   'streak_count',
   'start_date',
   'end_date',
+  'restore_deadline',
+  'last_rewarded_day',
   'created_at',
   'updated_at'
 ].join(', ');
@@ -20,6 +22,8 @@ const format = (row) => {
     streakCount: row.streak_count,
     startDate: row.start_date,
     endDate: row.end_date,
+    restoreDeadline: row.restore_deadline,
+    lastRewardedDay: row.last_rewarded_day,
     createdAt: row.created_at,
     updatedAt: row.updated_at
   };

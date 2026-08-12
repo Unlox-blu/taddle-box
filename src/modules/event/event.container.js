@@ -11,6 +11,7 @@ const EventController = require('./event.controller')
 const {walletRepository} = require('../wallet/wallet.container')
 const {userRepository} = require('../user/user.container')
 const {saveRepository} = require('../save/save.container')
+const {xpService} = require('../xp/xp.container')
 
 
 
@@ -20,10 +21,11 @@ const eventService = new EventService({
   walletRepository,
   userRepository,
   saveRepository,
+  xpService,
 })
 
 // Instantiate Controller
 const eventController = new EventController({ eventService })
 
 
-module.exports = {eventController, eventService, eventRepository}
+module.exports = {eventController, eventService, eventRepository}

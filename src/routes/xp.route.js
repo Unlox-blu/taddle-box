@@ -9,7 +9,8 @@ const { creditOrdebitXPSchema, paginationQuerySchema } = require('../modules/xp/
 
 router.post('/',                 verifyToken,                                                       xpController.createXPwallet);
 router.get('/',                  verifyToken,                                                       xpController.getXP);
-router.get('/transactions',      verifyToken, validateRequest({ params: paginationQuerySchema }),   xpController.getTransactions);
+router.get('/transactions',      verifyToken, validateRequest({ query: paginationQuerySchema }),   xpController.getTransactions);
+router.get('/daily-login-status', verifyToken, xpController.getDailyLoginStatus);
 router.post('/credit',           verifyToken, validateRequest({ body: creditOrdebitXPSchema }),     xpController.creditXP);
 router.post('/debit',            verifyToken, validateRequest({ body: creditOrdebitXPSchema }),     xpController.debitXP);
 

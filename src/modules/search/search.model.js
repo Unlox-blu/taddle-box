@@ -4,9 +4,10 @@ const USER_TABLE = 'users';
 const COMMUNITY_TABLE = 'communities';
 const EVENT_TABLE = 'events';
 const POST_TABLE = 'posts';
+const GAME_TABLE = 'game';
 
 const USER_FIELDS = [
-  'u.id', 'u.name', 'u.username', 'u.avatar_url', 'u.is_verified', 'u.follower_count', 'u.following_count',
+  'u.id', 'u.name', 'u.username', 'u.avatar_url', 'u.follower_count', 'u.following_count',
   'ua.cloudfront_url AS user_avatar',
 ].join(', ');
 
@@ -24,18 +25,32 @@ const EVENT_FIELDS = [
 ].join(', ');
 
 const POST_FIELDS = [
-  'p.id', 'p.author_id', 'p.community_id', 'p.title',
-  'p.media', 'p.post_type', 'p.tags', 'p.status', 'p.visibility',
+  'p.id', 'p.author_id', 'p.community_id', 'p.title', 'p.content', 'p.repost_of_id',
+  'p.media', 'p.tags', 'p.status', 'p.visibility',
   'p.likes_count', 'p.comments_count', 'p.shares_count', 'p.views_count',
-  'p.is_pinned', 'p.published_at', 'p.created_at',
+  'p.is_pinned',
+  // Location: repost rows carry none — fall back to the ORIGINAL's tag so
+  // search-result cards show the place on reposts too. Requires a LEFT JOIN
+  // on `posts orig` in every query using POST_FIELDS.
+  'COALESCE(orig.latitude,  p.latitude)  AS latitude',
+  'COALESCE(orig.longitude, p.longitude) AS longitude',
+  'COALESCE(orig.place,     p.place)     AS place',
+  'p.published_at', 'p.created_at',
   'u.name AS author_name', 'u.username AS author_username',
-  'u.is_verified AS author_is_verified', 'ua.cloudfront_url AS author_avatar',
-  'c.name AS community_name', 'c.slug   AS community_slug',
-  'ca.cloudfront_url AS community_avatar',
+  'ua.cloudfront_url AS author_avatar',
+  'c.name AS community_name', 'c.slug   AS community_slug', 'c.privacy AS community_privacy',
+  'ca.cloudfront_url AS community_avatar', 'repost_data'
+].join(', ');
+
+// Games are returned as-is (matches game module's formatGame shape) so the app
+// can render them directly with the existing Game type.
+const GAME_FIELDS = [
+  'id', 'name', 'slug', 'description', 'thumbnail', 'category',
+  'difficulty', 'is_active', 'metadata', 'created_at', 'updated_at',
 ].join(', ');
 
 
 module.exports = {
-    USER_TABLE, COMMUNITY_TABLE, EVENT_TABLE, POST_TABLE,
-    USER_FIELDS, COMMUNITY_FIELDS, EVENT_FIELDS, POST_FIELDS,
+    USER_TABLE, COMMUNITY_TABLE, EVENT_TABLE, POST_TABLE, GAME_TABLE,
+    USER_FIELDS, COMMUNITY_FIELDS, EVENT_FIELDS, POST_FIELDS, GAME_FIELDS,
 }

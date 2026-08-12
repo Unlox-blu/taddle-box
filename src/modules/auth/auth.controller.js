@@ -83,7 +83,7 @@ class AuthController {
       const phone = req.phone;
       const socialToken = userData.socialToken; // Extract from userData
       
-      const { user, sessionData, COOKIE_OPTS } = await this.authSvc.signUp({email, countryCode, phone, userData, socialToken});
+      const { user, sessionData, referrer, COOKIE_OPTS } = await this.authSvc.signUp({email, countryCode, phone, userData, socialToken});
 
       res.clearCookie('verification_token', {...COOKIE_OPTS});
       res.cookie('access_token', sessionData.accessToken, {
@@ -94,7 +94,7 @@ class AuthController {
         ...sessionData.cookieOpts,
         maxAge: config.REFRESH_TOKEN_COOKIE_MAX_AGE_SECONDS
       });
-      res.json(apiResponse({user, sessionData}, 'Account created.'));
+      res.json(apiResponse({user, sessionData, referrer}, 'Account created.'));
     } catch (error) {
       next(error);
     }
@@ -102,8 +102,8 @@ class AuthController {
 
   login = async (req, res, next) => {
     try {
-      const { email, password } = req.body;
-      const result = await this.authSvc.login({ email, password });
+      const { identifier, email, password } = req.body;
+      const result = await this.authSvc.login({ identifier: identifier || email, password });
 
       if(!result.success){
         res.json(result)
@@ -270,7 +270,7 @@ class AuthController {
         }
       }
 
-      let fullName;
+      let fullName = '';
       if (user) {
         try {
           const parsedUser = JSON.parse(user);
@@ -303,17 +303,25 @@ class AuthController {
 
   refreshToken = async (req, res, next) => {
     try {
-      const { refresh_token: refreshToken } = req.cookies;
+      // Accept the refresh token from the body (mobile app keeps tokens in
+      // SecureStore, not cookies) or the cookie (web). The service result
+      // carries the new tokens under sessionData.
+      const refreshToken = req.body?.refreshToken || req.cookies?.refresh_token;
       const result = await this.authSvc.refreshToken({refreshToken});
-      res.cookie('access_token', result.accessToken, {
-        ...result.cookieOpts,
+      const { accessToken, refreshToken: nextRefreshToken, cookieOpts } = result.sessionData;
+      res.cookie('access_token', accessToken, {
+        ...cookieOpts,
         maxAge: config.ACCESS_TOKEN_COOKIE_MAX_AGE_SECONDS
       });
-      res.cookie('refresh_token', result.refreshToken, {
-        ...result.cookieOpts,
+      res.cookie('refresh_token', nextRefreshToken, {
+        ...cookieOpts,
         maxAge: config.REFRESH_TOKEN_COOKIE_MAX_AGE_SECONDS
       });
-      res.json(apiResponse(null, 'Token refreshed'));
+      // ALSO return the tokens in the body so API clients (the app, which
+      // stores them in SecureStore) can rotate them — without this the app's
+      // interceptor reads res.data.data.accessToken and gets nothing, so every
+      // expired session silently fails to refresh.
+      res.json(apiResponse({ accessToken, refreshToken: nextRefreshToken }, 'Token refreshed'));
     } catch (error) {
       next(error);
     }
@@ -333,20 +341,51 @@ class AuthController {
 
   changePassword = async (req, res, next) => {
     try {
-      const userId = req.userId
-      const {currentPassword, newPassword} = req.body;
-      await this.authSvc.changePassword({userId, currentPassword, newPassword});
-      res.json(apiResponse(null, 'Password changed successfuly'));
+      const userId = req.userId;
+      const { currentPassword, email, countryCode, phone } = req.body;
+      const result = await this.authSvc.requestChangePasswordOtp({ userId, currentPassword, email, countryCode, phone });
+      res.json(apiResponse(result, 'OTP sent for verification'));
     } catch (error) {
-      next(error)
+      next(error);
+    }
+  };
+
+  verifyChangePasswordOtp = async (req, res, next) => {
+    try {
+      const userId = req.userId;
+      const { emailOtp, phoneOtp } = req.body;
+      const result = await this.authSvc.verifyChangePasswordOtp({ userId, emailOtp, phoneOtp });
+      res.json(apiResponse(result, 'OTPs verified successfully'));
+    } catch (error) {
+      next(error);
+    }
+  };
+
+  confirmChangePassword = async (req, res, next) => {
+    try {
+      const { changeToken, newPassword } = req.body;
+      await this.authSvc.confirmChangePassword({ changeToken, newPassword });
+      res.json(apiResponse(null, 'Password changed successfully'));
+    } catch (error) {
+      next(error);
     }
   }
 
   forgotPassword = async (req, res, next) => {
     try {
-      const { email } = req.body;
-      await this.authSvc.forgotPassword({email});
-      res.json(apiResponse(null, 'If that email exists, a reset link has been sent.'));
+      const { identifier } = req.body;
+      const result = await this.authSvc.forgotPassword({ identifier });
+      res.json(apiResponse(result, 'OTPs have been sent to registered contact details.'));
+    } catch (error) {
+      next(error);
+    }
+  };
+
+  verifyResetPasswordOtp = async (req, res, next) => {
+    try {
+      const { email, emailOtp, phoneOtp } = req.body;
+      const result = await this.authSvc.verifyResetPasswordOtp({ email, emailOtp, phoneOtp });
+      res.json(apiResponse(result, 'OTPs verified successfully'));
     } catch (error) {
       next(error);
     }
@@ -367,6 +406,61 @@ class AuthController {
       const userId = req.userId;
       const user = await this.authSvc.getMe({userId});
       res.json(apiResponse({ user }, 'Profile get successfully!'));
+    } catch (error) {
+      next(error);
+    }
+  };
+
+  verifyPassword = async (req, res, next) => {
+    try {
+      const userId = req.userId;
+      const { password, email, countryCode, phone } = req.body;
+      const result = await this.authSvc.verifyPassword({ userId, password, email, countryCode, phone });
+      res.json(apiResponse(result, 'Password verified successfully'));
+    } catch (error) {
+      next(error);
+    }
+  };
+
+  requestChangePhoneOtp = async (req, res, next) => {
+    try {
+      const userId = req.userId;
+      const { newCountryCode, newPhone } = req.body;
+      const result = await this.authSvc.requestChangePhoneOtp({ userId, newCountryCode, newPhone });
+      res.json(apiResponse(result, 'OTPs sent to email and phone successfully'));
+    } catch (error) {
+      next(error);
+    }
+  };
+
+  verifyChangePhoneOtp = async (req, res, next) => {
+    try {
+      const userId = req.userId;
+      const { emailOtp, phoneOtp } = req.body;
+      const result = await this.authSvc.verifyChangePhoneOtp({ userId, emailOtp, phoneOtp });
+      res.json(apiResponse(result, 'Phone updated successfully'));
+    } catch (error) {
+      next(error);
+    }
+  };
+
+  requestChangeEmailOtp = async (req, res, next) => {
+    try {
+      const userId = req.userId;
+      const { newEmail } = req.body;
+      const result = await this.authSvc.requestChangeEmailOtp({ userId, newEmail });
+      res.json(apiResponse(result, 'OTPs sent to phone and email successfully'));
+    } catch (error) {
+      next(error);
+    }
+  };
+
+  verifyChangeEmailOtp = async (req, res, next) => {
+    try {
+      const userId = req.userId;
+      const { emailOtp, phoneOtp } = req.body;
+      const result = await this.authSvc.verifyChangeEmailOtp({ userId, emailOtp, phoneOtp });
+      res.json(apiResponse(result, 'Email updated successfully'));
     } catch (error) {
       next(error);
     }

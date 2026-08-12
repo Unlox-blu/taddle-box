@@ -4,7 +4,7 @@ const TABLE = 'wallets';
 const TRANSACTIONS_TABLE = 'transactions';
 
 const WALLET_FIELDS = [
-  'id', 'user_id', 'balance_cents', 'currency', 'is_active', 'updated_at',
+  'id', 'user_id', 'balance_cents', 'held_balance_cents', 'currency', 'is_active', 'linked_upi', 'updated_at',
 ].join(', ');
 
 const TRANSACTION_FIELDS = [
@@ -23,8 +23,10 @@ const formatWallet = (row) => {
     id: row.id,
     userId: row.user_id,
     balanceCents: row.balance_cents,
+    heldBalanceCents: row.held_balance_cents,
     currency: row.currency,
     isActive: row.is_active,
+    linkedUpi: row.linked_upi,
     updatedAt: row.updated_at,
   };
 };
@@ -33,11 +35,13 @@ const formatTransaction = (row) => {
   if (!row) return null;
   return {
     id: row.id,
+    walletId: row.wallet_id,
     type: row.type,
     amountCents: row.amount_cents,
     balanceAfterCents: row.balance_after_cents,
     description: row.description,
     category: row.category,
+    razorpayOrderId: row.razorpay_order_id,
     status: row.status,
     createdAt: row.created_at,
   };

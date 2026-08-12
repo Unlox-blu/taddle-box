@@ -11,18 +11,29 @@ class StreakController {
   createOrUpdate = async (req, res, next) => {
     try {
         const userId = req.userId
-        const streak = await this.streakSvc.createOrUpdate(userId)
-        res.status(201).json(apiResponse(streak, 'New Streak created successfully'))
+        const result = await this.streakSvc.createOrUpdate(userId)
+        res.status(201).json(apiResponse(result, 'Streak updated successfully'))
     } catch (error) {
         next(error)
     }
-  }  
+  }
 
   getCurrentStreak = async (req, res, next) => {
     try {
         const userId = req.userId
-        const streak = await this.streakSvc.getCurrentStreak(userId)
-        res.json(apiResponse(streak, 'Streak fetched successfully'));
+        const result = await this.streakSvc.getCurrentStreak(userId)
+        res.json(apiResponse(result, 'Streak fetched successfully'));
+    } catch (error) {
+        next(error)
+    }
+  }
+
+  // Pay XP to revive a frozen streak within its 24-hour restore window.
+  restoreStreak = async (req, res, next) => {
+    try {
+        const userId = req.userId
+        const result = await this.streakSvc.restoreStreak(userId)
+        res.json(apiResponse(result, 'Streak restored successfully'));
     } catch (error) {
         next(error)
     }

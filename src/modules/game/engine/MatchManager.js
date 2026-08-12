@@ -1,0 +1,112 @@
+'use strict';
+
+const EventStore = require('./EventStore');
+const TimerEngine = require('./TimerEngine');
+const GameRegistry = require('./GameRegistry');
+const redisClient = require('../../../config/redis');
+const Redlock = require('redlock').default || require('redlock');
+
+const redlock = new Redlock([redisClient], {
+  driftFactor: 0.01,
+  retryCount: 10,
+  retryDelay: 200, 
+  retryJitter: 200, 
+  automaticExtensionThreshold: 500, 
+});
+
+/**
+ * Match Lifecycle States
+ */
+const MATCH_STATES = {
+  WAITING: 'WAITING',
+  READY: 'READY',
+  STARTING: 'STARTING',
+  ACTIVE: 'ACTIVE',
+  PAUSED: 'PAUSED',
+  FINISHED: 'FINISHED',
+  ARCHIVED: 'ARCHIVED'
+};
+
+class MatchManager {
+  /**
+   * Start or Resume a match
+   */
+  static async loadOrInitializeMatch(matchId, gameSlug, matchMetadata) {
+    let state = await EventStore.loadMatchSnapshot(matchId);
+    
+    const effectiveMetadata = state ? state.metadata : matchMetadata;
+    const plugin = GameRegistry.createInstance(gameSlug, effectiveMetadata);
+
+    if (!state) {
+      // Initialize new match — store the correct player count from metadata
+      state = {
+        status: MATCH_STATES.WAITING,
+        players: matchMetadata.players || [],
+        maxPlayers: matchMetadata.maxPlayers || matchMetadata.players?.length || 2,
+        pluginState: plugin.createState(),
+        metadata: matchMetadata,
+        startedAt: null,
+        readyPlayers: [],
+      };
+      await EventStore.saveMatchSnapshot(matchId, state);
+      await EventStore.appendEvent(matchId, { type: 'INIT_MATCH', state });
+    }
+
+    return { state, plugin };
+  }
+
+  static async handlePlayerJoin(matchId, gameSlug, userId) {
+    const { state, plugin } = await this.loadOrInitializeMatch(matchId, gameSlug, {});
+    
+    // Add player logic...
+    plugin.onPlayerJoin(userId);
+    
+    // Auto-transition to READY if enough players
+    if (state.status === MATCH_STATES.WAITING && state.players.length >= (state.metadata.maxPlayers || 2)) {
+      state.status = MATCH_STATES.READY;
+    }
+    
+    await EventStore.saveMatchSnapshot(matchId, state);
+    return state;
+  }
+
+  static async handlePlayerMove(matchId, gameSlug, userId, moveData) {
+    const lockKey = `lock:match:${matchId}`;
+    let lock;
+    try {
+      lock = await redlock.acquire([lockKey], 5000);
+      
+      const { state, plugin } = await this.loadOrInitializeMatch(matchId, gameSlug, {});
+
+      if (state.status !== MATCH_STATES.ACTIVE) {
+        throw new Error(`Match is not active. Current state: ${state.status}`);
+      }
+
+      // Delegate validation and application to the plugin
+      const validation = plugin.validateMove(userId, moveData, state.pluginState);
+      if (!validation.valid) {
+        throw new Error(validation.reason || 'Invalid move');
+      }
+
+      state.pluginState = plugin.applyMove(userId, moveData, state.pluginState);
+
+      // Check if game is finished
+      if (plugin.isFinished(state.pluginState)) {
+        state.status = MATCH_STATES.FINISHED;
+        TimerEngine.clearAllTimers(matchId);
+        await EventStore.appendEvent(matchId, { type: 'GAME_OVER', result: state.pluginState });
+      } else {
+        await EventStore.appendEvent(matchId, { type: 'MOVE', userId, moveData });
+      }
+
+      await EventStore.saveMatchSnapshot(matchId, state);
+      return state;
+    } finally {
+      if (lock) {
+        await lock.release().catch(err => console.error('Failed to release lock:', err));
+      }
+    }
+  }
+}
+
+module.exports = { MatchManager, MATCH_STATES };

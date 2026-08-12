@@ -52,21 +52,34 @@ const findByUserId = async ({userId, limit, offset}) => {
           p.id,
           p.author_id,
           p.community_id,
+          p.repost_of_id,
           p.title,
           p.content,
-          p.post_type,
           p.tags,
           p.category,
           p.likes_count,
           p.comments_count,
           p.shares_count,
           p.views_count,
+          -- Location: repost rows have none — fall back to the original's.
+          COALESCE(orig.latitude,  p.latitude)  AS latitude,
+          COALESCE(orig.longitude, p.longitude) AS longitude,
+          COALESCE(orig.place,     p.place)     AS place,
           p.published_at,
+
+          -- Viewer state
+          EXISTS(SELECT 1 FROM post_likes pl WHERE pl.post_id = p.id AND pl.user_id = $1) AS is_liked,
+          EXISTS(
+            SELECT 1 FROM posts rp
+            WHERE rp.repost_of_id = p.id AND rp.author_id = $1 AND rp.deleted_at IS NULL
+          ) AS is_reposted,
 
           -- Author
           json_build_object(
               'id', u.id,
+              'name', u.name,
               'username', u.username,
+              'reposts_enabled', COALESCE(s.allow_reposts, TRUE),
               'avatar_url',
                   CASE
                       WHEN u.avatar_url IS NULL THEN NULL
@@ -83,6 +96,8 @@ const findByUserId = async ({userId, limit, offset}) => {
                   'id', c.id,
                   'name', c.name,
                   'slug', c.slug,
+                  'privacy', c.privacy,
+                  'reposts_enabled', COALESCE(c.allow_reposts, TRUE),
                   'avatar_url', 
                   CASE
                       WHEN c.avatar_url IS NULL THEN NULL
@@ -121,8 +136,16 @@ const findByUserId = async ({userId, limit, offset}) => {
       JOIN ${BookmarkModel.USER_TABLE} u
           ON u.id = p.author_id
 
+      LEFT JOIN ${BookmarkModel.POST_TABLE} orig
+          ON orig.id = p.repost_of_id
+          AND orig.deleted_at IS NULL
+          AND orig.status = 'published'
+
       LEFT JOIN ${BookmarkModel.MEDIA_TABLE} ua
           ON ua.id = u.avatar_url
+
+      LEFT JOIN settings s
+          ON s.user_id = u.id
 
       LEFT JOIN ${BookmarkModel.COMMUNITY_TABLE} c
           ON c.id = p.community_id
@@ -144,7 +167,9 @@ const findByUserId = async ({userId, limit, offset}) => {
           ua.id,
           c.id,
           ca.id,
-          b.created_at
+          s.user_id,
+          b.created_at,
+          orig.id
 
       ORDER BY b.created_at DESC
       LIMIT $2 OFFSET $3

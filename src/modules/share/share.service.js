@@ -26,7 +26,9 @@ class SharekService {
             
             const isFollow = await this.shareRepo.findByFollowerIdAndFollowingId(userId, authorId)
 
-            if(!isFollow)
+            // A pending follow request is not approved — the sharer must be an
+            // active follower to view a private account's post.
+            if(!isFollow || isFollow.status !== 'active')
                 throw createError("You are not authorized to view post of this private account", 403);
         }
 

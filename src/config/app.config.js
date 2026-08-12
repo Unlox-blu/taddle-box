@@ -35,6 +35,7 @@ module.exports = {
   TOKEN_SECRET: required('TOKEN_SECRET'),
   ACCESS_TOKEN_EXPIRES_IN: optional('ACCESS_TOKEN_EXPIRES_IN', '1d'),
   REFRESH_TOKEN_EXPIRES_IN: optional('REFRESH_TOKEN_EXPIRES_IN', '7d'),
+  SOCIAL_TOKEN_EXPIRES_IN: optional('SOCIAL_TOKEN_EXPIRES_IN', '30m'),
   VERIFICATION_TOKEN_EXPIRES_IN: optional('VERIFICATION_TOKEN_EXPIRES_IN', '10m'),
   EMAIL_VERIFY_TOKEN_EXPIRES_IN: optional('EMAIL_VERIFY_TOKEN_EXPIRES_IN', '15m'),
   PASSWORD_RESET_TOKEN_EXPIRES_IN: optional('PASSWORD_RESET_TOKEN_EXPIRES_IN', '10m'),
@@ -71,8 +72,38 @@ module.exports = {
   RAZORPAY_KEY_SECRET: optional('RAZORPAY_KEY_SECRET'),
   RAZORPAY_WEBHOOK_SECRET: optional('RAZORPAY_WEBHOOK_SECRET'),
 
+  // PayU — credentials MUST come from .env (single source of truth). No test
+  // credentials are hardcoded here; PAYU_KEY / PAYU_SALT are required so the
+  // server refuses to start with a misconfigured checkout.
+  PAYU_KEY: required('PAYU_KEY'),
+  PAYU_SALT: required('PAYU_SALT'),
+  PAYU_URL: optional('PAYU_URL', 'https://test.payu.in/_payment'),
+  // Where PayU redirects the WebView after checkout. Defaults to BASE_URL but
+  // can be overridden with the public tunnel/domain when testing on a device
+  // (the phone's WebView can't reach a localhost backend).
+  PAYU_RETURN_BASE_URL: optional('PAYU_RETURN_BASE_URL'),
+
+  // Admin withdrawal handoff — the secure URL that receives the one-time token
+  // when a user requests a payout. Must be set in production.
+  WITHDRAWAL_ADMIN_BASE_URL: optional('WITHDRAWAL_ADMIN_BASE_URL', 'https://admin.taddlebox.com'),
+  // Shared secret the admin backend sends in the X-Webhook-Secret header to
+  // authorize withdrawal confirm/reject webhooks.
+  WITHDRAWAL_WEBHOOK_SECRET: required('WITHDRAWAL_WEBHOOK_SECRET'),
+
+  // Economy — XP conversion rate: how many XP are worth 1 Rupee. Used by
+  // wallet conversions (XP <-> cash) and paid-event ticket pricing.
+  XP_PER_RUPEE: parseInt(optional('XP_PER_RUPEE', '100'), 10),
+
   // Google OAuth
   GOOGLE_CLIENT_ID: optional('GOOGLE_CLIENT_ID'),
+  
+  // Apple Client Secret
+  APPLE_TEAM_ID: optional('APPLE_TEAM_ID'),
+  APPLE_SERVICE_ID: optional('APPLE_SERVICE_ID'),
+  APPLE_KEY_ID: optional('APPLE_KEY_ID'),
+  APPLE_P8_PATH: optional('APPLE_P8_PATH'),
+  APPLE_P8_KEY: optional('APPLE_P8_KEY'),
+
 
   // Email
   EMAIL: {

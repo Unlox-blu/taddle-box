@@ -405,9 +405,12 @@ export default function ScribbleGame({ matchId, userId, wsToken, players, extern
   return (
     <KeyboardAvoidingView
       style={styles.container}
-      behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-      keyboardVerticalOffset={Platform.OS === 'ios' ? 90 : 80}
+      behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+      keyboardVerticalOffset={Platform.OS === 'ios' ? 90 : 0}
     >
+      {/* Android: window already resizes (adjustResize), so behavior must be
+          left undefined — 'height' would subtract the keyboard height a second
+          time and collapse the board/chat (same double-shift bug as Ludo). */}
       {/* Role announcement overlay */}
       {showRoleCard && (
         <Animated.View style={[

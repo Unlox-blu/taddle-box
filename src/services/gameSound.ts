@@ -1,14 +1,15 @@
 /**
  * gameSound — centralized sound effects + haptic feedback for the game flow.
  *
- * - Sounds: expo-av (matches the project's existing audio approach, e.g.
- *   CreatePostModal) with all WAVs preloaded once and replayed on demand.
+ * - Sounds: expo-audio (SDK 54 successor to expo-av) with all WAVs
+ *   preloaded once and replayed on demand.
  * - Haptics: expo-haptics (light/medium impacts + success/error/warning).
  * - Preferences: persisted in SecureStore (same pattern as ThemeContext) and
  *   exposed through a live subscription + `useGameSoundPrefs` hook so the
  *   Settings screen and all game screens stay in sync.
  */
-import { Audio } from "expo-av";
+import { createAudioPlayer, setAudioModeAsync } from "expo-audio";
+import type { AudioPlayer } from "expo-audio";
 import * as Haptics from "expo-haptics";
 import * as SecureStore from "expo-secure-store";
 import { useEffect, useRef, useState } from "react";
@@ -46,7 +47,7 @@ const HAPTICS_KEY = "game_hapticsEnabled";
 let soundEnabled = true;
 let hapticsEnabled = true;
 let initPromise: Promise<void> | null = null;
-const soundCache = new Map<SoundName, Audio.Sound>();
+const soundCache = new Map<SoundName, AudioPlayer>();
 const listeners = new Set<() => void>();
 
 function notify() {
@@ -65,7 +66,7 @@ export async function initGameSound(): Promise<void> {
   initPromise = (async () => {
     try {
       // Game sounds should play even when the device is on silent.
-      await Audio.setAudioModeAsync({ playsInSilentModeIOS: true });
+      await setAudioModeAsync({ playsInSilentMode: true });
       const [s, h] = await Promise.all([
         SecureStore.getItemAsync(SOUND_KEY),
         SecureStore.getItemAsync(HAPTICS_KEY),
@@ -74,8 +75,8 @@ export async function initGameSound(): Promise<void> {
       hapticsEnabled = h !== "false";
       await Promise.all(
         (Object.keys(SOUND_SOURCES) as SoundName[]).map(async (name) => {
-          const { sound } = await Audio.Sound.createAsync(SOUND_SOURCES[name]);
-          soundCache.set(name, sound);
+          const player = createAudioPlayer(SOUND_SOURCES[name]);
+          soundCache.set(name, player);
         }),
       );
     } catch (e) {
@@ -88,15 +89,15 @@ export async function initGameSound(): Promise<void> {
 
 function play(name: SoundName) {
   if (!soundEnabled) return;
-  const sound = soundCache.get(name);
-  if (!sound) {
+  const player = soundCache.get(name);
+  if (!player) {
     // Not loaded yet — trigger init; playback for this call is best-effort.
     initGameSound();
     return;
   }
-  sound.replayAsync().catch(() => {
-    /* ignore transient playback errors */
-  });
+  // Restart from the beginning (expo-audio has no replayAsync).
+  player.seekTo(0);
+  player.play();
 }
 
 function haptic(kind: "light" | "medium" | "success" | "error" | "warning") {

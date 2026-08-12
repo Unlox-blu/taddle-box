@@ -1,4 +1,4 @@
-import React, { useCallback, useMemo, useRef, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   View,
   Text,
@@ -16,7 +16,8 @@ import {
   ActivityIndicator,
   FlatList,
 } from "react-native";
-import { Video, ResizeMode } from "expo-av";
+import { VideoView, useVideoPlayer } from "expo-video";
+import { useEvent } from "expo";
 import PostMenuSheet from './PostMenuSheet';
 import { AudiencePickerList } from '../common/AudiencePicker';
 import { Ionicons } from "@expo/vector-icons";
@@ -212,6 +213,57 @@ const formatInstagramTime = (dateString: string | undefined | null) => {
     return date.toLocaleDateString("en-US", options);
   }
 };
+
+/** Feed video — expo-video replacement for the expo-av <Video> tag.
+ *  Mute/play state is applied imperatively to the player (expo-video has no
+ *  declarative props), and duration is reported once the source is ready. */
+function FeedVideo({
+  url,
+  width,
+  height,
+  active,
+  muted,
+  loop = true,
+  onDuration,
+}: {
+  url: string;
+  width: number;
+  height: number;
+  active: boolean;
+  muted: boolean;
+  loop?: boolean;
+  onDuration?: (durationMillis: number) => void;
+}) {
+  const player = useVideoPlayer({ uri: url }, (p) => {
+    p.loop = loop;
+  });
+  useEffect(() => {
+    player.muted = muted;
+  }, [player, muted]);
+  useEffect(() => {
+    if (active) player.play();
+    else player.pause();
+  }, [player, active]);
+  // Report duration once ready (replaces expo-av's onLoad). The callback is
+  // kept in a ref so re-renders can't re-report and inflate extraVideoTime.
+  const durationRef = useRef(onDuration);
+  durationRef.current = onDuration;
+  const { status } = useEvent(player, "statusChange", { status: player.status });
+  useEffect(() => {
+    if (status === "readyToPlay" && player.duration > 0) {
+      durationRef.current?.(player.duration * 1000);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [status]);
+  return (
+    <VideoView
+      player={player}
+      style={{ width, height }}
+      contentFit="contain"
+      nativeControls={false}
+    />
+  );
+}
 
 const RollingText = ({ items, isActive = true }: { items: React.ReactNode[]; isActive?: boolean }) => {
   const translateY = React.useRef(new Animated.Value(0)).current;
@@ -1434,18 +1486,16 @@ export default function PostCard({
                             backgroundColor: "#000",
                           }}
                         >
-                          <Video
-                            source={{ uri: url }}
-                            style={{ width: mediaW, height: previewH }}
-                            resizeMode={ResizeMode.CONTAIN}
-                            shouldPlay={isActive ?? true}
-                            isLooping
-                            isMuted={isMuted || hasAudioTrack}
-                            onLoad={(meta: any) => {
-                              if (meta.durationMillis) {
-                                setExtraVideoTime(prev => prev + meta.durationMillis);
-                              }
-                            }}
+                          <FeedVideo
+                            url={url}
+                            width={mediaW}
+                            height={previewH}
+                            active={isActive ?? true}
+                            muted={isMuted || hasAudioTrack}
+                            loop
+                            onDuration={(ms) =>
+                              setExtraVideoTime(prev => prev + ms)
+                            }
                           />
                         </View>
                       </TouchableWithoutFeedback>
@@ -1510,13 +1560,14 @@ export default function PostCard({
                 {audioMedia.map((m: any, idx: number) => {
                   const url = m.cloudfront_url || m.url || m.uri;
                   return url ? (
-                    <Video
+                    <FeedVideo
                       key={`bg-audio-${idx}`}
-                      source={{ uri: url }}
-                      shouldPlay={isActive ?? true}
-                      isLooping={false}
-                      isMuted={isMuted}
-                      style={{ width: 0, height: 0 }}
+                      url={url}
+                      width={1}
+                      height={1}
+                      active={isActive ?? true}
+                      muted={isMuted}
+                      loop={false}
                     />
                   ) : null;
                 })}
@@ -2188,6 +2239,29 @@ function RepostedPostCard({
         </Text>
       ) : null}
 
+      {/* Original audio — invisible background player mirroring the main
+          card, so audio-only originals actually play inside the embedded
+          preview (and the audio track of video originals, whose visuals
+          render muted above). Plays while the preview card is active. */}
+      {origAudioMedia.length > 0 && (
+        <View style={{ position: "absolute", opacity: 0, width: 0, height: 0 }}>
+          {origAudioMedia.map((m: any, idx: number) => {
+            const url = m.cloudfront_url || m.url || m.uri;
+            return url ? (
+              <FeedVideo
+                key={`emb-audio-${idx}`}
+                url={url}
+                width={1}
+                height={1}
+                active={isActive ?? true}
+                muted={isMuted}
+                loop={false}
+              />
+            ) : null;
+          })}
+        </View>
+      )}
+
       {/* Full-width original media carousel — images + playable videos only.
           Audio is handled by the rolling stack; we never render an audio
           player or audio-only bar inside the embedded preview. */}
@@ -2227,16 +2301,16 @@ function RepostedPostCard({
                     }}
                   >
                     {isVid ? (
-                      <Video
-                        source={{ uri: url }}
-                        style={{ width: previewW, height: mediaH }}
-                        resizeMode={ResizeMode.CONTAIN}
-                        shouldPlay={isActive}
-                        isLooping
+                      <FeedVideo
+                        url={url}
+                        width={previewW}
+                        height={mediaH}
+                        active={isActive ?? false}
+                        loop
                         // Video sound stays off when the original carries its
                         // own audio track (that plays instead) — mirrors the
                         // main card's `isMuted || hasAudioTrack`.
-                        isMuted={isMuted || origHasAudio}
+                        muted={isMuted || origHasAudio}
                       />
                     ) : (
                       <Image

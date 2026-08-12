@@ -21,7 +21,9 @@ import * as ImagePicker from "expo-image-picker";
 import * as DocumentPicker from "expo-document-picker";
 import * as Location from "expo-location";
 import axios from "axios";
-import { Video, Audio, ResizeMode } from "expo-av";
+import { VideoView, useVideoPlayer } from "expo-video";
+import { createAudioPlayer } from "expo-audio";
+import type { AudioPlayer } from "expo-audio";
 import * as FileSystem from "expo-file-system/legacy";
 import { colors as staticColors, fontSizes, spacing, radii } from "../../theme";
 import { useThemeColors } from "../../context/ThemeContext";
@@ -77,6 +79,37 @@ const VIDEO_EXTS = /\.(mp4|mov|webm|m4v)(\?.*)?$/i;
 const AUDIO_EXTS = /\.(mp3|m4a|aac|wav|ogg)(\?.*)?$/i;
 const GIF_EXT = /\.gif(\?.*)?$/i;
 const URL_RE = /(https?:\/\/[^\s]+)/gi;
+
+/** Video preview inside the media grid — expo-video needs a hook per player,
+ *  so the map entry is its own component. Loops and starts immediately;
+ *  mutes itself when an audio attachment is playing instead. */
+function PreviewVideo({
+  uri,
+  width,
+  height,
+  muted,
+}: {
+  uri: string;
+  width: number;
+  height: number;
+  muted: boolean;
+}) {
+  const player = useVideoPlayer({ uri }, (p) => {
+    p.loop = true;
+    p.play();
+  });
+  useEffect(() => {
+    player.muted = muted;
+  }, [player, muted]);
+  return (
+    <VideoView
+      player={player}
+      style={{ width, height }}
+      contentFit="contain"
+      nativeControls={false}
+    />
+  );
+}
 
 function detectMediaInText(text: string): {
   uri: string;
@@ -189,7 +222,12 @@ export default function CreatePostModal({
   const [gifLoading, setGifLoading] = useState(false);
 
   // Audio preview state
-  const [sound, setSound] = useState<Audio.Sound | null>(null);
+  const [sound, setSound] = useState<AudioPlayer | null>(null);
+  // Mirrors the same player so stopping it is safe from both the effect
+  // cleanup and resetAndClose — expo-audio's remove() releases the native
+  // player but does NOT pause a looping AVPlayer, so an explicit pause() is
+  // required to actually stop the preview audio.
+  const soundRef = useRef<AudioPlayer | null>(null);
 
   // Clear memory on close/open
   React.useEffect(() => {
@@ -333,15 +371,15 @@ export default function CreatePostModal({
   };
 
   React.useEffect(() => {
-    let currentSound: Audio.Sound | null = null;
+    let currentSound: AudioPlayer | null = null;
     const loadAudio = async () => {
       if (audioItem && visible) {
         try {
-          const { sound: newSound } = await Audio.Sound.createAsync(
-            { uri: audioItem.uri },
-            { shouldPlay: true, isLooping: true },
-          );
+          const newSound = createAudioPlayer({ uri: audioItem.uri });
+          newSound.loop = true;
+          newSound.play();
           setSound(newSound);
+          soundRef.current = newSound;
           currentSound = newSound;
         } catch (e) {
           console.warn("Failed to load audio preview", e);
@@ -351,8 +389,13 @@ export default function CreatePostModal({
     loadAudio();
 
     return () => {
-      if (currentSound) {
-        currentSound.unloadAsync();
+      // Pause before release — remove() alone lets a looping player keep
+      // going. The soundRef check means resetAndClose (publish/cancel) and
+      // this cleanup each stop the player exactly once.
+      if (currentSound && soundRef.current === currentSound) {
+        currentSound.pause();
+        currentSound.remove();
+        soundRef.current = null;
       }
     };
   }, [audioItem, visible]);
@@ -748,6 +791,15 @@ export default function CreatePostModal({
   );
 
   const resetAndClose = () => {
+    // Stop the looping audio preview immediately — the modal may stay mounted
+    // (visible=false) so the effect cleanup alone is not enough.
+    const p = soundRef.current;
+    if (p) {
+      p.pause();
+      p.remove();
+      soundRef.current = null;
+      setSound(null);
+    }
     onClose();
   };
 
@@ -1214,13 +1266,11 @@ export default function CreatePostModal({
                       ]}
                     >
                       {item.type === "video" ? (
-                        <Video
-                          source={{ uri: item.uri }}
-                          style={{ width: previewW, height: previewH }}
-                          resizeMode={ResizeMode.CONTAIN}
-                          shouldPlay
-                          isLooping
-                          isMuted={!!audioItem}
+                        <PreviewVideo
+                          uri={item.uri}
+                          width={previewW}
+                          height={previewH}
+                          muted={!!audioItem}
                         />
                       ) : (
                         <Image

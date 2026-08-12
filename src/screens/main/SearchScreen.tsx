@@ -23,6 +23,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons, MaterialCommunityIcons } from "@expo/vector-icons";
 import { StatusBar } from "expo-status-bar";
 import { NativeStackScreenProps } from "@react-navigation/native-stack";
+import { useIsFocused } from "@react-navigation/native";
 import { fontSizes, spacing, radii, type ColorPalette } from "../../theme";
 import { useTheme, useThemeColors } from "../../context/ThemeContext";
 import { useAuth } from "../../context/AuthContext";
@@ -596,6 +597,23 @@ export default function SearchScreen({ navigation, route }: Props) {
   const scrollOffsetCurrentRef = useRef(0);
   const listRef = useRef<FlatList<any>>(null);
 
+  // Only the first ≥60%-visible post row plays its audio/video, and only while
+  // the search screen is focused — the same viewability + focus gating the
+  // feeds use, so results don't all autoplay at once or keep playing after
+  // navigating away.
+  const isFocused = useIsFocused();
+  const [activePostId, setActivePostId] = useState<string | null>(null);
+  const viewabilityConfig = useRef({ itemVisiblePercentThreshold: 60 }).current;
+  const onViewableItemsChanged = useRef(({ viewableItems }: any) => {
+    const postRow = (viewableItems || []).find(
+      (v: any) => !v.item.isHeader && v.item.type === "posts",
+    );
+    if (postRow) {
+      const id = postRow.item.item.id;
+      setActivePostId((prev) => (prev === id ? prev : id));
+    }
+  }).current;
+
   // Active tab's rows — derived from the cache so switching tabs is instant.
   const rows = rowsByTab[activeTab] || [];
 
@@ -975,6 +993,7 @@ export default function SearchScreen({ navigation, route }: Props) {
       return (
         <PostCard
           post={post}
+          isActive={isFocused && post.id === activePostId}
           onLike={() => {
             toggleLike({
               id: post.id,
@@ -1838,6 +1857,8 @@ export default function SearchScreen({ navigation, route }: Props) {
           ]}
           ItemSeparatorComponent={() => <View style={{ height: 10 }} />}
           keyboardShouldPersistTaps="handled"
+          onViewableItemsChanged={onViewableItemsChanged}
+          viewabilityConfig={viewabilityConfig}
           refreshControl={
             <AppRefreshControl refreshing={refreshing} onRefresh={onRefresh} />
           }

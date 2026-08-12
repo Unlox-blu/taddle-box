@@ -1,6 +1,6 @@
 import React, { useState, useRef, useCallback, useEffect } from 'react';
 import { FlatList, View, Text, Share, Image, DeviceEventEmitter } from 'react-native';
-import { useNavigation, useScrollToTop } from '@react-navigation/native';
+import { useIsFocused, useNavigation, useScrollToTop } from '@react-navigation/native';
 import PostCard from '../home/PostCard';
 import CommentsModal from '../home/CommentsModal';
 import { postsService } from '../../services/posts.service';
@@ -72,6 +72,7 @@ export default function SharedFeed({
       (node as React.ReactElement | null)
     );
   const navigation = useNavigation<any>();
+  const isFocused = useIsFocused();
   const { user: currentUser } = useAuth();
   const [activePostId, setActivePostId] = useState<string | null>(null);
   const [commentsVisible, setCommentsVisible] = useState(false);
@@ -185,7 +186,7 @@ export default function SharedFeed({
             key={item.id}
             post={item}
             index={index}
-            isActive={item.id === activePostId}
+            isActive={isFocused && item.id === activePostId}
             showViews={showViews}
             onAuthorPress={() => handleAuthorPress(item)}
             // Pass the tapped post through — a repost card's embedded original
@@ -260,7 +261,7 @@ export default function SharedFeed({
           <PostCard
             post={item}
             index={index}
-            isActive={item.id === activePostId}
+            isActive={isFocused && item.id === activePostId}
             showViews={showViews}
             onAuthorPress={() => handleAuthorPress(item)}
             // Pass the tapped post through — a repost card's embedded original

@@ -5,7 +5,7 @@ import {
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
-import Svg, { Polygon, Circle, Defs, LinearGradient as SvgGrad, RadialGradient, Stop, Rect, Path } from 'react-native-svg';
+import Svg, { Polygon, Circle, Defs, LinearGradient as SvgGrad, Stop, Rect, Path } from 'react-native-svg';
 import type { HtmlGameResult } from '../../games/types';
 import { createGameEngineSocket } from '../../services/socketClient';
 import { gameSound, useTurnSound } from '../../services/gameSound';
@@ -33,7 +33,7 @@ const NO_MOVE_HOLD_MS = 1400;
 // the die, so they never cover the play area on any screen size. The board is
 // sized to fit between these strips (top cards + die, bottom cards + die or
 // the open chat panel).
-const CORNER_STRIP = 100;
+const CORNER_STRIP = 92;
 
 // Token movement pacing — coins walk the track cell by cell with a tick per
 // hop; captured coins run fast backwards along the track to their yard.
@@ -89,9 +89,10 @@ function seededStars(count: number, seed = 42) {
 const PLAYER_COLORS   = ['#E32636', '#009E60', '#FFC000', '#007FFF'] as const;
 const PLAYER_COLORS_D = ['#9D1313', '#006B40', '#CC9900', '#0055AA'] as const;
 const PLAYER_COLORS_L = ['#F7757F', '#3FC997', '#FFE066', '#55A8FF'] as const;
-// Static identity value used for coins that aren't walking (their giggle
-// wrapper needs a stable Animated.Value, never a per-render allocation).
+// Static identity values used for coins that aren't animating (the giggle
+// wrappers need a stable Animated.Value, never a per-render allocation).
 const GIGGLE_IDENTITY = new Animated.Value(1);
+const TURN_GIGGLE_IDENTITY = new Animated.Value(0);
 
 // ── Board path (15×15 grid) ───────────────────────────────────────────────────
 // The SHARED loop is 52 cells (13 per player — starts at 0/13/26/39). The four
@@ -149,7 +150,7 @@ function getTokenPos(pi: number, tokenId: number, pos: number, cell: number): { 
   // renders HEAD_CENTER (PIN_H/3) BELOW the anim anchor, so every anchor is
   // pulled UP by PIN_H/3 to plant the tip exactly on the spot center — yard
   // rings, track cells AND home-lane cells all alike, so coins read as pins
-  // standing on their spots everywhere.
+  // standing on their spots everywhere (tip on the centre, head above it).
   const PIN_W = Math.max(14, cell * 0.76);
   const PIN_H = PIN_W * 1.35;
   const TIP = PIN_H / 3;
@@ -159,11 +160,13 @@ function getTokenPos(pi: number, tokenId: number, pos: number, cell: number): { 
     return { x: col * cell, y: row * cell - TIP };
   }
   if (pos === 57) {
-    // Finished — a small fan so several finished coins don't stack exactly.
+    // Finished — tip on the centre-triangle spot, head rides above it (the
+    // same alignment as every other coin); a small fan keeps several finished
+    // coins apart instead of stacking exactly.
     const [hx, hy] = HOME_SPOTS[pi % 4];
     const ox = tokenId % 2 === 0 ? -0.28 : 0.28;
     const oy = tokenId < 2 ? -0.28 : 0.28;
-    return { x: (hx + ox) * cell, y: (hy + oy) * cell };
+    return { x: (hx + ox) * cell, y: (hy + oy) * cell - TIP };
   }
   if (pos >= 52) {
     // Guarded (engine clamps at 57) so an unexpected pos can never index
@@ -311,11 +314,15 @@ export default function LudoGame({
   // logic near the anchor computation keeps the die in place through a mid-walk
   // shrink and re-anchors it beside the shrunken card once the walk completes.
   const dieLockRef = useRef<Record<string, any> | null>(null);
-  // Keyboard height (both platforms) — the game Modal doesn't resize with the
-  // keyboard (app.json sets 'resize', but full-screen Modals often ignore it),
-  // so the game content is lifted explicitly. If a device DOES resize, the
-  // lift simply leaves a small gap — never a hidden input.
+  // Keyboard height (both platforms). iOS overlays the keyboard, so the game
+  // content is lifted explicitly by kbH. Android applies adjustResize to the
+  // whole window, so this container ALREADY loses kbH of height when the
+  // keyboard opens — manually lifting again would double-shift and collapse
+  // everything. All bottom-anchored offsets therefore use kbLift below.
   const [kbH, setKbH] = useState(0);
+  // The lift actually applied to positions: full on iOS (overlay keyboard),
+  // zero on Android (the window already resized).
+  const kbLift = Platform.OS === 'ios' ? kbH : 0;
 
   const me = players?.find(p => p.id === userId);
   const myName = myNameProp || me?.name || 'You';
@@ -330,7 +337,7 @@ export default function LudoGame({
   const burstIdRef = useRef(0);
   // ── Turn-reveal gate ───────────────────────────────────────────────────────
   // The engine advances turns the instant a move is processed, but the token
-  // walk animation takes a visible beat. The VISIBLE turn (active glow, die
+  // walk animation takes a visible beat. The VISIBLE turn (coin giggle, die
   // anchor, my-turn interactivity) only advances once every in-flight coin
   // animation has settled — the next player never gets their turn while the
   // previous move is still playing out on screen.
@@ -415,45 +422,83 @@ export default function LudoGame({
   const diceShake  = useRef(new Animated.Value(0)).current;
   const diceSquash = useRef(new Animated.Value(0)).current;
   // True while a tumble is running — a second tumble can't start over the
-  // same axes, so a remote roll that lands mid-animation is queued here and
-  // played the moment the current tumble frees the axes (never skipped).
+  // same axes, so any roll that lands mid-animation is queued here (mode +
+  // callback, last one wins) and played the moment the axes free up — dice
+  // animations are never skipped or cut short.
   const tumbleBusyRef = useRef(false);
-  const pendingRemoteRollRef = useRef(false);
+  // FIFO queue of tumble requests that arrived while the dice axes were
+  // mid-roll — every queued roll plays its OWN full animation, in arrival
+  // order, as the axes free up. Rapid bot rolls are never skipped or merged.
+  const pendingTumblesRef = useRef<{ mode: 'own' | 'remote' | 'pulse'; rollerId?: string; onDone?: () => void }[]>([]);
+  // Backstop that clears the remote-roll preview if a tumble never plays —
+  // re-armed whenever an actual remote tumble starts (see runDiceTumble) so
+  // the cycling face survives queue waits and the full animation.
+  const remoteRollTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // Production safety net: if a tumble is interrupted (native-driver animation
+  // dropped on app background / teardown) and finish never fires, this frees
+  // the axes so the dice system can never wedge and queue rolls forever.
+  const tumbleWatchdog = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // ── Dice tumble choreography ─────────────────────────────────────────────
   // A standard 5-phase roll: pick-up → shake → throw → impact-squash → settle.
   //   own    — full choreography after I press roll (~1.3s)
   //   remote — same but a touch quicker, plays when any opponent's roll SYNCs
   //   pulse  — short squash-pop for a no-move pass (result "drops in")
-  const runDiceTumble = useCallback((opts: { mode: 'own' | 'remote' | 'pulse'; onDone?: () => void }) => {
-    const { mode, onDone } = opts;
+  // Any mode queues behind a running tumble instead of overriding it — a
+  // remote roll landing during my own tumble (or my roll during a remote
+  // tumble) plays in sequence, so every player's dice animation completes.
+  const runDiceTumble = useCallback((opts: { mode: 'own' | 'remote' | 'pulse'; rollerId?: string; onDone?: () => void }) => {
+    const { mode, rollerId, onDone } = opts;
+    // Axes are mid-roll — append this request to the queue; each queued roll
+    // plays its own full tumble, in order, as the axes free up.
+    if (tumbleBusyRef.current) {
+      pendingTumblesRef.current.push({ mode, onDone });
+      return;
+    }
     // Reset every axis so a stale animation can't bleed into the new one.
     diceLift.setValue(0);
     diceRotate.setValue(0);
     diceShake.setValue(0);
     diceSquash.setValue(0);
     // Mark the axes busy for EVERY mode (including the no-move pulse) so a
-    // remote roll landing mid-animation is queued instead of colliding.
+    // roll landing mid-animation is queued instead of colliding.
     tumbleBusyRef.current = true;
-
-    // A remote roll that arrived while this tumble was running plays as soon
-    // as the axes are free — remote/bot dice animations are never skipped.
-    const playQueuedRemote = () => {
-      if (pendingRemoteRollRef.current) {
-        pendingRemoteRollRef.current = false;
-        runDiceTumbleRef.current({
-          mode: 'remote',
-          onDone: () => {
-            if (remoteRollTimer.current) clearTimeout(remoteRollTimer.current);
-            setRemoteRolling(null);
-          },
-        });
-      }
-    };
-    const finish = () => {
+    // A remote tumble re-establishes the preview the moment it actually
+    // starts (directly, or after a queue wait) — the previous queued tumble's
+    // onDone cleared remoteRolling, so without this the face would freeze on
+    // the latest result instead of cycling. The backstop is also re-armed.
+    if (mode === 'remote') {
+      setRemoteRolling(rollerId ?? 'remote');
+      if (remoteRollTimer.current) clearTimeout(remoteRollTimer.current);
+      remoteRollTimer.current = setTimeout(() => setRemoteRolling(null), DICE_ROLL_MS);
+    }
+    // Arm the watchdog: every tumble must complete inside a generous budget
+    // or the axes are force-freed so the game can't stall on a dropped frame.
+    if (tumbleWatchdog.current) clearTimeout(tumbleWatchdog.current);
+    tumbleWatchdog.current = setTimeout(() => {
+      tumbleWatchdog.current = null;
+      // finish never fired (animation dropped) — free the axes and move on.
       tumbleBusyRef.current = false;
       onDone?.();
-      playQueuedRemote();
+      const next = pendingTumblesRef.current.shift();
+      if (next) runDiceTumbleRef.current(next);
+    }, DICE_ROLL_MS + 800);
+
+    const finish = () => {
+      if (tumbleWatchdog.current) { clearTimeout(tumbleWatchdog.current); tumbleWatchdog.current = null; }
+      tumbleBusyRef.current = false;
+      onDone?.();
+      const next = pendingTumblesRef.current.shift();
+      if (next) {
+        // Another remote roll is waiting — re-arm the backstop across the
+        // gap between queued tumbles too, so the preview never drops out
+        // mid-sequence.
+        if (next.mode === 'remote') {
+          if (remoteRollTimer.current) clearTimeout(remoteRollTimer.current);
+          remoteRollTimer.current = setTimeout(() => setRemoteRolling(null), DICE_ROLL_MS);
+        }
+        runDiceTumbleRef.current(next);
+      }
     };
 
     if (mode === 'pulse') {
@@ -506,7 +551,6 @@ export default function LudoGame({
   // Dice-roll bookkeeping
   const rollingRef = useRef(false);
   const lastDiceRef = useRef<number | null>(null);
-  const remoteRollTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const settledFaceTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   // No-move hold: the engine advances the turn with dice=null and the value
   // only in lastDice, so we detect the pass by roundCount staying flat while
@@ -540,41 +584,74 @@ export default function LudoGame({
 
   // ── Walk giggle ────────────────────────────────────────────────────────────
   // Coins pulse with a quick scale bounce ONLY while they're mid-walk — the
-  // loop starts when a walk starts and stops when it settles.
+  // loop starts when a walk starts and stops when it settles. No glow — the
+  // moving coin just hops.
   const giggleVals = useRef<Record<string, Animated.Value>>({}).current;
   const giggleLoops = useRef<Record<string, Animated.CompositeAnimation>>({}).current;
-  // Whole-coin glow opacity — animated in the SAME loop as the giggle so the
-  // entire coin breathes with the walk (scale pulse + soft colored halo).
-  const glowVals = useRef<Record<string, Animated.Value>>({}).current;
   const startGiggle = useCallback((key: string) => {
     if (giggleLoops[key]) return;
     let g = giggleVals[key];
     if (!g) { g = new Animated.Value(1); giggleVals[key] = g; }
-    let gl = glowVals[key];
-    if (!gl) { gl = new Animated.Value(0); glowVals[key] = gl; }
     giggleLoops[key] = Animated.loop(Animated.sequence([
-      Animated.parallel([
-        Animated.timing(g, { toValue: 1.14, duration: 140, easing: Easing.out(Easing.quad), useNativeDriver: true }),
-        Animated.timing(gl, { toValue: 1, duration: 140, useNativeDriver: true }),
-      ]),
-      Animated.parallel([
-        Animated.timing(g, { toValue: 1, duration: 140, easing: Easing.in(Easing.quad), useNativeDriver: true }),
-        Animated.timing(gl, { toValue: 0.45, duration: 140, useNativeDriver: true }),
-      ]),
+      Animated.timing(g, { toValue: 1.14, duration: 140, easing: Easing.out(Easing.quad), useNativeDriver: true }),
+      Animated.timing(g, { toValue: 1, duration: 140, easing: Easing.in(Easing.quad), useNativeDriver: true }),
     ]));
     giggleLoops[key].start();
     // Playful hop the moment the coin starts moving — the first walk tick
     // fires on the same frame (delay 0), so the hop lands in sync with it.
     gameSound.playHop();
-  }, [giggleVals, giggleLoops, glowVals]);
+  }, [giggleVals, giggleLoops]);
   const stopGiggle = useCallback((key: string) => {
     const loop = giggleLoops[key];
     if (loop) { loop.stop(); delete giggleLoops[key]; }
     const g = giggleVals[key];
     if (g) g.setValue(1);
-    const gl = glowVals[key];
-    if (gl) gl.setValue(0);
-  }, [giggleVals, giggleLoops, glowVals]);
+  }, [giggleVals, giggleLoops]);
+
+  // ── Turn giggle — the active player's coins bounce up and down ─────────────
+  // After the dice rotates, the current player's coins gently bob in place
+  // (translateY) for as long as their turn is on screen. Pure motion — no glow
+  // — so whose turn it is reads from movement alone.
+  const turnGiggleVals = useRef<Record<string, Animated.Value>>({}).current;
+  const turnGiggleLoops = useRef<Record<string, Animated.CompositeAnimation>>({}).current;
+  const startTurnGiggle = useCallback((key: string) => {
+    if (turnGiggleLoops[key]) return;
+    let v = turnGiggleVals[key];
+    if (!v) { v = new Animated.Value(0); turnGiggleVals[key] = v; }
+    turnGiggleLoops[key] = Animated.loop(Animated.sequence([
+      Animated.timing(v, { toValue: -4, duration: 160, easing: Easing.out(Easing.quad), useNativeDriver: true }),
+      Animated.timing(v, { toValue: 0, duration: 160, easing: Easing.inOut(Easing.quad), useNativeDriver: true }),
+      Animated.timing(v, { toValue: 3, duration: 160, easing: Easing.out(Easing.quad), useNativeDriver: true }),
+      Animated.timing(v, { toValue: 0, duration: 160, easing: Easing.inOut(Easing.quad), useNativeDriver: true }),
+    ]));
+    turnGiggleLoops[key].start();
+  }, [turnGiggleVals, turnGiggleLoops]);
+  const stopTurnGiggle = useCallback((key: string) => {
+    const loop = turnGiggleLoops[key];
+    if (loop) { loop.stop(); delete turnGiggleLoops[key]; }
+    const v = turnGiggleVals[key];
+    if (v) v.setValue(0);
+  }, [turnGiggleVals, turnGiggleLoops]);
+
+  // Keep the bounce in sync with the visible turn + the SETTLED dice: coins
+  // giggle only after the roll has fully played out (the tumble is done —
+  // the dice SYNC lands when the tumble STARTS, so gating on dice alone would
+  // make coins bounce mid-roll) AND the player has a legal move — and only
+  // the coins that can actually be moved, never the whole stack.
+  useEffect(() => {
+    Object.keys(turnGiggleLoops).forEach((k) => stopTurnGiggle(k));
+    if ((gameState?.dice ?? null) === null || rolling || remoteRolling) return;
+    const tks = gameState?.tokens ?? {};
+    Object.entries(tks).forEach(([uid, list]: [string, any]) => {
+      const pi = gameState?.turnOrder?.indexOf(uid) ?? 0;
+      if (pi !== displayTurn) return;
+      (list || []).forEach((t: any) => {
+        if (gameState?.movableTokens?.includes(t.id) ?? true) {
+          startTurnGiggle(`${uid}-${t.id}`);
+        }
+      });
+    });
+  }, [displayTurn, gameState, rolling, remoteRolling, startTurnGiggle, stopTurnGiggle]);
 
   // Last-known position of every token — the previous pos drives the
   // step-by-step walk (and capture reverse-run) on the next SYNC.
@@ -890,13 +967,12 @@ export default function LudoGame({
                 const pts: { x: number; y: number }[] = [];
                 if (oldPos === -1) pts.push(pathPoint(pi, t.id, -1, ns)); // pop out of the yard
                 for (let p = Math.max(0, oldPos); p <= newPos; p++) {
-                  // Entering the home lane (pos 52+): the coin travels the full
-                  // loop to the corner (pos 51), then CURLS back one cell to
-                  // the spot directly beside the lane mouth (pos 50) and turns
-                  // straight (cardinally) into the lane — curving around the
-                  // corner / start area instead of cutting diagonally across
-                  // it or landing on the start square.
-                  if (p === 52 && oldPos <= 51) pts.push(pathPoint(pi, t.id, 50, ns));
+                  // Entering the home lane (pos 52+): the coin glides straight
+                  // from the loop corner (pos 51) into the lane mouth (pos 52)
+                  // — a clean diagonal cut at the corner instead of backtracking
+                  // over the cell it just crossed. The cut never lands on the
+                  // start square (verified per color: the diagonal crosses only
+                  // the corner vertex, never the start cell).
                   pts.push(pathPoint(pi, t.id, p, ns));
                 }
                 runTokenPath(key, pts, STEP_MS, () => gameSound.playTick(), ENTRY_MS);
@@ -1028,32 +1104,32 @@ export default function LudoGame({
         setSettledFace(newDice);
         if (settledFaceTimer.current) clearTimeout(settledFaceTimer.current);
         settledFaceTimer.current = setTimeout(() => setSettledFace(null), 2800);
-        // Who just rolled? The current turn player is the roller.
+        // Who just rolled? The current turn player is the roller. Every
+        // opponent's roll (bots included) must animate — even when my own
+        // tumble is still playing, so a roll arriving inside that window is
+        // queued by runDiceTumble rather than dropped.
         const order = ns.turnOrder || [];
         const rollerId = order[ns.currentTurnIndex ?? 0];
-        const isRemote = rollerId && rollerId !== userId && !rollingRef.current;
+        const isRemote = rollerId && rollerId !== userId;
         if (isRemote) {
           setRemoteRolling(rollerId);
           setDicePreview(null);
           if (remoteRollTimer.current) clearTimeout(remoteRollTimer.current);
           remoteRollTimer.current = setTimeout(() => setRemoteRolling(null), DICE_ROLL_MS);
           // Kick off the tumble right away so remote rolls animate too
-          // (previously the face only flickered in place). When the die
-          // settles, surface the real result immediately — the timer above
-          // stays as a backstop for rolls that arrive mid-tumble. If another
-          // tumble is still running (a rapid sequence of bot rolls), queue it
-          // instead of skipping it — it plays the moment the axes are free.
-          if (!tumbleBusyRef.current) {
-            runDiceTumble({
-              mode: 'remote',
-              onDone: () => {
-                if (remoteRollTimer.current) clearTimeout(remoteRollTimer.current);
-                setRemoteRolling(null);
-              },
-            });
-          } else {
-            pendingRemoteRollRef.current = true;
-          }
+          // (previously the face only flickered in place). If the dice axes
+          // are mid-tumble (my own roll, or a rapid sequence of bot rolls),
+          // runDiceTumble queues it and plays it the moment they free up —
+          // a remote roll's animation is never skipped, and its roller id is
+          // carried through the queue so each tumble re-arms the preview.
+          runDiceTumble({
+            mode: 'remote',
+            rollerId,
+            onDone: () => {
+              if (remoteRollTimer.current) clearTimeout(remoteRollTimer.current);
+              setRemoteRolling(null);
+            },
+          });
         }
         // My own roll: rolling stays true until the tumble animation finishes,
         // so the preview keeps cycling and the result lands with the final face.
@@ -1132,6 +1208,7 @@ export default function LudoGame({
 
     return () => {
       if (remoteRollTimer.current) clearTimeout(remoteRollTimer.current);
+      if (tumbleWatchdog.current) clearTimeout(tumbleWatchdog.current);
       if (noMoveTimer.current) clearTimeout(noMoveTimer.current);
       if (settledFaceTimer.current) clearTimeout(settledFaceTimer.current);
       if (revealTimerRef.current) clearTimeout(revealTimerRef.current);
@@ -1140,9 +1217,11 @@ export default function LudoGame({
       capturePollRefs.current.forEach(clearInterval);
       capturePollRefs.current = [];
       deferredCapturesRef.current.clear();
-      // Stop every walk giggle so no loop keeps ticking after unmount.
+      // Stop every walk + turn giggle so no loop keeps ticking after unmount.
       Object.values(giggleLoops).forEach((l) => l.stop());
       Object.keys(giggleLoops).forEach((k) => delete giggleLoops[k]);
+      Object.values(turnGiggleLoops).forEach((l) => l.stop());
+      Object.keys(turnGiggleLoops).forEach((k) => delete turnGiggleLoops[k]);
       // Board is going away — release the cached token identities too.
       Object.keys(tokenMetaRef).forEach((k) => delete tokenMetaRef[k]);
       s.disconnect();
@@ -1485,9 +1564,6 @@ export default function LudoGame({
         const AV_TOP = HEAD_CENTER - AV / 2;
         const pinBody = (
           <>
-            {/* Pulsing highlight ring — around the head circle */}
-            {canMove && <PulseRing size={HEAD_R * 2.2} color={color} />}
-
             {/* Player-colored pin body (light→dark gradient) with a soft outline —
                 the coin is fully the player's color, never white. The head is a
                 lighter tint so the avatar pops inside it. */}
@@ -1498,7 +1574,10 @@ export default function LudoGame({
                   <Stop offset="1" stopColor={colorD} />
                 </SvgGrad>
               </Defs>
-              {/* Pin body — softened navy outline instead of harsh black. */}
+              {/* Pin body — softened navy outline instead of harsh black. The
+                  tail is the classic long pin shape (tip at 132/135 of the
+                  SVG height): the coin's DOWN TIP is what sits on the spot
+                  centre, so the pin reads as standing on its cell/ring. */}
               <Path
                 d="M50 3 C23 3 5 23 5 49 C5 76 26 105 50 132 C74 105 95 76 95 49 C95 23 77 3 50 3 Z"
                 fill={`url(#pinGrad${uid}${token.id})`}
@@ -1563,25 +1642,27 @@ export default function LudoGame({
           </TouchableOpacity>
         );
 
-        // The coin body: walk giggle (scale pulse) + an elliptical whole-coin
-        // glow while it moves — the halo wraps the ENTIRE pin (head + tail),
-        // never a dot on the head's edge. Both start with the walk and stop
-        // the moment the coin settles.
+        // The coin body: the walk giggle (scale pulse) while it moves — no
+        // glow anywhere. It starts with the walk and stops when it settles.
         const inner = (
           <Animated.View style={{ transform: [{ scale: giggleVals[tKey] || GIGGLE_IDENTITY }] }}>
-            {glowVals[tKey] ? (
-              <CoinGlowDisc id={`wglow${uid}${token.id}`} color={color} colorL={colorL} pinW={PIN_W} pinH={PIN_H} opacity={glowVals[tKey]} />
-            ) : null}
             {touchable}
           </Animated.View>
         );
-        // Turn indicator: while it's a player's turn, ALL of their coins glow
-        // as a whole (no bounce — the giggle only happens when coins move
-        // after a roll).
-        const tokenBody = displayTurn === pi ? (
-          <TurnCoinGlow id={`tglow${uid}${token.id}`} color={color} colorL={colorL} pinW={PIN_W} pinH={PIN_H}>
+        // Turn indicator: the active player's MOVABLE coins giggle up and down
+        // in place — only after the dice tumble has fully finished (dice set
+        // AND no roll in flight) and only the coins that can legally be moved
+        // (no dice / no valid move / mid-roll = nothing bounces).
+        const turnCanGiggle =
+          displayTurn === pi &&
+          gameState?.dice !== null &&
+          !rolling &&
+          !remoteRolling &&
+          (gameState.movableTokens?.includes(token.id) ?? true);
+        const tokenBody = turnCanGiggle ? (
+          <Animated.View style={{ transform: [{ translateY: turnGiggleVals[tKey] || TURN_GIGGLE_IDENTITY }] }}>
             {inner}
-          </TurnCoinGlow>
+          </Animated.View>
         ) : inner;
         elements.push(
           <Animated.View key={tKey} style={{
@@ -1589,7 +1670,7 @@ export default function LudoGame({
             width: PIN_W, height: PIN_H,
             // The pin's DOWN TIP is what sits on the spot (see getTokenPos) —
             // the head (with the avatar) rides above it, so tokens read as
-            // pins planted on their cell.
+            // pins planted on their cell/ring.
             left: Animated.add(anim.x, new Animated.Value(-PIN_W / 2)),
             top:  Animated.add(anim.y, new Animated.Value(-PIN_H + HEAD_CENTER)),
             zIndex: canMove ? 30 : isMe ? 20 : 10,
@@ -1639,30 +1720,68 @@ export default function LudoGame({
   // stays on the previous player while their coins are still walking. The
   // offset follows the card's MEASURED width + a gap, so a long name can never
   // push the card into the die (fully responsive).
-  // When the keyboard is open the die PARKS beside a bottom profile card (the
-  // active player's corner if they're bottom, else the same-side bottom card)
-  // so the top strip only needs to fit the compact cards — the board fills
-  // the freed space, appearing larger and centred. Otherwise the die rides
-  // beside the active player's corner as usual.
-  const diePark = kbH > 0 ? (dieAnchorIdx % 2 === 0 ? 3 : 2) : dieAnchorIdx;
+  // When the keyboard is open the die parks in the GAP between the active
+  // player's profile card and the board — BELOW a top player's card, ABOVE a
+  // bottom player's card, horizontally centred on the card — so it rides with
+  // the roller right where they're looking (the old park beside a bottom card
+  // hid it far from top players). Keyboard closed: the die rides beside the
+  // active player's corner as usual.
+  const dieSize = kbH > 0 ? 40 : 56;
+  const diePark = dieAnchorIdx;
   const anchorUid = (gameState?.turnOrder || [])[diePark] as string | undefined;
   const dieCardW = Math.min(96, cardWidthsRef.current[anchorUid ?? ''] || 76);
   // Clear separation between the die and the card it rides beside. The card
   // wrapper sits 10px from the screen edge, so anchoring at 10 + dieCardW +
   // dieGap leaves an exact dieGap px of breathing room. The gap stays a
   // little smaller when the keyboard is open (compact cards, tight space).
-  const dieGap = kbH > 0 ? 8 : 12;
+  const dieGap = kbH > 0 ? 6 : 12;
+  // Compact profile cards are ~48px tall while the keyboard is up.
+  const COMPACT_CARD_H = 48;
   // While parked the die tucks to the compact card's vertical middle (the
   // card is 48px, the die 42px — 3px off its bottom edge).
   const dieTuck = kbH > 0 ? 3 : 0;
+  // Keyboard-open anchors centre the die on the card (left/right inset by the
+  // card's half-width minus the die's half-width).
+  const dieSide = 10 + dieCardW / 2 - dieSize / 2;
   const DIE_ANCHOR: Record<number, any> = {
-    0: { top: 14, left: 10 + dieCardW + dieGap },   // TL — die to the right of the card
-    1: { top: 14, right: 10 + dieCardW + dieGap },  // TR — die to the left of the card
+    0: kbH > 0
+      ? { top: 12 + COMPACT_CARD_H + dieGap, left: dieSide }   // below the TL card
+      : { top: 14, left: 10 + dieCardW + dieGap },             // TL — beside the card
+    1: kbH > 0
+      ? { top: 12 + COMPACT_CARD_H + dieGap, right: dieSide }  // below the TR card
+      : { top: 14, right: 10 + dieCardW + dieGap },            // TR — beside the card
     // Bottom corners lift above the open chat panel so the die stays visible
-    2: { bottom: 14 + dieTuck + chatInset + kbH, right: 10 + dieCardW + dieGap },  // BR
-    3: { bottom: 14 + dieTuck + chatInset + kbH, left: 10 + dieCardW + dieGap },   // BL
+    // (while typing, the bottom cards tuck behind the compact chat bar, so
+    // the die sits just above the bar).
+    2: kbH > 0
+      ? { bottom: chatInset + kbLift + dieGap, right: dieSide }  // above the BR card
+      : { bottom: 14 + dieTuck + chatInset + kbLift, right: 10 + dieCardW + dieGap },  // BR
+    3: kbH > 0
+      ? { bottom: chatInset + kbLift + dieGap, left: dieSide }   // above the BL card
+      : { bottom: 14 + dieTuck + chatInset + kbLift, left: 10 + dieCardW + dieGap },   // BL
   };
   const dieAnchor = DIE_ANCHOR[diePark % 4] || DIE_ANCHOR[0];
+  // Board margins — keyboard open: the top strip holds the compact cards AND
+  // the die (parked below a top card when a top player is active), so it
+  // grows to fit both; the bottom strip only needs the compact chat bar
+  // (bottom cards ride hidden behind it while typing) plus the die-above-card
+  // space when a BOTTOM player is active. Keyboard closed: slim strips, plus
+  // the bottom strip grows by the chat panel so the board always sits above
+  // the lifted cards. Driven by kbH so ANDROID's natural window resize gets
+  // the compact layout too — the old kbLift-only check (iOS) left Android
+  // stuck with the full margins and a small board floating in empty space.
+  const kbTopFull = 12 + COMPACT_CARD_H + dieGap + dieSize + dieGap;
+  const kbTopCardOnly = 12 + COMPACT_CARD_H + dieGap;
+  const playerCount = gameState?.turnOrder?.length ?? 4;
+  const activeIsTop = diePark < 2;
+  const kbTopMargin = activeIsTop ? kbTopFull : kbTopCardOnly;
+  // Bottom strip: while typing, the compact chat bar + a small gap; when a
+  // BOTTOM player is active their die parks just above the bar, so the strip
+  // also fits die + gap.
+  const kbBottomMargin =
+    playerCount <= 2 || activeIsTop
+      ? 8 + chatInset
+      : chatInset + dieGap + dieSize + dieGap;
 
   // ── Die anchor lock ────────────────────────────────────────────────────────
   // Same deferred-resize rule as the token re-seat: while coin walks are in
@@ -1697,7 +1816,9 @@ export default function LudoGame({
           const isActive = displayTurn === i;
           // Compact mode while the keyboard is open — the cards shrink (same
           // layout: avatar on top, badge on its corner, name below) so they
-          // don't crowd the reduced space above the keyboard.
+          // fit the strip alongside the parked die. Driven by kbH so Android's
+          // natural window resize compacts them too (kbLift is iOS-only — the
+          // lift that's actually applied).
           const compact = kbH > 0;
           const cardBody = (
             <View
@@ -1745,10 +1866,11 @@ export default function LudoGame({
                 // over the board; bottom cards lift above the open chat panel.
                 position: 'absolute',
                 [pos.align]: 10,
-                // Bottom cards lift above the open chat panel AND the keyboard
-                // (the full-screen Modal ignores the keyboard resize, so the
-                // two lower player cards would otherwise hide behind it).
-                [pos.vert]: pos.vert === 'bottom' ? 12 + chatInset + kbH : 12,
+                // Bottom cards lift above the open chat panel when the
+                // keyboard is CLOSED. While the keyboard is up the chat
+                // compacts to a slim bar and the cards stay at the bottom,
+                // tucking behind it — so the board gets the freed space.
+                [pos.vert]: pos.vert === 'bottom' ? 12 + (kbH > 0 ? 0 : chatInset) + kbLift : 12,
                 zIndex: 70,
                 // Sibling-level elevation keeps Android paint order above the
                 // board (elevation 20) regardless of zIndex quirks.
@@ -1785,7 +1907,7 @@ export default function LudoGame({
   return (
     <LinearGradient
       colors={[BG_TOP, BG_BOTTOM]}
-      style={[styles.gameFill, { paddingBottom: 6 + kbH }]}
+      style={[styles.gameFill, { paddingBottom: 6 + kbLift }]}
     >
 
       {/* ─ Stars backdrop ─ */}
@@ -1803,14 +1925,14 @@ export default function LudoGame({
           strips (profile cards + die) so they never cover the play area ─ */}
       <View
         style={[styles.boardWrap, {
-          // Top strip: TL/TR cards (+ die when not parked). Bottom strip:
-          // BL/BR cards (+ die). The margins CONTAIN the board, so cards can
-          // never cover it — the chat panel pushes the board up via normal
-          // flow. While the keyboard is up the top strip only holds the
-          // compact cards (12 + 48 + 8), so the board grows into the freed
-          // space and stays centred; the parked die lives in the bottom band.
-          marginTop: kbH > 0 ? 68 : CORNER_STRIP - 6,
-          marginBottom: kbH > 0 ? 8 : CORNER_STRIP - 6,
+          // Top strip: TL/TR cards (+ the die, which parks below a top card
+          // while the keyboard is up). Bottom strip: the compact chat bar
+          // (+ the die above a bottom card in 4P while typing). Keyboard
+          // closed the die rides beside the cards, so the strips are slim and
+          // the board grows; the bottom strip then adds the chat panel height
+          // so the board always sits above the lifted bottom cards.
+          marginTop: kbH > 0 ? kbTopMargin : CORNER_STRIP - 6,
+          marginBottom: kbH > 0 ? kbBottomMargin : CORNER_STRIP - 6 + chatInset,
         }]}
         onLayout={(e) => {
           const { width: w, height: h } = e.nativeEvent.layout;
@@ -1847,21 +1969,21 @@ export default function LudoGame({
             pop={pop}
             cornerIdx={pop.cornerIdx}
             chatInset={chatInset}
-            kbH={kbH}
+            kbH={kbLift}
             onDone={(id) => setChatPopups(p => p.filter(x => x.id !== id))}
           />
       ))}
 
-      {/* ─ Die — anchored beside the active player's profile card ─ */}
-      {/* While the keyboard is open the die shrinks (like the compact profile
-          cards) so the board stays centred in the reduced space. */}
+      {/* ─ Die — anchored beside the active player's profile card; while the
+          keyboard is open it shrinks and parks between the card and the board
+          (below top cards / above bottom cards) ─ */}
       {(() => {
-        const dieSize = kbH > 0 ? 42 : 56;
         const dieDot = Math.max(6, dieSize * 0.18);
         return (
       <View style={[styles.dieArea, dieRenderAnchor]}>
         {/* Turn indicator — the dice pulses with the active player's color
-            while it's their turn (coins now only giggle while moving). */}
+            while it's their turn; on the board, the active player's coins
+            giggle up and down (no glow). */}
         {/* While a tumble is running the die goes black & white — the glow
             turns a neutral slate so no player color bleeds onto the rolling
             die; the colored turn-glow returns when the die is idle. */}
@@ -1946,7 +2068,7 @@ export default function LudoGame({
 
       {/* ─ Chat button — hidden while the chat panel is open ─ */}
       {!chatOpen && (
-        <View pointerEvents="box-none" style={[styles.chatBtnPos, { bottom: 14 + kbH }]}>
+        <View pointerEvents="box-none" style={[styles.chatBtnPos, { bottom: 14 + kbLift }]}>
           <TouchableOpacity style={styles.chatBtn} onPress={() => setChatOpen(true)} activeOpacity={0.85}>
             <Ionicons name="chatbubble" size={20} color="#FFF" />
           </TouchableOpacity>
@@ -1955,7 +2077,7 @@ export default function LudoGame({
 
       {/* ─ Toast — lifted above the chat panel when it's open ─ */}
       {toast && (
-        <Animated.View style={[styles.toast, { bottom: 96 + chatInset + kbH }, {
+        <Animated.View style={[styles.toast, { bottom: 96 + chatInset + kbLift }, {
           opacity: toastAnim,
           transform: [{ translateY: toastAnim.interpolate({ inputRange: [0, 1], outputRange: [24, 0] }) }],
         }]}>
@@ -1976,6 +2098,8 @@ export default function LudoGame({
           onPanelLayout={(h) => setChatPanelH(h)}
           scrollRef={chatScroll}
           inputRef={chatInputRef}
+          // The COMPACT decision is based on the real keyboard state (both
+          // platforms); only POSITION offsets use the iOS-only kbLift.
           kbH={kbH}
         />
       )}
@@ -2018,89 +2142,9 @@ function ActiveCardGlow({ color, children }: { color: string; children: React.Re
   );
 }
 
-// ── Pulsing ring on movable tokens ────────────────────────────────────────────
-function PulseRing({ size, color }: { size: number; color: string }) {
-  const anim = useRef(new Animated.Value(1)).current;
-  useEffect(() => {
-    Animated.loop(
-      Animated.sequence([
-        Animated.timing(anim, { toValue: 1.4, duration: 650, useNativeDriver: true }),
-        Animated.timing(anim, { toValue: 1,   duration: 650, useNativeDriver: true }),
-      ])
-    ).start();
-  }, []);
-  return (
-    <Animated.View style={{
-      position: 'absolute', top: 0, left: 0,
-      width: size, height: size, borderRadius: size / 2,
-      borderWidth: 2.5, borderColor: color,
-      opacity: anim.interpolate({ inputRange: [1, 1.4], outputRange: [0.85, 0] }),
-      transform: [{ scale: anim }],
-    }} />
-  );
-}
-
-// ── Coin glow disc ────────────────────────────────────────────────────────────
-// A soft ELLIPTICAL halo that wraps the ENTIRE pin (head + tail), so coins
-// glow as a whole — never a tight dot on the head's edge. Reused by the walk
-// glow (intense, tied to the giggle) and the turn glow (gentle breathing).
-function CoinGlowDisc({ id, color, colorL, pinW, pinH, opacity }: {
-  id: string; color: string; colorL: string; pinW: number; pinH: number;
-  opacity: number | Animated.Value | Animated.AnimatedInterpolation<number | string>;
-}) {
-  const w = pinW * 2.5;
-  const h = pinH * 2.2;
-  return (
-    <Animated.View
-      pointerEvents="none"
-      style={{ position: 'absolute', left: pinW / 2 - w / 2, top: pinH / 2 - h / 2, width: w, height: h, opacity }}
-    >
-      <Svg width={w} height={h} viewBox="0 0 100 100">
-        <Defs>
-          <RadialGradient id={id} cx="50%" cy="50%" r="50%">
-            <Stop offset="0%" stopColor={colorL} stopOpacity="0.65" />
-            <Stop offset="55%" stopColor={color} stopOpacity="0.28" />
-            <Stop offset="100%" stopColor={color} stopOpacity="0" />
-          </RadialGradient>
-        </Defs>
-        <Circle cx="50" cy="50" r="50" fill={`url(#${id})`} />
-      </Svg>
-    </Animated.View>
-  );
-}
-
-// ── Turn glow — the active player's coins glow as a whole while it's their
-// turn (breathing halo around every coin). The GIGGLE (bounce) is reserved
-// for coin movement after a roll — turns only glow, they never bob.
-function TurnCoinGlow({ id, color, colorL, pinW, pinH, children }: {
-  id: string; color: string; colorL: string; pinW: number; pinH: number; children: React.ReactNode;
-}) {
-  const glow = useRef(new Animated.Value(0)).current;
-  useEffect(() => {
-    const loop = Animated.loop(
-      Animated.sequence([
-        Animated.timing(glow, { toValue: 1, duration: 800, useNativeDriver: true }),
-        Animated.timing(glow, { toValue: 0.45, duration: 800, useNativeDriver: true }),
-      ])
-    );
-    loop.start();
-    return () => loop.stop();
-  }, [glow]);
-  return (
-    <>
-      <CoinGlowDisc id={id} color={color} colorL={colorL} pinW={pinW} pinH={pinH}
-        opacity={glow.interpolate({ inputRange: [0, 1], outputRange: [0.3, 0.75] })} />
-      {children}
-    </>
-  );
-}
-
-// ── Turn indicator — the current player's coins glow and float ───────────────
-// Replaces the old single glowing-dot indicator: while it's a player's turn,
-// ALL of their coins gently bob up and down (the halo glow is rendered on each
-// coin itself), so whose turn it is is obvious from the board at a glance.
 // ── Die turn-glow — the dice pulses with the active player's color while it's
-// their turn (the turn indicator moved from the coins to the die).
+// their turn (the coin turn indicator is now pure motion: the active player's
+// coins giggle up and down, no glow).
 function DieGlow({ color, size = 56 }: { color: string; size?: number }) {
   const a = useRef(new Animated.Value(0)).current;
   useEffect(() => {
@@ -2283,9 +2327,10 @@ function ChatSheet({
   // compact and never stacks the panel taller.
   const QUICK_EMOJIS = ['😄', '😂', '🔥', '👍', '🎉', '😮', '💪', '❤️'];
 
-  // While the keyboard is up the panel switches to a compact input bar
-  // (header + emoji + input, list hidden) so the board keeps the most space.
-  const sheetMaxH = kbH > 0 ? 142 : CHAT_MAX_H;
+  // While the keyboard is up the panel switches to a slim input bar (header +
+  // input only — the emoji quick-row and the list hide) so the board keeps
+  // the most space; the keyboard's own emoji picker covers quick-replies.
+  const sheetMaxH = kbH > 0 ? 96 : CHAT_MAX_H;
 
   return (
     <View style={styles.chatWrap}>
@@ -2327,25 +2372,27 @@ function ChatSheet({
           ))}
         </ScrollView>
 
-        <View style={styles.chatEmojiRow}>
-          <ScrollView
-            horizontal
-            showsHorizontalScrollIndicator={false}
-            keyboardShouldPersistTaps="handled"
-            contentContainerStyle={styles.chatEmojiRowInner}
-          >
-            {QUICK_EMOJIS.map((e) => (
-              <TouchableOpacity
-                key={e}
-                style={styles.chatEmojiBtn}
-                onPress={() => onSend(e)}
-                activeOpacity={0.7}
-              >
-                <Text style={styles.chatEmojiText}>{e}</Text>
-              </TouchableOpacity>
-            ))}
-          </ScrollView>
-        </View>
+        {kbH > 0 ? null : (
+          <View style={styles.chatEmojiRow}>
+            <ScrollView
+              horizontal
+              showsHorizontalScrollIndicator={false}
+              keyboardShouldPersistTaps="handled"
+              contentContainerStyle={styles.chatEmojiRowInner}
+            >
+              {QUICK_EMOJIS.map((e) => (
+                <TouchableOpacity
+                  key={e}
+                  style={styles.chatEmojiBtn}
+                  onPress={() => onSend(e)}
+                  activeOpacity={0.7}
+                >
+                  <Text style={styles.chatEmojiText}>{e}</Text>
+                </TouchableOpacity>
+              ))}
+            </ScrollView>
+          </View>
+        )}
 
         <View style={styles.chatInputRow}>
           <TextInput

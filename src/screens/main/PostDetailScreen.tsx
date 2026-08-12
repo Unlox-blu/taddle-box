@@ -7,6 +7,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { StatusBar } from 'expo-status-bar';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { NativeStackScreenProps } from '@react-navigation/native-stack';
+import { useIsFocused } from '@react-navigation/native';
 import { useQueryClient } from '@tanstack/react-query';
 import { fontSizes, spacing, type ColorPalette } from '../../theme';
 import { useTheme, useThemeColors } from '../../context/ThemeContext';
@@ -63,6 +64,7 @@ function makeStyles(c: ColorPalette) {
 export default function PostDetailScreen({ navigation, route }: Props) {
   // Params come from the shared PostDetailParams type (single source of truth
   // for both the root-stack and Home-stack registrations).
+  const isFocused = useIsFocused();
   const { post: initialPost, commentId: focusCommentId } = route.params;
   const { user: currentUser } = useAuth();
   const colors = useThemeColors();
@@ -446,7 +448,7 @@ export default function PostDetailScreen({ navigation, route }: Props) {
             ListHeaderComponent={
               <PostCard
                 post={livePost as any}
-                isActive
+                isActive={isFocused}
                 disableTapNavigation
                 fullBleed
                 onLike={handleLike}

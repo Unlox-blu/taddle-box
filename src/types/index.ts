@@ -37,6 +37,8 @@ export type HomeStackParamList = {
   ChangeEmail:    undefined;
   FollowRequests: undefined;
   Search:         { query?: string; tab?: 'all' | 'posts' | 'people' | 'communities' | 'events' | 'games' | 'hashtags'; scopeCommunity?: string; authorFilter?: string; source?: 'bookmarks' | 'settings' } | undefined;
+  /** Ludo's 57-step path breakdown info page (registered at root so it opens from the Games tab). */
+  LudoPath:       undefined;
 };
 
 export type CommunityStackParamList = {
@@ -82,6 +84,8 @@ export type RootStackParamList = {
       full-screen post page and pushed profiles — the Home-stack copy still
       handles search inside the tab. */
   Search: HomeStackParamList['Search'];
+  /** Ludo path breakdown — registered at root so it opens above the tabs from any tab. */
+  LudoPath: undefined;
 };
 
 // ── Data models ─────────────────────────────────────────────────

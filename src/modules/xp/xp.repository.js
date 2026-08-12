@@ -66,7 +66,7 @@ const createTransaction = async (data, client) => {
   const db = client || pool;
   const { rows } = await db.query(
     `
-    INSERT INTO ${XpModel.TRANSACTIONS_TABLE} (
+    INSERT INTO ${XpModel.TRANSACTIONS_TABLE} AS xt (
     xp_id,
     xp,
     transaction_type,
@@ -95,7 +95,7 @@ const findTransactionById = async (id) => {
   const { rows } = await pool.query(
     `
     SELECT ${XpModel.TRANSACTION_FIELDS}
-    FROM ${XpModel.TRANSACTIONS_TABLE}
+    FROM ${XpModel.TRANSACTIONS_TABLE} AS xt
     WHERE id = $1
     `,
     [id]
@@ -106,7 +106,7 @@ const findTransactionById = async (id) => {
 const getUserTransactions = async (xpId, limit, offset) => {
   const { rows } = await pool.query(
     `
-    SELECT ${XpModel.TRANSACTION_FIELDS}
+    SELECT ${XpModel.TRANSACTION_FIELDS}, ${XpModel.GAME_ENRICH_FIELDS}
     FROM ${XpModel.TRANSACTIONS_TABLE} xt
     -- Resolve the game behind game XP entries so the wallet can name it:
     --   game_session_<sessionId>      -> game_sessions.id (via session id)
@@ -136,7 +136,7 @@ const getTransactionsBySource = async (xpId, sourceType) => {
   const { rows } = await pool.query(
     `
     SELECT ${XpModel.TRANSACTION_FIELDS}
-    FROM ${XpModel.TRANSACTIONS_TABLE}
+    FROM ${XpModel.TRANSACTIONS_TABLE} AS xt
     WHERE xp_id = $1
     AND source_type = $2
     ORDER BY created_at DESC
@@ -179,7 +179,7 @@ const checkDailyTransactionBySource = async (xpId, sourceType) => {
 const updateTransactionStatus = async (id, status) => {
   const { rows } = await pool.query(
     `
-    UPDATE ${XpModel.TRANSACTIONS_TABLE}
+    UPDATE ${XpModel.TRANSACTIONS_TABLE} AS xt
     SET status = $2,
     updated_at = NOW()
     WHERE id = $1

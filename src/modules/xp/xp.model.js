@@ -10,9 +10,13 @@ const XP_FIELDS = [
 const TRANSACTION_FIELDS = [
   'xt.id', 'xt.xp_id', 'xt.xp', 'xt.transaction_type', 'xt.source_type',
   'xt.balance_before', 'xt.balance_after', 'xt.status', 'xt.created_at', 'xt.updated_at',
-  // Game-name enrichment: LEFT JOINs in getUserTransactions resolve the game
-  // behind game_session_<id> / game_match_<id> / session_<slug> XP entries so
-  // the wallet can name the game instead of showing a generic "Game Reward".
+].join(', ');
+
+// Game-name enrichment columns — used ONLY by getUserTransactions, which is
+// the sole query that LEFT-JOINs the game tables. Kept apart from
+// TRANSACTION_FIELDS so plain INSERT/UPDATE ... RETURNING and single-table
+// SELECTs (which reference TRANSACTION_FIELDS) never need the game joins.
+const GAME_ENRICH_FIELDS = [
   'gsg.slug AS game_slug',
   'gsg.name AS game_name',
 ].join(', ');
@@ -52,7 +56,7 @@ const formatTransaction = (row) => {
 
 module.exports = {
   TABLE, TRANSACTIONS_TABLE,
-  XP_FIELDS, TRANSACTION_FIELDS,
+  XP_FIELDS, TRANSACTION_FIELDS, GAME_ENRICH_FIELDS,
   TRANSACTION_TYPES, TRANSACTION_STATUSES,
   formatXP, formatTransaction,
 };

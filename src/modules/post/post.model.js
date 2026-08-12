@@ -10,6 +10,7 @@ const DETAIL_FIELDS = [
   'p.media', 'p.tags', 'p.category', 'p.status',
   'p.visibility', 'p.likes_count', 'p.comments_count', 'p.shares_count',
   'p.views_count', 'p.is_pinned', 'p.poll_data', 'p.link_data',
+  'p.latitude', 'p.longitude', 'p.place',
   'p.published_at', 'p.created_at', 'p.updated_at',
   'u.name AS author_name', 'u.username AS author_username', 'u.avatar_url AS author_avatar',
   'c.name AS community_name', 'c.privacy AS community_privacy','c.slug AS community_slug', 'c.avatar_url AS community_avatar',
@@ -20,7 +21,8 @@ const LIST_FIELDS = [
   'p.id', 'p.author_id', 'p.community_id', 'p.repost_of_id', 'p.title', 'p.content',
   'p.media', 'p.tags', 'p.status', 'p.visibility',
   'p.likes_count', 'p.comments_count', 'p.shares_count', 'p.views_count',
-  'p.is_pinned', 'p.published_at', 'p.created_at',
+  'p.is_pinned', 'p.latitude', 'p.longitude', 'p.place',
+  'p.published_at', 'p.created_at',
   'u.name AS author_name', 'u.username AS author_username',
   'ua.cloudfront_url AS author_avatar',
   'c.name AS community_name', 'c.slug   AS community_slug', 'c.privacy AS community_privacy',
@@ -59,6 +61,13 @@ const format = (row) => {
     isXpClaimed: row.is_xp_claimed || false,
     pollData: row.poll_data || null,
     linkData: row.link_data || null,
+    // Optional place tag (lat / lon / place name) attached at creation time
+    // and shown in the card's rolling text.
+    location: (row.latitude != null && row.longitude != null) ? {
+      lat: Number(row.latitude),
+      lon: Number(row.longitude),
+      place: row.place || '',
+    } : null,
     author: {
       id: row.author_id,
       name: row.author_name,
@@ -75,6 +84,9 @@ const format = (row) => {
       slug: row.community_slug,
       avatarUrl: row.community_avatar,
       privacy: row.community_privacy,
+      // False when the community owner turned "Allow Reposting" off — the UI
+      // hides the repost button, and repostPost enforces it server-side.
+      repostsEnabled: row.community_reposts_enabled !== false,
     } : null,
     publishedAt: row.published_at,
     createdAt: row.created_at,

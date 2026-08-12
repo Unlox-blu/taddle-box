@@ -1,34 +1,50 @@
 'use strict';
 
 const redis = require('../../config/redis');
+const pool = require('../../config/database');
 const { emitNotification } = require('../../sockets/notification.socket');
 const notificationRepository = require('./notification.repository');
 const { addJob } = require('../../jobs/queues/job.queue');
 
-// Builds a human-readable aggregated message from a batch's actor count.
-const buildBatchMessage = (type, count) => {
-  const normalized = String(type || '').toUpperCase();
+// Instagram-style stacked copy. The FIRST actor's name renders in the app's
+// actor line (senderName), so the message is just the tail:
+//   1 actor  → "liked your post"                     → "A liked your post"
+//   2 actors → "and B liked your post"               → "A and B liked your post"
+//   3+       → "and 2 others liked your post"        → "A and 2 others liked your post"
+const BATCH_VERBS = {
+  POST_LIKE: 'liked your post',
+  COMMENT: 'commented on your post',
+  REPLY: 'replied to your comment',
+  REQUEST_TO_JOIN_COMMUNITY: 'requested to join your community',
+};
+
+const BATCH_TITLES = {
+  POST_LIKE: 'Post liked',
+  COMMENT: 'New comments',
+  REPLY: 'New replies',
+  REQUEST_TO_JOIN_COMMUNITY: 'Join requests',
+};
+
+const buildBatchMessage = (type, count, secondName) => {
   const n = count || 1;
-  switch (normalized) {
-    case 'POST_LIKE':
-      return `${n} ${n === 1 ? 'person liked' : 'people liked'} your post`;
-    case 'COMMENT':
-      return `${n} ${n === 1 ? 'comment was' : 'comments were'} left on your post`;
-    case 'REPLY':
-      return `${n} ${n === 1 ? 'reply' : 'replies'} on your comment`;
-    default:
-      return `${n} new ${n === 1 ? 'update' : 'updates'} on your post`;
-  }
+  const verb = BATCH_VERBS[String(type || '').toUpperCase()] || 'interacted with your post';
+  if (n === 1) return verb;
+  if (n === 2 && secondName) return `and ${secondName} ${verb}`;
+  return `and ${n - 1} others ${verb}`;
 };
 
 // Emits an aggregated (batched) notification. This runs on a BullMQ worker for
-// events configured with `batch: true` (e.g. POST_LIKE, COMMENT). It:
-//   1. Reads the batch metadata + actor ids from Redis.
-//   2. Creates a REAL row in the `notifications` table (batched rows used to be
-//      written to `batch_notifications` which the app's list endpoint never reads).
-//   3. Delivers in real-time over the socket.
-//   4. Queues a push when the recipient is not currently online.
-//   5. Cleans up the Redis batch keys so the batch isn't re-emitted.
+// events configured with `batch: true` (POST_LIKE, COMMENT, REPLY, community
+// join requests). It:
+//   1. Reads the batch metadata + ordered actor ids from Redis.
+//   2. Resolves actor names (one batched query) so the stacked copy can name
+//      the second actor ("A and B liked your post").
+//   3. Creates a REAL row in the `notifications` table carrying the aggregated
+//      message + a meta JSONB (actorCount / actorIds / actorNames) so the app
+//      can render the +N stacking badge.
+//   4. Delivers in real-time over the socket.
+//   5. Queues a push when the recipient is not currently online.
+//   6. Cleans up the Redis batch keys so the batch isn't re-emitted.
 async function emitNotificationBatch(data) {
   const { batchKey } = data || {};
   if (!batchKey) return;
@@ -36,24 +52,61 @@ async function emitNotificationBatch(data) {
   const batch = await redis.hgetall(batchKey);
   if (!batch || !batch.recipientId) return;
 
-  const actorsKey = `${batchKey}:actors`;
-  const senderIds = await redis.smembers(actorsKey);
-  const senderCount = senderIds.length;
+  // Ordered actor list (arrival order — Redis SETs don't preserve it, so the
+  // batch keeps a JSON array too). Falls back to the legacy `:actors` set for
+  // batches created before the ordered field existed.
+  let actorIds = [];
+  try {
+    actorIds = JSON.parse(batch.actorOrder || '[]');
+  } catch (e) {
+    actorIds = [];
+  }
+  if (actorIds.length === 0) {
+    const actorsKey = `${batchKey}:actors`;
+    actorIds = await redis.smembers(actorsKey);
+  }
+  actorIds = [...new Set(actorIds.filter(Boolean))];
 
   const recipientId = batch.recipientId;
   const type = batch.type || 'POST_LIKE';
-  const message = buildBatchMessage(type, senderCount);
-  const title = String(type).toUpperCase() === 'POST_LIKE' ? 'Post liked' : 'New comments';
+  const count = actorIds.length || 1;
+
+  // Resolve actor display names in ONE batched query (never N+1).
+  let nameById = {};
+  if (actorIds.length > 0) {
+    try {
+      const { rows } = await pool.query(
+        'SELECT id, name, username FROM users WHERE id = ANY($1::uuid[])',
+        [actorIds]
+      );
+      rows.forEach((r) => {
+        nameById[r.id] = r.name || r.username || null;
+      });
+    } catch (e) {
+      // Name resolution failure just degrades to "+N others" copy.
+    }
+  }
+
+  const secondName = actorIds[1] ? nameById[actorIds[1]] : null;
+  const message = buildBatchMessage(type, count, secondName);
+  const title = BATCH_TITLES[String(type).toUpperCase()] || 'Notification';
+
+  const meta = {
+    actorCount: count,
+    actorIds,
+    actorNames: actorIds.map((id) => nameById[id]).filter(Boolean),
+  };
 
   // Persist a real notification row so it shows up in GET /notifications.
   const notif = await notificationRepository.createNotification({
     recipientId,
-    senderId: senderIds[0] || null,
+    senderId: actorIds[0] || null,
     type,
     title,
     message,
     resourceType: batch.resourceType || null,
     resourceId: batch.resourceId || null,
+    meta,
   });
 
   if (notif) {
@@ -66,6 +119,7 @@ async function emitNotificationBatch(data) {
       message,
       resourceType: batch.resourceType,
       resourceId: batch.resourceId,
+      meta,
       isRead: false,
       createdAt: new Date().toISOString(),
     });
@@ -77,18 +131,19 @@ async function emitNotificationBatch(data) {
   if (status !== 'online' && (await shouldPushForCategory(recipientId, type))) {
     await addJob('notification:push', {
       recipientId,
-      senderId: senderIds[0] || null,
+      senderId: actorIds[0] || null,
       type,
       title,
       message,
       resourceType: batch.resourceType || null,
       resourceId: batch.resourceId || null,
+      meta,
     });
   }
 
   // Clean up the batch so a future event starts a fresh batch.
   await redis.del(batchKey);
-  await redis.del(actorsKey);
+  await redis.del(`${batchKey}:actors`);
 }
 
 // Maps a notification type to its notification_preferences column and returns
@@ -102,6 +157,7 @@ const CATEGORY_COLUMN = {
   FOLLOW: 'follow',
   REQUEST_TO_FOLLOW: 'follow',
   APPROVED_TO_FOLLOW: 'follow',
+  REQUEST_TO_JOIN_COMMUNITY: 'community',
   COMMUNITY: 'community',
   EVENT: 'event',
   PROMOTION: 'promotion',

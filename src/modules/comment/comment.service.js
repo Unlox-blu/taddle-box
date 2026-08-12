@@ -31,12 +31,14 @@ class CommentService {
 
       const author = await this.userRepo.findById(postAuthorId);
 
-      if (post.community_id && post.community_privacy !== 'public' && postAuthorId !== authorId) {
-        //do authorization
-        const isMember = await this.communityRepo.isMember(post.community_id, authorId);
-
-        if (!isMember || isMember.status !== 'active') {
-          throw createError("You are not allowed to comment on this community post", 403);
+      if (post.community_id) {
+        if (post.community_privacy !== 'public' && postAuthorId !== authorId) {
+          //do authorization
+          const isMember = await this.communityRepo.isMember(post.community_id, authorId);
+  
+          if (!isMember || isMember.status !== 'active') {
+            throw createError("You are not allowed to comment on this community post", 403);
+          }
         }
       } else if (author.privacy !== 'public' && postAuthorId !== authorId) {
         const isFollow = await this.followerRepo.findByFollowerIdAndFollowingId(authorId, postAuthorId);
@@ -139,7 +141,23 @@ class CommentService {
       }
 
       this.feedSvc.updatePreferences({userId: authorId, categories: post.category || [], tags: post.tags || []});
-      return CommentModel.format(comment);
+
+      // The INSERT row has no author JOIN, so format() leaves author.name /
+      // username / avatarUrl undefined — that would render a nameless, icon-only
+      // comment the moment the client swaps its optimistic row for this
+      // response. Merge the commenter's profile so the created comment is fully
+      // populated (same shape the list endpoints return).
+      const created = CommentModel.format(comment);
+      if (created && user) {
+        created.author = {
+          id: user.id,
+          name: user.name,
+          username: user.username,
+          avatarUrl: user.avatarUrl || null,
+          isVerified: user.isVerified || false,
+        };
+      }
+      return created;
     } catch (error) {
       throw error;
     }
@@ -153,12 +171,14 @@ class CommentService {
 
       const author = await this.userRepo.findById(authorId);
 
-      if (post.community_id && post.community_privacy !== 'public' && userId !== authorId) {
-        //do authorization
-        const isMember = await this.communityRepo.isMember(post.community_id, authorId);
-
-        if (!isMember || isMember.status !== 'active') {
-          throw createError("You are not allowed to get the comment of this community post", 403);
+      if (post.community_id) {
+        if (post.community_privacy !== 'public' && userId !== authorId) {
+          //do authorization
+          const isMember = await this.communityRepo.isMember(post.community_id, userId);
+  
+          if (!isMember || isMember.status !== 'active') {
+            throw createError("You are not allowed to get the comment of this community post", 403);
+          }
         }
       } else if (author.privacy !== 'public' && userId !== authorId) {
         const isFollow = await this.followerRepo.findByFollowerIdAndFollowingId(userId, authorId);

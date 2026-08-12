@@ -80,9 +80,10 @@ const DEFAULT_NOTIFICATION_DEFINITIONS = {
     save: true,
     socket: false,
     push: true,
-    batch: false,
-    delay: 0,
+    batch: true,
+    delay: 5000,
     priority: PRIORITY.HIGH,
+    cooldown: 600000,
     category: 'replies',
   },
   PROMOTION: {
@@ -103,12 +104,17 @@ const DEFAULT_NOTIFICATION_DEFINITIONS = {
     priority: PRIORITY.MEDIUM,
   },
   REQUEST_TO_JOIN_COMMUNITY: {
+    // Batched per community so multiple join requests stack like Instagram
+    // ("A and B requested to join your community") instead of spamming one
+    // row per requester.
     save: true,
     socket: true,
     push: true,
-    batch: false,
-    delay: 0,
+    batch: true,
+    delay: 5000,
     priority: PRIORITY.MEDIUM,
+    cooldown: 600000,
+    category: 'communities',
   },
   // Fan-out when a followed user publishes a post or repost (Twitter-style).
   NEW_POST: {

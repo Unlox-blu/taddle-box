@@ -111,15 +111,43 @@ class PostService {
     }
   }
 
-  async getPost({postId, userId}) {
+  async getPost({postId, userId, viaRepostId}) {
     try {
       const post = await this.postRepo.findById(postId, userId);
       if (!post) throw createError('Post not found', 404);
       const { community_id: communityId, author_id: authorId } = post;
 
-      
       if(userId === authorId){
         return PostModel.format(post);
+      }
+
+      // If requested via a wrapper repost, check authorization against the wrapper instead
+      if (viaRepostId) {
+        const wrapper = await this.postRepo.findById(viaRepostId, userId);
+        if (wrapper && wrapper.repost_of_id === postId) {
+          let wrapperAuthorized = true;
+          
+          if (wrapper.community_id) {
+            const wCommunity = await this.communityRepo.findById(wrapper.community_id);
+            if (wCommunity.privacy === 'private') {
+              if (!userId) wrapperAuthorized = false;
+              else {
+                const wMember = await this.communityRepo.isMember(wrapper.community_id, userId);
+                if (!wMember || wMember.status !== 'active') wrapperAuthorized = false;
+              }
+            }
+          } else {
+            const wAuthor = await this.userRepo.findById(wrapper.author_id);
+            if (wAuthor.privacy !== 'public' && wrapper.author_id !== userId) {
+              const wFollow = await this.followerRepo.findByFollowerIdAndFollowingId(userId, wrapper.author_id);
+              if (!wFollow || wFollow.status !== 'active') wrapperAuthorized = false;
+            }
+          }
+          
+          if (wrapperAuthorized) {
+            return PostModel.format(post);
+          }
+        }
       }
 
       const author = await this.userRepo.findById(authorId)
@@ -365,14 +393,15 @@ class PostService {
       }
       const targetId = original.id;
 
-      // Reposting your own post is meaningless (and inflates share counts) —
-      // enforced server-side, not just hidden in the UI.
-      if (original.author_id === userId)
-        throw createError('You cannot repost your own post', 400);
+      // Self-reposts are allowed — reposting your own post (e.g. cross-posting
+      // it into a community) is a legitimate share action, and the multiple-
+      // repost model keeps any count inflation bounded.
 
       // Don't repost a post that was itself deleted/hidden.
       const author = await this.userRepo.findById(original.author_id);
-      if (author && author.privacy !== 'public') {
+      // Private accounts gate reposts to approved followers — except the
+      // author themselves, who can always repost their own post (cross-post).
+      if (author && author.privacy !== 'public' && original.author_id !== userId) {
         const isFollow = await this.followerRepo.findByFollowerIdAndFollowingId(userId, original.author_id);
         if (!isFollow || isFollow.status !== 'active')
           throw createError("You don't have permission to repost posts from this private account", 403);
@@ -398,30 +427,12 @@ class PostService {
         }
       }
 
-      // Idempotent: if the user already reposted this post, don't create a
-      // duplicate. A verbatim re-repost returns the existing row; a quote with
-      // new thoughts REPLACES the existing quote (quote-repost toggle).
-      const existing = await this.postRepo.findMyRepost(targetId, userId);
-      if (existing) {
-        const contentText = (content || '').trim();
-        if (contentText) {
-          const postTags = Array.isArray(tags)
-            ? tags.map(t => String(t).replace(/^#/, '').toLowerCase())
-            : Array.from(contentText.matchAll(/(?:^|\s)(#[a-z0-9_]+)/gi)).map(m => m[1].replace('#', '').toLowerCase());
-          await this.postRepo.update(existing.id, { content: contentText, tags: postTags });
-        }
-        // Destination change (feed → community or community → feed): MOVE the
-        // existing repost instead of creating a duplicate row.
-        const destVisibility = communityId ? 'community_only' : repostVisibility;
-        if ((existing.community_id || null) !== (communityId || null)) {
-          await this.postRepo.update(existing.id, {
-            community_id: communityId || null,
-            visibility: destVisibility,
-          });
-        }
-        const populated = await this.postRepo.findById(existing.id, userId);
-        return PostModel.format(populated);
-      }
+      // MULTIPLE-REPOST semantics: every repost action creates a NEW repost
+      // row. The repost button exists purely to repost again (each repost
+      // picks ONE audience) — there is no "edit my repost" flow; changing or
+      // removing a repost is done from the profile's Reposts tab. Each new
+      // repost also bumps the original's share count, so N reposts = N
+      // shares (the client's optimistic count mirrors this).
 
       // Respect the ORIGINAL author's "Allow Reposting" toggle — when it's
       // OFF, no NEW reposts of their posts can be created. Users who already
@@ -430,6 +441,16 @@ class PostService {
       const authorSettings = await this.settingsRepo.findByUserId(original.author_id);
       if (authorSettings && authorSettings.allowReposts === false) {
         throw createError('This user has disabled reposting on their posts', 403);
+      }
+
+      // Community-level "Allow Reposting" toggle — when the ORIGINAL post was
+      // published in a community whose owner turned reposting OFF, no NEW
+      // reposts of it can be created, regardless of who reposts or where.
+      if (original.community_id) {
+        const community = await this.communityRepo.findById(original.community_id);
+        if (community && community.allowReposts === false) {
+          throw createError('This community has disabled reposting on its posts', 403);
+        }
       }
 
       const contentText = (content || '').trim();
@@ -449,6 +470,12 @@ class PostService {
         visibility: communityId ? 'community_only' : repostVisibility,
         status: 'published',
         media: [],
+        // Carry the ORIGINAL's place onto the repost row so every read path
+        // (feed, detail, profile, bookmarks, search) shows the location tag
+        // in the rolling text without needing to resolve the original.
+        location: original.latitude != null && original.longitude != null
+          ? { lat: original.latitude, lon: original.longitude, place: original.place || undefined }
+          : undefined,
       });
 
       // Mention notifications: explicit ids from the composer + @handles in text.

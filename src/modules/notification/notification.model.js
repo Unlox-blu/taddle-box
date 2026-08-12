@@ -8,7 +8,7 @@ const PREFERENCE_TABLE = 'notification_preferences';
 
 const NOTIFICATION_FIELDS = [
   'id', 'sender_id', 'type', 'title', 'message',
-  'resource_type', 'resource_id', 'is_read', 'read_at', 'created_at',
+  'resource_type', 'resource_id', 'meta', 'is_read', 'read_at', 'created_at',
 ].join(', ');
 
 const NOTIFICATION_BATCH_FIELDS = [
@@ -23,7 +23,7 @@ const NOTIFICATION_PROMOTIONAL_FIELDS = [
 
 const LIST_FIELDS = [
   'id', 'sender_id', 'type', 'title', 'message',
-  'resource_type', 'resource_id', 'is_read', 'read_at', 'created_at',
+  'resource_type', 'resource_id', 'meta', 'is_read', 'read_at', 'created_at',
 ].join(', ');
 
 const NOTIFICATION_TYPES = [
@@ -51,6 +51,7 @@ const format = (row) => {
     message: row.message,
     resourceType: row.resource_type,
     resourceId: row.resource_id,
+    meta: row.meta || null,
     isRead: row.is_read,
     readAt: row.read_at,
     createdAt: row.created_at,

@@ -61,6 +61,10 @@ const findByUserId = async ({userId, limit, offset}) => {
           p.comments_count,
           p.shares_count,
           p.views_count,
+          -- Location: repost rows have none — fall back to the original's.
+          COALESCE(orig.latitude,  p.latitude)  AS latitude,
+          COALESCE(orig.longitude, p.longitude) AS longitude,
+          COALESCE(orig.place,     p.place)     AS place,
           p.published_at,
 
           -- Viewer state
@@ -93,6 +97,7 @@ const findByUserId = async ({userId, limit, offset}) => {
                   'name', c.name,
                   'slug', c.slug,
                   'privacy', c.privacy,
+                  'reposts_enabled', COALESCE(c.allow_reposts, TRUE),
                   'avatar_url', 
                   CASE
                       WHEN c.avatar_url IS NULL THEN NULL
@@ -131,6 +136,11 @@ const findByUserId = async ({userId, limit, offset}) => {
       JOIN ${BookmarkModel.USER_TABLE} u
           ON u.id = p.author_id
 
+      LEFT JOIN ${BookmarkModel.POST_TABLE} orig
+          ON orig.id = p.repost_of_id
+          AND orig.deleted_at IS NULL
+          AND orig.status = 'published'
+
       LEFT JOIN ${BookmarkModel.MEDIA_TABLE} ua
           ON ua.id = u.avatar_url
 
@@ -158,7 +168,8 @@ const findByUserId = async ({userId, limit, offset}) => {
           c.id,
           ca.id,
           s.user_id,
-          b.created_at
+          b.created_at,
+          orig.id
 
       ORDER BY b.created_at DESC
       LIMIT $2 OFFSET $3

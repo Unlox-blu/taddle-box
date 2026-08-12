@@ -25,6 +25,13 @@ const createPostSchema = z.object({
   pollData: z.record(z.unknown()).optional(),
   linkData: z.record(z.unknown()).optional(),
   media: z.array(z.record(z.unknown())).max(5, "Maximum 5 media files allowed").optional(),
+  // Optional place tag: { lat, lon, place } captured from the composer's
+  // location picker and shown in the post card's rolling text.
+  location: z.preprocess(typeCheck ,z.object({
+    lat: z.number().min(-90).max(90, 'Latitude must be between -90 and 90'),
+    lon: z.number().min(-180).max(180, 'Longitude must be between -180 and 180'),
+    place: z.string().max(255).optional(),
+  }).optional()),
   // Confirmed @mention ids from the composer — used to notify mentioned users
   // (the content itself carries the structured {@}[name](id) syntax, which the
   // plain-text @handle scan below also covers as a fallback).
@@ -73,4 +80,8 @@ const paginationQuerySchema = z.object({
   type: z.enum(['all', 'posts', 'reposts']).optional().default('all'),
 }).strict();
 
-module.exports = { createPostSchema, updatePostSchema, postIdParamsSchema, authorIdParamsSchema, paginationQuerySchema };
+const getPostQuerySchema = z.object({
+  via_repost: z.string().uuid({ message: 'Invalid via_repost ID format' }).optional()
+}).strict();
+
+module.exports = { createPostSchema, updatePostSchema, postIdParamsSchema, authorIdParamsSchema, paginationQuerySchema, getPostQuerySchema };

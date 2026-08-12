@@ -28,7 +28,14 @@ const POST_FIELDS = [
   'p.id', 'p.author_id', 'p.community_id', 'p.title', 'p.content', 'p.repost_of_id',
   'p.media', 'p.tags', 'p.status', 'p.visibility',
   'p.likes_count', 'p.comments_count', 'p.shares_count', 'p.views_count',
-  'p.is_pinned', 'p.published_at', 'p.created_at',
+  'p.is_pinned',
+  // Location: repost rows carry none — fall back to the ORIGINAL's tag so
+  // search-result cards show the place on reposts too. Requires a LEFT JOIN
+  // on `posts orig` in every query using POST_FIELDS.
+  'COALESCE(orig.latitude,  p.latitude)  AS latitude',
+  'COALESCE(orig.longitude, p.longitude) AS longitude',
+  'COALESCE(orig.place,     p.place)     AS place',
+  'p.published_at', 'p.created_at',
   'u.name AS author_name', 'u.username AS author_username',
   'ua.cloudfront_url AS author_avatar',
   'c.name AS community_name', 'c.slug   AS community_slug', 'c.privacy AS community_privacy',

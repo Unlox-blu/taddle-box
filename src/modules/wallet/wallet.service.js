@@ -440,7 +440,15 @@ class WalletService {
 // Minimal success/failure page rendered inside the app's WebView after PayU
 // redirects back to our backend. The app detects this URL and closes the
 // modal, then refetches the wallet.
-const rechargeResultHtml = (ok, message) => `
+const rechargeResultHtml = (ok, message) => {
+  // Serialize the bridge payload once (a JSON string literal) so the script
+  // below is a plain interpolation — no nested template expressions.
+  const payload = JSON.stringify({
+    kind: 'rechargeResult',
+    ok: !!ok,
+    message: String(message || ''),
+  });
+  return `
   <!DOCTYPE html>
   <html>
     <head>
@@ -458,8 +466,19 @@ const rechargeResultHtml = (ok, message) => `
         <h2>${ok ? 'Payment Successful' : 'Payment Failed'}</h2>
         <p>${message} You can close this page.</p>
       </div>
+      <script>
+        // Tell the RN WebView the checkout outcome so the app can close the
+        // modal, refresh the wallet and show a result toast. Runs on load, so
+        // the message arrives exactly when the result page is visible.
+        try {
+          if (window.ReactNativeWebView) {
+            window.ReactNativeWebView.postMessage(${payload});
+          }
+        } catch (e) {}
+      </script>
     </body>
   </html>
 `;
+};
 
 module.exports = WalletService;

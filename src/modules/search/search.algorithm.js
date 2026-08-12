@@ -25,7 +25,7 @@ const SEARCH_COMMUNITY_ALGORITHM = `SELECT
                                     WHERE 
                                         c.deleted_at IS NULL 
                                         AND c.is_active = TRUE 
-                                        AND c.privacy IN ('public', 'restricted')
+                                        -- Private communities are discoverable (their content is gated on the detail screen)
                                         AND ($1 = '' OR c.name ILIKE $1 OR c.description ILIKE $1)
                                         AND ($2::text IS NULL OR $2 = ANY(c.category))
                                     ORDER BY c.member_count DESC
@@ -64,6 +64,9 @@ const SEARCH_POSt_ALGORITHM = `SELECT
                                     ),
                                     '[]'::json
                                 ) AS media,
+                                CASE WHEN $5 != '' THEN
+                                  ts_headline('english', p.content, plainto_tsquery('english', $5), 'StartSel=<mark>, StopSel=</mark>')
+                                ELSE NULL END AS highlight_content,
                                 (
                                     -- Exact title
                                     CASE
@@ -82,9 +85,31 @@ const SEARCH_POSt_ALGORITHM = `SELECT
                                         THEN 4000
                                         ELSE 0
                                     END
-                                    -- Content
+                                    -- Content FTS
                                     + CASE
+                                        WHEN p.search_vector @@ plainto_tsquery('english', $5) THEN ts_rank(p.search_vector, plainto_tsquery('english', $5)) * 3000
                                         WHEN p.content ILIKE $1 THEN 2500
+                                        ELSE 0
+                                    END
+                                    -- Repost whose ORIGINAL matches (verbatim
+                                    -- reposts carry no text of their own)
+                                    + CASE
+                                        WHEN p.repost_of_id IS NOT NULL AND EXISTS (
+                                            SELECT 1 FROM posts orig
+                                            WHERE orig.id = p.repost_of_id
+                                              AND orig.deleted_at IS NULL
+                                              AND orig.status = 'published'
+                                              AND (
+                                                  orig.title ILIKE $1
+                                                  OR orig.content ILIKE $1
+                                                  OR EXISTS (
+                                                      SELECT 1
+                                                      FROM unnest(COALESCE(orig.tags, ARRAY[]::text[])) t
+                                                      WHERE t ILIKE $1
+                                                  )
+                                              )
+                                        )
+                                        THEN 2000
                                         ELSE 0
                                     END
                                     -- Popularity
@@ -100,6 +125,10 @@ const SEARCH_POSt_ALGORITHM = `SELECT
                             FROM posts p
                             JOIN users u
                                 ON u.id = p.author_id
+                            LEFT JOIN posts orig
+                                ON orig.id = p.repost_of_id
+                                AND orig.deleted_at IS NULL
+                                AND orig.status = 'published'
                             LEFT JOIN media ua
                                 ON u.avatar_url = ua.id
                             LEFT JOIN communities c
@@ -124,29 +153,96 @@ const SEARCH_POSt_ALGORITHM = `SELECT
                                 )
                                 AND (
                                     p.visibility = 'public'
+                                    OR p.visibility = 'community_only'
                                     OR (
-                                        p.visibility = 'community_only'
-                                        AND c.privacy != 'private'
-                                    )
-                                    OR (
-                                        p.visibility = 'community_only'
-                                        OR EXISTS (
-                                        SELECT 1
-                                        FROM community_members cm
-                                        WHERE 
-                                            cm.community_id = p.community_id 
-                                            AND cm.user_id = $4
-                                    )
+                                        p.visibility = 'followers'
+                                        AND (
+                                            p.author_id = $4
+                                            OR EXISTS (
+                                                SELECT 1 FROM followers f
+                                                WHERE f.follower_id = $4 AND f.following_id = p.author_id AND f.status = 'active'
+                                            )
+                                        )
                                     )
                                 )
                                 AND (
-                                    $1 = ''
-                                    OR p.title ILIKE $1
-                                    OR p.content ILIKE $1
+                                    c.id IS NULL 
+                                    OR c.privacy != 'private'
                                     OR EXISTS (
                                         SELECT 1
-                                        FROM unnest(COALESCE(p.tags, ARRAY[]::text[])) t
-                                        WHERE t ILIKE $1
+                                        FROM community_members cm
+                                        WHERE cm.community_id = p.community_id 
+                                          AND cm.user_id = $4
+                                          AND cm.status = 'active'
+                                    )
+                                )
+                                AND (
+                                    $5 = ''
+                                    OR (
+                                        ($13::text IS NULL OR $13 = 'all' OR $13 = 'contents')
+                                        AND (
+                                            p.search_vector @@ plainto_tsquery('english', $5)
+                                            OR p.title ILIKE $1
+                                            OR p.content ILIKE $1
+                                            OR EXISTS (
+                                                SELECT 1
+                                                FROM unnest(COALESCE(p.tags, ARRAY[]::text[])) t
+                                                WHERE t ILIKE $1
+                                            )
+                                            -- A repost matches when the ORIGINAL's text
+                                            -- matches too: a verbatim repost carries no
+                                            -- content of its own, so the embedded post's
+                                            -- text is what the search should surface.
+                                            -- Walks the repost-of-repost chain (bounded
+                                            -- to 5 hops, like the app's root resolver)
+                                            -- so a repost of a repost still finds the
+                                            -- root original's text.
+                                            OR (
+                                                p.repost_of_id IS NOT NULL
+                                                AND EXISTS (
+                                                    WITH RECURSIVE chain AS (
+                                                        SELECT rp.id, rp.repost_of_id, rp.deleted_at, rp.status, rp.title, rp.content, rp.tags, 1 AS depth
+                                                        FROM posts rp
+                                                        WHERE rp.id = p.repost_of_id
+                                                        UNION ALL
+                                                        SELECT r2.id, r2.repost_of_id, r2.deleted_at, r2.status, r2.title, r2.content, r2.tags, chain.depth + 1
+                                                        FROM posts r2
+                                                        JOIN chain ON r2.id = chain.repost_of_id
+                                                        WHERE chain.repost_of_id IS NOT NULL AND chain.depth < 5
+                                                    )
+                                                    SELECT 1 FROM chain
+                                                    WHERE chain.deleted_at IS NULL
+                                                      AND chain.status = 'published'
+                                                      AND (
+                                                          chain.title ILIKE $1
+                                                          OR chain.content ILIKE $1
+                                                          OR EXISTS (
+                                                              SELECT 1
+                                                              FROM unnest(COALESCE(chain.tags, ARRAY[]::text[])) t
+                                                              WHERE t ILIKE $1
+                                                          )
+                                                      )
+                                                )
+                                            )
+                                        )
+                                    )
+                                    OR (
+                                        $13 = 'comments'
+                                        AND EXISTS (
+                                            SELECT 1 FROM comments cm
+                                            WHERE cm.post_id = p.id
+                                              AND cm.deleted_at IS NULL
+                                              AND cm.status = 'active'
+                                              AND cm.content ILIKE $1
+                                        )
+                                    )
+                                    OR (
+                                        $13 = 'mentions'
+                                        AND (
+                                            p.title ILIKE '%{@}[' || $5 || ']%'
+                                            OR p.content ILIKE '%{@}[' || $5 || ']%'
+                                            OR p.content ~ ('@' || $5 || '([^a-z0-9_]|$)')
+                                        )
                                     )
                                 )
                                 -- Private account visibility
@@ -162,15 +258,104 @@ const SEARCH_POSt_ALGORITHM = `SELECT
                                             AND f.status = 'active'
                                     )
                                 )
+                                -- Community-scoped search (Reddit-style "in this
+                                -- community"): when $6 is a community slug, only
+                                -- posts published inside that community match.
+                                AND (
+                                    $6::text IS NULL
+                                    OR c.slug = $6
+                                )
+                                -- Person-scoped search (Reddit-style "from this
+                                -- user"): $7 is an array of usernames. A post
+                                -- matches when ANY of them is involved — they
+                                -- authored it (including their reposts), are
+                                -- mentioned in its text or a comment on it,
+                                -- commented on it, or reposted it. Multiple
+                                -- people combine, e.g. @a @b c/community.
+                                -- $8 (involvement) narrows which dimension
+                                -- counts ('authored' | 'mentions' | 'comments'
+                                -- | 'reposts'); NULL/'all' keeps every one.
+                                AND (
+                                    $7::text[] IS NULL
+                                    OR EXISTS (
+                                        SELECT 1
+                                        FROM users au
+                                        WHERE au.username = ANY($7::text[])
+                                          AND au.deleted_at IS NULL
+                                          AND (
+                                              ($8::text IS NULL OR $8 = 'all')
+                                              OR ($8 = 'authored' AND au.id = p.author_id)
+                                              OR ($8 = 'mentions' AND (
+                                                  p.title ILIKE '%{@}[' || au.username || ']%'
+                                                  OR p.content ILIKE '%{@}[' || au.username || ']%'
+                                                  OR p.content ~ ('@' || au.username || '([^a-z0-9_]|$)')
+                                              ))
+                                              OR ($8 = 'comments' AND EXISTS (
+                                                  SELECT 1 FROM comments cm
+                                                  WHERE cm.post_id = p.id
+                                                    AND cm.deleted_at IS NULL
+                                                    AND cm.status = 'active'
+                                                    AND (
+                                                        cm.author_id = au.id
+                                                        OR cm.content ILIKE '%{@}[' || au.username || ']%'
+                                                        OR cm.content ~ ('@' || au.username || '([^a-z0-9_]|$)')
+                                                    )
+                                              ))
+                                              OR ($8 = 'reposts' AND (
+                                                  EXISTS (
+                                                      SELECT 1 FROM posts rp
+                                                      WHERE rp.repost_of_id = p.id
+                                                        AND rp.author_id = au.id
+                                                  )
+                                                  OR (
+                                                      p.repost_of_id IS NOT NULL
+                                                      AND EXISTS (
+                                                          SELECT 1 FROM posts orig
+                                                          WHERE orig.id = p.repost_of_id
+                                                            AND orig.author_id = au.id
+                                                      )
+                                                  )
+                                              ))
+                                          )
+                                    )
+                                )
+                                -- Hashtag-scoped search: $9 is an array of tags
+                                -- (without '#') — a post matches when it carries
+                                -- any of them, e.g. #love #peaceful.
+                                AND (
+                                    $9::text[] IS NULL
+                                    OR EXISTS (
+                                        SELECT 1
+                                        FROM unnest(COALESCE(p.tags, ARRAY[]::text[])) t
+                                        WHERE LOWER(t) = ANY($9::text[])
+                                    )
+                                )
+                                -- Bookmarks scope ($10 = true): only the current
+                                -- user's saved posts (search from Bookmarks).
+                                AND (
+                                    $10::boolean IS NOT TRUE
+                                    OR EXISTS (
+                                        SELECT 1 FROM bookmark b
+                                        WHERE b.post_id = p.id AND b.user_id = $4
+                                    )
+                                )
+                                -- My-own-posts scope ($11 = true): only the
+                                -- viewer's own posts (search from Settings).
+                                AND (
+                                    $11::boolean IS NOT TRUE
+                                    OR p.author_id = $4
+                                )
                             GROUP BY
                                 p.id,
                                 u.id,
                                 ua.id,
                                 c.id,
-                                ca.id
+                                ca.id,
+                                orig.id
                             ORDER BY
-                                CASE
-                                    WHEN $5 = '' THEN
+                                CASE WHEN $12 = 'latest' THEN p.created_at END DESC,
+                                CASE WHEN $12 = 'top' THEN (p.likes_count * 2 + p.comments_count * 3) END DESC,
+                                CASE WHEN ($12 = 'relevance' OR $12 IS NULL) AND $5 = '' THEN
                                         (p.likes_count * 2 + p.comments_count * 3)
                                     ELSE
                                         (
@@ -195,6 +380,26 @@ const SEARCH_POSt_ALGORITHM = `SELECT
                                                 WHEN p.content ILIKE $1 THEN 2500
                                                 ELSE 0
                                             END
+                                            +
+                                            CASE
+                                                WHEN p.repost_of_id IS NOT NULL AND EXISTS (
+                                                    SELECT 1 FROM posts orig
+                                                    WHERE orig.id = p.repost_of_id
+                                                      AND orig.deleted_at IS NULL
+                                                      AND orig.status = 'published'
+                                                      AND (
+                                                          orig.title ILIKE $1
+                                                          OR orig.content ILIKE $1
+                                                          OR EXISTS (
+                                                              SELECT 1
+                                                              FROM unnest(COALESCE(orig.tags, ARRAY[]::text[])) t
+                                                              WHERE t ILIKE $1
+                                                          )
+                                                      )
+                                                )
+                                                THEN 2000
+                                                ELSE 0
+                                            END
                                             + (p.likes_count * 2)
                                             + (p.comments_count * 3)
                                             + GREATEST(
@@ -202,7 +407,7 @@ const SEARCH_POSt_ALGORITHM = `SELECT
                                                 0
                                             )
                                         )
-                                END DESC,
+                                END DESC NULLS LAST,
                                 p.created_at DESC
                             LIMIT $2
                             OFFSET $3;`   
@@ -217,6 +422,16 @@ const SEARCH_EVENT_ALGORITHM = `SELECT
                                     AND status IN ('upcoming', 'ongoing')
                                     AND ($1 = '' OR title ILIKE $1 OR description ILIKE $1)
                                     AND ($2::text IS NULL OR event_type = $2)
+                                    -- Saved-events scope ($5 = true): only the
+                                    -- current user's saved events (search from
+                                    -- Bookmarks → Events).
+                                    AND (
+                                        $5::boolean IS NOT TRUE
+                                        OR EXISTS (
+                                            SELECT 1 FROM save s
+                                            WHERE s.event_id = events.id AND s.user_id = $6
+                                        )
+                                    )
                                 ORDER BY start_time ASC
                                 LIMIT $3 OFFSET $4`      
                                 
@@ -312,6 +527,11 @@ const DISCOVER_POSTS_ALGORITHM = `WITH ranked_posts AS (
                                             FROM posts p
                                             JOIN users u
                                                 ON u.id = p.author_id
+                                    
+                                            LEFT JOIN posts orig
+                                                ON orig.id = p.repost_of_id
+                                                AND orig.deleted_at IS NULL
+                                                AND orig.status = 'published'
                                     
                                             LEFT JOIN communities c
                                                 ON p.community_id = c.id

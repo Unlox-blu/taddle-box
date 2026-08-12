@@ -17,15 +17,28 @@ async addToBatch(data) {
 
   const exists = await this.redisClient.exists(key);
 
+  // Ordered actor list — Redis SETs don't preserve arrival order, and the
+  // stacked copy needs "first actor" (the row's sender) and "second actor"
+  // (named in "A and B ..."), so the batch keeps a JSON array too.
+  let actorOrder = [];
+  const existing = await this.redisClient.hget(key, 'actorOrder');
+  if (existing) {
+    try { actorOrder = JSON.parse(existing); } catch (e) { actorOrder = []; }
+  }
+  if (data.senderId && !actorOrder.includes(data.senderId)) {
+    actorOrder.push(data.senderId);
+  }
+
   await this.redisClient.hset(key, {
     recipientId: data.recipientId,
     resourceType: data.resourceType,
     resourceId: data.resourceId,
     type: data.type,
+    actorOrder: JSON.stringify(actorOrder),
     updatedAt: Date.now()
   });
 
-  // Add sender to the set (duplicates are ignored)
+  // Add sender to the set (duplicates are ignored) — kept for legacy workers.
   await this.redisClient.sadd(actorsKey, data.senderId);
 
   await this.redisClient.expire(key, 1800);

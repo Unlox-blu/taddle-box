@@ -67,9 +67,11 @@ const findManyCommunity = async ({limit, offset, userId = null, search = null, m
       LEFT JOIN media AS banner_media ON banner_media.id = banner_url
       -- Soft-deleted/inactive communities must not appear in the list (clicking
       -- them 404s on the detail screen). Membership alone can't resurrect one.
+      -- Private communities ARE listed (discovery/trending/filters) so people
+      -- can find them and request to join; the detail/posts endpoints gate
+      -- their content to members. The mine=true flag (audience picker) below
+      -- still restricts to communities the user can actually post to.
       WHERE c.deleted_at IS NULL AND c.is_active = TRUE
-        AND (privacy = 'public' OR c.owner_id = $3
-          OR EXISTS (SELECT 1 FROM ${CommunityModel.MEMBERS_TABLE} cm WHERE cm.community_id = c.id AND cm.user_id = $3 AND cm.status = 'active'))
         -- Name search (audience picker) — case-insensitive substring.
         AND ($4::text IS NULL OR c.name ILIKE '%' || $4 || '%')
         -- mine=true → only communities the user can post to (joined or owned),
@@ -125,6 +127,7 @@ const update = async (communityId, fields) => {
       'banner_url',
       'category',
       'rules',
+      'allow_reposts',
     ];
     const updates = [];
     const values = [];
@@ -267,6 +270,45 @@ const updateOwner = async (communityId, ownerId) => {
   }
 };
 
+// Atomic ownership hand-over: swap owner_id AND fix up the old owner's role in
+// ONE transaction so a mid-transfer failure can never strand the old owner
+// (owner swapped but their membership row never adjusted). The community's
+// allow_reposts column is untouched — the toggle rides with the community,
+// not the owner. updated_at is stamped because a transfer is a real edit.
+const transferOwnership = async ({ communityId, newOwnerId, oldOwnerId }) => {
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    await client.query(
+      `UPDATE ${CommunityModel.TABLE} SET owner_id = $1, updated_at = NOW() WHERE id = $2`,
+      [newOwnerId, communityId]
+    );
+    // Old owner auto-becomes an admin (re-insert the row if it ever went
+    // missing so they're never left outside their own community).
+    const { rows } = await client.query(
+      `SELECT 1 FROM ${CommunityModel.MEMBERS_TABLE} WHERE community_id = $1 AND user_id = $2`,
+      [communityId, oldOwnerId]
+    );
+    if (rows[0]) {
+      await client.query(
+        `UPDATE ${CommunityModel.MEMBERS_TABLE} SET role = 'admin', status = 'active' WHERE community_id = $1 AND user_id = $2`,
+        [communityId, oldOwnerId]
+      );
+    } else {
+      await client.query(
+        `INSERT INTO ${CommunityModel.MEMBERS_TABLE} (community_id, user_id, role, status) VALUES ($1, $2, 'admin', 'active') ON CONFLICT DO NOTHING`,
+        [communityId, oldOwnerId]
+      );
+    }
+    await client.query('COMMIT');
+  } catch (error) {
+    await client.query('ROLLBACK');
+    throw error;
+  } finally {
+    client.release();
+  }
+};
+
 const getMembers = async (communityId, status, limit, offset) => {
   try {
     const { rows } = await pool.query(
@@ -400,7 +442,9 @@ const search = async (query, filter, limit, offset) => {
     const { rows } = await pool.query(
       `SELECT ${CommunityModel.LIST_FIELDS}, COUNT(*) OVER() AS total
      FROM ${CommunityModel.TABLE}
-     WHERE deleted_at IS NULL AND is_active = TRUE AND privacy IN ('public', 'restricted')
+     -- Private communities are discoverable too — the detail screen gates
+     -- their posts/members to approved members.
+     WHERE deleted_at IS NULL AND is_active = TRUE
        AND ($1 = '' OR name ILIKE $1 OR description ILIKE $1)
        AND ($2::text IS NULL OR $2 = ANY(category))
      ORDER BY member_count DESC
@@ -446,6 +490,7 @@ module.exports = {
   logModeration,
   getModerationLog,
   updateOwner,
+  transferOwnership,
   incrementMemberCount,
   decrementMemberCount,
   incrementPostCount,

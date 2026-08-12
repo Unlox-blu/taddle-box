@@ -10,6 +10,7 @@ const DETAIL_FIELDS = [
   'p.media', 'p.tags', 'p.category', 'p.status',
   'p.visibility', 'p.likes_count', 'p.comments_count', 'p.shares_count',
   'p.views_count', 'p.is_pinned', 'p.poll_data', 'p.link_data',
+  'p.latitude', 'p.longitude', 'p.place',
   'p.published_at', 'p.created_at', 'p.updated_at',
   'u.name AS author_name', 'u.username AS author_username', 'u.avatar_url AS author_avatar',
   'c.name AS community_name', 'c.privacy AS community_privacy','c.slug AS community_slug', 'c.avatar_url AS community_avatar',
@@ -20,7 +21,11 @@ const LIST_FIELDS = [
   'p.id', 'p.author_id', 'p.community_id', 'p.repost_of_id', 'p.title', 'p.content',
   'p.media', 'p.tags', 'p.status', 'p.visibility',
   'p.likes_count', 'p.comments_count', 'p.shares_count', 'p.views_count',
-  'p.is_pinned', 'p.published_at', 'p.created_at',
+  'p.is_pinned',
+  // NOTE: p.latitude/p.longitude/p.place are deliberately NOT selected here —
+  // the feed algorithm adds them as COALESCE(orig.*, p.*) so reposts show the
+  // ORIGINAL post's location in the rolling text.
+  'p.published_at', 'p.created_at',
   'u.name AS author_name', 'u.username AS author_username',
   'ua.cloudfront_url AS author_avatar',
   'c.name AS community_name', 'c.slug   AS community_slug', 'c.privacy AS community_privacy',
@@ -169,7 +174,17 @@ const format = (row) => {
 
     pollData: row.poll_data || null,
     linkData: row.link_data || null,
+<<<<<<< HEAD
 
+=======
+    // Optional place tag (lat / lon / place name) attached at creation time
+    // and shown in the card's rolling text.
+    location: (row.latitude != null && row.longitude != null) ? {
+      lat: Number(row.latitude),
+      lon: Number(row.longitude),
+      place: row.place || '',
+    } : null,
+>>>>>>> aa52fa9b442b10ccddb462577c9910891bdd9ae7
     author: {
       id: row.author_id,
       name: row.author_name,
@@ -178,6 +193,7 @@ const format = (row) => {
       isVerified: row.author_is_verified || false,
       repostsEnabled: row.author_reposts_enabled !== false,
     },
+<<<<<<< HEAD
 
     community: row.community_id
       ? {
@@ -189,6 +205,18 @@ const format = (row) => {
         }
       : null,
 
+=======
+    community: row.community_id ? {
+      id: row.community_id,
+      name: row.community_name,
+      slug: row.community_slug,
+      avatarUrl: row.community_avatar,
+      privacy: row.community_privacy,
+      // False when the community owner turned "Allow Reposting" off — the UI
+      // hides the repost button, and repostPost enforces it server-side.
+      repostsEnabled: row.community_reposts_enabled !== false,
+    } : null,
+>>>>>>> aa52fa9b442b10ccddb462577c9910891bdd9ae7
     publishedAt: row.published_at,
     createdAt: row.created_at,
     updatedAt: row.updated_at,

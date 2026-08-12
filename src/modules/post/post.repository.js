@@ -45,28 +45,37 @@ const findLikers = async (postId, currentUserId, limit, offset) => {
 // the app can reuse the same users-list modal for both.
 const findReposters = async (postId, currentUserId, limit, offset) => {
   try {
+    // MULTIPLE-REPOST semantics: one user can hold several repost rows of the
+    // same post, so the list DEDUPES by user (newest repost wins) and the
+    // total counts distinct users — a triple-reposter appears once, not thrice.
     const { rows } = await pool.query(
       `SELECT
-          u.id,
-          u.name,
-          u.username,
+          sub.id,
+          sub.name,
+          sub.username,
           avatar_media.cloudfront_url AS avatar_url,
           EXISTS(
             SELECT 1 FROM followers f
-            WHERE f.follower_id = $2 AND f.following_id = u.id AND f.status = 'active'
+            WHERE f.follower_id = $2 AND f.following_id = sub.id AND f.status = 'active'
           ) AS is_following,
           EXISTS(
             SELECT 1 FROM followers f
-            WHERE f.follower_id = u.id AND f.following_id = $2 AND f.status = 'active'
+            WHERE f.follower_id = sub.id AND f.following_id = $2 AND f.status = 'active'
           ) AS is_follower,
           COUNT(*) OVER() AS total
-       FROM ${PostModel.TABLE} rp
-       JOIN users u ON u.id = rp.author_id
-       LEFT JOIN media AS avatar_media ON avatar_media.id = u.avatar_url
-       WHERE rp.repost_of_id = $1
-         AND rp.deleted_at IS NULL
-         AND u.deleted_at IS NULL
-       ORDER BY rp.created_at DESC
+       FROM (
+         SELECT DISTINCT ON (rp.author_id)
+           u.id, u.name, u.username, u.avatar_url,
+           rp.created_at AS last_reposted_at
+         FROM ${PostModel.TABLE} rp
+         JOIN users u ON u.id = rp.author_id
+         WHERE rp.repost_of_id = $1
+           AND rp.deleted_at IS NULL
+           AND u.deleted_at IS NULL
+         ORDER BY rp.author_id, rp.created_at DESC
+       ) sub
+       LEFT JOIN media AS avatar_media ON avatar_media.id = sub.avatar_url
+       ORDER BY sub.last_reposted_at DESC
        LIMIT $3 OFFSET $4`,
       [postId, currentUserId, limit, offset]
     );
@@ -94,6 +103,7 @@ const findById = async (postId, currentUserId = null) => {
           WHERE rp.repost_of_id = p.id AND rp.author_id = $2 AND rp.deleted_at IS NULL
         ) AS is_reposted,
         COALESCE(s.allow_reposts, TRUE) AS author_reposts_enabled,
+        COALESCE(c.allow_reposts, TRUE) AS community_reposts_enabled,
         COALESCE(
             json_agg(
                 json_build_object(
@@ -107,9 +117,14 @@ const findById = async (postId, currentUserId = null) => {
                 ) ORDER BY m.created_at ASC 
             ) FILTER (WHERE m.deleted_at IS NULL AND m.processing_status = 'ready'), 
             '[]'::json
-        ) AS media
+        ) AS media,
+        COALESCE(orig.latitude,  p.latitude)  AS latitude,
+        COALESCE(orig.longitude, p.longitude) AS longitude,
+        COALESCE(orig.place,     p.place)     AS place
         FROM posts p
         JOIN users u ON p.author_id = u.id
+        LEFT JOIN posts orig ON orig.id = p.repost_of_id
+            AND orig.deleted_at IS NULL AND orig.status = 'published'
         LEFT JOIN media AS ua ON u.avatar_url = ua.id
         LEFT JOIN settings AS s ON s.user_id = u.id
         LEFT JOIN communities AS c ON p.community_id = c.id
@@ -118,7 +133,7 @@ const findById = async (postId, currentUserId = null) => {
         WHERE 
             p.id = $1
             AND p.deleted_at IS NULL
-        GROUP BY p.id, u.id, ua.id, c.id, ca.id, s.user_id`,
+        GROUP BY p.id, u.id, ua.id, c.id, ca.id, s.user_id, orig.id`,
       [postId, currentUserId]
     );
     return rows[0] || null;
@@ -150,6 +165,7 @@ const findManyByUser = async (authorId, limit, offset, currentUserId = null, typ
           WHERE rp.repost_of_id = p.id AND rp.author_id = $4 AND rp.deleted_at IS NULL
         ) AS is_reposted,
         COALESCE(s.allow_reposts, TRUE) AS author_reposts_enabled,
+        COALESCE(c.allow_reposts, TRUE) AS community_reposts_enabled,
         COALESCE(
             json_agg(
                 json_build_object(
@@ -162,9 +178,14 @@ const findManyByUser = async (authorId, limit, offset, currentUserId = null, typ
                 ) ORDER BY m.created_at ASC
             ) FILTER (WHERE m.id IS NOT NULL AND m.deleted_at IS NULL), 
             '[]'::json
-        ) AS media, COUNT(*) OVER() AS total
+        ) AS media, COUNT(*) OVER() AS total,
+        COALESCE(orig.latitude,  p.latitude)  AS latitude,
+        COALESCE(orig.longitude, p.longitude) AS longitude,
+        COALESCE(orig.place,     p.place)     AS place
     FROM posts p
     JOIN users u ON p.author_id = u.id
+    LEFT JOIN posts orig ON orig.id = p.repost_of_id
+        AND orig.deleted_at IS NULL AND orig.status = 'published'
     LEFT JOIN media AS ua ON u.avatar_url = ua.id
     LEFT JOIN settings AS s ON s.user_id = u.id
     LEFT JOIN communities AS c ON p.community_id = c.id
@@ -174,7 +195,7 @@ const findManyByUser = async (authorId, limit, offset, currentUserId = null, typ
       p.author_id = $1
       AND p.deleted_at IS NULL
       ${repostClause}
-    GROUP BY p.id, u.id, ua.id, c.id, ca.id, s.user_id
+    GROUP BY p.id, u.id, ua.id, c.id, ca.id, s.user_id, orig.id
     ORDER BY p.created_at DESC
      LIMIT $2 OFFSET $3`,
       [authorId, limit, offset, currentUserId]
@@ -202,6 +223,7 @@ const findManyByCommunity = async (communityId, limit, offset, currentUserId = n
           WHERE rp.repost_of_id = p.id AND rp.author_id = $4 AND rp.deleted_at IS NULL
         ) AS is_reposted,
         COALESCE(s.allow_reposts, TRUE) AS author_reposts_enabled,
+        COALESCE(c.allow_reposts, TRUE) AS community_reposts_enabled,
       COALESCE(
             json_agg(
                 json_build_object(
@@ -214,9 +236,14 @@ const findManyByCommunity = async (communityId, limit, offset, currentUserId = n
                 ) ORDER BY m.created_at ASC
             ) FILTER (WHERE m.id IS NOT NULL AND m.deleted_at IS NULL), 
             '[]'::json
-        ) AS media, COUNT(*) OVER() AS total
+        ) AS media, COUNT(*) OVER() AS total,
+        COALESCE(orig.latitude,  p.latitude)  AS latitude,
+        COALESCE(orig.longitude, p.longitude) AS longitude,
+        COALESCE(orig.place,     p.place)     AS place
     FROM posts p
     JOIN users u ON p.author_id = u.id
+    LEFT JOIN posts orig ON orig.id = p.repost_of_id
+        AND orig.deleted_at IS NULL AND orig.status = 'published'
     LEFT JOIN media AS ua ON u.avatar_url = ua.id
     LEFT JOIN settings AS s ON s.user_id = u.id
     LEFT JOIN communities AS c ON p.community_id = c.id
@@ -225,13 +252,19 @@ const findManyByCommunity = async (communityId, limit, offset, currentUserId = n
     WHERE 
       p.community_id = $1
       AND p.deleted_at IS NULL
-      -- Private accounts: their posts only surface to the author or approved followers,
-      -- even inside communities (the account's privacy is the audience boundary)
+      -- Private accounts: their posts surface to the author, their approved
+      -- followers, AND anyone who is an active MEMBER of the community the post
+      -- lives in. Posting into a community deliberately shares the post with
+      -- that community, so members must see each other's posts — otherwise a
+      -- community whose members keep private accounts looks permanently empty.
       AND (u.privacy = 'public' OR p.author_id = $4 OR EXISTS (
         SELECT 1 FROM followers f
         WHERE f.follower_id = $4 AND f.following_id = p.author_id AND f.status = 'active'
+      ) OR EXISTS (
+        SELECT 1 FROM community_members cm
+        WHERE cm.community_id = p.community_id AND cm.user_id = $4 AND cm.status = 'active'
       ))
-    GROUP BY p.id, u.id, ua.id, c.id, ca.id, s.user_id
+    GROUP BY p.id, u.id, ua.id, c.id, ca.id, s.user_id, orig.id
     ORDER BY p.created_at DESC
      LIMIT $2 OFFSET $3`,
       [communityId, limit, offset, currentUserId]
@@ -250,8 +283,8 @@ const create = async (data) => {
     
     const { rows } = await client.query(
       `INSERT INTO ${PostModel.TABLE}
-       (author_id, community_id, repost_of_id, title, content, media, tags, category, visibility, status, poll_data, link_data, published_at)
-     VALUES ($1, $2, $3, $4, $5, $6, $7::text[], $8::text[], $9, $10::varchar, $11, $12, CASE WHEN $10::varchar = 'published' THEN NOW() ELSE NULL END)
+       (author_id, community_id, repost_of_id, title, content, media, tags, category, visibility, status, poll_data, link_data, latitude, longitude, place, published_at)
+     VALUES ($1, $2, $3, $4, $5, $6, $7::text[], $8::text[], $9, $10::varchar, $11, $12, $13, $14, $15, CASE WHEN $10::varchar = 'published' THEN NOW() ELSE NULL END)
      RETURNING *`,
       [
         data.authorId,
@@ -266,6 +299,9 @@ const create = async (data) => {
         data.status || 'published',
         data.pollData ? JSON.stringify(data.pollData) : null,
         data.linkData ? JSON.stringify(data.linkData) : null,
+        data.location?.lat ?? null,
+        data.location?.lon ?? null,
+        data.location?.place || null,
       ]
     );
     
@@ -506,7 +542,8 @@ const search = async (query, limit, offset, currentUserId = null) => {
           SELECT 1 FROM posts rp
           WHERE rp.repost_of_id = p.id AND rp.author_id = $4 AND rp.deleted_at IS NULL
         ) AS is_reposted,
-        COALESCE(s.allow_reposts, TRUE) AS author_reposts_enabled
+        COALESCE(s.allow_reposts, TRUE) AS author_reposts_enabled,
+        COALESCE(c.allow_reposts, TRUE) AS community_reposts_enabled
      FROM ${PostModel.TABLE} p
      JOIN users u ON u.id = p.author_id
      LEFT JOIN media AS ua ON u.avatar_url = ua.id

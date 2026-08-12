@@ -9,8 +9,8 @@ const createNotification = async (data) => {
   try {
     const { rows } = await pool.query(
       `INSERT INTO ${NotificationModel.NOTIFICATION_TABLE}
-       (recipient_id, sender_id, type, title, message, resource_type, resource_id)
-     VALUES ($1,$2,$3,$4,$5,$6,$7)
+       (recipient_id, sender_id, type, title, message, resource_type, resource_id, meta)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8)
      RETURNING ${NotificationModel.LIST_FIELDS}`,
       [
         data.recipientId,
@@ -20,6 +20,7 @@ const createNotification = async (data) => {
         data.message || null,
         data.resourceType || null,
         data.resourceId || null,
+        data.meta || null,
       ]
     );
     return NotificationModel.format(rows[0]);
@@ -116,7 +117,7 @@ const addToBatchNotification = async ({recipientId, senderId, resourceId}) => {
 // references unambiguous when joined tables also expose id/type/created_at.
 const LIST_FIELDS_QUALIFIED = [
   'n.id', 'n.sender_id', 'n.type', 'n.title', 'n.message',
-  'n.resource_type', 'n.resource_id', 'n.is_read', 'n.read_at', 'n.created_at',
+  'n.resource_type', 'n.resource_id', 'n.meta', 'n.is_read', 'n.read_at', 'n.created_at',
 ].join(', ');
 
 const findByUser = async (userId, limit, offset, unreadOnly = false, type = null) => {

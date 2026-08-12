@@ -40,6 +40,12 @@ const format = (row) => {
     isPinned: row.is_pinned || false,
     isLiked: row.is_liked || false,
     isSaved: true,  // It's in the bookmark list, so it's saved
+    // Optional place tag (lat / lon / place name) — shown in the rolling text.
+    location: (row.latitude != null && row.longitude != null) ? {
+      lat: Number(row.latitude),
+      lon: Number(row.longitude),
+      place: row.place || '',
+    } : null,
     author: row.author && {
       id: row.author.id,
       name: row.author.name || row.author.username, // fallbacks
@@ -53,6 +59,9 @@ const format = (row) => {
       slug: row.community.slug,
       avatarUrl: row.community.avatar_url?.cloudfront_url,
       privacy: row.community.privacy,
+      // Community owner "Allow Reposting" toggle — false hides the repost
+      // button on bookmarked cards too.
+      repostsEnabled: row.community.reposts_enabled !== false,
     } : null,
     publishedAt: row.published_at,
   };

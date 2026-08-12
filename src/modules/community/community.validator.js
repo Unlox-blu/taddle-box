@@ -25,6 +25,7 @@ const createCommunitySchema = z.object({
     .regex(/^[a-zA-Z0-9_]+$/, 'Community names can only contain letters, numbers and underscores (no spaces or hyphens)'),
   description: z.string().max(1000).optional(),
   privacy: z.enum(PRIVACY_TYPES).default('public'),
+  allowReposts: z.boolean().optional(),
   category: z.preprocess(typeCheck ,z.array(z.string().max(50)).max(5).default([])),
   rules: z.preprocess(typeCheck, z.array(z.object({ title: z.string(), description: z.string() })).max(20)).optional(),
   avatarMediaId: z.preprocess(val => val === '' ? undefined : val, z.string().uuid({ message: 'Invalid avatar media ID format' }).optional()),

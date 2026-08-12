@@ -8,8 +8,17 @@ const XP_FIELDS = [
 ].join(', ');
 
 const TRANSACTION_FIELDS = [
-  'id', 'xp_id', 'xp', 'transaction_type', 'source_type',
-  'balance_before', 'balance_after', 'status', 'created_at', 'updated_at'
+  'xt.id', 'xt.xp_id', 'xt.xp', 'xt.transaction_type', 'xt.source_type',
+  'xt.balance_before', 'xt.balance_after', 'xt.status', 'xt.created_at', 'xt.updated_at',
+].join(', ');
+
+// Game-name enrichment columns — used ONLY by getUserTransactions, which is
+// the sole query that LEFT-JOINs the game tables. Kept apart from
+// TRANSACTION_FIELDS so plain INSERT/UPDATE ... RETURNING and single-table
+// SELECTs (which reference TRANSACTION_FIELDS) never need the game joins.
+const GAME_ENRICH_FIELDS = [
+  'gsg.slug AS game_slug',
+  'gsg.name AS game_name',
 ].join(', ');
 
 const TRANSACTION_TYPES = ['earned', 'spent', 'bonus'];
@@ -35,6 +44,8 @@ const formatTransaction = (row) => {
     xp: row.xp,
     transactionType: row.transaction_type,
     sourceType: row.source_type,
+    gameSlug: row.game_slug || null,
+    gameName: row.game_name || null,
     balanceBefore: row.balance_before,
     balanceAfter: row.balance_after,
     status: row.status,
@@ -45,7 +56,7 @@ const formatTransaction = (row) => {
 
 module.exports = {
   TABLE, TRANSACTIONS_TABLE,
-  XP_FIELDS, TRANSACTION_FIELDS,
+  XP_FIELDS, TRANSACTION_FIELDS, GAME_ENRICH_FIELDS,
   TRANSACTION_TYPES, TRANSACTION_STATUSES,
   formatXP, formatTransaction,
 };

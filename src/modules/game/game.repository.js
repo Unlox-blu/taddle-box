@@ -1402,6 +1402,70 @@ const findActiveSession = async ({ userId }) => {
 
 const { formatLobbyDTO } = require('./game.dto');
 
+// Lobby a user is STILL queued in (ticket status WAITING) — used to replay
+// the lobby's state on socket (re)connect so a mid-queue drop doesn't leave
+// the client stuck on the searching screen. Returns the ticket's context
+// (mode + tournamentId) alongside the lobby id so a replayed TOURNAMENT queue
+// carries its tournament identity — tournament tickets are WAITING exactly
+// like AUTO/PRACTICE ones, so they already flow through this path.
+const findActiveQueuedLobby = async ({ userId }) => {
+  const { rows } = await pool.query(
+    `SELECT t.lobby_id, t.mode, t.tournament_id
+     FROM ${gameModel.GAME_MATCHMAKING_TICKET_TABLE} t
+     WHERE t.user_id = $1 AND t.status = 'WAITING'
+     ORDER BY t.created_at DESC
+     LIMIT 1`,
+    [userId]
+  );
+  const row = rows[0];
+  if (!row?.lobby_id) return null;
+  return {
+    lobbyId: row.lobby_id,
+    mode: row.mode,
+    tournamentId: row.tournament_id || null,
+  };
+};
+
+// A MATCHED ticket whose match is still live (not yet completed) — used to
+// replay `matchmaking:matched` on socket (re)connect so a match created while
+// the user was offline starts instantly without waiting for a poll. Only fresh
+// matches (created in the last 10 minutes) are replayed; anything older means
+// the user already saw it or the match timed out server-side.
+const findActiveMatchedMatch = async ({ userId }) => {
+  const { rows } = await pool.query(
+    `SELECT t.id AS ticket_id, t.lobby_id, t.user_match_id, t.matched_at,
+            gm.metadata, gm.result, gm.created_at AS match_created_at
+     FROM ${gameModel.GAME_MATCHMAKING_TICKET_TABLE} t
+     JOIN ${gameModel.GAME_MATCH_TABLE} gm ON gm.id = t.user_match_id
+     WHERE t.user_id = $1 AND t.status = 'MATCHED'
+       AND gm.result IS NULL
+       AND gm.created_at > NOW() - INTERVAL '10 minutes'
+     ORDER BY t.matched_at DESC
+     LIMIT 1`,
+    [userId]
+  );
+  const row = rows[0];
+  if (!row) return null;
+
+  const matchMetadata = row.metadata || null;
+  const players = Array.isArray(matchMetadata?.playerSnapshots)
+    ? matchMetadata.playerSnapshots
+    : [];
+  return {
+    status: 'MATCHED',
+    lobbyId: row.lobby_id,
+    ticket: {
+      id: row.ticket_id,
+      status: 'MATCHED',
+      lobbyId: row.lobby_id,
+      userMatchId: row.user_match_id,
+      matchedAt: row.matched_at,
+    },
+    players,
+    matchMetadata,
+  };
+};
+
 const getLobby = async ({ userId, lobbyId }) => {
   const { rows } = await pool.query('SELECT * FROM game_lobby WHERE id = $1', [lobbyId]);
   if (!rows[0]) throw require('../../utils/error.util').createError('Lobby not found', 404);
@@ -2157,6 +2221,8 @@ const cancelMatchmaking = async (userId) => {
 };
 
 module.exports = {
+  findActiveQueuedLobby,
+  findActiveMatchedMatch,
   getLobby,
   updateLobby,
   deleteLobby,

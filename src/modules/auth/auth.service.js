@@ -490,20 +490,25 @@ class AuthService {
       // // Auto-create XP wallet for new user
       await this.xpSvc.createXPwallet({ userId });
 
-      // Refer & Earn: reward the new user 500 XP for signing up with a code,
-      // and reward the referrer with 500 XP + a notification too.
+      // Refer & Earn: reward the new user for signing up with a code, and
+      // reward the referrer too (+ a notification). Amounts come from the
+      // backend XP rewards config — never hardcoded here.
       if (referredBy) {
         try {
+          const { XP_REWARDS } = require('../xp/xp.rewards');
+          // transactionType MUST be one of the DB's allowed values
+          // ('earned' | 'spent' | 'bonus') — anything else (e.g. 'reward')
+          // violates the CHECK constraint and silently drops the credit.
           await this.xpSvc.creditXP({
             userId,
-            xp: 500,
-            transactionType: 'reward',
+            xp: XP_REWARDS.referralJoinerBonus,
+            transactionType: 'earned',
             sourceType: 'referral_signup_bonus',
           });
           await this.xpSvc.creditXP({
             userId: referredBy,
-            xp: 500,
-            transactionType: 'reward',
+            xp: XP_REWARDS.referralReferrerBonus,
+            transactionType: 'earned',
             sourceType: 'referral_invite_bonus',
           });
 
@@ -514,7 +519,7 @@ class AuthService {
               senderId: userId,
               type: 'REFERRAL_REWARD',
               title: 'Referral bonus earned! 🎉',
-              message: `${newUser.name} (@${newUser.username}) joined with your referral code — you earned 500 XP!`,
+              message: `${newUser.name} (@${newUser.username}) joined with your referral code — you earned ${XP_REWARDS.referralReferrerBonus} XP!`,
               resourceType: 'user',
               resourceId: userId,
             });
@@ -539,7 +544,26 @@ class AuthService {
       await redis.del(verificationKey);
       const { sessionData } = await this.#issueTokens(newUser);
 
-      return { user: newUser, sessionData, COOKIE_OPTS };
+      // Include the referrer's public profile so the app can greet the new
+      // joiner with a "gift from @referrer" welcome when a code was used.
+      let referrerInfo = null;
+      if (referredBy) {
+        try {
+          const refUser = await this.authUserRepo.findByIdUser({ userId: referredBy });
+          if (refUser) {
+            referrerInfo = {
+              id: refUser.id,
+              name: refUser.name,
+              username: refUser.username,
+              avatarUrl: refUser.avatarUrl,
+            };
+          }
+        } catch (err) {
+          console.error('Failed to load referrer profile:', err.message);
+        }
+      }
+
+      return { user: newUser, sessionData, referrer: referrerInfo, COOKIE_OPTS };
     } catch (error) {
       throw error;
     }
@@ -692,7 +716,7 @@ class AuthService {
       if (!user || user.refreshTokenHash !== hashToken(refreshToken)) {
         throw createError('Invalid refresh token', 401);
       }
-      const { userData, sessionData } = this.#issueTokens(user);
+      const { userData, sessionData } = await this.#issueTokens(user);
       return { userData, sessionData };
     } catch (error) {
       throw error;

@@ -64,7 +64,11 @@ export default function MainHeader({ showBack = false }: { showBack?: boolean })
             // opens pre-scoped to that person's content.
             let scopeCommunity: string | undefined;
             let authorFilter: string | undefined;
-            let source: 'bookmarks' | 'settings' | 'notifications' | undefined;
+            // `source` scopes to a non-unified local search (bookmarks/settings/
+            // notifications/wallet); `type` pre-selects the server result pill
+            // (events/games/communities) so those tabs search their own domain.
+            let source: 'bookmarks' | 'settings' | 'notifications' | 'wallet' | undefined;
+            let type: string | undefined;
             if (route.name === 'HomeMain') tab = 'all';
             else if (route.name === 'Profile') {
               tab = 'posts';
@@ -75,16 +79,17 @@ export default function MainHeader({ showBack = false }: { showBack?: boolean })
               authorFilter =
                 (route.params as any)?.user?.username || currentUser?.username;
             }
-            else if (route.name === 'Community' || route.name === 'CommunityList') tab = 'communities';
+            else if (route.name === 'Community' || route.name === 'CommunityList') type = 'communities';
             else if (route.name === 'CommunityDetail') {
               tab = 'posts';
               scopeCommunity = (route.params as any)?.communitySlug;
             }
-            else if (route.name === 'Events') tab = 'events';
-            else if (route.name === 'Games') tab = 'games';
-            // Search from Bookmarks is scoped to saved posts (with the
-            // All/Posts/Events tab set); from Settings it scopes to the
-            // viewer's own posts.
+            else if (route.name === 'Events') type = 'events';
+            else if (route.name === 'Games') type = 'games';
+            // Search from Wallet is scoped to the user's transactions.
+            else if (route.name === 'Wallet') source = 'wallet';
+            // Search from Bookmarks is scoped to saved posts; from Settings it
+            // scopes to the viewer's own posts.
             else if (route.name === 'Bookmarks') {
               tab = 'posts';
               source = 'bookmarks';
@@ -103,6 +108,7 @@ export default function MainHeader({ showBack = false }: { showBack?: boolean })
             if (scopeCommunity) params.scopeCommunity = scopeCommunity;
             if (authorFilter) params.authorFilter = authorFilter;
             if (source) params.source = source;
+            if (type) params.type = type;
             navigation.navigate("Search", params);
           }}
           activeOpacity={0.7}

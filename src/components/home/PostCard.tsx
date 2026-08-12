@@ -515,7 +515,7 @@ export default function PostCard({
       {audienceExpanded && (
         <View style={{ marginTop: 6, height: 230 }}>
           <AudiencePickerList
-            selectedId={feedSelected ? null : repostCommunityId}
+            selectedId={feedSelected ? null : repostCommunityId === null ? undefined : repostCommunityId}
             onSelect={(id, comm) => {
               // null from the picker = the Feed row was tapped.
               setRepostCommunityId(id === null ? REPOST_FEED_AUDIENCE : id);

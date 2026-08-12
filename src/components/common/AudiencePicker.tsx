@@ -8,12 +8,12 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { fontSizes, spacing, radii, type ColorPalette } from '../../theme';
 import { useThemeColors } from '../../context/ThemeContext';
 import { useAuth } from '../../context/AuthContext';
-import { useCommunities } from '../../queries/communities';
+import { useJoinedCommunities } from '../../queries/communities';
 import type { Community } from '../../types';
 
 export interface AudienceListProps {
-  /** null = Feed (everyone). */
-  selectedId: string | null;
+  /** null = Feed (everyone), undefined = no selection yet. */
+  selectedId: string | null | undefined;
   onSelect: (communityId: string | null, community?: Community) => void;
   /** Feed row label — e.g. "Public", "Followers", or "Feed". */
   feedLabel: string;
@@ -159,10 +159,9 @@ export function AudiencePickerList({
     return () => clearTimeout(t);
   }, [searchInput]);
 
-  const query = useCommunities(search, true); // mine=true → postable communities only
+  const query = useJoinedCommunities(search);
   const communities = (query.data?.pages || [])
-    .flatMap((p: any) => p.items)
-    .filter((c: any) => c.isJoined || c.ownerId === user?.id);
+    .flatMap((p: any) => p.items);
 
   const isEmptySearch = search.length > 0 && communities.length === 0 && !query.isFetching;
 

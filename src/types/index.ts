@@ -36,7 +36,7 @@ export type HomeStackParamList = {
   ChangePhone:    undefined;
   ChangeEmail:    undefined;
   FollowRequests: undefined;
-  Search:         { query?: string; tab?: 'all' | 'posts' | 'people' | 'communities' | 'events' | 'games' | 'hashtags'; scopeCommunity?: string; authorFilter?: string; source?: 'bookmarks' | 'settings' } | undefined;
+  Search:         { query?: string; tab?: 'all' | 'posts' | 'people' | 'communities' | 'events' | 'games' | 'hashtags'; scopeCommunity?: string; authorFilter?: string; source?: 'bookmarks' | 'settings' | 'notifications' | 'wallet'; type?: string } | undefined;
 };
 
 export type CommunityStackParamList = {

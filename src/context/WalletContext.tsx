@@ -280,6 +280,9 @@ export function WalletProvider({ children }: { children: React.ReactNode }) {
         cashBalance: (data.balanceCents || 0) / 100,
         heldBalance: (data.heldBalanceCents ?? 0) / 100,
       } });
+      
+      // Auto-refresh transaction history so "Pending" updates to "Completed"
+      fetchWalletData().catch(console.error);
     };
     const handleXPUpdated = (data: any) => {
       dispatch({ type: 'SET_DATA', payload: { xpBalance: data.xp } });

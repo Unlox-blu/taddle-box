@@ -7,8 +7,11 @@ export const walletService = {
     return response.data;
   },
 
-  getTransactions: async (page = 1, limit = 20) => {
-    const response = await apiClient.get(`/wallet/me/transactions?page=${page}&limit=${limit}`);
+  /** Fetch wallet transactions. `q` searches the FULL history server-side
+      (description/type/category/status/amount) — not just the first page. */
+  getTransactions: async (page = 1, limit = 20, q = '') => {
+    const query = `page=${page}&limit=${limit}${q ? `&q=${encodeURIComponent(q)}` : ''}`;
+    const response = await apiClient.get(`/wallet/me/transactions?${query}`);
     return response.data;
   },
 

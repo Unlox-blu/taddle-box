@@ -11,8 +11,9 @@ import {
 
   Image,
   Dimensions,
-    Platform,
+  Platform,
   ActivityIndicator,
+  DeviceEventEmitter,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useNavigation } from "@react-navigation/native";
@@ -24,7 +25,7 @@ import { fontSizes, spacing, radii, type ColorPalette } from "../../theme";
 import { useTheme, useThemeColors } from "../../context/ThemeContext";
 import AppRefreshControl from '../../components/common/AppRefreshControl';
 import { useAuth } from "../../context/AuthContext";
-import { useCommunities } from "../../queries/communities";
+import { useCommunities, useCommunityCategories } from "../../queries/communities";
 import {
   useJoinCommunity,
   useCreateCommunity,
@@ -70,17 +71,20 @@ const AVATAR_COLORS: Record<string, [string, string]> = {
   All: ["#6366f1", "#4f46e5"],
 };
 
-const CATEGORY_TABS = [
+const DYNAMIC_ICONS: Record<string, string> = {
+  Tech: "laptop-outline",
+  Gaming: "game-controller-outline",
+  Lifestyle: "cafe-outline",
+  Startup: "rocket-outline",
+  Creative: "color-palette-outline",
+  Study: "book-outline",
+  Others: "ellipsis-horizontal-outline",
+};
+
+const HARDCODED_TABS = [
   { label: "All", key: "All", icon: "grid-outline" },
   { label: "Created", key: "Created", icon: "star-outline" },
   { label: "Joined", key: "Joined", icon: "checkmark-circle-outline" },
-  { label: "Tech", key: "Tech", icon: "laptop-outline" },
-  { label: "Gaming", key: "Gaming", icon: "game-controller-outline" },
-  { label: "Lifestyle", key: "Lifestyle", icon: "cafe-outline" },
-  { label: "Startups", key: "Startup", icon: "rocket-outline" },
-  { label: "Creative", key: "Creative", icon: "color-palette-outline" },
-  { label: "Study", key: "Study", icon: "book-outline" },
-  { label: "Others", key: "Others", icon: "ellipsis-horizontal-outline" },
 ];
 
 function makeStyles(c: ColorPalette) {
@@ -482,13 +486,27 @@ export default function CommunityScreen() {
 
   const { user: authUser } = useAuth();
 
+  const { data: categoriesData } = useCommunityCategories();
+  const dynamicCategories = (categoriesData || []).map((cat: string) => ({
+    label: cat,
+    key: cat,
+    icon: DYNAMIC_ICONS[cat] || "ellipsis-horizontal-outline",
+  }));
+  const ALL_CATEGORY_TABS = [...HARDCODED_TABS, ...dynamicCategories];
+
+  const [activeCategory, setActiveCategory] = useState("All");
+  const [showCreate, setShowCreate] = useState(false);
+
+  const filter = activeCategory === 'Joined' ? 'joined' : activeCategory === 'Created' ? 'created' : undefined;
+  const categoryParam = activeCategory !== 'All' && activeCategory !== 'Joined' && activeCategory !== 'Created' ? activeCategory : undefined;
+
   const {
     data: communitiesData,
     refetch,
     isRefetching,
     fetchNextPage,
     hasNextPage,
-  } = useCommunities();
+  } = useCommunities('', filter, categoryParam);
   const communities = communitiesData?.pages.flatMap((p: any) => p.items) || [];
 
   // The server owns the SECTION ORDER of the All tab (sections descriptor
@@ -507,10 +525,14 @@ export default function CommunityScreen() {
   const { mutate: toggleJoin } = useJoinCommunity();
   const { mutateAsync: createCommunityAsync } = useCreateCommunity();
 
-  const [activeCategory, setActiveCategory] = useState("All");
-  const [showCreate, setShowCreate] = useState(false);
+  React.useEffect(() => {
+    const sub = DeviceEventEmitter.addListener('openCreateCommunity', () => {
+      setShowCreate(true);
+    });
+    return () => sub.remove();
+  }, []);
 
-  // Derived Data
+  // Derived Data for the "All" tab previews
   const joinedCommunities = useMemo(
     () =>
       communities.filter(
@@ -542,12 +564,8 @@ export default function CommunityScreen() {
       .slice(0, 5);
   }, [communities, authUser?.id]);
 
-  const filteredCommunities = useMemo(() => {
-    if (activeCategory === "All") return communities;
-    if (activeCategory === "Joined") return joinedCommunities; // Actually we probably want both created and joined if they select "Joined" or keep it separated? Let's just return both for "Joined" tab.
-    if (activeCategory === "Created") return createdCommunities;
-    return communities.filter((c) => c.category?.includes(activeCategory));
-  }, [communities, activeCategory, joinedCommunities, createdCommunities]);
+  // For the non-All tabs, the communities array itself is already filtered by the backend!
+  const filteredCommunities = communities;
 
   // ── All-tab sections — rendered in the server-provided order ─────────────
   const sectionHeader = (title: string, first: boolean, action?: { label: string; onPress: () => void }) => (
@@ -647,7 +665,7 @@ export default function CommunityScreen() {
         return (
           <View key="sect-discover">
             {sectionHeader(s.title, first)}
-            {discoverCommunities.slice(0, 10).map((c: any) => (
+            {discoverCommunities.map((c: any) => (
               <CompactCommunityCard
                 key={c.id}
                 community={c}
@@ -692,20 +710,6 @@ export default function CommunityScreen() {
               color={colors.text.secondary}
             />
           </TouchableOpacity>
-          <TouchableOpacity
-            style={styles.createBtnWrap}
-            onPress={() => setShowCreate(true)}
-          >
-            <LinearGradient
-              colors={[colors.primary, colors.cyanDark]}
-              start={{ x: 0, y: 0 }}
-              end={{ x: 1, y: 1 }}
-              style={styles.createBtn}
-            >
-              <Ionicons name="add-circle" size={18} color="#fff" />
-              <Text style={styles.createBtnText}>Create</Text>
-            </LinearGradient>
-          </TouchableOpacity>
         </View>
       </View>
 
@@ -715,7 +719,7 @@ export default function CommunityScreen() {
           showsHorizontalScrollIndicator={false}
           contentContainerStyle={styles.chips}
         >
-          {CATEGORY_TABS.map((cat) => (
+          {ALL_CATEGORY_TABS.map((cat) => (
             <TouchableOpacity
               key={cat.key}
               style={[
@@ -776,9 +780,6 @@ export default function CommunityScreen() {
                     ? "Created by You"
                     : `${activeCategory} Communities`}
               </Text>
-              <Text style={styles.sectionAction}>
-                {filteredCommunities.length} results
-              </Text>
             </View>
 
             {filteredCommunities.length === 0 ? (
@@ -799,19 +800,12 @@ export default function CommunityScreen() {
                     ? "You haven't joined any communities. Explore and find your vibe!"
                     : `We couldn't find any communities for ${activeCategory}. Be the first to create one!`}
                 </Text>
-                {activeCategory === "Joined" ? (
+                {activeCategory === "Joined" && (
                   <TouchableOpacity
                     style={styles.emptyBtn}
                     onPress={() => setActiveCategory("All")}
                   >
                     <Text style={styles.emptyBtnText}>Explore All</Text>
-                  </TouchableOpacity>
-                ) : (
-                  <TouchableOpacity
-                    style={styles.emptyBtn}
-                    onPress={() => setShowCreate(true)}
-                  >
-                    <Text style={styles.emptyBtnText}>Create Community</Text>
                   </TouchableOpacity>
                 )}
               </View>
@@ -843,6 +837,7 @@ export default function CommunityScreen() {
       <CreateCommunityModal
         visible={showCreate}
         onClose={() => setShowCreate(false)}
+        categories={(categoriesData || [])}
         onCreate={async (formData) => {
           const res = await createCommunityAsync(formData);
           const created = res?.data?.community || res?.data || res?.community;
@@ -1062,15 +1057,6 @@ function CompactCommunityCard({
 }
 
 // ─── Create Community Modal ──────────────────────────────────────────────────
-const COMMUNITY_CATEGORIES = [
-  "Tech",
-  "Gaming",
-  "Lifestyle",
-  "Startup",
-  "Creative",
-  "Study",
-  "Others",
-];
 const EMOJI_OPTIONS = [
   "🚀",
   "⚡",
@@ -1094,19 +1080,21 @@ function CreateCommunityModal({
   visible,
   onClose,
   onCreate,
+  categories,
   styles,
   colors,
 }: {
   visible: boolean;
   onClose: () => void;
   onCreate: (c: any) => Promise<any> | void;
+  categories: string[];
   styles: ReturnType<typeof makeStyles>;
   colors: ColorPalette;
 }) {
   const insets = useSafeAreaInsets();
   const [name, setName] = useState("");
   const [desc, setDesc] = useState("");
-  const [category, setCategory] = useState("Tech");
+  const [category, setCategory] = useState(categories[0] || "");
   const [isPrivate, setIsPrivate] = useState(false);
   const [avatarAsset, setAvatarAsset] =
     useState<ImagePicker.ImagePickerAsset | null>(null);
@@ -1117,7 +1105,7 @@ function CreateCommunityModal({
   const reset = () => {
     setName("");
     setDesc("");
-    setCategory("Tech");
+    setCategory(categories[0] || "");
     setIsPrivate(false);
     setAvatarAsset(null);
     setBannerAsset(null);
@@ -1377,7 +1365,7 @@ function CreateCommunityModal({
 
           <Text style={styles.fieldLabel}>Category</Text>
           <View style={styles.categoryGrid}>
-            {COMMUNITY_CATEGORIES.map((cat) => (
+            {categories.map((cat) => (
               <TouchableOpacity
                 key={cat}
                 style={[

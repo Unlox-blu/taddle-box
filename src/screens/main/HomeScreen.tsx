@@ -343,15 +343,9 @@ export default function HomeScreen() {
     [],
   );
 
-  const filteredPosts =
-    activeTrend === "All"
-      ? posts
-      : posts.filter((p: any) => {
-          const normalizedTags = (p.hashtags || p.tags || []).map(
-            (t: string) => `#${t}`,
-          );
-          return normalizedTags.includes(activeTrend);
-        });
+  // The backend API already filters by the active hashtag (if it's not "All").
+  // There's no need to filter it again on the client side, which causes case-sensitivity bugs.
+  const filteredPosts = posts;
 
   const queryClient = useQueryClient();
 
@@ -557,7 +551,13 @@ export default function HomeScreen() {
               {trendChips.map((chip) => (
                 <TouchableOpacity
                   key={chip}
-                  onPress={() => setActiveTrend(chip)}
+                  onPress={() => {
+                    if (activeTrend === chip) {
+                      onRefresh();
+                    } else {
+                      setActiveTrend(chip);
+                    }
+                  }}
                   style={[
                     styles.chip,
                     {

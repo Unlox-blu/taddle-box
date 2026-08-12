@@ -1,8 +1,10 @@
 import { apiClient } from "./apiClient";
 
 export const userService = {
+  // Mention-autocomplete / @user suggestions — dedicated people endpoint
+  // (the legacy type=people search path was removed).
   searchUsers: async (q = "") => {
-    const res = await apiClient.get(`/search?type=people&q=${encodeURIComponent(q)}`);
+    const res = await apiClient.get(`/search/people?q=${encodeURIComponent(q)}&limit=10`);
     if (res.data?.data && Array.isArray(res.data.data.data)) {
         return { data: res.data.data.data };
     }

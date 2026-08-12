@@ -32,7 +32,9 @@ import { userService } from "../../services/user.service";
 import { communityService } from "../../services/community.service";
 import { hashtagService } from "../../services/hashtag.service";
 import { notificationService } from "../../services/notification.service";
-import type { HomeStackParamList, Post } from "../../types";
+import { walletService } from "../../services/wallet.service";
+import { xpService } from "../../services/xp.service";
+import type { HomeStackParamList, Post, Transaction } from "../../types";
 import AppRefreshControl from "../../components/common/AppRefreshControl";
 import { useToggleLike, useToggleSave } from "../../mutations/posts";
 import PostCard from "../../components/home/PostCard";
@@ -41,51 +43,27 @@ import AsyncStorage from "@react-native-async-storage/async-storage";
 
 type Props = NativeStackScreenProps<HomeStackParamList, "Search">;
 
-// Tabs rendered at the top of the search screen (ordered).
-const TABS: { key: SearchType; label: string }[] = [
-  { key: "all", label: "All" },
-  { key: "posts", label: "Posts" },
-  { key: "people", label: "People" },
-  { key: "communities", label: "Communities" },
-  { key: "events", label: "Events" },
-  { key: "games", label: "Games" },
-  { key: "hashtags", label: "Hashtags" },
-];
-
 // Reddit-style filter-token pattern: a boxed token becomes a removable chip.
 // `@user` scopes results to people involved, `c/community` scopes them to that
 // community's posts, `#tag` scopes them to posts carrying that hashtag — they
 // combine (e.g. "@pravin_viswa c/tvk #peaceful").
-const TOKEN_FILTER_RE = /^(@[^\s@]+|c\/[^\s/]+|#[^\s#]+|\.\/[a-z]+|p\/|g\/)$/i;
+const TOKEN_FILTER_RE = /^(@[^\s@]+|c\/[^\s/]+|#[^\s#]+|\.\/[a-z]+)$/i;
 
-// Filter-mode tabs — shown in place of the regular tabs while a PERSON filter
-// (@user) is active. Each narrows which involvement dimension matches; "All"
-// keeps everything involving the tagged people.
-const FILTER_TABS: { key: string; label: string }[] = [
-  { key: "f-all", label: "All" },
-  { key: "f-authored", label: "Posts" },
-  { key: "f-mentions", label: "Mentions" },
-  { key: "f-comments", label: "Comments" },
-  { key: "f-reposts", label: "Reposts" },
-];
-// "f-all" → no narrowing; every other filter tab maps to its dimension.
-const involvementOf = (key: string) => (key === "f-all" ? "" : key.slice(2));
+// Time-window cutoff (epoch ms) for the LOCAL scopes (wallet/notifications) —
+// mirrors the backend's bare `time` token values.
+const timeCutoffMs = (time: string): number | null => {
+  const hours: Record<string, number> = {
+    recent: 24,
+    past_week: 24 * 7,
+    past_month: 24 * 30,
+    past_year: 24 * 365,
+  };
+  const h = hours[time];
+  return h ? Date.now() - h * 3600 * 1000 : null;
+};
 
-// Bookmarks-mode tabs — shown while the search is scoped to saved content
-// (opened from the Bookmarks screen). All/Posts search saved posts; Events
-// searches saved events.
-const BOOKMARK_TABS: { key: string; label: string }[] = [
-  { key: "bm-all", label: "All" },
-  { key: "bm-posts", label: "Posts" },
-  { key: "bm-events", label: "Events" },
-];
-
-const POST_TABS: { key: string; label: string }[] = [
-  { key: "p-contents", label: "Contents" },
-  { key: "p-comments", label: "Comments" },
-  { key: "p-mentions", label: "Mentions" },
-];
-
+// Notifications-mode tabs — the only legacy tab set left (it filters the
+// fetched notifications locally, no search API involved).
 const NOTIF_TABS: { key: string; label: string }[] = [
   { key: "n-all", label: "All" },
   { key: "n-likes", label: "Likes" },
@@ -185,9 +163,12 @@ const normalizePostResult = (item: any): Post => {
   } as Post;
 };
 
+// Result kinds the unified search can return, plus the legacy SearchType tabs
+// still used by bookmarks/settings/notifications scopes.
+type ResultType = SearchType | "comments" | "media" | "text";
 type Row =
-  | { isHeader: true; title: string; type: SearchType }
-  | { isHeader: false; item: any; type: SearchType };
+  | { isHeader: true; title: string; type: ResultType }
+  | { isHeader: false; item: any; type: ResultType };
 
 export default function SearchScreen({ navigation, route }: Props) {
   const insets = useSafeAreaInsets();
@@ -209,12 +190,21 @@ export default function SearchScreen({ navigation, route }: Props) {
   const initialAuthor = (route.params as any)?.authorFilter || "";
 
   const [query, setQuery] = useState(initialQuery);
-  // Filter-mode tabs use keys outside SearchType (f-all, f-mentions, …).
-  const [activeTab, setActiveTab] = useState<string>(initialTab);
+  // The unified search has ONE view ("all"); only the notifications scope
+  // keeps its n-* tabs. Legacy tab params (hashtags, f-all, posts, …) all
+  // normalize to "all".
+  const [activeTab, setActiveTab] = useState<string>(
+    String(initialTab).startsWith("n-") ? initialTab : "all",
+  );
   const [loading, setLoading] = useState(false);
-  const [scope, setScope] = useState(initialScope);
-  const scopeRef = useRef(scope);
-  scopeRef.current = scope;
+  // Reddit-style community scoping — MULTIPLE c/<slug> chips can be active
+  // (c/a c/b in the search box); each becomes its own removable chip and the
+  // API gets them comma-joined. Any one matching scopes the results.
+  const [communityFilters, setCommunityFilters] = useState<string[]>(
+    initialScope ? [initialScope] : [],
+  );
+  const communityRef = useRef(communityFilters);
+  communityRef.current = communityFilters;
   // Multiple people can be tagged (@a @b) — each becomes its own chip and the
   // API gets them comma-joined; any one of them being involved matches.
   const [authorFilters, setAuthorFilters] = useState<string[]>(
@@ -243,22 +233,33 @@ export default function SearchScreen({ navigation, route }: Props) {
   const sortByRef = useRef(sortBy);
   sortByRef.current = sortBy;
 
+  // TIME window from the filter modal — sent as the `time` param.
+  const [timeWindow, setTimeWindow] = useState<string>("all_time");
+  const timeWindowRef = useRef(timeWindow);
+  timeWindowRef.current = timeWindow;
+
+  // Active unified-search pill — "all" is the mixed view (the backend always
+  // returns it as the first pill); otherwise one of the server's result types
+  // (posts | comments | media | …). Seeded from the route so opening search
+  // from the Events/Games/Communities tabs pre-selects that type. Changing it
+  // re-fetches (part of the search identity, so caches reset).
+  const initialType = (route.params as any)?.type || "all";
+  const [resultType, setResultType] = useState<string>(initialType);
+  const resultTypeRef = useRef(resultType);
+  resultTypeRef.current = resultType;
+  // Type pills the server returned for the current query — each carries its
+  // own display label, so the pill row is rendered verbatim. Re-populated on
+  // every unified fetch.
+  const [serverTypes, setServerTypes] = useState<
+    { type: string; label: string }[]
+  >([]);
+
   const [showFilters, setShowFilters] = useState(false);
-  const [filterType, setFilterType] = useState("relevance");
-  const [filterTime, setFilterTime] = useState("all_time");
-
-  // Search Context states
-  const [postMode, setPostMode] = useState(false);
-  const postModeRef = useRef(postMode);
-  postModeRef.current = postMode;
-
-  const [gameMode, setGameMode] = useState(false);
-  const gameModeRef = useRef(gameMode);
-  gameModeRef.current = gameMode;
-
-  const [postFilter, setPostFilter] = useState("contents");
-  const postFilterRef = useRef(postFilter);
-  postFilterRef.current = postFilter;
+  // Draft values for the filter modal — only committed to the live search
+  // when "Apply Filters" is pressed, so tapping chips inside the modal does
+  // NOT re-run the search while it's still open.
+  const [draftSort, setDraftSort] = useState("relevance");
+  const [draftTime, setDraftTime] = useState("all_time");
 
   const [recentSearches, setRecentSearches] = useState<string[]>([]);
   useEffect(() => {
@@ -290,16 +291,13 @@ export default function SearchScreen({ navigation, route }: Props) {
       const u = token.slice(1);
       setAuthorFilters((prev) => (prev.includes(u) ? prev : [...prev, u]));
     } else if (t.startsWith("c/")) {
-      setScope(token.slice(2));
+      const slug = token.slice(2);
+      setCommunityFilters((prev) =>
+        prev.includes(slug) ? prev : [...prev, slug],
+      );
     } else if (t.startsWith("#")) {
       const tag = token.slice(1);
       setTagFilters((prev) => (prev.includes(tag) ? prev : [...prev, tag]));
-    } else if (t === "p/") {
-      setPostMode(true);
-      setActiveTab("p-contents"); // Custom tab for post mode
-    } else if (t === "g/") {
-      setGameMode(true);
-      setActiveTab("games");
     } else if (t.startsWith("./")) {
       const destination = t.slice(2);
       if (destination === "settings") {
@@ -337,13 +335,17 @@ export default function SearchScreen({ navigation, route }: Props) {
     setQuery(commitFilterTokens(text));
   };
 
-  // Pressing search commits a trailing filter token (e.g. "@foo" with no
-  // space) so it still applies instead of being searched as plain text.
+  // Pressing search (keyboard return or the search icon) commits a trailing
+  // filter token (e.g. "@foo" with no space) so it still applies instead of
+  // being searched as plain text, then fires an explicit request — with an
+  // empty box this hits the API with all params empty so the backend returns
+  // the default types + discoveries for each type.
   const handleSubmit = () => {
     const next = commitFilterTokens(query + " ");
     if (next !== query) setQuery(next);
     const searchToSave = next.trim() || query.trim();
     saveRecentSearch(searchToSave);
+    fetchResults(searchToSave, activeTab, 1, false);
   };
 
   // An uncommitted trailing @/c/ token isn't searched as plain text — strip
@@ -453,7 +455,10 @@ export default function SearchScreen({ navigation, route }: Props) {
       const u = item.username;
       setAuthorFilters((prev) => (prev.includes(u) ? prev : [...prev, u]));
     } else if (suggestionKind === "community") {
-      setScope(item.slug);
+      const slug = item.slug;
+      setCommunityFilters((prev) =>
+        prev.includes(slug) ? prev : [...prev, slug],
+      );
     } else if (suggestionKind === "tag") {
       const t = (item.hashtag || item.text || item.name || "").replace(
         /^#/,
@@ -480,63 +485,26 @@ export default function SearchScreen({ navigation, route }: Props) {
     setSuggestionsVisible(false);
   };
 
-  // Content filters are active → the results ARE content. A PERSON filter
-  // (@user) swaps the tab bar for the involvement tabs (All/Posts/Mentions/
-  // Comments/Reposts) and opens on "All"; community/tag-only filters stay on
-  // the plain Posts tab. Removing all chips restores the tab the user was on.
+  // Content filters are active → the results ARE content (filter chips always
+  // scope the unified search; they don't swap any tab sets anymore).
   const filtersActive =
-    authorFilters.length > 0 || !!scope || tagFilters.length > 0 || !!source;
-  const hasPersonFilter = authorFilters.length > 0;
-  const prevTabBeforeFiltersRef = useRef<string | null>(null);
-  const filtersWereActiveRef = useRef(false);
+    authorFilters.length > 0 ||
+    communityFilters.length > 0 ||
+    tagFilters.length > 0 ||
+    !!source;
+
+  // Source scopes set the active view: Bookmarks → the unified search ("all",
+  // scoped to saved content via bookmarked=1), Notifications → its n-* tabs,
+  // Settings → plain "all" (filtered locally). Only runs when the source
+  // changes so a user's n-* tab selection is preserved.
   useEffect(() => {
-    if (filtersActive) {
-      if (!filtersWereActiveRef.current) {
-        prevTabBeforeFiltersRef.current = activeTab;
-        filtersWereActiveRef.current = true;
-      }
-      // Bookmarks → the All/Posts/Events tab set; Settings → plain Posts;
-      // person chips → the involvement tab set (wins over the others).
-      const target = hasPersonFilter
-        ? "f-all"
-        : source === "bookmarks"
-          ? "bm-all"
-          : source === "notifications"
-            ? "n-all"
-            : "posts";
-      if (activeTab !== target) {
-        if (hasPersonFilter) {
-          // Arrive on the involvement tab set unless already inside it.
-          if (!String(activeTab).startsWith("f-")) setActiveTab(target);
-        } else if (source === "bookmarks") {
-          if (!String(activeTab).startsWith("bm-")) setActiveTab(target);
-        } else if (source === "notifications") {
-          if (!String(activeTab).startsWith("n-")) setActiveTab(target);
-        } else if (
-          String(activeTab).startsWith("f-") ||
-          String(activeTab).startsWith("bm-") ||
-          String(activeTab).startsWith("n-")
-        ) {
-          // Person/bookmark/notification chips removed (community/tag/settings still on) →
-          // plain Posts tab.
-          setActiveTab("posts");
-        }
-      }
-    } else if (filtersWereActiveRef.current) {
-      const prev = prevTabBeforeFiltersRef.current;
-      setActiveTab(
-        prev &&
-          !String(prev).startsWith("f-") &&
-          !String(prev).startsWith("bm-") &&
-          !String(prev).startsWith("n-")
-          ? prev
-          : "all",
-      );
-      prevTabBeforeFiltersRef.current = null;
-      filtersWereActiveRef.current = false;
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [filtersActive, hasPersonFilter, source]);
+    if (!source) return;
+    setActiveTab((prev) => {
+      if (source === "notifications" && String(prev).startsWith("n-"))
+        return prev;
+      return "all";
+    });
+  }, [source]);
 
   // Hashtag taps navigate to Search with { query, tab: 'hashtags' }. When the
   // Search screen is ALREADY in the stack, navigate() pops back to the existing
@@ -546,8 +514,21 @@ export default function SearchScreen({ navigation, route }: Props) {
   useEffect(() => {
     const p = route.params as any;
     if (p?.query !== undefined) setQuery(p.query);
-    if (p?.tab) setActiveTab(p.tab as string);
-    if (p?.scopeCommunity !== undefined) setScope(p.scopeCommunity);
+    if (p?.tab) {
+      const t = String(p.tab);
+      // Legacy tab params (hashtags, f-all, posts, …) all land on the unified
+      // search; only the notifications scope keeps its n-* tabs.
+      setActiveTab(t.startsWith("n-") ? t : "all");
+    }
+    if (p?.scopeCommunity !== undefined)
+      setCommunityFilters(
+        p.scopeCommunity
+          ? String(p.scopeCommunity)
+              .split(",")
+              .map((s: string) => s.trim())
+              .filter(Boolean)
+          : [],
+      );
     if (p?.authorFilter !== undefined)
       setAuthorFilters(
         p.authorFilter
@@ -558,6 +539,7 @@ export default function SearchScreen({ navigation, route }: Props) {
           : [],
       );
     if (p?.source !== undefined) setSource(p.source as string);
+    if (p?.type !== undefined) setResultType(String(p.type) || "all");
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [
     (route.params as any)?.query,
@@ -565,6 +547,7 @@ export default function SearchScreen({ navigation, route }: Props) {
     (route.params as any)?.scopeCommunity,
     (route.params as any)?.authorFilter,
     (route.params as any)?.source,
+    (route.params as any)?.type,
   ]);
   // Track whether we've loaded discovery content at least once — prevents the
   // empty-state flash on the "all" tab when discovery data is already available.
@@ -621,74 +604,25 @@ export default function SearchScreen({ navigation, route }: Props) {
   const { mutate: toggleLike } = useToggleLike();
   const { mutate: toggleSave } = useToggleSave();
 
-  // Section titles for the "all" tab. The API owns the ORDER (and may repeat
-  // a type — each occurrence renders as its own section), so titles are keyed
-  // by type rather than baked into a hardcoded sequence.
-  const sectionTitle = (type: string, isDiscovery: boolean): string => {
-    switch (type) {
-      case "people":
-        return isDiscovery ? "People to Follow" : "People";
-      case "communities":
-        return "Communities";
-      case "events":
-        return "Upcoming Events";
-      case "games":
-        return "Games";
-      case "posts":
-        return isDiscovery ? "Trending Posts" : "Posts";
-      case "hashtags":
-        return "Hashtags";
-      default:
-        // Unknown section type from a newer server — show it with a readable
-        // title instead of dropping the content.
-        return type.charAt(0).toUpperCase() + type.slice(1);
-    }
+  // One combined `filter` param for the unified API — c/<slug> for communities,
+  // @<user> for people, #<tag> for hashtags. Matches the URL shape
+  // search/?q=&sort=&filter=[c/x, @y, #z]&type=. Reads refs so it stays fresh
+  // inside the memoized fetchResults callback.
+  const buildFilterString = () => {
+    const tokens: string[] = [];
+    communityRef.current.forEach((slug) => tokens.push(`c/${slug}`));
+    authorRef.current.forEach((u) => tokens.push(`@${u}`));
+    tagRef.current.forEach((t) => tokens.push(`#${t}`));
+    return tokens.join(",");
   };
 
-  // Build a flat, sectioned row list for the "all" tab. Sections render in the
-  // exact order the API returns them (the server's `sections` array), and a
-  // type repeated in the response produces two separate sections — the client
-  // never reorders or merges. Older servers without `sections` fall back to the
-  // flat keys in canonical order. Empty sections are skipped.
-  const buildAllRows = (r: any, isDiscovery: boolean): Row[] => {
-    const sections: { type: string; items: any[] }[] =
-      Array.isArray(r?.sections) && r.sections.length > 0
-        ? r.sections
-        : [
-            { type: "people", items: r.people },
-            { type: "communities", items: r.communities },
-            { type: "events", items: r.events },
-            { type: "games", items: r.games },
-            { type: "posts", items: r.posts },
-            { type: "hashtags", items: r.hashtags },
-          ];
-
-    const out: Row[] = [];
-    sections.forEach((section) => {
-      const type = section.type as SearchType;
-      let items = Array.isArray(section.items) ? section.items : [];
-      if (!items.length) return;
-      out.push({
-        isHeader: true,
-        title: sectionTitle(type, isDiscovery),
-        type,
-      });
-      if (type === "hashtags") {
-        // Don't duplicate the hashtag rows inline — they live on the dedicated
-        // Hashtags tab. The section is a single doorway that jumps there and
-        // runs the hashtag search (see renderItem's viewAll branch).
-        out.push({
-          isHeader: false,
-          item: { viewAll: true, itemType: "hashtags" },
-          type,
-        });
-        return;
-      }
-      items.forEach((item: any) =>
-        out.push({ isHeader: false, item: { ...item, itemType: type }, type }),
-      );
-    });
-    return out;
+  // Stable key for deduping mixed-type rows on append (posts, media and
+  // comments each use different id columns).
+  const rowKey = (row: Row): string => {
+    const it = row.isHeader ? row.type : row.item;
+    return `${row.type}:${
+      it?.id || it?.media_id || it?.text || it?.username || it?.slug || ""
+    }`;
   };
 
   const fetchResults = useCallback(
@@ -724,6 +658,22 @@ export default function SearchScreen({ navigation, route }: Props) {
           else if (tab === "n-comments") filtered = filtered.filter(n => n.type === "comment");
           else if (tab === "n-follows") filtered = filtered.filter(n => n.type === "follow");
 
+          // The sort modal applies here too: TIME narrows by when the
+          // notification arrived, and the sort is newest-first (latest).
+          const cutoff = timeCutoffMs(timeWindowRef.current);
+          if (cutoff)
+            filtered = filtered.filter((n: any) => {
+              const ts = n.createdAt
+                ? new Date(n.createdAt).getTime()
+                : Date.now();
+              return ts >= cutoff;
+            });
+          filtered = [...filtered].sort((a: any, b: any) => {
+            const ta = a.createdAt ? new Date(a.createdAt).getTime() : 0;
+            const tb = b.createdAt ? new Date(b.createdAt).getTime() : 0;
+            return tb - ta;
+          });
+
           setRowsByTab((prev) => ({
             ...prev,
             [tab]: filtered.map(item => ({ isHeader: false, item, type: "notification_item" as SearchType }))
@@ -732,97 +682,122 @@ export default function SearchScreen({ navigation, route }: Props) {
           return;
         }
 
-        if (tab === "all") {
-          // Discovery overview — one request with per-section previews. The "See
-          // all" buttons jump to the fully paginated individual tabs.
-          if (append) return;
-          const res = await searchService.searchAll(
-            q,
-            6,
-            scopeRef.current,
-            authorRef.current.join(","),
-            tagRef.current.join(","),
-            sourceRef.current === "bookmarks" ? "1" : "",
-            sourceRef.current === "settings" ? "1" : "",
-            sortByRef.current,
-            postFilterRef.current,
+        // Wallet scope — search the user's cash + XP transactions. The query
+        // goes to BOTH endpoints so the FULL history is searched server-side
+        // (not just the first page); the local pass applies the TIME window
+        // and the chosen SORT on top.
+        if (sourceRef.current === "wallet") {
+          const [cashRes, xpRes] = await Promise.all([
+            walletService.getTransactions(1, 100, q),
+            xpService.getTransactions(1, 100, q),
+          ]);
+          const toCashTxn = (t: any): Transaction => ({
+            id: t.id,
+            title:
+              t.description ||
+              (t.type === "credit" ? "Cash Added" : "Cash Deducted"),
+            date: new Date(t.createdAt || Date.now()).toLocaleDateString(),
+            ts: new Date(t.createdAt || Date.now()).getTime(),
+            amount: (t.amountCents || 0) / 100,
+            currency: "INR",
+            type:
+              t.category === "withdrawal"
+                ? "withdraw"
+                : t.category === "topup"
+                  ? "topup"
+                  : t.type === "credit"
+                    ? "earn"
+                    : "spend",
+            status: t.status,
+          });
+          const toXpTxn = (t: any): Transaction => ({
+            id: t.id,
+            title:
+              t.gameName ||
+              t.game_name ||
+              (t.transactionType === "spent" ? "XP Spent" : "XP Earned"),
+            date: new Date(t.createdAt || Date.now()).toLocaleDateString(),
+            ts: new Date(t.createdAt || Date.now()).getTime(),
+            amount: t.xp || 0,
+            currency: "XP",
+            type: t.transactionType === "spent" ? "spend" : "earn",
+            status: t.status || "completed",
+          });
+          const all = [
+            ...(cashRes?.data || []).map(toCashTxn),
+            ...(xpRes?.data || []).map(toXpTxn),
+          ];
+          const term = q.toLowerCase();
+          const cutoff = timeCutoffMs(timeWindowRef.current);
+          let filtered = all.filter(
+            (t) =>
+              (!cutoff || (t.ts ?? 0) >= cutoff) &&
+              (t.title?.toLowerCase().includes(term) ||
+                t.type?.toLowerCase().includes(term) ||
+                t.currency?.toLowerCase().includes(term) ||
+                String(t.amount).includes(term) ||
+                (t.status || "").toLowerCase().includes(term)),
           );
-          const built = buildAllRows(res, !q.trim());
-          setRowsByTab((prev) => ({ ...prev, [tab]: built }));
-          if (!q.trim() && built.length > 0) setDiscoveryLoaded(true);
-        } else if (tab === "hashtags") {
-          if (append) return;
-          const hashtags = await searchService.getHashtags(q);
+          // top = biggest amount first; otherwise newest first (relevance /
+          // latest / hot all keep the recency order).
+          filtered = filtered.sort((a, b) =>
+            sortByRef.current === "top"
+              ? Math.abs(b.amount) - Math.abs(a.amount)
+              : (b.ts ?? 0) - (a.ts ?? 0),
+          );
           setRowsByTab((prev) => ({
             ...prev,
-            [tab]: hashtags.map((h) => ({
+            [tab]: filtered.map((item) => ({
               isHeader: false,
-              item: { text: h, itemType: "hashtags" },
-              type: "hashtags" as SearchType,
+              item,
+              type: "transaction_item" as SearchType,
             })),
           }));
-        } else {
-          // Filter-mode tabs (f-*) always search posts, narrowed by the
-          // involvement dimension. Bookmarks tabs (bm-*) search saved posts
-          // (bm-all/bm-posts) or saved events (bm-events). Regular tabs search
-          // their own entity.
-          const isFilterTab = tab.startsWith("f-");
-          const isBookmarkTab = tab.startsWith("bm-");
-          const isPostTab = tab.startsWith("p-");
-          const searchType = isFilterTab
-            ? "posts"
-            : isBookmarkTab
-              ? tab === "bm-events"
-                ? "events"
-                : "posts"
-              : isPostTab
-                ? "posts"
-                : tab;
-          const res = await searchService.searchByType(
-            searchType as any,
-            q,
-            pageToLoad,
-            10,
-            undefined,
-            scopeRef.current,
-            authorRef.current.join(","),
-            isFilterTab ? involvementOf(tab) : "",
-            tagRef.current.join(","),
-            sourceRef.current === "bookmarks" ? "1" : "",
-            sourceRef.current === "settings" ? "1" : "",
-            sortByRef.current,
-            isPostTab ? postFilterRef.current : "",
-          );
-          // A newer request (typing / tab switch) started after this one — drop it.
-          if (searchReqRef.current !== reqId) return;
-          tabHasMoreRef.current[tab] = res.hasNext;
-          tabPageRef.current[tab] = res.page;
-          const newRows: Row[] = res.items.map((item) => ({
-            isHeader: false as const,
-            item,
-            // searchType already maps f-*/bm-* tabs back to the entity they
-            // search (posts / events) so the right row component renders.
-            type: searchType as SearchType,
-          }));
-          setRowsByTab((prev) => {
-            const existing = prev[tab] || [];
-            return {
-              ...prev,
-              [tab]: append
-                ? [
-                    ...existing,
-                    ...newRows.filter(
-                      (row: any) =>
-                        !existing.some(
-                          (r: any) =>
-                            !r.isHeader && r.item?.id === row.item?.id,
-                        ),
-                    ),
-                  ]
-                : newRows,
-            };
-          });
+          setLoading(false);
+          return;
         }
+
+        // Unified search — ONE request returns an ordered list that may mix
+        // posts, comments, media, people, communities, events and text rows.
+        // The client renders the results verbatim (never reorders). Bookmarks
+        // scope is sent as bookmarked=1 so saved content is searched.
+        const res = await searchService.universalSearch({
+          q,
+          sort: sortByRef.current,
+          time: timeWindowRef.current,
+          filter: buildFilterString(),
+          type: resultTypeRef.current,
+          bookmarked: sourceRef.current === "bookmarks" ? "1" : "",
+          page: pageToLoad,
+          limit: 10,
+        });
+        // A newer request (typing / pill switch) started after this one — drop it.
+        if (searchReqRef.current !== reqId) return;
+        tabHasMoreRef.current[tab] = res.hasNext;
+        tabPageRef.current[tab] = res.page;
+        setServerTypes(res.types);
+        const newRows: Row[] = res.results.map((item: any) => ({
+          isHeader: false,
+          item,
+          type: (item.itemType || "text") as ResultType,
+        }));
+        setRowsByTab((prev) => {
+          const existing = prev[tab] || [];
+          const merged = append ? [...existing, ...newRows] : newRows;
+          // Dedupe by (type, id) so infinite-scroll pages never repeat rows.
+          const seen = new Set<string>();
+          return {
+            ...prev,
+            [tab]: merged.filter((row: Row) => {
+              const key = rowKey(row);
+              if (seen.has(key)) return false;
+              seen.add(key);
+              return true;
+            }),
+          };
+        });
+        if (!q.trim() && !buildFilterString() && newRows.length > 0)
+          setDiscoveryLoaded(true);
       } catch (e) {
         console.warn("Search failed", e);
         if (!append) setRowsByTab((prev) => ({ ...prev, [tab]: [] }));
@@ -847,11 +822,10 @@ export default function SearchScreen({ navigation, route }: Props) {
     }
   }, [effectiveQuery, activeTab, fetchResults]);
 
-  // Infinite scroll — appends the next page on individual tabs (posts, people,
-  // communities, events, games) using that tab's own pagination refs. The
-  // "all" and "hashtags" tabs are single requests.
+  // Infinite scroll — appends the next page using the tab's own pagination
+  // refs (the unified view paginates; notifications/settings are single
+  // local fetches so their hasMore never gets set).
   const loadMore = useCallback(() => {
-    if (activeTab === "all" || activeTab === "hashtags") return;
     if (!tabHasMoreRef.current[activeTab] || loadingMore || loading) return;
     setLoadingMore(true);
     fetchResults(
@@ -876,18 +850,13 @@ export default function SearchScreen({ navigation, route }: Props) {
     [activeTab],
   );
 
-  // "See all" on an All-tab section header → deep-link to that section's tab
-  // with the current query kept (shared state) and scroll restored by the
-  // tab-switch effect. Same path as the tab bar, named for intent.
-  const seeAll = useCallback((tab: SearchType) => switchTab(tab), [switchTab]);
-
   // Single debounced effect: on a QUERY change every tab's cache is invalidated
   // and the active tab refetches; on a TAB switch the cached rows (if any) are
   // kept and only scrolled back into place — no reset to page 1.
   useEffect(() => {
     // A filter chip added/removed changes the search identity just like the
     // text does — compare both so the caches reset and results refetch.
-    const filtersKey = `${authorFilters.join(",")}|${scope || ""}|${tagFilters.join(",")}|${source || ""}|${sortBy}`;
+    const filtersKey = `${authorFilters.join(",")}|${communityFilters.join(",")}|${tagFilters.join(",")}|${source || ""}|${sortBy}|${timeWindow}|${resultType}`;
     const queryChanged =
       lastQueryRef.current !== effectiveQuery ||
       lastFiltersKeyRef.current !== filtersKey;
@@ -896,12 +865,14 @@ export default function SearchScreen({ navigation, route }: Props) {
     const handler = setTimeout(
       () => {
         if (queryChanged) {
-          // New query → drop every tab's cache + pagination + scroll offsets.
+          // New query → drop every tab's cache + pagination + scroll offsets,
+          // and clear the stale type pills (the fetch re-populates them).
           setRowsByTab({});
           tabPageRef.current = {};
           tabHasMoreRef.current = {};
           scrollOffsetsRef.current = {};
           scrollOffsetCurrentRef.current = 0;
+          setServerTypes([]);
         }
         const cached = rowsByTabRef.current[activeTab];
         if (!queryChanged && cached && cached.length > 0) {
@@ -925,9 +896,11 @@ export default function SearchScreen({ navigation, route }: Props) {
     effectiveQuery,
     activeTab,
     authorFilters,
-    scope,
+    communityFilters,
     tagFilters,
     sortBy,
+    timeWindow,
+    resultType,
     fetchResults,
   ]);
 
@@ -936,17 +909,45 @@ export default function SearchScreen({ navigation, route }: Props) {
     (navigation as any).navigate("Main", { screen: "Games" });
   };
 
+  // Result-type pills the SERVER returns for the current query — the unified
+  // search's equivalent of tabs. The backend returns "all" first (the mixed
+  // ordered list) plus every type that exists, each with its own label; every
+  // pill re-requests with type=<that type>. Rendered verbatim — no
+  // client-side defaults or label map.
+  // Result-type pills the SERVER returns for the current query — rendered
+  // VERBATIM: whatever the backend sends is shown, nothing more. If it sends
+  // no pills, no pills row is rendered at all and the results just show.
+  const universalPills = useMemo(
+    () =>
+      serverTypes.map((t) => ({
+        key: t.type,
+        label: t.label,
+      })),
+    [serverTypes],
+  );
+  const renderPill = (pill: { key: string; label: string }) => {
+    const isActive = resultType === pill.key;
+    return (
+      <TouchableOpacity
+        style={[styles.tabBtn, isActive && styles.tabBtnActive]}
+        onPress={() => {
+          if (pill.key !== resultType) setResultType(pill.key);
+        }}
+        activeOpacity={0.8}
+      >
+        <Text style={[styles.tabText, isActive && styles.tabTextActive]}>
+          {pill.label}
+        </Text>
+      </TouchableOpacity>
+    );
+  };
+
   const renderTab = (tab: { key: string; label: string }) => {
     const isActive = activeTab === tab.key;
     return (
       <TouchableOpacity
         style={[styles.tabBtn, isActive && styles.tabBtnActive]}
-        onPress={() => {
-          if (tab.key.startsWith("p-")) {
-            setPostFilter(tab.key.replace("p-", ""));
-          }
-          switchTab(tab.key);
-        }}
+        onPress={() => switchTab(tab.key)}
         activeOpacity={0.8}
       >
         <Text style={[styles.tabText, isActive && styles.tabTextActive]}>
@@ -957,17 +958,9 @@ export default function SearchScreen({ navigation, route }: Props) {
   };
 
   const renderItem = ({ item }: { item: Row }) => {
-    if (item.isHeader) {
-      return (
-        <View style={styles.sectionHeader}>
-          <Text style={styles.sectionTitle}>{item.title}</Text>
-          <TouchableOpacity onPress={() => seeAll(item.type)}>
-            <Text style={styles.seeAll}>See all</Text>
-          </TouchableOpacity>
-        </View>
-      );
-    }
-
+    // Section headers are no longer produced — the server returns a flat,
+    // ordered list; the pill row under the search bar handles type filtering.
+    if (item.isHeader) return null;
     const { item: data, type } = item;
 
     if (type === "posts") {
@@ -1206,39 +1199,137 @@ export default function SearchScreen({ navigation, route }: Props) {
       );
     }
 
-    if (type === "hashtags") {
-      // All-tab section doorway — jump to the dedicated Hashtags tab (runs the
-      // hashtag search there) instead of showing the rows inline here.
-      if (data?.viewAll) {
-        return (
-          <TouchableOpacity
-            style={styles.hashtagRow}
-            onPress={() => seeAll("hashtags")}
-            activeOpacity={0.8}
-          >
-            <View style={styles.hashIconBubble}>
-              <Ionicons
-                name="pricetags-outline"
-                size={15}
-                color={colors.primaryLight}
+    if (type === "comments") {
+      // A comment matched (or lives on a matched post) — show the comment with
+      // its parent post as context; tapping opens the post's detail.
+      return (
+        <TouchableOpacity
+          style={styles.peopleRow}
+          onPress={() =>
+            // PostDetail re-fetches the full post by id on mount, so a
+            // minimal { id } payload is enough to deep-link.
+            navigation.push("PostDetail", {
+              post: { id: data.post_id } as Post,
+            })
+          }
+          activeOpacity={0.8}
+        >
+          <View style={styles.avatarBubble}>
+            {data.author_avatar ? (
+              <Image
+                source={{ uri: data.author_avatar }}
+                style={styles.avatarImg}
               />
+            ) : (
+              <Text style={{ fontSize: 18 }}>💬</Text>
+            )}
+          </View>
+          <View style={styles.peopleInfo}>
+            <View style={{ flexDirection: "row", alignItems: "baseline" }}>
+              <Text style={styles.peopleName} numberOfLines={1}>
+                {data.author_name || "User"}
+              </Text>
+              <Text style={styles.peopleHandle} numberOfLines={1}>
+                {"  ·  "}
+                {data.community_name || data.community_slug || "comment"}
+              </Text>
             </View>
-            <Text style={styles.hashtagText}>Browse all hashtags</Text>
-            <Ionicons
-              name="chevron-forward"
-              size={16}
-              color={colors.text.muted}
-            />
-          </TouchableOpacity>
-        );
-      }
-      // Dedicated Hashtags-tab rows — tap runs the posts search for that tag.
+            <Text
+              style={styles.commentContent}
+              numberOfLines={3}
+            >
+              {data.content}
+            </Text>
+            <Text style={styles.peopleMeta} numberOfLines={1}>
+              on “{data.post_title || "a post"}” ·{" "}
+              {data.likes_count || 0} likes
+            </Text>
+          </View>
+          <Ionicons
+            name="chevron-forward"
+            size={16}
+            color={colors.text.muted}
+          />
+        </TouchableOpacity>
+      );
+    }
+
+    if (type === "media") {
+      // A media item from a matched post — thumbnail + post context; tapping
+      // opens the post's detail.
+      const mediaUri =
+        data.cloudfront_url ||
+        data.vimeo_thumbnail_url ||
+        data.vimeo_player_url ||
+        data.vimeo_uri ||
+        "";
+      return (
+        <TouchableOpacity
+          style={styles.peopleRow}
+          onPress={() =>
+            // PostDetail re-fetches the full post by id on mount, so a
+            // minimal { id } payload is enough to deep-link.
+            navigation.push("PostDetail", {
+              post: { id: data.post_id } as Post,
+            })
+          }
+          activeOpacity={0.8}
+        >
+          <View style={styles.mediaThumbWrap}>
+            {mediaUri ? (
+              <Image source={{ uri: mediaUri }} style={styles.mediaThumb} />
+            ) : (
+              <Ionicons
+                name={
+                  data.media_type === "video"
+                    ? "videocam"
+                    : data.media_type === "audio"
+                      ? "musical-notes"
+                      : "image"
+                }
+                size={18}
+                color={colors.text.muted}
+              />
+            )}
+          </View>
+          <View style={styles.peopleInfo}>
+            <Text style={styles.peopleName} numberOfLines={1}>
+              {data.post_title || "Media post"}
+            </Text>
+            <Text style={styles.peopleHandle} numberOfLines={1}>
+              {data.author_name || "User"}
+              {data.community_name ? ` · ${data.community_name}` : ""}
+            </Text>
+            <Text style={styles.peopleMeta} numberOfLines={1}>
+              {(data.media_type || "media").toUpperCase()}
+              {data.width && data.height
+                ? ` · ${data.width}×${data.height}`
+                : ""}
+            </Text>
+          </View>
+          <Ionicons
+            name="chevron-forward"
+            size={16}
+            color={colors.text.muted}
+          />
+        </TouchableOpacity>
+      );
+    }
+
+    if (type === "text") {
+      // A text row from the server — currently matched hashtags. Tapping
+      // commits it as a #tag filter chip and searches.
       return (
         <TouchableOpacity
           style={styles.hashtagRow}
           onPress={() => {
-            setQuery(data.text);
-            setActiveTab("posts");
+            const t = String(data.text || "").replace(/^#/, "");
+            if (t) {
+              setTagFilters((prev) =>
+                prev.includes(t) ? prev : [...prev, t],
+              );
+              setResultType("all");
+            }
           }}
           activeOpacity={0.8}
         >
@@ -1300,6 +1391,67 @@ export default function SearchScreen({ navigation, route }: Props) {
       );
     }
 
+    if (type === ("transaction_item" as any)) {
+      // Wallet scope — a cash/XP transaction row. Matches the wallet tab's
+      // styling (amount + currency color, type badge).
+      const txn = data as Transaction;
+      const isXP = txn.currency === "XP";
+      const isNeg =
+        txn.amount < 0 || txn.type === "spend" || txn.type === "withdraw";
+      const displayAmount = Math.abs(txn.amount || 0);
+      return (
+        <View style={styles.peopleRow}>
+          <View
+            style={[
+              styles.avatarBubble,
+              { backgroundColor: colors.bg.surface },
+            ]}
+          >
+            <Ionicons
+              name={isXP ? "flash-outline" : "wallet-outline"}
+              size={20}
+              color={isXP ? colors.xpGold : colors.text.secondary}
+            />
+          </View>
+          <View style={styles.peopleInfo}>
+            <Text style={styles.peopleName} numberOfLines={1}>
+              {txn.title}
+            </Text>
+            <Text style={styles.peopleHandle} numberOfLines={1}>
+              {txn.date}
+              {txn.status === "pending"
+                ? " · Pending"
+                : txn.status === "failed"
+                  ? " · Failed"
+                  : ""}
+            </Text>
+          </View>
+          <View style={{ alignItems: "flex-end" }}>
+            <Text
+              style={{
+                fontSize: fontSizes.md,
+                fontWeight: "700",
+                color: isXP
+                  ? colors.xpGold
+                  : isNeg
+                    ? colors.danger
+                    : colors.success,
+              }}
+            >
+              {isXP
+                ? `${isNeg ? "-" : "+"}${displayAmount.toLocaleString()} XP`
+                : isNeg
+                  ? `-₹${displayAmount.toLocaleString()}`
+                  : `+₹${displayAmount.toLocaleString()}`}
+            </Text>
+            <Text style={[styles.peopleMeta, { fontSize: 11 }]}>
+              {txn.type}
+            </Text>
+          </View>
+        </View>
+      );
+    }
+
     return (
       <View style={styles.genericRow}>
         <Text style={{ color: colors.text.primary }}>
@@ -1311,12 +1463,15 @@ export default function SearchScreen({ navigation, route }: Props) {
 
   const isEmptyQuery = !query.trim() && !filtersActive;
   const hasResults = rows.length > 0;
-  // Friendly tab name for empty-state text (filter/bookmark tabs use prefixed
-  // keys like f-* / bm-*).
+  // Friendly tab name for empty-state text — the active result pill's label
+  // (from the server) when the unified search is on, otherwise the
+  // notifications tab keys (n-*) or the wallet transactions scope.
   const activeTabLabel =
-    FILTER_TABS.find((t) => t.key === activeTab)?.label ||
-    BOOKMARK_TABS.find((t) => t.key === activeTab)?.label ||
-    activeTab;
+    source === "wallet"
+      ? "transactions"
+      : serverTypes.find((t) => t.type === resultType)?.label ||
+        NOTIF_TABS.find((t) => t.key === activeTab)?.label ||
+        activeTab;
 
   // Show a discovery hint when there's no search query.
   // Don't show the generic "type something" empty state when we already know
@@ -1388,7 +1543,11 @@ export default function SearchScreen({ navigation, route }: Props) {
           <Ionicons name="arrow-back" size={24} color={colors.text.primary} />
         </TouchableOpacity>
         <View style={styles.searchBar}>
-          <Ionicons name="search" size={20} color={colors.text.muted} />
+          {/* Tapping the search icon fires the request — with an empty box
+              that's the all-empty-params call returning default discoveries. */}
+          <TouchableOpacity onPress={handleSubmit} hitSlop={8}>
+            <Ionicons name="search" size={20} color={colors.text.muted} />
+          </TouchableOpacity>
           <ScrollView
             horizontal
             showsHorizontalScrollIndicator={false}
@@ -1431,66 +1590,9 @@ export default function SearchScreen({ navigation, route }: Props) {
                 />
               </TouchableOpacity>
             ))}
-            {postMode ? (
+            {communityFilters.map((slug) => (
               <TouchableOpacity
-                style={[
-                  styles.filterChip,
-                  {
-                    backgroundColor: colors.primary + "22",
-                    marginLeft: 0,
-                    marginRight: 8,
-                  },
-                ]}
-                onPress={() => {
-                  setPostMode(false);
-                  setActiveTab("all");
-                }}
-                activeOpacity={0.8}
-              >
-                <Text
-                  style={[styles.filterChipText, { color: colors.primary }]}
-                  numberOfLines={1}
-                >
-                  📝 Posts
-                </Text>
-                <Ionicons
-                  name="close-circle"
-                  size={13}
-                  color={colors.primary}
-                />
-              </TouchableOpacity>
-            ) : null}
-            {gameMode ? (
-              <TouchableOpacity
-                style={[
-                  styles.filterChip,
-                  {
-                    backgroundColor: colors.warning + "22",
-                    marginLeft: 0,
-                    marginRight: 8,
-                  },
-                ]}
-                onPress={() => {
-                  setGameMode(false);
-                  setActiveTab("all");
-                }}
-                activeOpacity={0.8}
-              >
-                <Text
-                  style={[styles.filterChipText, { color: colors.warning }]}
-                  numberOfLines={1}
-                >
-                  🎮 Games
-                </Text>
-                <Ionicons
-                  name="close-circle"
-                  size={13}
-                  color={colors.warning}
-                />
-              </TouchableOpacity>
-            ) : null}
-            {scope ? (
-              <TouchableOpacity
+                key={slug}
                 style={[
                   styles.filterChip,
                   {
@@ -1499,14 +1601,16 @@ export default function SearchScreen({ navigation, route }: Props) {
                     marginRight: 8,
                   },
                 ]}
-                onPress={() => setScope("")}
+                onPress={() =>
+                  setCommunityFilters((prev) => prev.filter((x) => x !== slug))
+                }
                 activeOpacity={0.8}
               >
                 <Text
                   style={[styles.filterChipText, { color: colors.cyanLight }]}
                   numberOfLines={1}
                 >
-                  c/{scope}
+                  c/{slug}
                 </Text>
                 <Ionicons
                   name="close-circle"
@@ -1514,7 +1618,7 @@ export default function SearchScreen({ navigation, route }: Props) {
                   color={colors.cyanLight}
                 />
               </TouchableOpacity>
-            ) : null}
+            ))}
             {source === "bookmarks" ? (
               <TouchableOpacity
                 style={[
@@ -1610,6 +1714,40 @@ export default function SearchScreen({ navigation, route }: Props) {
                 />
               </TouchableOpacity>
             ) : null}
+            {source === "wallet" ? (
+              <TouchableOpacity
+                style={[
+                  styles.filterChip,
+                  {
+                    backgroundColor: colors.bg.elevated,
+                    marginLeft: 0,
+                    marginRight: 8,
+                  },
+                ]}
+                onPress={() => setSource("")}
+                activeOpacity={0.8}
+              >
+                <Ionicons
+                  name="wallet-outline"
+                  size={12}
+                  color={colors.text.secondary}
+                />
+                <Text
+                  style={[
+                    styles.filterChipText,
+                    { color: colors.text.secondary },
+                  ]}
+                  numberOfLines={1}
+                >
+                  Wallet
+                </Text>
+                <Ionicons
+                  name="close-circle"
+                  size={13}
+                  color={colors.text.secondary}
+                />
+              </TouchableOpacity>
+            ) : null}
             {tagFilters.map((t) => (
               <TouchableOpacity
                 key={t}
@@ -1652,18 +1790,17 @@ export default function SearchScreen({ navigation, route }: Props) {
           </ScrollView>
           {(query.length > 0 ||
             authorFilters.length > 0 ||
-            scope ||
+            communityFilters.length > 0 ||
             tagFilters.length > 0 ||
             source) && (
             <TouchableOpacity
               onPress={() => {
                 setQuery("");
                 setAuthorFilters([]);
-                setScope("");
+                setCommunityFilters([]);
                 setTagFilters([]);
                 setSource("");
-                setPostMode(false);
-                setGameMode(false);
+                setResultType("all");
                 setActiveTab("all");
               }}
               style={{ marginRight: 8 }}
@@ -1675,14 +1812,26 @@ export default function SearchScreen({ navigation, route }: Props) {
               />
             </TouchableOpacity>
           )}
-          <TouchableOpacity onPress={() => setShowFilters(true)}>
-            <MaterialCommunityIcons
-              name="sort-variant"
-              size={24}
-              color={colors.text.secondary}
-              style={{ transform: [{ scaleX: -1 }] }}
-            />
-          </TouchableOpacity>
+          {/* Sort/filter modal — hidden only in the settings scope (its items
+              have no sortable/time attributes); notifications and wallet apply
+              the chosen sort/time locally. */}
+          {source !== "settings" && (
+              <TouchableOpacity
+                onPress={() => {
+                  // Open the modal with the CURRENT sort/time as the drafts.
+                  setDraftSort(sortBy);
+                  setDraftTime(timeWindow);
+                  setShowFilters(true);
+                }}
+              >
+                <MaterialCommunityIcons
+                  name="sort-variant"
+                  size={24}
+                  color={colors.text.secondary}
+                  style={{ transform: [{ scaleX: -1 }] }}
+                />
+              </TouchableOpacity>
+            )}
         </View>
       </View>
 
@@ -1812,26 +1961,25 @@ export default function SearchScreen({ navigation, route }: Props) {
         </View>
       )}
 
-      {/* Tabs Row */}
-      {source !== "settings" && (
+      {/* Pills Row — shown ONLY when there are pills to show. The unified
+          search renders the SERVER-driven result pills verbatim (whatever the
+          backend returns — even none); tapping one re-requests with
+          type=<type>. Only the notifications scope keeps its local n-* tab
+          set; the wallet scope is a local transaction filter (no pills). */}
+      {(source === "notifications" ||
+        (source !== "settings" &&
+          source !== "wallet" &&
+          universalPills.length > 0)) && (
         <View style={{ borderBottomWidth: 1, borderBottomColor: colors.border }}>
           <FlatList
             horizontal
             showsHorizontalScrollIndicator={false}
-            data={
-              hasPersonFilter
-                ? FILTER_TABS
-                : source === "bookmarks"
-                  ? BOOKMARK_TABS
-                  : source === "notifications"
-                    ? NOTIF_TABS
-                    : postMode
-                      ? POST_TABS
-                      : TABS
-            }
+            data={source === "notifications" ? NOTIF_TABS : universalPills}
             keyExtractor={(item) => item.key}
             contentContainerStyle={styles.tabsContainer}
-            renderItem={({ item }) => renderTab(item)}
+            renderItem={({ item }) =>
+              source === "notifications" ? renderTab(item) : renderPill(item)
+            }
           />
         </View>
       )}
@@ -1926,7 +2074,7 @@ export default function SearchScreen({ navigation, route }: Props) {
             onStartShouldSetResponder={() => true}
           >
             <View style={styles.modalHeader}>
-              <Text style={styles.modalTitle}>Filters</Text>
+              <Text style={styles.modalTitle}>Sort</Text>
               <TouchableOpacity
                 onPress={() => setShowFilters(false)}
                 style={styles.modalCloseBtn}
@@ -1936,26 +2084,31 @@ export default function SearchScreen({ navigation, route }: Props) {
             </View>
 
             <View style={styles.filterGroup}>
-              <Text style={styles.filterGroupTitle}>TYPE</Text>
+              <Text style={styles.filterGroupTitle}>SORT BY</Text>
               <View style={styles.filterRow}>
                 {[
                   { id: "relevance", label: "Relevance" },
                   { id: "top", label: "Top" },
-                  { id: "new", label: "New" },
+                  { id: "latest", label: "Latest" },
                   { id: "hot", label: "Hot" },
                 ].map((t) => (
                   <TouchableOpacity
                     key={t.id}
                     style={[
                       styles.sheetFilterChip,
-                      filterType === t.id && styles.sheetFilterChipActive,
+                      draftSort === t.id && styles.sheetFilterChipActive,
                     ]}
-                    onPress={() => setFilterType(t.id)}
+                    onPress={() => {
+                      // Draft only — committed on "Apply Filters". The chip
+                      // ids ARE the API's sort values (Top = most engagement
+                      // overall, Hot = trending recently).
+                      setDraftSort(t.id);
+                    }}
                   >
                     <Text
                       style={[
                         styles.sheetFilterChipText,
-                        filterType === t.id && styles.sheetFilterChipTextActive,
+                        draftSort === t.id && styles.sheetFilterChipTextActive,
                       ]}
                     >
                       {t.label}
@@ -1966,7 +2119,7 @@ export default function SearchScreen({ navigation, route }: Props) {
             </View>
 
             <View style={styles.filterGroup}>
-              <Text style={styles.filterGroupTitle}>TIME</Text>
+              <Text style={styles.filterGroupTitle}>TIME PERIOD</Text>
               <View style={styles.filterRow}>
                 {[
                   { id: "recent", label: "Recent" },
@@ -1976,17 +2129,16 @@ export default function SearchScreen({ navigation, route }: Props) {
                   { id: "all_time", label: "All Time" },
                 ].map((t) => (
                   <TouchableOpacity
-                    key={t.id}
-                    style={[
-                      styles.sheetFilterChip,
-                      filterTime === t.id && styles.sheetFilterChipActive,
-                    ]}
-                    onPress={() => setFilterTime(t.id)}
+                    key={t.id}                      style={[
+                        styles.sheetFilterChip,
+                        draftTime === t.id && styles.sheetFilterChipActive,
+                      ]}
+                    onPress={() => setDraftTime(t.id)}
                   >
                     <Text
                       style={[
                         styles.sheetFilterChipText,
-                        filterTime === t.id && styles.sheetFilterChipTextActive,
+                        draftTime === t.id && styles.sheetFilterChipTextActive,
                       ]}
                     >
                       {t.label}
@@ -1998,7 +2150,12 @@ export default function SearchScreen({ navigation, route }: Props) {
 
             <TouchableOpacity
               style={styles.applyFilterBtn}
-              onPress={() => setShowFilters(false)}
+              onPress={() => {
+                // Commit the drafts to the live search and close.
+                setSortBy(draftSort);
+                setTimeWindow(draftTime);
+                setShowFilters(false);
+              }}
             >
               <Text style={styles.applyFilterText}>Apply Filters</Text>
             </TouchableOpacity>
@@ -2160,24 +2317,6 @@ function makeStyles(c: ColorPalette) {
       fontWeight: "700",
       color: c.xpGold,
     },
-    sectionHeader: {
-      flexDirection: "row",
-      alignItems: "center",
-      justifyContent: "space-between",
-      paddingHorizontal: spacing.lg,
-      paddingTop: 14,
-      paddingBottom: 6,
-    },
-    sectionTitle: {
-      fontSize: fontSizes.md,
-      fontWeight: "800",
-      color: c.text.primary,
-    },
-    seeAll: {
-      fontSize: fontSizes.xs,
-      fontWeight: "700",
-      color: c.primaryLight,
-    },
     centerBox: {
       flex: 1,
       alignItems: "center",
@@ -2235,6 +2374,29 @@ function makeStyles(c: ColorPalette) {
       color: c.text.muted,
       marginTop: 2,
       opacity: 0.8,
+    },
+    // Comment result row — quote the comment text below the author line.
+    commentContent: {
+      fontSize: fontSizes.sm,
+      color: c.text.primary,
+      marginTop: 4,
+      lineHeight: 20,
+    },
+    mediaThumbWrap: {
+      width: 44,
+      height: 44,
+      borderRadius: 10,
+      backgroundColor: c.bg.elevated,
+      borderWidth: 1,
+      borderColor: c.border,
+      alignItems: "center",
+      justifyContent: "center",
+      marginRight: 12,
+      overflow: "hidden",
+    },
+    mediaThumb: {
+      width: "100%",
+      height: "100%",
     },
     genericRow: {
       backgroundColor: c.bg.card,

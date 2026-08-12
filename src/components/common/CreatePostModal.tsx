@@ -33,7 +33,7 @@ import { useCreatePost } from "../../mutations/posts";
 import { mediaService } from "../../services/media.service";
 import { hashtagService } from "../../services/hashtag.service";
 import { userService } from "../../services/user.service";
-import { useMyCommunities } from "../../queries/communities";
+import { useMyCommunities, useCommunity } from "../../queries/communities";
 import type { Post } from "../../types";
 import SmartInput from "./SmartInput";
 import AudiencePicker from "./AudiencePicker";
@@ -176,6 +176,19 @@ export default function CreatePostModal({
     preselectedCommunityId ?? null,
   );
   const [showPicker, setShowPicker] = useState(false);
+
+  // Validate preselected community: if private and not joined, unselect it.
+  const { data: preselectedCommunity } = useCommunity(preselectedCommunityId || "");
+  
+  React.useEffect(() => {
+    if (preselectedCommunityId && preselectedCommunity) {
+      const isJoined = preselectedCommunity.isJoined || preselectedCommunity.ownerId === CURRENT_USER?.id;
+      if (preselectedCommunity.privacy === "private" && !isJoined) {
+        setPostType(null);
+        setSelComId(null);
+      }
+    }
+  }, [preselectedCommunityId, preselectedCommunity, CURRENT_USER?.id]);
 
   // ── Location tag (lat / lon / place) shown in the card's rolling text ──
   const [postLocation, setPostLocation] = useState<{
@@ -405,7 +418,7 @@ export default function CreatePostModal({
   const joinedCommunities = communities.filter(
     (c) => c.isJoined || c.ownerId === CURRENT_USER?.id,
   );
-  const selectedComm = joinedCommunities.find((c) => c.id === selectedComId);
+  const selectedComm = joinedCommunities.find((c) => c.id === selectedComId) || (selectedComId === preselectedCommunityId ? preselectedCommunity : undefined);
 
   // Audience adapts to the account type: public accounts post to everyone,
   // private accounts post to their followers only (community posts always use
@@ -1865,7 +1878,7 @@ export default function CreatePostModal({
           <AudiencePicker
             visible={showPicker}
             onClose={() => setShowPicker(false)}
-            selectedId={postType === "community" ? selectedComId : null}
+            selectedId={postType === "community" ? selectedComId : postType === "feed" ? null : undefined}
             onSelect={(id) => {
               if (id === null) {
                 setPostType("feed");

@@ -2,11 +2,18 @@ import { apiClient } from './apiClient';
 import type { Community, Post } from '../types';
 
 export const communityService = {
-  getCommunities: async (page = 1, limit = 20, search?: string, mine?: boolean): Promise<{ data: Community[]; meta?: any }> => {
+  getCommunities: async (page = 1, limit = 20, search?: string, mine?: boolean, category?: string, filter?: string): Promise<{ data: Community[]; meta?: any }> => {
     const params: any = { page, limit };
     if (search) params.search = search;
     if (mine) params.mine = 'true';
+    if (category) params.category = category;
+    if (filter) params.filter = filter;
     const response = await apiClient.get('/communities/discover', { params });
+    return response.data;
+  },
+
+  getCommunityCategories: async (): Promise<{ data: string[] }> => {
+    const response = await apiClient.get('/communities/categories');
     return response.data;
   },
 

@@ -10,6 +10,18 @@ import { radii, fontSizes } from '../../theme';
 import { useTheme } from '../../context/ThemeContext';
 import CreatePostModal from '../common/CreatePostModal';
 
+// Helper to deeply find the active route name and params
+const getActiveRouteState = (state: any): { name: string, params: any } | null => {
+  if (!state) return null;
+  if (state.routes && typeof state.index === 'number') {
+    return getActiveRouteState(state.routes[state.index]);
+  }
+  if (state.state) {
+    return getActiveRouteState(state.state);
+  }
+  return { name: state.name, params: state.params || {} };
+};
+
 type IconName = keyof typeof Ionicons.glyphMap;
 
 const TAB_CONFIG: Record<string, { label: string; icon: IconName; activeIcon: IconName }> = {
@@ -28,6 +40,7 @@ export default function CustomTabBar({ state, navigation }: BottomTabBarProps) {
   const insets = useSafeAreaInsets();
   const { colors, isDark } = useTheme();
   const [createVisible, setCreateVisible] = useState(false);
+  const [preselectedCommunityId, setPreselectedCommunityId] = useState<string | undefined>(undefined);
   const lastPressRef = React.useRef<Record<string, number>>({});
 
   const tabBarBg = isDark ? 'rgba(7,7,20,0.97)' : 'rgba(250,250,255,0.97)';
@@ -77,9 +90,27 @@ export default function CustomTabBar({ state, navigation }: BottomTabBarProps) {
     );
   };
 
+  const handleFabPress = () => {
+    const activeRoute = getActiveRouteState(navigation.getState());
+    
+    if (activeRoute?.name === 'CommunityList' || activeRoute?.name === 'Community') {
+      DeviceEventEmitter.emit('openCreateCommunity');
+    } else if (activeRoute?.name === 'CommunityDetail') {
+      setPreselectedCommunityId(activeRoute.params?.communitySlug || activeRoute.params?.id); // The param is usually communitySlug or id
+      setCreateVisible(true);
+    } else {
+      setPreselectedCommunityId(undefined);
+      setCreateVisible(true);
+    }
+  };
+
   return (
     <>
-      <CreatePostModal visible={createVisible} onClose={() => setCreateVisible(false)} />
+      <CreatePostModal 
+        visible={createVisible} 
+        onClose={() => setCreateVisible(false)} 
+        preselectedCommunityId={preselectedCommunityId}
+      />
       <View style={[styles.container, { paddingBottom: insets.bottom || 10, backgroundColor: tabBarBg, borderTopColor: colors.border }]}>
         <View style={styles.inner}>
           {/* Left tabs */}
@@ -89,7 +120,7 @@ export default function CustomTabBar({ state, navigation }: BottomTabBarProps) {
 
           {/* Center FAB */}
           <View style={styles.fabWrapper}>
-            <TouchableOpacity activeOpacity={0.85} onPress={() => setCreateVisible(true)}>
+            <TouchableOpacity activeOpacity={0.85} onPress={handleFabPress}>
               <LinearGradient
                 colors={[colors.primary, colors.cyanDark]}
                 start={{ x: 0, y: 0 }}
@@ -99,7 +130,6 @@ export default function CustomTabBar({ state, navigation }: BottomTabBarProps) {
                 <Ionicons name="add" size={28} color="#fff" />
               </LinearGradient>
             </TouchableOpacity>
-            <Text style={[styles.fabLabel, { color: colors.primaryLight }]}>Create</Text>
           </View>
 
           {/* Right tabs */}

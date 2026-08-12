@@ -9,109 +9,86 @@ export type SearchType =
   | "games"
   | "hashtags";
 
-export type AllSearchResults = {
-  people: any[];
-  communities: any[];
-  events: any[];
-  games: any[];
-  posts: any[];
-  hashtags: string[];
-  /** Ordered sections from the server — the API owns the layout order and may
-      repeat a type (each occurrence renders as its own section). Falls back to
-      the flat keys in canonical order when absent (older servers). */
-  sections?: { type: string; items: any[] }[];
-};
+export type UniversalResultType =
+  | "posts"
+  | "comments"
+  | "media"
+  | "people"
+  | "communities"
+  | "events"
+  | "games"
+  | "text";
 
-// The backend wraps data as { dataType, data, ...meta }. Extract the inner list
-// regardless of whether it's nested or flat, and tag each row with its item type.
-const extractData = (res: any): any[] => {
-  let data = res?.data?.data;
-  if (Array.isArray(data?.data)) data = data.data;
-  return Array.isArray(data) ? data : [];
+export type UniversalSearchResults = {
+  /** Result-type pills the server computed for this query, each carrying its
+      display label — the client renders them verbatim, no label map needed. */
+  types: { type: string; label: string }[];
+  /** Flat, ordered, heterogeneous result rows. Each item carries an `itemType`
+      (posts | comments | media | people | communities | events | games | text)
+      so the client can render it — the client never reorders this list. */
+  results: any[];
+  total: number;
+  hasNext: boolean;
+  page: number;
 };
 
 export const searchService = {
-  /** One request for everything (people, communities, events, games, posts, hashtags).
-      `community` (a slug) scopes the POSTS section to that community, and
-      `author` (a username) scopes it to that user's posts — they combine. */
-  searchAll: async (
-    q = "",
-    limit = 6,
-    community = "",
-    author = "",
-    tag = "",
-    bookmarked = "",
-    mine = "",
-    sortBy = "",
-    postFilter = "",
-  ): Promise<AllSearchResults> => {
-    const res = await apiClient.get(
-      `/search/all?q=${encodeURIComponent(q)}&limit=${limit}${
-        community ? `&community=${encodeURIComponent(community)}` : ""
-      }${author ? `&author=${encodeURIComponent(author)}` : ""}${
-        tag ? `&tag=${encodeURIComponent(tag)}` : ""
-      }${bookmarked ? `&bookmarked=${encodeURIComponent(bookmarked)}` : ""}${
-        mine ? `&mine=${encodeURIComponent(mine)}` : ""
-      }${sortBy ? `&sortBy=${encodeURIComponent(sortBy)}` : ""}${
-        postFilter ? `&post_filter=${encodeURIComponent(postFilter)}` : ""
-      }`,
-    );
-    // Response shape: { data: { dataType, data: { people, posts, ... } } }
-    const data = res?.data?.data?.data || res?.data?.data || {};
-    return {
-      people: Array.isArray(data.people) ? data.people : [],
-      communities: Array.isArray(data.communities) ? data.communities : [],
-      events: Array.isArray(data.events) ? data.events : [],
-      games: Array.isArray(data.games) ? data.games : [],
-      posts: Array.isArray(data.posts) ? data.posts : [],
-      hashtags: Array.isArray(data.hashtags) ? data.hashtags : [],
-      sections: Array.isArray(data.sections) ? data.sections : undefined,
-    };
-  },
-
-  /** Single-type search used by the individual tabs — paginated. Returns the
-      rows plus the server's total/hasNext so the screen can infinite-scroll. */
-  searchByType: async (
-    type: Exclude<SearchType, "all">,
-    q = "",
-    page = 1,
-    limit = 10,
-    filter = "",
-    community = "",
-    author = "",
-    involvement = "",
-    tag = "",
-    bookmarked = "",
-    mine = "",
-    sortBy = "",
-    postFilter = "",
-  ): Promise<{ items: any[]; total: number; hasNext: boolean; page: number }> => {
-    const res = await apiClient.get(
-      `/search?type=${type}&q=${encodeURIComponent(q)}&page=${page}&limit=${limit}${
-        filter ? `&filter=${encodeURIComponent(filter)}` : ""
-      }${community ? `&community=${encodeURIComponent(community)}` : ""}${
-        author ? `&author=${encodeURIComponent(author)}` : ""
-      }${involvement ? `&involvement=${encodeURIComponent(involvement)}` : ""}${
-        tag ? `&tag=${encodeURIComponent(tag)}` : ""
-      }${bookmarked ? `&bookmarked=${encodeURIComponent(bookmarked)}` : ""}${
-        mine ? `&mine=${encodeURIComponent(mine)}` : ""
-      }${sortBy ? `&sortBy=${encodeURIComponent(sortBy)}` : ""}${
-        postFilter ? `&post_filter=${encodeURIComponent(postFilter)}` : ""
-      }`,
-    );
-    const items = extractData(res).map((item: any) => ({ ...item, itemType: type }));
+  /** Unified search — the ONLY search the app uses. URL param order:
+      `search/?filter=&q=&sort=&<time>&type=&bookmarked=&page=&limit=` where
+      `sort` is relevance | top | latest | hot, the TIME window is a BARE
+      token (recent | past_week | past_month | past_year | all_time), `filter`
+      is ONE comma-separated list of scoped tokens (c/<slug> for communities,
+      @<user> for people, #<tag> or a bare word for hashtags) and `type` is the
+      active result pill ("all" = mixed view). The server returns the available
+      `types` (pills) plus an ordered `results` array that may mix posts,
+      comments, media, people, communities, events and text rows. */
+  universalSearch: async ({
+    q,
+    sort,
+    time,
+    filter,
+    type,
+    bookmarked,
+    page,
+    limit,
+  }: {
+    q?: string;
+    sort?: string;
+    time?: string;
+    filter?: string;
+    type?: string;
+    bookmarked?: string;
+    page?: number;
+    limit?: number;
+  }): Promise<UniversalSearchResults> => {
+    // Built manually (not URLSearchParams) because the TIME window goes in as
+    // a BARE token — `sort=relevance&all_time` — and URLSearchParams always
+    // emits `key=`. Order: filter → q → sort → time → type → bookmarked →
+    // page → limit. No version marker — there is no legacy search anymore.
+    const parts: string[] = [];
+    if (filter) parts.push(`filter=${encodeURIComponent(filter)}`);
+    if (q) parts.push(`q=${encodeURIComponent(q)}`);
+    if (sort) parts.push(`sort=${encodeURIComponent(sort)}`);
+    // TIME window as a bare token: &recent | &past_week | &past_month |
+    // &past_year | &all_time (the backend folds it into `time`).
+    if (time) parts.push(time);
+    // "all" is the backend's default mixed view — omit it so the default URL
+    // stays clean (?sort=relevance&all_time&page=1&limit=10). Only real type
+    // filters (events, games, communities, …) are sent.
+    if (type && type !== "all") parts.push(`type=${encodeURIComponent(type)}`);
+    if (bookmarked) parts.push(`bookmarked=${encodeURIComponent(bookmarked)}`);
+    parts.push(`page=${page || 1}`);
+    parts.push(`limit=${limit || 10}`);
+    const res = await apiClient.get(`/search?${parts.join("&")}`);
+    // Response shape: { data: { dataType, data: { types, results } } }
+    const data = res?.data?.data?.data || {};
     const meta = res?.data?.meta;
     return {
-      items,
+      types: Array.isArray(data.types) ? data.types : [],
+      results: Array.isArray(data.results) ? data.results : [],
       total: meta?.total ?? 0,
-      hasNext: meta?.hasNext ?? items.length === limit,
-      page: meta?.page ?? page,
+      hasNext: meta?.hasNext ?? false,
+      page: meta?.page ?? page ?? 1,
     };
-  },
-
-  getHashtags: async (q = ""): Promise<string[]> => {
-    const res = await apiClient.get(`/search/hashtags?q=${encodeURIComponent(q)}`);
-    const data = extractData(res);
-    return data.map((h: any) => (typeof h === "string" ? h : h?.hashtag || h?.text || ""));
   },
 };

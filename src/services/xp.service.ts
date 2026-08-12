@@ -16,8 +16,11 @@ export const xpService = {
     return response.data;
   },
 
-  getTransactions: async (page = 1, limit = 20) => {
-    const response = await apiClient.get(`/xp/transactions?page=${page}&limit=${limit}`);
+  /** Fetch XP transactions. `q` searches the FULL history server-side
+      (type/source/status/amount) — not just the first page. */
+  getTransactions: async (page = 1, limit = 20, q = '') => {
+    const query = `page=${page}&limit=${limit}${q ? `&q=${encodeURIComponent(q)}` : ''}`;
+    const response = await apiClient.get(`/xp/transactions?${query}`);
     return response.data;
   },
 

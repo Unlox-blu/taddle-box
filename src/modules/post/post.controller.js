@@ -33,6 +33,34 @@ class PostController {
     }
   };
 
+  castPollVote = async (req, res, next) => {
+    try {
+      const { postId } = req.params;
+      const { optionIndex } = req.body;
+      const result = await this.postSvc.castPollVote({
+        userId: req.userId,
+        postId,
+        optionIndex,
+      });
+      res.json(apiResponse(result, 'Vote recorded'));
+    } catch (error) {
+      next(error);
+    }
+  };
+
+  closePoll = async (req, res, next) => {
+    try {
+      const { postId } = req.params;
+      const result = await this.postSvc.closePoll({
+        userId: req.userId,
+        postId,
+      });
+      res.json(apiResponse(result, 'Poll closed'));
+    } catch (error) {
+      next(error);
+    }
+  };
+
   getUserPosts = async (req, res, next) => {
     try {
       const { authorId } = req.params;
@@ -99,6 +127,20 @@ class PostController {
       const { limit, offset, page } = getPaginationParams(req.query);
       const { likers, total } = await this.postSvc.getLikers({ postId, userId, limit, offset });
       res.json(apiResponse(likers, 'Likers fetched', paginationMeta(total, page, limit)));
+    } catch (error) {
+      next(error);
+    }
+  };
+
+  // Paginated list of users who voted for ONE option of a post poll.
+  getPollVoters = async (req, res, next) => {
+    try {
+      const userId = req.userId;
+      const postId = req.params.postId;
+      const optionIndex = parseInt(req.query.option, 10);
+      const { limit, offset } = getPaginationParams(req.query);
+      const { voters, total } = await this.postSvc.getPollVoters({ postId, optionIndex, userId, limit, offset });
+      res.json(apiResponse({ dataType: 'voters', data: voters, total }, 'Poll voters fetched'));
     } catch (error) {
       next(error);
     }

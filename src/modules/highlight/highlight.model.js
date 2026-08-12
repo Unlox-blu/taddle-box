@@ -15,6 +15,7 @@ const format = (row) => {
     description: row.description,
     type: row.type,
     sourceId: row.source_id,
+    sourceSlug: row.source_slug || null,
     imageUrl: row.image_url || null,
     createdAt: row.created_at,
     updatedAt: row.updated_at,

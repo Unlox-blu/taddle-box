@@ -15,10 +15,17 @@ const findById = async (eventId) => {
   }
 };
 
-const search = async (query, filter, limit, offset, userId = null) => {
+const search = async (query, filter, limit, offset, userId = null, scope = null) => {
   try {
     const q = query || '';
     const eventType = filter || null;
+    let scopeWhere = '';
+    if (scope === 'joined' && userId) {
+      scopeWhere = ` AND EXISTS(SELECT 1 FROM ${EventModel.ATTENDEES_TABLE} ea WHERE ea.event_id = e.id AND ea.user_id = $5 AND ea.status IN ('registered', 'waitlisted')) `;
+    } else if (scope === 'featured') {
+      scopeWhere = ` AND e.is_featured = true `;
+    }
+
     const { rows } = await pool.query(
       `SELECT e.*, COUNT(*) OVER() AS total
        ${userId ? `, EXISTS(SELECT 1 FROM ${EventModel.ATTENDEES_TABLE} ea WHERE ea.event_id = e.id AND ea.user_id = $5 AND ea.status IN ('registered', 'waitlisted')) AS is_registered` : ''}
@@ -26,6 +33,7 @@ const search = async (query, filter, limit, offset, userId = null) => {
      WHERE e.deleted_at IS NULL AND e.status IN ('upcoming', 'ongoing')
        AND ($1 = '' OR e.title ILIKE $1 OR e.description ILIKE $1)
        AND ($2::text IS NULL OR e.event_type = $2)
+       ${scopeWhere}
      ORDER BY e.start_time ASC
      LIMIT $3 OFFSET $4`,
       userId ? [`%${q}%`, eventType, limit, offset, userId] : [`%${q}%`, eventType, limit, offset]

@@ -14,6 +14,8 @@ const {
   authorIdParamsSchema,
   paginationQuerySchema,
   getPostQuerySchema,
+  pollVoteSchema,
+  pollVotersQuerySchema,
 } = require('../modules/post/post.validator');
 
 router.post(
@@ -27,6 +29,29 @@ router.get(
   optionalAuth,
   validateRequest({ params: postIdParamsSchema, query: getPostQuerySchema }),
   postController.getPost
+);
+// Cast (or move) the user's vote on a post poll — one vote per user, enforced
+// by the poll_votes UNIQUE(post_id, user_id) constraint.
+router.post(
+  '/:postId/poll/vote',
+  verifyToken,
+  validateRequest({ params: postIdParamsSchema, body: pollVoteSchema }),
+  postController.castPollVote
+);
+// The poll author stops further votes (idempotent).
+router.post(
+  '/:postId/poll/close',
+  verifyToken,
+  validateRequest({ params: postIdParamsSchema }),
+  postController.closePoll
+);
+// Paginated list of users who voted for ONE option of a post poll — same
+// shape as the likers list so the app can reuse the users-list modal.
+router.get(
+  '/:postId/poll/voters',
+  verifyToken,
+  validateRequest({ params: postIdParamsSchema, query: pollVotersQuerySchema }),
+  postController.getPollVoters
 );
 // Paginated list of users who liked a post (with viewer follow state).
 router.get(

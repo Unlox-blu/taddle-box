@@ -61,6 +61,7 @@ const findByUserId = async ({userId, limit, offset}) => {
           p.comments_count,
           p.shares_count,
           p.views_count,
+          p.poll_data,
           -- Location: repost rows have none — fall back to the original's.
           COALESCE(orig.latitude,  p.latitude)  AS latitude,
           COALESCE(orig.longitude, p.longitude) AS longitude,
@@ -73,6 +74,12 @@ const findByUserId = async ({userId, limit, offset}) => {
             SELECT 1 FROM posts rp
             WHERE rp.repost_of_id = p.id AND rp.author_id = $1 AND rp.deleted_at IS NULL
           ) AS is_reposted,
+          -- Which poll option the viewing user voted for — bookmark cards
+          -- highlight their saved selection like feed cards do.
+          (
+            SELECT pv.option_index FROM poll_votes pv
+            WHERE pv.post_id = p.id AND pv.user_id = $1 LIMIT 1
+          ) AS my_poll_vote,
 
           -- Author
           json_build_object(

@@ -33,13 +33,41 @@ async function resolveAbandonedMatches() {
       const matchGroupId = session.metadata?.matchGroupId;
       if (!matchGroupId) continue;
 
+      // ── Live-match guard ──────────────────────────────────────────────
+      // A PENDING session for a match the engine is STILL running (ACTIVE /
+      // PAUSED / WAITING) is NOT abandoned — the opponent may be mid-game
+      // (a long scribble/word-rush round, or a reconnect pause). Resolving or
+      // cancelling it would break the in-flight match and surface the classic
+      // "Session already completed / expired" error when it finally ends.
+      // Only when the engine says the match is over (FINISHED, or the Redis
+      // snapshot is gone because it was archived) do we treat it as abandoned.
+      let matchState = null;
+      try {
+        const EventStore = require('./engine/EventStore');
+        matchState = await EventStore.loadMatchSnapshot(matchGroupId);
+        if (matchState && ['ACTIVE', 'PAUSED', 'WAITING', 'READY', 'STARTING'].includes(matchState.status)) {
+          continue;
+        }
+      } catch (e) {
+        // Snapshot read failure is non-fatal — the SQL guard below still runs.
+      }
+
       await client.query('BEGIN');
 
       try {
-        // The opponent has abandoned the match because they didn't submit a score in 3 minutes.
-        // We resolve the match by declaring the current PENDING player the WINNER.
+        // The opponent abandoned the match because they didn't submit a score
+        // in time. Normally we resolve the current PENDING player as the winner
+        // — BUT if the engine recorded a definitive winner for a finished match
+        // (e.g. a chess checkmate), that outcome is authoritative: a slow-to-
+        // complete winner must not lose their win to this sweep, and a loser
+        // must not be gifted one.
         const myScore = session.validated_score || 0;
-        
+        const engineWinner = matchState?.pluginState?.winner;
+        const myResult = engineWinner
+          ? (String(engineWinner) === String(session.user_id) ? 'WIN' : 'LOSS')
+          : 'WIN';
+        let myXp = 0;
+
         // Let's mark the session as COMPLETED
         await gameRepository.updateGameSessionStatus({
           sessionId: session.id, status: 'COMPLETED', completedAt: new Date().toISOString()
@@ -48,7 +76,7 @@ async function resolveAbandonedMatches() {
         const game = await gameRepository.findGameById({ gameId: session.game_id });
         if (game) {
           const calculated = gameService.calculateResult({ game, score: myScore, duration: 60 });
-          const myXp = calculated.xpEarned;
+          myXp = myResult === 'WIN' ? calculated.xpEarned : 0;
 
           // Update ledger
           await client.query(`
@@ -65,37 +93,30 @@ async function resolveAbandonedMatches() {
             });
           }
 
-          // Record the forfeit win in match history so abandoned PVP matches
-          // still appear in the player's history (mode is normalized on write).
+          // Record the outcome in match history so abandoned PVP matches still
+          // appear in the player's history (mode is normalized on write).
           await gameRepository.recordMatchHistory({
             userId: session.user_id,
             gameId: session.game_id,
             mode: session.metadata?.mode,
-            result: 'WIN',
+            result: myResult,
             score: myScore,
             duration: 60,
             xpEarned: myXp,
             matchGroupId
           });
 
-          // Optionally emit WebSocket event to the winning user
+          // Optionally emit WebSocket event to the resolved user
           const { emitNotification } = require('../../sockets/notification.socket');
           emitNotification(session.user_id, {
             type: 'MATCH_RESOLVED',
             title: 'Match Resolved',
-            message: 'Your opponent forfeited. You won!',
-            payload: { matchId: matchGroupId, result: 'WIN', score: myScore, xpEarned: myXp }
+            message: myResult === 'WIN'
+              ? 'Your opponent forfeited. You won!'
+              : 'Your match was resolved.',
+            payload: { matchId: matchGroupId, result: myResult, score: myScore, xpEarned: myXp }
           });
         }
-        
-        // Also cancel the opponent's active session if it exists
-        await client.query(`
-          UPDATE ${gameModel.GAME_SESSION_TABLE}
-          SET status = 'CANCELLED'
-          WHERE metadata->>'matchGroupId' = $1
-          AND user_id <> $2
-          AND status = 'ACTIVE'
-        `, [matchGroupId, session.user_id]);
 
         await client.query('COMMIT');
 
@@ -103,7 +124,7 @@ async function resolveAbandonedMatches() {
         // Runs AFTER the transaction commits (separate connection) so a
         // rollback can never leave an orphaned entry update.
         await gameRepository.recordTournamentEntryResult({
-          matchGroupId, userId: session.user_id, isWin: true, xpEarned: myXp
+          matchGroupId, userId: session.user_id, isWin: myResult === 'WIN', xpEarned: myXp
         });
       } catch (err) {
         await client.query('ROLLBACK');
@@ -515,10 +536,99 @@ async function resolveTournaments() {
   }
 }
 
+/**
+ * Expires long-abandoned ACTIVE game sessions so rejoin cards and session
+ * rows never linger.
+ *
+ * A session is abandoned when the player never completed it: they matched but
+ * never entered the game, or the engine finished/archived the match while
+ * their client was gone and the completion call never landed. Such sessions
+ * used to stay ACTIVE forever — a stale REJOIN card on the Games screen and
+ * a dead row that could never be completed or cleaned up.
+ *
+ * Guards (mirroring resolveAbandonedMatches):
+ *   - Only ACTIVE sessions past their expires_at TTL are touched — an
+ *     in-flight game is never interrupted.
+ *   - Matches the engine is still running (ACTIVE/PAUSED snapshot) are
+ *     skipped — a live match can legitimately outlive a short TTL.
+ *   - The UPDATE re-checks status = 'ACTIVE' so a concurrent resolver
+ *     (engine forfeit / normal completion) can never be overwritten.
+ */
+async function expireAbandonedSessions() {
+  const client = await pool.connect();
+  client.on('error', err => console.error('Expired sessions client error:', err));
+  try {
+    const { rows: stale } = await client.query(`
+      SELECT gs.id, gs.user_id, gs.metadata->>'matchGroupId' AS match_group_id
+      FROM ${gameModel.GAME_SESSION_TABLE} gs
+      WHERE gs.status = 'ACTIVE'
+        AND (
+          -- Past the session TTL (the player never completed the session).
+          gs.expires_at < NOW()
+          -- OR the match was already flagged ABANDONED by the stale-ticket sweep
+          -- (matched but never entered — expire the session right away instead
+          -- of keeping a REJOIN card alive for the full TTL).
+          OR EXISTS (
+            SELECT 1 FROM ${gameModel.GAME_MATCH_TABLE} gm
+            WHERE gm.metadata->>'matchGroupId' = gs.metadata->>'matchGroupId'
+              AND gm.result = 'ABANDONED'
+          )
+        )
+    `);
+
+    if (!stale.length) return;
+
+    const toExpire = [];
+    for (const s of stale) {
+      // Skip matches the engine is still actively running — a live match must
+      // never have its session swept out from under the players.
+      if (s.match_group_id) {
+        try {
+          const EventStore = require('./engine/EventStore');
+          const snap = await EventStore.loadMatchSnapshot(s.match_group_id);
+          if (snap && (snap.status === 'ACTIVE' || snap.status === 'PAUSED')) continue;
+        } catch (e) {
+          // Non-fatal — expire anyway.
+        }
+      }
+      toExpire.push(s);
+    }
+
+    if (!toExpire.length) return;
+
+    await client.query(
+      `UPDATE ${gameModel.GAME_SESSION_TABLE}
+       SET status = 'EXPIRED', completed_at = NOW()
+       WHERE id = ANY($1::uuid[]) AND status = 'ACTIVE'`,
+      [toExpire.map(s => s.id)]
+    );
+
+    // Tell any live clients to drop the stale REJOIN state immediately.
+    try {
+      const { getIO } = require('../../sockets/index');
+      const io = getIO();
+      for (const s of toExpire) {
+        if (s.match_group_id) {
+          io.to(`user:${s.user_id}`).emit('SESSION_EXPIRED', { matchId: s.match_group_id });
+        }
+      }
+    } catch (e) { /* non-fatal */ }
+
+    if (toExpire.length) {
+      console.info(`[Game] Expired ${toExpire.length} abandoned game session(s)`);
+    }
+  } catch (error) {
+    console.error('Error sweeping expired sessions', error);
+  } finally {
+    client.release();
+  }
+}
+
 module.exports = {
   resolveAbandonedMatches,
   resolveTournaments,
   resolveExpiredLobbies,
   resolveExpiredMatches,
-  resolveBotFillingLobbies
+  resolveBotFillingLobbies,
+  expireAbandonedSessions
 };

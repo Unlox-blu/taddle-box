@@ -9,13 +9,14 @@ const { z } = require('zod');
 // search/?sort=relevance&all_time
 const searchQuerySchema = z.object({
   // 'all' (or empty) → the mixed All view; otherwise one of the server's
-  // result pills (posts | comments | media | text | people | communities |
-  // events | games). 'all' is what the pills return now.
+  // result pills (posts | polls | comments | media | text | people |
+  // communities | events | games). 'all' is what the pills return now.
   type: z
     .union([
       z.enum([
         'all',
         'posts',
+        'polls',
         'comments',
         'media',
         'text',
@@ -45,6 +46,7 @@ const searchQuerySchema = z.object({
   all_time: z.string().optional(),
   // Bookmarks scope — restrict results to the user's saved content.
   bookmarked: z.string().optional(),
+  scope: z.string().optional(),
   page: z.coerce
     .number({ invalid_type_error: 'Page must be a number' })
     .int({ message: 'Page must be an integer' })

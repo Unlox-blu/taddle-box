@@ -46,7 +46,18 @@ const SEARCH_POSt_ALGORITHM = `SELECT
                                 EXISTS(
                                     SELECT 1 FROM xp_transactions xt 
                                     WHERE xt.xp_id = (SELECT id FROM xp WHERE user_id = $4 LIMIT 1) AND xt.source_type = 'view_post_' || p.id
-                                ) AS is_xp_claimed,                                
+                                ) AS is_xp_claimed,
+
+                                -- Whether the viewing user reposted this post,
+                                -- so search rows show the filled repeat icon +
+                                -- tick like feed cards (search rows render
+                                -- through PostCard).
+                                EXISTS(
+                                    SELECT 1 FROM posts rp
+                                    WHERE rp.repost_of_id = p.id
+                                      AND rp.author_id = $4
+                                      AND rp.deleted_at IS NULL
+                                ) AS is_reposted,
                                 COALESCE(
                                     json_agg(
                                         json_build_object(
@@ -421,6 +432,209 @@ const SEARCH_POSt_ALGORITHM = `SELECT
                                         )
                                 END DESC NULLS LAST,
                                 p.created_at DESC
+                            LIMIT $2
+                            OFFSET $3;`;
+
+// Polls: posts carrying a poll (poll_data JSON — { question, options:
+// [{ text, votes }] }). The query matches the question, the option texts, or
+// the post's own title/content/tags. Rows keep the post shape (POST_FIELDS)
+// plus the poll JSON itself, so the client can render a poll card and
+// deep-link to the post.
+// Params: $1 %q% · $2 limit · $3 offset · $4 userId · $5 q · $6 community
+// slugs · $7 author usernames · $8 hashtag array · $9 time cutoff
+// (null = all time) · $10 sortBy.
+const SEARCH_POLLS_ALGORITHM = `SELECT * FROM (
+                                SELECT
+                                ${SearchModel.POST_FIELDS},
+                                EXISTS(
+                                    SELECT 1 FROM post_likes pl
+                                    WHERE pl.post_id = p.id AND pl.user_id = $4
+                                ) AS is_liked,
+                                EXISTS(
+                                    SELECT 1 FROM bookmark bm
+                                    WHERE bm.post_id = p.id AND bm.user_id = $4
+                                ) AS is_bookmarked,
+                                '[]'::json AS media,
+                                p.poll_data::jsonb AS poll_data,
+                                (
+                                    SELECT pv.option_index FROM poll_votes pv
+                                    WHERE pv.post_id = p.id AND pv.user_id = $4 LIMIT 1
+                                ) AS my_poll_vote,
+                                (
+                                    -- Poll question match
+                                    CASE
+                                        WHEN LOWER(p.poll_data->>'question') = LOWER($5) THEN 10000
+                                        WHEN LOWER(p.poll_data->>'question') LIKE LOWER($5) || '%' THEN 7000
+                                        WHEN p.poll_data->>'question' ILIKE $1 THEN 5000
+                                        ELSE 0
+                                    END
+                                    -- Option text match
+                                    + CASE
+                                        WHEN EXISTS (
+                                            SELECT 1 FROM jsonb_array_elements(
+                                                CASE WHEN jsonb_typeof(p.poll_data::jsonb->'options') = 'array'
+                                                     THEN p.poll_data::jsonb->'options'
+                                                     ELSE '[]'::jsonb END
+                                            ) o
+                                            WHERE o->>'text' ILIKE $1
+                                        )
+                                        THEN 4000
+                                        ELSE 0
+                                    END
+                                    -- Title / content / tags match
+                                    + CASE WHEN p.title ILIKE $1 THEN 2000 ELSE 0 END
+                                    + CASE WHEN p.content ILIKE $1 THEN 1500 ELSE 0 END
+                                    + CASE WHEN EXISTS (
+                                        SELECT 1 FROM unnest(COALESCE(p.tags, ARRAY[]::text[])) t
+                                        WHERE t ILIKE $1
+                                    ) THEN 1000 ELSE 0 END
+                                    -- Popularity
+                                    + (p.likes_count * 2)
+                                    + (p.comments_count * 3)
+                                    -- Freshness (100 → 0 over 100 days)
+                                    + GREATEST(
+                                        100 - EXTRACT(EPOCH FROM (NOW() - p.created_at)) / 86400,
+                                        0
+                                    )
+                                ) AS score,
+                                COUNT(*) OVER() AS total
+                            FROM posts p
+                            JOIN users u
+                                ON u.id = p.author_id
+                            LEFT JOIN posts orig
+                                ON orig.id = p.repost_of_id
+                                AND orig.deleted_at IS NULL
+                                AND orig.status = 'published'
+                            LEFT JOIN media ua
+                                ON u.avatar_url = ua.id
+                            LEFT JOIN communities c
+                                ON c.id = p.community_id
+                            LEFT JOIN media ca
+                                ON ca.id = c.avatar_url
+                            WHERE
+                                p.deleted_at IS NULL
+                                AND p.status = 'published'
+                                -- Must actually carry a poll
+                                AND p.poll_data IS NOT NULL
+                                AND p.poll_data::text NOT IN ('', 'null', '{}')
+                                AND (
+                                    p.visibility = 'public'
+                                    OR p.visibility = 'community_only'
+                                    OR (
+                                        p.visibility = 'followers'
+                                        AND (
+                                            p.author_id = $4
+                                            OR EXISTS (
+                                                SELECT 1 FROM followers f
+                                                WHERE f.follower_id = $4 AND f.following_id = p.author_id AND f.status = 'active'
+                                            )
+                                        )
+                                    )
+                                )
+                                -- Private communities are invisible to non-members
+                                AND (
+                                    c.id IS NULL
+                                    OR c.privacy != 'private'
+                                    OR EXISTS (
+                                        SELECT 1
+                                        FROM community_members cm
+                                        WHERE cm.community_id = p.community_id
+                                          AND cm.user_id = $4
+                                          AND cm.status = 'active'
+                                    )
+                                )
+                                -- Private accounts are invisible to non-followers
+                                AND (
+                                    u.privacy = 'public'
+                                    OR p.author_id = $4
+                                    OR EXISTS (
+                                        SELECT 1
+                                        FROM followers f
+                                        WHERE f.follower_id = $4 AND f.following_id = p.author_id AND f.status = 'active'
+                                    )
+                                )
+                                -- Community scope (c/<slug> filters)
+                                AND (
+                                    $6::text[] IS NULL
+                                    OR c.slug = ANY($6::text[])
+                                )
+                                -- Person scope (@<user> filters)
+                                AND (
+                                    $7::text[] IS NULL
+                                    OR EXISTS (
+                                        SELECT 1 FROM users au
+                                        WHERE au.username = ANY($7::text[]) AND au.deleted_at IS NULL
+                                          AND (
+                                              au.id = p.author_id
+                                              OR p.title ILIKE '%{@}[' || au.username || ']%'
+                                              OR p.content ILIKE '%{@}[' || au.username || ']%'
+                                              OR p.content ~ ('@' || au.username || '([^a-z0-9_]|$)')
+                                              OR EXISTS (
+                                                  SELECT 1 FROM jsonb_array_elements(
+                                                      CASE WHEN jsonb_typeof(p.poll_data::jsonb->'options') = 'array'
+                                                           THEN p.poll_data::jsonb->'options'
+                                                           ELSE '[]'::jsonb END
+                                                  ) o
+                                                  WHERE o->>'text' ILIKE '%{@}[' || au.username || ']%'
+                                              )
+                                          )
+                                    )
+                                )
+                                -- Hashtag scope (#<tag> filters)
+                                AND (
+                                    $8::text[] IS NULL
+                                    OR EXISTS (
+                                        SELECT 1
+                                        FROM unnest(COALESCE(p.tags, ARRAY[]::text[])) t
+                                        WHERE LOWER(t) = ANY($8::text[])
+                                    )
+                                )
+                                -- Time-window filter
+                                AND (
+                                    $9::timestamptz IS NULL
+                                    OR p.published_at >= $9
+                                )
+                                -- Query match — question, options, title, content, tags
+                                AND (
+                                    $5 = ''
+                                    OR p.poll_data->>'question' ILIKE $1
+                                    OR EXISTS (
+                                        SELECT 1 FROM jsonb_array_elements(
+                                            CASE WHEN jsonb_typeof(p.poll_data::jsonb->'options') = 'array'
+                                                 THEN p.poll_data::jsonb->'options'
+                                                 ELSE '[]'::jsonb END
+                                        ) o
+                                        WHERE o->>'text' ILIKE $1
+                                    )
+                                    OR p.title ILIKE $1
+                                    OR p.content ILIKE $1
+                                    OR EXISTS (
+                                        SELECT 1 FROM unnest(COALESCE(p.tags, ARRAY[]::text[])) t
+                                        WHERE t ILIKE $1
+                                    )
+                                )
+                            GROUP BY
+                                p.id,
+                                u.id,
+                                ua.id,
+                                c.id,
+                                ca.id,
+                                orig.id
+                            ) ranked
+                            ORDER BY
+                                CASE WHEN $10 = 'latest' THEN created_at END DESC,
+                                -- hot = trending recently: engagement decayed by age (Reddit-style).
+                                CASE WHEN $10 = 'hot' THEN
+                                    (likes_count * 2 + comments_count * 3)
+                                    / POWER(EXTRACT(EPOCH FROM (NOW() - created_at)) / 3600 + 2, 1.5)
+                                END DESC,
+                                CASE WHEN $10 = 'top' THEN (likes_count * 2 + comments_count * 3) END DESC,
+                                CASE WHEN ($10 = 'relevance' OR $10 IS NULL) AND $5 = '' THEN
+                                        (likes_count * 2 + comments_count * 3)
+                                    ELSE
+                                        score
+                                END DESC NULLS LAST,
+                                created_at DESC
                             LIMIT $2
                             OFFSET $3;`;
 
@@ -1063,6 +1277,7 @@ module.exports = {
   SEARCH_USER_ALGORITHM,
   SEARCH_COMMUNITY_ALGORITHM,
   SEARCH_POSt_ALGORITHM,
+  SEARCH_POLLS_ALGORITHM,
   SEARCH_EVENT_ALGORITHM,
   SEARCH_GAMES_ALGORITHM,
   SEARCH_COMMENT_ALGORITHM,

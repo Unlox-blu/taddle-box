@@ -576,13 +576,14 @@ class GameService {
       }
 
       const seed = crypto.randomBytes(32).toString('hex');
-      // Turn-based games (chess/ludo/snake-ladder) routinely run longer than
-      // 5 minutes, so a short expiry caused "Session expired" when the client
-      // completed the session after a long match. Give them a generous window;
-      // realtime games keep the tight 5-minute cap.
-      const TURN_BASED = ['chess', 'ludo', 'snake-ladder'];
-      const isTurnBased = TURN_BASED.includes(game.slug);
-      const sessionTtlMs = isTurnBased ? 4 * 60 * 60 * 1000 : 5 * 60 * 1000;
+      // Turn-based games (chess/ludo/snake-ladder) and multi-round games
+      // (scribble/word-rush) routinely run longer than 5 minutes, so a short
+      // expiry caused "Session expired" when the client completed the session
+      // after a long match. Give them a generous window; single-round realtime
+      // games keep the tight 5-minute cap.
+      const LONG_SESSION_GAMES = ['chess', 'ludo', 'snake-ladder', 'scribble', 'word-rush'];
+      const isLongSessionGame = LONG_SESSION_GAMES.includes(game.slug);
+      const sessionTtlMs = isLongSessionGame ? 4 * 60 * 60 * 1000 : 5 * 60 * 1000;
       const expiresAt = new Date(Date.now() + sessionTtlMs);
       
       const wsToken = crypto.randomBytes(16).toString('hex');
@@ -622,10 +623,20 @@ class GameService {
       if (!session) throw createError("Session not found", 404);
       if (session.user_id !== userId) throw createError("Unauthorized", 403);
       if (session.status !== 'ACTIVE') {
-        // Already resolved — either the client double-fired, or the server
-        // resolved it itself (forfeit / all-offline draw / 3+ removal). Return
-        // the recorded outcome so the client renders the final result instead
-        // of a confusing error or a stuck "pending" state.
+        // Already resolved — either the client double-fired, the server resolved
+        // it itself (forfeit / all-offline draw / 3+ removal / abandonment sweep),
+        // or the first completion call landed but the PVP opponent hasn't
+        // finished yet (PENDING). Never error the player for a finished game:
+        // return the recorded outcome (or a safe fallback) so the client renders
+        // the final result instead of a confusing error or a stuck state.
+        if (session.status === 'PENDING') {
+          return {
+            result: 'PENDING',
+            score: Number(session.validated_score) || 0,
+            xpEarned: 0,
+            alreadyResolved: true,
+          };
+        }
         const recorded = await this.gameRepo.findCompletedMatchRecord({
           userId,
           matchGroupId: session.metadata?.matchGroupId || session.id,
@@ -638,9 +649,11 @@ class GameService {
             alreadyResolved: true,
           };
         }
-        throw createError("Session already completed or cancelled", 400);
+        // No history row — the session was cancelled/resolved before a record
+        // existed. Return a graceful loss instead of "Session already completed
+        // or cancelled" so the client lands on the result screen, not an alert.
+        return { result: 'LOSS', score: 0, xpEarned: 0, alreadyResolved: true };
       }
-      if (new Date(session.expires_at) < new Date()) throw createError("Session expired", 400);
 
       const game = await this.gameRepo.findGameById({ gameId: session.game_id });
       if (!game) throw createError("Game not found", 404);
@@ -665,6 +678,22 @@ class GameService {
       if (!matchState) {
         const init = await MatchManager.loadOrInitializeMatch(matchGroupId, game.slug, session.metadata || {});
         matchState = init.state;
+      }
+
+      // Session TTL backstop: reject ONLY genuinely abandoned sessions. A match
+      // the engine actually finished (snapshot FINISHED, or archived/cleaned)
+      // is always completable — the engine state is authoritative, so a long
+      // match or a reconnect pause must never surface "Session expired" on an
+      // already-finished game (the classic completion error).
+      if (new Date(session.expires_at) < new Date()) {
+        const status = matchState?.status;
+        const pluginFinished = matchState?.pluginState?.status === 'finished';
+        const matchOver = !matchState
+          || status === MATCH_STATES.FINISHED
+          || status === MATCH_STATES.ARCHIVED
+          || pluginFinished
+          || (status !== MATCH_STATES.ACTIVE && status !== MATCH_STATES.PAUSED && status !== MATCH_STATES.WAITING);
+        if (!matchOver) throw createError("Session expired", 400);
       }
 
       if (matchState) {

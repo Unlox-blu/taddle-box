@@ -5,8 +5,8 @@ class LeaderboardService {
     this.leaderboardRepo = leaderboardRepository;
   }
 
-  async getWeeklyLeaderboards({limit}) {
-    return this.leaderboardRepo.getWeeklyLeaderboards({limit});
+  async getWeeklyLeaderboards({limit, userId}) {
+    return this.leaderboardRepo.getWeeklyLeaderboards({limit, userId});
   }
 }
 

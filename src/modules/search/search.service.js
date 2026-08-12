@@ -5,7 +5,7 @@ const { getPaginationParams } = require('../../utils/pagination.util');
 // Result groups the universal search can return, in the order they are
 // interleaved for a non-empty query. The server owns the ORDER — the client
 // renders the `results` array verbatim.
-const UNIVERSAL_TYPES = ['posts', 'comments', 'media', 'people', 'communities', 'text'];
+const UNIVERSAL_TYPES = ['posts', 'polls', 'comments', 'media', 'people', 'communities', 'text'];
 // Saved-content (bookmarked) mode — only content the user saved: posts,
 // comments/media on those posts, and their saved events.
 const BOOKMARKED_TYPES = ['posts', 'comments', 'media', 'events'];
@@ -18,6 +18,7 @@ const DISCOVERY_TYPES = ['people', 'communities', 'events', 'games', 'posts', 't
 const TYPE_LABELS = {
   all: 'All',
   posts: 'Posts',
+  polls: 'Polls',
   comments: 'Comments',
   media: 'Media',
   people: 'People',
@@ -174,6 +175,25 @@ class SearchService {
                 sortBy,
                 'contents',
                 timeCutoff
+              );
+              return { rows, total };
+            }
+            case 'polls': {
+              // Polls are a post sub-kind — the discovery view already shows
+              // posts, so polls only surface for real queries.
+              if (isDiscovery) return { rows: [], total: 0 };
+              const { rows, total } = await this.searchRepo.searchPoll(
+                query,
+                lmt,
+                off,
+                userId,
+                {
+                  community: communities,
+                  author: people,
+                  tag: tags,
+                  sortBy,
+                  timeCutoff,
+                }
               );
               return { rows, total };
             }

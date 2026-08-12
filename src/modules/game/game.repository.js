@@ -257,11 +257,17 @@ const recordMatchHistory = async ({ userId, gameId, mode, result, score, duratio
     }
 
     // No placeholder found (e.g. direct matches) — insert a fresh history row.
+    // Include matchGroupId in metadata so findCompletedMatchRecord (which looks
+    // it up via metadata->>'matchGroupId') can later return this recorded result
+    // to a late completion call instead of erroring.
     await pool.query(
       `INSERT INTO ${gameModel.GAME_MATCH_TABLE} 
-       (user_id, game_id, mode, result, score, duration, xp_earned, created_at, updated_at)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, NOW(), NOW())`,
-      [userId, gameId, gameModel.normalizeMatchMode(mode), result, score, duration, xpEarned]
+       (user_id, game_id, mode, result, score, duration, xp_earned, metadata, created_at, updated_at)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8::jsonb, NOW(), NOW())`,
+      [
+        userId, gameId, gameModel.normalizeMatchMode(mode), result, score, duration, xpEarned,
+        JSON.stringify(matchGroupId ? { matchGroupId, completedAt: new Date().toISOString() } : {}),
+      ]
     );
   } catch (error) {
     console.error('Failed to record match history:', error.message);
@@ -1214,7 +1220,18 @@ const createGameSession = async ({ sessionData }) => {
 
 const findGameSessionById = async ({ sessionId }) => {
   try {
-    const { rows } = await pool.query(`SELECT * FROM game_sessions WHERE id = $1`, [sessionId]);
+    // Join the latest reward_ledger row so callers can read the validated score
+    // of a session that already went PENDING (e.g. a retried completion call).
+    const { rows } = await pool.query(
+      `SELECT gs.*, rl.validated_score
+       FROM game_sessions gs
+       LEFT JOIN LATERAL (
+         SELECT validated_score FROM reward_ledger
+         WHERE session_id = gs.id ORDER BY created_at DESC LIMIT 1
+       ) rl ON true
+       WHERE gs.id = $1`,
+      [sessionId]
+    );
     return rows[0];
   } catch (error) {
     throw error;

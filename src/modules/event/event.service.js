@@ -14,9 +14,9 @@ class EventService {
     this.xpSvc = xpService || null;
   }
 
-  async discover({ query, filter, limit, offset, userId }) {
+  async discover({ query, filter, limit, offset, userId, scope }) {
     try {
-      const { event, total } = await this.eventRepo.search(query, filter, limit, offset, userId);
+      const { event, total } = await this.eventRepo.search(query, filter, limit, offset, userId, scope);
       return { events: event, total };
     } catch (error) {
       throw error;

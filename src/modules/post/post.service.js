@@ -649,9 +649,12 @@ class PostService {
         name: row.name,
         username: row.username,
         avatarUrl: row.avatar_url,
+        privacy: row.privacy || 'public',
         isFollowing: row.is_following || false,
         isFollower: row.is_follower || false,
         isMutual: (row.is_following && row.is_follower) || false,
+        // Pending follow request from the viewer (private accounts only).
+        followRequested: row.follow_status === 'pending',
       }));
       return { likers, total };
     } catch (error) {
@@ -681,11 +684,101 @@ class PostService {
         name: row.name,
         username: row.username,
         avatarUrl: row.avatar_url,
+        privacy: row.privacy || 'public',
         isFollowing: row.is_following || false,
         isFollower: row.is_follower || false,
         isMutual: (row.is_following && row.is_follower) || false,
+        // Pending follow request from the viewer (private accounts only).
+        followRequested: row.follow_status === 'pending',
       }));
       return { reposters, total };
+    } catch (error) {
+      throw error;
+    }
+  }
+
+  // Paginated voters of ONE poll option, with the viewer's follow state on
+  // each voter (same response shape as getLikers so the app reuses the
+  // users-list modal).
+  async getPollVoters({ postId, optionIndex, userId, limit, offset }) {
+    try {
+      const post = await this.postRepo.findPollByPostId(postId);
+      if (!post) throw createError('Post not found', 404);
+      if (!post.poll_data || !Array.isArray(post.poll_data.options)) {
+        throw createError('This post has no poll', 400);
+      }
+      if (!post.poll_data.options[optionIndex]) {
+        throw createError('Invalid poll option', 400);
+      }
+
+      // Privacy gate mirrors getLikers: voters of a private account's poll
+      // are only visible to the author and their active followers.
+      const author = await this.userRepo.findById(post.author_id);
+      if (post.author_id !== userId && author?.privacy !== 'public') {
+        const isFollow = await this.followerRepo.findByFollowerIdAndFollowingId(userId, post.author_id);
+        if (!isFollow || isFollow.status !== 'active')
+          throw createError("You don't have permission to view voters on this poll", 403);
+      }
+
+      const { rows, total } = await this.postRepo.findPollVoters(postId, optionIndex, userId, limit, offset);
+      const voters = rows.map((row) => ({
+        id: row.id,
+        name: row.name,
+        username: row.username,
+        avatarUrl: row.avatar_url,
+        privacy: row.privacy || 'public',
+        isFollowing: row.is_following || false,
+        isFollower: row.is_follower || false,
+        isMutual: (row.is_following && row.is_follower) || false,
+        followRequested: row.follow_status === 'pending',
+      }));
+      return { voters, total };
+    } catch (error) {
+      throw error;
+    }
+  }
+
+  async castPollVote({ userId, postId, optionIndex }) {
+    try {
+      const post = await this.postRepo.findPollByPostId(postId);
+      if (!post) throw createError('Post not found', 404);
+      if (!post.poll_data || !Array.isArray(post.poll_data.options)) {
+        throw createError('This post has no poll', 400);
+      }
+      if (!post.poll_data.options[optionIndex]) {
+        throw createError('Invalid poll option', 400);
+      }
+      if (post.poll_data.closed) {
+        throw createError('This poll is closed', 400);
+      }
+      try {
+        const result = await this.postRepo.castPollVote({ postId, userId, optionIndex });
+        return result;
+      } catch (error) {
+        // The author closed the poll between our pre-check and the row lock
+        // inside the transaction — surface it as a normal 400, not a 500.
+        if (error?.message === 'This poll is closed') {
+          throw createError('This poll is closed', 400);
+        }
+        throw error;
+      }
+    } catch (error) {
+      throw error;
+    }
+  }
+
+  async closePoll({ userId, postId }) {
+    try {
+      const post = await this.postRepo.findPollByPostId(postId);
+      if (!post) throw createError('Post not found', 404);
+      if (String(post.author_id) !== String(userId)) {
+        throw createError('Only the poll author can close this poll', 403);
+      }
+      if (!post.poll_data) {
+        throw createError('This post has no poll', 400);
+      }
+      const updated = await this.postRepo.closePoll(postId);
+      return { pollData: updated?.poll_data || post.poll_data, closed: true };
     } catch (error) {
       throw error;
     }

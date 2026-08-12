@@ -57,8 +57,34 @@ const postIdParamsSchema = z.object({
   postId: z.string().uuid({ message: 'Invalid post ID format' })
 }).strict();
 
+// Body for POST /:postId/poll/vote — which option the user is voting for.
+// The option index is validated against the poll's option count server-side
+// (the poll itself may change between validation and execution).
+const pollVoteSchema = z.object({
+  optionIndex: z.number().int({ message: 'Option index must be an integer' }).min(0, 'Invalid poll option')
+}).strict();
+
 const authorIdParamsSchema = z.object({
   authorId: z.string().uuid({ message: 'Invalid author ID format' })
+}).strict();
+
+// Query for GET /:postId/poll/voters — which option's voters to list.
+const pollVotersQuerySchema = z.object({
+  option: z.coerce
+    .number({ invalid_type_error: 'Option must be a number' })
+    .int({ message: 'Option must be an integer' })
+    .min(0, 'Invalid poll option'),
+  page: z.coerce
+    .number({ invalid_type_error: 'Page must be a number' })
+    .int({ message: 'Page must be an integer' })
+    .positive({ message: 'Page must be greater than zero' })
+    .default(1).optional(),
+  limit: z.coerce
+    .number({ invalid_type_error: 'Limit must be a number' })
+    .int({ message: 'Limit must be an integer' })
+    .positive({ message: 'Limit must be greater than zero' })
+    .max(100, 'Maximum limit allowed is 100')
+    .default(10).optional(),
 }).strict();
 
 
@@ -84,4 +110,4 @@ const getPostQuerySchema = z.object({
   via_repost: z.string().uuid({ message: 'Invalid via_repost ID format' }).optional()
 }).strict();
 
-module.exports = { createPostSchema, updatePostSchema, postIdParamsSchema, authorIdParamsSchema, paginationQuerySchema, getPostQuerySchema };
+module.exports = { createPostSchema, updatePostSchema, postIdParamsSchema, authorIdParamsSchema, paginationQuerySchema, getPostQuerySchema, pollVoteSchema, pollVotersQuerySchema };

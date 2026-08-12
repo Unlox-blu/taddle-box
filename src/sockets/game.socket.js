@@ -328,12 +328,33 @@ const setupGameSocket = (io) => {
       // Keep the enriched list on the socket so READY detects bot matches correctly
       socket.matchPlayers = players;
 
-      const result = await MatchManager.loadOrInitializeMatch(matchId, gameSlug, {
-        players,
-        maxPlayers: players.length || 2,
-        matchMetadata: socket.matchMetadata,
-      });
-      state = result.state;
+      // Load the live Redis snapshot first. If it's gone, the match was already
+      // archived (engine cleanup after GAME_OVER) — replay the archived final
+      // state so a returning player sees the real outcome instead of a freshly
+      // initialized WAITING match that would hang forever on their screen.
+      state = await EventStore.loadMatchSnapshot(matchId);
+      if (!state) {
+        try {
+          const { rows } = await pool.query(
+            `SELECT status, metadata->>'finalState' AS final_state
+             FROM game_matches WHERE id = $1`,
+            [matchId]
+          );
+          if (rows[0] && rows[0].status === 'COMPLETED' && rows[0].final_state) {
+            state = JSON.parse(rows[0].final_state);
+          }
+        } catch (e) {
+          // Non-fatal — fall through to initialization below.
+        }
+      }
+      if (!state) {
+        const result = await MatchManager.loadOrInitializeMatch(matchId, gameSlug, {
+          players,
+          maxPlayers: players.length || 2,
+          matchMetadata: socket.matchMetadata,
+        });
+        state = result.state;
+      }
     } catch (e) {
       socket.emit(EVENTS.ERROR, { message: `Failed to load match: ${e.message}` });
       return socket.disconnect();
@@ -348,6 +369,18 @@ const setupGameSocket = (io) => {
           // Window expired — resolve via the size-aware path (2p forfeit with
           // real winner id, 3+ removal, or everyone-offline draw).
           await _resolveReconnectTimeout(gameNs, matchId, gameSlug, userId, state);
+          // The returning client missed the room-wide GAME_OVER while offline.
+          // Hand them the resolved final state (the in-memory object — the
+          // Redis snapshot is cleaned up by _archiveMatch) so their game
+          // completes and lands on the result screen instead of hanging on a
+          // paused board with a reconnect loop.
+          socket.emit(EVENTS.CONNECT_ACK, {
+            matchId,
+            gameSlug,
+            state,
+            status: MATCH_STATES.FINISHED,
+            reconnectWindowMs: 0,
+          });
           return socket.disconnect();
         } else {
           // Player returned within the reconnect window: mark them back.

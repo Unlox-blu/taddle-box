@@ -26,6 +26,26 @@ const FEED_ALGORITHM = `WITH ranked_posts AS (
                                         WHERE xt.xp_id = (SELECT id FROM xp WHERE user_id = $1 LIMIT 1) AND xt.source_type = 'view_post_' || p.id
                                     ) AS is_xp_claimed,
 
+                                    -- Whether the viewing user reposted this post
+                                    -- (drives the filled repeat icon + tick on
+                                    -- feed cards). Mirrors the post repository's
+                                    -- subquery — a repost by this user, any
+                                    -- audience, not deleted.
+                                    EXISTS(
+                                        SELECT 1 FROM posts rp
+                                        WHERE rp.repost_of_id = p.id
+                                          AND rp.author_id = $1
+                                          AND rp.deleted_at IS NULL
+                                    ) AS is_reposted,
+
+                                    -- Which poll option the viewing user voted for
+                                    -- (NULL for non-voters) so feed cards can
+                                    -- highlight their saved selection immediately.
+                                    (
+                                        SELECT pv.option_index FROM poll_votes pv
+                                        WHERE pv.post_id = p.id AND pv.user_id = $1 LIMIT 1
+                                    ) AS my_poll_vote,
+
                                 -- Following
                                         CASE
                                             WHEN p.author_id = ANY($2::uuid[]) THEN 10000

@@ -15,7 +15,8 @@ const getSpotLight = async (limit, offset) => {
     // community spotlights carry the community banner (resolved via the media
     // table), so the home spotlight renders real artwork instead of emoji.
     const {rows} = await pool.query(`
-      SELECT s.id, s.title, s.description, s.type, s.source_id, s.created_at, s.updated_at,
+      SELECT s.id, s.title, s.description, s.type, s.source_id,
+             c.slug AS source_slug, s.created_at, s.updated_at,
              CASE
                WHEN s.type = 'event' THEN e.cover_image_url
                WHEN s.type = 'community' THEN banner_media.cloudfront_url

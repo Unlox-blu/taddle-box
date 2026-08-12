@@ -21,7 +21,7 @@ const LIST_FIELDS = [
   'p.id', 'p.author_id', 'p.community_id', 'p.repost_of_id', 'p.title', 'p.content',
   'p.media', 'p.tags', 'p.status', 'p.visibility',
   'p.likes_count', 'p.comments_count', 'p.shares_count', 'p.views_count',
-  'p.is_pinned',
+  'p.is_pinned', 'p.poll_data',
   // NOTE: p.latitude/p.longitude/p.place are deliberately NOT selected here —
   // the feed algorithm adds them as COALESCE(orig.*, p.*) so reposts show the
   // ORIGINAL post's location in the rolling text.
@@ -63,6 +63,8 @@ const format = (row) => {
     isSaved: row.is_bookmarked || false,
     isXpClaimed: row.is_xp_claimed || false,
     pollData: row.poll_data || null,
+    // Which poll option the viewing user voted for (null = not voted / guest).
+    myPollVote: row.my_poll_vote ?? null,
     linkData: row.link_data || null,
     // Optional place tag (lat / lon / place name) attached at creation time
     // and shown in the card's rolling text.

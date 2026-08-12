@@ -103,6 +103,24 @@ const searchMedia = async (query, limit, offset, userId = null, { community = nu
 };
 
 
+// Searches POSTS carrying a POLL (poll_data) whose question/options (or the
+// post's own title/content/tags) match. Rows keep the post shape plus the
+// poll JSON so the client can render a poll card and deep-link to the post.
+const searchPoll = async (query, limit, offset, userId = null, { community = null, author = null, tag = null, sortBy = 'relevance', timeCutoff = null } = {}) => {
+  try {
+    const q = query || '';
+    const communityArr = toCommunityArray(community);
+    const authorArr = Array.isArray(author) && author.length ? author : null;
+    const tagArr = Array.isArray(tag) && tag.length ? tag : null;
+    const { rows } = await pool.query(SearchAlgo.SEARCH_POLLS_ALGORITHM, [`%${q}%`, limit, offset, userId, q.trim(), communityArr, authorArr, tagArr, timeCutoff || null, sortBy ] );
+    const total = rows[0]?.total || 0;
+    return { rows, total: parseInt(total, 10) };
+  } catch (error) {
+    throw error;
+  }
+};
+
+
 const searchEvent = async (query, filter, limit, offset, bookmarked = null, userId = null) => {
   try {
     const q = query || '';
@@ -225,5 +243,7 @@ const findFollowingCommunity = async (userId, limit, offset) => {
 }
 
 module.exports = {
-    searchUser, searchCommunity, searchEvent, searchPost, searchComment, searchMedia, searchGame, getHashtags, discoverPost, getUserInterests, discoverCommunity, discoverPeople, findFollowers, findFollowingCommunity
+    searchUser, searchCommunity, searchEvent,  searchPost,
+  searchPoll,
+  searchComment, searchMedia, searchGame, getHashtags, discoverPost, getUserInterests, discoverCommunity, discoverPeople, findFollowers, findFollowingCommunity
 }

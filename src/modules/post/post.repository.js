@@ -14,6 +14,7 @@ const findLikers = async (postId, currentUserId, limit, offset) => {
           u.id,
           u.name,
           u.username,
+          u.privacy,
           avatar_media.cloudfront_url AS avatar_url,
           EXISTS(
             SELECT 1 FROM followers f
@@ -23,6 +24,11 @@ const findLikers = async (postId, currentUserId, limit, offset) => {
             SELECT 1 FROM followers f
             WHERE f.follower_id = u.id AND f.following_id = $2 AND f.status = 'active'
           ) AS is_follower,
+          -- Viewer's follow relationship with this user (NULL = none) so the
+          -- app can distinguish Follow / Following / Requested states.
+          (SELECT f2.status FROM followers f2
+            WHERE f2.follower_id = $2 AND f2.following_id = u.id
+            LIMIT 1) AS follow_status,
           COUNT(*) OVER() AS total
        FROM ${PostModel.LIKES_TABLE} pl
        JOIN users u ON u.id = pl.user_id
@@ -53,6 +59,7 @@ const findReposters = async (postId, currentUserId, limit, offset) => {
           sub.id,
           sub.name,
           sub.username,
+          sub.privacy,
           avatar_media.cloudfront_url AS avatar_url,
           EXISTS(
             SELECT 1 FROM followers f
@@ -62,10 +69,15 @@ const findReposters = async (postId, currentUserId, limit, offset) => {
             SELECT 1 FROM followers f
             WHERE f.follower_id = sub.id AND f.following_id = $2 AND f.status = 'active'
           ) AS is_follower,
+          -- Viewer's follow relationship with this user (NULL = none) so the
+          -- app can distinguish Follow / Following / Requested states.
+          (SELECT f2.status FROM followers f2
+            WHERE f2.follower_id = $2 AND f2.following_id = sub.id
+            LIMIT 1) AS follow_status,
           COUNT(*) OVER() AS total
        FROM (
          SELECT DISTINCT ON (rp.author_id)
-           u.id, u.name, u.username, u.avatar_url,
+           u.id, u.name, u.username, u.avatar_url, u.privacy,
            rp.created_at AS last_reposted_at
          FROM ${PostModel.TABLE} rp
          JOIN users u ON u.id = rp.author_id
@@ -78,6 +90,48 @@ const findReposters = async (postId, currentUserId, limit, offset) => {
        ORDER BY sub.last_reposted_at DESC
        LIMIT $3 OFFSET $4`,
       [postId, currentUserId, limit, offset]
+    );
+    const total = rows[0]?.total || 0;
+    return { rows, total: parseInt(total, 10) };
+  } catch (error) {
+    throw error;
+  }
+};
+
+// Paginated list of users who voted for ONE option of a post poll, with the
+// viewer's follow state (active follow + pending request) and each voter's
+// privacy — the same shape as findLikers so the app reuses the users-list
+// modal. Returns { rows, total }.
+const findPollVoters = async (postId, optionIndex, currentUserId, limit, offset) => {
+  try {
+    const { rows } = await pool.query(
+      `SELECT
+          u.id,
+          u.name,
+          u.username,
+          u.privacy,
+          avatar_media.cloudfront_url AS avatar_url,
+          EXISTS(
+            SELECT 1 FROM followers f
+            WHERE f.follower_id = $3 AND f.following_id = u.id AND f.status = 'active'
+          ) AS is_following,
+          EXISTS(
+            SELECT 1 FROM followers f
+            WHERE f.follower_id = u.id AND f.following_id = $3 AND f.status = 'active'
+          ) AS is_follower,
+          (SELECT f2.status FROM followers f2
+            WHERE f2.follower_id = $3 AND f2.following_id = u.id
+            LIMIT 1) AS follow_status,
+          COUNT(*) OVER() AS total
+       FROM poll_votes pv
+       JOIN users u ON u.id = pv.user_id
+       LEFT JOIN media AS avatar_media ON avatar_media.id = u.avatar_url
+       WHERE pv.post_id = $1
+         AND pv.option_index = $2
+         AND u.deleted_at IS NULL
+       ORDER BY pv.created_at DESC
+       LIMIT $4 OFFSET $5`,
+      [postId, optionIndex, currentUserId, limit, offset]
     );
     const total = rows[0]?.total || 0;
     return { rows, total: parseInt(total, 10) };
@@ -102,6 +156,12 @@ const findById = async (postId, currentUserId = null) => {
           SELECT 1 FROM posts rp
           WHERE rp.repost_of_id = p.id AND rp.author_id = $2 AND rp.deleted_at IS NULL
         ) AS is_reposted,
+        -- Which poll option the requesting user voted for (NULL for guests /
+        -- non-voters) so the client can highlight their selection.
+        (
+          SELECT pv.option_index FROM poll_votes pv
+          WHERE pv.post_id = p.id AND pv.user_id = $2 LIMIT 1
+        ) AS my_poll_vote,
         COALESCE(s.allow_reposts, TRUE) AS author_reposts_enabled,
         COALESCE(c.allow_reposts, TRUE) AS community_reposts_enabled,
         COALESCE(
@@ -164,6 +224,12 @@ const findManyByUser = async (authorId, limit, offset, currentUserId = null, typ
           SELECT 1 FROM posts rp
           WHERE rp.repost_of_id = p.id AND rp.author_id = $4 AND rp.deleted_at IS NULL
         ) AS is_reposted,
+        -- Which poll option the viewing user voted for (NULL = not voted),
+        -- so profile/community cards highlight their saved selection.
+        (
+          SELECT pv.option_index FROM poll_votes pv
+          WHERE pv.post_id = p.id AND pv.user_id = $4 LIMIT 1
+        ) AS my_poll_vote,
         COALESCE(s.allow_reposts, TRUE) AS author_reposts_enabled,
         COALESCE(c.allow_reposts, TRUE) AS community_reposts_enabled,
         COALESCE(
@@ -222,6 +288,12 @@ const findManyByCommunity = async (communityId, limit, offset, currentUserId = n
           SELECT 1 FROM posts rp
           WHERE rp.repost_of_id = p.id AND rp.author_id = $4 AND rp.deleted_at IS NULL
         ) AS is_reposted,
+        -- Which poll option the viewing user voted for (NULL = not voted),
+        -- so profile/community cards highlight their saved selection.
+        (
+          SELECT pv.option_index FROM poll_votes pv
+          WHERE pv.post_id = p.id AND pv.user_id = $4 LIMIT 1
+        ) AS my_poll_vote,
         COALESCE(s.allow_reposts, TRUE) AS author_reposts_enabled,
         COALESCE(c.allow_reposts, TRUE) AS community_reposts_enabled,
       COALESCE(
@@ -542,6 +614,10 @@ const search = async (query, limit, offset, currentUserId = null) => {
           SELECT 1 FROM posts rp
           WHERE rp.repost_of_id = p.id AND rp.author_id = $4 AND rp.deleted_at IS NULL
         ) AS is_reposted,
+        (
+          SELECT pv.option_index FROM poll_votes pv
+          WHERE pv.post_id = p.id AND pv.user_id = $4 LIMIT 1
+        ) AS my_poll_vote,
         COALESCE(s.allow_reposts, TRUE) AS author_reposts_enabled,
         COALESCE(c.allow_reposts, TRUE) AS community_reposts_enabled
      FROM ${PostModel.TABLE} p
@@ -565,6 +641,159 @@ const search = async (query, limit, offset, currentUserId = null) => {
     return { rows, total: parseInt(total, 10) };
   } catch (error) {
     throw error;
+  }
+};
+
+/**
+ * Marks a poll as closed (poll_data.closed = true + closedAt) so no further
+ * votes are accepted. Idempotent — closing an already-closed poll is a no-op
+ * that still returns the updated poll data. Only touches rows that actually
+ * carry a poll.
+ */
+const closePoll = async (postId) => {
+  try {
+    const { rows } = await pool.query(
+      `UPDATE ${PostModel.TABLE}
+       SET poll_data = jsonb_set(
+             jsonb_set(poll_data, '{closed}', 'true'::jsonb),
+             '{closedAt}', to_jsonb(NOW())
+           ),
+           updated_at = NOW()
+       WHERE id = $1 AND deleted_at IS NULL
+         AND poll_data IS NOT NULL AND poll_data <> '{}'::jsonb
+       RETURNING poll_data`,
+      [postId]
+    );
+    return rows[0] || null;
+  } catch (error) {
+    throw error;
+  }
+};
+
+// Lightweight poll fetch for the vote endpoint's pre-checks (404 / no poll / bad option).
+const findPollByPostId = async (postId) => {
+  try {
+    const { rows } = await pool.query(
+      `SELECT id, author_id, poll_data FROM ${PostModel.TABLE}
+       WHERE id = $1 AND deleted_at IS NULL`,
+      [postId]
+    );
+    return rows[0] || null;
+  } catch (error) {
+    throw error;
+  }
+};
+
+/**
+ * Records (or moves) a user's vote on a poll option.
+ *
+ * Double-voting is impossible: poll_votes has a UNIQUE(post_id, user_id)
+ * constraint, and the post row is locked FOR UPDATE so concurrent votes
+ * serialize. A changed vote decrements the previous option and increments the
+ * new one, so tallies stay exact and the user still holds exactly one vote.
+ * Legacy votes already stored in poll_data.options[].votes are preserved —
+ * only the two affected options are touched.
+ */
+const castPollVote = async ({ postId, userId, optionIndex }) => {
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+
+    const { rows } = await client.query(
+      `SELECT id, poll_data FROM ${PostModel.TABLE}
+       WHERE id = $1 AND deleted_at IS NULL FOR UPDATE`,
+      [postId]
+    );
+    const post = rows[0];
+    if (!post) throw new Error('Post not found');
+    if (!post.poll_data || !Array.isArray(post.poll_data.options)) throw new Error('This post has no poll');
+    if (!post.poll_data.options[optionIndex]) throw new Error('Invalid poll option');
+    // The author closed the poll — no further votes (checked under the row
+    // lock so a close racing a vote can never be bypassed).
+    if (post.poll_data.closed) throw new Error('This poll is closed');
+
+    // The user's current selection (if any) so a changed vote can move it.
+    const { rows: prevRows } = await client.query(
+      `SELECT option_index FROM poll_votes WHERE post_id = $1 AND user_id = $2`,
+      [postId, userId]
+    );
+    const prevIndex = prevRows.length ? prevRows[0].option_index : null;
+
+    await client.query(
+      `INSERT INTO poll_votes (post_id, user_id, option_index)
+       VALUES ($1, $2, $3)
+       ON CONFLICT (post_id, user_id)
+       DO UPDATE SET option_index = EXCLUDED.option_index, updated_at = NOW()`,
+      [postId, userId, optionIndex]
+    );
+
+    const readVotes = (idx) => `COALESCE((poll_data->'options'->${idx}->>'votes')::int, 0)`;
+    // Parenthesize the whole arithmetic expression BEFORE casting — without
+    // them, `x + 1::text::jsonb` parses as `x + (1::jsonb)` (:: binds tighter
+    // than +) and Postgres fails with "operator does not exist: integer + jsonb".
+    const incExpr = `(${readVotes(optionIndex)} + 1)`;
+
+    let pollData = post.poll_data;
+    let myVote = optionIndex;
+    let changed = false;
+
+    if (prevIndex !== null && prevIndex === optionIndex) {
+      // Toggle OFF — tapping the option you already voted for removes the
+      // vote (undo). Deleting the poll_votes row + decrementing the tally.
+      await client.query(
+        `DELETE FROM poll_votes WHERE post_id = $1 AND user_id = $2`,
+        [postId, userId]
+      );
+      const decExpr = `(GREATEST(0, ${readVotes(prevIndex)} - 1))`;
+      const { rows: updated } = await client.query(
+        `UPDATE ${PostModel.TABLE} SET poll_data = jsonb_set(
+           poll_data, ('{options,' || ${prevIndex} || ',votes}')::text[], ${decExpr}::text::jsonb
+         ) WHERE id = $1 RETURNING poll_data`,
+        [postId]
+      );
+      pollData = updated[0]?.poll_data || post.poll_data;
+      myVote = null;
+      changed = true;
+    } else {
+      await client.query(
+        `INSERT INTO poll_votes (post_id, user_id, option_index)
+         VALUES ($1, $2, $3)
+         ON CONFLICT (post_id, user_id)
+         DO UPDATE SET option_index = EXCLUDED.option_index, updated_at = NOW()`,
+        [postId, userId, optionIndex]
+      );
+
+      let sql = null;
+      if (prevIndex !== null && prevIndex !== optionIndex) {
+        // Changed vote: move the tally from the old option to the new one.
+        const decExpr = `(GREATEST(0, ${readVotes(prevIndex)} - 1))`;
+        sql = `UPDATE ${PostModel.TABLE} SET poll_data = jsonb_set(
+                jsonb_set(poll_data, ('{options,' || ${optionIndex} || ',votes}')::text[], ${incExpr}::text::jsonb),
+                ('{options,' || ${prevIndex} || ',votes}')::text[], ${decExpr}::text::jsonb
+              ) WHERE id = $1 RETURNING poll_data`;
+        changed = true;
+      } else if (prevIndex === null) {
+        // First vote: bump the chosen option.
+        sql = `UPDATE ${PostModel.TABLE} SET poll_data = jsonb_set(
+                poll_data, ('{options,' || ${optionIndex} || ',votes}')::text[], ${incExpr}::text::jsonb
+              ) WHERE id = $1 RETURNING poll_data`;
+      }
+      // else: re-vote on the SAME option while the row exists — handled above
+      // as toggle-off, so this branch is unreachable for same-option taps.
+
+      if (sql) {
+        const { rows: updated } = await client.query(sql, [postId]);
+        pollData = updated[0]?.poll_data || post.poll_data;
+      }
+    }
+
+    await client.query('COMMIT');
+    return { pollData, myVote, changed };
+  } catch (error) {
+    await client.query('ROLLBACK');
+    throw error;
+  } finally {
+    client.release();
   }
 };
 
@@ -592,4 +821,8 @@ module.exports = {
   search,
   findLikers,
   findReposters,
+  findPollVoters,
+  findPollByPostId,
+  castPollVote,
+  closePoll,
 };

@@ -40,6 +40,9 @@ const format = (row) => {
     isPinned: row.is_pinned || false,
     isLiked: row.is_liked || false,
     isSaved: true,  // It's in the bookmark list, so it's saved
+    pollData: row.poll_data || null,
+    // Which poll option the viewing user voted for (null = not voted).
+    myPollVote: row.my_poll_vote ?? null,
     // Optional place tag (lat / lon / place name) — shown in the rolling text.
     location: (row.latitude != null && row.longitude != null) ? {
       lat: Number(row.latitude),

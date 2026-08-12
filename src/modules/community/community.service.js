@@ -41,9 +41,9 @@ class CommunityService {
     }
   }
 
-  async discoverCommunity({userId, limit, offset, search, mine}) {
+  async discoverCommunity({userId, limit, offset, search, mine, category, filter}) {
     try {
-      const {communities, total} = await this.communityRepo.findManyCommunity({limit, offset, userId, search, mine});
+      const {communities, total} = await this.communityRepo.findManyCommunity({limit, offset, userId, search, mine, category, filter});
 
       // Ordered section descriptor — the app renders the community tab's
       // sections in EXACTLY this order (the server owns the layout). Each

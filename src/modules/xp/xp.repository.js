@@ -103,7 +103,10 @@ const findTransactionById = async (id) => {
   return XpModel.formatTransaction(rows[0]);
 };
 
-const getUserTransactions = async (xpId, limit, offset) => {
+// `q` searches the FULL XP history server-side (transaction type, source,
+// status, amount) so wallet search isn't limited to the first page.
+const getUserTransactions = async (xpId, limit, offset, q = '') => {
+  const search = String(q || '').trim();
   const { rows } = await pool.query(
     `
     SELECT ${XpModel.TRANSACTION_FIELDS}, ${XpModel.GAME_ENRICH_FIELDS}
@@ -119,14 +122,29 @@ const getUserTransactions = async (xpId, limit, offset) => {
     LEFT JOIN game gsg ON gsg.id = COALESCE(gs.game_id, gm.game_id)
         OR (xt.source_type LIKE 'session_%' AND gsg.slug = split_part(xt.source_type, '_', 2))
     WHERE xt.xp_id = $1
+      AND (
+        $4 = ''
+        OR xt.transaction_type ILIKE '%' || $4 || '%'
+        OR xt.source_type ILIKE '%' || $4 || '%'
+        OR xt.status ILIKE '%' || $4 || '%'
+        OR xt.xp::text LIKE '%' || $4 || '%'
+      )
     ORDER BY xt.created_at DESC
     LIMIT $2 OFFSET $3
     `,
-    [xpId, limit, offset]
+    [xpId, limit, offset, search]
   );
   const totalRes = await pool.query(
-    `SELECT COUNT(*) FROM ${XpModel.TRANSACTIONS_TABLE} WHERE xp_id = $1`,
-    [xpId]
+    `SELECT COUNT(*) FROM ${XpModel.TRANSACTIONS_TABLE}
+     WHERE xp_id = $1
+       AND (
+         $2 = ''
+         OR transaction_type ILIKE '%' || $2 || '%'
+         OR source_type ILIKE '%' || $2 || '%'
+         OR status ILIKE '%' || $2 || '%'
+         OR xp::text LIKE '%' || $2 || '%'
+       )`,
+    [xpId, search]
   );
   const total = parseInt(totalRes.rows[0].count, 10);
   return {rows: rows.map(XpModel.formatTransaction), total};

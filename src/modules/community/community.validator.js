@@ -80,6 +80,8 @@ const paginationQuerySchema = z.object({
   search: z.string().trim().max(60, 'Search too long').optional(),
 
   mine: z.enum(['true', 'false', '1', '0']).optional(),
+  category: z.string().trim().max(50).optional(),
+  filter: z.enum(['joined', 'created']).optional(),
 }).strict();
 
 module.exports = { createCommunitySchema, updateCommunitySchema, updateAvatarSchema, updateBannerSchema, slugParamsSchema, communityIdParamsSchema, communityIdAndUserIdParamsSchema, updateMemberRoleSchema, transferOwnershipSchema, paginationQuerySchema };

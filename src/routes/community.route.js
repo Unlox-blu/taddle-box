@@ -9,6 +9,7 @@ const { validateRequest }                   = require('../middlewares/validator.
 const { createCommunitySchema, updateCommunitySchema, updateAvatarSchema, updateBannerSchema, slugParamsSchema, communityIdParamsSchema, communityIdAndUserIdParamsSchema, updateMemberRoleSchema, transferOwnershipSchema, paginationQuerySchema } = require('../modules/community/community.validator');
 
 
+router.get('/categories',                              optionalAuth,                                                              communityController.getCategories);
 router.get('/discover',                                optionalAuth, validateRequest({query: paginationQuerySchema}),             communityController.discoverCommunity);
 router.get('/:slug',                                   optionalAuth, validateRequest({params: slugParamsSchema}),                 communityController.getBySlug);
 router.get('/:communityId/members',                    optionalAuth, validateRequest({params: communityIdParamsSchema}),          communityController.getMembers);

@@ -28,11 +28,14 @@ class XpController {
     }
   };
 
+  // `q` searches the full XP history server-side (type/source/status/amount)
+  // so the app's wallet search isn't capped at the first page.
   getTransactions = async (req, res, next) => {
     try {
       const userId = req.userId;
       const { limit, offset, page } = getPaginationParams(req.query);
-      const { transactions, total } = await this.xpSvc.getTransactions({userId, limit, offset});
+      const q = req.query.q || '';
+      const { transactions, total } = await this.xpSvc.getTransactions({userId, limit, offset, q});
       res.json(
         apiResponse(transactions, 'Transactions fetched', paginationMeta(total, page, limit))
       );

@@ -8,82 +8,52 @@ class SearchController {
     this.searchSvc = searchService;
   }
 
+  // Unified search — the ONLY search endpoint. URL shape:
+  //   search/?q=&sort=&filter=[c/x, @y, #z]&type=&bookmarked=&page=&limit=
+  // The TIME window is a BARE token in the URL — `search/?sort=relevance&all_time`.
+  // Returns the available result `types` (pills) plus an ordered, heterogeneous
+  // `results` list the client renders verbatim.
   search = async (req, res, next) => {
     try {
       const userId = req.userId;
-      const type = req.query.type || 'posts'
-      const query = req.query.q || ''
-      const filter = req.query.filter || ''
-      const community = req.query.community || null
-      // Person filter — comma-separated usernames (@a @b in the search box).
-      const author = req.query.author
-        ? String(req.query.author).split(',').map(s => s.trim()).filter(Boolean)
-        : null
-      // Involvement dimension (authored | mentions | comments | reposts).
-      const involvement = req.query.involvement || null
-      // Hashtag filter — comma-separated tags (#a #b in the search box).
-      const tag = req.query.tag
-        ? String(req.query.tag).split(',').map(s => s.trim().replace(/^#/, '').toLowerCase()).filter(Boolean)
-        : null
-      // Bookmarks scope (saved posts) and own-posts (settings) scope.
-      const bookmarked = req.query.bookmarked || null
-      const mine = req.query.mine || null
-      const sortBy = req.query.sortBy || req.query.sort_by || 'relevance';
-      const postFilter = req.query.post_filter || 'all';
       const { limit, offset, page } = getPaginationParams(req.query);
-
-      const {dataType, data, total} = await this.searchSvc.search({
-        type, 
-        query, 
-        filter, 
-        limit, 
-        offset, 
-        page, 
-        userId, 
-        community, 
-        author, 
-        involvement, 
-        tag, 
-        bookmarked, 
-        mine, 
-        sortBy,
-        postFilter
+      const { dataType, data, total, hasNext } = await this.searchSvc.universalSearch({
+        q: req.query.q || '',
+        sort: req.query.sort || 'relevance',
+        time: req.query.time || 'all_time',
+        filter: req.query.filter || '',
+        type: req.query.type || '',
+        page,
+        limit,
+        offset,
+        userId,
+        bookmarked: req.query.bookmarked || null,
       });
-
-      res.json(apiResponse({dataType, data,}, `${dataType} fetched`, paginationMeta(total, page, limit)));
+      const meta = paginationMeta(total, page, limit);
+      // The mixed/discovery view paginates PER TYPE — the summed-total formula
+      // would keep hasNext true after a type is exhausted, so the service's
+      // per-group hasNext wins.
+      meta.hasNext = hasNext;
+      res.json(
+        apiResponse(
+          { dataType, data },
+          `${dataType} fetched`,
+          meta
+        )
+      );
     } catch (error) {
       next(error);
     }
   };
 
-  // Dedicated combined search for the app's "All" tab — one request returns
-  // people, communities, events, games, posts and hashtags at once.
-  searchAll = async (req, res, next) => {
+  // Mention-autocomplete suggestions — a DEDICATED people endpoint for the
+  // composer's @mention autocomplete.
+  suggestPeople = async (req, res, next) => {
     try {
-      const userId = req.userId;
-      const query = req.query.q || ''
-      const filter = req.query.filter || ''
-      const community = req.query.community || null
-      // Person filter — comma-separated usernames (@a @b in the search box).
-      const author = req.query.author
-        ? String(req.query.author).split(',').map(s => s.trim()).filter(Boolean)
-        : null
-      // Involvement dimension (authored | mentions | comments | reposts).
-      const involvement = req.query.involvement || null
-      // Hashtag filter — comma-separated tags (#a #b in the search box).
-      const tag = req.query.tag
-        ? String(req.query.tag).split(',').map(s => s.trim().replace(/^#/, '').toLowerCase()).filter(Boolean)
-        : null
-      // Bookmarks scope (saved posts) and own-posts (settings) scope.
-      const bookmarked = req.query.bookmarked || null
-      const mine = req.query.mine || null
-      const sortBy = req.query.sortBy || req.query.sort_by || 'relevance';
-      const postFilter = req.query.post_filter || 'all';
-      const { limit, offset, page } = getPaginationParams(req.query);
-
-      const {dataType, data, total} = await this.searchSvc.search({type: 'all', query, filter, limit, offset, userId, community, author, involvement, tag, bookmarked, mine, sortBy, postFilter});
-
-      res.json(apiResponse({dataType, data,}, `${dataType} fetched`, paginationMeta(total, page, limit)));
+      const q = req.query.q || '';
+      const limit = Math.min(parseInt(req.query.limit, 10) || 10, 20);
+      const rows = await this.searchSvc.suggestPeople(q, limit);
+      res.json(apiResponse({ dataType: 'people', data: rows }, 'People fetched'));
     } catch (error) {
       next(error);
     }
@@ -93,7 +63,7 @@ class SearchController {
     try {
       const q = req.query.q || '';
       const hashtags = await this.searchSvc.getHashtags(q);
-      res.json(apiResponse({dataType: 'hashtags', data: hashtags}, `Hashtags fetched`));
+      res.json(apiResponse({ dataType: 'hashtags', data: hashtags }, `Hashtags fetched`));
     } catch (error) {
       next(error);
     }

@@ -9,7 +9,8 @@ const pool = require('./src/config/database');
 const redis = require('./src/config/redis');
 const { initializeSockets } = require('./src/sockets');
 const { startJobWorker } = require('./src/jobs/workers/backgroundjob/job.worker');
-require('./src/jobs/workers/start-workers')
+require('./src/jobs/workers/start-workers');
+require('./src/workers/redis.subscriber');
 // const { startEmailWorker } = require('./src/jobs/workers/email/email.worker');
 // const { startNotificationWorker } = require('./src/jobs/workers/notification/notification.worker');
 // const { startVideoWorker } = require('./src/jobs/workers/video/video.worker');

@@ -8,6 +8,15 @@ class CommunityController {
     this.communitySvc = communityService;
   }
 
+  getCategories = async (req, res, next) => {
+    try {
+      const categories = ["Tech", "Gaming", "Lifestyle", "Startup", "Creative", "Study", "Others"];
+      res.json(apiResponse(categories, 'Categories fetched successfully'));
+    } catch (error) {
+      next(error);
+    }
+  };
+
   create = async (req, res, next) => {
     try {
       const userId = req.userId;
@@ -34,9 +43,12 @@ class CommunityController {
     try {
       const userId = req.userId
       const { limit, offset, page } = getPaginationParams(req.query);
-      const search = req.query.search ? String(req.query.search).trim() : null
-      const mine = req.query.mine === 'true' || req.query.mine === '1'
-      const {communities, total, sections} = await this.communitySvc.discoverCommunity({userId, limit, offset, search, mine});
+      const search = req.query.search ? String(req.query.search).trim() : null;
+      const category = req.query.category ? String(req.query.category).trim() : null;
+      const filter = req.query.filter ? String(req.query.filter).trim() : null;
+      const mine = req.query.mine === 'true' || req.query.mine === '1';
+
+      const {communities, sections, total} = await this.communitySvc.discoverCommunity({userId, limit, offset, search, mine, category, filter});
       // sections rides alongside the paginated flat list — the client splits
       // the list by its own rules but renders in the server-provided order.
       res.json({...apiResponse(communities, 'Community fetched successfully', paginationMeta(total, page, limit)), sections});

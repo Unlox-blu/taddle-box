@@ -157,13 +157,25 @@ const createTransaction = async (data, client) => {
   }
 };
 
-const getTransactions = async (walletId, limit, offset) => {
+// `q` searches the FULL transaction history server-side (description, type,
+// category, status, amount) so wallet search isn't limited to the first page.
+const getTransactions = async (walletId, limit, offset, q = '') => {
   try {
+    const search = String(q || '').trim();
     const { rows } = await pool.query(
       `SELECT ${WalletModel.TRANSACTION_FIELDS}, COUNT(*) OVER() AS total
      FROM ${WalletModel.TRANSACTIONS_TABLE}
-     WHERE wallet_id = $1 ORDER BY created_at DESC LIMIT $2 OFFSET $3`,
-      [walletId, limit, offset]
+     WHERE wallet_id = $1
+       AND (
+         $4 = ''
+         OR description ILIKE '%' || $4 || '%'
+         OR type ILIKE '%' || $4 || '%'
+         OR category ILIKE '%' || $4 || '%'
+         OR status ILIKE '%' || $4 || '%'
+         OR amount_cents::text LIKE '%' || $4 || '%'
+       )
+     ORDER BY created_at DESC LIMIT $2 OFFSET $3`,
+      [walletId, limit, offset, search]
     );
     const total = rows[0]?.total || 0;
     const transactions = rows.map(WalletModel.formatTransaction)

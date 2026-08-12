@@ -18,11 +18,14 @@ class WalletController {
     }
   };
 
+  // `q` searches the full history server-side (description/type/category/
+  // status/amount) so the app's wallet search isn't capped at the first page.
   getTransactions = async (req, res, next) => {
     try {
       const userId = req.userId;
       const { limit, offset, page } = getPaginationParams(req.query);
-      const { transactions, total } = await this.walletSvc.getTransactions({userId, limit, offset});
+      const q = req.query.q || '';
+      const { transactions, total } = await this.walletSvc.getTransactions({userId, limit, offset, q});
       res.json(
         apiResponse(transactions, 'Transactions fetched', paginationMeta(total, page, limit))
       );
@@ -56,8 +59,8 @@ class WalletController {
   // Public route hit by PayU's redirect — renders an HTML page for the WebView.
   completeRecharge = async (req, res, next) => {
     try {
-      const { txnid } = req.query;
-      const data = await this.walletSvc.completeRecharge({ txnid, params: req.query });
+      const txnid = req.query.txnid || req.body.txnid;
+      const data = await this.walletSvc.completeRecharge({ txnid, params: { ...req.query, ...req.body } });
       res.type('html').send(data.html);
     } catch (error) {
       next(error);

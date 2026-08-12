@@ -50,8 +50,16 @@ const findBySlug = async (slug, userId = null) => {
   }
 };
 
-const findManyCommunity = async ({limit, offset, userId = null, search = null, mine = false}) => {
+const findManyCommunity = async ({limit, offset, userId = null, search = null, mine = false, category = null, filter = null}) => {
   try {
+    let filterCondition = 'AND ($5::boolean = FALSE OR c.owner_id = $3 OR EXISTS (SELECT 1 FROM community_members cm WHERE cm.community_id = c.id AND cm.user_id = $3 AND cm.status = \'active\'))';
+    
+    if (filter === 'created') {
+      filterCondition = 'AND ($5::boolean IS NOT NULL) AND c.owner_id = $3';
+    } else if (filter === 'joined') {
+      filterCondition = 'AND ($5::boolean IS NOT NULL) AND c.owner_id != $3 AND EXISTS (SELECT 1 FROM community_members cm WHERE cm.community_id = c.id AND cm.user_id = $3 AND cm.status = \'active\')';
+    }
+
     const {rows} = await pool.query(
       `SELECT ${CommunityModel.LIST_FIELDS},
       avatar_media.cloudfront_url AS avatar_media_url,
@@ -65,22 +73,13 @@ const findManyCommunity = async ({limit, offset, userId = null, search = null, m
       FROM ${CommunityModel.TABLE} c
       LEFT JOIN media AS avatar_media ON avatar_media.id = avatar_url
       LEFT JOIN media AS banner_media ON banner_media.id = banner_url
-      -- Soft-deleted/inactive communities must not appear in the list (clicking
-      -- them 404s on the detail screen). Membership alone can't resurrect one.
-      -- Private communities ARE listed (discovery/trending/filters) so people
-      -- can find them and request to join; the detail/posts endpoints gate
-      -- their content to members. The mine=true flag (audience picker) below
-      -- still restricts to communities the user can actually post to.
       WHERE c.deleted_at IS NULL AND c.is_active = TRUE
-        -- Name search (audience picker) — case-insensitive substring.
         AND ($4::text IS NULL OR c.name ILIKE '%' || $4 || '%')
-        -- mine=true → only communities the user can post to (joined or owned),
-        -- so the audience picker paginates cleanly instead of filtering after.
-        AND ($5::boolean = FALSE OR c.owner_id = $3
-          OR EXISTS (SELECT 1 FROM ${CommunityModel.MEMBERS_TABLE} cm WHERE cm.community_id = c.id AND cm.user_id = $3 AND cm.status = 'active'))
+        AND ($6::text IS NULL OR $6 = ANY(c.category))
+        ${filterCondition}
       ORDER BY member_count DESC
       LIMIT $1 OFFSET $2`,
-      [limit, offset, userId, search, mine]
+      [limit, offset, userId, search, mine, category]
     )
     const total = rows[0] ? rows[0].total : 0
     const communities = rows.length ? rows.map(CommunityModel.format) : []

@@ -1,7 +1,6 @@
 const PostModel = require('./feed.model');
 
-
-const FEED_ALGORITHM =  `WITH ranked_posts AS (
+const FEED_ALGORITHM = `WITH ranked_posts AS (
                                 SELECT
                                     ${PostModel.LIST_FIELDS},
 
@@ -190,11 +189,8 @@ const FEED_ALGORITHM =  `WITH ranked_posts AS (
 
                                 -- hashtag
                                 AND (
-
                                     $8::text IS NULL
-
-                                    OR p.tags @> ARRAY[$8::text]
-
+                                    OR EXISTS (SELECT 1 FROM unnest(p.tags) AS tag WHERE tag ILIKE '%' || $8::text || '%')
                                 )
                                 GROUP BY p.id, u.id, ua.id, c.id, ca.id, s.user_id, orig.id
 
@@ -222,6 +218,6 @@ const FEED_ALGORITHM =  `WITH ranked_posts AS (
                                 ) DESC,
                             published_at DESC
                             LIMIT $9
-                            OFFSET $10;`
+                            OFFSET $10;`;
 
-module.exports = {FEED_ALGORITHM}                            
+module.exports = { FEED_ALGORITHM };

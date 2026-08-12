@@ -28,22 +28,73 @@ const searchCommunity = async (query, filter, limit, offset) => {
   }
 };
 
-const searchPost = async (query, limit, offset, userId = null, community = null, author = null, involvement = null, tag = null, bookmarked = null, mine = null, sortBy = 'relevance', postFilter = 'all') => {
+// Normalizes a community scope into a slug ARRAY (or null). Accepts a single
+// slug, a comma-separated list ("a,b") or an array — the SQL uses $6::text[]
+// with = ANY() so multiple c/<slug> filters combine.
+const toCommunityArray = (community) => {
+  if (Array.isArray(community)) {
+    const arr = community.map((s) => String(s).trim()).filter(Boolean);
+    return arr.length ? arr : null;
+  }
+  if (community) {
+    const arr = String(community).split(',').map((s) => s.trim()).filter(Boolean);
+    return arr.length ? arr : null;
+  }
+  return null;
+};
+
+const searchPost = async (query, limit, offset, userId = null, community = null, author = null, involvement = null, tag = null, bookmarked = null, mine = null, sortBy = 'relevance', postFilter = 'all', timeCutoff = null) => {
   try {
     const q = query || '';
-    // Community-scoped search — a slug filters results to that community's
-    // posts (the algorithm's $6 slot); null means global search. Person-scoped
-    // search — an ARRAY of usernames ($7 slot) matches posts where ANY of them
-    // is involved (authored, mentioned, commented, reposted); $8 (involvement)
-    // narrows to one dimension, $9 (tag) filters by hashtag, $10 (bookmarked)
-    // restricts to the user's saved posts, and $11 (mine) to their own posts.
-    // $12 is for sorting the results.
+    // Community-scoped search — an ARRAY of slugs filters results to those
+    // communities' posts (the algorithm's $6 slot); null means global search.
+    // Person-scoped search — an ARRAY of usernames ($7 slot) matches posts
+    // where ANY of them is involved (authored, mentioned, commented,
+    // reposted); $8 (involvement) narrows to one dimension, $9 (tag) filters
+    // by hashtag, $10 (bookmarked) restricts to the user's saved posts, and
+    // $11 (mine) to their own posts. $12 is for sorting the results.
     // $13 is for postFilter (contents, comments, mentions) for global post search.
+    const communityArr = toCommunityArray(community);
     const authorArr = Array.isArray(author) && author.length ? author : null;
     const tagArr = Array.isArray(tag) && tag.length ? tag : null;
     const bmFlag = bookmarked === true || bookmarked === '1' || bookmarked === 1 ? true : null;
     const mineFlag = mine === true || mine === '1' || mine === 1 ? true : null;
-    const { rows } = await pool.query(SearchAlgo.SEARCH_POSt_ALGORITHM, [`%${q}%`, limit, offset, userId, q.trim(), community || null, authorArr, involvement || null, tagArr, bmFlag, mineFlag, sortBy, postFilter ] );
+    const { rows } = await pool.query(SearchAlgo.SEARCH_POSt_ALGORITHM, [`%${q}%`, limit, offset, userId, q.trim(), communityArr, authorArr, involvement || null, tagArr, bmFlag, mineFlag, sortBy, postFilter, timeCutoff || null ] );
+    const total = rows[0]?.total || 0;
+    return { rows, total: parseInt(total, 10) };
+  } catch (error) {
+    throw error;
+  }
+};
+
+// Searches COMMENTS whose text (or whose post's title/tags) match. The returned
+// rows carry the comment plus its parent-post context so the app can render a
+// "commented on …" card and deep-link to the post.
+const searchComment = async (query, limit, offset, userId = null, { community = null, author = null, tag = null, sortBy = 'relevance', bookmarked = null, timeCutoff = null } = {}) => {
+  try {
+    const q = query || '';
+    const communityArr = toCommunityArray(community);
+    const authorArr = Array.isArray(author) && author.length ? author : null;
+    const tagArr = Array.isArray(tag) && tag.length ? tag : null;
+    const bmFlag = bookmarked === true || bookmarked === '1' || bookmarked === 1 ? true : null;
+    const { rows } = await pool.query(SearchAlgo.SEARCH_COMMENT_ALGORITHM, [`%${q}%`, limit, offset, userId, q.trim(), communityArr, authorArr, tagArr, sortBy, bmFlag, null, timeCutoff || null ] );
+    const total = rows[0]?.total || 0;
+    return { rows, total: parseInt(total, 10) };
+  } catch (error) {
+    throw error;
+  }
+};
+
+// Searches MEDIA attached to posts whose text matches. Returns one row per
+// media item (image/video/audio) with its parent-post context.
+const searchMedia = async (query, limit, offset, userId = null, { community = null, author = null, tag = null, sortBy = 'relevance', bookmarked = null, timeCutoff = null } = {}) => {
+  try {
+    const q = query || '';
+    const communityArr = toCommunityArray(community);
+    const authorArr = Array.isArray(author) && author.length ? author : null;
+    const tagArr = Array.isArray(tag) && tag.length ? tag : null;
+    const bmFlag = bookmarked === true || bookmarked === '1' || bookmarked === 1 ? true : null;
+    const { rows } = await pool.query(SearchAlgo.SEARCH_MEDIA_ALGORITHM, [`%${q}%`, limit, offset, userId, q.trim(), communityArr, authorArr, tagArr, sortBy, bmFlag, null, timeCutoff || null ] );
     const total = rows[0]?.total || 0;
     return { rows, total: parseInt(total, 10) };
   } catch (error) {
@@ -174,5 +225,5 @@ const findFollowingCommunity = async (userId, limit, offset) => {
 }
 
 module.exports = {
-    searchUser, searchCommunity, searchEvent, searchPost, searchGame, getHashtags, discoverPost, getUserInterests, discoverCommunity, discoverPeople, findFollowers, findFollowingCommunity
+    searchUser, searchCommunity, searchEvent, searchPost, searchComment, searchMedia, searchGame, getHashtags, discoverPost, getUserInterests, discoverCommunity, discoverPeople, findFollowers, findFollowingCommunity
 }

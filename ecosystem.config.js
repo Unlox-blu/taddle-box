@@ -5,7 +5,7 @@
 module.exports = {
   apps: [
     {
-      name: 'taddle-box-api',
+      name: 'taddle-backend',
       script: 'server.js',
       instances: 'max',       // one per CPU core
       exec_mode: 'cluster',   // load-balanced
@@ -29,7 +29,7 @@ module.exports = {
       },
     },
     {
-      name: 'taddle-box-workers',
+      name: 'taddle-workers',
       script: 'src/jobs/workers/start-workers.js',
       instances: 1,
       exec_mode: 'fork',

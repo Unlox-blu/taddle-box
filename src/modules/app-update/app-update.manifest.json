@@ -1,0 +1,10 @@
+{
+  "android": {
+    "versionCode": 2,
+    "versionName": "1.0.2",
+    "url": "https://your-server.com/apk/taddlebox-1.0.2.apk",
+    "size": 0,
+    "changelog": "• What's new in this build\n• Bug fixes",
+    "mandatory": false
+  }
+}

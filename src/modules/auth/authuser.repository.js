@@ -478,7 +478,7 @@ const updateEmailVerifyToken = async (userId, tokenHash, exp) => {
 
 const findByEmailVerifyToken = async (ResetToken) => {
   try {
-    const token = await pool.query(
+    const { rows } = await pool.query(
       `SELECT id, email_verify_token_exp FROM ${AuthModel.USER_TABLE} WHERE email_verify_token_hash = $1`,
       [ResetToken]
     );

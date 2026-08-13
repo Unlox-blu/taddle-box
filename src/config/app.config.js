@@ -115,6 +115,11 @@ module.exports = {
     fromName: optional('EMAIL_FROM_NAME', 'taddlebox'),
   },
 
+  // App update (APK release tool)
+  // Optional shared secret for POST /api/v1/app-update/presign. When set, the
+  // request must carry it in the X-Update-Key header. Unset → open (dev).
+  APP_UPDATE_UPLOAD_KEY: optional('APP_UPDATE_UPLOAD_KEY'),
+
   // Limits
   MAX_FILE_SIZE_MB: parseInt(optional('MAX_FILE_SIZE_MB', '10'), 10),
   MAX_VIDEO_SIZE_MB: parseInt(optional('MAX_VIDEO_SIZE_MB', '500'), 10),

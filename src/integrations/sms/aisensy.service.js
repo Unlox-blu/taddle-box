@@ -13,7 +13,7 @@ const sendWhatsappOtp = async (phonenumber, otp) => {
       'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpZCI6IjY4YTg3YWFhYTU5MGE2N2JmNzg0YmY0MiIsIm5hbWUiOiJVbmxveCBDb25maXJtYXRpb25zIiwiYXBwTmFtZSI6IkFpU2Vuc3kiLCJjbGllbnRJZCI6IjY4NzhmNTJlOTFlYzU4MGMwZWRmYTUyMyIsImFjdGl2ZVBsYW4iOiJGUkVFX0ZPUkVWRVIiLCJpYXQiOjE3NTU4NzE5MTR9.l-Sj2uGzNEygBgekupTUDrxHZ5uMAj9RY48uZVklCNk';
 
     // Clean phone number (remove +, spaces, dashes)
-    let cleanPhone = phonenumber.replace(/[\+\-\s]/g, '');
+    const cleanPhone = phonenumber.replace(/[+\-\s]/g, '');
 
     const templateParams = [
       'Taddler', // student_name

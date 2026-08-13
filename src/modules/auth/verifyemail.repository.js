@@ -66,7 +66,7 @@ const findByEmail = async ({email}) => {
 const makeVerified = async ({email, verificationExpiresAt}) => {
   try {
     await pool.query(
-      `UPDATE ${AuthModel.VERIFy_EMAIL_TABLE} SET otp = NULL, otp_exp_in = NULL, is_verified = TRUE, verification_expires_at = $2, updated_at = NOW() WHERE email = $1`,
+      `UPDATE ${VerifyEmailModel.VERIFy_EMAIL_TABLE} SET otp = NULL, otp_exp_in = NULL, is_verified = TRUE, verification_expires_at = $2, updated_at = NOW() WHERE email = $1`,
       [email, verificationExpiresAt]
     );
   } catch (error) {
@@ -79,7 +79,7 @@ const makeVerified = async ({email, verificationExpiresAt}) => {
 const hardDelete = async ({email}) => {
   try {
     await pool.query(`
-        DELETE FROM ${AuthModel.VERIFy_EMAIL_TABLE} 
+        DELETE FROM ${VerifyEmailModel.VERIFy_EMAIL_TABLE} 
         WHERE email = $1`,
         [email]
     );

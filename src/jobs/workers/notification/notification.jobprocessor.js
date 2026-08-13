@@ -185,7 +185,6 @@ const notificationJobProcessor = async (job) => {
             commentId: commentIdMatch ? commentIdMatch[1] : undefined,
           },
         });
-          break;
         }
 
         case 'emit': {

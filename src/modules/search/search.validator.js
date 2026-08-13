@@ -5,8 +5,10 @@ const { z } = require('zod');
 
 // The unified search schema — the ONLY search shape the API accepts now.
 // URL: search/?q=&sort=&filter=&type=&bookmarked=&page=&limit=
-// The TIME window is a BARE token in the URL (no `time=` key):
-// search/?sort=relevance&all_time
+// TIME window is the explicit `time=` param:
+// search/?sort=relevance&time=all_time
+// (the legacy bare-token form `&all_time` is still accepted and folded into
+// `time` in the transform below, so old clients keep working).
 const searchQuerySchema = z.object({
   // 'all' (or empty) → the mixed All view; otherwise one of the server's
   // result pills (posts | polls | comments | media | text | people |
@@ -36,9 +38,12 @@ const searchQuerySchema = z.object({
   // Sort selector: relevance | top | latest | hot (trending recently).
   // Enforced strictly — no fallback sort on the service side.
   sort: z.enum(['relevance', 'top', 'latest', 'hot']).default('relevance').optional(),
-  // TIME window — carried ONLY as a bare token in the URL:
-  // `sort=relevance&all_time` (the `time=` key is deliberately NOT accepted).
-  // The bare keys below are folded into `time` in the transform.
+  // TIME window — the explicit `time=` param (recent | past_week | past_month
+  // | past_year | all_time). The bare-token keys below are legacy: they're
+  // still accepted and folded into `time` in the transform.
+  time: z
+    .enum(['recent', 'past_week', 'past_month', 'past_year', 'all_time'])
+    .optional(),
   recent: z.string().optional(),
   past_week: z.string().optional(),
   past_month: z.string().optional(),
@@ -61,12 +66,17 @@ const searchQuerySchema = z.object({
     .default(10).optional(),
 })
   .strict()
-  // Fold the bare time-window token (e.g. `&all_time`) into the `time` param
-  // so the service always reads one value. With `time=` removed from the
-  // schema, the strict parse rejects the old explicit form.
+  // Resolve the TIME window to one value: the explicit `time=` wins (any
+  // legacy bare token is dropped); otherwise the legacy bare token (e.g.
+  // `&all_time`) is folded in as a fallback.
   .transform((q) => {
-    const bare = ['recent', 'past_week', 'past_month', 'past_year', 'all_time']
-      .find((k) => q[k] !== undefined);
+    const BARE_KEYS = ['recent', 'past_week', 'past_month', 'past_year', 'all_time'];
+    if (q.time) {
+      const rest = { ...q };
+      for (const k of BARE_KEYS) delete rest[k];
+      return rest;
+    }
+    const bare = BARE_KEYS.find((k) => q[k] !== undefined);
     if (!bare) return q;
     const { [bare]: _drop, ...rest } = q;
     return { ...rest, time: bare };

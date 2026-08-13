@@ -29,7 +29,6 @@
         "backgroundColor": "#070714"
       },
       "package": "com.taddlebox.app",
-      "versionCode": 1,
       "softwareKeyboardLayoutMode": "resize"
     },
     "plugins": [
@@ -61,6 +60,12 @@
       "expo-asset",
       "expo-secure-store",
       "expo-video"
-    ]
+    ],
+    "extra": {
+      "eas": {
+        "projectId": "4b78eebc-fcbd-4c2c-bbd1-3c4a0481b75d"
+      }
+    },
+    "owner": "pravin-viswa"
   }
 }

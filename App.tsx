@@ -76,7 +76,14 @@ function LocationTracker() {
   return null;
 }
 
-export default function App() {
+/**
+ * The full app, with an optional extra node rendered inside the theme tree.
+ * Store builds (entry.store.js) call this with nothing. Direct/test builds
+ * (entry.direct.js) pass the APK self-updater so it can read the theme —
+ * and, because it's passed in rather than imported here, the updater module
+ * never enters the store bundle at all.
+ */
+export function AppCore({ insideTheme }: { insideTheme?: React.ReactNode }) {
   return (
     <AppErrorBoundary>
     <QueryClientProvider client={queryClient}>
@@ -88,6 +95,7 @@ export default function App() {
                 <PostsProvider>
                   <NotificationProvider>
                     <PresenceProvider>
+                      {insideTheme}
                       <AppShell />
                     </PresenceProvider>
                   </NotificationProvider>
@@ -100,4 +108,8 @@ export default function App() {
     </QueryClientProvider>
     </AppErrorBoundary>
   );
+}
+
+export default function App() {
+  return <AppCore />;
 }

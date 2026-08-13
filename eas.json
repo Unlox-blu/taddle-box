@@ -1,6 +1,7 @@
 {
   "cli": {
-    "version": ">= 12.0.0"
+    "version": "21.8.0",
+    "appVersionSource": "remote"
   },
   "build": {
     "development": {
@@ -13,18 +14,25 @@
         "buildType": "apk"
       }
     },
+    "direct": {
+      "distribution": "internal",
+      "autoIncrement": true,
+      "android": {
+        "buildType": "apk",
+        "credentialsSource": "remote"
+      },
+      "env": {
+        "APP_UPDATER_ENABLED": "1"
+      }
+    },
     "production": {
       "autoIncrement": true,
       "env": {
-        "EXPO_PUBLIC_BACKEND_URL": "https://your-production-domain.com",
-        "EXPO_PUBLIC_GOOGLE_ANDROID_CLIENT_ID": "457988255858-rgb0hr98vbh99g6ngh7cmhg30q3aok24.apps.googleusercontent.com",
-        "EXPO_PUBLIC_GOOGLE_IOS_CLIENT_ID": "457988255858-nqu9g22d1ud9lodha84jsfobvrr9ft40.apps.googleusercontent.com",
-        "EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID": "457988255858-alt4fen6o35i365npoqgngvdja8s1gmd.apps.googleusercontent.com",
-        "EXPO_PUBLIC_APPLE_SERVICE_ID": "",
-        "EXPO_PUBLIC_KLIPY_KEY": "cVApYlZX4zBljHaSpnIstsHmTWPNThPuYmuJ167v0ETv7askko61kZKD2r2ytJ2X"
+        "EAS_BUILD_NO_EXPO_GO_WARNING": "true"
       },
       "android": {
-        "buildType": "app-bundle"
+        "buildType": "app-bundle",
+        "credentialsSource": "remote"
       }
     }
   },

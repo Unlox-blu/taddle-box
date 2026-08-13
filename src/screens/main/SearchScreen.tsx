@@ -1612,7 +1612,7 @@ export default function SearchScreen({ navigation, route }: Props) {
             onStartShouldSetResponder={() => true}
           >
             <View style={styles.modalHeader}>
-              <Text style={styles.modalTitle}>Sort</Text>
+              <Text style={styles.modalTitle}>Search Options</Text>
               <TouchableOpacity
                 onPress={() => setShowFilters(false)}
                 style={styles.modalCloseBtn}
@@ -1622,7 +1622,7 @@ export default function SearchScreen({ navigation, route }: Props) {
             </View>
 
             <View style={styles.filterGroup}>
-              <Text style={styles.filterGroupTitle}>SORT BY</Text>
+              <Text style={styles.filterGroupTitle}>SORT</Text>
               <View style={styles.filterRow}>
                 {[
                   { id: "relevance", label: "Relevance" },
@@ -1657,7 +1657,7 @@ export default function SearchScreen({ navigation, route }: Props) {
             </View>
 
             <View style={styles.filterGroup}>
-              <Text style={styles.filterGroupTitle}>TIME PERIOD</Text>
+              <Text style={styles.filterGroupTitle}>TIME</Text>
               <View style={styles.filterRow}>
                 {[
                   { id: "recent", label: "Recent" },

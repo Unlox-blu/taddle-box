@@ -34,9 +34,9 @@ export type UniversalSearchResults = {
 
 export const searchService = {
   /** Unified search — the ONLY search the app uses. URL param order:
-      `search/?filter=&q=&sort=&<time>&type=&bookmarked=&page=&limit=` where
-      `sort` is relevance | top | latest | hot, the TIME window is a BARE
-      token (recent | past_week | past_month | past_year | all_time), `filter`
+      `search/?filter=&q=&sort=&time=&type=&bookmarked=&page=&limit=` where
+      `sort` is relevance | top | latest | hot, the TIME window is
+      `time=recent | past_week | past_month | past_year | all_time`, `filter`
       is ONE comma-separated list of scoped tokens (c/<slug> for communities,
       @<user> for people, #<tag> or a bare word for hashtags) and `type` is the
       active result pill ("all" = mixed view). The server returns the available
@@ -61,19 +61,18 @@ export const searchService = {
     page?: number;
     limit?: number;
   }): Promise<UniversalSearchResults> => {
-    // Built manually (not URLSearchParams) because the TIME window goes in as
-    // a BARE token — `sort=relevance&all_time` — and URLSearchParams always
-    // emits `key=`. Order: filter → q → sort → time → type → bookmarked →
-    // page → limit. No version marker — there is no legacy search anymore.
+    // Built manually (not URLSearchParams) to keep the param order stable.
+    // Order: filter → q → sort → time → type → bookmarked → page → limit.
+    // No version marker — there is no legacy search anymore.
     const parts: string[] = [];
     if (filter) parts.push(`filter=${encodeURIComponent(filter)}`);
     if (q) parts.push(`q=${encodeURIComponent(q)}`);
     if (sort) parts.push(`sort=${encodeURIComponent(sort)}`);
-    // TIME window as a bare token: &recent | &past_week | &past_month |
-    // &past_year | &all_time (the backend folds it into `time`).
-    if (time) parts.push(time);
+    // TIME window as the explicit param: &time=recent | &time=past_week |
+    // &time=past_month | &time=past_year | &time=all_time.
+    if (time) parts.push(`time=${encodeURIComponent(time)}`);
     // "all" is the backend's default mixed view — omit it so the default URL
-    // stays clean (?sort=relevance&all_time&page=1&limit=10). Only real type
+    // stays clean (?sort=relevance&time=all_time&page=1&limit=10). Only real type
     // filters (events, games, communities, …) are sent.
     if (type && type !== "all") parts.push(`type=${encodeURIComponent(type)}`);
     if (bookmarked) parts.push(`bookmarked=${encodeURIComponent(bookmarked)}`);

@@ -25,6 +25,8 @@ import * as Google from 'expo-auth-session/providers/google';
 import * as AppleAuthentication from 'expo-apple-authentication';
 import * as AuthSession from 'expo-auth-session';
 import * as Linking from 'expo-linking';
+import LottieView from "lottie-react-native";
+import { getCachedLottie, getCachedLottieSync, S3_APP_ICON_LOTTIE_URL } from "../../services/lottie.service";
 
 WebBrowser.maybeCompleteAuthSession();
 
@@ -36,12 +38,19 @@ import { themedAlert } from '../../components/common/ThemedAlert';
 type Props = NativeStackScreenProps<AuthStackParamList, "Login">;
 
 export default function LoginScreen({ navigation }: Props) {
-  const { signIn } = useAuth();
+  const { signIn, isAuthenticating, setIsAuthenticating } = useAuth();
   const [identifier, setIdentifier] = useState("");
   const [password, setPassword] = useState("");
-  const [loading, setLoading] = useState(false);
+
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [appleAuthAvailable, setAppleAuthAvailable] = useState(false);
+  const [lottieSource, setLottieSource] = useState<any>(getCachedLottieSync(S3_APP_ICON_LOTTIE_URL));
+
+  useEffect(() => {
+    getCachedLottie(S3_APP_ICON_LOTTIE_URL).then((animData) => {
+      if (animData) setLottieSource(animData);
+    });
+  }, []);
 
   useEffect(() => {
     AppleAuthentication.isAvailableAsync().then(setAppleAuthAvailable);
@@ -57,7 +66,7 @@ export default function LoginScreen({ navigation }: Props) {
 
   const handleLogin = async () => {
     if (!validate()) return;
-    setLoading(true);
+    setIsAuthenticating(true);
     try {
       const res = await authService.login(identifier.trim(), password);
       const accessToken =
@@ -75,7 +84,7 @@ export default function LoginScreen({ navigation }: Props) {
     } catch (e: any) {
       alert(e instanceof Error ? e.message : "Login failed");
     } finally {
-      setLoading(false);
+      setIsAuthenticating(false);
     }
   };
 
@@ -121,7 +130,12 @@ export default function LoginScreen({ navigation }: Props) {
         }
         
         if (accessToken && refreshToken) {
-          await signIn(accessToken as string, refreshToken as string);
+          setIsAuthenticating(true);
+          try {
+            await signIn(accessToken as string, refreshToken as string);
+          } finally {
+            setIsAuthenticating(false);
+          }
         } else {
           themedAlert("Error", "Authentication failed. Tokens not received.");
         }
@@ -148,7 +162,7 @@ export default function LoginScreen({ navigation }: Props) {
           : undefined;
 
         if (credential.identityToken) {
-          setLoading(true);
+          setIsAuthenticating(true);
           try {
             const res = await authService.appleLogin(credential.identityToken, fullName);
             const resultData = res.data || res;
@@ -166,7 +180,7 @@ export default function LoginScreen({ navigation }: Props) {
           } catch (e: any) {
             alert(e instanceof Error ? e.message : "Apple Login failed on backend");
           } finally {
-            setLoading(false);
+            setIsAuthenticating(false);
           }
         }
       } catch (e: any) {
@@ -209,7 +223,12 @@ export default function LoginScreen({ navigation }: Props) {
           }
           
           if (accessToken && refreshToken) {
-            await signIn(accessToken as string, refreshToken as string);
+            setIsAuthenticating(true);
+            try {
+              await signIn(accessToken as string, refreshToken as string);
+            } finally {
+              setIsAuthenticating(false);
+            }
           } else {
             themedAlert("Error", "Authentication failed. Tokens not received.");
           }
@@ -253,10 +272,23 @@ export default function LoginScreen({ navigation }: Props) {
 
           {/* Header */}
           <View style={styles.header}>
-            <Image 
-              source={require('../../../TaddleBox_Logo.png')} 
-              style={{ width: 80, height: 80, borderRadius: 40, resizeMode: 'cover', alignSelf: 'flex-start', marginBottom: 12, marginLeft: -8 }} 
-            />
+            {lottieSource ? (
+              <View style={{ width: 80, height: 80, borderRadius: 40, overflow: 'hidden', marginBottom: 12, marginLeft: -8, backgroundColor: 'transparent' }}>
+                <LottieView
+                  source={lottieSource}
+                  autoPlay
+                  loop
+                  renderMode="SOFTWARE"
+                  cacheComposition={false}
+                  style={{ width: '100%', height: '100%' }}
+                />
+              </View>
+            ) : (
+              <Image 
+                source={require('../../../TaddleBox_Logo.png')} 
+                style={{ width: 80, height: 80, borderRadius: 40, resizeMode: 'cover', alignSelf: 'flex-start', marginBottom: 12, marginLeft: -8 }} 
+              />
+            )}
             <Text style={styles.title}>Welcome back 👋</Text>
             <Text style={styles.subtitle}>Log in to continue your journey</Text>
           </View>
@@ -296,9 +328,9 @@ export default function LoginScreen({ navigation }: Props) {
             <Button
               label="Log In"
               onPress={handleLogin}
+              loading={isAuthenticating}
               variant="primary"
               fullWidth
-              loading={loading}
               style={{ marginTop: 8 }}
             />
           </View>

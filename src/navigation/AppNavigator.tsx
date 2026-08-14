@@ -40,7 +40,7 @@ export default function AppNavigator() {
 
   return (
     <NavigationContainer ref={navigationRef} theme={navTheme}>
-      <Stack.Navigator screenOptions={{ headerShown: false, animation: 'fade' }}>
+      <Stack.Navigator screenOptions={{ headerShown: false, animation: 'none' }}>
         {needsForceUpdate ? (
           <Stack.Screen name="ForceUpdate" component={ForceUpdateScreen} />
         ) : isLoggedIn ? (

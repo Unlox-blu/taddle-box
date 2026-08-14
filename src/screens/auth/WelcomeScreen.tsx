@@ -15,11 +15,12 @@ import { StatusBar } from "expo-status-bar";
 import { Ionicons } from "@expo/vector-icons";
 import { colors, radii, fontSizes, spacing } from "../../theme";
 import Button from "../../components/common/Button";
+import { useAuth } from "../../context/AuthContext";
 import type { AuthStackParamList } from "../../types";
 import * as WebBrowser from "expo-web-browser";
-import * as Google from "expo-auth-session/providers/google";
 import * as AppleAuthentication from "expo-apple-authentication";
-import { useAuth } from "../../context/AuthContext";
+import LottieView from "lottie-react-native";
+import { getCachedLottie, getCachedLottieSync, S3_APP_ICON_LOTTIE_URL } from "../../services/lottie.service";
 import { authService } from "../../services/auth.service";
 import * as AuthSession from "expo-auth-session";
 import * as Linking from "expo-linking";
@@ -33,8 +34,15 @@ const { height } = Dimensions.get("window");
 type Props = NativeStackScreenProps<AuthStackParamList, "Welcome">;
 
 export default function WelcomeScreen({ navigation }: Props) {
-  const { signIn } = useAuth();
+  const { signIn, setIsAuthenticating } = useAuth();
   const [appleAuthAvailable, setAppleAuthAvailable] = useState(false);
+  const [lottieSource, setLottieSource] = useState<any>(getCachedLottieSync(S3_APP_ICON_LOTTIE_URL));
+
+  useEffect(() => {
+    getCachedLottie(S3_APP_ICON_LOTTIE_URL).then((animData) => {
+      if (animData) setLottieSource(animData);
+    });
+  }, []);
 
   useEffect(() => {
     AppleAuthentication.isAvailableAsync().then(setAppleAuthAvailable);
@@ -90,7 +98,12 @@ export default function WelcomeScreen({ navigation }: Props) {
         }
 
         if (accessToken && refreshToken) {
-          await signIn(accessToken as string, refreshToken as string);
+          setIsAuthenticating(true);
+          try {
+            await signIn(accessToken as string, refreshToken as string);
+          } finally {
+            setIsAuthenticating(false);
+          }
         } else {
           themedAlert("Error", "Authentication failed. Tokens not received.");
         }
@@ -117,13 +130,14 @@ export default function WelcomeScreen({ navigation }: Props) {
           : undefined;
 
         if (credential.identityToken) {
+          setIsAuthenticating(true);
           try {
             const res = await authService.appleLogin(
               credential.identityToken,
               fullName,
             );
             const resultData = res.data || res;
-
+            
             if (resultData.action === "REGISTER_SOCIAL") {
               // @ts-ignore
               navigation.navigate("Register", {
@@ -143,6 +157,8 @@ export default function WelcomeScreen({ navigation }: Props) {
             alert(
               e instanceof Error ? e.message : "Apple Login failed on backend",
             );
+          } finally {
+            setIsAuthenticating(false);
           }
         }
       } catch (e: any) {
@@ -205,7 +221,12 @@ export default function WelcomeScreen({ navigation }: Props) {
           }
 
           if (accessToken && refreshToken) {
-            await signIn(accessToken as string, refreshToken as string);
+            setIsAuthenticating(true);
+            try {
+              await signIn(accessToken as string, refreshToken as string);
+            } finally {
+              setIsAuthenticating(false);
+            }
           } else {
             themedAlert("Error", "Authentication failed. Tokens not received.");
           }
@@ -225,10 +246,23 @@ export default function WelcomeScreen({ navigation }: Props) {
 
       {/* Logo */}
       <View style={[styles.logoSection, { alignItems: 'center', justifyContent: 'center' }]}>
-        <Image 
-          source={require('../../../TaddleBox_Logo.png')} 
-          style={{ width: 140, height: 140, borderRadius: 70, resizeMode: 'contain', alignSelf: 'center', marginBottom: 12 }} 
-        />
+        {lottieSource ? (
+          <View style={{ width: 120, height: 120, borderRadius: 60, overflow: 'hidden', marginBottom: 24, backgroundColor: 'transparent' }}>
+            <LottieView
+              source={lottieSource}
+              autoPlay
+              loop
+              renderMode="SOFTWARE"
+              cacheComposition={false}
+              style={{ width: '100%', height: '100%' }}
+            />
+          </View>
+        ) : (
+          <Image 
+            source={require('../../../TaddleBox_Logo.png')} 
+            style={{ width: 120, height: 120, borderRadius: 60, resizeMode: 'cover', marginBottom: 24 }} 
+          />
+        )}
         <Text style={styles.tagline}>
           To rant, spill, overshare & have zero regrets about it.
         </Text>

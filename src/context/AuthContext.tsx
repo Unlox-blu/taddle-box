@@ -7,6 +7,10 @@ import { socketClient } from '../services/socketClient';
 type AuthContextType = {
   isLoggedIn:  boolean;
   isLoading:   boolean;
+  isAuthenticating: boolean;
+  setIsAuthenticating: (val: boolean) => void;
+  isSplashVisible: boolean;
+  setLottieFinished: (val: boolean) => void;
   user:        any;
   signIn:      (token: string, refreshToken?: string) => Promise<void>;
   signOut:     () => Promise<void>;
@@ -17,11 +21,17 @@ type AuthContextType = {
   updateAvailable: boolean;
   dismissUpdate: () => void;
   storeUrl:    string | null;
+  hasSeenOnboarding: boolean;
+  setHasSeenOnboarding: (val: boolean) => void;
 };
 
 const AuthContext = createContext<AuthContextType>({
   isLoggedIn:  false,
   isLoading:   true,
+  isAuthenticating: false,
+  setIsAuthenticating: () => {},
+  isSplashVisible: true,
+  setLottieFinished: () => {},
   user:        undefined,
   signIn:      async () => {},
   signOut:     async () => {},
@@ -31,6 +41,8 @@ const AuthContext = createContext<AuthContextType>({
   updateAvailable: false,
   dismissUpdate: () => {},
   storeUrl:    null,
+  hasSeenOnboarding: false,
+  setHasSeenOnboarding: () => {},
 });
 
 import { appConfigService } from '../services/appConfig.service';
@@ -55,10 +67,24 @@ const compareVersions = (a: string, b: string): number => {
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [isLoggedIn, setIsLoggedIn] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
+  const [isAuthenticating, setIsAuthenticating] = useState(false);
+  const [lottieFinished, setLottieFinished] = useState(false);
   const [user, setUser] = useState<any>(undefined);
   const [needsForceUpdate, setNeedsForceUpdate] = useState(false);
   const [updateAvailable, setUpdateAvailable] = useState(false);
   const [storeUrl, setStoreUrl] = useState<string | null>(null);
+  const [hasSeenOnboarding, setHasSeenOnboarding] = useState(false);
+
+  // The global splash screen is visible until BOTH the auth check completes AND the Lottie finishes its first loop,
+  // OR when a manual login process is actively authenticating.
+  const isSplashVisible = isLoading || !lottieFinished || isAuthenticating;
+
+  // We need to reset lottieFinished when we start authenticating again so it plays a full loop
+  useEffect(() => {
+    if (isAuthenticating) {
+      setLottieFinished(false);
+    }
+  }, [isAuthenticating]);
 
   // Compare installed version against app_config: below minimum → force
   // update (app is unusable); below latest → soft update popup.
@@ -99,6 +125,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     try {
       // First check for updates
       await checkAppConfig();
+      
+      const seen = await SecureStore.getItemAsync('hasSeenOnboarding');
+      setHasSeenOnboarding(!!seen);
 
       const token = await SecureStore.getItemAsync('accessToken');
       if (token) {
@@ -183,6 +212,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       value={{
         isLoggedIn,
         isLoading,
+        isAuthenticating,
+        setIsAuthenticating,
+        isSplashVisible,
+        setLottieFinished,
         user,
         signIn,
         signOut,
@@ -192,6 +225,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         updateAvailable,
         dismissUpdate,
         storeUrl,
+        hasSeenOnboarding,
+        setHasSeenOnboarding,
       }}
     >
       {children}

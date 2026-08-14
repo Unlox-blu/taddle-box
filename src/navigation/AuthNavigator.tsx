@@ -1,8 +1,9 @@
 import React from 'react';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import type { AuthStackParamList } from '../types';
+import { useAuth } from '../context/AuthContext';
 
-import SplashScreen        from '../screens/auth/SplashScreen';
+
 import OnboardingScreen    from '../screens/auth/OnboardingScreen';
 import WelcomeScreen       from '../screens/auth/WelcomeScreen';
 import LoginScreen         from '../screens/auth/LoginScreen';
@@ -15,9 +16,14 @@ import PrivacyScreen        from '../screens/main/PrivacyScreen';
 const Stack = createNativeStackNavigator<AuthStackParamList>();
 
 export default function AuthNavigator() {
+  const { hasSeenOnboarding } = useAuth();
+  
   return (
-    <Stack.Navigator screenOptions={{ headerShown: false, animation: 'slide_from_right' }}>
-      <Stack.Screen name="Splash"          component={SplashScreen}         />
+    <Stack.Navigator 
+      initialRouteName={hasSeenOnboarding ? 'Welcome' : 'Onboarding'}
+      screenOptions={{ headerShown: false, animation: 'slide_from_right' }}
+    >
+
       <Stack.Screen name="Onboarding"      component={OnboardingScreen}     options={{ animation: 'fade' }} />
       <Stack.Screen name="Welcome"         component={WelcomeScreen}        options={{ animation: 'fade' }} />
       <Stack.Screen name="Login"           component={LoginScreen}          />

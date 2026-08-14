@@ -16,6 +16,8 @@ import { NativeStackScreenProps } from "@react-navigation/native-stack";
 import { StatusBar } from "expo-status-bar";
 import { Ionicons } from "@expo/vector-icons";
 import { colors, radii, fontSizes, spacing } from "../../theme";
+import LottieView from "lottie-react-native";
+import { getCachedLottie, getCachedLottieSync, S3_APP_ICON_LOTTIE_URL } from "../../services/lottie.service";
 import Button from "../../components/common/Button";
 import Input from "../../components/common/Input";
 import type { AuthStackParamList } from "../../types";
@@ -110,7 +112,14 @@ export default function RegisterScreen({ navigation, route }: Props) {
 
   const [step, setStep] = useState(0);
   const [loading, setLoading] = useState(false);
+  const [lottieSource, setLottieSource] = useState<any>(getCachedLottieSync(S3_APP_ICON_LOTTIE_URL));
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
+
+  useEffect(() => {
+    getCachedLottie(S3_APP_ICON_LOTTIE_URL).then((animData) => {
+      if (animData) setLottieSource(animData);
+    });
+  }, []);
 
   // Step 0 — Account
   const [name, setName] = useState(socialData?.name || "");
@@ -529,10 +538,23 @@ export default function RegisterScreen({ navigation, route }: Props) {
             <View>
               {/* Header */}
               <View style={{ marginBottom: 32 }}>
-                <Image 
-                  source={require('../../../TaddleBox_Logo.png')} 
-                  style={{ width: 80, height: 80, borderRadius: 40, resizeMode: 'cover', alignSelf: 'flex-start', marginBottom: 12, marginLeft: -8 }} 
-                />
+                {lottieSource ? (
+                  <View style={{ width: 80, height: 80, borderRadius: 40, overflow: 'hidden', marginBottom: 12, marginLeft: -8, backgroundColor: 'transparent' }}>
+                    <LottieView
+                      source={lottieSource}
+                      autoPlay
+                      loop
+                      renderMode="SOFTWARE"
+                      cacheComposition={false}
+                      style={{ width: '100%', height: '100%' }}
+                    />
+                  </View>
+                ) : (
+                  <Image 
+                    source={require('../../../TaddleBox_Logo.png')} 
+                    style={{ width: 80, height: 80, borderRadius: 40, resizeMode: 'cover', alignSelf: 'flex-start', marginBottom: 12, marginLeft: -8 }} 
+                  />
+                )}
                 <Text style={styles.stepTitle}>Create your account 🚀</Text>
                 <Text style={styles.stepSub}>
                   Let's get you started in 3 quick steps

@@ -8,6 +8,8 @@ import { useThemeColors } from '../../context/ThemeContext';
 import { useNotifications } from '../../context/NotificationContext';
 import { useAuth } from '../../context/AuthContext';
 import SideDrawer from '../home/SideDrawer';
+import LottieView from "lottie-react-native";
+import { getCachedLottie, getCachedLottieSync, S3_APP_BANNER_LOTTIE_URL } from "../../services/lottie.service";
 
 export default function MainHeader({ showBack = false }: { showBack?: boolean }) {
   const colors = useThemeColors();
@@ -15,6 +17,14 @@ export default function MainHeader({ showBack = false }: { showBack?: boolean })
   const route = useRoute();
   const [isDrawerOpen, setDrawerOpen] = useState(false);
   const { user: currentUser } = useAuth();
+  
+  const [lottieSource, setLottieSource] = useState<any>(getCachedLottieSync(S3_APP_BANNER_LOTTIE_URL));
+
+  React.useEffect(() => {
+    getCachedLottie(S3_APP_BANNER_LOTTIE_URL).then((animData) => {
+      if (animData) setLottieSource(animData);
+    });
+  }, []);
 
   // Live unread badge — kept fresh by NotificationContext: it syncs on login,
   // socket (re)connect, and increments in real-time on incoming notifications.
@@ -47,10 +57,19 @@ export default function MainHeader({ showBack = false }: { showBack?: boolean })
       )}
 
       <View style={[StyleSheet.absoluteFill, { justifyContent: "center", alignItems: 'center' }]} pointerEvents="none">
-        <Image
-          source={require('../../../Taddle_Box_Banner.png')}
-          style={{ height: 28, width: 140, resizeMode: 'contain', marginTop: 2 }} 
-        />
+        {lottieSource ? (
+          <LottieView
+            source={lottieSource}
+            autoPlay
+            loop
+            style={{ height: 28, width: 140, marginTop: 2 }}
+          />
+        ) : (
+          <Image
+            source={require('../../../Taddle_Box_Banner.png')}
+            style={{ height: 28, width: 140, resizeMode: 'contain', marginTop: 2 }} 
+          />
+        )}
       </View>
 
       <View style={{flexDirection: 'row', alignItems: 'center'}}>

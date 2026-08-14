@@ -8,16 +8,15 @@ import Animated, {
   runOnJS,
   interpolate,
   Extrapolation,
+  useAnimatedProps,
 } from "react-native-reanimated";
 import { Gesture, GestureDetector } from "react-native-gesture-handler";
 import { useThemeColors } from "../../context/ThemeContext";
-
 import LottieView from "lottie-react-native";
-import { useAnimatedProps } from "react-native-reanimated";
+
+import { getCachedLottie, getCachedLottieSync, S3_APP_ICON_LOTTIE_URL } from "../../services/lottie.service";
 
 const AnimatedLottieView = Animated.createAnimatedComponent(LottieView);
-
-const LOTTIE_ANIMATION = require("../../../assets/taddle_lottie.json");
 const REFRESH_THRESHOLD = 70;
 const MAX_PULL = 150;
 
@@ -43,8 +42,12 @@ export default function PullToRefreshWrapper({
   const isRefreshing = useSharedValue(refreshing);
   const lottieRef = useRef<LottieView>(null);
   const [isAtTop, setIsAtTop] = useState(true);
+  const [lottieSource, setLottieSource] = useState<any>(getCachedLottieSync(S3_APP_ICON_LOTTIE_URL));
 
   useEffect(() => {
+    getCachedLottie(S3_APP_ICON_LOTTIE_URL).then((animData) => {
+      if (animData) setLottieSource(animData);
+    });
     lottieRef.current?.play();
   }, []);
 
@@ -186,26 +189,44 @@ export default function PullToRefreshWrapper({
             ]}
           >
             {refreshing ? (
-              <LottieView
-                source={LOTTIE_ANIMATION}
-                autoPlay={true}
-                loop={true}
-                resizeMode="cover"
-                style={{
-                  width: bubbleSize,
-                  height: bubbleSize,
-                }}
-              />
+              lottieSource ? (
+                <View style={{ width: bubbleSize, height: bubbleSize, borderRadius: bubbleSize / 2, overflow: 'hidden', backgroundColor: 'transparent' }}>
+                  <LottieView
+                    source={lottieSource}
+                    autoPlay={true}
+                    loop={true}
+                    renderMode="SOFTWARE"
+                    cacheComposition={false}
+                    resizeMode="cover"
+                    style={{ width: '100%', height: '100%' }}
+                  />
+                </View>
+              ) : (
+                <Image 
+                  source={require('../../../assets/icon.png')} 
+                  style={{ width: bubbleSize, height: bubbleSize, borderRadius: bubbleSize / 2 }} 
+                  resizeMode="cover" 
+                />
+              )
             ) : (
-              <AnimatedLottieView
-                source={LOTTIE_ANIMATION}
-                animatedProps={animatedLottieProps}
-                resizeMode="cover"
-                style={{
-                  width: bubbleSize,
-                  height: bubbleSize,
-                }}
-              />
+              lottieSource ? (
+                <View style={{ width: bubbleSize, height: bubbleSize, borderRadius: bubbleSize / 2, overflow: 'hidden', backgroundColor: 'transparent' }}>
+                  <AnimatedLottieView
+                    source={lottieSource}
+                    animatedProps={animatedLottieProps}
+                    renderMode="SOFTWARE"
+                    cacheComposition={false}
+                    resizeMode="cover"
+                    style={{ width: '100%', height: '100%' }}
+                  />
+                </View>
+              ) : (
+                <Image 
+                  source={require('../../../assets/icon.png')} 
+                  style={{ width: bubbleSize, height: bubbleSize, borderRadius: bubbleSize / 2 }} 
+                  resizeMode="cover" 
+                />
+              )
             )}
           </View>
         </Animated.View>

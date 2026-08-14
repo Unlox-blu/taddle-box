@@ -16,7 +16,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useNavigation, useFocusEffect } from "@react-navigation/native";
 import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
 import { Ionicons } from "@expo/vector-icons";
-import AppRefreshControl from "../../components/common/AppRefreshControl";
+import PullToRefreshWrapper from "../../components/common/PullToRefreshWrapper";
 import { LinearGradient } from "expo-linear-gradient";
 import { StatusBar } from "expo-status-bar";
 import { fontSizes, spacing, radii, type ColorPalette } from "../../theme";
@@ -661,42 +661,46 @@ export default function EventsScreen() {
 
       <MainHeader />
 
-      <View style={styles.header}>
-        <View>
-          <Text style={styles.title}>Events Zone</Text>
-          <Text style={styles.subtitle}>Discover what's happening.</Text>
-        </View>
-        <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
-          <TouchableOpacity
-            style={styles.iconButton}
-            onPress={() => setShowCalendar((s) => !s)}
-          >
-            <Ionicons
-              name={showCalendar ? "close-outline" : "calendar-outline"}
-              size={22}
-              color={colors.text.secondary}
-            />
-          </TouchableOpacity>
-          <TouchableOpacity
-            style={styles.iconButton}
-            onPress={() =>
-              navigation.navigate("Leaderboards", { initialTab: "Events" })
-            }
-          >
-            <Ionicons
-              name="trophy-outline"
-              size={20}
-              color={colors.text.secondary}
-            />
-          </TouchableOpacity>
-        </View>
-      </View>
-
-      <FlatList
-        data={activeTab === "all" ? discoverList : displayEvents}
-        keyExtractor={(item) => item.id}
-        showsVerticalScrollIndicator={false}
-        refreshControl={<AppRefreshControl refreshing={isRefetching} onRefresh={refetch} />}
+      <PullToRefreshWrapper 
+        refreshing={isRefetching} 
+        onRefresh={refetch}
+        header={
+          <View style={styles.header}>
+            <View>
+              <Text style={styles.title}>Events Zone</Text>
+              <Text style={styles.subtitle}>Discover what's happening.</Text>
+            </View>
+            <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
+              <TouchableOpacity
+                style={styles.iconButton}
+                onPress={() => setShowCalendar((s) => !s)}
+              >
+                <Ionicons
+                  name={showCalendar ? "close-outline" : "calendar-outline"}
+                  size={22}
+                  color={colors.text.secondary}
+                />
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={styles.iconButton}
+                onPress={() =>
+                  navigation.navigate("Leaderboards", { initialTab: "Events" })
+                }
+              >
+                <Ionicons
+                  name="trophy-outline"
+                  size={20}
+                  color={colors.text.secondary}
+                />
+              </TouchableOpacity>
+            </View>
+          </View>
+        }
+      >
+        <FlatList
+          data={activeTab === "all" ? discoverList : displayEvents}
+          keyExtractor={(item) => item.id}
+          showsVerticalScrollIndicator={false}
         onEndReached={() => {
           if (hasNextPage && !isFetchingNextPage) {
             fetchNextPage();
@@ -954,6 +958,7 @@ export default function EventsScreen() {
           </View>
         }
       />
+      </PullToRefreshWrapper>
     </View>
   );
 }

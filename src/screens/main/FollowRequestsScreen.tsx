@@ -13,7 +13,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useNavigation } from "@react-navigation/native";
 import { Ionicons } from "@expo/vector-icons";
 import { useTheme, useThemeColors } from "../../context/ThemeContext";
-import AppRefreshControl from '../../components/common/AppRefreshControl';
+import PullToRefreshWrapper from '../../components/common/PullToRefreshWrapper';
 import { StatusBar } from "expo-status-bar";
 import { fontSizes, spacing, radii, type ColorPalette } from "../../theme";
 import { userService } from "../../services/user.service";
@@ -197,40 +197,42 @@ export default function FollowRequestsScreen() {
   return (
     <View style={[styles.container, { paddingTop: insets.top }]}>
       <StatusBar style={isDark ? "light" : "dark"} />
-      <View style={styles.header}>
-        <TouchableOpacity style={styles.backBtn} onPress={() => navigation.goBack()}>
-          <Ionicons name="arrow-back" size={22} color={colors.text.primary} />
-        </TouchableOpacity>
-        <Text style={styles.headerTitle}>Follow Requests</Text>
-        {requests.length > 0 ? (
-          <TouchableOpacity
-            style={styles.acceptAllBtn}
-            disabled={acceptingAll}
-            onPress={handleAcceptAll}
-          >
-            {acceptingAll ? (
-              <ActivityIndicator size="small" color={colors.primaryLight} />
-            ) : (
-              <Text style={styles.acceptAllText}>Accept All</Text>
-            )}
-          </TouchableOpacity>
-        ) : (
-          <View style={styles.headerSpacer} />
-        )}
-      </View>
-
       {loading ? (
         <View style={{ flex: 1, alignItems: "center", justifyContent: "center" }}>
           <ActivityIndicator size="large" color={colors.primary} />
         </View>
       ) : (
+      <PullToRefreshWrapper 
+        refreshing={refreshing} 
+        onRefresh={onRefresh}
+        header={
+          <View style={styles.header}>
+            <TouchableOpacity style={styles.backBtn} onPress={() => navigation.goBack()}>
+              <Ionicons name="arrow-back" size={22} color={colors.text.primary} />
+            </TouchableOpacity>
+            <Text style={styles.headerTitle}>Follow Requests</Text>
+            {requests.length > 0 ? (
+              <TouchableOpacity
+                style={styles.acceptAllBtn}
+                disabled={acceptingAll}
+                onPress={handleAcceptAll}
+              >
+                {acceptingAll ? (
+                  <ActivityIndicator size="small" color={colors.primaryLight} />
+                ) : (
+                  <Text style={styles.acceptAllText}>Accept All</Text>
+                )}
+              </TouchableOpacity>
+            ) : (
+              <View style={styles.headerSpacer} />
+            )}
+          </View>
+        }
+      >
         <FlatList
           data={requests}
           keyExtractor={(item) => item.id}
           contentContainerStyle={styles.listContent}
-          refreshControl={
-            <AppRefreshControl refreshing={refreshing} onRefresh={onRefresh} />
-          }
           ListEmptyComponent={
             <View style={styles.empty}>
               <Text style={styles.emptyEmoji}>✅</Text>
@@ -287,6 +289,7 @@ export default function FollowRequestsScreen() {
             </View>
           )}
         />
+      </PullToRefreshWrapper>
       )}
     </View>
   );

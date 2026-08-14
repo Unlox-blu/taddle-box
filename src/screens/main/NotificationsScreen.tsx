@@ -17,7 +17,7 @@ import { postsService } from '../../services/posts.service';
 import { communityService } from '../../services/community.service';
 import { useNotifications } from '../../context/NotificationContext';
 import MainHeader from '../../components/common/MainHeader';
-import AppRefreshControl from '../../components/common/AppRefreshControl';
+import PullToRefreshWrapper from '../../components/common/PullToRefreshWrapper';
 import { notificationBus, NOTIF_EVENTS } from '../../lib/notificationBus';
 import { socketClient } from '../../services/socketClient';
 import PresenceDot from '../../components/common/PresenceDot';
@@ -635,15 +635,6 @@ export default function NotificationsScreen({ navigation }: Props) {
           badge); back arrow instead of the drawer menu on this pushed screen. */}
       <MainHeader showBack />
 
-      {/* "Mark all read" survives the header swap as a slim right-aligned row. */}
-      <View style={styles.markAllRow}>
-        <TouchableOpacity onPress={markAllRead} disabled={unreadCount === 0} hitSlop={{ top: 6, bottom: 6, left: 6, right: 6 }}>
-          <Text style={[styles.markAll, unreadCount === 0 && styles.markAllDim]}>
-            Mark all read
-          </Text>
-        </TouchableOpacity>
-      </View>
-
       {loading ? (
         <View style={[styles.emptyState, { paddingTop: 100 }]}>
           <ActivityIndicator size="large" color={colors.primary} />
@@ -655,20 +646,30 @@ export default function NotificationsScreen({ navigation }: Props) {
           <Text style={styles.emptySub}>No new notifications right now. Check back later for updates on events, followers, and more.</Text>
         </View>
       ) : (
-        <ScrollView 
-          showsVerticalScrollIndicator={false} 
-          contentContainerStyle={{ paddingTop: 8 }}
-          onScroll={({ nativeEvent }: any) => {
-            const { layoutMeasurement, contentOffset, contentSize } = nativeEvent;
-            const distanceFromBottom =
-              contentSize.height - (contentOffset.y + layoutMeasurement.height);
-            if (distanceFromBottom < 400) loadMoreNotifs();
-          }}
-          scrollEventThrottle={200}
-          refreshControl={
-            <AppRefreshControl refreshing={refreshing} onRefresh={onRefresh} />
+        <PullToRefreshWrapper 
+          refreshing={refreshing} 
+          onRefresh={onRefresh}
+          header={
+            <View style={styles.markAllRow}>
+              <TouchableOpacity onPress={markAllRead} disabled={unreadCount === 0} hitSlop={{ top: 6, bottom: 6, left: 6, right: 6 }}>
+                <Text style={[styles.markAll, unreadCount === 0 && styles.markAllDim]}>
+                  Mark all read
+                </Text>
+              </TouchableOpacity>
+            </View>
           }
         >
+          <ScrollView 
+            showsVerticalScrollIndicator={false} 
+            contentContainerStyle={{ paddingTop: 8 }}
+            onScroll={({ nativeEvent }: any) => {
+              const { layoutMeasurement, contentOffset, contentSize } = nativeEvent;
+              const distanceFromBottom =
+                contentSize.height - (contentOffset.y + layoutMeasurement.height);
+              if (distanceFromBottom < 400) loadMoreNotifs();
+            }}
+            scrollEventThrottle={200}
+          >
           {pendingRequestNotifs.length > 0 && (
             <View style={styles.reqBanner}>
               <View style={{ flex: 1 }}>
@@ -1039,7 +1040,8 @@ export default function NotificationsScreen({ navigation }: Props) {
             />
           ) : null}
           <View style={{ height: 40 }} />
-        </ScrollView>
+          </ScrollView>
+        </PullToRefreshWrapper>
       )}
     </View>
   );

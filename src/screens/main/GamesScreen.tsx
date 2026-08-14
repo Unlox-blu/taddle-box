@@ -28,7 +28,7 @@ import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
 import type { HomeStackParamList } from "../../types";
 import { fontSizes, radii, spacing, type ColorPalette } from "../../theme";
 import { useThemeColors } from "../../context/ThemeContext";
-import AppRefreshControl from "../../components/common/AppRefreshControl";
+import PullToRefreshWrapper from "../../components/common/PullToRefreshWrapper";
 import {
   useGames,
   type GameMatch,
@@ -476,146 +476,148 @@ export default function GamesScreen() {
       <StatusBar style="light" />
       <MainHeader />
 
-      <View style={styles.header}>
-        <View>
-          <Text style={styles.title}>Games Zone</Text>
-          <Text style={styles.subtitle}>
-            Compete, climb rankings, and earn XP.
-          </Text>
-        </View>
-        <View style={styles.headerActions}>
-          <TouchableOpacity
-            style={styles.iconButton}
-            onPress={() => setGameSettingsVisible(true)}
-          >
-            <Ionicons
-              name="settings-outline"
-              size={20}
-              color={colors.text.secondary}
-            />
-          </TouchableOpacity>
-          <TouchableOpacity
-            style={styles.iconButton}
-            onPress={() =>
-              navigation.navigate("Leaderboards", { initialTab: "Games" })
-            }
-          >
-            <Ionicons
-              name="trophy-outline"
-              size={20}
-              color={colors.text.secondary}
-            />
-          </TouchableOpacity>
-        </View>
-      </View>
 
-      <View style={{ backgroundColor: colors.bg.base, paddingVertical: 8 }}>
-        <ScrollView
-          horizontal
-          showsHorizontalScrollIndicator={false}
-          contentContainerStyle={styles.tabsScroll}
-        >
-          {(["games", "tournaments", "history"] as ActiveTab[]).map((tab) => (
-            <TouchableOpacity
-              key={tab}
-              onPress={() => setActiveTab(tab)}
-              style={[styles.tabChip, activeTab === tab && styles.tabChipActive]}
-            >
-              <Text
-                style={[
-                  styles.tabText,
-                  activeTab === tab && styles.tabTextActive,
-                ]}
-              >
-                {tab === "games"
-                  ? "Games"
-                  : tab === "tournaments"
-                    ? "Tournaments"
-                    : "History"}
-              </Text>
-            </TouchableOpacity>
-          ))}
-        </ScrollView>
-      </View>
-
-      {incomingInvite && (
-        <View style={styles.inviteBanner}>
-          <View style={styles.inviteBannerRow}>
-            {/* Sender avatar + live presence dot on the custom-match invite */}
-            <View style={{ position: "relative", width: 36, height: 36 }}>
-              <View style={styles.inviteAvatar}>
-                {incomingInvite.senderAvatarUrl ? (
-                  <Image
-                    source={{ uri: incomingInvite.senderAvatarUrl }}
-                    style={{ width: 36, height: 36, borderRadius: 18 }}
-                  />
-                ) : (
-                  <Ionicons name="person" size={16} color="#fff" />
-                )}
+      <PullToRefreshWrapper
+        refreshing={refreshing}
+        onRefresh={async () => {
+          setRefreshing(true);
+          await loadGamesData();
+          setRefreshing(false);
+        }}
+        header={
+          <>
+            <View style={styles.header}>
+              <View>
+                <Text style={styles.title}>Games Zone</Text>
+                <Text style={styles.subtitle}>
+                  Compete, climb rankings, and earn XP.
+                </Text>
               </View>
-              <PresenceDot
-                userId={incomingInvite.senderId}
-                size={11}
-                style={{ bottom: -1, right: -1 }}
-              />
+              <View style={styles.headerActions}>
+                <TouchableOpacity
+                  style={styles.iconButton}
+                  onPress={() => setGameSettingsVisible(true)}
+                >
+                  <Ionicons
+                    name="settings-outline"
+                    size={20}
+                    color={colors.text.secondary}
+                  />
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={styles.iconButton}
+                  onPress={() =>
+                    navigation.navigate("Leaderboards", { initialTab: "Games" })
+                  }
+                >
+                  <Ionicons
+                    name="trophy-outline"
+                    size={20}
+                    color={colors.text.secondary}
+                  />
+                </TouchableOpacity>
+              </View>
             </View>
-            <Text style={styles.inviteBannerText}>
-              {(incomingInvite.message || "You have a new game invite!")
-                .split("|")[0]
-                .trim()}
-            </Text>
-          </View>
-          <View style={styles.inviteBannerActions}>
-            <TouchableOpacity
-              style={styles.inviteJoinBtn}
-              onPress={() => {
-                // Message format: "<text> | <lobbyId> | <inviteCode>"
-                const parts = (incomingInvite.message || "")
-                  .split("|")
-                  .map((s: string) => s.trim());
-                const inviteCode = parts[2] || parts[1];
-                const gameId = incomingInvite.resourceId;
-                const game = realGamesRef.current.find(
-                  (g) => g.id === gameId || g.slug === gameId,
-                );
 
-                if (inviteCode && game) {
-                  setActiveTab("games");
-                  setSelectedGame(game);
-                  // Pre-fill the join code and open modal at select step
-                  // The user will see the modal with join code pre-filled
-                  setIncomingInviteCode(inviteCode);
-                  setMatchModalVisible(true);
-                  setIncomingInvite(null);
-                }
-              }}
-            >
-              <Text style={styles.inviteJoinBtnText}>Accept</Text>
-            </TouchableOpacity>
-            <TouchableOpacity
-              style={styles.inviteDenyBtn}
-              onPress={() => setIncomingInvite(null)}
-            >
-              <Text style={styles.inviteDenyBtnText}>Decline</Text>
-            </TouchableOpacity>
-          </View>
-        </View>
-      )}
+            <View style={{ backgroundColor: colors.bg.base, paddingVertical: 8 }}>
+              <ScrollView
+                horizontal
+                showsHorizontalScrollIndicator={false}
+                contentContainerStyle={styles.tabsScroll}
+              >
+                {(["games", "tournaments", "history"] as ActiveTab[]).map((tab) => (
+                  <TouchableOpacity
+                    key={tab}
+                    onPress={() => setActiveTab(tab)}
+                    style={[styles.tabChip, activeTab === tab && styles.tabChipActive]}
+                  >
+                    <Text
+                      style={[
+                        styles.tabText,
+                        activeTab === tab && styles.tabTextActive,
+                      ]}
+                    >
+                      {tab === "games"
+                        ? "Games"
+                        : tab === "tournaments"
+                          ? "Tournaments"
+                          : "History"}
+                    </Text>
+                  </TouchableOpacity>
+                ))}
+              </ScrollView>
+            </View>
 
-      <ScrollView
-        showsVerticalScrollIndicator={false}
-        contentContainerStyle={styles.content}
-        refreshControl={
-          <AppRefreshControl
-            refreshing={refreshing}
-            onRefresh={async () => {
-              setRefreshing(true);
-              await loadGamesData();
-              setRefreshing(false);
-            }}
-          />
+            {incomingInvite && (
+              <View style={styles.inviteBanner}>
+                <View style={styles.inviteBannerRow}>
+                  {/* Sender avatar + live presence dot on the custom-match invite */}
+                  <View style={{ position: "relative", width: 36, height: 36 }}>
+                    <View style={styles.inviteAvatar}>
+                      {incomingInvite.senderAvatarUrl ? (
+                        <Image
+                          source={{ uri: incomingInvite.senderAvatarUrl }}
+                          style={{ width: 36, height: 36, borderRadius: 18 }}
+                        />
+                      ) : (
+                        <Ionicons name="person" size={16} color="#fff" />
+                      )}
+                    </View>
+                    <PresenceDot
+                      userId={incomingInvite.senderId}
+                      size={11}
+                      style={{ bottom: -1, right: -1 }}
+                    />
+                  </View>
+                  <Text style={styles.inviteBannerText}>
+                    {(incomingInvite.message || "You have a new game invite!")
+                      .split("|")[0]
+                      .trim()}
+                  </Text>
+                </View>
+                <View style={styles.inviteBannerActions}>
+                  <TouchableOpacity
+                    style={styles.inviteJoinBtn}
+                    onPress={() => {
+                      // Message format: "<text> | <lobbyId> | <inviteCode>"
+                      const parts = (incomingInvite.message || "")
+                        .split("|")
+                        .map((s: string) => s.trim());
+                      const inviteCode = parts[2] || parts[1];
+                      const gameId = incomingInvite.resourceId;
+                      const game = realGamesRef.current.find(
+                        (g) => g.id === gameId || g.slug === gameId,
+                      );
+
+                      if (inviteCode && game) {
+                        setActiveTab("games");
+                        setSelectedGame(game);
+                        // Pre-fill the join code and open modal at select step
+                        // The user will see the modal with join code pre-filled
+                        setIncomingInviteCode(inviteCode);
+                        setMatchModalVisible(true);
+                        setIncomingInvite(null);
+                      }
+                    }}
+                  >
+                    <Text style={styles.inviteJoinBtnText}>Accept</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    style={styles.inviteDenyBtn}
+                    onPress={() => setIncomingInvite(null)}
+                  >
+                    <Text style={styles.inviteDenyBtnText}>Decline</Text>
+                  </TouchableOpacity>
+                </View>
+              </View>
+            )}
+          </>
         }
       >
+        <ScrollView
+          showsVerticalScrollIndicator={false}
+          contentContainerStyle={styles.content}
+        >
         {activeTab === "games" && (
           <>
             <SectionHeader title="Available Games" />
@@ -710,6 +712,7 @@ export default function GamesScreen() {
           </>
         )}
       </ScrollView>
+      </PullToRefreshWrapper>
 
       <GamesMatchmakingModal
         visible={globalMatchModalVisible}

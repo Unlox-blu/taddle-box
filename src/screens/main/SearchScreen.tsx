@@ -33,7 +33,7 @@ import { notificationService } from "../../services/notification.service";
 import { walletService } from "../../services/wallet.service";
 import { xpService } from "../../services/xp.service";
 import type { HomeStackParamList, Post, Transaction } from "../../types";
-import AppRefreshControl from "../../components/common/AppRefreshControl";
+import PullToRefreshWrapper from "../../components/common/PullToRefreshWrapper";
 import { useToggleLike, useToggleSave } from "../../mutations/posts";
 import { themedAlert } from "../../components/common/ThemedAlert";
 import { makeStyles } from "../../components/search/searchStyles";
@@ -1524,30 +1524,28 @@ export default function SearchScreen({ navigation, route }: Props) {
           <ActivityIndicator size="large" color={colors.primaryLight} />
         </View>
       ) : hasResults ? (
-        <FlatList
-          ref={listRef}
-          data={rows}
-          keyExtractor={(row, index) =>
-            row.isHeader
-              ? `header-${row.type}-${index}`
-              : `${row.type}-${row.item.id || index}`
-          }
-          renderItem={renderItem}
-          contentContainerStyle={[
-            styles.listContent,
-            { paddingBottom: insets.bottom + 20 },
-          ]}
-          ItemSeparatorComponent={() => <View style={{ height: 10 }} />}
-          keyboardShouldPersistTaps="handled"
-          onViewableItemsChanged={onViewableItemsChanged}
-          viewabilityConfig={viewabilityConfig}
-          refreshControl={
-            <AppRefreshControl refreshing={refreshing} onRefresh={onRefresh} />
-          }
-          // Track the live offset so switching tabs can save/restore it.
-          onScroll={(e) => {
-            scrollOffsetCurrentRef.current = e.nativeEvent.contentOffset.y;
-          }}
+        <PullToRefreshWrapper refreshing={refreshing} onRefresh={onRefresh}>
+          <FlatList
+            ref={listRef}
+            data={rows}
+            keyExtractor={(row, index) =>
+              row.isHeader
+                ? `header-${row.type}-${index}`
+                : `${row.type}-${row.item.id || index}`
+            }
+            renderItem={renderItem}
+            contentContainerStyle={[
+              styles.listContent,
+              { paddingBottom: insets.bottom + 20 },
+            ]}
+            ItemSeparatorComponent={() => <View style={{ height: 10 }} />}
+            keyboardShouldPersistTaps="handled"
+            onViewableItemsChanged={onViewableItemsChanged}
+            viewabilityConfig={viewabilityConfig}
+            // Track the live offset so switching tabs can save/restore it.
+            onScroll={(e) => {
+              scrollOffsetCurrentRef.current = e.nativeEvent.contentOffset.y;
+            }}
           scrollEventThrottle={16}
           onEndReached={loadMore}
           onEndReachedThreshold={0.4}
@@ -1576,6 +1574,7 @@ export default function SearchScreen({ navigation, route }: Props) {
             ) : null
           }
         />
+        </PullToRefreshWrapper>
       ) : showSearchPrompt ? (
         renderEmptyStateHeader()
       ) : !isEmptyQuery ? (

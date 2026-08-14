@@ -23,7 +23,7 @@ import { LinearGradient } from "expo-linear-gradient";
 import { StatusBar } from "expo-status-bar";
 import { fontSizes, spacing, radii, type ColorPalette } from "../../theme";
 import { useTheme, useThemeColors } from "../../context/ThemeContext";
-import AppRefreshControl from '../../components/common/AppRefreshControl';
+import PullToRefreshWrapper from '../../components/common/PullToRefreshWrapper';
 import { useAuth } from "../../context/AuthContext";
 import { useCommunities, useCommunityCategories } from "../../queries/communities";
 import {
@@ -702,70 +702,74 @@ export default function CommunityScreen() {
 
       <MainHeader />
 
-      <View style={styles.header}>
-        <View>
-          <Text style={styles.title}>Communities</Text>
-          <Text style={styles.subtitle}>Find your tribe.</Text>
-        </View>
-        <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
-          <TouchableOpacity
-            style={styles.iconButton}
-            onPress={() =>
-              navigation.navigate("Leaderboards", { initialTab: "Community" })
-            }
-          >
-            <Ionicons
-              name="trophy-outline"
-              size={20}
-              color={colors.text.secondary}
-            />
-          </TouchableOpacity>
-        </View>
-      </View>
+      <PullToRefreshWrapper 
+        refreshing={isRefetching} 
+        onRefresh={refetch}
+        header={
+          <>
+            <View style={styles.header}>
+              <View>
+                <Text style={styles.title}>Communities</Text>
+                <Text style={styles.subtitle}>Find your tribe.</Text>
+              </View>
+              <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
+                <TouchableOpacity
+                  style={styles.iconButton}
+                  onPress={() =>
+                    navigation.navigate("Leaderboards", { initialTab: "Community" })
+                  }
+                >
+                  <Ionicons
+                    name="trophy-outline"
+                    size={20}
+                    color={colors.text.secondary}
+                  />
+                </TouchableOpacity>
+              </View>
+            </View>
 
-      <View style={styles.chipsWrap}>
-        <ScrollView
-          horizontal
-          showsHorizontalScrollIndicator={false}
-          contentContainerStyle={styles.chips}
-        >
-          {ALL_CATEGORY_TABS.map((cat) => (
-            <TouchableOpacity
-              key={cat.key}
-              style={[
-                styles.chip,
-                activeCategory === cat.key && styles.chipActive,
-              ]}
-              onPress={() => setActiveCategory(cat.key)}
-            >
-              <Ionicons
-                name={cat.icon as any}
-                size={14}
-                color={
-                  activeCategory === cat.key
-                    ? colors.primaryLight
-                    : colors.text.muted
-                }
-                style={{ marginRight: 4 }}
-              />
-              <Text
-                style={[
-                  styles.chipText,
-                  activeCategory === cat.key && styles.chipTextActive,
-                ]}
+            <View style={styles.chipsWrap}>
+              <ScrollView
+                horizontal
+                showsHorizontalScrollIndicator={false}
+                contentContainerStyle={styles.chips}
               >
-                {cat.label}
-              </Text>
-            </TouchableOpacity>
-          ))}
-        </ScrollView>
-      </View>
-
-      <ScrollView
-        showsVerticalScrollIndicator={false}
-        refreshControl={
-          <AppRefreshControl refreshing={isRefetching} onRefresh={refetch} />
+                {ALL_CATEGORY_TABS.map((cat) => (
+                  <TouchableOpacity
+                    key={cat.key}
+                    style={[
+                      styles.chip,
+                      activeCategory === cat.key && styles.chipActive,
+                    ]}
+                    onPress={() => setActiveCategory(cat.key)}
+                  >
+                    <Ionicons
+                      name={cat.icon as any}
+                      size={14}
+                      color={
+                        activeCategory === cat.key
+                          ? colors.primaryLight
+                          : colors.text.muted
+                      }
+                      style={{ marginRight: 4 }}
+                    />
+                    <Text
+                      style={[
+                        styles.chipText,
+                        activeCategory === cat.key && styles.chipTextActive,
+                      ]}
+                    >
+                      {cat.label}
+                    </Text>
+                  </TouchableOpacity>
+                ))}
+              </ScrollView>
+            </View>
+          </>
         }
+      >
+        <ScrollView
+          showsVerticalScrollIndicator={false}
         onScroll={({ nativeEvent }) => {
           if (isCloseToBottom(nativeEvent) && hasNextPage) {
             fetchNextPage();
@@ -842,7 +846,8 @@ export default function CommunityScreen() {
             )}
           </>
         )}
-      </ScrollView>
+        </ScrollView>
+      </PullToRefreshWrapper>
 
       <CreateCommunityModal
         visible={showCreate}

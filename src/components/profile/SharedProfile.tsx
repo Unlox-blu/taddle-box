@@ -22,7 +22,7 @@ import XPProgressBar from "../home/XPProgressBar";
 import { useNavigation, useFocusEffect } from "@react-navigation/native";
 import { WebView } from "react-native-webview";
 import SharedFeed from "../common/SharedFeed";
-import AppRefreshControl from "../common/AppRefreshControl";
+import PullToRefreshWrapper from "../common/PullToRefreshWrapper";
 import { postsService } from "../../services/posts.service";
 import { presenceIndicator } from "../../context/PresenceContext";
 import CommentsModal from "../home/CommentsModal";
@@ -822,9 +822,7 @@ export default function SharedProfile({
     }
   }, [loadProfile, loadMentions, user?.id, isOwnProfile, followed, profileTab]);
 
-  const refreshControl = (
-    <AppRefreshControl refreshing={refreshing} onRefresh={onRefresh} />
-  );
+  const refreshProps = { refreshing, onRefresh };
 
   const openFollowList = (type: "followers" | "following") => {
     // Private account + not an approved follower: counts stay visible but the
@@ -1339,10 +1337,10 @@ export default function SharedProfile({
       {headerComponent}
 
       {isLocked ? (
-        <ScrollView
-          showsVerticalScrollIndicator={false}
-          refreshControl={refreshControl}
-        >
+        <PullToRefreshWrapper {...refreshProps}>
+          <ScrollView
+            showsVerticalScrollIndicator={false}
+          >
           {profileHeader}
           <View style={{ padding: 48, alignItems: "center", gap: 12 }}>
             <View style={styles.lockCircle}>
@@ -1357,35 +1355,40 @@ export default function SharedProfile({
                 : `Follow @${user?.username || "user"} to see their posts and achievements.`}
             </Text>
           </View>
-        </ScrollView>
+          </ScrollView>
+        </PullToRefreshWrapper>
       // Mentions tab — notification-style list (own profile only). Spinner on
       // first load, paginated via onEndReached like the notifications screen.
       ) : profileTab === 'mentions' ? (
         loadingMentions && mentions.length === 0 ? (
-          <ScrollView showsVerticalScrollIndicator={false} refreshControl={refreshControl}>
+          <PullToRefreshWrapper {...refreshProps}>
+            <ScrollView showsVerticalScrollIndicator={false}>
             {profileHeader}
             <View style={{ padding: 40, alignItems: "center" }}>
               <ActivityIndicator size="small" color={colors.primary} />
             </View>
-          </ScrollView>
+            </ScrollView>
+          </PullToRefreshWrapper>
         ) : mentions.length === 0 ? (
-          <ScrollView showsVerticalScrollIndicator={false} refreshControl={refreshControl}>
+          <PullToRefreshWrapper {...refreshProps}>
+            <ScrollView showsVerticalScrollIndicator={false}>
             {profileHeader}
             <View style={{ padding: 40, alignItems: "center" }}>
               <Text style={{ color: colors.text.muted }}>
                 No mentions yet — when someone @mentions you, it shows up here.
               </Text>
             </View>
-          </ScrollView>
+            </ScrollView>
+          </PullToRefreshWrapper>
         ) : (
-          <FlatList
-            ref={mentionsListRef}
-            data={mentions}
-            keyExtractor={(item: any) => String(item.id)}
-            showsVerticalScrollIndicator={false}
-            ListHeaderComponent={profileHeader}
-            contentContainerStyle={{ paddingBottom: 24 }}
-            refreshControl={refreshControl}
+          <PullToRefreshWrapper {...refreshProps}>
+            <FlatList
+              ref={mentionsListRef}
+              data={mentions}
+              keyExtractor={(item: any) => String(item.id)}
+              showsVerticalScrollIndicator={false}
+              ListHeaderComponent={profileHeader}
+              contentContainerStyle={{ paddingBottom: 24 }}
             onScroll={(e: any) => {
               profileScrollOffset.current = e.nativeEvent.contentOffset.y;
             }}
@@ -1409,20 +1412,24 @@ export default function SharedProfile({
                 <View style={{ height: 80 }} />
               )
             }
-          />
+            />
+          </PullToRefreshWrapper>
         )
       // Keep the feed list mounted during tab switches (only show the
       // full-screen spinner on the very first load) so switching Posts ↔
       // Reposts never resets the scroll position to the top of the page.
       ) : loadingPosts && posts.length === 0 ? (
-        <ScrollView showsVerticalScrollIndicator={false} refreshControl={refreshControl}>
+        <PullToRefreshWrapper {...refreshProps}>
+          <ScrollView showsVerticalScrollIndicator={false}>
           {profileHeader}
           <View style={{ padding: 40, alignItems: "center" }}>
             <ActivityIndicator size="small" color={colors.primary} />
           </View>
-        </ScrollView>
+          </ScrollView>
+        </PullToRefreshWrapper>
       ) : posts.length === 0 ? (
-        <ScrollView showsVerticalScrollIndicator={false} refreshControl={refreshControl}>
+        <PullToRefreshWrapper {...refreshProps}>
+          <ScrollView showsVerticalScrollIndicator={false}>
           {profileHeader}
           <View style={{ padding: 40, alignItems: "center" }}>
             <Text style={{ color: colors.text.muted }}>
@@ -1431,7 +1438,8 @@ export default function SharedProfile({
                 : "No posts yet — pull down to refresh."}
             </Text>
           </View>
-        </ScrollView>
+          </ScrollView>
+        </PullToRefreshWrapper>
       ) : (
         <SharedFeed
           posts={posts}

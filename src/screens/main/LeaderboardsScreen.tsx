@@ -23,7 +23,7 @@ import {
   type WeeklyLeaderboards,
 } from '../../services/leaderboard.service';
 import type { HomeStackParamList } from '../../types';
-import AppRefreshControl from '../../components/common/AppRefreshControl';
+import PullToRefreshWrapper from '../../components/common/PullToRefreshWrapper';
 
 const TABS: { key: LeaderboardType; label: string; icon: keyof typeof Ionicons.glyphMap }[] = [
   { key: 'feed', label: 'Feed', icon: 'newspaper-outline' },
@@ -96,26 +96,28 @@ export default function LeaderboardsScreen() {
   return (
     <View style={[styles.container, { paddingTop: insets.top || 16 }]}>
       <StatusBar style="light" />
-      <View style={styles.header}>
-        <TouchableOpacity style={styles.iconButton} onPress={() => navigation.goBack()}>
-          <Ionicons name="chevron-back" size={22} color={colors.text.secondary} />
-        </TouchableOpacity>
-        <View style={styles.headerText}>
-          <Text style={styles.title}>Leaderboards</Text>
-          <Text style={styles.subtitle}>Weekly rankings and XP rewards</Text>
-        </View>
-        <View style={styles.iconButton}>
-          <Ionicons name="trophy-outline" size={21} color={colors.xpGold} />
-        </View>
-      </View>
-
-      <ScrollView
-        showsVerticalScrollIndicator={false}
-        contentContainerStyle={styles.content}
-        refreshControl={
-          <AppRefreshControl refreshing={refreshing} onRefresh={onRefresh} />
+      <PullToRefreshWrapper 
+        refreshing={refreshing} 
+        onRefresh={onRefresh}
+        header={
+          <View style={styles.header}>
+            <TouchableOpacity style={styles.iconButton} onPress={() => navigation.goBack()}>
+              <Ionicons name="chevron-back" size={22} color={colors.text.secondary} />
+            </TouchableOpacity>
+            <View style={styles.headerText}>
+              <Text style={styles.title}>Leaderboards</Text>
+              <Text style={styles.subtitle}>Weekly rankings and XP rewards</Text>
+            </View>
+            <View style={styles.iconButton}>
+              <Ionicons name="trophy-outline" size={21} color={colors.xpGold} />
+            </View>
+          </View>
         }
       >
+        <ScrollView
+          showsVerticalScrollIndicator={false}
+          contentContainerStyle={styles.content}
+        >
         <View style={styles.tabRail}>
           {TABS.map((tab) => (
             <TouchableOpacity
@@ -153,7 +155,9 @@ export default function LeaderboardsScreen() {
             ))}
           </View>
         )}
-      </ScrollView>
+          <View style={{ height: 20 }} />
+        </ScrollView>
+      </PullToRefreshWrapper>
 
       {/* Pinned Current User Card */}
       {!loading && (

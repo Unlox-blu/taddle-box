@@ -3,7 +3,7 @@ import { View, Text, StyleSheet, FlatList, TouchableOpacity, ActivityIndicator, 
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useNavigation, useRoute, type RouteProp } from '@react-navigation/native';
 import { Ionicons } from '@expo/vector-icons';
-import AppRefreshControl from '../../components/common/AppRefreshControl';
+import PullToRefreshWrapper from '../../components/common/PullToRefreshWrapper';
 import { useThemeColors } from '../../context/ThemeContext';
 import { fontSizes, spacing, radii } from '../../theme';
 import { communityService } from '../../services/community.service';
@@ -78,13 +78,11 @@ export default function CommunityModerationLogScreen() {
         <Text style={[styles.headerTitle, { color: colors.text.primary }]}>Moderation Log</Text>
       </View>
 
-      <FlatList
-        data={entries}
-        keyExtractor={item => String(item.id)}
-        contentContainerStyle={{ padding: spacing.lg, flexGrow: 1 }}
-        refreshControl={
-          <AppRefreshControl refreshing={refreshing} onRefresh={() => { setRefreshing(true); load(1, true); }} />
-        }
+      <PullToRefreshWrapper refreshing={refreshing} onRefresh={() => { setRefreshing(true); load(1, true); }}>
+        <FlatList
+          data={entries}
+          keyExtractor={item => String(item.id)}
+          contentContainerStyle={{ padding: spacing.lg, flexGrow: 1 }}
         onEndReached={() => { if (hasMore && !loading) load(page + 1); }}
         onEndReachedThreshold={0.4}
         ListFooterComponent={loading && entries.length > 0 ? (
@@ -137,7 +135,8 @@ export default function CommunityModerationLogScreen() {
             </View>
           );
         }}
-      />
+        />
+      </PullToRefreshWrapper>
     </View>
   );
 }

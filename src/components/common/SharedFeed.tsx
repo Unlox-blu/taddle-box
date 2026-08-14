@@ -7,7 +7,7 @@ import { postsService } from '../../services/posts.service';
 import { useAuth } from '../../context/AuthContext';
 import type { Post } from '../../types';
 import { themedAlert } from './ThemedAlert';
-import AppRefreshControl from './AppRefreshControl';
+import PullToRefreshWrapper from "./PullToRefreshWrapper";
 
 interface SharedFeedProps {
   posts: Post[];
@@ -226,6 +226,10 @@ export default function SharedFeed({
 
   return (
     <>
+      <PullToRefreshWrapper
+        refreshing={refreshing || false}
+        onRefresh={onRefresh || (() => {})}
+      >
       <FlatList
         ref={flatListRef}
         data={posts}
@@ -239,13 +243,6 @@ export default function SharedFeed({
         contentContainerStyle={contentContainerStyle}
         onScroll={(e) => onScroll?.(e.nativeEvent.contentOffset.y)}
         scrollEventThrottle={16}
-        refreshControl={
-          <AppRefreshControl
-            refreshing={refreshing || false}
-            // onRefresh is optional here — AppRefreshControl requires a handler.
-            onRefresh={onRefresh || (() => {})}
-          />
-        }
         // iOS only: without this, a short list (few posts / short bookmarks /
         // profile with a handful of posts) can't be pulled down at all, so the
         // refresh gesture silently does nothing.
@@ -277,7 +274,8 @@ export default function SharedFeed({
             showDelete={currentUser?.id === (item as any)?.author?.id || currentUser?.id === (item as any)?.author_id || currentUser?.id === (item as any)?.authorId || isAdmin}
           />
         )}
-      />
+        />
+      </PullToRefreshWrapper>
       <CommentsModal
         visible={commentsVisible}
         onClose={() => setCommentsVisible(false)}

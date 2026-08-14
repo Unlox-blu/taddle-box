@@ -13,13 +13,16 @@ import {
   Animated,
   DeviceEventEmitter,
   ActivityIndicator,
-
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { StatusBar } from "expo-status-bar";
-import { useNavigation, useIsFocused, useFocusEffect } from "@react-navigation/native";
+import {
+  useNavigation,
+  useIsFocused,
+  useFocusEffect,
+} from "@react-navigation/native";
 import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
 import { fontSizes, spacing, radii } from "../../theme";
 import { useTheme, useThemeColors } from "../../context/ThemeContext";
@@ -40,13 +43,13 @@ import { streakService } from "../../services/streak.service";
 import { xpService } from "../../services/xp.service";
 import { hashtagService } from "../../services/hashtag.service";
 import { cycleInfo, isSameDay } from "../../utils/streak";
-import { themedAlert } from '../../components/common/ThemedAlert';
+import { themedAlert } from "../../components/common/ThemedAlert";
 
 type HomeNavProp = NativeStackNavigationProp<HomeStackParamList, "HomeMain">;
 
 const getTodayKey = () => {
   const d = new Date();
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 };
 
 // ─── Main screen ──────────────────────────────────────────────────────────────
@@ -80,7 +83,7 @@ export default function HomeScreen() {
   useFocusEffect(
     useCallback(() => {
       refetchFeed();
-    }, [refetchFeed])
+    }, [refetchFeed]),
   );
 
   const posts = feedData?.pages.flat() || [];
@@ -102,6 +105,16 @@ export default function HomeScreen() {
   const [restoring, setRestoring] = useState(false);
   const [localXP, setLocalXP] = useState(CURRENT_USER?.xp || 0);
   const [hasDailyReward, setHasDailyReward] = useState(false);
+
+  const [now, setNow] = useState(Date.now());
+  useEffect(() => {
+    if (!streakRestorable) return;
+    const interval = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(interval);
+  }, [streakRestorable, restoreDeadline]);
+
+  const deadlineMs = restoreDeadline ? new Date(restoreDeadline).getTime() : 0;
+  const remainingMs = streakRestorable && deadlineMs ? Math.max(0, deadlineMs - now) : 0;
 
   // Sync XP if CURRENT_USER changes
   useEffect(() => {
@@ -260,6 +273,14 @@ export default function HomeScreen() {
         setRestoreDeadline(null);
         setNextMilestoneDay(d.nextMilestoneDay || 7);
         setNextRewardXp(d.nextRewardXp || 0);
+
+        if (d.rewardEarned && (d.rewardXp || 0) > 0) {
+          setRewardXp(d.rewardXp || 0);
+          setRewardDay(d.streak.streakCount);
+          setShowStreakRewardModal(true);
+          setLocalXP((prevXP: number) => prevXP + (d.rewardXp || 0));
+        }
+
         fetchWalletData(); // refresh the XP balance (socket also fires)
         return true;
       }
@@ -286,7 +307,11 @@ export default function HomeScreen() {
     async (fromX: number, fromY: number) => {
       try {
         const todayKey = getTodayKey();
-        const res = await xpService.creditXP(50, "bonus", `Daily Login - ${todayKey}`);
+        const res = await xpService.creditXP(
+          50,
+          "bonus",
+          `Daily Login - ${todayKey}`,
+        );
         AsyncStorage.setItem("lastDailyClaim", todayKey).catch(() => {});
 
         if (res?.data?.alreadyClaimed || res?.alreadyClaimed) {
@@ -426,31 +451,42 @@ export default function HomeScreen() {
               <TouchableOpacity
                 style={[
                   styles.miniCard,
-                  {
-                    backgroundColor: "rgba(251,191,36,0.08)",
-                    borderColor: "rgba(251,191,36,0.22)",
-                  },
+                  streakRestorable
+                    ? {
+                        backgroundColor: "rgba(239,68,68,0.08)",
+                        borderColor: "rgba(239,68,68,0.3)",
+                      }
+                    : {
+                        backgroundColor: "rgba(251,191,36,0.08)",
+                        borderColor: "rgba(251,191,36,0.22)",
+                      },
                 ]}
                 onPress={() => setStreakOpen(true)}
                 activeOpacity={0.8}
               >
-                <Text style={styles.miniEmoji}>🔥</Text>
+                <Text style={styles.miniEmoji}>{streakRestorable ? "⏳" : "🔥"}</Text>
                 <View style={styles.miniText}>
                   <Text
-                    style={[styles.miniVal, { color: colors.text.primary }]}
+                    style={[
+                      styles.miniVal, 
+                      { color: streakRestorable ? colors.danger : colors.text.primary }
+                    ]}
                   >
-                    {realStreak} {realStreak === 1 ? 'Day' : 'Days'}
+                    {streakRestorable ? fmtCountdown(remainingMs) : `${realStreak} ${realStreak === 1 ? "Day" : "Days"}`}
                   </Text>
                   <Text
-                    style={[styles.miniLabel, { color: colors.text.muted }]}
+                    style={[
+                      styles.miniLabel, 
+                      { color: streakRestorable ? colors.danger : colors.text.muted }
+                    ]}
                   >
-                    Streak
+                    {streakRestorable ? "Restore Streak!" : "Streak"}
                   </Text>
                 </View>
                 <Ionicons
                   name="chevron-forward"
                   size={13}
-                  color="rgba(251,191,36,0.45)"
+                  color={streakRestorable ? "rgba(239,68,68,0.45)" : "rgba(251,191,36,0.45)"}
                 />
               </TouchableOpacity>
 
@@ -611,7 +647,9 @@ export default function HomeScreen() {
         visible={streakOpen}
         onClose={() => setStreakOpen(false)}
         streakCount={realStreak}
-        todayFilled={streakEndDate ? isSameDay(new Date(streakEndDate), new Date()) : false}
+        todayFilled={
+          streakEndDate ? isSameDay(new Date(streakEndDate), new Date()) : false
+        }
         restorable={streakRestorable}
         restoreCost={restoreCost}
         restoreDeadline={restoreDeadline}
@@ -620,7 +658,10 @@ export default function HomeScreen() {
         nextRewardXp={nextRewardXp}
         restoring={restoring}
         onRestore={handleRestoreStreak}
-        onExpired={() => { setStreakOpen(false); initHomeData(); }}
+        onExpired={() => {
+          setStreakOpen(false);
+          initHomeData();
+        }}
       />
 
       <StreakRewardModal
@@ -805,6 +846,14 @@ function DailyRewardCard({
 
 // ─── Streak Modal ─────────────────────────────────────────────────────────────
 
+const fmtCountdown = (ms: number) => {
+  const total = Math.floor(ms / 1000);
+  const h = Math.floor(total / 3600);
+  const m = Math.floor((total % 3600) / 60);
+  const s = total % 60;
+  return `${h}h ${String(m).padStart(2, "0")}m ${String(s).padStart(2, "0")}s`;
+};
+
 function StreakModal({
   visible,
   onClose,
@@ -847,7 +896,8 @@ function StreakModal({
   }, [visible, restorable, restoreDeadline]);
 
   const deadlineMs = restoreDeadline ? new Date(restoreDeadline).getTime() : 0;
-  const remainingMs = restorable && deadlineMs ? Math.max(0, deadlineMs - now) : 0;
+  const remainingMs =
+    restorable && deadlineMs ? Math.max(0, deadlineMs - now) : 0;
   const expired = restorable && remainingMs <= 0;
 
   useEffect(() => {
@@ -855,18 +905,12 @@ function StreakModal({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [expired]);
 
-  const fmtCountdown = (ms: number) => {
-    const total = Math.floor(ms / 1000);
-    const h = Math.floor(total / 3600);
-    const m = Math.floor((total % 3600) / 60);
-    const s = total % 60;
-    return `${h}h ${String(m).padStart(2, "0")}m ${String(s).padStart(2, "0")}s`;
-  };
+
 
   // The tick that represents today (or the missed day when restorable).
   const todayIdx = Math.min(
     restorable ? pos : todayFilled ? pos - 1 : pos,
-    labels.length - 1
+    labels.length - 1,
   );
   const showMissed = restorable && pos < labels.length;
   const canAfford = xpBalance >= restoreCost;
@@ -934,10 +978,12 @@ function StreakModal({
                       backgroundColor: "rgba(239,68,68,0.14)",
                       borderColor: "rgba(239,68,68,0.45)",
                     },
-                    !done && !missed && isToday && {
-                      backgroundColor: "rgba(251,191,36,0.22)",
-                      borderColor: colors.xpGold,
-                    },
+                    !done &&
+                      !missed &&
+                      isToday && {
+                        backgroundColor: "rgba(251,191,36,0.22)",
+                        borderColor: colors.xpGold,
+                      },
                   ]}
                 >
                   <Text style={[sm.dotDay, { color: colors.text.muted }]}>
@@ -981,13 +1027,27 @@ function StreakModal({
                 borderColor: "rgba(239,68,68,0.3)",
               }}
             >
-              <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
+              <View
+                style={{ flexDirection: "row", alignItems: "center", gap: 8 }}
+              >
                 <Text style={{ fontSize: 18 }}>⏳</Text>
                 <View style={{ flex: 1 }}>
-                  <Text style={{ fontSize: 13, fontWeight: "800", color: colors.danger }}>
+                  <Text
+                    style={{
+                      fontSize: 13,
+                      fontWeight: "800",
+                      color: colors.danger,
+                    }}
+                  >
                     Restore your streak
                   </Text>
-                  <Text style={{ fontSize: 11, color: colors.text.muted, marginTop: 2 }}>
+                  <Text
+                    style={{
+                      fontSize: 11,
+                      color: colors.text.muted,
+                      marginTop: 2,
+                    }}
+                  >
                     Window closes in {fmtCountdown(remainingMs)}
                   </Text>
                 </View>
@@ -1001,7 +1061,9 @@ function StreakModal({
                   gap: 10,
                 }}
               >
-                <Text style={{ fontSize: 11, color: colors.text.muted, flex: 1 }}>
+                <Text
+                  style={{ fontSize: 11, color: colors.text.muted, flex: 1 }}
+                >
                   Cost: {restoreCost} XP · Balance: {xpBalance} XP
                 </Text>
                 <TouchableOpacity
@@ -1009,7 +1071,7 @@ function StreakModal({
                     if (!canAfford) {
                       themedAlert(
                         "Not enough XP",
-                        `You need ${restoreCost} XP to restore this streak.`
+                        `You need ${restoreCost} XP to restore this streak.`,
                       );
                       return;
                     }
@@ -1024,7 +1086,13 @@ function StreakModal({
                     borderRadius: 20,
                   }}
                 >
-                  <Text style={{ fontSize: 12, fontWeight: "800", color: "#1A0A00" }}>
+                  <Text
+                    style={{
+                      fontSize: 12,
+                      fontWeight: "800",
+                      color: "#1A0A00",
+                    }}
+                  >
                     {restoring ? "Restoring…" : `Restore · ${restoreCost} XP`}
                   </Text>
                 </TouchableOpacity>

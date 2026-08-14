@@ -166,6 +166,15 @@ class StreakService {
       const restored = await this.streakRepo.restore(evaluated.streak.id);
       await this.taskSvc.updateStreak({ userId, streak: count });
 
+      // Automatically advance the streak for today if needed.
+      // (The frontend doesn't need to make a 2nd API call).
+      const now = new Date();
+      const gap = daysBetween(new Date(restored.endDate), now);
+      if (gap > 0) {
+        const advanced = await this.createOrUpdate(userId);
+        return { ...advanced, costPaid: cost };
+      }
+
       return { ...this.#buildResponse({ streak: restored, restorable: false }), costPaid: cost };
     } catch (error) {
       throw error;

@@ -3,10 +3,10 @@ import * as FileSystem from "expo-file-system/legacy";
 const CACHE_DIR = FileSystem.documentDirectory + "lottie_cache/";
 
 export const S3_APP_ICON_LOTTIE_URL =
-  "https://unlox-dev-test.s3.ap-south-1.amazonaws.com/app-assets/taddle_lottie.json";
+  "https://unlox-dev-test.s3.ap-south-1.amazonaws.com/app-assets/app_logo_lottie/taddle_lottie.lottie";
 
-export const S3_APP_BANNER_LOTTIE_URL = 
-  "https://unlox-dev-test.s3.ap-south-1.amazonaws.com/app-assets/taddle_banner_lottie.json";
+export const S3_APP_BANNER_LOTTIE_URL =
+  "https://unlox-dev-test.s3.ap-south-1.amazonaws.com/app-assets/app_banner_lottie/taddle_banner_lottie.lottie";
 
 let memoryCache: Record<string, any> = {};
 
@@ -15,7 +15,11 @@ let memoryCache: Record<string, any> = {};
  * Deep cloning prevents lottie-react-native from mutating the shared object and causing loop flickers.
  */
 export const getCachedLottieSync = (url: string): any | null => {
-  return memoryCache[url] ? JSON.parse(JSON.stringify(memoryCache[url])) : null;
+  if (!memoryCache[url]) return null;
+  // If it's a .lottie file, memoryCache just holds the local uri object: { uri: "file://..." }
+  if (url.endsWith(".lottie")) return memoryCache[url];
+  // Otherwise it's JSON, return a deep clone
+  return JSON.parse(JSON.stringify(memoryCache[url]));
 };
 
 /**
@@ -23,10 +27,12 @@ export const getCachedLottieSync = (url: string): any | null => {
  * document directory, and returns the parsed JSON object.
  * On subsequent calls, reads instantly from memory or local file system.
  */
-export const getCachedLottie = async (
-  url: string,
-): Promise<any | null> => {
-  if (memoryCache[url]) return JSON.parse(JSON.stringify(memoryCache[url]));
+export const getCachedLottie = async (url: string): Promise<any | null> => {
+  if (memoryCache[url]) {
+    return url.endsWith(".lottie")
+      ? memoryCache[url]
+      : JSON.parse(JSON.stringify(memoryCache[url]));
+  }
 
   try {
     const filename = url.split("/").pop() || "animation.json";
@@ -39,13 +45,20 @@ export const getCachedLottie = async (
 
     const localFile = await FileSystem.getInfoAsync(localUri);
     if (localFile.exists) {
-      try {
-        const jsonStr = await FileSystem.readAsStringAsync(localUri);
-        memoryCache[url] = JSON.parse(jsonStr);
-        return JSON.parse(JSON.stringify(memoryCache[url]));
-      } catch (parseError) {
-        console.warn(`Corrupted cache for ${filename}, deleting and re-downloading...`);
-        await FileSystem.deleteAsync(localUri, { idempotent: true });
+      if (url.endsWith(".lottie")) {
+        memoryCache[url] = { uri: localUri };
+        return memoryCache[url];
+      } else {
+        try {
+          const jsonStr = await FileSystem.readAsStringAsync(localUri);
+          memoryCache[url] = JSON.parse(jsonStr);
+          return JSON.parse(JSON.stringify(memoryCache[url]));
+        } catch (parseError) {
+          console.warn(
+            `Corrupted cache for ${filename}, deleting and re-downloading...`,
+          );
+          await FileSystem.deleteAsync(localUri, { idempotent: true });
+        }
       }
     }
 
@@ -54,14 +67,19 @@ export const getCachedLottie = async (
     const downloadRes = await FileSystem.downloadAsync(url, localUri);
 
     if (downloadRes.status === 200) {
-      try {
-        const jsonStr = await FileSystem.readAsStringAsync(localUri);
-        memoryCache[url] = JSON.parse(jsonStr);
-        return JSON.parse(JSON.stringify(memoryCache[url]));
-      } catch (parseError) {
-        console.warn(`Downloaded file ${filename} is not valid JSON.`);
-        await FileSystem.deleteAsync(localUri, { idempotent: true });
-        return null;
+      if (url.endsWith(".lottie")) {
+        memoryCache[url] = { uri: localUri };
+        return memoryCache[url];
+      } else {
+        try {
+          const jsonStr = await FileSystem.readAsStringAsync(localUri);
+          memoryCache[url] = JSON.parse(jsonStr);
+          return JSON.parse(JSON.stringify(memoryCache[url]));
+        } catch (parseError) {
+          console.warn(`Downloaded file ${filename} is not valid JSON.`);
+          await FileSystem.deleteAsync(localUri, { idempotent: true });
+          return null;
+        }
       }
     } else {
       console.warn(`Failed to download Lottie. Status: ${downloadRes.status}`);

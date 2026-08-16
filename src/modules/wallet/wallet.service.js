@@ -37,6 +37,22 @@ class WalletService {
     }
   }
 
+  // Lightweight wallet summary — just the balances, no transactions/settings.
+  // Used by the app's Home/streak flows where only the "count" is needed.
+  async getWalletSummary({ userId }) {
+    try {
+      const wallet = await this.walletRepo.findByUserId(userId);
+      const xpWallet = await this.xpRepo.findByUserId(userId);
+      return {
+        balanceCents: wallet?.balanceCents ?? 0,
+        heldBalanceCents: wallet?.heldBalanceCents ?? 0,
+        xpBalance: xpWallet?.Xp ?? 0,
+      };
+    } catch (error) {
+      throw error;
+    }
+  }
+
   async getTransactions({ userId, limit, offset, q }) {
     try {
       const wallet = await this.walletRepo.findByUserId(userId);

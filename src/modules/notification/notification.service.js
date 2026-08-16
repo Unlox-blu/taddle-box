@@ -187,6 +187,10 @@ class NotificationService {
     return { notifications, total, unreadCount };
   }
 
+  async getUnreadCount({ userId }) {
+    return this.notifRepo.getUnreadCount(userId);
+  }
+
   async markAllRead({ userId }) {
     await this.notifRepo.markAllRead(userId);
   }

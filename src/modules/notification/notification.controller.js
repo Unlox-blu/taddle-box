@@ -26,6 +26,15 @@ class NotificationController {
     }
   };
 
+  getUnreadCount = async (req, res, next) => {
+    try {
+      const unreadCount = await this.notifSvc.getUnreadCount({ userId: req.userId });
+      res.json(apiResponse({ unreadCount }, 'Unread count fetched'));
+    } catch (error) {
+      next(error);
+    }
+  };
+
   markAllRead = async (req, res, next) => {
     try {
       const userId = req.userId;

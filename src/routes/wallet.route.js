@@ -5,6 +5,7 @@ const { walletController } = require('../modules/wallet/wallet.container');
 const { verifyToken }      = require('../middlewares/auth.middleware');
 
 router.get('/me',                verifyToken,  walletController.getWallet);
+router.get('/me/summary',        verifyToken,  walletController.getWalletSummary);
 router.get('/me/transactions',   verifyToken,  walletController.getTransactions);
 
 // Core Redemption Flows

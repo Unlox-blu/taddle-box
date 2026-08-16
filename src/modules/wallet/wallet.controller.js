@@ -18,6 +18,15 @@ class WalletController {
     }
   };
 
+  getWalletSummary = async (req, res, next) => {
+    try {
+      const summary = await this.walletSvc.getWalletSummary({userId: req.userId});
+      res.json(apiResponse(summary, 'Wallet summary fetched'));
+    } catch (error) {
+      next(error);
+    }
+  };
+
   // `q` searches the full history server-side (description/type/category/
   // status/amount) so the app's wallet search isn't capped at the first page.
   getTransactions = async (req, res, next) => {

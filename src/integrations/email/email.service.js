@@ -53,7 +53,7 @@ const sendWelcomeEmail = async (to, name) => {
 
 const sendWelcomeBackEmail = async (to, name) => {
   const html = loadTemplate('welcome-back.html', { name, appUrl: config.FRONTEND_URL });
-  await send({ to, subject: `Welcome back to taddlebox, ${name}!`, html });
+  await send({ to, subject: `Welcome back taddler!, ${name}!`, html });
 };
 
 const sendRegisterForEventEmail = async (to, data) => {

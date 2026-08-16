@@ -14,7 +14,8 @@ import { LinearGradient } from "expo-linear-gradient";
 import { NativeStackScreenProps } from "@react-navigation/native-stack";
 import { StatusBar } from "expo-status-bar";
 import { Ionicons } from "@expo/vector-icons";
-import { colors, radii, fontSizes, spacing } from "../../theme";
+import { radii, fontSizes, spacing } from "../../theme";
+import { useTheme } from "../../context/ThemeContext";
 import Button from "../../components/common/Button";
 import Input from "../../components/common/Input";
 import type { AuthStackParamList } from "../../types";
@@ -38,6 +39,8 @@ import { themedAlert } from '../../components/common/ThemedAlert';
 type Props = NativeStackScreenProps<AuthStackParamList, "Login">;
 
 export default function LoginScreen({ navigation }: Props) {
+  const { colors: themeColors, isDark } = useTheme();
+  const styles = React.useMemo(() => getStyles(themeColors, isDark), [themeColors, isDark]);
   const { signIn, isAuthenticating, setIsAuthenticating } = useAuth();
   const [identifier, setIdentifier] = useState("");
   const [password, setPassword] = useState("");
@@ -240,8 +243,8 @@ export default function LoginScreen({ navigation }: Props) {
   };
 
   return (
-    <LinearGradient colors={["#070714", "#0E0E24"]} style={styles.container}>
-      <StatusBar style="light" />
+    <LinearGradient colors={[themeColors.bg.base, themeColors.bg.surface]} style={styles.container}>
+      <StatusBar style={isDark ? "light" : "dark"} />
 
 
       {/* On Android the window already resizes natively (adjustResize) and the
@@ -266,7 +269,7 @@ export default function LoginScreen({ navigation }: Props) {
             <Ionicons
               name="arrow-back"
               size={22}
-              color={colors.text.secondary}
+              color={themeColors.text.secondary}
             />
           </TouchableOpacity>
 
@@ -278,7 +281,6 @@ export default function LoginScreen({ navigation }: Props) {
                   source={lottieSource}
                   autoPlay
                   loop
-                  renderMode="SOFTWARE"
                   cacheComposition={false}
                   style={{ width: '100%', height: '100%' }}
                 />
@@ -289,8 +291,8 @@ export default function LoginScreen({ navigation }: Props) {
                 style={{ width: 80, height: 80, borderRadius: 40, resizeMode: 'cover', alignSelf: 'flex-start', marginBottom: 12, marginLeft: -8 }} 
               />
             )}
-            <Text style={styles.title}>Welcome back 👋</Text>
-            <Text style={styles.subtitle}>Log in to continue your journey</Text>
+            <Text style={styles.title}>Welcome back taddler!</Text>
+            <Text style={styles.subtitle}>Log in to continue taddling</Text>
           </View>
 
           {/* Form */}
@@ -305,7 +307,7 @@ export default function LoginScreen({ navigation }: Props) {
               autoCapitalize="none"
               autoCorrect={false}
               error={errors.identifier}
-              forceDark
+              forceDark={isDark}
             />
             <Input
               label="Password"
@@ -315,7 +317,7 @@ export default function LoginScreen({ navigation }: Props) {
               placeholder="••••••••"
               secureTextEntry
               error={errors.password}
-              forceDark
+              forceDark={isDark}
             />
 
             <TouchableOpacity
@@ -345,14 +347,14 @@ export default function LoginScreen({ navigation }: Props) {
           {/* Social */}
           <View style={styles.socialRow}>
             <TouchableOpacity style={styles.socialBtn} onPress={handleGoogleLogin}>
-              <Ionicons name="logo-google" size={18} color={colors.text.primary} />
+              <Ionicons name="logo-google" size={18} color={themeColors.text.primary} />
               <Text style={styles.socialLabel}>Google</Text>
             </TouchableOpacity>
             <TouchableOpacity style={styles.socialBtn} onPress={handleAppleLogin}>
               <Ionicons
                 name="logo-apple"
                 size={18}
-                color={colors.text.primary}
+                color={themeColors.text.primary}
               />
               <Text style={styles.socialLabel}>Apple</Text>
             </TouchableOpacity>
@@ -371,7 +373,7 @@ export default function LoginScreen({ navigation }: Props) {
   );
 }
 
-const styles = StyleSheet.create({
+const getStyles = (themeColors: any, isDark: boolean) => StyleSheet.create({
   container: { flex: 1 },
   kav: { flex: 1 },
   scroll: { flexGrow: 1, padding: 24, paddingTop: 60, paddingBottom: 140 },
@@ -379,9 +381,9 @@ const styles = StyleSheet.create({
     width: 40,
     height: 40,
     borderRadius: radii.md,
-    backgroundColor: colors.bg.card,
+    backgroundColor: themeColors.bg.card,
     borderWidth: 1,
-    borderColor: colors.border,
+    borderColor: themeColors.border,
     alignItems: "center",
     justifyContent: "center",
     marginBottom: 28,
@@ -390,15 +392,15 @@ const styles = StyleSheet.create({
   title: {
     fontSize: fontSizes.h2,
     fontWeight: "800",
-    color: colors.text.primary,
+    color: themeColors.text.primary,
     marginBottom: 6,
   },
-  subtitle: { fontSize: fontSizes.md, color: colors.text.muted },
+  subtitle: { fontSize: fontSizes.md, color: themeColors.text.muted },
   form: { gap: 2 },
   forgotRow: { alignItems: "flex-end", marginBottom: 4 },
   forgotText: {
     fontSize: fontSizes.sm,
-    color: colors.primaryLight,
+    color: themeColors.primaryLight,
     fontWeight: "600",
   },
   dividerRow: {
@@ -407,8 +409,8 @@ const styles = StyleSheet.create({
     gap: 12,
     marginVertical: 28,
   },
-  line: { flex: 1, height: 1, backgroundColor: colors.border },
-  dividerText: { fontSize: fontSizes.xs, color: colors.text.muted },
+  line: { flex: 1, height: 1, backgroundColor: themeColors.border },
+  dividerText: { fontSize: fontSizes.xs, color: themeColors.text.muted },
   socialRow: { flexDirection: "row", gap: 12, marginBottom: 32 },
   socialBtn: {
     flex: 1,
@@ -416,20 +418,20 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
     gap: 8,
-    backgroundColor: colors.bg.card,
+    backgroundColor: themeColors.bg.card,
     borderWidth: 1,
-    borderColor: colors.borderHover,
+    borderColor: themeColors.borderHover,
     borderRadius: radii.md,
     paddingVertical: 12,
   },
   socialIcon: {
     fontSize: fontSizes.md,
     fontWeight: "800",
-    color: colors.text.primary,
+    color: themeColors.text.primary,
   },
   socialLabel: {
     fontSize: fontSizes.sm,
-    color: colors.text.primary,
+    color: themeColors.text.primary,
     fontWeight: "600",
   },
   registerRow: {
@@ -437,10 +439,10 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     alignItems: "center",
   },
-  registerText: { fontSize: fontSizes.sm, color: colors.text.muted },
+  registerText: { fontSize: fontSizes.sm, color: themeColors.text.muted },
   registerLink: {
     fontSize: fontSizes.sm,
-    color: colors.primaryLight,
+    color: themeColors.primaryLight,
     fontWeight: "700",
   },
 });

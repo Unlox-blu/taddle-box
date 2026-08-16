@@ -7,7 +7,8 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { StatusBar } from 'expo-status-bar';
 import { Ionicons } from '@expo/vector-icons';
-import { colors, radii, fontSizes, spacing } from '../../theme';
+import { radii, fontSizes, spacing } from '../../theme';
+import { useTheme } from '../../context/ThemeContext';
 import Button from '../../components/common/Button';
 import type { AuthStackParamList } from '../../types';
 import { useAuth } from '../../context/AuthContext';
@@ -25,6 +26,8 @@ const OTP_LENGTH = 6;
 type Props = NativeStackScreenProps<AuthStackParamList, 'OTP'>;
 
 export default function OTPScreen({ navigation, route }: Props) {
+  const { colors: themeColors, isDark } = useTheme();
+  const styles = React.useMemo(() => getStyles(themeColors, isDark), [themeColors, isDark]);
   const { signIn } = useAuth();
   
   // @ts-ignore
@@ -218,16 +221,13 @@ export default function OTPScreen({ navigation, route }: Props) {
   const isGeneralError = !isEmailError && !isPhoneError && !!errorMsg;
 
   return (
-    <LinearGradient colors={['#070714', '#0E0E24']} style={styles.container}>
-      <StatusBar style="light" />
+    <LinearGradient colors={[themeColors.bg.base, themeColors.bg.surface]} style={styles.container}>
+      <StatusBar style={isDark ? "light" : "dark"} />
 
       <TouchableOpacity onPress={() => navigation.goBack()} style={styles.back}>
-        <Ionicons name="arrow-back" size={22} color={colors.text.secondary} />
+        <Ionicons name="arrow-back" size={22} color={themeColors.text.secondary} />
       </TouchableOpacity>
 
-      {/* On Android the window already resizes natively (adjustResize) and the
-          ScrollView auto-scrolls the focused field into view — a height-based
-          KeyboardAvoidingView fights that and hides inputs under the keyboard. */}
       <KeyboardAvoidingView 
         behavior={Platform.OS === 'ios' ? 'padding' : undefined} 
         keyboardVerticalOffset={Platform.OS === 'ios' ? 0 : 0}
@@ -243,7 +243,6 @@ export default function OTPScreen({ navigation, route }: Props) {
 
               {referrer ? (
                 <>
-                  {/* Gift-box animation — shakes open when the joiner bonus lands. */}
                   <Animated.View
                     style={{
                       transform: [
@@ -262,7 +261,7 @@ export default function OTPScreen({ navigation, route }: Props) {
                       ],
                     }}
                   >
-                    <LinearGradient colors={[colors.primary, colors.primaryDark]} style={styles.giftBox}>
+                    <LinearGradient colors={[themeColors.primary, themeColors.primaryDark]} style={styles.giftBox}>
                       <Ionicons name="gift" size={46} color="#fff" />
                       <View style={styles.giftRibbon} />
                     </LinearGradient>
@@ -288,7 +287,7 @@ export default function OTPScreen({ navigation, route }: Props) {
                   </View>
                 </>
               ) : (
-                <LinearGradient colors={[colors.success, '#059669']} style={styles.successCircle}>
+                <LinearGradient colors={[themeColors.success, '#059669']} style={styles.successCircle}>
                   <Ionicons name="checkmark" size={44} color="#fff" />
                 </LinearGradient>
               )}
@@ -318,7 +317,6 @@ export default function OTPScreen({ navigation, route }: Props) {
                 We sent 6-digit codes to your {isSocialSignup ? 'phone' : 'email and phone'}.
               </Text>
 
-              {/* Email OTP Inputs */}
               {!isSocialSignup && (
                 <View style={styles.otpSection}>
                   <Text style={styles.otpSectionTitle}>Email Code sent to <Text style={styles.highlight}>{signupData.email}</Text></Text>
@@ -347,7 +345,6 @@ export default function OTPScreen({ navigation, route }: Props) {
                 </View>
               )}
 
-              {/* Phone OTP Inputs */}
               <View style={styles.otpSection}>
                 <Text style={styles.otpSectionTitle}>Phone Code sent to <Text style={styles.highlight}>{signupData.phone}</Text></Text>
                 <View style={styles.otpRow}>
@@ -378,10 +375,9 @@ export default function OTPScreen({ navigation, route }: Props) {
                 <Text style={styles.errorText}>{errorMsg}</Text>
               ) : null}
 
-              {/* Resend */}
               <View style={styles.resendRow}>
                 {timer > 0 ? (
-                  <Text style={styles.timerText}>Resend codes in <Text style={{ color: colors.primaryLight }}>{timer}s</Text></Text>
+                  <Text style={styles.timerText}>Resend codes in <Text style={{ color: themeColors.primaryLight }}>{timer}s</Text></Text>
                 ) : (
                   <TouchableOpacity onPress={handleResend}>
                     <Text style={styles.resendText}>{isSocialSignup ? 'Resend OTP' : 'Resend OTPs'} →</Text>
@@ -405,13 +401,13 @@ export default function OTPScreen({ navigation, route }: Props) {
   );
 }
 
-const styles = StyleSheet.create({
+const getStyles = (themeColors: any, isDark: boolean) => StyleSheet.create({
   container: { flex: 1, paddingHorizontal: 24 },
   back: {
     marginTop: 60, marginBottom: 24,
     width: 40, height: 40, borderRadius: radii.md,
-    backgroundColor: colors.bg.card,
-    borderWidth: 1, borderColor: colors.border,
+    backgroundColor: themeColors.bg.card,
+    borderWidth: 1, borderColor: themeColors.border,
     alignItems: 'center', justifyContent: 'center',
   },
   content: { flexGrow: 1, alignItems: 'center', paddingBottom: 140 },
@@ -419,39 +415,39 @@ const styles = StyleSheet.create({
   phoneIcon: {
     width: 64, height: 64,
     borderRadius: 20,
-    backgroundColor: colors.bg.card,
-    borderWidth: 1, borderColor: colors.border,
+    backgroundColor: themeColors.bg.card,
+    borderWidth: 1, borderColor: themeColors.border,
     alignItems: 'center', justifyContent: 'center',
   },
   phoneEmoji: { fontSize: 30 },
-  title: { fontSize: fontSizes.h2, fontWeight: '800', color: colors.text.primary, marginBottom: 8 },
-  subtitle: { fontSize: fontSizes.md, color: colors.text.muted, textAlign: 'center', lineHeight: 22, marginBottom: 32 },
-  highlight: { color: colors.primaryLight, fontWeight: '700' },
+  title: { fontSize: fontSizes.h2, fontWeight: '800', color: themeColors.text.primary, marginBottom: 8 },
+  subtitle: { fontSize: fontSizes.md, color: themeColors.text.muted, textAlign: 'center', lineHeight: 22, marginBottom: 32 },
+  highlight: { color: themeColors.primaryLight, fontWeight: '700' },
   otpSection: { width: '100%', marginBottom: 24 },
-  otpSectionTitle: { fontSize: fontSizes.sm, color: colors.text.secondary, marginBottom: 12, textAlign: 'center' },
+  otpSectionTitle: { fontSize: fontSizes.sm, color: themeColors.text.secondary, marginBottom: 12, textAlign: 'center' },
   otpRow: { flexDirection: 'row', justifyContent: 'center', gap: 8 },
   otpBox: {
     width: 42, height: 52,
     borderRadius: radii.md,
-    backgroundColor: colors.bg.card,
+    backgroundColor: themeColors.bg.card,
     borderWidth: 1.5,
-    borderColor: colors.border,
+    borderColor: themeColors.border,
     fontSize: fontSizes.lg,
     fontWeight: '800',
-    color: colors.text.primary,
+    color: themeColors.text.primary,
   },
   otpBoxFilled: {
-    borderColor: colors.primary,
+    borderColor: themeColors.primary,
     backgroundColor: 'rgba(124,58,237,0.12)',
-    color: colors.primaryLight,
+    color: themeColors.primaryLight,
   },
   otpBoxError: {
-    borderColor: colors.danger,
+    borderColor: themeColors.danger,
     backgroundColor: 'rgba(239,68,68,0.08)',
-    color: colors.danger,
+    color: themeColors.danger,
   },
   errorText: {
-    color: colors.danger,
+    color: themeColors.danger,
     fontSize: fontSizes.sm,
     fontWeight: '600',
     textAlign: 'center',
@@ -459,11 +455,11 @@ const styles = StyleSheet.create({
     paddingHorizontal: 20,
   },
   resendRow: { marginTop: 10, marginBottom: 28 },
-  timerText: { fontSize: fontSizes.sm, color: colors.text.muted },
-  resendText: { fontSize: fontSizes.sm, color: colors.primaryLight, fontWeight: '700' },
+  timerText: { fontSize: fontSizes.sm, color: themeColors.text.muted },
+  resendText: { fontSize: fontSizes.sm, color: themeColors.primaryLight, fontWeight: '700' },
   successWrap: { alignItems: 'center', gap: 16, paddingTop: 60, paddingHorizontal: 24 },
   successEyebrow: {
-    fontSize: fontSizes.xs, fontWeight: '700', color: colors.primaryLight,
+    fontSize: fontSizes.xs, fontWeight: '700', color: themeColors.primaryLight,
     textTransform: 'uppercase', letterSpacing: 1.5,
   },
   successCircle: {
@@ -471,9 +467,9 @@ const styles = StyleSheet.create({
     borderRadius: 50,
     alignItems: 'center', justifyContent: 'center',
   },
-  successText: { fontSize: fontSizes.xxl, fontWeight: '800', color: colors.text.primary, textAlign: 'center' },
+  successText: { fontSize: fontSizes.xxl, fontWeight: '800', color: themeColors.text.primary, textAlign: 'center' },
   successSub: {
-    fontSize: fontSizes.sm, color: colors.text.muted, textAlign: 'center', lineHeight: 20,
+    fontSize: fontSizes.sm, color: themeColors.text.muted, textAlign: 'center', lineHeight: 20,
   },
   giftBox: {
     width: 110, height: 110, borderRadius: 28,
@@ -488,22 +484,22 @@ const styles = StyleSheet.create({
   },
   referralCard: {
     flexDirection: 'row', alignItems: 'center', gap: 12,
-    backgroundColor: colors.bg.card, borderWidth: 1, borderColor: colors.border,
+    backgroundColor: themeColors.bg.card, borderWidth: 1, borderColor: themeColors.border,
     borderRadius: radii.lg, padding: 14, marginTop: 4,
     width: '100%', maxWidth: 340,
   },
   referrerAvatar: {
     width: 46, height: 46, borderRadius: 23,
-    backgroundColor: colors.bg.elevated, alignItems: 'center', justifyContent: 'center',
+    backgroundColor: themeColors.bg.elevated, alignItems: 'center', justifyContent: 'center',
     overflow: 'hidden',
   },
   referrerAvatarImg: { width: 46, height: 46, borderRadius: 23 },
   referrerAvatarEmoji: { fontSize: 20 },
   referralCardTitle: {
-    fontSize: fontSizes.sm, fontWeight: '800', color: colors.xpGold,
+    fontSize: fontSizes.sm, fontWeight: '800', color: themeColors.xpGold,
   },
   referralCardSub: {
-    fontSize: fontSizes.xs, color: colors.text.secondary, marginTop: 3, lineHeight: 17,
+    fontSize: fontSizes.xs, color: themeColors.text.secondary, marginTop: 3, lineHeight: 17,
   },
-  referralCardName: { color: colors.primaryLight, fontWeight: '700' },
+  referralCardName: { color: themeColors.primaryLight, fontWeight: '700' },
 });

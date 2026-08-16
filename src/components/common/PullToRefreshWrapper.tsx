@@ -10,7 +10,7 @@ import Animated, {
   Extrapolation,
   useAnimatedProps,
 } from "react-native-reanimated";
-import { Gesture, GestureDetector } from "react-native-gesture-handler";
+import { Gesture, GestureDetector, NativeViewGestureHandler } from "react-native-gesture-handler";
 import { useThemeColors } from "../../context/ThemeContext";
 import LottieView from "lottie-react-native";
 
@@ -41,7 +41,7 @@ export default function PullToRefreshWrapper({
   const scrollY = useSharedValue(0);
   const isRefreshing = useSharedValue(refreshing);
   const lottieRef = useRef<LottieView>(null);
-  const [isAtTop, setIsAtTop] = useState(true);
+  const nativeGestureRef = useRef<NativeViewGestureHandler>(null);
   const [lottieSource, setLottieSource] = useState<any>(getCachedLottieSync(S3_APP_ICON_LOTTIE_URL));
 
   useEffect(() => {
@@ -64,19 +64,29 @@ export default function PullToRefreshWrapper({
     }
   }, [refreshing, isRefreshing, pullDownY]);
 
+  const pullStartTranslation = useSharedValue(0);
+
   const onRefreshJS = () => {
     onRefresh();
   };
 
   const panGesture = Gesture.Pan()
-    .onChange((e) => {
-      // Only allow pulling down if we are at or near the top of the scroll view
-      if (scrollY.value <= 10 && e.translationY > 0 && !isRefreshing.value) {
-        if (!isPulling.value) isPulling.value = true;
+    .onUpdate((e) => {
+      // If we are scrolled down the feed, we don't pull the bubble.
+      // We continuously update the "start" translation so that if the user
+      // scrolls to the top without lifting their finger, the pull starts from 0 exactly there.
+      if (scrollY.value > 5) {
+        pullStartTranslation.value = e.translationY;
+        if (isPulling.value) {
+          isPulling.value = false;
+          pullDownY.value = withTiming(0, { duration: 200 });
+        }
+        return;
       }
-      if (isPulling.value && !isRefreshing.value) {
-        // Smooth exponential rubber band effect
-        const offset = Math.max(0, e.translationY);
+
+      if (!isRefreshing.value && e.translationY > pullStartTranslation.value) {
+        isPulling.value = true;
+        const offset = e.translationY - pullStartTranslation.value;
         const tension = 120;
         pullDownY.value = MAX_PULL * (1 - Math.exp(-offset / tension));
       }
@@ -95,13 +105,16 @@ export default function PullToRefreshWrapper({
           pullDownY.value = withTiming(0, { duration: 200 });
         }
       }
+      pullStartTranslation.value = 0;
     })
-    .enabled(isAtTop)
-    // Only activate on downward swipe (pulling down).
-    // Fail if they swipe upward (scrolling down the feed).
-    .activeOffsetY(5)
-    .failOffsetY(-20)
-    .simultaneousWithExternalGesture(Gesture.Native());
+    // Establish priority: Wait for a deliberate 10px downward pull before activating.
+    // Once activated, it will cancel child touchables (so they don't lock the swipe).
+    // If the user swipes horizontally 20px (e.g. over a carousel), instantly fail this vertical gesture so the carousel can scroll.
+    .activeOffsetY(10)
+    .failOffsetX([-20, 20])
+    // Let the native scroll view handle its own scrolling without any interference.
+    // We explicitly tie this to the inner NativeViewGestureHandler.
+    .simultaneousWithExternalGesture(nativeGestureRef);
 
   const animatedStyle = useAnimatedStyle(() => {
     return {
@@ -158,10 +171,6 @@ export default function PullToRefreshWrapper({
         (children as React.ReactElement<any>).props.onScroll?.(e);
         const y = e.nativeEvent.contentOffset.y;
         scrollY.value = y;
-        
-        // Disable gesture if not at top to prevent swallowing scroll events
-        if (y <= 5 && !isAtTop) setIsAtTop(true);
-        else if (y > 5 && isAtTop) setIsAtTop(false);
       },
       scrollEventThrottle: 16,
       // Remove native bounce so it doesn't fight our custom gesture on iOS
@@ -195,7 +204,6 @@ export default function PullToRefreshWrapper({
                     source={lottieSource}
                     autoPlay={true}
                     loop={true}
-                    renderMode="SOFTWARE"
                     cacheComposition={false}
                     resizeMode="cover"
                     style={{ width: '100%', height: '100%' }}
@@ -214,7 +222,6 @@ export default function PullToRefreshWrapper({
                   <AnimatedLottieView
                     source={lottieSource}
                     animatedProps={animatedLottieProps}
-                    renderMode="SOFTWARE"
                     cacheComposition={false}
                     resizeMode="cover"
                     style={{ width: '100%', height: '100%' }}
@@ -232,7 +239,9 @@ export default function PullToRefreshWrapper({
         </Animated.View>
         <Animated.View style={[styles.content, animatedStyle]}>
           {header}
-          {injected}
+          <NativeViewGestureHandler ref={nativeGestureRef} disallowInterruption={true}>
+            {injected}
+          </NativeViewGestureHandler>
         </Animated.View>
       </View>
     </GestureDetector>

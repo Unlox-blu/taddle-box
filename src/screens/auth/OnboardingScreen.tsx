@@ -10,8 +10,8 @@ import * as SecureStore from 'expo-secure-store';
 import { Ionicons } from '@expo/vector-icons';
 import LottieView from "lottie-react-native";
 import { getCachedLottie, getCachedLottieSync, S3_APP_ICON_LOTTIE_URL } from "../../services/lottie.service";
-
-import { colors, radii, fontSizes, spacing } from '../../theme';
+import { radii, fontSizes, spacing } from '../../theme';
+import { useTheme } from '../../context/ThemeContext';
 import Button from '../../components/common/Button';
 import type { AuthStackParamList } from '../../types';
 import { useAuth } from '../../context/AuthContext';
@@ -50,6 +50,8 @@ const { width, height } = Dimensions.get('window');
 type Props = NativeStackScreenProps<AuthStackParamList, 'Onboarding'>;
 
 export default function OnboardingScreen({ navigation }: Props) {
+  const { colors: themeColors, isDark } = useTheme();
+  const styles = React.useMemo(() => getStyles(themeColors, isDark), [themeColors, isDark]);
   const { setHasSeenOnboarding } = useAuth();
   const [index, setIndex] = useState(0);
   const flatRef = useRef<FlatList>(null);
@@ -93,7 +95,6 @@ export default function OnboardingScreen({ navigation }: Props) {
                   source={lottieSource}
                   autoPlay
                   loop
-                  renderMode="SOFTWARE"
                   cacheComposition={false}
                   style={{ width: '100%', height: '100%' }}
                 />
@@ -105,7 +106,7 @@ export default function OnboardingScreen({ navigation }: Props) {
               />
             )
           ) : (
-            <Ionicons name={item.icon!} size={80} color={colors.primaryLight} />
+            <Ionicons name={item.icon!} size={64} color={themeColors.text.primary} />
           )}
         </View>
 
@@ -119,7 +120,7 @@ export default function OnboardingScreen({ navigation }: Props) {
 
   return (
     <View style={styles.container}>
-      <StatusBar style="light" />
+      <StatusBar style={isDark ? "light" : "dark"} />
 
       {/* Ambient Background Glows */}
       <View style={[styles.ambientGlow, { top: -100, left: -100, backgroundColor: 'rgba(124,58,237,0.15)' }]} />
@@ -180,10 +181,10 @@ export default function OnboardingScreen({ navigation }: Props) {
   );
 }
 
-const styles = StyleSheet.create({
+const getStyles = (themeColors: any, isDark: boolean) => StyleSheet.create({
   container: { 
     flex: 1, 
-    backgroundColor: colors.bg.base 
+    backgroundColor: themeColors.bg.base 
   },
   ambientGlow: {
     position: 'absolute',
@@ -196,14 +197,14 @@ const styles = StyleSheet.create({
     top: 56, 
     right: 24,
     zIndex: 10,
-    backgroundColor: 'rgba(255,255,255,0.08)',
+    backgroundColor: isDark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.05)',
     paddingVertical: 8, 
     paddingHorizontal: 16,
     borderRadius: radii.full,
   },
   skipText: { 
     fontSize: fontSizes.sm, 
-    color: colors.text.secondary, 
+    color: themeColors.text.secondary, 
     fontWeight: '600' 
   },
   slide: {
@@ -215,15 +216,15 @@ const styles = StyleSheet.create({
   },
   glassCard: {
     width: '100%',
-    backgroundColor: colors.glass,
-    borderColor: colors.glassBorder,
+    backgroundColor: themeColors.glass,
+    borderColor: themeColors.glassBorder,
     borderWidth: 1,
     borderRadius: radii['2xl'],
     padding: 32,
     alignItems: 'center',
-    shadowColor: '#000',
+    shadowColor: isDark ? '#000' : themeColors.border,
     shadowOffset: { width: 0, height: 10 },
-    shadowOpacity: 0.3,
+    shadowOpacity: isDark ? 0.3 : 0.1,
     shadowRadius: 20,
     elevation: 10,
   },
@@ -233,7 +234,7 @@ const styles = StyleSheet.create({
     width: 140, 
     height: 140,
     borderRadius: 70,
-    backgroundColor: 'rgba(124,58,237,0.2)',
+    backgroundColor: isDark ? 'rgba(124,58,237,0.2)' : 'rgba(124,58,237,0.1)',
   },
   iconContainer: {
     width: 160, 
@@ -250,13 +251,13 @@ const styles = StyleSheet.create({
   title: {
     fontSize: fontSizes.h2,
     fontWeight: '800',
-    color: colors.text.primary,
+    color: themeColors.text.primary,
     textAlign: 'center',
     letterSpacing: -0.5,
   },
   subtitle: {
     fontSize: fontSizes.md,
-    color: colors.text.secondary,
+    color: themeColors.text.secondary,
     textAlign: 'center',
     lineHeight: 24,
   },
@@ -278,6 +279,6 @@ const styles = StyleSheet.create({
   dot: { 
     height: 8, 
     borderRadius: 4, 
-    backgroundColor: colors.primaryLight 
+    backgroundColor: themeColors.primaryLight 
   },
 });

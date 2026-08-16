@@ -5,6 +5,7 @@ import { StatusBar } from 'expo-status-bar';
 import LottieView from "lottie-react-native";
 import { getCachedLottie, getCachedLottieSync, S3_APP_ICON_LOTTIE_URL } from "../../services/lottie.service";
 import { colors, fontSizes } from '../../theme';
+import { useTheme } from '../../context/ThemeContext';
 
 const { height } = Dimensions.get('window');
 
@@ -13,6 +14,7 @@ type Props = {
 };
 
 export default function AnimatedSplashScreen({ onAnimationFinish }: Props) {
+  const { colors: themeColors, isDark } = useTheme();
   const scale = useRef(new Animated.Value(0.8)).current;
   const opacity = useRef(new Animated.Value(0)).current;
   const logoSlide = useRef(new Animated.Value(20)).current;
@@ -70,10 +72,10 @@ export default function AnimatedSplashScreen({ onAnimationFinish }: Props) {
 
   return (
     <LinearGradient
-      colors={['#070714', '#0f0a2e', '#070714']}
+      colors={[themeColors.bg.base, themeColors.bg.surface, themeColors.bg.base]}
       style={styles.container}
     >
-      <StatusBar style="light" />
+      <StatusBar style={isDark ? "light" : "dark"} />
 
       {/* Background glow */}
       <View style={styles.glow} />
@@ -85,7 +87,6 @@ export default function AnimatedSplashScreen({ onAnimationFinish }: Props) {
               source={lottieSource}
               autoPlay
               loop={false}
-              renderMode="SOFTWARE"
               cacheComposition={false}
               style={{ width: '100%', height: '100%' }}
               onAnimationFinish={handleFinish}

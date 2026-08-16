@@ -6,7 +6,7 @@ import {
 import { LinearGradient } from 'expo-linear-gradient';
 import { colors, radii, fontSizes } from '../../theme';
 
-type Variant = 'primary' | 'cyan' | 'xp' | 'ghost' | 'danger' | 'success';
+type Variant = 'primary' | 'secondary' | 'cyan' | 'xp' | 'ghost' | 'danger' | 'success';
 type Size    = 'sm' | 'md' | 'lg';
 
 interface ButtonProps {
@@ -24,6 +24,7 @@ interface ButtonProps {
 
 const GRADIENTS: Record<Variant, [string, string]> = {
   primary: [colors.primary, colors.primaryDark],
+  secondary: [colors.secondary, colors.secondaryDark],
   cyan:    [colors.cyan, colors.cyanDark],
   xp:      [colors.xpGold, colors.xpOrange],
   ghost:   ['transparent', 'transparent'],
@@ -33,6 +34,7 @@ const GRADIENTS: Record<Variant, [string, string]> = {
 
 const TEXT_COLORS: Record<Variant, string> = {
   primary: '#fff',
+  secondary: '#42016d',
   cyan:    '#fff',
   xp:      '#1A0A00',
   ghost:   colors.text.secondary,

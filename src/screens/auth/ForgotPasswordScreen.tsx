@@ -7,7 +7,8 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { StatusBar } from 'expo-status-bar';
 import { Ionicons } from '@expo/vector-icons';
-import { colors, radii, fontSizes, spacing } from '../../theme';
+import { radii, fontSizes, spacing } from '../../theme';
+import { useTheme } from '../../context/ThemeContext';
 import Button from '../../components/common/Button';
 import Input from '../../components/common/Input';
 import type { AuthStackParamList } from '../../types';
@@ -18,6 +19,8 @@ const OTP_LENGTH = 6;
 type Props = NativeStackScreenProps<AuthStackParamList, 'ForgotPassword'>;
 
 export default function ForgotPasswordScreen({ navigation }: Props) {
+  const { colors: themeColors, isDark } = useTheme();
+  const styles = React.useMemo(() => getStyles(themeColors, isDark), [themeColors, isDark]);
   const [step, setStep] = useState<1 | 2 | 3>(1);
   const [identifier, setIdentifier] = useState('');
   const [resolvedEmail, setResolvedEmail] = useState('');
@@ -219,14 +222,14 @@ export default function ForgotPasswordScreen({ navigation }: Props) {
   const isGeneralError = !isEmailError && !isPhoneError && !!errorMsg;
 
   return (
-    <LinearGradient colors={['#070714', '#0E0E24']} style={styles.container}>
-      <StatusBar style="light" />
+    <LinearGradient colors={[themeColors.bg.base, themeColors.bg.surface]} style={styles.container}>
+      <StatusBar style={isDark ? "light" : "dark"} />
 
       <TouchableOpacity
         onPress={() => step === 1 ? navigation.goBack() : setStep(s => (s - 1) as 1 | 2 | 3)}
         style={styles.back}
       >
-        <Ionicons name="arrow-back" size={22} color={colors.text.secondary} />
+        <Ionicons name="arrow-back" size={22} color={themeColors.text.secondary} />
       </TouchableOpacity>
 
       <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={{ flex: 1 }}>
@@ -245,10 +248,10 @@ export default function ForgotPasswordScreen({ navigation }: Props) {
                 icon="person-outline"
                 value={identifier}
                 onChangeText={v => { setIdentifier(v); setErrorMsg(''); }}
-                placeholder="Email, phone or username"
+                placeholder="Enter your account info"
                 autoCapitalize="none"
-                containerStyle={{ width: '100%' }}
-                forceDark
+                containerStyle={{ width: '100%', marginBottom: 12 }}
+                forceDark={isDark}
               />
               {errorMsg ? <Text style={styles.errorText}>{errorMsg}</Text> : null}
               <Button label="Verify Identity →" onPress={handleSendOtp} variant="primary" fullWidth loading={loading} style={{ marginTop: 12 }} />
@@ -296,7 +299,7 @@ export default function ForgotPasswordScreen({ navigation }: Props) {
                       textContentType="oneTimeCode"
                       autoComplete="sms-otp"
                       textAlign="center"
-                      selectionColor={colors.primaryLight}
+                      selectionColor={themeColors.primaryLight}
                       keyboardType="number-pad"
                       autoFocus={i === 0}
                     />
@@ -337,7 +340,7 @@ export default function ForgotPasswordScreen({ navigation }: Props) {
               <View style={styles.resendRow}>
                 {timer > 0 ? (
                   <Text style={styles.timerText}>
-                    Resend codes in <Text style={{ color: colors.primaryLight }}>{timer}s</Text>
+                    Resend codes in <Text style={{ color: themeColors.primaryLight }}>{timer}s</Text>
                   </Text>
                 ) : (
                   <TouchableOpacity onPress={handleResend}>
@@ -368,21 +371,21 @@ export default function ForgotPasswordScreen({ navigation }: Props) {
 
               <Input
                 label="New Password"
-                icon="key-outline"
+                icon="lock-closed-outline"
                 value={newPassword}
                 onChangeText={v => { setNewPassword(v); setErrorMsg(''); }}
                 secureTextEntry
                 containerStyle={{ width: '100%', marginBottom: 12 }}
-                forceDark
+                forceDark={isDark}
               />
               <Input
-                label="Confirm New Password"
+                label="Confirm Password"
                 icon="checkmark-circle-outline"
                 value={confirmPassword}
                 onChangeText={v => { setConfirmPassword(v); setErrorMsg(''); }}
                 secureTextEntry
                 containerStyle={{ width: '100%', marginBottom: 12 }}
-                forceDark
+                forceDark={isDark}
               />
 
               {errorMsg ? <Text style={styles.errorText}>{errorMsg}</Text> : null}
@@ -397,55 +400,55 @@ export default function ForgotPasswordScreen({ navigation }: Props) {
   );
 }
 
-const styles = StyleSheet.create({
+const getStyles = (themeColors: any, isDark: boolean) => StyleSheet.create({
   container: { flex: 1, paddingHorizontal: 24 },
   back: {
     marginTop: 60, marginBottom: 24,
     width: 40, height: 40, borderRadius: radii.md,
-    backgroundColor: colors.bg.card, borderWidth: 1, borderColor: colors.border,
+    backgroundColor: themeColors.bg.card, borderWidth: 1, borderColor: themeColors.border,
     alignItems: 'center', justifyContent: 'center',
   },
   content: { flexGrow: 1, alignItems: 'center', paddingBottom: 40 },
   iconBox: {
     width: 80, height: 80, borderRadius: 24,
-    backgroundColor: colors.bg.card, borderWidth: 1, borderColor: colors.border,
+    backgroundColor: themeColors.bg.card, borderWidth: 1, borderColor: themeColors.border,
     alignItems: 'center', justifyContent: 'center', marginBottom: 24,
   },
   iconRow: { flexDirection: 'row', gap: 16, marginBottom: 20 },
   phoneIcon: {
     width: 64, height: 64, borderRadius: 20,
-    backgroundColor: colors.bg.card, borderWidth: 1, borderColor: colors.border,
+    backgroundColor: themeColors.bg.card, borderWidth: 1, borderColor: themeColors.border,
     alignItems: 'center', justifyContent: 'center',
   },
   phoneEmoji: { fontSize: 30 },
-  title: { fontSize: fontSizes.h2, fontWeight: '800', color: colors.text.primary, marginBottom: 10, textAlign: 'center' },
-  subtitle: { fontSize: fontSizes.md, color: colors.text.muted, textAlign: 'center', lineHeight: 22, marginBottom: 28 },
-  highlight: { color: colors.primaryLight, fontWeight: '700' },
-  backLink: { fontSize: fontSizes.sm, color: colors.primaryLight, fontWeight: '600' },
+  title: { fontSize: fontSizes.h2, fontWeight: '800', color: themeColors.text.primary, marginBottom: 10, textAlign: 'center' },
+  subtitle: { fontSize: fontSizes.md, color: themeColors.text.muted, textAlign: 'center', lineHeight: 22, marginBottom: 28 },
+  highlight: { color: themeColors.primaryLight, fontWeight: '700' },
+  backLink: { fontSize: fontSizes.sm, color: themeColors.primaryLight, fontWeight: '600' },
   otpSection: { width: '100%', marginBottom: 16 },
-  otpSectionTitle: { fontSize: fontSizes.sm, color: colors.text.secondary, marginBottom: 12, textAlign: 'center' },
+  otpSectionTitle: { fontSize: fontSizes.sm, color: themeColors.text.secondary, marginBottom: 12, textAlign: 'center' },
   otpRow: { flexDirection: 'row', justifyContent: 'center', gap: 8 },
   otpBox: {
     width: 42, height: 52, borderRadius: radii.md,
-    backgroundColor: colors.bg.card, borderWidth: 1.5, borderColor: colors.border,
-    fontSize: fontSizes.lg, fontWeight: '800', color: colors.text.primary,
+    backgroundColor: themeColors.bg.card, borderWidth: 1.5, borderColor: themeColors.border,
+    fontSize: fontSizes.lg, fontWeight: '800', color: themeColors.text.primary,
     textAlign: 'center',
   },
   otpBoxFilled: {
-    borderColor: colors.primary,
-    backgroundColor: 'rgba(124,58,237,0.12)',
-    color: colors.primaryLight,
+    borderColor: themeColors.primary,
+    backgroundColor: isDark ? 'rgba(124,58,237,0.12)' : 'rgba(124,58,237,0.08)',
+    color: themeColors.primaryLight,
   },
   otpBoxError: {
-    borderColor: colors.danger,
-    backgroundColor: 'rgba(239,68,68,0.08)',
-    color: colors.danger,
+    borderColor: themeColors.danger,
+    backgroundColor: isDark ? 'rgba(239,68,68,0.08)' : 'rgba(239,68,68,0.05)',
+    color: themeColors.danger,
   },
   errorText: {
-    color: colors.danger, fontSize: fontSizes.sm, fontWeight: '600',
+    color: themeColors.danger, fontSize: fontSizes.sm, fontWeight: '600',
     textAlign: 'center', marginBottom: 12, paddingHorizontal: 20,
   },
   resendRow: { marginTop: 8, marginBottom: 28 },
-  timerText: { fontSize: fontSizes.sm, color: colors.text.muted },
-  resendText: { fontSize: fontSizes.sm, color: colors.primaryLight, fontWeight: '700' },
+  timerText: { fontSize: fontSizes.sm, color: themeColors.text.muted },
+  resendText: { fontSize: fontSizes.sm, color: themeColors.primaryLight, fontWeight: '700' },
 });

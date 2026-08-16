@@ -3,8 +3,10 @@
 export type ColorPalette = {
   bg: { base: string; surface: string; card: string; elevated: string };
   primary:      string;
+  secondary:    string;
   primaryLight: string;
   primaryDark:  string;
+  secondaryDark: string;
   cyan:         string;
   cyanLight:    string;
   cyanDark:     string;
@@ -31,8 +33,10 @@ export const DARK_COLORS: ColorPalette = {
     elevated: '#1A1A3A',
   },
   primary:      '#7C3AED',
+  secondary:    '#e0bbfd',
   primaryLight: '#9F67F7',
   primaryDark:  '#5B21B6',
+  secondaryDark: '#f5eefb',
   cyan:         '#06B6D4',
   cyanLight:    '#22D3EE',
   cyanDark:     '#0891B2',
@@ -63,8 +67,10 @@ export const LIGHT_COLORS: ColorPalette = {
     elevated: '#EAE9F5',
   },
   primary:      '#7C3AED',
+  secondary:    '#6B7280',
   primaryLight: '#6D28D9',
   primaryDark:  '#5B21B6',
+  secondaryDark:'#6B7280',
   cyan:         '#0891B2',
   cyanLight:    '#0E7490',
   cyanDark:     '#155E75',

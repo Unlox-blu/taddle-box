@@ -107,7 +107,6 @@ export default function WalletScreen() {
     { icon: 'flame',           label: 'Daily Streak',  xp: '+25–100 XP', tab: 'Home'   },
   ];
 
-  // ── Referral (replaces the old "Attend Events" tile) ──
   const referralCode = (user as any)?.referralCode || (user as any)?.referral_code || '';
   const [referralXp, setReferralXp] = useState<{ joiner: number | null; referrer: number | null }>({ joiner: null, referrer: null });
   useEffect(() => {

@@ -15,7 +15,8 @@ import { LinearGradient } from "expo-linear-gradient";
 import { NativeStackScreenProps } from "@react-navigation/native-stack";
 import { StatusBar } from "expo-status-bar";
 import { Ionicons } from "@expo/vector-icons";
-import { colors, radii, fontSizes, spacing } from "../../theme";
+import { radii, fontSizes, spacing } from "../../theme";
+import { useTheme } from "../../context/ThemeContext";
 import LottieView from "lottie-react-native";
 import { getCachedLottie, getCachedLottieSync, S3_APP_ICON_LOTTIE_URL } from "../../services/lottie.service";
 import Button from "../../components/common/Button";
@@ -107,6 +108,9 @@ const COUNTRY_CODES = [
 ];
 
 export default function RegisterScreen({ navigation, route }: Props) {
+  const { colors: themeColors, isDark } = useTheme();
+  const styles = React.useMemo(() => getStyles(themeColors, isDark), [themeColors, isDark]);
+
   // @ts-ignore
   const { socialToken, socialData } = route.params || {};
 
@@ -470,8 +474,8 @@ export default function RegisterScreen({ navigation, route }: Props) {
   };
 
   return (
-    <LinearGradient colors={["#070714", "#0E0E24"]} style={styles.container}>
-      <StatusBar style="light" />
+    <LinearGradient colors={[themeColors.bg.base, themeColors.bg.surface]} style={styles.container}>
+      <StatusBar style={isDark ? "light" : "dark"} />
       {/* On Android the window already resizes natively (adjustResize) and the
           ScrollView auto-scrolls the focused field into view — a height-based
           KeyboardAvoidingView fights that and leaves inputs hidden under the
@@ -496,7 +500,7 @@ export default function RegisterScreen({ navigation, route }: Props) {
             <Ionicons
               name="arrow-back"
               size={22}
-              color={colors.text.secondary}
+              color={themeColors.text.secondary}
             />
           </TouchableOpacity>
 
@@ -544,7 +548,6 @@ export default function RegisterScreen({ navigation, route }: Props) {
                       source={lottieSource}
                       autoPlay
                       loop
-                      renderMode="SOFTWARE"
                       cacheComposition={false}
                       style={{ width: '100%', height: '100%' }}
                     />
@@ -555,7 +558,7 @@ export default function RegisterScreen({ navigation, route }: Props) {
                     style={{ width: 80, height: 80, borderRadius: 40, resizeMode: 'cover', alignSelf: 'flex-start', marginBottom: 12, marginLeft: -8 }} 
                   />
                 )}
-                <Text style={styles.stepTitle}>Create your account 🚀</Text>
+                <Text style={styles.stepTitle}>Create your account</Text>
                 <Text style={styles.stepSub}>
                   Let's get you started in 3 quick steps
                 </Text>
@@ -756,7 +759,7 @@ export default function RegisterScreen({ navigation, route }: Props) {
                       >
                         <View
                           style={{
-                            backgroundColor: colors.bg.elevated,
+                            backgroundColor: themeColors.bg.elevated,
                             paddingBottom: 40,
                             borderTopLeftRadius: 24,
                             borderTopRightRadius: 24,
@@ -765,7 +768,7 @@ export default function RegisterScreen({ navigation, route }: Props) {
                           <View
                             style={[
                               styles.iosDatePickerHeader,
-                              { borderBottomColor: colors.border },
+                              { borderBottomColor: themeColors.border },
                             ]}
                           >
                             <TouchableOpacity
@@ -773,7 +776,7 @@ export default function RegisterScreen({ navigation, route }: Props) {
                             >
                               <Text
                                 style={{
-                                  color: colors.primaryLight,
+                                  color: themeColors.primaryLight,
                                   fontWeight: "bold",
                                   fontSize: 16,
                                 }}
@@ -837,26 +840,26 @@ export default function RegisterScreen({ navigation, route }: Props) {
                   {showLocationDropdown && location.length > 0 && (
                     <View style={[styles.dropdownContainer, { position: 'absolute', top: 80, left: 0, right: 0, zIndex: 100, maxHeight: 250 }]}>
                       <ScrollView keyboardShouldPersistTaps="handled">
-                        <TouchableOpacity style={[styles.dropdownItem, { borderBottomWidth: 1, borderBottomColor: colors.border }]} onPress={() => {
+                        <TouchableOpacity style={[styles.dropdownItem, { borderBottomWidth: 1, borderBottomColor: themeColors.border }]} onPress={() => {
                           detectLocation();
                           setShowLocationDropdown(false);
                         }}>
-                          <Ionicons name="locate" size={16} color={colors.primaryLight} style={{ marginRight: 8 }} />
-                          <Text style={[styles.dropdownText, { color: colors.primaryLight, fontWeight: '700' }]}>
+                          <Ionicons name="locate" size={16} color={themeColors.primaryLight} style={{ marginRight: 8 }} />
+                          <Text style={[styles.dropdownText, { color: themeColors.primaryLight, fontWeight: '700' }]}>
                             Auto-detect my location
                           </Text>
                         </TouchableOpacity>
                         {location.length < 3 ? (
                           <View style={{ padding: 16, alignItems: 'center' }}>
-                            <Text style={{ color: colors.text.muted, fontSize: fontSizes.sm }}>Type at least 3 letters to search...</Text>
+                            <Text style={{ color: themeColors.text.muted, fontSize: fontSizes.sm }}>Type at least 3 letters to search...</Text>
                           </View>
                         ) : isLocationSearching ? (
                           <View style={{ padding: 16, alignItems: 'center' }}>
-                            <Text style={{ color: colors.text.muted, fontSize: fontSizes.sm }}>Searching...</Text>
+                            <Text style={{ color: themeColors.text.muted, fontSize: fontSizes.sm }}>Searching...</Text>
                           </View>
                         ) : locationResults.length === 0 ? (
                           <View style={{ padding: 16, alignItems: 'center' }}>
-                            <Text style={{ color: colors.text.muted, fontSize: fontSizes.sm }}>No locations found for "{location}"</Text>
+                            <Text style={{ color: themeColors.text.muted, fontSize: fontSizes.sm }}>No locations found for "{location}"</Text>
                           </View>
                         ) : (
                           locationResults.map((item, idx) => (
@@ -868,7 +871,7 @@ export default function RegisterScreen({ navigation, route }: Props) {
                               locationCoordsRef.current = coords;
                               setShowLocationDropdown(false);
                             }}>
-                              <Ionicons name="location-outline" size={16} color={colors.text.muted} style={{ marginRight: 8 }} />
+                              <Ionicons name="location-outline" size={16} color={themeColors.text.muted} style={{ marginRight: 8 }} />
                               <Text style={styles.dropdownText}>{item.name}</Text>
                             </TouchableOpacity>
                           ))
@@ -960,7 +963,7 @@ export default function RegisterScreen({ navigation, route }: Props) {
                               <Ionicons
                                 name="school"
                                 size={16}
-                                color={colors.text.muted}
+                                color={themeColors.text.muted}
                                 style={{ marginRight: 8 }}
                               />
                               <Text style={styles.dropdownText}>
@@ -1018,7 +1021,7 @@ export default function RegisterScreen({ navigation, route }: Props) {
 
           {/* CTA */}
           <Button
-            label={step < 2 ? "Continue →" : "Create Account 🚀"}
+            label={step < 2 ? "Continue →" : "Create Account"}
             onPress={nextStep}
             variant="primary"
             fullWidth
@@ -1038,16 +1041,16 @@ export default function RegisterScreen({ navigation, route }: Props) {
   );
 }
 
-const styles = StyleSheet.create({
+const getStyles = (themeColors: any, isDark: boolean) => StyleSheet.create({
   container: { flex: 1 },
   scroll: { flexGrow: 1, padding: 24, paddingTop: 60, paddingBottom: 140 },
   back: {
     width: 40,
     height: 40,
     borderRadius: radii.md,
-    backgroundColor: colors.bg.card,
+    backgroundColor: themeColors.bg.card,
     borderWidth: 1,
-    borderColor: colors.border,
+    borderColor: themeColors.border,
     alignItems: "center",
     justifyContent: "center",
     marginBottom: 24,
@@ -1063,44 +1066,45 @@ const styles = StyleSheet.create({
     width: 28,
     height: 28,
     borderRadius: 14,
-    backgroundColor: colors.bg.elevated,
+    backgroundColor: themeColors.bg.elevated,
     borderWidth: 1,
-    borderColor: colors.border,
+    borderColor: themeColors.border,
     alignItems: "center",
     justifyContent: "center",
   },
   stepCircleActive: {
-    backgroundColor: colors.primary,
-    borderColor: colors.primary,
+    backgroundColor: themeColors.primary,
+    borderColor: themeColors.primary,
   },
   stepNum: {
     fontSize: fontSizes.xs,
-    color: colors.text.muted,
+    color: themeColors.text.muted,
     fontWeight: "700",
   },
   stepLabel: {
     fontSize: fontSizes.xs,
-    color: colors.text.muted,
-    marginLeft: 6,
+    color: themeColors.text.muted,
+    marginLeft: 8,
     fontWeight: "600",
   },
-  stepLabelActive: { color: colors.primaryLight },
+  stepLabelActive: { color: themeColors.text.primary, fontWeight: '700' },
   stepLine: {
     flex: 1,
-    height: 1,
-    backgroundColor: colors.border,
-    marginHorizontal: 6,
+    height: 2,
+    backgroundColor: themeColors.borderHover,
+    marginHorizontal: 8,
+    borderRadius: 1,
   },
-  stepLineActive: { backgroundColor: colors.primary },
+  stepLineActive: { backgroundColor: themeColors.primary },
   stepTitle: {
-    fontSize: fontSizes.xxl,
+    fontSize: fontSizes.h2,
     fontWeight: "800",
-    color: colors.text.primary,
+    color: themeColors.text.primary,
     marginBottom: 6,
   },
   stepSub: {
     fontSize: fontSizes.sm,
-    color: colors.text.muted,
+    color: themeColors.text.muted,
     marginBottom: 24,
   },
   form: { gap: 2 },
@@ -1108,9 +1112,9 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     gap: 10,
-    backgroundColor: "rgba(251,191,36,0.10)",
+    backgroundColor: isDark ? "rgba(251,191,36,0.10)" : "rgba(251,191,36,0.2)",
     borderWidth: 1,
-    borderColor: "rgba(251,191,36,0.28)",
+    borderColor: isDark ? "rgba(251,191,36,0.28)" : "rgba(251,191,36,0.4)",
     borderRadius: radii.md,
     paddingVertical: 10,
     paddingHorizontal: 12,
@@ -1121,10 +1125,10 @@ const styles = StyleSheet.create({
   referralBannerText: {
     flex: 1,
     fontSize: fontSizes.xs,
-    color: colors.text.secondary,
+    color: themeColors.text.secondary,
     lineHeight: 18,
   },
-  referralBannerXp: { color: colors.xpGold, fontWeight: "800" },
+  referralBannerXp: { color: themeColors.xpGold, fontWeight: "800" },
 
   interestsGrid: {
     flexDirection: "row",
@@ -1137,33 +1141,33 @@ const styles = StyleSheet.create({
     paddingHorizontal: 14,
     borderRadius: radii.full,
     borderWidth: 1,
-    borderColor: colors.borderHover,
-    backgroundColor: colors.bg.card,
+    borderColor: themeColors.borderHover,
+    backgroundColor: themeColors.bg.card,
   },
   interestChipSelected: {
-    backgroundColor: "rgba(124,58,237,0.2)",
-    borderColor: colors.primary,
+    backgroundColor: isDark ? "rgba(124,58,237,0.2)" : "rgba(124,58,237,0.1)",
+    borderColor: themeColors.primary,
   },
   interestText: {
     fontSize: fontSizes.sm,
-    color: colors.text.secondary,
+    color: themeColors.text.secondary,
     fontWeight: "500",
   },
-  interestTextSelected: { color: colors.primaryLight, fontWeight: "700" },
+  interestTextSelected: { color: themeColors.primaryLight, fontWeight: "700" },
   selectedCount: {
     fontSize: fontSizes.xs,
-    color: colors.text.muted,
+    color: themeColors.text.muted,
     marginTop: 12,
   },
   loginRow: { flexDirection: "row", justifyContent: "center", marginTop: 20 },
-  loginText: { fontSize: fontSizes.sm, color: colors.text.muted },
+  loginText: { fontSize: fontSizes.sm, color: themeColors.text.muted },
   loginLink: {
     fontSize: fontSizes.sm,
-    color: colors.primaryLight,
+    color: themeColors.primaryLight,
     fontWeight: "700",
   },
   iosDatePicker: {
-    backgroundColor: colors.bg.card,
+    backgroundColor: themeColors.bg.card,
     borderRadius: radii.md,
     marginBottom: spacing.md,
     overflow: "hidden",
@@ -1173,12 +1177,12 @@ const styles = StyleSheet.create({
     justifyContent: "flex-end",
     padding: 12,
     borderBottomWidth: 1,
-    borderBottomColor: colors.border,
+    borderBottomColor: themeColors.border,
   },
   dropdownContainer: {
-    backgroundColor: colors.bg.elevated,
+    backgroundColor: themeColors.bg.elevated,
     borderWidth: 1,
-    borderColor: colors.border,
+    borderColor: themeColors.border,
     borderRadius: radii.md,
     marginTop: -8,
     marginBottom: 16,
@@ -1191,11 +1195,11 @@ const styles = StyleSheet.create({
     paddingVertical: 12,
     paddingHorizontal: 16,
     borderBottomWidth: 1,
-    borderBottomColor: colors.border,
+    borderBottomColor: themeColors.border,
   },
   dropdownText: {
     fontSize: fontSizes.sm,
-    color: colors.text.primary,
+    color: themeColors.text.primary,
     flex: 1,
   },
 });

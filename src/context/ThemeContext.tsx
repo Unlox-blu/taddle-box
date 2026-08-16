@@ -1,5 +1,5 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
-import { useColorScheme } from 'react-native';
+import { Appearance, ColorSchemeName } from 'react-native';
 import * as SecureStore from 'expo-secure-store';
 import { DARK_COLORS, LIGHT_COLORS, type ColorPalette } from '../theme';
 
@@ -22,16 +22,22 @@ const ThemeContext = createContext<ThemeContextType>({
 const THEME_KEY = 'app_themePreference';
 
 export function ThemeProvider({ children }: { children: React.ReactNode }) {
-  const systemScheme = useColorScheme(); // 'dark' | 'light' | null
+  const [systemScheme, setSystemScheme] = useState<ColorSchemeName>(Appearance.getColorScheme());
   const [themePreference, setPreference] = useState<ThemePreference>('system');
 
   useEffect(() => {
+    // Listen for system theme changes instantly
+    const subscription = Appearance.addChangeListener(({ colorScheme }) => {
+      setSystemScheme(colorScheme);
+    });
     // Load saved preference on mount
     SecureStore.getItemAsync(THEME_KEY).then(saved => {
       if (saved === 'light' || saved === 'dark' || saved === 'system') {
         setPreference(saved);
       }
     });
+
+    return () => subscription.remove();
   }, []);
 
   const isDark =

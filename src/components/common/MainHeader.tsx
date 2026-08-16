@@ -1,24 +1,34 @@
-import React, { useState } from 'react';
-import { View, Text, TouchableOpacity, StyleSheet, Image } from 'react-native';
-import { Ionicons } from '@expo/vector-icons';
-import { useNavigation, useRoute } from '@react-navigation/native';
-import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
-import { fontSizes, spacing, radii } from '../../theme';
-import { useThemeColors } from '../../context/ThemeContext';
-import { useNotifications } from '../../context/NotificationContext';
-import { useAuth } from '../../context/AuthContext';
-import SideDrawer from '../home/SideDrawer';
+import React, { useState } from "react";
+import { View, Text, TouchableOpacity, StyleSheet, Image } from "react-native";
+import { Ionicons } from "@expo/vector-icons";
+import { useNavigation, useRoute } from "@react-navigation/native";
+import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
+import { fontSizes, spacing, radii } from "../../theme";
+import { useThemeColors } from "../../context/ThemeContext";
+import { useNotifications } from "../../context/NotificationContext";
+import { useAuth } from "../../context/AuthContext";
+import SideDrawer from "../home/SideDrawer";
 import LottieView from "lottie-react-native";
-import { getCachedLottie, getCachedLottieSync, S3_APP_BANNER_LOTTIE_URL } from "../../services/lottie.service";
+import {
+  getCachedLottie,
+  getCachedLottieSync,
+  S3_APP_BANNER_LOTTIE_URL,
+} from "../../services/lottie.service";
 
-export default function MainHeader({ showBack = false }: { showBack?: boolean }) {
+export default function MainHeader({
+  showBack = false,
+}: {
+  showBack?: boolean;
+}) {
   const colors = useThemeColors();
   const navigation = useNavigation<NativeStackNavigationProp<any>>();
   const route = useRoute();
   const [isDrawerOpen, setDrawerOpen] = useState(false);
   const { user: currentUser } = useAuth();
-  
-  const [lottieSource, setLottieSource] = useState<any>(getCachedLottieSync(S3_APP_BANNER_LOTTIE_URL));
+
+  const [lottieSource, setLottieSource] = useState<any>(
+    getCachedLottieSync(S3_APP_BANNER_LOTTIE_URL),
+  );
 
   React.useEffect(() => {
     getCachedLottie(S3_APP_BANNER_LOTTIE_URL).then((animData) => {
@@ -56,7 +66,13 @@ export default function MainHeader({ showBack = false }: { showBack?: boolean })
         </TouchableOpacity>
       )}
 
-      <View style={[StyleSheet.absoluteFill, { justifyContent: "center", alignItems: 'center' }]} pointerEvents="none">
+      <View
+        style={[
+          StyleSheet.absoluteFill,
+          { justifyContent: "center", alignItems: "center" },
+        ]}
+        pointerEvents="none"
+      >
         {lottieSource ? (
           <LottieView
             source={lottieSource}
@@ -66,17 +82,23 @@ export default function MainHeader({ showBack = false }: { showBack?: boolean })
           />
         ) : (
           <Image
-            source={require('../../../Taddle_Box_Banner.png')}
-            style={{ height: 28, width: 140, resizeMode: 'contain', marginTop: 2 }} 
+            source={require("../../../Taddle_Box_Banner.png")}
+            style={{
+              height: 28,
+              width: 140,
+              resizeMode: "contain",
+              marginTop: 2,
+              tintColor: colors.text.primary,
+            }}
           />
         )}
       </View>
 
-      <View style={{flexDirection: 'row', alignItems: 'center'}}>
+      <View style={{ flexDirection: "row", alignItems: "center" }}>
         <TouchableOpacity
           style={styles.iconBtn}
           onPress={() => {
-            let tab = 'all';
+            let tab = "all";
             // Reddit-style scoping: opening search from inside a community
             // detail page searches WITHIN that community (posts only); from a
             // profile page it auto-applies the @username filter so the box
@@ -86,42 +108,45 @@ export default function MainHeader({ showBack = false }: { showBack?: boolean })
             // `source` scopes to a non-unified local search (bookmarks/settings/
             // notifications/wallet); `type` pre-selects the server result pill
             // (events/games/communities) so those tabs search their own domain.
-            let source: 'bookmarks' | 'settings' | 'notifications' | 'wallet' | undefined;
+            let source:
+              | "bookmarks"
+              | "settings"
+              | "notifications"
+              | "wallet"
+              | undefined;
             let type: string | undefined;
-            if (route.name === 'HomeMain') tab = 'all';
-            else if (route.name === 'Profile') {
-              tab = 'posts';
+            if (route.name === "HomeMain") tab = "all";
+            else if (route.name === "Profile") {
+              tab = "posts";
               authorFilter = currentUser?.username;
-            }
-            else if (route.name === 'UserProfile') {
-              tab = 'posts';
+            } else if (route.name === "UserProfile") {
+              tab = "posts";
               authorFilter =
                 (route.params as any)?.user?.username || currentUser?.username;
-            }
-            else if (route.name === 'Community' || route.name === 'CommunityList') type = 'communities';
-            else if (route.name === 'CommunityDetail') {
-              tab = 'posts';
+            } else if (
+              route.name === "Community" ||
+              route.name === "CommunityList"
+            )
+              type = "communities";
+            else if (route.name === "CommunityDetail") {
+              tab = "posts";
               scopeCommunity = (route.params as any)?.communitySlug;
-            }
-            else if (route.name === 'Events') type = 'events';
-            else if (route.name === 'Games') type = 'games';
+            } else if (route.name === "Events") type = "events";
+            else if (route.name === "Games") type = "games";
             // Search from Wallet is scoped to the user's transactions.
-            else if (route.name === 'Wallet') source = 'wallet';
+            else if (route.name === "Wallet") source = "wallet";
             // Search from Bookmarks is scoped to saved posts; from Settings it
             // scopes to the viewer's own posts.
-            else if (route.name === 'Bookmarks') {
-              tab = 'posts';
-              source = 'bookmarks';
-            }
-            else if (route.name === 'Settings') {
-              tab = 'posts';
-              source = 'settings';
-            }
-            else if (route.name === 'Notifications') {
-              tab = 'posts';
-              source = 'notifications';
-            }
-            else tab = 'posts'; // fallback
+            else if (route.name === "Bookmarks") {
+              tab = "posts";
+              source = "bookmarks";
+            } else if (route.name === "Settings") {
+              tab = "posts";
+              source = "settings";
+            } else if (route.name === "Notifications") {
+              tab = "posts";
+              source = "notifications";
+            } else tab = "posts"; // fallback
 
             const params: any = { tab };
             if (scopeCommunity) params.scopeCommunity = scopeCommunity;
@@ -132,7 +157,11 @@ export default function MainHeader({ showBack = false }: { showBack?: boolean })
           }}
           activeOpacity={0.7}
         >
-          <Ionicons name="search-outline" size={22} color={colors.text.secondary} />
+          <Ionicons
+            name="search-outline"
+            size={22}
+            color={colors.text.secondary}
+          />
         </TouchableOpacity>
 
         <TouchableOpacity
@@ -140,7 +169,11 @@ export default function MainHeader({ showBack = false }: { showBack?: boolean })
           onPress={() => navigation.navigate("Notifications")}
           activeOpacity={0.7}
         >
-          <Ionicons name="notifications-outline" size={22} color={colors.text.secondary} />
+          <Ionicons
+            name="notifications-outline"
+            size={22}
+            color={colors.text.secondary}
+          />
           {unreadCount > 0 && (
             <View style={[styles.notifDot, { borderColor: colors.bg.base }]}>
               <Text style={styles.notifDotText}>
@@ -155,9 +188,9 @@ export default function MainHeader({ showBack = false }: { showBack?: boolean })
         visible={isDrawerOpen}
         onClose={() => setDrawerOpen(false)}
         onNavigateTab={(tab) => navigation.getParent()?.navigate(tab as never)}
-	        onNavigateStack={(screen) => {
-	          navigation.navigate(screen as never);
-	        }}
+        onNavigateStack={(screen) => {
+          navigation.navigate(screen as never);
+        }}
         onProfile={() => navigation.getParent()?.navigate("Profile" as never)}
       />
     </View>

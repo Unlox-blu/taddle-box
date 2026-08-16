@@ -13,7 +13,8 @@ import { LinearGradient } from "expo-linear-gradient";
 import { NativeStackScreenProps } from "@react-navigation/native-stack";
 import { StatusBar } from "expo-status-bar";
 import { Ionicons } from "@expo/vector-icons";
-import { colors, radii, fontSizes, spacing } from "../../theme";
+import { radii, fontSizes, spacing } from "../../theme";
+import { useTheme } from "../../context/ThemeContext";
 import Button from "../../components/common/Button";
 import { useAuth } from "../../context/AuthContext";
 import type { AuthStackParamList } from "../../types";
@@ -34,6 +35,8 @@ const { height } = Dimensions.get("window");
 type Props = NativeStackScreenProps<AuthStackParamList, "Welcome">;
 
 export default function WelcomeScreen({ navigation }: Props) {
+  const { colors: themeColors, isDark } = useTheme();
+  const styles = React.useMemo(() => getStyles(themeColors, isDark), [themeColors, isDark]);
   const { signIn, setIsAuthenticating } = useAuth();
   const [appleAuthAvailable, setAppleAuthAvailable] = useState(false);
   const [lottieSource, setLottieSource] = useState<any>(getCachedLottieSync(S3_APP_ICON_LOTTIE_URL));
@@ -238,8 +241,8 @@ export default function WelcomeScreen({ navigation }: Props) {
   };
 
   return (
-    <LinearGradient colors={["#070714", "#0f0a2e"]} style={styles.container}>
-      <StatusBar style="light" />
+    <LinearGradient colors={[themeColors.bg.base, themeColors.bg.surface]} style={styles.container}>
+      <StatusBar style={isDark ? "light" : "dark"} />
 
       {/* Background glow */}
       <View style={styles.glow} />
@@ -252,7 +255,6 @@ export default function WelcomeScreen({ navigation }: Props) {
               source={lottieSource}
               autoPlay
               loop
-              renderMode="SOFTWARE"
               cacheComposition={false}
               style={{ width: '100%', height: '100%' }}
             />
@@ -274,14 +276,14 @@ export default function WelcomeScreen({ navigation }: Props) {
           { icon: "trophy", text: "Earn XP & real cash rewards" },
           { icon: "game-controller", text: "Play games & climb leaderboards" },
           { icon: "people", text: "Join 100k+ communities" },
-          { icon: "calendar", text: "Attend events & hackathons" },
+          { icon: "calendar", text: "Book events & happenings" },
         ].map((f, i) => (
           <View key={i} style={styles.featureRow}>
             <View style={styles.featureIcon}>
               <Ionicons
                 name={f.icon as any}
                 size={16}
-                color={colors.primaryLight}
+                color={themeColors.primaryLight}
               />
             </View>
             <Text style={styles.featureText}>{f.text}</Text>
@@ -296,12 +298,12 @@ export default function WelcomeScreen({ navigation }: Props) {
           onPress={() => navigation.navigate("Register")}
           variant="primary"
           fullWidth
-          leftEmoji="🚀"
+          leftEmoji=""
         />
         <Button
           label="Log In"
           onPress={() => navigation.navigate("Login")}
-          variant="ghost"
+          variant="secondary"
           fullWidth
           style={{ marginTop: 12 }}
         />
@@ -321,34 +323,34 @@ export default function WelcomeScreen({ navigation }: Props) {
             <Ionicons
               name="logo-google"
               size={18}
-              color={colors.text.primary}
+              color={themeColors.text.primary}
             />
             <Text style={styles.socialLabel}>Google</Text>
           </TouchableOpacity>
           <TouchableOpacity style={styles.socialBtn} onPress={handleAppleLogin}>
-            <Ionicons name="logo-apple" size={18} color={colors.text.primary} />
+            <Ionicons name="logo-apple" size={18} color={themeColors.text.primary} />
             <Text style={styles.socialLabel}>Apple</Text>
           </TouchableOpacity>
         </View>
 
         <Text style={styles.terms}>
           By continuing you agree to our{" "}
-          <Text onPress={() => navigation.navigate('Terms')} style={{ color: colors.primaryLight }}>Terms</Text> and{" "}
-          <Text onPress={() => navigation.navigate('Privacy')} style={{ color: colors.primaryLight }}>Privacy Policy</Text>
+          <Text onPress={() => navigation.navigate('Terms')} style={{ color: themeColors.primaryLight }}>Terms</Text> and{" "}
+          <Text onPress={() => navigation.navigate('Privacy')} style={{ color: themeColors.primaryLight }}>Privacy Policy</Text>
         </Text>
       </View>
     </LinearGradient>
   );
 }
 
-const styles = StyleSheet.create({
+const getStyles = (themeColors: any, isDark: boolean) => StyleSheet.create({
   container: { flex: 1, paddingHorizontal: 24 },
   glow: {
     position: "absolute",
     width: 360,
     height: 360,
     borderRadius: 180,
-    backgroundColor: "rgba(124,58,237,0.1)",
+    backgroundColor: isDark ? "rgba(124,58,237,0.1)" : "rgba(124,58,237,0.05)",
     top: height * 0.1,
     alignSelf: "center",
   },
@@ -365,9 +367,9 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
     marginBottom: 16,
-    shadowColor: colors.primary,
+    shadowColor: themeColors.primary,
     shadowOffset: { width: 0, height: 0 },
-    shadowOpacity: 0.7,
+    shadowOpacity: isDark ? 0.7 : 0.3,
     shadowRadius: 20,
     elevation: 10,
   },
@@ -377,11 +379,11 @@ const styles = StyleSheet.create({
     fontWeight: "800",
     letterSpacing: -1,
   },
-  brandW: { color: "#fff" },
-  brandG: { color: colors.primaryLight },
+  brandW: { color: themeColors.text.primary },
+  brandG: { color: themeColors.primaryLight },
   tagline: {
     fontSize: fontSizes.md,
-    color: colors.text.muted,
+    color: themeColors.text.muted,
     marginTop: 6,
     letterSpacing: 0.3,
   },
@@ -398,11 +400,11 @@ const styles = StyleSheet.create({
     width: 32,
     height: 32,
     borderRadius: radii.sm,
-    backgroundColor: "rgba(124,58,237,0.15)",
+    backgroundColor: isDark ? "rgba(124,58,237,0.15)" : "rgba(124,58,237,0.1)",
     alignItems: "center",
     justifyContent: "center",
   },
-  featureText: { fontSize: fontSizes.sm, color: colors.text.secondary },
+  featureText: { fontSize: fontSizes.sm, color: themeColors.text.secondary },
   actions: { paddingBottom: 40 },
   dividerRow: {
     flexDirection: "row",
@@ -410,8 +412,8 @@ const styles = StyleSheet.create({
     gap: 12,
     marginVertical: 20,
   },
-  dividerLine: { flex: 1, height: 1, backgroundColor: colors.border },
-  dividerText: { fontSize: fontSizes.xs, color: colors.text.muted },
+  dividerLine: { flex: 1, height: 1, backgroundColor: themeColors.border },
+  dividerText: { fontSize: fontSizes.xs, color: themeColors.text.muted },
   socialRow: { flexDirection: "row", gap: 12 },
   socialBtn: {
     flex: 1,
@@ -419,25 +421,25 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
     gap: 8,
-    backgroundColor: colors.bg.card,
+    backgroundColor: themeColors.bg.card,
     borderWidth: 1,
-    borderColor: colors.borderHover,
+    borderColor: themeColors.borderHover,
     borderRadius: radii.md,
     paddingVertical: 12,
   },
   socialIcon: {
     fontSize: fontSizes.md,
     fontWeight: "800",
-    color: colors.text.primary,
+    color: themeColors.text.primary,
   },
   socialLabel: {
     fontSize: fontSizes.sm,
-    color: colors.text.primary,
+    color: themeColors.text.primary,
     fontWeight: "600",
   },
   terms: {
     fontSize: fontSizes.xs,
-    color: colors.text.muted,
+    color: themeColors.text.muted,
     textAlign: "center",
     marginTop: 18,
     lineHeight: 18,

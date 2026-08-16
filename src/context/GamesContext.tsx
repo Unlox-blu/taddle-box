@@ -31,6 +31,8 @@ type State = {
 
 type Action =
   | { type: 'SET_DATA'; matches: GameMatch[]; games: any[]; trendingSlugs: string[] }
+  | { type: 'SET_MATCHES'; matches: GameMatch[] }
+  | { type: 'SET_GAMES'; games: any[]; trendingSlugs?: string[] }
   | { type: 'SET_LOADING'; isLoading: boolean }
   | { type: 'ADD_MATCH'; match: GameMatch };
 
@@ -74,6 +76,12 @@ function reducer(state: State, action: Action): State {
   switch (action.type) {
     case 'SET_DATA':
       return { ...state, matches: action.matches, games: action.games, trendingSlugs: action.trendingSlugs, isLoading: false };
+    case 'SET_MATCHES':
+      return { ...state, matches: action.matches };
+    case 'SET_GAMES':
+      // trendingSlugs optional — omitted keeps the existing (stale-on-purpose)
+      // trending set when only the games grid is refreshed.
+      return { ...state, games: action.games, trendingSlugs: action.trendingSlugs ?? state.trendingSlugs };
     case 'SET_LOADING':
       return { ...state, isLoading: action.isLoading };
     case 'ADD_MATCH': {
@@ -95,6 +103,13 @@ type GamesContextType = {
   trendingSlugs: string[];
   isLoading: boolean;
   fetchGamesData: () => Promise<void>;
+  /** Refresh ONLY match history (one API) — used by the History pill's
+      pull-to-refresh so it doesn't refetch the whole games tab. */
+  refreshMatchHistory: () => Promise<void>;
+  /** Refresh ONLY the games grid (a single getGames call) — used by the
+      Games pill's pull-to-refresh. Trending slugs are intentionally left
+      stale (not refetched). */
+  refreshGames: () => Promise<void>;
   addMatch: (matchData: any) => Promise<void>;
 };
 
@@ -104,6 +119,8 @@ const GamesContext = createContext<GamesContextType>({
   trendingSlugs: [],
   isLoading: false,
   fetchGamesData: async () => {},
+  refreshMatchHistory: async () => {},
+  refreshGames: async () => {},
   addMatch: async () => {},
 });
 
@@ -135,6 +152,30 @@ export function GamesProvider({ children }: { children: React.ReactNode }) {
     }
   }, []);
 
+  // Single-API refreshes for pill-specific pull-to-refresh (History / Games
+  // pills) — the Tournaments pill refetches in the screen.
+  const refreshMatchHistory = useCallback(async () => {
+    try {
+      const res = await gamesService.getMatchHistory(1, 20);
+      const history = Array.isArray(res?.data) ? res.data.map(formatMatch) : [];
+      dispatch({ type: 'SET_MATCHES', matches: history });
+    } catch (e) {
+      console.error('Failed to refresh match history', e);
+    }
+  }, []);
+
+  // Single getGames call — trending slugs are NOT refetched (left stale on
+  // purpose to keep the refresh to one API).
+  const refreshGames = useCallback(async () => {
+    try {
+      const gamesRes = await gamesService.getGames(1, 50);
+      const games = Array.isArray(gamesRes?.data) ? gamesRes.data : [];
+      dispatch({ type: 'SET_GAMES', games });
+    } catch (e) {
+      console.error('Failed to refresh games', e);
+    }
+  }, []);
+
   return (
     <GamesContext.Provider value={{
       matches:  state.matches,
@@ -142,6 +183,8 @@ export function GamesProvider({ children }: { children: React.ReactNode }) {
       trendingSlugs: state.trendingSlugs,
       isLoading: state.isLoading,
       fetchGamesData,
+      refreshMatchHistory,
+      refreshGames,
       addMatch: async (matchData) => {
         const normalized = matchData?.result === 'WIN' || matchData?.result === 'LOSS'
           ? formatMatch(matchData)

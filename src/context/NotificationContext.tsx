@@ -64,8 +64,8 @@ export function NotificationProvider({ children }: { children: React.ReactNode }
 
   const refreshUnread = useCallback(async () => {
     try {
-      const res = await notificationService.getNotifications(1, 1, true);
-      const count = res?.meta?.unreadCount ?? 0;
+      // Count-only endpoint — no need to pull notification rows just for the badge.
+      const count = await notificationService.getUnreadCount();
       setUnreadCount(count);
       notificationBus.emit(NOTIF_EVENTS.UNREAD_CHANGED, count);
       if (count === 0) clearPushBadge();

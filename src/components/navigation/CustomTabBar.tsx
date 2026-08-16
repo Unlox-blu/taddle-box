@@ -8,7 +8,9 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { radii, fontSizes } from '../../theme';
 import { useTheme } from '../../context/ThemeContext';
+import { useGlobalScroll } from '../../context/ScrollContext';
 import CreatePostModal from '../common/CreatePostModal';
+import Animated, { useAnimatedStyle } from 'react-native-reanimated';
 
 // Helper to deeply find the active route name and params
 const getActiveRouteState = (state: any): { name: string, params: any } | null => {
@@ -39,11 +41,18 @@ const RIGHT_TABS = ['Games', 'Events'];
 export default function CustomTabBar({ state, navigation }: BottomTabBarProps) {
   const insets = useSafeAreaInsets();
   const { colors, isDark } = useTheme();
+  const { footerTranslateY } = useGlobalScroll();
   const [createVisible, setCreateVisible] = useState(false);
   const [preselectedCommunityId, setPreselectedCommunityId] = useState<string | undefined>(undefined);
   const lastPressRef = React.useRef<Record<string, number>>({});
 
   const tabBarBg = isDark ? 'rgba(7,7,20,0.97)' : 'rgba(250,250,255,0.97)';
+
+  const animatedStyle = useAnimatedStyle(() => {
+    return {
+      transform: [{ translateY: footerTranslateY.value }],
+    };
+  });
 
   const renderTab = (routeName: string) => {
     const route  = state.routes.find(r => r.name === routeName);
@@ -66,11 +75,16 @@ export default function CustomTabBar({ state, navigation }: BottomTabBarProps) {
           if (!active && !event.defaultPrevented) {
             navigation.navigate(routeName);
           } else if (active) {
+            // Every tab behaves like Home: single-tap scrolls the feed to the
+            // top, double-tap scrolls to top AND refreshes. Screens listen
+            // for `${name}SingleTap` / `${name}DoubleTap`.
             const now = Date.now();
             const lastPress = lastPressRef.current[routeName] || 0;
+            const eventKey = routeName.toLowerCase();
             if (now - lastPress < 300) {
-              if (routeName === 'Home') DeviceEventEmitter.emit('homeDoubleTap');
-              if (routeName === 'Community') DeviceEventEmitter.emit('communityDoubleTap');
+              DeviceEventEmitter.emit(eventKey + 'DoubleTap');
+            } else {
+              DeviceEventEmitter.emit(eventKey + 'SingleTap');
             }
             lastPressRef.current[routeName] = now;
           }
@@ -115,7 +129,7 @@ export default function CustomTabBar({ state, navigation }: BottomTabBarProps) {
         onClose={() => setCreateVisible(false)} 
         preselectedCommunityId={preselectedCommunityId}
       />
-      <View style={[styles.container, { paddingBottom: insets.bottom || 10, backgroundColor: tabBarBg, borderTopColor: colors.border }]}>
+      <Animated.View style={[styles.container, { paddingBottom: insets.bottom || 10, backgroundColor: tabBarBg, borderTopColor: colors.border }, animatedStyle]}>
         <View style={styles.inner}>
           {/* Left tabs */}
           <View style={styles.side}>
@@ -141,13 +155,17 @@ export default function CustomTabBar({ state, navigation }: BottomTabBarProps) {
             {RIGHT_TABS.map(renderTab)}
           </View>
         </View>
-      </View>
+      </Animated.View>
     </>
   );
 }
 
 const styles = StyleSheet.create({
   container: {
+    position: 'absolute',
+    bottom: 0,
+    left: 0,
+    right: 0,
     borderTopWidth: 1,
     paddingTop: 8,
   },

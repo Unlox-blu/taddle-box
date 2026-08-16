@@ -1,13 +1,14 @@
 import React, { useMemo, useState, useEffect, useRef, useCallback } from 'react';
 import {
   View, Text, ScrollView, TouchableOpacity, TouchableWithoutFeedback,
-  StyleSheet, Share, FlatList, Image,  ActivityIndicator
+  StyleSheet, Share, FlatList, Image
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useNavigation, useRoute, useFocusEffect, type RouteProp } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
+import StateBlock from '../../components/common/StateBlock';
 import { StatusBar } from 'expo-status-bar';
 import { fontSizes, spacing, radii, type ColorPalette } from '../../theme';
 import { useTheme, useThemeColors } from '../../context/ThemeContext';
@@ -390,19 +391,16 @@ export default function CommunityDetailScreen() {
   // Loading / error states — never render a silent blank screen.
   if (loadingDetail && !community) {
     return (
-      <View style={[styles.container, { paddingTop: insets.top }]}>
+      <View style={styles.container}>
         <StatusBar style={isDark ? 'light' : 'dark'} />
-        <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', gap: 12 }}>
-          <ActivityIndicator size="large" color={colors.primaryLight} />
-          <Text style={{ color: colors.text.muted }}>Loading community…</Text>
-        </View>
+        <StateBlock loading label="Loading community…" style={{ flex: 1, justifyContent: "center" }} />
       </View>
     );
   }
 
   if (!community) {
     return (
-      <View style={[styles.container, { paddingTop: insets.top }]}>
+      <View style={styles.container}>
         <StatusBar style={isDark ? 'light' : 'dark'} />
         <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 32, gap: 10 }}>
           <Ionicons name="alert-circle-outline" size={48} color={colors.text.muted} />
@@ -584,7 +582,7 @@ export default function CommunityDetailScreen() {
   );
 
   return (
-    <View style={[styles.container, { paddingTop: insets.top }]}>
+    <View style={styles.container}>
       <StatusBar style={isDark ? 'light' : 'dark'} />
 
       {/* Main header — logo, global search (scoped to THIS community, so the
@@ -619,11 +617,7 @@ export default function CommunityDetailScreen() {
         onEndReachedThreshold={0.4}
         ListFooterComponent={
           loadingMorePosts ? (
-            <ActivityIndicator
-              size="small"
-              color={colors.primary}
-              style={{ paddingVertical: 16 }}
-            />
+            <StateBlock inline loading style={{ paddingVertical: 16 }} />
           ) : (
             <View style={{ height: 100 }} />
           )
@@ -1009,11 +1003,7 @@ function ManageMembersModal({ visible, onClose, communityId, isAdmin, isOwner, c
               }}
               ListFooterComponent={
                 loading && members.length > 0 ? (
-                  <ActivityIndicator
-                    size="small"
-                    color={colors.primary}
-                    style={{ paddingVertical: 14 }}
-                  />
+                  <StateBlock inline loading style={{ paddingVertical: 14 }} />
                 ) : null
               }
               renderItem={({ item }) => (

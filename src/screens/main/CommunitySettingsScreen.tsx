@@ -1,7 +1,7 @@
 import React, { useState, useRef, useEffect, useMemo } from 'react';
 import {
   View, Text, TextInput, TouchableOpacity, ScrollView,
-  StyleSheet,  ActivityIndicator, Image, Dimensions
+  StyleSheet, Image, Dimensions
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
@@ -19,6 +19,7 @@ import { appLockBypass } from '../../utils/appLockBypass';
 import type { CommunityStackParamList } from '../../types';
 import { themedAlert } from '../../components/common/ThemedAlert';
 import SmartInput from '../../components/common/SmartInput';
+import StateBlock from '../../components/common/StateBlock';
 
 type Route = RouteProp<CommunityStackParamList, 'CommunitySettings'>;
 
@@ -229,7 +230,7 @@ export default function CommunitySettingsScreen() {
   if (loading || !community) {
     return (
       <View style={[styles.container, { justifyContent: 'center', alignItems: 'center' }]}>
-        <ActivityIndicator size="large" color={colors.primary} />
+        <StateBlock loading />
       </View>
     );
   }
@@ -243,7 +244,7 @@ export default function CommunitySettingsScreen() {
         </TouchableOpacity>
         <Text style={styles.headerTitle}>Settings</Text>
         <TouchableOpacity onPress={handleSave} disabled={saving}>
-          {saving ? <ActivityIndicator size="small" color={colors.primaryLight} /> : <Text style={styles.headerBtn}>Save</Text>}
+          {saving ? <StateBlock inline loading loaderSize={18} /> : <Text style={styles.headerBtn}>Save</Text>}
         </TouchableOpacity>
       </View>
 

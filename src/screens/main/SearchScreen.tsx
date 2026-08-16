@@ -11,12 +11,12 @@ import {
   TextInput,
   TouchableOpacity,
   FlatList,
-  ActivityIndicator,
   Image,
   Share,
   RefreshControl,
   Modal,
   ScrollView,
+  Keyboard,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons, MaterialCommunityIcons } from "@expo/vector-icons";
@@ -34,6 +34,12 @@ import { walletService } from "../../services/wallet.service";
 import { xpService } from "../../services/xp.service";
 import type { HomeStackParamList, Post, Transaction } from "../../types";
 import PullToRefreshWrapper from "../../components/common/PullToRefreshWrapper";
+import StateBlock from "../../components/common/StateBlock";
+import Animated, { useSharedValue, useAnimatedStyle } from "react-native-reanimated";
+import {
+  useGlobalScroll,
+  applySectionScrollOffset,
+} from "../../context/ScrollContext";
 import { useToggleLike, useToggleSave } from "../../mutations/posts";
 import { themedAlert } from "../../components/common/ThemedAlert";
 import { makeStyles } from "../../components/search/searchStyles";
@@ -101,6 +107,7 @@ export default function SearchScreen({ navigation, route }: Props) {
   const { isDark } = useTheme();
   const colors = useThemeColors();
   const styles = useMemo(() => makeStyles(colors), [colors]);
+  const { footerHeight } = useGlobalScroll();
 
   // If passed from hashtag click or header context
   const initialQuery: string = (route.params as any)?.query || "";
@@ -963,6 +970,43 @@ export default function SearchScreen({ navigation, route }: Props) {
       })),
     [serverTypes],
   );
+
+  // Instagram-style hide-on-scroll for the search chrome — the search bar and
+  // the result-pill row slide up with the results for a full-screen view.
+  const searchHeaderH = 60 + insets.top; // search bar row + status-bar inset
+  const searchPillsH = 56; // horizontal result-pill row
+  const searchOverlayY = useSharedValue(0);
+  const searchPrevY = useRef(0);
+  // Dismiss the keyboard once per scroll gesture; reset when the user taps
+  // the input again (TextInput onFocus below).
+  const keyboardDismissedRef = useRef(false);
+  const showPills =
+    source === "notifications" ||
+    (source !== "settings" &&
+      source !== "wallet" &&
+      universalPills.length > 0);
+  const searchOverlayH = searchHeaderH + (showPills ? searchPillsH : 0);
+
+  const headerAnimStyle = useAnimatedStyle(() => ({
+    transform: [
+      {
+        translateY: Math.max(
+          -searchHeaderH,
+          Math.min(0, searchOverlayY.value),
+        ),
+      },
+    ],
+  }));
+  // The pills sit at top: searchHeaderH, so to leave the screen they must
+  // travel the FULL overlay height — clamping to -searchPillsH (their own
+  // height) left them parked at insets.top+4, floating over the results.
+  const pillsAnimStyle = useAnimatedStyle(() => ({
+    transform: [
+      {
+        translateY: Math.max(-searchOverlayH, Math.min(0, searchOverlayY.value)),
+      },
+    ],
+  }));
   const renderPill = (pill: { key: string; label: string }) => {
     const isActive = resultType === pill.key;
     return (
@@ -1065,11 +1109,26 @@ export default function SearchScreen({ navigation, route }: Props) {
   );
 
   return (
-    <View style={[styles.container, { paddingTop: insets.top }]}>
+    <View style={styles.container}>
       <StatusBar style={isDark ? "light" : "dark"} />
 
-      {/* Header Search Bar */}
-      <View style={styles.header}>
+      {/* Header Search Bar — absolute overlay; slides up on scroll (Instagram
+          style) so the results go full screen. The status-bar inset lives on
+          the header itself (like MainHeader), not the container. */}
+      <Animated.View
+        style={[
+          styles.header,
+          {
+            position: "absolute",
+            top: 0,
+            left: 0,
+            right: 0,
+            zIndex: 20,
+            paddingTop: insets.top + 10,
+          },
+          headerAnimStyle,
+        ]}
+      >
         <TouchableOpacity
           style={styles.backBtn}
           onPress={() => navigation.goBack()}
@@ -1317,9 +1376,11 @@ export default function SearchScreen({ navigation, route }: Props) {
               value={query}
               onChangeText={handleQueryChange}
               onSubmitEditing={handleSubmit}
-              autoFocus
               returnKeyType="search"
               autoCapitalize="none"
+              onFocus={() => {
+                keyboardDismissedRef.current = false;
+              }}
             />
           </ScrollView>
           {(query.length > 0 ||
@@ -1367,11 +1428,23 @@ export default function SearchScreen({ navigation, route }: Props) {
               </TouchableOpacity>
             )}
         </View>
-      </View>
+      </Animated.View>
 
       {/* @user / c/community / #tag suggestions — tap one to commit it as a chip */}
       {suggestionsVisible && suggestionKind && (
-        <View style={styles.suggestionBox}>
+        <Animated.View
+          style={[
+            styles.suggestionBox,
+            {
+              position: "absolute",
+              top: searchHeaderH,
+              left: 0,
+              right: 0,
+              zIndex: 15,
+            },
+            headerAnimStyle,
+          ]}
+        >
           <Text style={styles.suggestionLabel}>
             {suggestionKind === "user"
               ? "People"
@@ -1492,7 +1565,7 @@ export default function SearchScreen({ navigation, route }: Props) {
               </TouchableOpacity>
             );
           })}
-        </View>
+        </Animated.View>
       )}
 
       {/* Pills Row — shown ONLY when there are pills to show. The unified
@@ -1500,11 +1573,22 @@ export default function SearchScreen({ navigation, route }: Props) {
           backend returns — even none); tapping one re-requests with
           type=<type>. Only the notifications scope keeps its local n-* tab
           set; the wallet scope is a local transaction filter (no pills). */}
-      {(source === "notifications" ||
-        (source !== "settings" &&
-          source !== "wallet" &&
-          universalPills.length > 0)) && (
-        <View style={{ borderBottomWidth: 1, borderBottomColor: colors.border }}>
+      {showPills && (
+        <Animated.View
+          style={[
+            {
+              position: "absolute",
+              top: searchHeaderH,
+              left: 0,
+              right: 0,
+              zIndex: 10,
+              backgroundColor: colors.bg.base,
+              borderBottomWidth: 1,
+              borderBottomColor: colors.border,
+            },
+            pillsAnimStyle,
+          ]}
+        >
           <FlatList
             horizontal
             showsHorizontalScrollIndicator={false}
@@ -1515,16 +1599,25 @@ export default function SearchScreen({ navigation, route }: Props) {
               source === "notifications" ? renderTab(item) : renderPill(item)
             }
           />
-        </View>
+        </Animated.View>
       )}
 
       {/* Results */}
       {loading ? (
-        <View style={styles.centerBox}>
-          <ActivityIndicator size="large" color={colors.primaryLight} />
-        </View>
+        <StateBlock
+          loading
+          style={[styles.centerBox, { paddingTop: searchOverlayH, paddingVertical: 0 }]}
+        />
       ) : hasResults ? (
-        <PullToRefreshWrapper refreshing={refreshing} onRefresh={onRefresh}>
+        // headerOffsetH drops the pull bubble BELOW the search chrome (bar +
+        // pills) — without it the bubble sits at the global header height,
+        // hidden behind the search overlay (zIndex 10+), so the pull showed
+        // no feedback.
+        <PullToRefreshWrapper
+          refreshing={refreshing}
+          onRefresh={onRefresh}
+          headerOffsetH={searchOverlayH}
+        >
           <FlatList
             ref={listRef}
             data={rows}
@@ -1536,7 +1629,10 @@ export default function SearchScreen({ navigation, route }: Props) {
             renderItem={renderItem}
             contentContainerStyle={[
               styles.listContent,
-              { paddingBottom: insets.bottom + 20 },
+              // Top padding clears the floating search chrome; bottom padding
+              // clears the tab bar (the footer hides on scroll like the
+              // chrome, but stays visible on short result lists).
+              { paddingTop: searchOverlayH, paddingBottom: footerHeight + 20 },
             ]}
             ItemSeparatorComponent={() => <View style={{ height: 10 }} />}
             keyboardShouldPersistTaps="handled"
@@ -1545,17 +1641,32 @@ export default function SearchScreen({ navigation, route }: Props) {
             // Track the live offset so switching tabs can save/restore it.
             onScroll={(e) => {
               scrollOffsetCurrentRef.current = e.nativeEvent.contentOffset.y;
+              // Instagram-style hide — the search bar + pill row ride up
+              // WITH the finger (the same finger-tracking as the global
+              // header): scrolling down translates them proportionally,
+              // scrolling up snaps them back immediately, and reaching the
+              // top always restores them. Scrolling also dismisses the
+              // keyboard.
+              const y = e.nativeEvent.contentOffset.y;
+              const dy = y - searchPrevY.current;
+              applySectionScrollOffset(
+                y,
+                searchPrevY.current,
+                searchOverlayY,
+                searchOverlayH,
+              );
+              searchPrevY.current = y;
+              if (!keyboardDismissedRef.current && Math.abs(dy) > 2) {
+                keyboardDismissedRef.current = true;
+                Keyboard.dismiss();
+              }
             }}
           scrollEventThrottle={16}
           onEndReached={loadMore}
           onEndReachedThreshold={0.4}
           ListFooterComponent={
             loadingMore ? (
-              <ActivityIndicator
-                size="small"
-                color={colors.primaryLight}
-                style={{ paddingVertical: 16 }}
-              />
+              <StateBlock inline loading loaderSize={36} style={{ paddingVertical: 16 }} />
             ) : null
           }
           ListHeaderComponent={
@@ -1578,7 +1689,7 @@ export default function SearchScreen({ navigation, route }: Props) {
       ) : showSearchPrompt ? (
         renderEmptyStateHeader()
       ) : !isEmptyQuery ? (
-        <View style={styles.centerBox}>
+        <View style={[styles.centerBox, { paddingTop: searchOverlayH }]}>
           <Text style={styles.emptyText}>
             No results found for "{query}" in {activeTabLabel}
           </Text>
@@ -1586,7 +1697,7 @@ export default function SearchScreen({ navigation, route }: Props) {
       ) : (
         // Empty query + no rows on an individual tab — e.g. a "See all" jump
         // from the discovery view. Show a hint instead of a blank screen.
-        <View style={styles.centerBox}>
+        <View style={[styles.centerBox, { paddingTop: searchOverlayH }]}>
           <Ionicons name="compass-outline" size={56} color={colors.border} />
           <Text style={styles.emptyText}>
             Nothing here yet — type a search, or explore the All tab.

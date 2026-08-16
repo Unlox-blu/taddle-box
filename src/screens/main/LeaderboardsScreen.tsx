@@ -24,6 +24,7 @@ import {
 } from '../../services/leaderboard.service';
 import type { HomeStackParamList } from '../../types';
 import PullToRefreshWrapper from '../../components/common/PullToRefreshWrapper';
+import { useGlobalScroll } from '../../context/ScrollContext';
 
 const TABS: { key: LeaderboardType; label: string; icon: keyof typeof Ionicons.glyphMap }[] = [
   { key: 'feed', label: 'Feed', icon: 'newspaper-outline' },
@@ -53,6 +54,7 @@ export default function LeaderboardsScreen() {
   const navigation = useNavigation<any>();
   const route = useRoute<LeaderboardScreenRouteProp>();
   const insets = useSafeAreaInsets();
+  const { footerHeight } = useGlobalScroll();
   const colors = useThemeColors();
   const styles = useMemo(() => makeStyles(colors), [colors]);
   
@@ -96,42 +98,48 @@ export default function LeaderboardsScreen() {
   return (
     <View style={[styles.container, { paddingTop: insets.top || 16 }]}>
       <StatusBar style="light" />
-      <PullToRefreshWrapper 
-        refreshing={refreshing} 
+      <PullToRefreshWrapper
+        refreshing={refreshing}
         onRefresh={onRefresh}
-        header={
-          <View style={styles.header}>
-            <TouchableOpacity style={styles.iconButton} onPress={() => navigation.goBack()}>
-              <Ionicons name="chevron-back" size={22} color={colors.text.secondary} />
-            </TouchableOpacity>
-            <View style={styles.headerText}>
-              <Text style={styles.title}>Leaderboards</Text>
-              <Text style={styles.subtitle}>Weekly rankings and XP rewards</Text>
+        // This pushed screen has NO MainHeader — its own chrome (back +
+        // title + filter tabs) is the pinned block, starting at the wrapper's
+        // top. It hides/shows with scroll exactly like the main screens.
+        headerOffsetH={0}
+        sectionHeaderH={129}
+        sectionHeader={
+          <>
+            <View style={styles.header}>
+              <TouchableOpacity style={styles.iconButton} onPress={() => navigation.goBack()}>
+                <Ionicons name="chevron-back" size={22} color={colors.text.secondary} />
+              </TouchableOpacity>
+              <View style={styles.headerText}>
+                <Text style={styles.title}>Leaderboards</Text>
+                <Text style={styles.subtitle}>Weekly rankings and XP rewards</Text>
+              </View>
+              <View style={styles.iconButton}>
+                <Ionicons name="trophy-outline" size={21} color={colors.xpGold} />
+              </View>
             </View>
-            <View style={styles.iconButton}>
-              <Ionicons name="trophy-outline" size={21} color={colors.xpGold} />
+            <View style={styles.tabRail}>
+              {TABS.map((tab) => (
+                <TouchableOpacity
+                  key={tab.key}
+                  style={[styles.tab, activeTab === tab.key && styles.tabActive]}
+                  onPress={() => setActiveTab(tab.key)}
+                  activeOpacity={0.8}
+                >
+                  <Ionicons name={tab.icon} size={15} color={activeTab === tab.key ? '#fff' : colors.text.muted} />
+                  <Text style={[styles.tabText, activeTab === tab.key && styles.tabTextActive]}>{tab.label}</Text>
+                </TouchableOpacity>
+              ))}
             </View>
-          </View>
+          </>
         }
       >
         <ScrollView
           showsVerticalScrollIndicator={false}
           contentContainerStyle={styles.content}
         >
-        <View style={styles.tabRail}>
-          {TABS.map((tab) => (
-            <TouchableOpacity
-              key={tab.key}
-              style={[styles.tab, activeTab === tab.key && styles.tabActive]}
-              onPress={() => setActiveTab(tab.key)}
-              activeOpacity={0.8}
-            >
-              <Ionicons name={tab.icon} size={15} color={activeTab === tab.key ? '#fff' : colors.text.muted} />
-              <Text style={[styles.tabText, activeTab === tab.key && styles.tabTextActive]}>{tab.label}</Text>
-            </TouchableOpacity>
-          ))}
-        </View>
-
         <View style={styles.rewardStrip}>
           <InfoStat label="1st" value={`+${data.rewards[0] || 0} XP`} />
           <InfoStat label="2nd" value={`+${data.rewards[1] || 0} XP`} />
@@ -161,7 +169,7 @@ export default function LeaderboardsScreen() {
 
       {/* Pinned Current User Card */}
       {!loading && (
-        <View style={[styles.currentUserPinned, { paddingBottom: Math.max(insets.bottom, spacing.lg) + spacing.md }]}>
+        <View style={[styles.currentUserPinned, { paddingBottom: footerHeight + spacing.md }]}>
           <Text style={styles.currentUserTitle}>Your Position</Text>
           {data.currentUser?.[activeTab] ? (
             <View style={styles.currentUserCard}>

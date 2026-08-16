@@ -1,5 +1,5 @@
 import React, { useState, useRef, useCallback, useEffect } from 'react';
-import { FlatList, View, Text, Share, Image, DeviceEventEmitter } from 'react-native';
+import { FlatList, View, Text, Share, DeviceEventEmitter } from 'react-native';
 import { useIsFocused, useNavigation, useScrollToTop } from '@react-navigation/native';
 import PostCard from '../home/PostCard';
 import CommentsModal from '../home/CommentsModal';
@@ -8,6 +8,7 @@ import { useAuth } from '../../context/AuthContext';
 import type { Post } from '../../types';
 import { themedAlert } from './ThemedAlert';
 import PullToRefreshWrapper from "./PullToRefreshWrapper";
+import { useGlobalScroll } from '../../context/ScrollContext';
 
 interface SharedFeedProps {
   posts: Post[];
@@ -30,6 +31,12 @@ interface SharedFeedProps {
   ListFooterComponent?: React.ReactElement | null;
   scrollEnabled?: boolean;
   contentContainerStyle?: any;
+  /** Pinned section chrome (a screen's title + filter pills) that hides and
+      shows IN LOCKSTEP with the main header when scrolling — forwarded to
+      PullToRefreshWrapper. See its `sectionHeader` prop. */
+  sectionHeader?: React.ReactNode;
+  /** Height estimate for sectionHeader (refined by onLayout). */
+  sectionHeaderH?: number;
   /** Reports the list's current vertical scroll offset (the profile uses it to
       preserve scroll position across Posts/Reposts/Mentions tab switches). */
   onScroll?: (offsetY: number) => void;
@@ -58,6 +65,8 @@ export default function SharedFeed({
   ListFooterComponent,
   scrollEnabled = true,
   contentContainerStyle,
+  sectionHeader,
+  sectionHeaderH,
   onScroll,
   initialScrollOffset
 }: SharedFeedProps) {
@@ -74,6 +83,7 @@ export default function SharedFeed({
   const navigation = useNavigation<any>();
   const isFocused = useIsFocused();
   const { user: currentUser } = useAuth();
+  const { headerHeight, footerHeight } = useGlobalScroll();
   const [activePostId, setActivePostId] = useState<string | null>(null);
   const [commentsVisible, setCommentsVisible] = useState(false);
   const [activeCommentPost, setActiveCommentPost] = useState<Post | null>(null);
@@ -93,11 +103,30 @@ export default function SharedFeed({
     return () => clearTimeout(t);
   }, [initialScrollOffset, posts.length]);
 
+  // Home-style tab-bar behavior: single-tap scrolls to top, double-tap also
+  // scrolls to top (the refresh for double-tap is handled by the owning
+  // screen — HomeScreen / SharedProfile). This SharedFeed powers the Home,
+  // Profile and Bookmarks feeds, so it listens for all three screens' events.
+  //
+  // Like PullToRefreshWrapper's triggerPullRefresh handling, these listeners
+  // are FOCUS-GUARDED: every tab stays mounted (and Bookmarks is pushed over
+  // the Home stack), so several feeds hear the same events at once — only
+  // the FOCUSED feed may react. The triggerPullRefresh listener scrolls the
+  // visible feed to the top on a programmatic refresh (tab-bar double-tap on
+  // the active tab) while the wrapper drops the bubble.
+  const isFocusedRef = useRef(false);
+  isFocusedRef.current = isFocused;
   React.useEffect(() => {
-    const sub = DeviceEventEmitter.addListener('homeDoubleTap', () => {
+    const scrollToTop = () => {
+      if (!isFocusedRef.current) return;
       flatListRef.current?.scrollToOffset({ offset: 0, animated: true });
-    });
-    return () => sub.remove();
+    };
+    const events = ['homeSingleTap', 'profileSingleTap', 'profileDoubleTap'];
+    const subs = [
+      ...events.map((name) => DeviceEventEmitter.addListener(name, scrollToTop)),
+      DeviceEventEmitter.addListener('triggerPullRefresh', scrollToTop),
+    ];
+    return () => subs.forEach((s) => s.remove());
   }, []);
 
   const viewabilityConfig = useRef({ itemVisiblePercentThreshold: 60 }).current;
@@ -179,7 +208,7 @@ export default function SharedFeed({
 
   if (!scrollEnabled) {
     return (
-      <View style={contentContainerStyle}>
+      <View style={[{ paddingTop: headerHeight, paddingBottom: footerHeight }, contentContainerStyle]}>
         {safeNode(ListHeaderComponent)}
         {posts.length === 0 ? safeNode(ListEmptyComponent) : posts.map((item, index) => (
           <PostCard
@@ -212,23 +241,18 @@ export default function SharedFeed({
     );
   }
 
-  const enhancedHeader = (
-    <View>
-      <View style={{ position: 'absolute', top: -80, left: 0, right: 0, height: 80, alignItems: 'center', justifyContent: 'center' }}>
-        <Image 
-          source={require('../../../assets/icon.png')} 
-          style={{ width: 40, height: 40, borderRadius: 12, opacity: refreshing ? 1 : 0.6 }} 
-        />
-      </View>
-      {safeNode(ListHeaderComponent)}
-    </View>
-  );
+  // The old static pull icon (an app logo floating above the list) is gone:
+  // PullToRefreshWrapper renders its own Lottie bubble, so a second logo here
+  // would float under the header and double up during pull-to-refresh.
+  const enhancedHeader = safeNode(ListHeaderComponent);
 
   return (
     <>
       <PullToRefreshWrapper
         refreshing={refreshing || false}
         onRefresh={onRefresh || (() => {})}
+        sectionHeader={sectionHeader}
+        sectionHeaderH={sectionHeaderH}
       >
       <FlatList
         ref={flatListRef}
@@ -240,7 +264,10 @@ export default function SharedFeed({
         // views mounted avoids that glitch — FlatList still virtualizes.
         removeClippedSubviews={false}
         showsVerticalScrollIndicator={false}
-        contentContainerStyle={contentContainerStyle}
+        contentContainerStyle={[
+          { paddingTop: headerHeight, paddingBottom: footerHeight },
+          contentContainerStyle
+        ]}
         onScroll={(e) => onScroll?.(e.nativeEvent.contentOffset.y)}
         scrollEventThrottle={16}
         // iOS only: without this, a short list (few posts / short bookmarks /

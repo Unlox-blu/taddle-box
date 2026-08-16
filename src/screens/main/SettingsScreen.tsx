@@ -18,7 +18,9 @@ import { fontSizes, spacing, radii, type ColorPalette } from "../../theme";
 import { useWallet } from "../../context/WalletContext";
 import { useTheme, useThemeColors } from "../../context/ThemeContext";
 import { useAuth } from "../../context/AuthContext";
+import { useGlobalScroll, useGlobalScrollHandler } from "../../context/ScrollContext";
 import MainHeader from "../../components/common/MainHeader";
+import SectionChrome, { useSectionChrome, SectionHeader } from "../../components/common/SectionChrome";
 import { userService } from "../../services/user.service";
 import { authService } from "../../services/auth.service";
 import { appConfigService } from "../../services/appConfig.service";
@@ -56,6 +58,9 @@ const maskPhone = (phone?: string, countryCode?: string) => {
   const { user: CURRENT_USER, signOut, updateUser } = useAuth();
   const insets = useSafeAreaInsets();
   const navigation = useNavigation<NavProp>();
+  const { headerHeight } = useGlobalScroll();
+  const handleGlobalScroll = useGlobalScrollHandler();
+  const section = useSectionChrome(76);
   const { wallet, toggleSetting, fetchWalletData } = useWallet();
   const { isDark, colors, themePreference, setThemePreference } = useTheme();
   const {
@@ -311,16 +316,31 @@ const maskPhone = (phone?: string, countryCode?: string) => {
     <View
       style={[
         styles.container,
-        { paddingTop: insets.top, backgroundColor: colors.bg.base },
+        { backgroundColor: colors.bg.base },
       ]}
     >
       {/* Main header — logo, global search, notifications; back arrow instead
           of the drawer menu on this pushed screen. */}
       <MainHeader showBack />
 
+      {/* Pinned section chrome — the page heading hides and shows IN LOCKSTEP
+          with the main header (same treatment as the other screens'), instead
+          of scrolling away with the list. */}
+      <SectionChrome sectionY={section.sectionY} setSectionH={section.setSectionH}>
+        <SectionHeader
+          title="Settings"
+          subtitle="Manage your account & preferences"
+        />
+      </SectionChrome>
+
       <ScrollView
         showsVerticalScrollIndicator={false}
-        contentContainerStyle={{ paddingBottom: 60 }}
+        onScroll={(e) => {
+          handleGlobalScroll(e);
+          section.handleScroll(e);
+        }}
+        scrollEventThrottle={16}
+        contentContainerStyle={{ paddingBottom: 60, paddingTop: headerHeight + section.sectionH }}
       >
         {/* Account info strip */}
         <View
@@ -357,7 +377,7 @@ const maskPhone = (phone?: string, countryCode?: string) => {
         </View>
 
         {/* ── Account & Security ── */}
-        <SectionHeader title="Account & Security" />
+        <ContentSectionHeader title="Account & Security" />
         <SettingsGroup>
           <SettingsToggle
             icon="shield-checkmark-outline"
@@ -419,7 +439,7 @@ const maskPhone = (phone?: string, countryCode?: string) => {
         </SettingsGroup>
 
         {/* ── Notifications ── */}
-        <SectionHeader title="Notifications" />
+        <ContentSectionHeader title="Notifications" />
         <SettingsGroup>
           <SettingsToggle
             icon="flash-outline"
@@ -446,7 +466,7 @@ const maskPhone = (phone?: string, countryCode?: string) => {
         </SettingsGroup>
 
         {/* ── Privacy ── */}
-        <SectionHeader title="Privacy" />
+        <ContentSectionHeader title="Privacy" />
         <SettingsGroup>
           <SettingsToggle
             icon={publicAccount ? "earth-outline" : "lock-closed-outline"}
@@ -575,7 +595,7 @@ const maskPhone = (phone?: string, countryCode?: string) => {
         </SettingsGroup>
 
         {/* ── App Preferences ── */}
-        <SectionHeader title="App Preferences" />
+        <ContentSectionHeader title="App Preferences" />
         <SettingsGroup>
           <SettingsToggle
             icon="volume-high-outline"
@@ -619,7 +639,7 @@ const maskPhone = (phone?: string, countryCode?: string) => {
         </SettingsGroup>
 
         {/* ── About ── */}
-        <SectionHeader title="About" />
+        <ContentSectionHeader title="About" />
         <SettingsGroup>
           <SettingsRow
             icon="document-text-outline"
@@ -646,7 +666,7 @@ const maskPhone = (phone?: string, countryCode?: string) => {
         </SettingsGroup>
 
         {/* ── Danger zone ── */}
-        <SectionHeader title="Account Actions" />
+        <ContentSectionHeader title="Account Actions" />
         <SettingsGroup>
           <TouchableOpacity style={styles.dangerRow} onPress={handleLogout}>
             <Ionicons name="log-out-outline" size={20} color={colors.danger} />
@@ -679,7 +699,7 @@ const maskPhone = (phone?: string, countryCode?: string) => {
 
 // ─── Sub-components (each reads theme independently) ─────────────────────────
 
-function SectionHeader({ title }: { title: string }) {
+function ContentSectionHeader({ title }: { title: string }) {
   const colors = useThemeColors();
   return (
     <Text style={[shared.sectionHeader, { color: colors.text.muted }]}>

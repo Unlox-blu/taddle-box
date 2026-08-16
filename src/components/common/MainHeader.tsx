@@ -1,19 +1,16 @@
 import React, { useState } from "react";
 import { View, Text, TouchableOpacity, StyleSheet, Image } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
-import { useNavigation, useRoute } from "@react-navigation/native";
+import { useNavigation, useRoute, useFocusEffect } from "@react-navigation/native";
 import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
 import { fontSizes, spacing, radii } from "../../theme";
-import { useThemeColors } from "../../context/ThemeContext";
+import { useTheme, useThemeColors } from "../../context/ThemeContext";
 import { useNotifications } from "../../context/NotificationContext";
 import { useAuth } from "../../context/AuthContext";
+import { useGlobalScroll } from "../../context/ScrollContext";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import SideDrawer from "../home/SideDrawer";
-import LottieView from "lottie-react-native";
-import {
-  getCachedLottie,
-  getCachedLottieSync,
-  S3_APP_BANNER_LOTTIE_URL,
-} from "../../services/lottie.service";
+import Animated, { useAnimatedStyle } from "react-native-reanimated";
 
 export default function MainHeader({
   showBack = false,
@@ -21,20 +18,33 @@ export default function MainHeader({
   showBack?: boolean;
 }) {
   const colors = useThemeColors();
+  const { isDark } = useTheme();
   const navigation = useNavigation<NativeStackNavigationProp<any>>();
   const route = useRoute();
+  const insets = useSafeAreaInsets();
   const [isDrawerOpen, setDrawerOpen] = useState(false);
   const { user: currentUser } = useAuth();
+  const { headerTranslateY, footerTranslateY } = useGlobalScroll();
 
-  const [lottieSource, setLottieSource] = useState<any>(
-    getCachedLottieSync(S3_APP_BANNER_LOTTIE_URL),
+  const animatedStyle = useAnimatedStyle(() => {
+    return {
+      transform: [{ translateY: headerTranslateY.value }],
+    };
+  });
+
+  // The header/footer positions are GLOBAL shared values. Scrolling hides
+  // them (translateY up/down), but only scrollables wrapped in
+  // PullToRefreshWrapper update them — screens with plain ScrollViews
+  // (Wallet, Settings) or pushed screens never reset them, so the header
+  // could stay hidden forever after leaving a scrolled feed. Snap both back
+  // to fully visible whenever this screen gains focus — the Instagram
+  // behavior of a fresh header on every screen.
+  useFocusEffect(
+    React.useCallback(() => {
+      headerTranslateY.value = 0;
+      footerTranslateY.value = 0;
+    }, [headerTranslateY, footerTranslateY]),
   );
-
-  React.useEffect(() => {
-    getCachedLottie(S3_APP_BANNER_LOTTIE_URL).then((animData) => {
-      if (animData) setLottieSource(animData);
-    });
-  }, []);
 
   // Live unread badge — kept fresh by NotificationContext: it syncs on login,
   // socket (re)connect, and increments in real-time on incoming notifications.
@@ -44,7 +54,7 @@ export default function MainHeader({
   const { unreadCount } = useNotifications();
 
   return (
-    <View style={[styles.header, { borderBottomColor: colors.border }]}>
+    <Animated.View style={[styles.header, { borderBottomColor: colors.border, backgroundColor: colors.bg.base, paddingTop: insets.top + 4 }, animatedStyle]}>
       {showBack ? (
         // Pushed screens (community detail, settings, bookmarks, …) keep the
         // main header — logo, global search, notifications — with a back arrow
@@ -68,30 +78,43 @@ export default function MainHeader({
 
       <View
         style={[
-          StyleSheet.absoluteFill,
+          {
+            position: "absolute",
+            left: 0,
+            right: 0,
+            // Center the banner against the CONTENT row, not the whole padded
+            // box — absoluteFill would center it insets.top/2 higher than the
+            // menu/search icons (right up against the status bar).
+            top: insets.top + 4,
+            bottom: 10,
+          },
           { justifyContent: "center", alignItems: "center" },
         ]}
         pointerEvents="none"
       >
-        {lottieSource ? (
-          <LottieView
-            source={lottieSource}
-            autoPlay
-            loop
-            style={{ height: 28, width: 140, marginTop: 2 }}
-          />
-        ) : (
-          <Image
-            source={require("../../../Taddle_Box_Banner.png")}
-            style={{
-              height: 28,
-              width: 140,
-              resizeMode: "contain",
-              marginTop: 2,
-              tintColor: colors.text.primary,
-            }}
-          />
-        )}
+        {/* The banner is ALWAYS the PNG — no .lottie path. The banner
+            animation (S3_APP_BANNER_LOTTIE_URL) is unreachable (AccessDenied
+            on S3) and, when it survived via stale cache, rendered baked-in
+            artwork that ignored the theme (untinted in dark mode, wrong
+            colors on some screens). The PNG is tinted white in dark mode so
+            it reads correctly on the dark header, original (black +
+            brand-color) untinted in light.
+
+            The `key` is CRITICAL for live theme switches on iOS: a cached
+            native image does not re-apply a changed tintColor, so without it
+            the banner keeps its old tint until the app reloads. Remounting
+            via key forces the tint to re-render instantly. */}
+        <Image
+          key={isDark ? "banner-dark" : "banner-light"}
+          source={require("../../../Taddle_Box_Banner.png")}
+          style={{
+            height: 28,
+            width: 140,
+            resizeMode: "contain",
+            marginTop: 2,
+            ...(isDark ? { tintColor: colors.text.primary } : null),
+          }}
+        />
       </View>
 
       <View style={{ flexDirection: "row", alignItems: "center" }}>
@@ -193,12 +216,17 @@ export default function MainHeader({
         }}
         onProfile={() => navigation.getParent()?.navigate("Profile" as never)}
       />
-    </View>
+    </Animated.View>
   );
 }
 
 const styles = StyleSheet.create({
   header: {
+    position: "absolute",
+    top: 0,
+    left: 0,
+    right: 0,
+    zIndex: 100,
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",

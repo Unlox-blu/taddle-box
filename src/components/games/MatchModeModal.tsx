@@ -9,7 +9,6 @@ import React, {
   useCallback, useEffect, useMemo, useRef, useState,
 } from "react";
 import {
-  ActivityIndicator,
   AppState,
   Animated,
   Easing,
@@ -24,6 +23,13 @@ import {
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import * as Clipboard from "expo-clipboard";
+import LottieView from "lottie-react-native";
+import StateBlock from "../common/StateBlock";
+import {
+  getCachedLottie,
+  getCachedLottieSync,
+  S3_APP_ICON_LOTTIE_URL,
+} from "../../services/lottie.service";
 import { LinearGradient } from "expo-linear-gradient";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useAuth } from "../../context/AuthContext";
@@ -949,7 +955,7 @@ export default function MatchModeModal({
                 <Text style={styles.modeDesc}>Have a fun with mutual taddlers.</Text>
               </View>
               {lobbyLoading
-                ? <ActivityIndicator size="small" color={colors.primaryLight} />
+                ? <StateBlock inline loading />
                 : <Ionicons name="chevron-forward" size={20} color={colors.text.muted} />}
             </TouchableOpacity>
 
@@ -977,7 +983,7 @@ export default function MatchModeModal({
                   disabled={!joinCode.trim() || joinCodeLoading}
                 >
                   {joinCodeLoading
-                    ? <ActivityIndicator size="small" color="#fff" />
+                    ? <StateBlock inline loading loaderSize={18} />
                     : <Text style={styles.joinCodeBtnText}>Join</Text>}
                 </TouchableOpacity>
               </View>
@@ -1386,7 +1392,7 @@ function LobbyStep({
           style={styles.searchInput}
         />
         {followersLoading && (
-          <ActivityIndicator size="small" color={colors.primaryLight} style={{ marginTop: 12 }} />
+          <StateBlock inline loading style={{ marginTop: 12 }} />
         )}
         {!followersLoading && followers.length === 0 && (
           <Text style={styles.emptyText}>No mutual followers found.</Text>
@@ -1548,6 +1554,16 @@ function MatchmakingRadar({
   const pulse   = useRef(new Animated.Value(0)).current;
   const ripple1 = useRef(new Animated.Value(0)).current;
   const ripple2 = useRef(new Animated.Value(0)).current;
+  // The radar centre is the animated app logo; falls back to the cross-hair
+  // dot until the .lottie is cached.
+  const [lottieSource, setLottieSource] = useState<any>(
+    getCachedLottieSync(S3_APP_ICON_LOTTIE_URL),
+  );
+  useEffect(() => {
+    getCachedLottie(S3_APP_ICON_LOTTIE_URL).then((animData) => {
+      if (animData) setLottieSource(animData);
+    });
+  }, []);
 
   useEffect(() => {
     if (!isActive) {
@@ -1666,7 +1682,9 @@ function MatchmakingRadar({
             transform: [{ scale: ripple2.interpolate({ inputRange: [0, 1], outputRange: [1, 3.2] }) }],
           }} />
 
-          {/* Centre icon */}
+          {/* Centre — the animated app logo (cross-hair dot while the
+              .lottie isn't cached yet). Clipped to the circle via the logo's
+              own borderRadius so the parent's glow shadow isn't cut off. */}
           <Animated.View style={{
             width: 52, height: 52, borderRadius: 26,
             backgroundColor: colors.bg.elevated,
@@ -1677,17 +1695,18 @@ function MatchmakingRadar({
             opacity: centreOp,
             transform: [{ scale: pulse.interpolate({ inputRange: [0, 1], outputRange: [0.97, 1.04] }) }],
           }}>
-            {/* Radar cross-hair: two lines + rotating sweep line */}
-            <Animated.View style={{
-              position: "absolute", width: 26, height: 26,
-              alignItems: "center", justifyContent: "center",
-              transform: [{ rotate: sweepDeg }],
-            }}>
-              <View style={{ position: "absolute", width: 1, height: 24, backgroundColor: colors.primaryLight + "CC" }} />
-            </Animated.View>
-            <View style={{ position: "absolute", width: 24, height: 1, backgroundColor: colors.primaryLight + "55" }} />
-            <View style={{ position: "absolute", width: 1, height: 24, backgroundColor: colors.primaryLight + "55" }} />
-            <View style={{ width: 6, height: 6, borderRadius: 3, backgroundColor: colors.primaryLight }} />
+            {lottieSource ? (
+              <LottieView
+                source={lottieSource}
+                autoPlay
+                loop
+                cacheComposition={false}
+                resizeMode="cover"
+                style={{ width: "100%", height: "100%", borderRadius: 26, overflow: "hidden" }}
+              />
+            ) : (
+              <View style={{ width: 6, height: 6, borderRadius: 3, backgroundColor: colors.primaryLight }} />
+            )}
           </Animated.View>
         </View>
 

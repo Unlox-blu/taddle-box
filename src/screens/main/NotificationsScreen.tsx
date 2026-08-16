@@ -1,6 +1,6 @@
 import React, { useMemo, useState, useEffect } from 'react';
 import {
-  View, Text, ScrollView, TouchableOpacity, StyleSheet, ActivityIndicator, Image, 
+  View, Text, ScrollView, TouchableOpacity, StyleSheet, Image, 
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
@@ -17,6 +17,8 @@ import { postsService } from '../../services/posts.service';
 import { communityService } from '../../services/community.service';
 import { useNotifications } from '../../context/NotificationContext';
 import MainHeader from '../../components/common/MainHeader';
+import StateBlock from '../../components/common/StateBlock';
+import { useGlobalScroll } from "../../context/ScrollContext";
 import PullToRefreshWrapper from '../../components/common/PullToRefreshWrapper';
 import { notificationBus, NOTIF_EVENTS } from '../../lib/notificationBus';
 import { socketClient } from '../../services/socketClient';
@@ -252,6 +254,8 @@ export default function NotificationsScreen({ navigation }: Props) {
   // Usernames the user has followed back — persisted so re-entering the page
   // doesn't keep showing "Follow Back" when they already follow that user.
   const [followedUsernames, setFollowedUsernames] = useState<Set<string>>(new Set());
+  const [activeTab, setActiveTab] = useState<'All' | 'Mentions' | 'Follows'>('All');
+  const { headerHeight } = useGlobalScroll();
   const [followBusy, setFollowBusy] = useState<string | null>(null);
   // Tracks the response for incoming follow-request notifications.
   const [followReqState, setFollowReqState] = useState<
@@ -628,7 +632,7 @@ export default function NotificationsScreen({ navigation }: Props) {
   const unreadCount = notifs.filter(n => !n.isRead).length;
 
   return (
-    <View style={[styles.container, { paddingTop: insets.top }]}>
+    <View style={styles.container}>
       <StatusBar style={isDark ? 'light' : 'dark'} />
 
       {/* Main header — logo, global search, notifications (with live unread
@@ -636,9 +640,8 @@ export default function NotificationsScreen({ navigation }: Props) {
       <MainHeader showBack />
 
       {loading ? (
-        <View style={[styles.emptyState, { paddingTop: 100 }]}>
-          <ActivityIndicator size="large" color={colors.primary} />
-        </View>
+        // Centered branded loader — screen-centered StateBlock.
+        <StateBlock loading style={{ flex: 1, justifyContent: "center" }} />
       ) : notifs.length === 0 ? (
         <View style={styles.emptyState}>
           <Text style={styles.emptyEmoji}>📭</Text>
@@ -646,22 +649,13 @@ export default function NotificationsScreen({ navigation }: Props) {
           <Text style={styles.emptySub}>No new notifications right now. Check back later for updates on events, followers, and more.</Text>
         </View>
       ) : (
-        <PullToRefreshWrapper 
-          refreshing={refreshing} 
+        <PullToRefreshWrapper
+          refreshing={refreshing}
           onRefresh={onRefresh}
-          header={
-            <View style={styles.markAllRow}>
-              <TouchableOpacity onPress={markAllRead} disabled={unreadCount === 0} hitSlop={{ top: 6, bottom: 6, left: 6, right: 6 }}>
-                <Text style={[styles.markAll, unreadCount === 0 && styles.markAllDim]}>
-                  Mark all read
-                </Text>
-              </TouchableOpacity>
-            </View>
-          }
         >
           <ScrollView 
             showsVerticalScrollIndicator={false} 
-            contentContainerStyle={{ paddingTop: 8 }}
+            contentContainerStyle={{ paddingTop: headerHeight + 8 }}
             onScroll={({ nativeEvent }: any) => {
               const { layoutMeasurement, contentOffset, contentSize } = nativeEvent;
               const distanceFromBottom =
@@ -670,6 +664,15 @@ export default function NotificationsScreen({ navigation }: Props) {
             }}
             scrollEventThrottle={200}
           >
+          {/* Mark-all-read scrolls with the list — the absolute MainHeader
+              slides up over it for a full-screen feed. */}
+          <View style={styles.markAllRow}>
+            <TouchableOpacity onPress={markAllRead} disabled={unreadCount === 0} hitSlop={{ top: 6, bottom: 6, left: 6, right: 6 }}>
+              <Text style={[styles.markAll, unreadCount === 0 && styles.markAllDim]}>
+                Mark all read
+              </Text>
+            </TouchableOpacity>
+          </View>
           {pendingRequestNotifs.length > 0 && (
             <View style={styles.reqBanner}>
               <View style={{ flex: 1 }}>
@@ -691,7 +694,7 @@ export default function NotificationsScreen({ navigation }: Props) {
                   onPress={handleAcceptAllRequests}
                 >
                   {acceptingAll ? (
-                    <ActivityIndicator size="small" color="#fff" />
+                    <StateBlock inline loading loaderSize={18} />
                   ) : (
                     <Text style={styles.reqBannerBtnText}>Accept All</Text>
                   )}
@@ -907,10 +910,7 @@ export default function NotificationsScreen({ navigation }: Props) {
                                 }}
                               >
                                 {reqBusyId === notif.id ? (
-                                  <ActivityIndicator
-                                    size="small"
-                                    color={colors.text.secondary}
-                                  />
+                                  <StateBlock inline loading loaderSize={18} />
                                 ) : (
                                   <Text style={styles.btnDenyText}>Decline</Text>
                                 )}
@@ -924,7 +924,7 @@ export default function NotificationsScreen({ navigation }: Props) {
                                 }}
                               >
                                 {reqBusyId === notif.id ? (
-                                  <ActivityIndicator size="small" color="#fff" />
+                                  <StateBlock inline loading loaderSize={18} />
                                 ) : (
                                   <Text style={styles.btnJoinText}>Approve</Text>
                                 )}
@@ -1033,11 +1033,7 @@ export default function NotificationsScreen({ navigation }: Props) {
             );
           })}
           {loadingMore ? (
-            <ActivityIndicator
-              size="small"
-              color={colors.primary}
-              style={{ paddingVertical: 14 }}
-            />
+            <StateBlock inline loading style={{ paddingVertical: 14 }} />
           ) : null}
           <View style={{ height: 40 }} />
           </ScrollView>

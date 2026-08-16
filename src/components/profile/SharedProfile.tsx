@@ -6,9 +6,9 @@ import {
   TouchableOpacity,
   StyleSheet,
   Dimensions,
-  ActivityIndicator,
   FlatList,
   Image,
+  DeviceEventEmitter,
 
   } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -23,6 +23,8 @@ import { useNavigation, useFocusEffect } from "@react-navigation/native";
 import { WebView } from "react-native-webview";
 import SharedFeed from "../common/SharedFeed";
 import PullToRefreshWrapper from "../common/PullToRefreshWrapper";
+import StateBlock from "../common/StateBlock";
+import { useGlobalScroll } from "../../context/ScrollContext";
 import { postsService } from "../../services/posts.service";
 import { presenceIndicator } from "../../context/PresenceContext";
 import CommentsModal from "../home/CommentsModal";
@@ -486,6 +488,7 @@ export default function SharedProfile({
   const colors = useThemeColors();
   const styles = useMemo(() => makeStyles(colors), [colors]);
   const navigation = useNavigation<any>();
+  const { headerHeight } = useGlobalScroll();
 
   const [user, setUser] = useState<any>(initialUser);
   const [followed, setFollowed] = useState(!!initialUser?.isFollowing);
@@ -824,6 +827,23 @@ export default function SharedProfile({
 
   const refreshProps = { refreshing, onRefresh };
 
+  // Tab-bar double-tap on Profile → scroll to top + refresh (Home-style).
+  // Scroll-to-top for the posts feed is handled inside SharedFeed; the
+  // mentions list scrolls via its own ref here.
+  useEffect(() => {
+    const subs = [
+      DeviceEventEmitter.addListener('profileSingleTap', () => {
+        mentionsListRef.current?.scrollToOffset({ offset: 0, animated: true });
+      }),
+      DeviceEventEmitter.addListener('profileDoubleTap', () => {
+        mentionsListRef.current?.scrollToOffset({ offset: 0, animated: true });
+        DeviceEventEmitter.emit('triggerPullRefresh');
+        setTimeout(() => onRefresh(), 500);
+      }),
+    ];
+    return () => subs.forEach((s) => s.remove());
+  }, [onRefresh]);
+
   const openFollowList = (type: "followers" | "following") => {
     // Private account + not an approved follower: counts stay visible but the
     // list itself is gated (same rule the backend enforces with a 403).
@@ -844,6 +864,45 @@ export default function SharedProfile({
   // profile: "Followed by" makes no sense when the viewer IS the account.
   const mutualUsers = isOwnProfile ? [] : (user?.mutuals?.users || []).slice(0, 2);
   const mutualCount = isOwnProfile ? 0 : user?.mutuals?.count || mutualUsers.length;
+
+  // The cover banner sits below the absolute MainHeader (which hides over the
+  // content on scroll — Instagram style). Each scrollable below adds its own
+  // contentContainerStyle paddingTop so the offset scrolls away with the page
+  // and the banner fills the screen once the header is gone. NOTE: the posts
+  // tab uses SharedFeed, which already adds the offset — double-padding here
+  // would create a gap under the header.
+  // Posts / Reposts / Mentions — segmented tab bar (Twitter-style underline).
+  // Lives at the BOTTOM of the scrolling profile header, right below the
+  // achievements card — so the tabs appear under the banner/avatar/bio/stats/
+  // achievements, NOT pinned under the main header. The pinned-section-chrome
+  // treatment was reverted for the profile: on-device the tabs sat at the top
+  // (above the achievements), which looked wrong. Hidden on locked private
+  // accounts along with the feed. Mentions is own-profile only.
+  const profileTabs = !isLocked ? (
+    <View style={styles.postTabs}>
+      {(isOwnProfile
+        ? (["posts", "reposts", "mentions"] as const)
+        : (["posts", "reposts"] as const)
+      ).map((tab) => (
+        <TouchableOpacity
+          key={tab}
+          style={styles.postTab}
+          activeOpacity={0.7}
+          onPress={() => setProfileTab(tab)}
+        >
+          <Text
+            style={[
+              styles.postTabText,
+              profileTab === tab && styles.postTabTextActive,
+            ]}
+          >
+            {tab === "posts" ? "Posts" : tab === "reposts" ? "Reposts" : "Mentions"}
+          </Text>
+          {profileTab === tab && <View style={styles.postTabActiveBar} />}
+        </TouchableOpacity>
+      ))}
+    </View>
+  ) : null;
 
   const profileHeader = (
     <View>
@@ -1154,14 +1213,7 @@ export default function SharedProfile({
               ]}
             >
               {loadingProfile ? (
-                <ActivityIndicator
-                  size="small"
-                  color={
-                    followed || followStatus === "pending"
-                      ? colors.primary
-                      : "#fff"
-                  }
-                />
+                <StateBlock inline loading loaderSize={18} />
               ) : (
                 <>
                   {followed ? (
@@ -1301,34 +1353,9 @@ export default function SharedProfile({
         </View>
       )}
 
-      {/* Posts / Reposts / Mentions — segmented tab bar (Twitter-style
-          underline). Hidden on locked private accounts along with the feed.
-          Mentions is own-profile only — other users' mentions are private. */}
-      {!isLocked && (
-        <View style={styles.postTabs}>
-          {(isOwnProfile
-            ? (["posts", "reposts", "mentions"] as const)
-            : (["posts", "reposts"] as const)
-          ).map((tab) => (
-            <TouchableOpacity
-              key={tab}
-              style={styles.postTab}
-              activeOpacity={0.7}
-              onPress={() => setProfileTab(tab)}
-            >
-              <Text
-                style={[
-                  styles.postTabText,
-                  profileTab === tab && styles.postTabTextActive,
-                ]}
-              >
-                {tab === "posts" ? "Posts" : tab === "reposts" ? "Reposts" : "Mentions"}
-              </Text>
-              {profileTab === tab && <View style={styles.postTabActiveBar} />}
-            </TouchableOpacity>
-          ))}
-        </View>
-      )}
+      {/* Posts / Reposts / Mentions — below the achievements card, at the
+          bottom of the scrolling profile header. */}
+      {profileTabs}
     </View>
   );
 
@@ -1337,9 +1364,10 @@ export default function SharedProfile({
       {headerComponent}
 
       {isLocked ? (
-        <PullToRefreshWrapper {...refreshProps}>
+        <PullToRefreshWrapper {...refreshProps} >
           <ScrollView
             showsVerticalScrollIndicator={false}
+            contentContainerStyle={{ paddingTop: headerHeight }}
           >
           {profileHeader}
           <View style={{ padding: 48, alignItems: "center", gap: 12 }}>
@@ -1361,17 +1389,15 @@ export default function SharedProfile({
       // first load, paginated via onEndReached like the notifications screen.
       ) : profileTab === 'mentions' ? (
         loadingMentions && mentions.length === 0 ? (
-          <PullToRefreshWrapper {...refreshProps}>
-            <ScrollView showsVerticalScrollIndicator={false}>
+          <PullToRefreshWrapper {...refreshProps} >
+            <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingTop: headerHeight }}>
             {profileHeader}
-            <View style={{ padding: 40, alignItems: "center" }}>
-              <ActivityIndicator size="small" color={colors.primary} />
-            </View>
+            <StateBlock loading style={{ paddingVertical: 40 }} />
             </ScrollView>
           </PullToRefreshWrapper>
         ) : mentions.length === 0 ? (
-          <PullToRefreshWrapper {...refreshProps}>
-            <ScrollView showsVerticalScrollIndicator={false}>
+          <PullToRefreshWrapper {...refreshProps} >
+            <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingTop: headerHeight }}>
             {profileHeader}
             <View style={{ padding: 40, alignItems: "center" }}>
               <Text style={{ color: colors.text.muted }}>
@@ -1381,14 +1407,14 @@ export default function SharedProfile({
             </ScrollView>
           </PullToRefreshWrapper>
         ) : (
-          <PullToRefreshWrapper {...refreshProps}>
+          <PullToRefreshWrapper {...refreshProps} >
             <FlatList
               ref={mentionsListRef}
               data={mentions}
               keyExtractor={(item: any) => String(item.id)}
               showsVerticalScrollIndicator={false}
               ListHeaderComponent={profileHeader}
-              contentContainerStyle={{ paddingBottom: 24 }}
+              contentContainerStyle={{ paddingTop: headerHeight, paddingBottom: 24 }}
             onScroll={(e: any) => {
               profileScrollOffset.current = e.nativeEvent.contentOffset.y;
             }}
@@ -1403,11 +1429,7 @@ export default function SharedProfile({
             onEndReachedThreshold={0.4}
             ListFooterComponent={
               loadingMoreMentions ? (
-                <ActivityIndicator
-                  size="small"
-                  color={colors.primary}
-                  style={{ paddingVertical: 14 }}
-                />
+                <StateBlock inline loading style={{ paddingVertical: 14 }} />
               ) : (
                 <View style={{ height: 80 }} />
               )
@@ -1419,17 +1441,15 @@ export default function SharedProfile({
       // full-screen spinner on the very first load) so switching Posts ↔
       // Reposts never resets the scroll position to the top of the page.
       ) : loadingPosts && posts.length === 0 ? (
-        <PullToRefreshWrapper {...refreshProps}>
-          <ScrollView showsVerticalScrollIndicator={false}>
+        <PullToRefreshWrapper {...refreshProps} >
+          <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingTop: headerHeight }}>
           {profileHeader}
-          <View style={{ padding: 40, alignItems: "center" }}>
-            <ActivityIndicator size="small" color={colors.primary} />
-          </View>
+          <StateBlock loading style={{ paddingVertical: 40 }} />
           </ScrollView>
         </PullToRefreshWrapper>
       ) : posts.length === 0 ? (
-        <PullToRefreshWrapper {...refreshProps}>
-          <ScrollView showsVerticalScrollIndicator={false}>
+        <PullToRefreshWrapper {...refreshProps} >
+          <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingTop: headerHeight }}>
           {profileHeader}
           <View style={{ padding: 40, alignItems: "center" }}>
             <Text style={{ color: colors.text.muted }}>
@@ -1607,9 +1627,7 @@ export default function SharedProfile({
             originWhitelist={['*']}
             startInLoadingState
             renderLoading={() => (
-              <View style={{ flex: 1, alignItems: "center", justifyContent: "center" }}>
-                <ActivityIndicator size="large" color={colors.primary} />
-              </View>
+              <StateBlock loading style={{ flex: 1, justifyContent: "center" }} />
             )}
           />
         </View>
@@ -1761,11 +1779,7 @@ function FollowListModal({
               }}
               ListFooterComponent={
                 loading && users.length > 0 ? (
-                  <ActivityIndicator
-                    size="small"
-                    color={colors.primary}
-                    style={{ paddingVertical: 14 }}
-                  />
+                  <StateBlock inline loading style={{ paddingVertical: 14 }} />
                 ) : null
               }
               renderItem={({ item }) => (

@@ -1,7 +1,7 @@
 import React, { useState, useRef, useMemo } from 'react';
 import {
   View, Text, TextInput, TouchableOpacity, ScrollView, Image,
-  StyleSheet,  ActivityIndicator, KeyboardAvoidingView, Platform, Modal,
+  StyleSheet, KeyboardAvoidingView, Platform, Modal,
 } from 'react-native';
 import * as ImagePicker from 'expo-image-picker';
 import * as FileSystem from 'expo-file-system/legacy';
@@ -17,6 +17,7 @@ import { fontSizes, spacing, radii } from '../../theme';
 import { appLockBypass } from '../../utils/appLockBypass';
 import { themedAlert } from '../../components/common/ThemedAlert';
 import SmartInput from '../../components/common/SmartInput';
+import StateBlock from '../../components/common/StateBlock';
 
 const OCCUPATION_OPTIONS = [
   "Student",
@@ -62,6 +63,7 @@ export default function EditProfileScreen() {
   const [location,   setLocation]   = useState<string>((user as any)?.location   ?? '');
   const [organization, setOrganization] = useState<string>((user as any)?.organization ?? '');
   const [occupation, setOccupation] = useState<string>((user as any)?.occupation ?? '');
+  const [showOccupationDropdown, setShowOccupationDropdown] = useState(false);
   const [gender,     setGender]     = useState<string>((user as any)?.gender     ?? '');
   const [dateOfBirth, setDateOfBirth] = useState<string>((user as any)?.dateOfBirth
     ? String((user as any).dateOfBirth).slice(0, 10)
@@ -475,6 +477,74 @@ export default function EditProfileScreen() {
     </View>
   );
 
+  // Occupation — dropdown matching the signup flow (instead of chips).
+  const occupationField = (
+    <View
+      style={styles.fieldWrap}
+      onLayout={(e) => {
+        fieldYRef.current['Occupation'] = e.nativeEvent.layout.y;
+      }}
+    >
+      <Text style={[styles.fieldLabel, { color: colors.text.muted }]}>Occupation</Text>
+      <TouchableOpacity
+        onPress={() => setShowOccupationDropdown((prev) => !prev)}
+        style={[
+          styles.fieldInput,
+          {
+            borderColor: colors.border,
+            backgroundColor: colors.bg.card,
+            flexDirection: 'row',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+          },
+        ]}
+      >
+        <Text
+          style={{
+            color: occupation ? colors.text.primary : colors.text.muted,
+            fontSize: fontSizes.md,
+          }}
+        >
+          {occupation || 'Select occupation'}
+        </Text>
+        <Ionicons
+          name={showOccupationDropdown ? 'chevron-up' : 'chevron-down'}
+          size={18}
+          color={colors.text.muted}
+        />
+      </TouchableOpacity>
+      {showOccupationDropdown && (
+        <View
+          style={[
+            styles.dropdownContainer,
+            { backgroundColor: colors.bg.elevated, borderColor: colors.border },
+          ]}
+        >
+          {OCCUPATION_OPTIONS.map((opt) => (
+            <TouchableOpacity
+              key={opt}
+              style={[
+                styles.dropdownItem,
+                { borderBottomWidth: 1, borderBottomColor: colors.border },
+              ]}
+              onPress={() => {
+                setOccupation(opt);
+                setShowOccupationDropdown(false);
+              }}
+            >
+              <Text style={[styles.dropdownText, { color: colors.text.primary }]}>
+                {opt}
+              </Text>
+              {occupation === opt && (
+                <Ionicons name="checkmark" size={16} color={colors.primaryLight} />
+              )}
+            </TouchableOpacity>
+          ))}
+        </View>
+      )}
+    </View>
+  );
+
   const interestChips = (
     <View
       style={styles.fieldWrap}
@@ -486,7 +556,10 @@ export default function EditProfileScreen() {
       <View style={styles.chipRow}>
         {INTEREST_OPTIONS.map((opt) => {
           const value = stripInterestEmoji(opt);
-          const active = interests.includes(value);
+          // Signup stores interests WITH their emoji ("🎮 Gaming"); older
+          // saves may hold the stripped form ("Gaming"). Match either so
+          // signup-chosen interests always show pre-selected.
+          const active = interests.some((i) => stripInterestEmoji(i) === value);
           return (
             <TouchableOpacity
               key={opt}
@@ -535,7 +608,7 @@ export default function EditProfileScreen() {
           ]}
         >
           {saving
-            ? <ActivityIndicator size={16} color="#fff" />
+            ? <StateBlock inline loading loaderSize={16} />
             : <Text style={[styles.saveBtnText, { color: hasChanges ? '#fff' : colors.text.muted }]}>Save</Text>}
         </TouchableOpacity>
       </View>
@@ -626,7 +699,7 @@ export default function EditProfileScreen() {
               {username !== originalUsername && usernameValid && (
                 <View style={styles.usernameStatus}>
                   {usernameStatus === 'loading' ? (
-                    <ActivityIndicator size={14} color={colors.text.muted} />
+                    <StateBlock inline loading loaderSize={16} />
                   ) : (
                     <Ionicons
                       name={usernameStatus === 'available' ? 'checkmark-circle' : 'close-circle'}
@@ -665,9 +738,10 @@ export default function EditProfileScreen() {
           {field('Bio',        bio,      setBio,      { placeholder: 'Tell the world about yourself…', multiline: true, mentionsInput: true })}
           {field('Website',    website,  setWebsite,  { placeholder: 'https://yourwebsite.com', keyboardType: 'url', autoCapitalize: 'none' })}
           {field('Location',   location, setLocation, { placeholder: 'e.g. Bangalore, India' })}
-          {field('Organization / College', organization, setOrganization, { placeholder: 'Where do you work or study?' })}
+          {occupationField}
 
-          {selectChips('Occupation', OCCUPATION_OPTIONS.map(o => ({ label: o, value: o })), occupation, setOccupation)}
+          {occupation !== 'Other' && field('Organization / College', organization, setOrganization, { placeholder: 'Where do you work or study?' })}
+
           {selectChips('Gender', GENDER_OPTIONS, gender, setGender)}
 
           {/* Date of birth */}
@@ -781,6 +855,13 @@ const styles = StyleSheet.create({
   chipRow:     { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
   chip:        { borderWidth: 1, borderRadius: radii.full, paddingVertical: 7, paddingHorizontal: 14 },
   chipText:    { fontSize: fontSizes.sm, fontWeight: '600' },
+  // Occupation dropdown (signup-flow style)
+  dropdownContainer: { borderWidth: 1, borderRadius: radii.md, marginTop: 2, overflow: 'hidden' },
+  dropdownItem: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
+    paddingVertical: 12, paddingHorizontal: spacing.md,
+  },
+  dropdownText: { fontSize: fontSizes.sm, fontWeight: '600' },
   hint:        { fontSize: fontSizes.xs, marginTop: spacing.sm, lineHeight: 18 },
   dateBackdrop: { flex: 1, backgroundColor: 'rgba(0,0,0,0.45)', justifyContent: 'flex-end' },
   dateSheet:   { borderTopLeftRadius: radii.lg, borderTopRightRadius: radii.lg, paddingBottom: 24 },

@@ -202,10 +202,15 @@ export default function FollowRequestsScreen() {
           <ActivityIndicator size="large" color={colors.primary} />
         </View>
       ) : (
-      <PullToRefreshWrapper 
-        refreshing={refreshing} 
+      <PullToRefreshWrapper
+        refreshing={refreshing}
         onRefresh={onRefresh}
-        header={
+        // This pushed screen has NO MainHeader — its own header (back +
+        // title + Accept All) is the pinned block, starting at the wrapper's
+        // top. It hides/shows with scroll like the other screens' chrome.
+        headerOffsetH={0}
+        sectionHeaderH={61}
+        sectionHeader={
           <View style={styles.header}>
             <TouchableOpacity style={styles.backBtn} onPress={() => navigation.goBack()}>
               <Ionicons name="arrow-back" size={22} color={colors.text.primary} />

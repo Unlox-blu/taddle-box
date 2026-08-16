@@ -232,6 +232,8 @@ function reducer(state: WalletState, action: Action): WalletState {
 type WalletContextType = {
   wallet:          WalletState;
   fetchWalletData: () => Promise<void>;
+  /** Lightweight balance-only refresh (no transactions/settings). */
+  fetchWalletSummary: () => Promise<void>;
   /** Append the next page of history (XP + cash) to the transaction list. */
   loadMoreTransactions: () => Promise<void>;
   withdraw:        (amount: number) => Promise<string>;
@@ -248,6 +250,7 @@ type WalletContextType = {
 const WalletContext = createContext<WalletContextType>({
   wallet:        INITIAL,
   fetchWalletData: async () => {},
+  fetchWalletSummary: async () => {},
   loadMoreTransactions: async () => {},
   withdraw:      async () => '',
   convertXP:     async () => {},
@@ -378,6 +381,23 @@ export function WalletProvider({ children }: { children: React.ReactNode }) {
     }
   }, [mapCashTxn, mapXpTxn]);
 
+  // Lightweight balance refresh — hits the summary endpoint only (cash, held,
+  // XP counts) so Home/streak flows don't re-fetch transactions + settings.
+  const fetchWalletSummary = useCallback(async () => {
+    try {
+      const res = await walletService.getWalletSummary();
+      const d = res?.data;
+      if (!d) return;
+      dispatch({ type: 'SET_DATA', payload: {
+        cashBalance: (d.balanceCents || 0) / 100,
+        heldBalance: (d.heldBalanceCents ?? 0) / 100,
+        xpBalance: d.xpBalance ?? 0,
+      }});
+    } catch (e) {
+      console.error('Failed to fetch wallet summary:', e);
+    }
+  }, []);
+
   const loadMoreTransactions = useCallback(async () => {
     if (!hasMoreRef.current) return;
     try {
@@ -405,6 +425,7 @@ export function WalletProvider({ children }: { children: React.ReactNode }) {
   const value: WalletContextType = {
     wallet,
     fetchWalletData,
+    fetchWalletSummary,
     loadMoreTransactions,
     withdraw: async (amountRupees) => {
       try {

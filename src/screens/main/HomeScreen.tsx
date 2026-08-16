@@ -12,9 +12,7 @@ import {
   TouchableWithoutFeedback,
   Animated,
   DeviceEventEmitter,
-  ActivityIndicator,
 } from "react-native";
-import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { StatusBar } from "expo-status-bar";
@@ -29,6 +27,7 @@ import { useTheme, useThemeColors } from "../../context/ThemeContext";
 import PostCard from "../../components/home/PostCard";
 import SpotlightCarousel from "../../components/home/SpotlightCarousel";
 import MainHeader from "../../components/common/MainHeader";
+import StateBlock from "../../components/common/StateBlock";
 import CommentsModal from "../../components/home/CommentsModal";
 import { useAuth } from "../../context/AuthContext";
 import { useWallet } from "../../context/WalletContext";
@@ -58,8 +57,7 @@ export default function HomeScreen() {
   const scrollRef = useRef<FlatList>(null);
 
   const { user: CURRENT_USER, refreshUser } = useAuth();
-  const { wallet, fetchWalletData } = useWallet();
-  const insets = useSafeAreaInsets();
+  const { wallet, fetchWalletSummary } = useWallet();
   const navigation = useNavigation<HomeNavProp>();
   const isFocused = useIsFocused();
   const { isDark } = useTheme();
@@ -79,9 +77,16 @@ export default function HomeScreen() {
   const { mutate: toggleSave } = useToggleSave();
 
   // Refresh the feed whenever the Home tab regains focus so new posts and XP
-  // from other tabs show up without a manual pull-to-refresh.
+  // from other tabs show up without a manual pull-to-refresh. The FIRST
+  // focus is skipped — initHomeData below already refetches the feed on
+  // mount, so refetching here too would double-fire the startup feed call.
+  const firstFocusRef = useRef(true);
   useFocusEffect(
     useCallback(() => {
+      if (firstFocusRef.current) {
+        firstFocusRef.current = false;
+        return;
+      }
       refetchFeed();
     }, [refetchFeed]),
   );
@@ -143,7 +148,9 @@ export default function HomeScreen() {
 
   useEffect(() => {
     const sub = DeviceEventEmitter.addListener("homeDoubleTap", () => {
-      // Delay the refresh so it doesn't interrupt the SharedFeed smooth scroll animation
+      // Drop the pull bubble in like a real pull, then refresh after the
+      // scroll animation finishes.
+      DeviceEventEmitter.emit("triggerPullRefresh");
       setTimeout(() => {
         onRefresh();
       }, 500);
@@ -281,7 +288,7 @@ export default function HomeScreen() {
           setLocalXP((prevXP: number) => prevXP + (d.rewardXp || 0));
         }
 
-        fetchWalletData(); // refresh the XP balance (socket also fires)
+        fetchWalletSummary(); // refresh the XP balance (socket also fires)
         return true;
       }
       return false;
@@ -294,7 +301,7 @@ export default function HomeScreen() {
     } finally {
       setRestoring(false);
     }
-  }, [fetchWalletData]);
+  }, [fetchWalletSummary]);
 
   // XP fly-to-card animation
   const xpCardRef = useRef<View>(null);
@@ -392,7 +399,7 @@ export default function HomeScreen() {
   };
 
   return (
-    <View style={[styles.container, { paddingTop: insets.top }]}>
+    <View style={styles.container}>
       <StatusBar style={isDark ? "light" : "dark"} />
 
       {/* ── Header ────────────────────────────────── */}
@@ -431,15 +438,13 @@ export default function HomeScreen() {
         ListFooterComponent={
           <>
             {!hasNextPage && posts.length > 0 ? (
-              <View style={{ padding: 24, alignItems: "center" }}>
-                <Text style={{ color: colors.text.muted, fontSize: 14 }}>
-                  That's it for now! Come back later for more.
-                </Text>
-              </View>
+              <StateBlock
+                inline
+                title="That's it for now! Come back later for more."
+                style={{ padding: 24 }}
+              />
             ) : isLoading || isRefetching ? (
-              <View style={{ padding: 24, alignItems: "center" }}>
-                <ActivityIndicator color={colors.primary} />
-              </View>
+              <StateBlock inline loading style={{ paddingVertical: 24 }} />
             ) : null}
             <View style={{ height: 110 }} />
           </>

@@ -27,6 +27,7 @@ import AppLockOverlay from "./src/components/common/AppLockOverlay";
 import NotificationBanner from "./src/components/common/NotificationBanner";
 import { ThemedAlertHost } from "./src/components/common/ThemedAlert";
 import { PresenceProvider } from "./src/context/PresenceContext";
+import { ScrollProvider } from "./src/context/ScrollContext";
 import { useAuth } from "./src/context/AuthContext";
 import { locationService } from "./src/services/location.service";
 import { initGameSound } from "./src/services/gameSound";
@@ -59,26 +60,28 @@ function AppShell() {
       style={{ flex: 1, backgroundColor: colors.bg.base }}
     >
       <SafeAreaProvider>
-        <RNStatusBar
-          barStyle={isDark ? "light-content" : "dark-content"}
-          backgroundColor={colors.bg.base}
-        />
-        
-        {/* Render navigators underneath so they are ready */}
-        {!isLoading && (
-          <>
-            <LocationTracker />
-            <AppNavigator />
-            <NotificationBanner />
-            <AppLockOverlay />
-            <ThemedAlertHost />
-          </>
-        )}
+        <ScrollProvider>
+          <RNStatusBar
+            barStyle={isDark ? "light-content" : "dark-content"}
+            backgroundColor={colors.bg.base}
+          />
+          
+          {/* Render navigators underneath so they are ready */}
+          {!isLoading && (
+            <>
+              <LocationTracker />
+              <AppNavigator />
+              <NotificationBanner />
+              <AppLockOverlay />
+              <ThemedAlertHost />
+            </>
+          )}
 
-        {/* Global Lottie Splash Screen Overlay */}
-        {isSplashVisible && (
-          <AnimatedSplashScreen onAnimationFinish={() => setLottieFinished(true)} />
-        )}
+          {/* Global Lottie Splash Screen Overlay */}
+          {isSplashVisible && (
+            <AnimatedSplashScreen onAnimationFinish={() => setLottieFinished(true)} />
+          )}
+        </ScrollProvider>
       </SafeAreaProvider>
     </GestureHandlerRootView>
   );

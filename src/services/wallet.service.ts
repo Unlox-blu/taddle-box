@@ -7,6 +7,12 @@ export const walletService = {
     return response.data;
   },
 
+  /** Lightweight balance-only summary — cash/held/XP counts, no transactions. */
+  getWalletSummary: async () => {
+    const response = await apiClient.get('/wallet/me/summary');
+    return response.data;
+  },
+
   /** Fetch wallet transactions. `q` searches the FULL history server-side
       (description/type/category/status/amount) — not just the first page. */
   getTransactions: async (page = 1, limit = 20, q = '') => {

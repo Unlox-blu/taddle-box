@@ -11,6 +11,7 @@ import { fontSizes, spacing, radii, type ColorPalette } from '../../theme';
 import { useThemeColors } from '../../context/ThemeContext';
 import SharedFeed from '../../components/common/SharedFeed';
 import MainHeader from '../../components/common/MainHeader';
+import { SectionHeader } from '../../components/common/SectionChrome';
 import { useBookmarks } from '../../queries/feed';
 import { useToggleLike, useToggleSave } from '../../mutations/posts';
 import type { HomeStackParamList, Post } from '../../types';
@@ -45,11 +46,6 @@ function makeStyles(c: ColorPalette) {
       paddingHorizontal: 8, paddingVertical: 3,
     },
     countText: { fontSize: fontSizes.xs, fontWeight: '800', color: '#fff' },
-
-    subtext: {
-      fontSize: fontSizes.sm, color: c.text.muted,
-      paddingHorizontal: spacing.xl, paddingVertical: spacing.md,
-    },
 
     empty: {
       flex: 1, alignItems: 'center', justifyContent: 'center',
@@ -88,7 +84,7 @@ export default function BookmarksScreen() {
   );
 
   return (
-    <View style={[styles.container, { paddingTop: insets.top }]}>
+    <View style={styles.container}>
       {/* Main header — logo, global search, notifications; back arrow instead
           of the drawer menu on this pushed screen. */}
       <MainHeader showBack />
@@ -112,11 +108,17 @@ export default function BookmarksScreen() {
           onEndReached={() => {
             if (hasNextPage) fetchNextPage();
           }}
-          ListHeaderComponent={
-            <Text style={styles.subtext}>
-              {saved.length} saved {saved.length === 1 ? 'post' : 'posts'}
-            </Text>
+          // Pinned section chrome — the page heading hides and shows IN
+          // LOCKSTEP with the main header (same treatment as the
+          // Communities/Events/Games title + pills), instead of scrolling
+          // away with the list.
+          sectionHeader={
+            <SectionHeader
+              title="Bookmarks"
+              subtitle={`${saved.length} saved ${saved.length === 1 ? 'post' : 'posts'}`}
+            />
           }
+          sectionHeaderH={80}
           contentContainerStyle={{ paddingBottom: 40 }}
         />
       )}

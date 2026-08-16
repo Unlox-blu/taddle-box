@@ -5,12 +5,12 @@ import {
   Text,
   StyleSheet,
   TouchableOpacity,
-  ActivityIndicator,
   FlatList,
   Image,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { LinearGradient } from "expo-linear-gradient";
+import StateBlock from "../common/StateBlock";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { fontSizes, radii, spacing } from "../../theme";
 import { useThemeColors } from "../../context/ThemeContext";
@@ -114,9 +114,7 @@ export default function TournamentLeaderboardModal({ visible, tournament, onClos
           </LinearGradient>
 
           {loading ? (
-            <View style={styles.centerBox}>
-              <ActivityIndicator size="large" color={colors.primary} />
-            </View>
+            <StateBlock loading style={styles.centerBox} />
           ) : leaderboard.length === 0 ? (
             <View style={styles.centerBox}>
               <Ionicons name="trophy-outline" size={48} color={colors.text.muted} style={{ marginBottom: spacing.sm }} />

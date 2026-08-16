@@ -183,6 +183,12 @@ export const notificationService = {
     return { data: mappedData, meta: response.data?.meta };
   },
 
+  /** Lightweight unread badge — just the count, no notification rows. */
+  getUnreadCount: async (): Promise<number> => {
+    const response = await apiClient.get("/notifications/unread-count");
+    return response.data?.data?.unreadCount ?? 0;
+  },
+
   markAllRead: async () => {
     const response = await apiClient.patch("/notifications/read-all");
     return response.data;

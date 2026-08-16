@@ -14,7 +14,7 @@ export default function ProfileScreen() {
   const { user: authUser } = useAuth();
 
   return (
-    <View style={{ flex: 1, backgroundColor: colors.bg.base, paddingTop: insets.top }}>
+    <View style={{ flex: 1, backgroundColor: colors.bg.base }}>
       <StatusBar style={isDark ? 'light' : 'dark'} />
       <SharedProfile 
         initialUser={authUser} 

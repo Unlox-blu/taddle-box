@@ -16,7 +16,7 @@ import {
   DeviceEventEmitter,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { useNavigation } from "@react-navigation/native";
+import { useNavigation, useFocusEffect } from "@react-navigation/native";
 import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
 import { Ionicons } from "@expo/vector-icons";
 import { LinearGradient } from "expo-linear-gradient";
@@ -24,6 +24,7 @@ import { StatusBar } from "expo-status-bar";
 import { fontSizes, spacing, radii, type ColorPalette } from "../../theme";
 import { useTheme, useThemeColors } from "../../context/ThemeContext";
 import PullToRefreshWrapper from '../../components/common/PullToRefreshWrapper';
+import StateBlock from '../../components/common/StateBlock';
 import { useAuth } from "../../context/AuthContext";
 import { useCommunities, useCommunityCategories } from "../../queries/communities";
 import {
@@ -32,6 +33,7 @@ import {
 } from "../../mutations/communities";
 import type { Community, CommunityStackParamList } from "../../types";
 import MainHeader from "../../components/common/MainHeader";
+import { SectionHeader } from "../../components/common/SectionChrome";
 import * as ImagePicker from "expo-image-picker";
 import * as FileSystem from "expo-file-system";
 import { mediaService } from "../../services/media.service";
@@ -93,36 +95,6 @@ function makeStyles(c: ColorPalette) {
   return StyleSheet.create({
     container: { flex: 1, backgroundColor: c.bg.base },
 
-    header: {
-      flexDirection: "row",
-      alignItems: "center",
-      justifyContent: "space-between",
-      paddingHorizontal: spacing.xl,
-      paddingTop: 16,
-      paddingBottom: 12,
-    },
-    title: {
-      fontSize: fontSizes.xxl,
-      fontWeight: "900",
-      color: c.text.primary,
-      letterSpacing: -1,
-    },
-    subtitle: {
-      fontSize: fontSizes.sm,
-      color: c.text.muted,
-      marginTop: 2,
-    },
-    iconButton: {
-      width: 36,
-      height: 36,
-      borderRadius: 18,
-      backgroundColor: c.bg.card,
-      borderWidth: 1,
-      borderColor: c.border,
-      alignItems: "center",
-      justifyContent: "center",
-    },
-
     createBtnWrap: {
       overflow: "hidden",
       borderRadius: radii.full,
@@ -140,36 +112,6 @@ function makeStyles(c: ColorPalette) {
       paddingVertical: 10,
     },
     createBtnText: { color: "#fff", fontWeight: "700", fontSize: fontSizes.sm },
-
-    chipsWrap: { backgroundColor: c.bg.base, paddingVertical: 16 },
-    chips: { paddingHorizontal: spacing.xl, gap: 12 },
-    chip: {
-      paddingVertical: 10,
-      paddingHorizontal: 20,
-      borderRadius: radii.full,
-
-      backgroundColor: c.bg.card,
-      borderWidth: 1,
-      borderColor: c.border,
-      flexDirection: "row",
-      alignItems: "center",
-    },
-    chipActive: {
-      borderColor: c.primary,
-      backgroundColor: "rgba(124,58,237,0.15)",
-      shadowColor: c.primary,
-      shadowOffset: { width: 0, height: 4 },
-      shadowOpacity: 0.3,
-      shadowRadius: 8,
-      elevation: 4,
-    },
-    chipText: {
-      fontSize: fontSizes.sm,
-      color: c.text.muted,
-      fontWeight: "600",
-      letterSpacing: 0.2,
-    },
-    chipTextActive: { color: c.primaryLight, fontWeight: "800" },
 
     sectionHeaderRow: {
       flexDirection: "row",
@@ -190,38 +132,6 @@ function makeStyles(c: ColorPalette) {
       color: c.primaryLight,
       fontWeight: "600",
     },
-
-    emptyState: {
-      alignItems: "center",
-      paddingVertical: 60,
-      paddingHorizontal: spacing.xl,
-    },
-    emptyEmoji: { fontSize: 56, marginBottom: 16 },
-    emptyTitle: {
-      fontSize: fontSizes.xl,
-      fontWeight: "800",
-      color: c.text.primary,
-      marginBottom: 8,
-      textAlign: "center",
-    },
-    emptyDesc: {
-      fontSize: fontSizes.sm,
-      color: c.text.muted,
-      textAlign: "center",
-      lineHeight: 22,
-    },
-    emptyBtn: {
-      marginTop: 24,
-      backgroundColor: c.primary,
-      paddingHorizontal: 32,
-      paddingVertical: 14,
-      borderRadius: radii.full,
-      shadowColor: c.primary,
-      shadowOffset: { width: 0, height: 4 },
-      shadowOpacity: 0.2,
-      shadowRadius: 8,
-    },
-    emptyBtnText: { fontSize: fontSizes.md, fontWeight: "700", color: "#fff" },
 
     /* Featured Horizontal Card */
     featCard: {
@@ -515,6 +425,7 @@ export default function CommunityScreen() {
     isRefetching,
     fetchNextPage,
     hasNextPage,
+    isPending,
   } = useCommunities('', filter, categoryParam);
   const communities = communitiesData?.pages.flatMap((p: any) => p.items) || [];
 
@@ -540,6 +451,47 @@ export default function CommunityScreen() {
     });
     return () => sub.remove();
   }, []);
+
+  // Scroll offset is saved on every scroll and restored on refocus — the
+  // list stays mounted, so re-entering the tab keeps your place instead of
+  // resetting to the top.
+  const communitiesScrollRef = React.useRef<any>(null);
+  const communityScrollOffsetRef = React.useRef(0);
+
+  // Re-fetch the ACTIVE pill's data whenever the tab regains focus (the
+  // react-query cache was serving first-fetched data on re-entry). Debounced:
+  // a blur during the 300ms window cancels the pending refetch, so rapid tab
+  // switching doesn't fire one API call per hop.
+  useFocusEffect(
+    React.useCallback(() => {
+      const t = setTimeout(() => {
+        refetch();
+        setTimeout(() => {
+          communitiesScrollRef.current?.scrollTo({
+            y: communityScrollOffsetRef.current,
+            animated: false,
+          });
+        }, 80);
+      }, 300);
+      return () => clearTimeout(t);
+    }, [refetch]),
+  );
+
+  // Tab-bar single-tap → scroll to top; double-tap → scroll to top + refresh
+  // the active pill, dropping the pull bubble in like a real pull.
+  React.useEffect(() => {
+    const subs = [
+      DeviceEventEmitter.addListener('communitySingleTap', () => {
+        communitiesScrollRef.current?.scrollTo({ y: 0, animated: true });
+      }),
+      DeviceEventEmitter.addListener('communityDoubleTap', () => {
+        communitiesScrollRef.current?.scrollTo({ y: 0, animated: true });
+        DeviceEventEmitter.emit('triggerPullRefresh');
+        setTimeout(() => refetch(), 500);
+      }),
+    ];
+    return () => subs.forEach((s) => s.remove());
+  }, [refetch]);
 
   // Derived Data for the "All" tab previews
   const joinedCommunities = useMemo(
@@ -697,80 +649,44 @@ export default function CommunityScreen() {
   };
 
   return (
-    <View style={[styles.container, { paddingTop: insets.top }]}>
+    <View style={styles.container}>
       <StatusBar style={isDark ? "light" : "dark"} />
 
       <MainHeader />
 
-      <PullToRefreshWrapper 
-        refreshing={isRefetching} 
+      <PullToRefreshWrapper
+        refreshing={isRefetching}
         onRefresh={refetch}
-        header={
-          <>
-            <View style={styles.header}>
-              <View>
-                <Text style={styles.title}>Communities</Text>
-                <Text style={styles.subtitle}>Find your tribe.</Text>
-              </View>
-              <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
-                <TouchableOpacity
-                  style={styles.iconButton}
-                  onPress={() =>
-                    navigation.navigate("Leaderboards", { initialTab: "Community" })
-                  }
-                >
-                  <Ionicons
-                    name="trophy-outline"
-                    size={20}
-                    color={colors.text.secondary}
-                  />
-                </TouchableOpacity>
-              </View>
-            </View>
-
-            <View style={styles.chipsWrap}>
-              <ScrollView
-                horizontal
-                showsHorizontalScrollIndicator={false}
-                contentContainerStyle={styles.chips}
-              >
-                {ALL_CATEGORY_TABS.map((cat) => (
-                  <TouchableOpacity
-                    key={cat.key}
-                    style={[
-                      styles.chip,
-                      activeCategory === cat.key && styles.chipActive,
-                    ]}
-                    onPress={() => setActiveCategory(cat.key)}
-                  >
-                    <Ionicons
-                      name={cat.icon as any}
-                      size={14}
-                      color={
-                        activeCategory === cat.key
-                          ? colors.primaryLight
-                          : colors.text.muted
-                      }
-                      style={{ marginRight: 4 }}
-                    />
-                    <Text
-                      style={[
-                        styles.chipText,
-                        activeCategory === cat.key && styles.chipTextActive,
-                      ]}
-                    >
-                      {cat.label}
-                    </Text>
-                  </TouchableOpacity>
-                ))}
-              </ScrollView>
-            </View>
-          </>
+        sectionHeader={
+          /* Pinned with the main header — title + category chips slide
+              away with it for a full-screen feed, and ease back in together
+              on scroll-up. Shared SectionHeader component. */
+          <SectionHeader
+            title="Communities"
+            subtitle="Find your tribe."
+            actions={[
+              {
+                icon: "trophy-outline",
+                onPress: () =>
+                  navigation.navigate("Leaderboards", { initialTab: "Community" }),
+              },
+            ]}
+            pills={ALL_CATEGORY_TABS.map((cat) => ({
+              key: cat.key,
+              label: cat.label,
+              icon: cat.icon as any,
+              active: activeCategory === cat.key,
+              onPress: () => setActiveCategory(cat.key),
+            }))}
+          />
         }
+        sectionHeaderH={144}
       >
         <ScrollView
+          ref={communitiesScrollRef}
           showsVerticalScrollIndicator={false}
         onScroll={({ nativeEvent }) => {
+          communityScrollOffsetRef.current = nativeEvent.contentOffset.y;
           if (isCloseToBottom(nativeEvent) && hasNextPage) {
             fetchNextPage();
           }
@@ -779,7 +695,9 @@ export default function CommunityScreen() {
         contentContainerStyle={{ paddingBottom: 100 }}
       >
         {/* Render ALL View — sections in the SERVER-provided order. */}
-        {activeCategory === "All" ? (
+        {isPending ? (
+          <StateBlock loading />
+        ) : activeCategory === "All" ? (
           <>
             {sectionOrder.map((s, idx) => renderAllSection(s, idx === 0))}
           </>
@@ -797,32 +715,19 @@ export default function CommunityScreen() {
             </View>
 
             {filteredCommunities.length === 0 ? (
-              <View style={styles.emptyState}>
-                <Ionicons
-                  name={
-                    activeCategory === "Joined"
-                      ? "people-outline"
-                      : "search-outline"
-                  }
-                  size={56}
-                  color={colors.text.muted}
-                  style={{ marginBottom: 16 }}
-                />
-                <Text style={styles.emptyTitle}>Nothing here yet</Text>
-                <Text style={styles.emptyDesc}>
-                  {activeCategory === "Joined"
+              <StateBlock
+                icon={
+                  activeCategory === "Joined" ? "people-outline" : "search-outline"
+                }
+                title="Nothing here yet"
+                subtitle={
+                  activeCategory === "Joined"
                     ? "You haven't joined any communities. Explore and find your vibe!"
-                    : `We couldn't find any communities for ${activeCategory}. Be the first to create one!`}
-                </Text>
-                {activeCategory === "Joined" && (
-                  <TouchableOpacity
-                    style={styles.emptyBtn}
-                    onPress={() => setActiveCategory("All")}
-                  >
-                    <Text style={styles.emptyBtnText}>Explore All</Text>
-                  </TouchableOpacity>
-                )}
-              </View>
+                    : `We couldn't find any communities for ${activeCategory}. Be the first to create one!`
+                }
+                actionLabel={activeCategory === "Joined" ? "Explore All" : undefined}
+                onAction={() => setActiveCategory("All")}
+              />
             ) : (
               filteredCommunities.map((c) => (
                 <CompactCommunityCard

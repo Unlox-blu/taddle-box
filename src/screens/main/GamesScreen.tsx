@@ -8,6 +8,7 @@ import React, {
 import {
   ActivityIndicator,
   Animated,
+  DeviceEventEmitter,
   Easing,
   Image,
   Modal,
@@ -40,7 +41,9 @@ import {
   type MatchmakingResponse,
 } from "../../services/games.service";
 import MainHeader from "../../components/common/MainHeader";
+import { SectionHeader } from "../../components/common/SectionChrome";
 import PresenceDot from "../../components/common/PresenceDot";
+import StateBlock from "../../components/common/StateBlock";
 import ChessGame from "../../components/games/ChessGame";
 import LudoGame from "../../components/games/LudoGame";
 import SnakeLadderGame from "../../components/games/SnakeLadderGame";
@@ -141,6 +144,8 @@ export default function GamesScreen() {
     games: backendGames,
     trendingSlugs: backendTrending,
     fetchGamesData,
+    refreshMatchHistory,
+    refreshGames,
   } = useGames();
 
   // Merge backend games with local assets, then order the display list so
@@ -264,11 +269,78 @@ export default function GamesScreen() {
     }
   }, [fetchGamesData]);
 
+  // Tab-aware refresh — ONE API per active pill. Shared by pull-to-refresh,
+  // the tab-bar double-tap, and subsequent focus events.
+  const refreshForActiveTab = useCallback(async () => {
+    if (activeTab === "tournaments") {
+      try {
+        const res = await gamesService.getTournaments(1, 20);
+        setTournaments(res?.data || []);
+      } catch (error) {
+        console.warn("Failed to load tournaments", error);
+        setTournaments([]);
+      }
+      return;
+    }
+    if (activeTab === "history") {
+      await refreshMatchHistory();
+      return;
+    }
+    // games pill — a single getGames call (trending + resume banner stay
+    // stale on purpose, per request).
+    await refreshGames();
+  }, [activeTab, refreshMatchHistory, refreshGames]);
+
+  // First mount loads EVERYTHING (full sweep warms all pills); later focus
+  // events only refresh the active pill so tab switches don't rerun the
+  // whole loadGamesData sweep. Subsequent focus refreshes are debounced — a
+  // blur during the 300ms window cancels the pending refresh.
+  const hasLoadedRef = useRef(false);
+  // Scroll offset is saved on every scroll and restored on refocus so
+  // re-entering the tab keeps your place (like Communities/Events).
+  const gamesScrollRef = useRef<any>(null);
+  const gamesScrollOffsetRef = useRef(0);
   useFocusEffect(
     useCallback(() => {
-      loadGamesData();
-    }, [loadGamesData]),
+      if (!hasLoadedRef.current) {
+        hasLoadedRef.current = true;
+        loadGamesData();
+      } else {
+        const t = setTimeout(() => {
+          refreshForActiveTab();
+          setTimeout(() => {
+            gamesScrollRef.current?.scrollTo({
+              y: gamesScrollOffsetRef.current,
+              animated: false,
+            });
+          }, 80);
+        }, 300);
+        return () => clearTimeout(t);
+      }
+    }, [loadGamesData, refreshForActiveTab]),
   );
+
+  // Tab-bar single-tap → scroll to top; double-tap → scroll to top + refresh
+  // the active pill (same as Home's double-tap behavior).
+  useEffect(() => {
+    const subs = [
+      DeviceEventEmitter.addListener("gamesSingleTap", () => {
+        gamesScrollRef.current?.scrollTo({ y: 0, animated: true });
+      }),
+      DeviceEventEmitter.addListener("gamesDoubleTap", () => {
+        gamesScrollRef.current?.scrollTo({ y: 0, animated: true });
+        DeviceEventEmitter.emit("triggerPullRefresh");
+        setTimeout(() => {
+          // Drive `refreshing` so the wrapper holds the bubble while the
+          // fetch runs, then springs it back — otherwise it would stay
+          // pulled down (the refresh runs without flipping refreshing).
+          setRefreshing(true);
+          refreshForActiveTab().finally(() => setRefreshing(false));
+        }, 500);
+      }),
+    ];
+    return () => subs.forEach((s) => s.remove());
+  }, [refreshForActiveTab]);
 
   useEffect(() => {
     const sub = require("react-native").DeviceEventEmitter.addListener(
@@ -472,7 +544,7 @@ export default function GamesScreen() {
   }, [activeSession]);
 
   return (
-    <View style={[styles.container, { paddingTop: insets.top }]}>
+    <View style={styles.container}>
       <StatusBar style="light" />
       <MainHeader />
 
@@ -481,72 +553,52 @@ export default function GamesScreen() {
         refreshing={refreshing}
         onRefresh={async () => {
           setRefreshing(true);
-          await loadGamesData();
-          setRefreshing(false);
+          // Pull-to-refresh re-fetches ONLY the active pill's data (one API
+          // per pill) instead of loadGamesData's full sweep on every pull.
+          try {
+            await refreshForActiveTab();
+          } finally {
+            setRefreshing(false);
+          }
         }}
-        header={
-          <>
-            <View style={styles.header}>
-              <View>
-                <Text style={styles.title}>Games Zone</Text>
-                <Text style={styles.subtitle}>
-                  Compete, climb rankings, and earn XP.
-                </Text>
-              </View>
-              <View style={styles.headerActions}>
-                <TouchableOpacity
-                  style={styles.iconButton}
-                  onPress={() => setGameSettingsVisible(true)}
-                >
-                  <Ionicons
-                    name="settings-outline"
-                    size={20}
-                    color={colors.text.secondary}
-                  />
-                </TouchableOpacity>
-                <TouchableOpacity
-                  style={styles.iconButton}
-                  onPress={() =>
-                    navigation.navigate("Leaderboards", { initialTab: "Games" })
-                  }
-                >
-                  <Ionicons
-                    name="trophy-outline"
-                    size={20}
-                    color={colors.text.secondary}
-                  />
-                </TouchableOpacity>
-              </View>
-            </View>
-
-            <View style={{ backgroundColor: colors.bg.base, paddingVertical: 8 }}>
-              <ScrollView
-                horizontal
-                showsHorizontalScrollIndicator={false}
-                contentContainerStyle={styles.tabsScroll}
-              >
-                {(["games", "tournaments", "history"] as ActiveTab[]).map((tab) => (
-                  <TouchableOpacity
-                    key={tab}
-                    onPress={() => setActiveTab(tab)}
-                    style={[styles.tabChip, activeTab === tab && styles.tabChipActive]}
-                  >
-                    <Text
-                      style={[
-                        styles.tabText,
-                        activeTab === tab && styles.tabTextActive,
-                      ]}
-                    >
-                      {tab === "games"
-                        ? "Games"
-                        : tab === "tournaments"
-                          ? "Tournaments"
-                          : "History"}
-                    </Text>
-                  </TouchableOpacity>
-                ))}
-              </ScrollView>
-            </View>
+        sectionHeader={
+          /* Pinned with the main header — title + tab chips slide away with
+              it for a full-screen feed, and ease back in together. The invite
+              banner below still scrolls with the content. Shared SectionHeader
+              component. */
+          <SectionHeader
+            title="Games Zone"
+            subtitle="Compete, climb rankings, and earn XP."
+            actions={[
+              {
+                icon: "settings-outline",
+                onPress: () => setGameSettingsVisible(true),
+              },
+              {
+                icon: "trophy-outline",
+                onPress: () =>
+                  navigation.navigate("Leaderboards", { initialTab: "Games" }),
+              },
+            ]}
+            pills={(["games", "tournaments", "history"] as ActiveTab[]).map((tab) => ({
+              key: tab,
+              label: tab === "games" ? "Games" : tab === "tournaments" ? "Tournaments" : "History",
+              active: activeTab === tab,
+              onPress: () => setActiveTab(tab),
+            }))}
+          />
+        }
+        sectionHeaderH={144}
+      >
+        <ScrollView
+          ref={gamesScrollRef}
+          showsVerticalScrollIndicator={false}
+          contentContainerStyle={[styles.content]}
+          onScroll={(e) => {
+            gamesScrollOffsetRef.current = e.nativeEvent.contentOffset.y;
+          }}
+          scrollEventThrottle={16}
+        >
 
             {incomingInvite && (
               <View style={styles.inviteBanner}>
@@ -611,16 +663,9 @@ export default function GamesScreen() {
                 </View>
               </View>
             )}
-          </>
-        }
-      >
-        <ScrollView
-          showsVerticalScrollIndicator={false}
-          contentContainerStyle={styles.content}
-        >
         {activeTab === "games" && (
           <>
-            <SectionHeader title="Available Games" />
+            <ContentSectionHeader title="Available Games" />
             <View style={styles.gameGrid}>
               {realGames.map((game) => {
                 const isRejoin =
@@ -656,11 +701,12 @@ export default function GamesScreen() {
 
         {activeTab === "tournaments" && (
           <>
-            <SectionHeader title="Active Tournaments" />
+            <ContentSectionHeader title="Active Tournaments" />
             {loading && tournaments.length === 0 ? (
-              <LoadingBlock label="Loading tournaments" />
+              <StateBlock card loading label="Loading tournaments" />
             ) : tournaments.length === 0 ? (
-              <EmptyBlock
+              <StateBlock
+                card
                 title="No active tournaments"
                 subtitle="Check back soon for the next challenge."
               />
@@ -696,13 +742,14 @@ export default function GamesScreen() {
 
         {activeTab === "history" && (
           <>
-            <SectionHeader
+            <ContentSectionHeader
               title="Recent Matches"
               action="Open"
               onPress={() => setScreenModal("history")}
             />
             {matches.length === 0 ? (
-              <EmptyBlock
+              <StateBlock
+                card
                 title="No matches yet"
                 subtitle="Play a match to build your record."
               />
@@ -770,7 +817,7 @@ export default function GamesScreen() {
   );
 }
 
-function SectionHeader({
+function ContentSectionHeader({
   title,
   action,
   onPress,
@@ -1579,7 +1626,8 @@ function HistoryModal({
             <MatchRow key={match.id} match={match} />
           ))}
           {matches.length === 0 && (
-            <EmptyBlock
+            <StateBlock
+              card
               title="No matches yet"
               subtitle="Your saved game sessions will appear here."
             />
@@ -1695,51 +1743,9 @@ function GameSettingsModal({
   );
 }
 
-function LoadingBlock({ label }: { label: string }) {
-  const colors = useThemeColors();
-  const styles = useMemo(() => makeStyles(colors), [colors]);
-  return (
-    <View style={styles.emptyBlock}>
-      <ActivityIndicator color={colors.primaryLight} />
-      <Text style={styles.emptyTitle}>{label}</Text>
-    </View>
-  );
-}
-
-function EmptyBlock({ title, subtitle }: { title: string; subtitle: string }) {
-  const colors = useThemeColors();
-  const styles = useMemo(() => makeStyles(colors), [colors]);
-  return (
-    <View style={styles.emptyBlock}>
-      <Text style={styles.emptyTitle}>{title}</Text>
-      <Text style={styles.emptySubtitle}>{subtitle}</Text>
-    </View>
-  );
-}
-
 function makeStyles(c: ColorPalette) {
   return StyleSheet.create({
     container: { flex: 1, backgroundColor: c.bg.base },
-    header: {
-      flexDirection: "row",
-      alignItems: "center",
-      justifyContent: "space-between",
-      paddingHorizontal: spacing.xl,
-      paddingTop: 16,
-      paddingBottom: 12,
-    },
-    title: {
-      fontSize: fontSizes.xxl,
-      fontWeight: "900",
-      color: c.text.primary,
-      letterSpacing: -1,
-    },
-    subtitle: {
-      maxWidth: 280,
-      marginTop: 2,
-      fontSize: fontSizes.sm,
-      color: c.text.muted,
-    },
     iconButton: {
       width: 36,
       height: 36,
@@ -1749,11 +1755,6 @@ function makeStyles(c: ColorPalette) {
       borderColor: c.border,
       alignItems: "center",
       justifyContent: "center",
-    },
-    headerActions: {
-      flexDirection: "row",
-      alignItems: "center",
-      gap: spacing.sm,
     },
     statsRow: {
       flexDirection: "row",
@@ -1782,32 +1783,6 @@ function makeStyles(c: ColorPalette) {
       fontWeight: "700",
       color: c.success,
     },
-    tabsScroll: {
-      paddingHorizontal: spacing.xl,
-      paddingTop: 8,
-      paddingBottom: 8,
-      gap: 12,
-    },
-    tabChip: {
-      paddingVertical: 10,
-      paddingHorizontal: 20,
-      borderRadius: radii.full,
-      backgroundColor: c.bg.card,
-      borderWidth: 1,
-      borderColor: c.border,
-      flexDirection: "row",
-      alignItems: "center",
-    },
-    tabChipActive: {
-      borderColor: c.primary,
-      backgroundColor: "rgba(124,58,237,0.15)",
-    },
-    tabText: {
-      fontSize: fontSizes.sm,
-      color: c.text.muted,
-      fontWeight: "600",
-    },
-    tabTextActive: { color: c.primaryLight, fontWeight: "800" },
     content: { paddingBottom: 110 },
     sectionHeader: {
       flexDirection: "row",
@@ -2223,27 +2198,6 @@ function makeStyles(c: ColorPalette) {
       fontSize: fontSizes.xs,
       color: c.text.muted,
       marginTop: 2,
-    },
-    emptyBlock: {
-      margin: spacing.lg,
-      padding: spacing.xl,
-      alignItems: "center",
-      borderRadius: radii.lg,
-      backgroundColor: c.bg.card,
-      borderWidth: 1,
-      borderColor: c.border,
-    },
-    emptyTitle: {
-      color: c.text.primary,
-      fontSize: fontSizes.md,
-      fontWeight: "900",
-      textAlign: "center",
-    },
-    emptySubtitle: {
-      marginTop: 6,
-      color: c.text.muted,
-      fontSize: fontSizes.sm,
-      textAlign: "center",
     },
     inviteBanner: {
       marginHorizontal: spacing.lg,

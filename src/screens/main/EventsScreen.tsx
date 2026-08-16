@@ -12,17 +12,18 @@ import {
   DeviceEventEmitter,
   Dimensions,
 } from "react-native";
-import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useNavigation, useFocusEffect } from "@react-navigation/native";
 import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
 import { Ionicons } from "@expo/vector-icons";
 import PullToRefreshWrapper from "../../components/common/PullToRefreshWrapper";
+import StateBlock from "../../components/common/StateBlock";
 import { LinearGradient } from "expo-linear-gradient";
 import { StatusBar } from "expo-status-bar";
 import { fontSizes, spacing, radii, type ColorPalette } from "../../theme";
 import { useTheme, useThemeColors } from "../../context/ThemeContext";
 import Button from "../../components/common/Button";
 import MainHeader from "../../components/common/MainHeader";
+import { SectionHeader } from "../../components/common/SectionChrome";
 // removed mockData import
 import type { Event } from "../../types";
 import { useEvents } from "../../queries/events";
@@ -82,62 +83,6 @@ function getTypeMeta(c: ColorPalette): Record<string, TypeMeta> {
 function makeStyles(c: ColorPalette) {
   return StyleSheet.create({
     container: { flex: 1, backgroundColor: c.bg.base },
-    header: {
-      flexDirection: "row",
-      alignItems: "center",
-      justifyContent: "space-between",
-      paddingHorizontal: spacing.xl,
-      paddingTop: 16,
-      paddingBottom: 12,
-    },
-    title: {
-      fontSize: fontSizes.xxl,
-      fontWeight: "900",
-      color: c.text.primary,
-      letterSpacing: -1,
-    },
-    subtitle: {
-      fontSize: fontSizes.sm,
-      color: c.text.muted,
-      marginTop: 2,
-    },
-    iconButton: {
-      width: 36,
-      height: 36,
-      borderRadius: 18,
-      backgroundColor: c.bg.card,
-      borderWidth: 1,
-      borderColor: c.border,
-      alignItems: "center",
-      justifyContent: "center",
-    },
-    // Top Tabs (Communities style)
-    tabsScroll: {
-      paddingHorizontal: spacing.xl,
-      paddingTop: 16,
-      paddingBottom: 8,
-      gap: 12,
-    },
-    tabChip: {
-      paddingVertical: 10,
-      paddingHorizontal: 20,
-      borderRadius: radii.full,
-      backgroundColor: c.bg.card,
-      borderWidth: 1,
-      borderColor: c.border,
-      flexDirection: "row",
-      alignItems: "center",
-    },
-    tabChipActive: {
-      borderColor: c.primary,
-      backgroundColor: "rgba(124,58,237,0.15)",
-    },
-    tabText: {
-      fontSize: fontSizes.sm,
-      color: c.text.muted,
-      fontWeight: "600",
-    },
-    tabTextActive: { color: c.primaryLight, fontWeight: "800" },
 
     featCard: {
       marginHorizontal: spacing.lg,
@@ -291,24 +236,6 @@ function makeStyles(c: ColorPalette) {
     },
     evCtaBtnText: { fontSize: fontSizes.sm, fontWeight: "700", color: "#fff" },
     evCtaBtnTextDone: { color: c.success },
-    emptyState: {
-      alignItems: "center",
-      paddingVertical: 28,
-      gap: 6,
-      marginHorizontal: spacing.lg,
-      backgroundColor: c.bg.card,
-      borderRadius: radii.lg,
-      borderWidth: 1,
-      borderColor: c.border,
-    },
-    emptyEmoji: { fontSize: 36 },
-    emptyText: {
-      fontSize: fontSizes.md,
-      fontWeight: "700",
-      color: c.text.primary,
-    },
-    emptySubtext: { fontSize: fontSizes.sm, color: c.text.muted },
-
     // Calendar Styles
     calendarContainer: {
       backgroundColor: c.bg.surface,
@@ -527,7 +454,6 @@ const CalendarView = ({ selectedDate, onSelectDate, events, styles }: any) => {
 };
 
 export default function EventsScreen() {
-  const insets = useSafeAreaInsets();
   const navigation = useNavigation<NativeStackNavigationProp<any>>();
   const { isDark } = useTheme();
   const colors = useThemeColors();
@@ -544,7 +470,8 @@ export default function EventsScreen() {
     isRefetching,
     fetchNextPage,
     hasNextPage,
-    isFetchingNextPage
+    isFetchingNextPage,
+    isPending,
   } = useEvents('', null, activeTab);
 
   const events = useMemo(() => allEventsData?.pages?.flatMap(p => p) || [], [allEventsData]);
@@ -560,13 +487,46 @@ export default function EventsScreen() {
     return () => sub.remove();
   }, []);
 
+  // Scroll offset is saved on every scroll and restored on refocus so
+  // re-entering the tab keeps your place (like Communities).
+  const eventsListRef = useRef<any>(null);
+  const eventsScrollOffsetRef = useRef(0);
+
   // Refresh whenever the tab regains focus so live status, registrations and
-  // XP prices stay current without a manual pull-to-refresh.
+  // XP prices stay current without a manual pull-to-refresh. Debounced: a
+  // blur during the 300ms window cancels the pending refetch so rapid tab
+  // switching doesn't fire one API call per hop. Restores the scroll offset
+  // after the refetch instead of resetting to the top.
   useFocusEffect(
     React.useCallback(() => {
-      refetch();
+      const t = setTimeout(() => {
+        refetch();
+        setTimeout(() => {
+          eventsListRef.current?.scrollToOffset({
+            offset: eventsScrollOffsetRef.current,
+            animated: false,
+          });
+        }, 80);
+      }, 300);
+      return () => clearTimeout(t);
     }, [refetch]),
   );
+
+  // Tab-bar single-tap → scroll to top; double-tap → scroll to top + refresh
+  // the active scope, dropping the pull bubble in like a real pull.
+  useEffect(() => {
+    const subs = [
+      DeviceEventEmitter.addListener('eventsSingleTap', () => {
+        eventsListRef.current?.scrollToOffset({ offset: 0, animated: true });
+      }),
+      DeviceEventEmitter.addListener('eventsDoubleTap', () => {
+        eventsListRef.current?.scrollToOffset({ offset: 0, animated: true });
+        DeviceEventEmitter.emit('triggerPullRefresh');
+        setTimeout(() => refetch(), 500);
+      }),
+    ];
+    return () => subs.forEach((s) => s.remove());
+  }, [refetch]);
 
   const displayEvents = events.filter((e: any) => {
     if (selectedDate) {
@@ -651,7 +611,7 @@ export default function EventsScreen() {
   };
 
   return (
-    <View style={[styles.container, { paddingTop: insets.top }]}>
+    <View style={styles.container}>
       <StatusBar style={isDark ? "light" : "dark"} />
       
       <EventJoinModal 
@@ -664,43 +624,43 @@ export default function EventsScreen() {
       <PullToRefreshWrapper 
         refreshing={isRefetching} 
         onRefresh={refetch}
-        header={
-          <View style={styles.header}>
-            <View>
-              <Text style={styles.title}>Events Zone</Text>
-              <Text style={styles.subtitle}>Discover what's happening.</Text>
-            </View>
-            <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
-              <TouchableOpacity
-                style={styles.iconButton}
-                onPress={() => setShowCalendar((s) => !s)}
-              >
-                <Ionicons
-                  name={showCalendar ? "close-outline" : "calendar-outline"}
-                  size={22}
-                  color={colors.text.secondary}
-                />
-              </TouchableOpacity>
-              <TouchableOpacity
-                style={styles.iconButton}
-                onPress={() =>
-                  navigation.navigate("Leaderboards", { initialTab: "Events" })
-                }
-              >
-                <Ionicons
-                  name="trophy-outline"
-                  size={20}
-                  color={colors.text.secondary}
-                />
-              </TouchableOpacity>
-            </View>
-          </View>
+        sectionHeader={
+          /* Pinned with the main header — title + top tabs slide away with
+              it for a full-screen feed, and ease back in together. Shared
+              SectionHeader component. */
+          <SectionHeader
+            title="Events Zone"
+            subtitle="Discover what's happening."
+            actions={[
+              {
+                icon: showCalendar ? "close-outline" : "calendar-outline",
+                onPress: () => setShowCalendar((s) => !s),
+              },
+              {
+                icon: "trophy-outline",
+                onPress: () =>
+                  navigation.navigate("Leaderboards", { initialTab: "Events" }),
+              },
+            ]}
+            pills={TABS.map((t) => ({
+              key: t.key,
+              label: t.label,
+              active: activeTab === t.key,
+              onPress: () => setActiveTab(t.key),
+            }))}
+          />
         }
+        sectionHeaderH={144}
       >
         <FlatList
+          ref={eventsListRef}
           data={activeTab === "all" ? discoverList : displayEvents}
           keyExtractor={(item) => item.id}
           showsVerticalScrollIndicator={false}
+          onScroll={(e) => {
+            eventsScrollOffsetRef.current = e.nativeEvent.contentOffset.y;
+          }}
+          scrollEventThrottle={16}
         onEndReached={() => {
           if (hasNextPage && !isFetchingNextPage) {
             fetchNextPage();
@@ -709,32 +669,6 @@ export default function EventsScreen() {
         onEndReachedThreshold={0.5}
         ListHeaderComponent={
           <>
-            {/* Top Tabs (All, Joined, Upcoming, Featured) */}
-            <ScrollView
-              horizontal
-              showsHorizontalScrollIndicator={false}
-              contentContainerStyle={styles.tabsScroll}
-            >
-              {TABS.map((t) => (
-                <TouchableOpacity
-                  key={t.key}
-                  onPress={() => setActiveTab(t.key)}
-                  style={[
-                    styles.tabChip,
-                    activeTab === t.key && styles.tabChipActive,
-                  ]}
-                >
-                  <Text
-                    style={[
-                      styles.tabText,
-                      activeTab === t.key && styles.tabTextActive,
-                    ]}
-                  >
-                    {t.label}
-                  </Text>
-                </TouchableOpacity>
-              ))}
-            </ScrollView>
 
             {showCalendar && (
               <CalendarView
@@ -902,20 +836,15 @@ export default function EventsScreen() {
               </>
             )}
 
-            {(activeTab === "all" && displayEvents.length === 0 && selectedDate) || (activeTab !== "all" && displayEvents.length === 0) ? (
-              <View style={styles.emptyState}>
-                <Ionicons
-                  name={activeTab === "joined" ? "ticket-outline" : "calendar-outline"}
-                  size={40}
-                  color={colors.text.muted}
-                />
-                <Text style={styles.emptyText}>
-                  {activeTab === "joined" ? "No participated events yet" : "No events found"}
-                </Text>
-                <Text style={styles.emptySubtext}>
-                  {activeTab === "joined" ? "Join events to see them here" : "Try a different date or filter"}
-                </Text>
-              </View>
+            {isPending && events.length === 0 ? (
+              <StateBlock card loading style={{ paddingTop: 40 }} />
+            ) : (activeTab === "all" && displayEvents.length === 0 && selectedDate) || (activeTab !== "all" && displayEvents.length === 0) ? (
+              <StateBlock
+                card
+                icon={activeTab === "joined" ? "ticket-outline" : "calendar-outline"}
+                title={activeTab === "joined" ? "No participated events yet" : "No events found"}
+                subtitle={activeTab === "joined" ? "Join events to see them here" : "Try a different date or filter"}
+              />
             ) : null}
 
             {activeTab === "all" && upcomingList.length > 0 && (

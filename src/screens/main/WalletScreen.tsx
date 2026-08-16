@@ -2,7 +2,7 @@ import React, { useState, useRef, useMemo, useEffect } from 'react';
 import {
   View, Text, ScrollView, TouchableOpacity, StyleSheet,
   Modal, TextInput, KeyboardAvoidingView, Platform,
-   Share, Switch, Animated, SafeAreaView, ActivityIndicator, Alert,
+   Share, Switch, Animated, SafeAreaView, Alert, DeviceEventEmitter,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { WebView } from 'react-native-webview';
@@ -15,7 +15,10 @@ import { useThemeColors } from '../../context/ThemeContext';
 import { useWallet } from '../../context/WalletContext';
 import { useAuth } from '../../context/AuthContext';
 import MainHeader from '../../components/common/MainHeader';
+import PullToRefreshWrapper from '../../components/common/PullToRefreshWrapper';
+import { SectionHeader } from '../../components/common/SectionChrome';
 import PinPad from '../../components/common/PinPad';
+import StateBlock from '../../components/common/StateBlock';
 import { authService } from '../../services/auth.service';
 import * as LocalAuthentication from '../../utils/localAuth';
 import { getReferralRewards } from '../../services/appConfig.service';
@@ -50,6 +53,7 @@ export default function WalletScreen() {
   const { user } = useAuth();
   const colors = useThemeColors();
   const styles = useMemo(() => makeStyles(colors), [colors]);
+  const [refreshing, setRefreshing] = useState(false);
 
   const [txnFilter,       setTxnFilter]       = useState<TxnFilter>('All');
   const [activeModal,     setActiveModal]      = useState<ActiveModal>('none');
@@ -61,6 +65,33 @@ export default function WalletScreen() {
   const [walletUnlocked,  setWalletUnlocked]   = useState(false);
   const [localPinEnabled, setLocalPinEnabled]  = useState(false);
   const scrollRef = useRef<ScrollView>(null);
+
+  // Pull-to-refresh re-fetches the wallet + transactions from the server.
+  const onRefresh = async () => {
+    setRefreshing(true);
+    try {
+      await fetchWalletData();
+    } finally {
+      setRefreshing(false);
+    }
+  };
+
+  // Tab-bar single-tap → scroll to top; double-tap → scroll to top + refresh
+  // (Home-style behavior on every tab).
+  useEffect(() => {
+    const subs = [
+      DeviceEventEmitter.addListener('walletSingleTap', () => {
+        scrollRef.current?.scrollTo({ y: 0, animated: true });
+      }),
+      DeviceEventEmitter.addListener('walletDoubleTap', () => {
+        scrollRef.current?.scrollTo({ y: 0, animated: true });
+        DeviceEventEmitter.emit('triggerPullRefresh');
+        setTimeout(() => onRefresh(), 500);
+      }),
+    ];
+    return () => subs.forEach((s) => s.remove());
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   useEffect(() => {
     SecureStore.getItemAsync('wallet_pinEnabled').then(val => {
@@ -151,18 +182,30 @@ export default function WalletScreen() {
   const handleWalletUnlock = async (pin: string) => {
     try {
       await authService.verifyPin(pin);
-      setWalletUnlocked(true);
+      unlockWalletAndRefresh();
     } catch (e: any) {
       const msg: string = e?.response?.data?.message || e?.message || 'Invalid PIN';
       // If no PIN is set up (auto-healed by backend), clear stale SecureStore flag and let them in
       if (msg.toLowerCase().includes('not set up') || msg.toLowerCase().includes('lock has been disabled')) {
         await SecureStore.deleteItemAsync('wallet_pinEnabled');
         setLocalPinEnabled(false);
-        setWalletUnlocked(true); // let them through — lock was stale
+        unlockWalletAndRefresh(); // let them through — lock was stale
       } else {
         throw new Error(msg);
       }
     }
+  };
+
+  // Unlocking swaps to the unlocked screen, whose PullToRefreshWrapper mounts
+  // on the next render — give it a beat, then drop the branded pull bubble in
+  // (same animation + haptic as a real pull / tab-bar double-tap) while the
+  // wallet data re-fetches, so the just-unlocked balances are fresh.
+  const unlockWalletAndRefresh = () => {
+    setWalletUnlocked(true);
+    setTimeout(() => {
+      DeviceEventEmitter.emit('triggerPullRefresh');
+      onRefresh();
+    }, 150);
   };
 
   const triggerBiometric = async () => {
@@ -177,7 +220,7 @@ export default function WalletScreen() {
           cancelLabel: 'Use PIN',
         });
         if (result.success) {
-          setWalletUnlocked(true);
+          unlockWalletAndRefresh();
         }
       }
     } catch (e) {
@@ -195,7 +238,7 @@ export default function WalletScreen() {
 
   if (isWalletLocked) {
     return (
-      <View style={[styles.container, { paddingTop: insets.top }]}>
+      <View style={styles.container}>
         <StatusBar style="light" />
         <MainHeader />
         <View style={{ flex: 1, backgroundColor: colors.bg.base }}>
@@ -225,23 +268,32 @@ export default function WalletScreen() {
   }
 
   return (
-    <View style={[styles.container, { paddingTop: insets.top }]}>
+    <View style={styles.container}>
       <StatusBar style="light" />
 
       <MainHeader />
 
-      {/* ── Header ── */}
-      <View style={styles.header}>
-        <View>
-          <Text style={styles.title}>My Wallet</Text>
-          <Text style={styles.subtitle}>Manage your earnings & XP</Text>
-        </View>
-        <TouchableOpacity style={styles.settingsBtn} onPress={() => openModal('settings')}>
-          <Ionicons name="settings-outline" size={20} color={colors.text.secondary} />
-        </TouchableOpacity>
-      </View>
-
-      <ScrollView ref={scrollRef} showsVerticalScrollIndicator={false}>
+      {/* Pull-to-refresh + pinned "My Wallet" heading — the heading hides and
+          shows IN LOCKSTEP with the main header (same treatment as the other
+          screens'); the wrapper injects the scroll handling + content offset. */}
+      <PullToRefreshWrapper
+        refreshing={refreshing}
+        onRefresh={onRefresh}
+        sectionHeaderH={76}
+        sectionHeader={
+          <SectionHeader
+            title="My Wallet"
+            subtitle="Manage your earnings & XP"
+            actions={[{ icon: "settings-outline", onPress: () => openModal('settings') }]}
+          />
+        }
+      >
+      <ScrollView
+        ref={scrollRef}
+        showsVerticalScrollIndicator={false}
+        scrollEventThrottle={16}
+        contentContainerStyle={{ paddingBottom: 60 }}
+      >
 
         {/* ── Hero: Cash Balance ── */}
         <LinearGradient
@@ -462,6 +514,7 @@ export default function WalletScreen() {
 
         <View style={{ height: 100 }} />
       </ScrollView>
+      </PullToRefreshWrapper>
 
       {/* ── Modals ── */}
       <WithdrawModal
@@ -577,12 +630,11 @@ export default function WalletScreen() {
               sharedCookiesEnabled
               startInLoadingState
               renderLoading={() => (
-                <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', backgroundColor: colors.bg.base }}>
-                  <ActivityIndicator size="large" color={colors.primary} />
-                  <Text style={{ color: colors.text.muted, marginTop: 12, fontSize: 13 }}>
-                    Opening secure PayU checkout...
-                  </Text>
-                </View>
+                <StateBlock
+                  loading
+                  label="Opening secure PayU checkout…"
+                  style={{ flex: 1, justifyContent: 'center', backgroundColor: colors.bg.base }}
+                />
               )}
               onError={(syntheticEvent) => {
                 console.warn('PayU WebView error', syntheticEvent.nativeEvent);
@@ -1171,7 +1223,7 @@ function RechargeModal({
               style={styles.modalActionBtn}
             >
               {busy ? (
-                <ActivityIndicator size="small" color="#fff" />
+                <StateBlock inline loading loaderSize={18} />
               ) : (
                 <Text style={[styles.modalActionText, !canSubmit && { color: colors.text.muted }]}>Next</Text>
               )}
@@ -1716,18 +1768,6 @@ function SettingsModal({
 function makeStyles(c: ColorPalette) {
   return StyleSheet.create({
   container: { flex: 1, backgroundColor: c.bg.base },
-
-  header: {
-    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
-    paddingHorizontal: spacing.xl, paddingTop: 12, paddingBottom: 6,
-  },
-  title:    { fontSize: fontSizes.xxl, fontWeight: '800', color: c.text.primary },
-  subtitle: { fontSize: fontSizes.xs,  color: c.text.muted, marginTop: 2 },
-  settingsBtn: {
-    width: 36, height: 36, borderRadius: 18,
-    backgroundColor: c.bg.card, borderWidth: 1, borderColor: c.border,
-    alignItems: 'center', justifyContent: 'center',
-  },
 
   // Hero card
   heroCard: {

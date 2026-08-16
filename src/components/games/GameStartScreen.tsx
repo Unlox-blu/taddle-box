@@ -1,7 +1,6 @@
 'use strict';
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import {
-  ActivityIndicator,
   Animated,
   Easing,
   Image,
@@ -14,6 +13,7 @@ import {
 import { LinearGradient } from "expo-linear-gradient";
 import { Ionicons } from "@expo/vector-icons";
 import Svg, { Circle } from "react-native-svg";
+import StateBlock from "../common/StateBlock";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import type { Game } from "../../types";
 import GameLogo from "./GameLogo";
@@ -269,7 +269,7 @@ export default function GameStartScreen({
             opacity: waitPulse.interpolate({ inputRange: [0, 1], outputRange: [0.5, 1] }),
             transform: [{ scale: waitPulse.interpolate({ inputRange: [0, 1], outputRange: [0.97, 1.03] }) }],
           }]}>
-            <ActivityIndicator size="small" color="#A78BFA" />
+            <StateBlock inline loading loaderSize={20} />
             <Text style={ss.waitingText}>Waiting for players…</Text>
           </Animated.View>
         )}

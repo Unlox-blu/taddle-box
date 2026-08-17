@@ -53,11 +53,9 @@ const renderHomePage = (req) => {
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Taddle API</title>
+<title>Taddle Server</title>
 </head>
 <body>
-<h1>Taddle API</h1>
-<p>Backend for the Taddle social platform</p>
 <p><strong>Status:</strong> All systems operational</p>
 <p><strong>Environment:</strong> ${escapeHtml(info.environment)}</p>
 <p><strong>Version:</strong> v${escapeHtml(info.version)}</p>

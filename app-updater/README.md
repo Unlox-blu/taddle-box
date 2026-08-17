@@ -1,167 +1,73 @@
-# app-updater — APK self-update for test builds
+# app-updater — The Universal Upload Architecture
 
-The app can update itself **in place** for APK test builds: it fetches an update
-manifest, compares version codes, downloads the new APK and hands it to the
-Android installer. **Store builds (Play Store / App Store) are completely
-unaffected** — the feature is compiled out.
+The app updater is a highly secure, heavily cached, and completely automated architecture designed for direct sideloaded APKs. It fetches an update manifest, downloads the new APK, and hands it to the Android system installer. 
 
-## How it works
+**Store builds (Play Store / App Store) are completely unaffected** — the updater feature is physically compiled out of store builds.
 
-```
-app launch / foreground
-      │
-      ▼
-AppUpdaterProvider (mounted via entry.direct.js → app-updater/AppWithUpdater.tsx)
-      │  isUpdaterEnabled()?   ← Constants.expoConfig.extra.appUpdater.enabled
-      ▼
-fetch manifest  GET {manifestUrl}        → { data: { android: { versionCode, url, ... } } }
-      │
-      ▼
-versionCode > installed versionCode?     (Application.nativeBuildVersion)
-      │ yes
-      ▼
-prompt → download APK (expo-file-system, with progress)
-      ▼
-install via system installer
-      (IntentLauncher + FileProvider content:// URI — no FileUriExposedException)
-```
+## How the Architecture Works
 
-## Files
+This is a true enterprise-grade updater system with a "Just-In-Time" (JIT) security handshake and a centralized Redis caching layer.
 
-| File | Purpose |
-| --- | --- |
-| `updater.ts` | Core: config, manifest fetch, version compare, download, install |
-| `AppUpdaterProvider.tsx` | React provider + prompt / progress / install / error UI |
-| `AppWithUpdater.tsx` | Internal-only app wrapper that mounts the provider inside the theme tree |
-| `types.ts` | Manifest types |
+### 1. The Upload Flow (Backend Heavy-Lifting)
+Your local publishing script no longer requires AWS keys, Expo tokens, or complex logic. 
+When you run `npm run publish:android:update:direct`, it simply POSTs your local APK to the backend.
 
-Plus two entry points at the app root: `entry.store.js` (plain App — used by
-store builds) and `entry.direct.js` (App + updater — used by direct builds).
-Everything else in the app is untouched; the module is self-contained.
+1. **Native Parsing:** The backend natively parses the APK binary (using `app-info-parser`) to extract the exact `versionCode`, `versionName`, and package name (`com.taddlebox.app`).
+2. **Security Handshake:** The backend generates a secret cryptographic signature.
+3. **S3 Upload:** The backend uploads the APK to S3, attaching the signature and package name as **S3 Object Metadata**.
+4. **Local Disk:** The backend writes the new update manifest to its local disk.
+5. **Redis Cache:** The backend instantly caches the manifest in Redis with a 30-day TTL to prevent S3 hammering.
 
-## Enabling / disabling (the important part)
+### 2. The Download Flow (JIT Security Intercept)
+When users open the app, it hits `GET /api/v1/app-update`. The backend serves the cached manifest from Redis instantly (0 disk reads, 0 S3 calls). 
 
-The feature is gated **at build time** in two places, so it's not just off —
-it's *gone* from store builds:
+However, the `url` in the manifest does **not** point to S3. It points back to the backend (`/api/v1/app-update/download`).
 
-1. **Entry point** — Metro reads the entry from `package.json#main`.
-   `scripts/set-entry.js` switches it per build: `./entry.direct.js`
-   (App + updater) for direct APKs, `./entry.store.js` (plain App) for
-   store builds. The committed default is `entry.store.js`, and the store
-   entry never imports the updater module — **updater code is not bundled at
-   all** (verified by exporting both bundles).
-2. **Config** — `app.config.js` only adds the `REQUEST_INSTALL_PACKAGES`
-   permission and sets `extra.appUpdater.enabled=true` when the build
-   environment has `APP_UPDATER_ENABLED=1`. Production/preview/development
-   builds never get the permission, so even if updater code ran it couldn't
-   install anything.
+When a user taps "Download Update":
+1. **The Intercept:** The phone hits the backend `/download` endpoint.
+2. **The Handshake:** The backend performs a lightning-fast `HeadObject` check against S3.
+3. **The Lockout:** It compares the S3 metadata against the local manifest. If the package name isn't `com.taddlebox.app`, or if the cryptographic signature doesn't match (meaning someone manually tampered with the S3 bucket), the backend **aborts the download and instantly deletes the Redis cache**, locking down the system.
+4. **The Redirect:** If the handshake passes, the backend returns an HTTP 302 Redirect, seamlessly bouncing the user's phone to the lightning-fast CloudFront CDN to download the 100MB file.
 
-Just use the npm scripts (they run `set-entry.js` for you):
+## Build & Publish Commands
 
+You have complete manual control over every step of the pipeline.
+
+### Local Sideload Build
 ```bash
-npm run build:android:direct   # direct APK — updater bundled + enabled
-npm run build:android:store    # store AAB — updater absent entirely
+# 1. Build locally. This ensures the output folder exists and outputs to build/apk/taddlebox.apk
+npm run build:android:direct:local
+
+# 2. Push it to your backend
+npm run publish:android:update:direct
 ```
 
-## The manifest contract
-
-The app fetches the manifest from `{EXPO_PUBLIC_BACKEND_URL}/api/v1/app-update`
-(the updater endpoint lives on the same backend as the app, so there's no
-separate manifest URL to configure — it's derived from the backend URL).
-The server returns:
-
-```json
-{
-  "success": true,
-  "data": {
-    "android": {
-      "versionCode": 2,
-      "versionName": "1.0.2",
-      "url": "https://cdn.example.com/taddlebox-1.0.2.apk",
-      "size": 21474836,
-      "changelog": "• What's new\n• Bug fixes",
-      "mandatory": false
-    }
-  }
-}
-```
-
-- `versionCode` **must** match the Android `versionCode` of the APK you built.
-  With the remote version source, EAS owns that number — `publish:update:direct`
-  reads it automatically, so you never set it by hand.
-- `url` must be a direct, public `https://` link to the APK.
-- `size` (bytes) is optional; include it for an accurate progress bar.
-- `mandatory: true` shows a non-dismissible prompt.
-- If `android` is `null` / missing, no update is offered.
-
-The parser also tolerates a static JSON served directly as `{ "android": {...} }`
-(no `data` wrapper), so you can host the manifest on any static host (S3, GitHub
-Pages, etc.) without the backend.
-
-## Releasing an update to testers
-
-Versioning is **fully automatic** — no app.json edits, no commits for version
-numbers:
-
-- `eas.json` uses `cli.appVersionSource: "remote"`, so EAS tracks
-  `android.versionCode` on its servers and **increments it on every build**
-  (both `internal` and `production` profiles have `autoIncrement: true`).
-- `publish:update:direct` **auto-picks the versionCode from EAS** via
-  `eas build:version:get --platform android --json` — the manifest can never
-  drift from the APK that was actually built.
-
+### Cloud Sideload Build (EAS)
 ```bash
-# 1. Build a new direct APK (EAS bumps versionCode remotely)
-npm run build:android:direct
+# 1. Build on Expo Cloud. This will wait for the build to finish, and instantly download it to build/apk/taddlebox.apk
+npm run build:android:direct:cloud
 
-# 2a. Upload it to S3 through the backend and publish (recommended):
-npm run publish:update:direct -- --apk path/to/taddlebox.apk \
-  --server https://your-server.com --changelog "What's new in this build"
-#   --server (or APP_UPDATE_SERVER_URL env) = backend base URL; the script calls
-#     POST /api/v1/app-update/presign, PUTs the APK to S3, and writes the
-#     CloudFront URL into the manifest
-#   --filename overrides the S3 object name (default taddlebox-<versionCode>.apk)
-#   --update-key (or APP_UPDATE_UPLOAD_KEY env) if the backend requires the
-#     X-Update-Key header
-#   --no-prune to keep the previous APK on S3 (default: it's deleted via
-#     POST /api/v1/app-update/delete once the new one is published)
-
-# 2b. Or host the APK yourself (your server, S3, etc.) and publish:
-npm run publish:update:direct -- --url https://your-server.com/apk/taddlebox.apk \
-  --changelog "What's new in this build"
-
-#   add --mandatory to force the update on testers
-#   add --size <bytes> to skip the automatic HEAD probe
-#   add --version-code <N> to override the auto-detected one
-
-# 3. Deploy the manifest file to the server — testers get prompted on next launch.
+# 2. Push it to your backend
+npm run publish:android:update:direct
 ```
 
-`publish:update:direct` resolves the versionCode in this order: `--version-code` flag
-→ EAS remote (`eas build:version:get`) → app.json (warns: stale under remote
-source). With `--apk` the size comes from the local file; with `--url` it probes
-the APK size over HEAD. It then writes the manifest at
-`../taddle-box/src/modules/app-update/app-update.manifest.json` (override with
-`--manifest <path>`). It warns if the versionCode isn't higher than the
-manifest's — a sure sign the previous build was never published.
+### Store Builds (Google Play)
+```bash
+# 1. Build locally or in the cloud. It will output to build/aab/taddlebox.aab
+npm run build:android:store:cloud
 
-## Notes & limitations
+# 2. Submit the AAB directly to the Google Play Console
+npm run publish:android:update:store
+```
 
-- **Android only.** iOS testers should use TestFlight; the updater is inert on
-  iOS regardless.
-- Android will ask the user to allow "Install unknown apps" for Taddlebox the
-  first time — a normal sideload prompt.
-- A previously downloaded APK is cached in the app cache dir and replaced on
-  the next download.
-- For JS-only fixes you don't need this at all — EAS Update (`expo-updates`)
-  can push JS bundle changes without a new APK. This module covers native /
-  full-APK changes.
-- Keep the existing `app_config` `minimumVersion`/`latestVersion` fields for
-  **store** builds (they link to the Play Store). Use this manifest for
-  **APK** builds. Don't set both for the same build or you'll get two prompts.
-- **Store builds don't contain this code at all.** `scripts/set-entry.js`
-  points `package.json#main` at `entry.store.js` for store builds, and that
-  entry never imports the updater module — so it's unreachable from the
-  Play/App Store bundle (verified: the store export has zero updater strings).
-- Signing: internal APKs and the Play release share one EAS keystore — see
-  `docs/SIGNING.md` for backups and the Play App Signing upgrade path.
+## Security & Protections
+
+- **S3 Tamper-Proofing:** Because of the JIT Handshake, a malicious actor manually dropping an APK into your S3 bucket will accomplish nothing. The backend will reject the download and bust the cache.
+- **Wrong Package Shield:** If you accidentally upload an old or incorrect APK to the backend, the backend will scan the internal package name and throw a critical error if it does not exactly match `com.taddlebox.app`.
+- **Zero-Config Versioning:** Because the backend parses the APK binary directly, the `versionCode` in the manifest can mathematically never drift from the actual APK you upload. 
+
+## Enabling / Disabling
+
+The feature is gated **at build time**:
+1. **Entry point:** `scripts/set-entry.js` switches `package.json#main` per build. `./entry.direct.js` includes the updater, while `./entry.store.js` does not. 
+2. **Permissions:** The `REQUEST_INSTALL_PACKAGES` permission is only injected when building with the `direct` profile. Store builds do not receive this permission.

@@ -12,10 +12,16 @@ export function useCommunityCategories() {
   });
 }
 
-export function useCommunities(searchQuery = '', filter?: string, category?: string) {
+export function useCommunities(
+  searchQuery = '',
+  filter?: string,
+  category?: string,
+  options?: { enabled?: boolean }
+) {
   const trimmed = searchQuery.trim();
   return useInfiniteQuery({
     queryKey: [...queryKeys.communities, 'discover', trimmed, filter, category],
+    enabled: options?.enabled ?? true,
     queryFn: async ({ pageParam = 1 }) => {
       const res = await communityService.getCommunities(
         pageParam as number,
@@ -37,10 +43,15 @@ export function useCommunities(searchQuery = '', filter?: string, category?: str
   });
 }
 
-export function useJoinedCommunities(search = '') {
+export function useJoinedCommunities(search = '', enabled = true) {
   const trimmed = search.trim();
   return useInfiniteQuery({
     queryKey: [...queryKeys.communities, 'joined', trimmed],
+    // Gated by the caller: the create-post audience picker mounts this list
+    // while its own modal is closed (RN hides the children but they stay in
+    // the tree during dismiss), so the joined-communities fetch must wait for
+    // the picker to actually open.
+    enabled,
     queryFn: async ({ pageParam = 1 }) => {
       const res = await communityService.getCommunities(
         pageParam as number,
@@ -65,8 +76,12 @@ export function useJoinedCommunities(search = '') {
  * always rendered an empty list. Shares the react-query cache with the
  * community tab (same queryKey), so visiting Communities first warms it.
  */
-export function useMyCommunities() {
-  const query = useCommunities();
+export function useMyCommunities(enabled = true) {
+  // Gated by the caller: the repost sheet and create-post audience picker are
+  // interaction-driven, so this must NOT fire while the app just sits on the
+  // Home feed (it shares the discover query key, so visiting Communities tab
+  // still warms the same cache).
+  const query = useCommunities('', undefined, undefined, { enabled });
   return (query.data?.pages || []).flatMap((p: any) => p.items) || [];
 }
 

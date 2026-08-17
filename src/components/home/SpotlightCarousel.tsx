@@ -17,8 +17,6 @@ import { fontSizes, spacing, radii, type ColorPalette } from "../../theme";
 import { useThemeColors } from "../../context/ThemeContext";
 import { highlightService, Highlight } from "../../services/highlight.service";
 import { GAME_ASSETS } from "../../games/assets";
-import { eventService } from "../../services/event.service";
-import { gamesService } from "../../services/games.service";
 
 const { width: SW } = Dimensions.get("window");
 const CARD_W = SW - spacing.lg * 2;
@@ -163,34 +161,29 @@ export default function SpotlightCarousel() {
   const fetchHighlights = async () => {
     try {
       setLoading(true);
-      const [hlRes, eventsRes, trendingRes] = await Promise.all([
-        highlightService.getHighlights(),
-        eventService.discoverEvents({ limit: 1 }).catch(() => ({ data: [] })),
-        gamesService.getTrendingGames(3).catch(() => ({ data: [] })),
-      ]);
-      
-      const backendHighlights = hlRes.data || [];
-      
-      // Only FEATURED events belong in the spotlight — the discover endpoint
-      // returns the nearest upcoming event (start_time ASC), which may not be
-      // featured, so gate the card on isFeatured.
-      const nextEvent = eventsRes.data?.[0];
-      const eventHighlight: Highlight[] = nextEvent?.isFeatured ? [{
-        id: `event-${nextEvent.id}`,
-        title: nextEvent.title,
-        subtitle: nextEvent.description || 'Upcoming Event',
+      // Single round-trip: the /highlight payload carries curated spotlight
+      // rows PLUS featured events and trending games (server-composed), so the
+      // carousel no longer fans out to /events/discover + /game/trending.
+      const hlRes = await highlightService.getHighlights();
+      const { spotlight = [], featuredEvents = [], trendingGames = [] } =
+        hlRes.data || {};
+
+      // Featured events — the backend already filters to is_featured.
+      const eventHighlights: Highlight[] = (featuredEvents || []).map(ev => ({
+        id: `event-${ev.id}`,
+        title: ev.title,
+        subtitle: ev.description || 'Upcoming Event',
         type: 'event',
-        sourceId: nextEvent.id,
+        sourceId: ev.id,
         tag: 'Featured Event',
         tagColor: '#F59E0B',
         emoji: '🎉',
         gradient: ['#1A1200', '#78350F'],
-        meta: new Date(nextEvent.rawDate).toLocaleString(undefined, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }),
-        imageUrl: nextEvent.banner,
-      }] : [];
+        meta: new Date(ev.startTime).toLocaleString(undefined, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }),
+        imageUrl: ev.coverImageUrl,
+      }));
 
-      const trendingBackend = trendingRes.data || [];
-      const trendingGames: Highlight[] = trendingBackend.map(bg => {
+      const gameHighlights: Highlight[] = (trendingGames || []).map(bg => {
         const slug = (bg as any).slug || 'tap-rush';
         const localGame = GAME_ASSETS[slug as keyof typeof GAME_ASSETS] || GAME_ASSETS['tap-rush'];
         return {
@@ -212,7 +205,7 @@ export default function SpotlightCarousel() {
 
       // Backend spotlight rows now carry native artwork too (event cover /
       // community banner) — prefer it over the gradient+emoji fallback.
-      const nativeHighlights: Highlight[] = (backendHighlights || []).map(h => ({
+      const nativeHighlights: Highlight[] = (spotlight || []).map(h => ({
         id: h.id,
         title: h.title,
         subtitle: h.description || '',
@@ -226,7 +219,7 @@ export default function SpotlightCarousel() {
         imageUrl: h.imageUrl,
       }));
 
-      setSpotlights([...nativeHighlights, ...eventHighlight, ...trendingGames]);
+      setSpotlights([...nativeHighlights, ...eventHighlights, ...gameHighlights]);
     } catch (e) {
       console.error("Failed to fetch highlights", e);
     } finally {

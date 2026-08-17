@@ -26,7 +26,11 @@ import { StatusBar } from "expo-status-bar";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useNavigation, useFocusEffect } from "@react-navigation/native";
 import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
-import type { HomeStackParamList } from "../../types";
+import type {
+  HomeStackParamList,
+  NotificationNewPayload,
+  SessionExpiredPayload,
+} from "../../types";
 import { fontSizes, radii, spacing, type ColorPalette } from "../../theme";
 import { useThemeColors } from "../../context/ThemeContext";
 import PullToRefreshWrapper from "../../components/common/PullToRefreshWrapper";
@@ -42,7 +46,7 @@ import {
 } from "../../services/games.service";
 import MainHeader from "../../components/common/MainHeader";
 import { SectionHeader } from "../../components/common/SectionChrome";
-import PresenceDot from "../../components/common/PresenceDot";
+import ActiveStatusDot from "../../components/common/ActiveStatusDot";
 import StateBlock from "../../components/common/StateBlock";
 import ChessGame from "../../components/games/ChessGame";
 import LudoGame from "../../components/games/LudoGame";
@@ -361,13 +365,13 @@ export default function GamesScreen() {
       },
     );
 
-    const handleNewNotif = (notif: any) => {
+    const handleNewNotif = (notif: NotificationNewPayload) => {
       if (notif.type === "GAME_INVITE" || notif.type === "game_invite") {
         setIncomingInvite(notif);
       }
     };
 
-    const handleSessionExpired = (data: any) => {
+    const handleSessionExpired = (_data: SessionExpiredPayload) => {
       setReconnectSession(null);
     };
 
@@ -603,7 +607,7 @@ export default function GamesScreen() {
             {incomingInvite && (
               <View style={styles.inviteBanner}>
                 <View style={styles.inviteBannerRow}>
-                  {/* Sender avatar + live presence dot on the custom-match invite */}
+                  {/* Sender avatar + live active-status dot on the custom-match invite */}
                   <View style={{ position: "relative", width: 36, height: 36 }}>
                     <View style={styles.inviteAvatar}>
                       {incomingInvite.senderAvatarUrl ? (
@@ -615,7 +619,7 @@ export default function GamesScreen() {
                         <Ionicons name="person" size={16} color="#fff" />
                       )}
                     </View>
-                    <PresenceDot
+                    <ActiveStatusDot
                       userId={incomingInvite.senderId}
                       size={11}
                       style={{ bottom: -1, right: -1 }}
@@ -1233,7 +1237,7 @@ function GamePlayModal({
 
   // Resolve a pending PVP result when the server broadcasts the final outcome
   useEffect(() => {
-    const onNotif = (notif: any) => {
+    const onNotif = (notif: NotificationNewPayload) => {
       if (notif?.type !== "MATCH_RESOLVED") return;
       if (result !== "pending") return;
       const payload = notif.payload || {};

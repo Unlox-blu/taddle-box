@@ -26,10 +26,12 @@ import PullToRefreshWrapper from "../common/PullToRefreshWrapper";
 import StateBlock from "../common/StateBlock";
 import { useGlobalScroll } from "../../context/ScrollContext";
 import { postsService } from "../../services/posts.service";
-import { presenceIndicator } from "../../context/PresenceContext";
+import { activeStatusIndicator } from "../../context/ActiveStatusContext";
 import CommentsModal from "../home/CommentsModal";
-import PresenceDot from "../common/PresenceDot";
+import ActiveStatusDot from "../common/ActiveStatusDot";
 import { notificationService } from "../../services/notification.service";
+import { socketClient } from "../../services/socketClient";
+import type { XPUpdatedPayload } from "../../types";
 import { themedAlert } from '../common/ThemedAlert';
 import BioText, { normalizeUrl } from "../common/BioText";
 
@@ -710,6 +712,39 @@ export default function SharedProfile({
     }, [loadProfile, loadPosts, loadMentions, profileTab, user?.id])
   );
 
+  // Live XP on the profile header: the backend emits xp:updated (balance +
+  // cumulative earned) on every credit/debit, so the XP progress bar, level,
+  // and rank update in real time after games, claims, and streak actions — no
+  // pull-to-refresh needed. Gated to the account owner: the event is pushed
+  // to the viewer's own socket room, so without the gate, viewing someone
+  // else's profile while earning XP would overwrite THEIR numbers with the
+  // viewer's.
+  useEffect(() => {
+    if (!isOwnProfile) return;
+    const handleXPUpdated = (data: XPUpdatedPayload) => {
+      setUser((prev: any) => {
+        if (!prev) return prev;
+        const totalXpEarned =
+          data?.totalXpEarned != null
+            ? Number(data.totalXpEarned)
+            : (prev.totalXpEarned ?? prev.xp ?? 0);
+        // Same formula the backend getProfile uses for level/rank/xpToNext.
+        const level = Math.floor(totalXpEarned / 1000) + 1;
+        return {
+          ...prev,
+          xp: data?.xp != null ? Number(data.xp) : prev.xp,
+          totalXpEarned,
+          level,
+          rank:
+            level > 10 ? "Pro" : level > 5 ? "Intermediate" : "Beginner",
+          xpToNext: level * 1000,
+        };
+      });
+    };
+    socketClient.events.on("xp:updated", handleXPUpdated);
+    return () => socketClient.events.off("xp:updated", handleXPUpdated);
+  }, [isOwnProfile]);
+
   // Re-entering the Mentions tab remounts its FlatList — restore the offset
   // captured from the previous tab (posts/reposts) so the header and tab bar
   // stay exactly where they were instead of snapping to the top.
@@ -958,7 +993,7 @@ export default function SharedProfile({
             <Text style={styles.levelText}>{user?.level || 1}</Text>
           </LinearGradient>
           {(() => {
-            const indicator = presenceIndicator(user?.presence);
+            const indicator = activeStatusIndicator(user?.activeStatus);
             if (!indicator) return null;
             return (
               <View
@@ -1802,7 +1837,7 @@ function FollowListModal({
                           <Text style={{ fontSize: 20 }}>👾</Text>
                         )}
                       </View>
-                      <PresenceDot userId={item.id || item.user_id} size={13} />
+                      <ActiveStatusDot userId={item.id || item.user_id} size={13} />
                     </View>
                     <View>
                       <Text style={styles.userName}>

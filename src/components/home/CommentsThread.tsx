@@ -11,7 +11,7 @@ import { fontSizes, spacing, radii, type ColorPalette } from '../../theme';
 import { useThemeColors } from '../../context/ThemeContext';
 import { useAuth } from '../../context/AuthContext';
 import SmartInput from '../common/SmartInput';
-import PresenceDot from '../common/PresenceDot';
+import ActiveStatusDot from '../common/ActiveStatusDot';
 import { commentService, Comment } from '../../services/comment.service';
 import { usePosts } from '../../context/PostsContext';
 import { useQueryClient } from '@tanstack/react-query';
@@ -560,7 +560,7 @@ export default function CommentsThread({
               ) : (
                 <Text style={[styles.commentAvatarEmoji, isReply && { fontSize: 14 }]}>👾</Text>
               )}
-              <PresenceDot userId={comment.author?.id} size={isReply ? 10 : 12} />
+              <ActiveStatusDot userId={comment.author?.id} size={isReply ? 10 : 12} />
             </View>
           </TouchableOpacity>
 

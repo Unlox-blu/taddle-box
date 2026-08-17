@@ -76,12 +76,6 @@ export const userService = {
     return res.data;
   },
 
-  // Bulk presence for avatars — server only returns self + followed users.
-  getPresenceBatch: async (userIds: string[]) => {
-    const res = await apiClient.post(`/users/presence`, { userIds });
-    return res.data;
-  },
-
   // GEO location capture (permission-gated). Appends a history row server-side
   // with optional free-text place; distinct from the PROFILE location
   // (users.location) declared at signup.

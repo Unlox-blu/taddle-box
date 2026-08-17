@@ -1,5 +1,5 @@
 import React, { createContext, useContext, useReducer, useCallback, useEffect, useRef } from 'react';
-import type { Transaction } from '../types';
+import type { Transaction, XPUpdatedPayload, WalletUpdatedPayload } from '../types';
 import { walletService } from '../services/wallet.service';
 import { xpService } from '../services/xp.service';
 import { settingsService } from '../services/settings.service';
@@ -267,16 +267,16 @@ const WalletContext = createContext<WalletContextType>({
 
 export function WalletProvider({ children }: { children: React.ReactNode }) {
   const [wallet, dispatch] = useReducer(reducer, INITIAL);
+
+  // xpBalance is sourced ONLY from the summary endpoint and socket events —
+  // the auth-synced user.xp value is never used as wallet state. Fetch the
+  // summary once per logged-in user so a cold start shows real balances
+  // instead of 0 until the first socket event or Wallet-screen visit.
   const { user } = useAuth();
+  const summaryFetchedForRef = useRef<string | null>(null);
 
   useEffect(() => {
-    if (user?.xp !== undefined) {
-      dispatch({ type: 'SET_DATA', payload: { xpBalance: user.xp } });
-    }
-  }, [user?.xp]);
-
-  useEffect(() => {
-    const handleWalletUpdated = (data: any) => {
+    const handleWalletUpdated = (data: WalletUpdatedPayload) => {
       // balanceCents arrives in paise — convert to rupees so the hero balance
       // doesn't flash 100x the real amount after an XP conversion.
       dispatch({ type: 'SET_DATA', payload: {
@@ -287,7 +287,7 @@ export function WalletProvider({ children }: { children: React.ReactNode }) {
       // Auto-refresh transaction history so "Pending" updates to "Completed"
       fetchWalletData().catch(console.error);
     };
-    const handleXPUpdated = (data: any) => {
+    const handleXPUpdated = (data: XPUpdatedPayload) => {
       dispatch({ type: 'SET_DATA', payload: { xpBalance: data.xp } });
     };
     socketClient.events.on('wallet:updated', handleWalletUpdated);
@@ -397,6 +397,15 @@ export function WalletProvider({ children }: { children: React.ReactNode }) {
       console.error('Failed to fetch wallet summary:', e);
     }
   }, []);
+
+  // One summary fetch per logged-in user (id keyed), so logout → login as
+  // another account still re-seeds from the endpoint, never from user.xp.
+  useEffect(() => {
+    if (user?.id && summaryFetchedForRef.current !== user.id) {
+      summaryFetchedForRef.current = user.id;
+      fetchWalletSummary();
+    }
+  }, [user?.id, fetchWalletSummary]);
 
   const loadMoreTransactions = useCallback(async () => {
     if (!hasMoreRef.current) return;

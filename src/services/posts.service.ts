@@ -9,6 +9,13 @@ export const postsService = {
     return response.data;
   },
 
+  /** User-personalized trending hashtags for the Home chips row
+      (feed-relevant — not the global search-page hashtag ranking). */
+  getFeedHashtags: async (): Promise<{ data: string[] }> => {
+    const response = await apiClient.get(`/feed/hashtags`);
+    return { data: response.data?.data || [] };
+  },
+
   getBookmarks: async (page = 1, limit = 20): Promise<{ data: Post[] }> => {
     const response = await apiClient.get(`/bookmark?page=${page}&limit=${limit}`);
     return response.data;

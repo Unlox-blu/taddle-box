@@ -1,11 +1,11 @@
 import React from 'react';
 import { View, StyleSheet } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import { usePresence, presenceIndicator } from '../../context/PresenceContext';
+import { useActiveStatus, activeStatusIndicator } from '../../context/ActiveStatusContext';
 import { useThemeColors } from '../../context/ThemeContext';
 
 interface Props {
-  /** User whose presence to show. No id → renders nothing. */
+  /** User whose active status to show. No id → renders nothing. */
   userId?: string;
   /** Dot diameter. Default 14. */
   size?: number;
@@ -14,13 +14,13 @@ interface Props {
 
 /**
  * Purple dot over an avatar when the user is online, a small clock when they
- * were recently active, and nothing otherwise. Presence is only visible for
- * the viewer's own account and people they follow (server-enforced).
+ * were recently active, and nothing otherwise. Active status is only visible
+ * for the viewer's own account and people they follow (server-enforced).
  */
-export default function PresenceDot({ userId, size = 14, style }: Props) {
+export default function ActiveStatusDot({ userId, size = 14, style }: Props) {
   const colors = useThemeColors();
-  const presence = usePresence(userId);
-  const indicator = presenceIndicator(presence);
+  const activeStatus = useActiveStatus(userId);
+  const indicator = activeStatusIndicator(activeStatus);
   if (!indicator || !userId) return null;
 
   const dot = Math.max(10, size);

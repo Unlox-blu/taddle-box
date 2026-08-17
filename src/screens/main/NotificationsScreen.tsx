@@ -10,7 +10,14 @@ import { NativeStackScreenProps } from '@react-navigation/native-stack';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { fontSizes, spacing, radii, type ColorPalette } from '../../theme';
 import { useTheme, useThemeColors } from '../../context/ThemeContext';
-import type { HomeStackParamList, Notification, Post } from '../../types';
+import type {
+  HomeStackParamList,
+  Notification,
+  Post,
+  FollowRequestCancelledPayload,
+  FollowRequestResolvedPayload,
+  FollowStateChangedPayload,
+} from '../../types';
 import { notificationService } from '../../services/notification.service';
 import { userService } from '../../services/user.service';
 import { postsService } from '../../services/posts.service';
@@ -22,7 +29,7 @@ import { useGlobalScroll } from "../../context/ScrollContext";
 import PullToRefreshWrapper from '../../components/common/PullToRefreshWrapper';
 import { notificationBus, NOTIF_EVENTS } from '../../lib/notificationBus';
 import { socketClient } from '../../services/socketClient';
-import PresenceDot from '../../components/common/PresenceDot';
+import ActiveStatusDot from '../../components/common/ActiveStatusDot';
 import { themedAlert } from '../../components/common/ThemedAlert';
 
 const FOLLOWED_BACK_KEY = '@taddle_followed_back_usernames';
@@ -328,7 +335,7 @@ export default function NotificationsScreen({ navigation }: Props) {
   // requester, or a mutual follow happens, update the affected rows instantly
   // so stale Approve / Follow Back buttons never linger.
   useEffect(() => {
-    const onReqCancelled = (data: any) => {
+    const onReqCancelled = (data: FollowRequestCancelledPayload) => {
       const followerId = data?.followerId;
       if (!followerId) return;
       setFollowReqState((prev) => {
@@ -344,7 +351,7 @@ export default function NotificationsScreen({ navigation }: Props) {
     };
     // The recipient APPROVED the request (this device, or another one) — flip
     // the row to "approved" so it never reads "Request withdrawn".
-    const onReqResolved = (data: any) => {
+    const onReqResolved = (data: FollowRequestResolvedPayload) => {
       const followerId = data?.followerId;
       if (!followerId) return;
       setFollowReqState((prev) => {
@@ -358,7 +365,7 @@ export default function NotificationsScreen({ navigation }: Props) {
       });
       fetchNotifs();
     };
-    const onStateChanged = (data: any) => {
+    const onStateChanged = (data: FollowStateChangedPayload) => {
       const otherUserId = data?.otherUserId;
       if (otherUserId === undefined) return;
       if (data?.isFollowing) {
@@ -777,7 +784,7 @@ export default function NotificationsScreen({ navigation }: Props) {
                           <View style={[styles.typeDot, { backgroundColor: notifColor[notif.type] }]}>
                             <Ionicons name={NOTIF_ICON[notif.type] as any} size={10} color="#fff" />
                           </View>
-                          <PresenceDot
+                          <ActiveStatusDot
                             userId={notif.senderId || notif.payload?.userId}
                             size={13}
                             style={{ top: -3, right: 4, bottom: undefined }}

@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Animated,
@@ -11,7 +11,7 @@ import {
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
-import { useNavigation, useRoute, type RouteProp } from '@react-navigation/native';
+import { useNavigation, useRoute, useFocusEffect, type RouteProp } from '@react-navigation/native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { StatusBar } from 'expo-status-bar';
 import { fontSizes, radii, spacing, type ColorPalette } from '../../theme';
@@ -22,9 +22,10 @@ import {
   type WeeklyLeaderboardEntry,
   type WeeklyLeaderboards,
 } from '../../services/leaderboard.service';
-import type { HomeStackParamList } from '../../types';
+import type { HomeStackParamList, LeaderboardsChangedPayload } from '../../types';
 import PullToRefreshWrapper from '../../components/common/PullToRefreshWrapper';
 import { useGlobalScroll } from '../../context/ScrollContext';
+import { socketClient } from '../../services/socketClient';
 
 const TABS: { key: LeaderboardType; label: string; icon: keyof typeof Ionicons.glyphMap }[] = [
   { key: 'feed', label: 'Feed', icon: 'newspaper-outline' },
@@ -66,32 +67,73 @@ export default function LeaderboardsScreen() {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
 
-  useEffect(() => {
-    let active = true;
-    leaderboardService
-      .getWeekly(20)
-      .then((res) => {
-        if (active) setData(res.data || DEFAULT_DATA);
-      })
-      .catch((error) => console.warn('Failed to load weekly leaderboards', error))
-      .finally(() => {
-        if (active) setLoading(false);
-      });
-    return () => { active = false; };
-  }, []);
-
-  // Pull-to-refresh re-fetches the weekly rankings from the server.
-  const onRefresh = async () => {
-    setRefreshing(true);
+  // Silent vs. visible: initial load shows the inline spinner; pull-to-refresh
+  // shows the wrapper spinner; focus re-entry and live xp:updated refreshes
+  // are silent (no flicker).
+  const refetch = useCallback(async (silent = false) => {
+    if (!silent) setLoading(true);
     try {
       const res = await leaderboardService.getWeekly(20);
       setData(res.data || DEFAULT_DATA);
     } catch (error) {
       console.warn('Failed to refresh weekly leaderboards', error);
     } finally {
+      setLoading(false);
       setRefreshing(false);
     }
-  };
+  }, []);
+
+  // Load on mount, then refresh whenever the screen regains focus so the
+  // rankings / "Your Position" never go stale after activity elsewhere.
+  const firstFocusRef = useRef(true);
+  useFocusEffect(
+    useCallback(() => {
+      refetch(!firstFocusRef.current); // first focus: visible; later: silent
+      firstFocusRef.current = false;
+    }, [refetch])
+  );
+
+  // Live refresh: the backend emits a dedicated leaderboards:changed event
+  // after a real game win (not on every XP credit like post views). The weekly
+  // rankings are server-computed (wins this week, feed impact, …) and can't be
+  // derived from any payload, so the event is just the trigger for a silent
+  // refetch — debounced briefly to coalesce near-simultaneous PVP resolutions.
+  //
+  // Only the ACTIVE tab is refetched (?type=…) and merged in — a burst of
+  // likes moves just the Feed board, so the other three heavy aggregate
+  // queries are skipped. The server debounces the emit per user too.
+  const leaderboardsRefreshTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const refetchActiveTab = useCallback(async () => {
+    try {
+      const res = await leaderboardService.getWeekly(20, activeTab);
+      const partial = res.data;
+      if (!partial) return;
+      setData((prev) => ({
+        ...prev,
+        ...partial, // weekStart / rewards / this tab's entries
+        currentUser: { ...prev.currentUser, ...partial.currentUser },
+      }));
+    } catch (error) {
+      console.warn('Failed to refresh weekly leaderboard', error);
+    }
+  }, [activeTab]);
+  useEffect(() => {
+    const handleLeaderboardsChanged = (_data: LeaderboardsChangedPayload) => {
+      if (leaderboardsRefreshTimer.current) clearTimeout(leaderboardsRefreshTimer.current);
+      leaderboardsRefreshTimer.current = setTimeout(() => refetchActiveTab(), 1000);
+    };
+    socketClient.events.on('leaderboards:changed', handleLeaderboardsChanged);
+    return () => {
+      socketClient.events.off('leaderboards:changed', handleLeaderboardsChanged);
+      if (leaderboardsRefreshTimer.current) clearTimeout(leaderboardsRefreshTimer.current);
+    };
+  }, [refetchActiveTab]);
+
+  // Pull-to-refresh re-fetches the weekly rankings from the server.
+  const onRefresh = useCallback(async () => {
+    setRefreshing(true);
+    await refetch(true); // silent internally; the wrapper spinner drives UI
+  }, [refetch]);
 
   const activeEntries = data[activeTab] || [];
 

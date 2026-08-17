@@ -3,6 +3,7 @@ import * as SecureStore from 'expo-secure-store';
 import Constants from 'expo-constants';
 import { authService } from '../services/auth.service';
 import { socketClient } from '../services/socketClient';
+import type { XPUpdatedPayload } from '../types';
 
 type AuthContextType = {
   isLoggedIn:  boolean;
@@ -109,8 +110,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     checkToken();
 
-    // Listen for XP updates from the backend
-    const handleXPUpdate = (data: { xp: number }) => {
+    // Listen for XP updates from the backend — mirrors the authoritative
+    // balance into user.xp (the wallet NEVER reads user.xp as state; this is
+    // just a convenience mirror for components that read the auth user).
+    const handleXPUpdate = (data: XPUpdatedPayload) => {
       setUser((prev: any) => prev ? { ...prev, xp: data.xp } : prev);
     };
 

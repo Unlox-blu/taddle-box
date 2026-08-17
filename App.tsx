@@ -26,7 +26,7 @@ import { queryClient } from "./src/lib/react-query";
 import AppLockOverlay from "./src/components/common/AppLockOverlay";
 import NotificationBanner from "./src/components/common/NotificationBanner";
 import { ThemedAlertHost } from "./src/components/common/ThemedAlert";
-import { PresenceProvider } from "./src/context/PresenceContext";
+import { ActiveStatusProvider } from "./src/context/ActiveStatusContext";
 import { ScrollProvider } from "./src/context/ScrollContext";
 import { useAuth } from "./src/context/AuthContext";
 import { locationService } from "./src/services/location.service";
@@ -121,10 +121,10 @@ export function AppCore({ insideTheme }: { insideTheme?: React.ReactNode }) {
                 <CommunityProvider>
                   <PostsProvider>
                     <NotificationProvider>
-                      <PresenceProvider>
+                      <ActiveStatusProvider>
                         {insideTheme}
                         <AppShell />
-                      </PresenceProvider>
+                      </ActiveStatusProvider>
                     </NotificationProvider>
                   </PostsProvider>
                 </CommunityProvider>

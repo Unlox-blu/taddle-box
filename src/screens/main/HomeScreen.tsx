@@ -40,7 +40,9 @@ import type { Post, HomeStackParamList } from "../../types";
 
 import { streakService } from "../../services/streak.service";
 import { xpService } from "../../services/xp.service";
-import { hashtagService } from "../../services/hashtag.service";
+import { postsService } from "../../services/posts.service";
+import { walletService } from "../../services/wallet.service";
+
 import { cycleInfo, isSameDay } from "../../utils/streak";
 import { themedAlert } from "../../components/common/ThemedAlert";
 
@@ -78,8 +80,9 @@ export default function HomeScreen() {
 
   // Refresh the feed whenever the Home tab regains focus so new posts and XP
   // from other tabs show up without a manual pull-to-refresh. The FIRST
-  // focus is skipped — initHomeData below already refetches the feed on
-  // mount, so refetching here too would double-fire the startup feed call.
+  // focus is skipped — useFeed already fetches on mount (and initHomeData
+  // must NOT refetch it: that's the third redundant path that doubled the
+  // startup feed call).
   const firstFocusRef = useRef(true);
   useFocusEffect(
     useCallback(() => {
@@ -96,6 +99,10 @@ export default function HomeScreen() {
   const [trendChips, setTrendChips] = useState<string[]>(["All"]);
   const [refreshing, setRefreshing] = useState(false);
   const [streakOpen, setStreakOpen] = useState(false);
+  // XP balance shown inside the streak-restore modal — fetched fresh on open
+  // (summary endpoint) so the restore-cost check never relies on the stale
+  // auth-synced user.xp value.
+  const [modalXpBalance, setModalXpBalance] = useState<number | null>(null);
   const [showStreakRewardModal, setShowStreakRewardModal] = useState(false);
   const [rewardXp, setRewardXp] = useState(0);
   const [rewardDay, setRewardDay] = useState(0);
@@ -108,7 +115,6 @@ export default function HomeScreen() {
   const [nextMilestoneDay, setNextMilestoneDay] = useState(7);
   const [nextRewardXp, setNextRewardXp] = useState(100);
   const [restoring, setRestoring] = useState(false);
-  const [localXP, setLocalXP] = useState(CURRENT_USER?.xp || 0);
   const [hasDailyReward, setHasDailyReward] = useState(false);
 
   const [now, setNow] = useState(Date.now());
@@ -120,15 +126,6 @@ export default function HomeScreen() {
 
   const deadlineMs = restoreDeadline ? new Date(restoreDeadline).getTime() : 0;
   const remainingMs = streakRestorable && deadlineMs ? Math.max(0, deadlineMs - now) : 0;
-
-  // Sync XP if CURRENT_USER changes
-  useEffect(() => {
-    if (CURRENT_USER?.xp !== undefined) {
-      setLocalXP((prev: number) =>
-        prev === CURRENT_USER.xp ? prev : CURRENT_USER.xp,
-      );
-    }
-  }, [CURRENT_USER?.xp]);
 
   useEffect(() => {
     if (isFocused) {
@@ -199,7 +196,6 @@ export default function HomeScreen() {
                 setRewardXp(ud.rewardXp || 0);
                 setRewardDay(currentStreak);
                 setShowStreakRewardModal(true);
-                setLocalXP((prevXP: number) => prevXP + (ud.rewardXp || 0));
               }
             }
           } catch (e) {
@@ -247,10 +243,15 @@ export default function HomeScreen() {
 
       setHasDailyReward(!localClaimedToday && !serverClaimedToday);
 
-      refetchFeed();
+      // No refetchFeed() here: useFeed fetches on mount and the useFocusEffect
+      // above refreshes on every re-focus — a third call here doubled the
+      // startup feed request (mount + focus) and re-fetched on every tab return.
 
-      hashtagService
-        .getHashtags()
+      // Trending chips are FEED-personalized (followed authors / joined
+      // communities / interests) — the feed endpoint, not the global search
+      // hashtag ranking used by the search page.
+      postsService
+        .getFeedHashtags()
         .then((res) => {
           if (res?.data) {
             const tags = res.data
@@ -285,7 +286,6 @@ export default function HomeScreen() {
           setRewardXp(d.rewardXp || 0);
           setRewardDay(d.streak.streakCount);
           setShowStreakRewardModal(true);
-          setLocalXP((prevXP: number) => prevXP + (d.rewardXp || 0));
         }
 
         fetchWalletSummary(); // refresh the XP balance (socket also fires)
@@ -302,6 +302,17 @@ export default function HomeScreen() {
       setRestoring(false);
     }
   }, [fetchWalletSummary]);
+
+  // Open the streak modal with a FRESH XP balance — the restore-cost check
+  // reads the summary endpoint rather than the auth-synced user.xp value, so
+  // the affordability text stays accurate even if user.xp is stale.
+  const openStreakModal = useCallback(() => {
+    setStreakOpen(true);
+    walletService
+      .getWalletSummary()
+      .then((res) => setModalXpBalance(res?.data?.xpBalance ?? 0))
+      .catch(() => setModalXpBalance(null)); // fall back to context value
+  }, []);
 
   // XP fly-to-card animation
   const xpCardRef = useRef<View>(null);
@@ -326,7 +337,8 @@ export default function HomeScreen() {
           return;
         }
 
-        setLocalXP((prev: number) => prev + 50);
+        // The card reads wallet.xpBalance — the backend's creditXP emits
+        // xp:updated on the same round-trip, so WalletContext bumps it live.
 
         xpCardRef.current?.measure((_, __, w, h, px, py) => {
           const toX = px + w / 2 - 30;
@@ -466,7 +478,7 @@ export default function HomeScreen() {
                         borderColor: "rgba(251,191,36,0.22)",
                       },
                 ]}
-                onPress={() => setStreakOpen(true)}
+                onPress={openStreakModal}
                 activeOpacity={0.8}
               >
                 <Text style={styles.miniEmoji}>{streakRestorable ? "⏳" : "🔥"}</Text>
@@ -525,7 +537,7 @@ export default function HomeScreen() {
                   <Text style={styles.miniEmoji}>⚡</Text>
                   <View style={styles.miniText}>
                     <Text style={[styles.miniVal, { color: colors.xpGold }]}>
-                      {localXP.toLocaleString()}
+                      {wallet.xpBalance.toLocaleString()}
                     </Text>
                     <Text
                       style={[styles.miniLabel, { color: colors.text.muted }]}
@@ -658,7 +670,7 @@ export default function HomeScreen() {
         restorable={streakRestorable}
         restoreCost={restoreCost}
         restoreDeadline={restoreDeadline}
-        xpBalance={wallet?.xpBalance ?? 0}
+        xpBalance={modalXpBalance ?? wallet?.xpBalance ?? 0}
         nextMilestoneDay={nextMilestoneDay}
         nextRewardXp={nextRewardXp}
         restoring={restoring}

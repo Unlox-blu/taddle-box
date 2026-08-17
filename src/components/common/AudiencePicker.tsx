@@ -24,6 +24,10 @@ export interface AudienceListProps {
   feedIcon?: string;
   /** Bounded height for embedding (repost sheet); modal gives it flex:1. */
   height?: number;
+  /** Gate the joined-communities fetch on the picker being visible. The modal
+      stays mounted while hidden (RN keeps children in the tree during the
+      dismiss animation), so without this the API fires before it's opened. */
+  enabled?: boolean;
 }
 
 interface ModalProps extends AudienceListProps {
@@ -146,6 +150,7 @@ export function AudiencePickerList({
   feedMeta,
   feedIcon = 'globe-outline',
   height,
+  enabled = true,
 }: AudienceListProps) {
   const colors = useThemeColors();
   const styles = useMemo(() => makeStyles(colors), [colors]);
@@ -160,7 +165,7 @@ export function AudiencePickerList({
     return () => clearTimeout(t);
   }, [searchInput]);
 
-  const query = useJoinedCommunities(search);
+  const query = useJoinedCommunities(search, enabled);
   const communities = (query.data?.pages || [])
     .flatMap((p: any) => p.items);
 
@@ -329,6 +334,7 @@ export default function AudiencePicker({
               feedLabel={feedLabel}
               feedMeta={feedMeta}
               feedIcon={feedIcon}
+              enabled={visible}
             />
           </View>
         </View>

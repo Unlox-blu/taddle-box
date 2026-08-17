@@ -2,6 +2,20 @@ import { io, Socket } from 'socket.io-client';
 import * as SecureStore from 'expo-secure-store';
 import { Platform, DeviceEventEmitter } from 'react-native';
 import Constants from 'expo-constants';
+import type {
+  XPUpdatedPayload,
+  WalletUpdatedPayload,
+  LeaderboardsChangedPayload,
+  ActiveStatusChangedPayload,
+  ActiveStatusSnapshotPayload,
+  NotificationNewPayload,
+  FollowRequestCancelledPayload,
+  FollowRequestResolvedPayload,
+  FollowStateChangedPayload,
+  SessionExpiredPayload,
+  MatchmakingEventPayload,
+  SocketEventMap,
+} from '../types';
 
 const debuggerHost = Constants.expoConfig?.hostUri;
 const localhost = debuggerHost?.split(':')[0];
@@ -20,28 +34,38 @@ const SOCKET_URL = process.env.EXPO_PUBLIC_BACKEND_URL
         return 'https://taddlebox.com';
       })();
 
-class SimpleEventEmitter {
-  private listeners: { [event: string]: Function[] } = {};
+type AnyListener = (...args: any[]) => void;
 
-  on(event: string, listener: Function) {
-    if (!this.listeners[event]) this.listeners[event] = [];
-    this.listeners[event].push(listener);
+// Typed event registry: `Events` maps each event name to its listener
+// signature, so `.on/.off/.emit` are checked per event and payloads are
+// inferred at every call site (fed by SocketEventMap from ../types).
+class SimpleEventEmitter<Events extends Record<string, AnyListener>> {
+  private listeners: { [K in keyof Events]?: Events[K][] } = {};
+
+  on<K extends keyof Events>(event: K, listener: Events[K]): void {
+    const bucket = (this.listeners[event] || []) as Events[K][];
+    bucket.push(listener);
+    this.listeners[event] = bucket;
   }
 
-  off(event: string, listener: Function) {
+  off<K extends keyof Events>(event: K, listener: Events[K]): void {
     if (!this.listeners[event]) return;
-    this.listeners[event] = this.listeners[event].filter(l => l !== listener);
+    this.listeners[event] = (this.listeners[event] as Events[K][]).filter(
+      (l) => l !== listener
+    );
   }
 
-  emit(event: string, ...args: any[]) {
+  emit<K extends keyof Events>(event: K, ...args: Parameters<Events[K]>): void {
     if (!this.listeners[event]) return;
-    this.listeners[event].forEach(listener => listener(...args));
+    (this.listeners[event] as Events[K][]).forEach((listener) =>
+      listener(...args)
+    );
   }
 }
 
 class SocketService {
   public socket: Socket | null = null;
-  public events = new SimpleEventEmitter();
+  public events = new SimpleEventEmitter<SocketEventMap>();
   private isConnecting = false;
   private heartbeatTimer: any = null;
 
@@ -63,7 +87,7 @@ class SocketService {
       this.socket.on('connect', () => {
         this.isConnecting = false;
         console.log('WebSocket Connected:', this.socket?.id);
-        // Keep the server-side presence key alive (30s TTL, beat every 20s).
+        // Keep the server-side active-status key alive (30s TTL, beat every 20s).
         if (this.heartbeatTimer) clearInterval(this.heartbeatTimer);
         this.heartbeatTimer = setInterval(() => {
           this.socket?.emit('heartbeat');
@@ -78,17 +102,19 @@ class SocketService {
         }
       });
 
-      this.socket.on('xp:updated', (data) => this.events.emit('xp:updated', data));
-      this.socket.on('wallet:updated', (data) => this.events.emit('wallet:updated', data));
-      this.socket.on('matchmaking:matched', (data) => this.events.emit('matchmaking:matched', data));
-      this.socket.on('matchmaking:lobbyUpdated', (data) => this.events.emit('matchmaking:lobbyUpdated', data));
-      this.socket.on('matchmaking:timedOut', (data) => this.events.emit('matchmaking:timedOut', data));
-      this.socket.on('notification:new', (data) => this.events.emit('notification:new', data));
-      this.socket.on('follow:requestCancelled', (data) => this.events.emit('follow:requestCancelled', data));
-      this.socket.on('follow:stateChanged', (data) => this.events.emit('follow:stateChanged', data));
-      this.socket.on('presence:changed', (data) => this.events.emit('presence:changed', data));
-      this.socket.on('presence:snapshot', (data) => this.events.emit('presence:snapshot', data));
-      this.socket.on('SESSION_EXPIRED', (data) => this.events.emit('SESSION_EXPIRED', data));
+      this.socket.on('xp:updated', (data: XPUpdatedPayload) => this.events.emit('xp:updated', data));
+      this.socket.on('wallet:updated', (data: WalletUpdatedPayload) => this.events.emit('wallet:updated', data));
+      this.socket.on('leaderboards:changed', (data: LeaderboardsChangedPayload) => this.events.emit('leaderboards:changed', data));
+      this.socket.on('matchmaking:matched', (data: MatchmakingEventPayload) => this.events.emit('matchmaking:matched', data));
+      this.socket.on('matchmaking:lobbyUpdated', (data: MatchmakingEventPayload) => this.events.emit('matchmaking:lobbyUpdated', data));
+      this.socket.on('matchmaking:timedOut', (data: MatchmakingEventPayload) => this.events.emit('matchmaking:timedOut', data));
+      this.socket.on('notification:new', (data: NotificationNewPayload) => this.events.emit('notification:new', data));
+      this.socket.on('follow:requestCancelled', (data: FollowRequestCancelledPayload) => this.events.emit('follow:requestCancelled', data));
+      this.socket.on('follow:requestResolved', (data: FollowRequestResolvedPayload) => this.events.emit('follow:requestResolved', data));
+      this.socket.on('follow:stateChanged', (data: FollowStateChangedPayload) => this.events.emit('follow:stateChanged', data));
+      this.socket.on('activeStatus:changed', (data: ActiveStatusChangedPayload) => this.events.emit('activeStatus:changed', data));
+      this.socket.on('activeStatus:snapshot', (data: ActiveStatusSnapshotPayload) => this.events.emit('activeStatus:snapshot', data));
+      this.socket.on('SESSION_EXPIRED', (data: SessionExpiredPayload) => this.events.emit('SESSION_EXPIRED', data));
 
       this.socket.on('connect_error', (error) => {
         this.isConnecting = false;

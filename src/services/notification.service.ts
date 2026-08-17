@@ -39,7 +39,7 @@ export const notificationService = {
       const rawType = String(n.type || '').toUpperCase();
       let mappedType: Notification['type'] = 'mention';
 
-      // Carry the sender id for presence dots on avatars.
+      // Carry the sender id for active-status dots on avatars.
       (n as any).senderId = n.senderId || undefined;
       // "X joined the community" / "X approved your request" are stored as
       // FOLLOW rows with a community resource — route them to the community,
@@ -161,7 +161,7 @@ export const notificationService = {
           ...(mappedType === 'follow' && n.senderUsername
             ? { userId: n.senderId, username: n.senderUsername, name: n.senderName }
             : {}),
-          // Generic sender id — available for every row (presence dots etc.).
+          // Generic sender id — available for every row (active-status dots etc.).
           senderId: n.senderId || undefined,
           // Every row carries the sender's username so tapping a post/like/
           // comment/mention notification can still land on a profile even when

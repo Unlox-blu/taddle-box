@@ -5,6 +5,7 @@ import { socketClient } from "../services/socketClient";
 import { notificationService } from "../services/notification.service";
 import { registerForPushNotificationsAsync, clearPushBadge } from "../services/push.service";
 import { notificationBus, NOTIF_EVENTS } from "../lib/notificationBus";
+import type { NotificationNewPayload } from "../types";
 
 export type InAppBanner = {
   id: string;
@@ -39,7 +40,7 @@ const NotificationContext = createContext<NotificationContextType>({
 export const useNotifications = () => useContext(NotificationContext);
 
 // Maps a backend notification payload (from socket or DB) into banner fields.
-const toBanner = (notif: any): Exclude<InAppBanner, null> => {
+const toBanner = (notif: NotificationNewPayload): Exclude<InAppBanner, null> => {
   const title = notif?.title || "Taddlebox";
   const body =
     typeof notif?.message === "string"
@@ -93,7 +94,7 @@ export function NotificationProvider({ children }: { children: React.ReactNode }
 
   // Handle an incoming notification (socket or system foreground) uniformly.
   const handleIncoming = useCallback(
-    (notif: any) => {
+    (notif: NotificationNewPayload) => {
       const key = String(notif?.id || notif?.message || Date.now());
       // De-dupe rapid socket re-emissions of the same notification.
       if (key === lastNotifKey.current) return;
@@ -157,12 +158,12 @@ export function NotificationProvider({ children }: { children: React.ReactNode }
 
     // Foreground system notifications → render as an in-app banner.
     const notifSub = Notifications.addNotificationReceivedListener((notification) => {
-      handleIncoming(notification.request.content.data || {
-        id: Date.now(),
+      handleIncoming((notification.request.content.data || {
+        id: String(Date.now()),
         title: notification.request.content.title,
         message: notification.request.content.body,
         type: "system",
-      });
+      }) as NotificationNewPayload);
     });
 
     return () => {

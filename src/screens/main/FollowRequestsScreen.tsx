@@ -18,6 +18,7 @@ import { StatusBar } from "expo-status-bar";
 import { fontSizes, spacing, radii, type ColorPalette } from "../../theme";
 import { userService } from "../../services/user.service";
 import { socketClient } from "../../services/socketClient";
+import type { FollowRequestCancelledPayload } from "../../types";
 import { useAuth } from "../../context/AuthContext";
 import { themedAlert } from '../../components/common/ThemedAlert';
 
@@ -122,7 +123,7 @@ export default function FollowRequestsScreen() {
   // If a requester cancels while this screen is open, drop their row live so
   // no stale request lingers next to the approve/reject buttons.
   useEffect(() => {
-    const onReqCancelled = (data: any) => {
+    const onReqCancelled = (data: FollowRequestCancelledPayload) => {
       const followerId = data?.followerId;
       if (!followerId) return;
       setRequests((prev) => prev.filter((r) => r.id !== followerId));

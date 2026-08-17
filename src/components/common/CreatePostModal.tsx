@@ -163,8 +163,10 @@ export default function CreatePostModal({
   const { wallet } = useWallet();
   const insets = useSafeAreaInsets();
   // Joined + owned communities for the audience picker — backed by the
-  // react-query cache (the legacy CommunityContext is never mounted).
-  const communities = useMyCommunities();
+  // react-query cache (the legacy CommunityContext is never mounted). Gated
+  // on `visible`: the modal is mounted at startup (tab bar) and must not
+  // fetch communities until it's actually opened.
+  const communities = useMyCommunities(visible);
   const colors = useThemeColors(); // ← dynamic theme colors
   const styles = React.useMemo(() => makeStyles(colors), [colors]);
   const [title, setTitle] = useState("");

@@ -39,7 +39,7 @@ import { gamesService, type MatchmakingResponse } from "../../services/games.ser
 import { socketClient } from "../../services/socketClient";
 import { userService } from "../../services/user.service";
 import { fontSizes, radii, spacing, type ColorPalette } from "../../theme";
-import type { Game } from "../../types";
+import type { Game, MatchmakingEventPayload } from "../../types";
 import { themedAlert } from '../common/ThemedAlert';
 
 export type MatchMode = "AUTO" | "CUSTOM" | "PRACTICE";
@@ -242,7 +242,7 @@ export default function MatchModeModal({
   useEffect(() => {
     if (step !== "lobby" && step !== "queue") return;
 
-    const onLobbyUpdated = (data: any) => {
+    const onLobbyUpdated = (data: MatchmakingEventPayload) => {
       const inc = data?.lobbyId || data?.ticket?.lobbyId || data?.id;
       if (inc && inc !== lobbyIdRef.current) return;
       const players = data?.players || data?.lobbyState?.players || [];
@@ -267,13 +267,13 @@ export default function MatchModeModal({
       }
     };
 
-    const onMatched = (data: any) => {
+    const onMatched = (data: MatchmakingEventPayload) => {
       const inc = data?.lobbyId || data?.ticket?.lobbyId;
       if (inc && inc !== lobbyIdRef.current && lobbyIdRef.current) return;
       _handleMatched(data);
     };
 
-    const onTimedOut = (data: any) => {
+    const onTimedOut = (data: MatchmakingEventPayload) => {
       const inc = data?.lobbyId || data?.id;
       if (inc && inc !== lobbyIdRef.current && lobbyIdRef.current) return;
       if (matchedRef.current || cancelledRef.current) return;
@@ -764,7 +764,7 @@ export default function MatchModeModal({
       if (Array.isArray(d?.players)) setLobbyPlayers(d.players);
       if (d?.settings?.targetPlayers) setLobbyMaxPlayers(d.settings.targetPlayers);
       // NOTE: /queue returns the getLobby DTO, which always has a non-empty
-      // players array (host is always in it) — so never treat the presence of
+      // players array (host is always in it) — so never treat the status of
       // players as "matched". Only a genuinely resolved lobby (status READY from
       // fillMatchmakingLobby, or matchMetadata) counts. Otherwise we'd skip the
       // matchmaking screen and jump straight to "Match found!".

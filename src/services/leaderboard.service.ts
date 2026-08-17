@@ -30,8 +30,15 @@ export type WeeklyLeaderboards = {
 };
 
 export const leaderboardService = {
-  getWeekly: async (limit = 20): Promise<{ data: WeeklyLeaderboards }> => {
-    const response = await apiClient.get(`/leaderboards/weekly?limit=${limit}`);
+  /**
+   * Weekly leaderboards. Pass `type` to fetch ONLY that tab — the live
+   * leaderboards:changed refresh path fetches the active tab instead of the
+   * full four-tab bundle; omit it for the initial load / pull-to-refresh.
+   */
+  getWeekly: async (limit = 20, type?: LeaderboardType): Promise<{ data: WeeklyLeaderboards }> => {
+    let url = `/leaderboards/weekly?limit=${limit}`;
+    if (type) url += `&type=${type}`;
+    const response = await apiClient.get(url);
     return response.data;
   },
 };

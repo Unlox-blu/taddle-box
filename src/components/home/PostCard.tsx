@@ -32,7 +32,7 @@ import { xpService } from "../../services/xp.service";
 import { postsService } from "../../services/posts.service";
 import { userService } from "../../services/user.service";
 import { queryKeys } from "../../lib/queryKeys";
-import PresenceDot from "../common/PresenceDot";
+import ActiveStatusDot from "../common/ActiveStatusDot";
 import PollBlock from "../common/PollBlock";
 import SmartInput from "../common/SmartInput";
 import { useMyCommunities } from "../../queries/communities";
@@ -568,10 +568,15 @@ export default function PostCard({
     };
   }, [post]);
 
+  // Repost sheet visibility — declared before useMyCommunities below so the
+  // community fetch stays gated (on-demand): it must not fire at app open,
+  // only when a repost sheet is actually opened.
+  const [repostSheetVisible, setRepostSheetVisible] = React.useState(false);
+
   // Destination communities for reposts — same list as the create-post
   // audience picker (joined + owned). Backed by the react-query cache (the
   // CommunityContext was never mounted, so this used to be always empty).
-  const myCommunities = useMyCommunities();
+  const myCommunities = useMyCommunities(repostSheetVisible);
   const repostCommunities = myCommunities.filter(
     (c) => c.isJoined || c.ownerId === currentUser?.id,
   );
@@ -708,7 +713,6 @@ export default function PostCard({
   const [extraVideoTime, setExtraVideoTime] = React.useState(0);
   const [isMuted, setIsMuted] = React.useState(globalIsMuted);
   const [isExpanded, setIsExpanded] = React.useState(false);
-  const [repostSheetVisible, setRepostSheetVisible] = React.useState(false);
   const [repostCommunityId, setRepostCommunityId] = React.useState<string | null>(null);
   const [repostCommunityName, setRepostCommunityName] = React.useState<string | null>(null);
   const [audienceExpanded, setAudienceExpanded] = React.useState(false);
@@ -1316,7 +1320,7 @@ export default function PostCard({
             </View>
             {/* Online / recently-active indicator (followed users only) — small
                 and tucked into the avatar corner so it never crowds the ring */}
-            <PresenceDot
+            <ActiveStatusDot
               userId={author.id || undefined}
               size={12}
               style={{ bottom: -2, right: -2 }}
@@ -2808,7 +2812,7 @@ function UsersModal({
                         <Text style={{ fontSize: 18 }}>👾</Text>
                       )}
                     </View>
-                    <PresenceDot userId={item.id} size={11} style={{ bottom: 0, right: 0 }} />
+                    <ActiveStatusDot userId={item.id} size={11} style={{ bottom: 0, right: 0 }} />
                   </View>
                   <View style={{ flex: 1 }}>
                     <Text

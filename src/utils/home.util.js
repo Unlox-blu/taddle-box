@@ -56,7 +56,8 @@ const renderHomePage = (req) => {
 <title>Taddle Server</title>
 </head>
 <body>
-<p><strong>Status:</strong> All systems operational</p>
+<h1>Taddle Server</h1>
+<p><strong>Status:</strong> ${escapeHtml(info.status)}</p>
 <p><strong>Environment:</strong> ${escapeHtml(info.environment)}</p>
 <p><strong>Version:</strong> v${escapeHtml(info.version)}</p>
 <p><strong>Uptime:</strong> ${escapeHtml(formatUptime(info.uptimeSeconds))}</p>

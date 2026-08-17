@@ -1,7 +1,7 @@
 {
   "name": "taddlebox",
   "version": "1.0.0",
-  "main": "./entry.store.js",
+  "main": "./entry.direct.js",
   "scripts": {
     "start": "expo start",
     "android": "expo start --exe",
@@ -9,7 +9,7 @@
     "web": "expo start --web",
     "typecheck": "tsc --noEmit",
     "build:android:store": "node scripts/set-entry.js store && node scripts/eas-cli.js build --platform android --profile production",
-    "build:android:direct": "node scripts/set-entry.js direct && node scripts/eas-cli.js build --platform android --profile direct --env-file .env",
+    "build:android:direct": "node scripts/set-entry.js direct && node scripts/eas-cli.js build --platform android --profile direct",
     "publish:update:direct": "node scripts/publish-update-direct.js",
     "postinstall": "patch-package"
   },

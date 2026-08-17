@@ -21,8 +21,8 @@ const API_URL = process.env.EXPO_PUBLIC_BACKEND_URL
   : __DEV__
     ? `http://${currentIp}:8080/api/v1`
     : (() => {
-        console.warn('[apiClient] EXPO_PUBLIC_BACKEND_URL is not set in this production build — API calls will target https://taddlebox.com. Set it in eas.json before publishing.');
-        return 'https://taddlebox.com/api/v1';
+        console.warn('[apiClient] EXPO_PUBLIC_BACKEND_URL is not set in this production build. App will not be able to reach the backend server');
+        return 'https://www.taddlebox.com';
       })();
 
 export const apiClient = axios.create({

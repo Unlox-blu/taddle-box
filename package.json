@@ -8,8 +8,10 @@
     "ios": "expo start --ios",
     "web": "expo start --web",
     "typecheck": "tsc --noEmit",
-    "build:android:store": "node scripts/set-entry.js store && node scripts/eas-cli.js build --platform android --profile production",
-    "build:android:direct": "node scripts/set-entry.js direct && node scripts/eas-cli.js build --platform android --profile direct",
+    "build:android:store:cloud": "node scripts/set-entry.js store && node scripts/eas-cli.js build --platform android --profile production",
+    "build:android:store:local": "node scripts/set-entry.js store && node scripts/eas-cli.js build --platform android --profile production_base --local",
+    "build:android:direct:cloud": "node scripts/set-entry.js direct && node scripts/eas-cli.js build --platform android --profile direct",
+    "build:android:direct:local": "node scripts/set-entry.js direct && node scripts/eas-cli.js build --platform android --profile direct_base --local",
     "publish:update:direct": "node scripts/publish-update-direct.js",
     "postinstall": "patch-package"
   },

@@ -14,7 +14,7 @@
         "buildType": "apk"
       }
     },
-    "direct": {
+    "direct_base": {
       "distribution": "internal",
       "autoIncrement": true,
       "android": {
@@ -22,10 +22,15 @@
         "credentialsSource": "remote"
       },
       "env": {
-        "APP_UPDATER_ENABLED": "1"
+        "APP_UPDATER_ENABLED": "1",
+        "NODE_ENV": "production"
       }
     },
-    "production": {
+    "direct": {
+      "extends": "direct_base",
+      "environment": "production"
+    },
+    "production_base": {
       "autoIncrement": true,
       "env": {
         "EAS_BUILD_NO_EXPO_GO_WARNING": "true"
@@ -34,6 +39,10 @@
         "buildType": "app-bundle",
         "credentialsSource": "remote"
       }
+    },
+    "production": {
+      "extends": "production_base",
+      "environment": "production"
     }
   },
   "submit": {

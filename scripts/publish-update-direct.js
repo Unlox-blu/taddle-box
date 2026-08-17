@@ -262,9 +262,10 @@ async function publishApkToS3(args, versionCode) {
     process.exit(1);
   }
 
-  const server = args.server || process.env.APP_UPDATE_SERVER_URL;
+  // Also default to EXPO_PUBLIC_BACKEND_URL if present in .env
+  const server = args.server || process.env.APP_UPDATE_SERVER_URL || process.env.EXPO_PUBLIC_BACKEND_URL;
   if (!server) {
-    console.error('Missing --server <backend base URL> (or set APP_UPDATE_SERVER_URL).');
+    console.error('Missing --server <backend base URL> (or set EXPO_PUBLIC_BACKEND_URL in .env).');
     process.exit(1);
   }
 
@@ -280,15 +281,46 @@ async function publishApkToS3(args, versionCode) {
   return { url: finalUrl, size };
 }
 
+function loadEnv() {
+  const envPath = path.join(APP_ROOT, '.env');
+  if (fs.existsSync(envPath)) {
+    const content = fs.readFileSync(envPath, 'utf8');
+    content.split(/\r?\n/).forEach(line => {
+      const parts = line.split('=');
+      if (parts.length >= 2) {
+        const key = parts[0].trim();
+        const value = parts.slice(1).join('=').trim();
+        if (process.env[key] === undefined) process.env[key] = value;
+      }
+    });
+  }
+}
+
 async function main() {
+  loadEnv();
   const args = parseArgs(process.argv.slice(2));
 
   const hasUrl = Boolean(args.url);
-  const hasApk = Boolean(args.apk);
+  let hasApk = Boolean(args.apk);
+
   if (!hasUrl && !hasApk) {
-    console.error('Missing required --url <public https URL> or --apk <local APK path>.');
-    console.error('  npm run publish:update:direct -- --apk ./taddlebox.apk --server https://your-server.com --changelog "notes"');
-    process.exit(1);
+    const files = fs.readdirSync(APP_ROOT);
+    const apks = files.filter(f => f.endsWith('.apk'));
+    
+    if (apks.length === 1) {
+      args.apk = apks[0];
+      hasApk = true;
+      console.log(`ℹ Auto-detected local APK: ${args.apk}`);
+    } else if (apks.length > 1) {
+      console.error('Multiple .apk files found in the project root. Please specify one explicitly using --apk.');
+      console.error(`Found: ${apks.join(', ')}`);
+      process.exit(1);
+    } else {
+      console.error('Missing required --url <public https URL> or --apk <local APK path>.');
+      console.error('No .apk files were found in the project root to auto-detect.');
+      console.error('  npm run publish:update:direct -- --apk ./taddlebox.apk --server https://your-server.com --changelog "notes"');
+      process.exit(1);
+    }
   }
   if (hasUrl && hasApk) {
     console.error('Provide either --url or --apk, not both.');
@@ -357,7 +389,7 @@ async function main() {
   const previousApk = extractApkFileName(existingUrl);
   const newApkName = args.filename || (hasApk ? `taddlebox-${versionCode}.apk` : null);
   if (!args['no-prune'] && previousApk && previousApk !== newApkName) {
-    const server = args.server || process.env.APP_UPDATE_SERVER_URL;
+    const server = args.server || process.env.APP_UPDATE_SERVER_URL || process.env.EXPO_PUBLIC_BACKEND_URL;
     if (server) {
       try {
         await deleteApkFromS3(server, previousApk, args['update-key'] || process.env.APP_UPDATE_UPLOAD_KEY);

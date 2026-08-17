@@ -15,6 +15,7 @@
  */
 'use strict';
 
+const fs = require('fs');
 const path = require('path');
 const { execSync } = require('child_process');
 
@@ -69,7 +70,26 @@ const args = process.argv
 const cmd = `npx --yes eas-cli@${version} ${args}`.trim();
 
 try {
-  execSync(cmd, { cwd: APP_ROOT, stdio: 'inherit' });
+  const envPath = path.join(APP_ROOT, '.env');
+  if (fs.existsSync(envPath)) {
+    const content = fs.readFileSync(envPath, 'utf8');
+    content.split(/\r?\n/).forEach((line) => {
+      const parts = line.split('=');
+      if (parts.length >= 2) {
+        const key = parts[0].trim();
+        const value = parts.slice(1).join('=').trim();
+        if (process.env[key] === undefined) {
+          process.env[key] = value;
+        }
+      }
+    });
+  }
+} catch (e) {
+  // ignore
+}
+
+try {
+  execSync(cmd, { cwd: APP_ROOT, stdio: 'inherit', env: process.env });
 } catch (error) {
   process.exit(error.status || 1);
 }

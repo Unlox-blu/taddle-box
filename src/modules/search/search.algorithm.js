@@ -658,6 +658,12 @@ const SEARCH_EVENT_ALGORITHM = `SELECT
                                             WHERE s.event_id = events.id AND s.user_id = $6
                                         )
                                     )
+                                    -- Time-window filter ($7 = cutoff timestamp; null = all
+                                    -- time): only events starting at/after the cutoff.
+                                    AND (
+                                        $7::timestamptz IS NULL
+                                        OR start_time >= $7
+                                    )
                                 ORDER BY start_time ASC
                                 LIMIT $3 OFFSET $4`;
 
@@ -808,7 +814,24 @@ const DISCOVER_POSTS_ALGORITHM = `WITH ranked_posts AS (
                                     
                                             SELECT ranked_posts.*, COUNT(*) OVER() AS total
                                             FROM ranked_posts
+                                            -- Time-window filter ($6 = cutoff timestamp; null = all
+                                            -- time) — discovery honors the filter sheet's TIME too.
+                                            WHERE
+                                            (
+                                                $6::timestamptz IS NULL
+                                                OR published_at >= $6
+                                            )
                                             ORDER BY
+                                            -- Sort overrides ($5): latest / hot / top mirror the
+                                            -- search-post sort semantics; otherwise the discovery
+                                            -- score (trending + interests + freshness) wins.
+                                            CASE WHEN $5 = 'latest' THEN published_at END DESC,
+                                            -- hot = trending recently: engagement decayed by age.
+                                            CASE WHEN $5 = 'hot' THEN
+                                                (likes_count * 2 + comments_count * 3)
+                                                / POWER(EXTRACT(EPOCH FROM (NOW() - published_at)) / 3600 + 2, 1.5)
+                                            END DESC,
+                                            CASE WHEN $5 = 'top' THEN (likes_count * 2 + comments_count * 3) END DESC,
                                             (
                                             trending_score
                                             +

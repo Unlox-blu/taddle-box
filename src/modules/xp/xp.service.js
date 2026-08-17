@@ -31,13 +31,20 @@ class XpService {
     }
   }
 
-  async getTransactions({ userId, limit, offset, q }) {
+  async getTransactions({ userId, limit, offset, q, timeCutoff, sort }) {
     try {
       let xpWallet = await this.xpRepo.findByUserId(userId);
       if (!xpWallet) {
         xpWallet = await this.xpRepo.create(userId);
       }
-      const { rows, total } = await this.xpRepo.getUserTransactions(xpWallet.id, limit, offset, q);
+      const { rows, total } = await this.xpRepo.getUserTransactions(
+        xpWallet.id,
+        limit,
+        offset,
+        q,
+        timeCutoff || null,
+        sort || 'latest'
+      );
       return { transactions: rows, total };
     } catch (error) {
       throw error;

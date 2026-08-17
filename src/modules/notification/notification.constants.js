@@ -163,6 +163,18 @@ const TYPE_ALIASES = {
   REPOST: 'NEW_POST',
 };
 
+// The three notification buckets used by the Search scope and the counts
+// endpoint. Each lists BOTH the canonical uppercase spelling
+// (publishNotification/normalizeType + the batch emit worker: POST_LIKE,
+// COMMENT, REPLY, MENTION, …) and the legacy lowercase job-processor
+// spelling uppercased (post_liked, post_comment, …). Filters match with
+// UPPER(n.type), so both pipelines land in the right bucket.
+const NOTIFICATION_TYPE_BUCKETS = {
+  likes: ['POST_LIKE', 'POST_LIKED', 'LIKE_POST', 'LIKE_COMMENT'],
+  comments: ['COMMENT', 'POST_COMMENT', 'REPLY', 'MENTION'],
+  follows: ['FOLLOW', 'REQUEST_TO_FOLLOW', 'APPROVED_TO_FOLLOW'],
+};
+
 const normalizeType = (type) => {
   if (!type) return 'COMMENT';
   const normalized = String(type).trim().toUpperCase();
@@ -193,6 +205,7 @@ module.exports = {
   PRIORITY,
   DEFAULT_NOTIFICATION_DEFINITIONS,
   TYPE_ALIASES,
+  NOTIFICATION_TYPE_BUCKETS,
   normalizeType,
   resolveNotificationPolicy
 };

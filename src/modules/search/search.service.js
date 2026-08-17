@@ -1,6 +1,9 @@
 'use strict';
 
 const { getPaginationParams } = require('../../utils/pagination.util');
+const { timeToCutoff } = require('../../utils/time.util');
+const notificationRepository = require('../notification/notification.repository');
+const { NOTIFICATION_TYPE_BUCKETS } = require('../notification/notification.constants');
 
 // Result groups the universal search can return, in the order they are
 // interleaved for a non-empty query. The server owns the ORDER — the client
@@ -12,6 +15,9 @@ const BOOKMARKED_TYPES = ['posts', 'comments', 'media', 'events'];
 // Discovery (empty query) keeps the classic section feel — people/communities/
 // events/games first, then posts.
 const DISCOVERY_TYPES = ['people', 'communities', 'events', 'games', 'posts', 'text'];
+// Notifications scope (notified=1) — the three stored-type buckets, shown
+// always (empty query = all notifications, grouped by bucket).
+const NOTIFICATIONS_TYPES = ['likes', 'comments', 'follows'];
 
 // Display labels for the result-type pills — returned alongside each type so
 // the client renders the pill row verbatim (no client-side label map).
@@ -26,23 +32,19 @@ const TYPE_LABELS = {
   events: 'Events',
   games: 'Games',
   text: 'Hashtags',
+  likes: 'Likes',
+  follows: 'Follows',
 };
 
-// Shapes a result type as a labeled pill for the response.
-const pill = (type) => ({ type, label: TYPE_LABELS[type] || type });
+// Shapes a result type as a labeled pill for the response. The notifications
+// scope also carries a per-bucket `count` so the app can render "Likes (3)".
+const pill = (type, count) => ({
+  type,
+  label: TYPE_LABELS[type] || type,
+  ...(count !== undefined ? { count } : {}),
+});
 // Discovery inside Bookmarks — just the user's saved posts and events.
 const DISCOVERY_BOOKMARKED_TYPES = ['posts', 'events'];
-
-// Maps the TIME filter to a cutoff timestamp (null = all time).
-const timeToCutoff = (time) => {
-  const hours = {
-    recent: 24,
-    past_week: 24 * 7,
-    past_month: 24 * 30,
-    past_year: 24 * 365,
-  }[String(time || '').trim().toLowerCase()];
-  return hours ? new Date(Date.now() - hours * 3600 * 1000) : null;
-};
 
 // Parses the combined `filter` query param into its scoped parts. Accepts
 // comma-separated tokens, optionally wrapped in [ ]:
@@ -79,7 +81,11 @@ const parseFilter = (filter = '') => {
 const normalizeUniversalType = (type) => {
   const t = String(type || '').trim().toLowerCase();
   if (!t || t === 'all') return 'all';
-  return UNIVERSAL_TYPES.includes(t) || DISCOVERY_TYPES.includes(t) ? t : 'all';
+  return UNIVERSAL_TYPES.includes(t) ||
+    DISCOVERY_TYPES.includes(t) ||
+    NOTIFICATIONS_TYPES.includes(t)
+    ? t
+    : 'all';
 };
 
 // Round-robin interleave across the non-empty groups, preserving each group's
@@ -126,6 +132,7 @@ class SearchService {
     offset = 0,
     userId = null,
     bookmarked = null,
+    notified = null,
   }) {
     try {
       const query = String(q || '').trim();
@@ -135,18 +142,26 @@ class SearchService {
       const timeCutoff = timeToCutoff(time);
       const requestedType = normalizeUniversalType(type);
       const bm = bookmarked === true || bookmarked === '1' || bookmarked === 1;
+      // Notifications scope — notifications go through the SAME unified
+      // search API as bookmarks (notified=1), grouped into the three stored-
+      // type buckets with server-owned ordering + pills.
+      const isNotifications =
+        notified === true || notified === '1' || notified === 1;
       const isDiscovery =
+        !isNotifications &&
         !query &&
         communities.length === 0 &&
         people.length === 0 &&
         tags.length === 0;
-      const order = isDiscovery
-        ? bm
-          ? DISCOVERY_BOOKMARKED_TYPES
-          : DISCOVERY_TYPES
-        : bm
-          ? BOOKMARKED_TYPES
-          : UNIVERSAL_TYPES;
+      const order = isNotifications
+        ? NOTIFICATIONS_TYPES
+        : isDiscovery
+          ? bm
+            ? DISCOVERY_BOOKMARKED_TYPES
+            : DISCOVERY_TYPES
+          : bm
+            ? BOOKMARKED_TYPES
+            : UNIVERSAL_TYPES;
       // Every group is sliced with the SAME limit+offset as the request so
       // pages are gapless and `hasNext` (page*limit < total) stays consistent.
       // (The old cap of 8/type made page 2 start at offset 10 with LIMIT 8,
@@ -155,10 +170,42 @@ class SearchService {
 
       const searchGroup = async (group, lmt, off) => {
         try {
+          // Notifications scope: every group is one stored-type bucket,
+          // queried from the notifications table with the same q/time window
+          // and newest-first ordering (findByUser already joins sender
+          // identity). Filter chips don't apply to notifications.
+          if (isNotifications) {
+            const bucket = NOTIFICATION_TYPE_BUCKETS[group];
+            // Unknown bucket (a content type like 'posts' in notifications
+            // scope) → nothing, never an unfiltered dump of all rows.
+            if (!bucket) return { rows: [], total: 0 };
+            // findByUser returns { notifications, total } — rename to the
+            // group shape the interleave/types logic expects.
+            const { notifications, total } = await notificationRepository.findByUser(
+              userId,
+              lmt,
+              off,
+              false,
+              bucket,
+              query,
+              timeCutoff,
+              // Sort mirrors global search (relevance ranks by match
+              // strength + freshness; hot/top fall back to newest-first).
+              sortBy
+            );
+            return { rows: notifications, total };
+          }
           switch (group) {
             case 'posts': {
               if (isDiscovery && !bm) {
-                const d = await this.discoverPost({ userId, limit: lmt, offset: off });
+                const d = await this.discoverPost({
+                  userId,
+                  limit: lmt,
+                  offset: off,
+                  // Discovery now honors the sort + time window too.
+                  sortBy,
+                  timeCutoff,
+                });
                 return { rows: d.data, total: d.total };
               }
               const { rows, total } = await this.searchRepo.searchPost(
@@ -263,7 +310,12 @@ class SearchService {
             }
             case 'events': {
               if (isDiscovery && !bm) {
-                const d = await this.discoverEvents({ limit: lmt, offset: off });
+                const d = await this.discoverEvents({
+                  limit: lmt,
+                  offset: off,
+                  // Discovery events honor the time window (start_time >= cutoff).
+                  timeCutoff,
+                });
                 return { rows: d.data, total: d.total };
               }
               // Saved-events scope (search from Bookmarks).
@@ -274,7 +326,8 @@ class SearchService {
                   lmt,
                   off,
                   true,
-                  userId
+                  userId,
+                  timeCutoff
                 );
                 return { rows, total };
               }
@@ -311,10 +364,10 @@ class SearchService {
         const probes = await Promise.all(
           order
             .filter((g) => g !== requestedType)
-            .map(async (g) => ({
-              type: g,
-              has: (await searchGroup(g, 1, 0)).total > 0,
-            }))
+            .map(async (g) => {
+              const probe = await searchGroup(g, 1, 0);
+              return { type: g, total: probe.total };
+            })
         );
         // 'all' is always the first pill — the client renders the server's
         // `types` verbatim (no client-side defaults or label map).
@@ -324,8 +377,19 @@ class SearchService {
             types: [
               'all',
               requestedType,
-              ...probes.filter((p) => p.has).map((p) => p.type),
-            ].map(pill),
+              ...probes.filter((p) => p.total > 0).map((p) => p.type),
+            ].map((t) =>
+              pill(
+                t,
+                isNotifications
+                  ? t === 'all'
+                    ? total
+                    : t === requestedType
+                      ? total
+                      : probes.find((p) => p.type === t)?.total
+                  : undefined
+              )
+            ),
             results: tagRows(rows, requestedType),
             filter: { communities, people, tags },
           },
@@ -346,10 +410,20 @@ class SearchService {
       const results = interleave(
         nonEmpty.map((g) => ({ type: g.type, rows: tagRows(g.rows, g.type) }))
       );
-      // 'all' is always the first pill — the client renders the server's
-      // `types` verbatim (no client-side defaults or label map).
-      const types = ['all', ...nonEmpty.map((g) => g.type)].map(pill);
       const total = groups.reduce((sum, g) => sum + g.total, 0);
+      // 'all' is always the first pill — the client renders the server's
+      // `types` verbatim (no client-side defaults or label map). The
+      // notifications scope carries per-bucket counts on its pills.
+      const types = ['all', ...nonEmpty.map((g) => g.type)].map((t) =>
+        pill(
+          t,
+          isNotifications
+            ? t === 'all'
+              ? total
+              : groups.find((g) => g.type === t)?.total
+            : undefined
+        )
+      );
       // hasNext is per-GROUP (any type still has rows beyond this page), not
       // the summed total — the sum would keep "has next" alive after a type
       // is exhausted, sending the client on wasted empty pages.
@@ -384,7 +458,7 @@ class SearchService {
     }
   }
 
-  async discoverPost({ userId, limit, offset }) {
+  async discoverPost({ userId, limit, offset, sortBy = 'relevance', timeCutoff = null }) {
     try {
       const userInterests = await this.searchRepo.getUserInterests(userId);
       const interests = userInterests.map((item) =>
@@ -396,6 +470,8 @@ class SearchService {
         interests,
         limit,
         offset,
+        sortBy,
+        timeCutoff,
       });
       return { dataType: 'posts', data: rows, total };
     } catch (error) {
@@ -444,9 +520,17 @@ class SearchService {
     }
   }
 
-  async discoverEvents({ limit, offset }) {
+  async discoverEvents({ limit, offset, timeCutoff = null }) {
     try {
-      const { rows, total } = await this.searchRepo.searchEvent('', '', limit, offset);
+      const { rows, total } = await this.searchRepo.searchEvent(
+        '',
+        '',
+        limit,
+        offset,
+        null,
+        null,
+        timeCutoff
+      );
       return { dataType: 'events', data: rows, total };
     } catch (error) {
       throw error;

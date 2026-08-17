@@ -79,6 +79,20 @@ const otpTargetRateLimiter = rateLimit({
   message: { success: false, message: 'Too many OTP requests for this account. Please try again later.' },
 });
 
+// 100 requests per min per ACCOUNT — search runs the heaviest queries in the
+// app (FTS + trigram scans across posts/users/communities), so a per-account
+// budget stops scrapers/scripts from hammering it while leaving plenty of
+// room for legit typing + infinite scroll (verifyToken sets req.userId).
+const searchRateLimiter = rateLimit({
+  windowMs: 60 * 1000,
+  max: 100,
+  standardHeaders: true,
+  legacyHeaders: false,
+  store: makeStore('rl:search:'),
+  keyGenerator: accountOrIpKey,
+  message: { success: false, message: 'Too many search requests. Please try again shortly.' },
+});
+
 // 20 uploads per hour — runs AFTER verifyToken on the media routes, so the
 // budget is per ACCOUNT: a NAT'd office/campus no longer shares one bucket,
 // and rotating IPs can't stretch the upload cap.
@@ -125,6 +139,7 @@ const postViewLimiter = rateLimit({
 module.exports = {
   globalRateLimiter,
   authRateLimiter,
+  searchRateLimiter,
   otpRateLimiter,
   otpTargetRateLimiter,
   uploadRateLimiter,

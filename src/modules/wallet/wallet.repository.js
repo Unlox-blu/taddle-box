@@ -159,7 +159,7 @@ const createTransaction = async (data, client) => {
 
 // `q` searches the FULL transaction history server-side (description, type,
 // category, status, amount) so wallet search isn't limited to the first page.
-const getTransactions = async (walletId, limit, offset, q = '') => {
+const getTransactions = async (walletId, limit, offset, q = '', timeCutoff = null, sort = 'latest') => {
   try {
     const search = String(q || '').trim();
     const { rows } = await pool.query(
@@ -174,8 +174,14 @@ const getTransactions = async (walletId, limit, offset, q = '') => {
          OR status ILIKE '%' || $4 || '%'
          OR amount_cents::text LIKE '%' || $4 || '%'
        )
-     ORDER BY created_at DESC LIMIT $2 OFFSET $3`,
-      [walletId, limit, offset, search]
+       -- Time-window filter ($5 = cutoff timestamp; null = all time).
+       AND ($5::timestamptz IS NULL OR created_at >= $5)
+     ORDER BY
+       -- Sort ($6): 'top' = biggest amount first (mirrors the app's local
+       -- sort); every other value stays newest-first.
+       CASE WHEN $6 = 'top' THEN ABS(amount_cents) END DESC,
+       created_at DESC LIMIT $2 OFFSET $3`,
+      [walletId, limit, offset, search, timeCutoff, sort]
     );
     const total = rows[0]?.total || 0;
     const transactions = rows.map(WalletModel.formatTransaction)

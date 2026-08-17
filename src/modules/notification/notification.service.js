@@ -69,15 +69,24 @@ class NotificationService {
     return total;
   }
 
-  async getAll({ userId, limit, offset, unreadOnly, type }) {
+  async getAll({ userId, limit, offset, unreadOnly, types, q, timeCutoff, sort }) {
     const { notifications, total } = await this.notifRepo.findByUser(
       userId,
       limit,
       offset,
       unreadOnly,
-      type || null
+      types || null,
+      q || '',
+      timeCutoff || null,
+      sort || 'latest'
     );
     const unreadCount = await this.notifRepo.getUnreadCount(userId);
+    // Per-bucket counts for the type pills — same q/time filters as the list.
+    const counts = await this.notifRepo.countByTypes(
+      userId,
+      q || '',
+      timeCutoff || null
+    );
 
     // Enrich follow notifications with the *live* follow state so the app never
     // shows a stale Approve/Follow-Back button:
@@ -184,7 +193,7 @@ class NotificationService {
       // Enrichment failure must never break the notifications list.
     }
 
-    return { notifications, total, unreadCount };
+    return { notifications, total, unreadCount, counts };
   }
 
   async getUnreadCount({ userId }) {

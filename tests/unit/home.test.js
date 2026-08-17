@@ -24,8 +24,8 @@ describe('GET /', () => {
 
     expect(res.status).toBe(200);
     expect(res.headers['content-type']).toMatch(/text\/html/);
-    expect(res.text).toContain('Taddle API');
-    expect(res.text).toContain('All systems operational');
+    expect(res.text).toContain('Taddle Server');
+    expect(res.text).toContain('Status:');
   });
 
   it('returns a JSON status payload to API clients', async () => {

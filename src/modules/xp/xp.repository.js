@@ -105,7 +105,7 @@ const findTransactionById = async (id) => {
 
 // `q` searches the FULL XP history server-side (transaction type, source,
 // status, amount) so wallet search isn't limited to the first page.
-const getUserTransactions = async (xpId, limit, offset, q = '') => {
+const getUserTransactions = async (xpId, limit, offset, q = '', timeCutoff = null, sort = 'latest') => {
   const search = String(q || '').trim();
   const { rows } = await pool.query(
     `
@@ -129,10 +129,15 @@ const getUserTransactions = async (xpId, limit, offset, q = '') => {
         OR xt.status ILIKE '%' || $4 || '%'
         OR xt.xp::text LIKE '%' || $4 || '%'
       )
-    ORDER BY xt.created_at DESC
+      -- Time-window filter ($5 = cutoff timestamp; null = all time).
+      AND ($5::timestamptz IS NULL OR xt.created_at >= $5)
+    ORDER BY
+      -- Sort ($6): 'top' = biggest XP amount first; otherwise newest-first.
+      CASE WHEN $6 = 'top' THEN ABS(xt.xp) END DESC,
+      xt.created_at DESC
     LIMIT $2 OFFSET $3
     `,
-    [xpId, limit, offset, search]
+    [xpId, limit, offset, search, timeCutoff, sort]
   );
   const totalRes = await pool.query(
     `SELECT COUNT(*) FROM ${XpModel.TRANSACTIONS_TABLE}

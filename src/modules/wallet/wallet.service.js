@@ -53,12 +53,19 @@ class WalletService {
     }
   }
 
-  async getTransactions({ userId, limit, offset, q }) {
+  async getTransactions({ userId, limit, offset, q, timeCutoff, sort }) {
     try {
       const wallet = await this.walletRepo.findByUserId(userId);
       if (!wallet) throw createError('Wallet not found', 404);
 
-      const { transactions, total } = await this.walletRepo.getTransactions(wallet.id, limit, offset, q);
+      const { transactions, total } = await this.walletRepo.getTransactions(
+        wallet.id,
+        limit,
+        offset,
+        q,
+        timeCutoff || null,
+        sort || 'latest'
+      );
       return { transactions, total };
     } catch (error) {
       throw error;

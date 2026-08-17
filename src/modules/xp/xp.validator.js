@@ -26,6 +26,9 @@ const paginationQuerySchema = z.object({
 
   // Wallet search — server-side filter over the full XP history.
   q: z.string().optional(),
+  // TIME window + SORT mirror global search (see wallet search scope).
+  time: z.enum(['recent', 'past_week', 'past_month', 'past_year', 'all_time']).optional(),
+  sort: z.string().max(20).optional(),
 }).strict();
 
 

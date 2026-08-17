@@ -26,6 +26,9 @@ const searchQuerySchema = z.object({
         'communities',
         'events',
         'games',
+        // Notification buckets (only valid with notified=1).
+        'likes',
+        'follows',
       ]),
       z.literal(''),
     ])
@@ -51,6 +54,9 @@ const searchQuerySchema = z.object({
   all_time: z.string().optional(),
   // Bookmarks scope — restrict results to the user's saved content.
   bookmarked: z.string().optional(),
+  // Notifications scope — restrict results to the user's notifications
+  // (mirrors bookmarked=1; the result groups become likes/comments/follows).
+  notified: z.string().optional(),
   scope: z.string().optional(),
   page: z.coerce
     .number({ invalid_type_error: 'Page must be a number' })

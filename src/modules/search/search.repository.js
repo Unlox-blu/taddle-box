@@ -121,12 +121,12 @@ const searchPoll = async (query, limit, offset, userId = null, { community = nul
 };
 
 
-const searchEvent = async (query, filter, limit, offset, bookmarked = null, userId = null) => {
+const searchEvent = async (query, filter, limit, offset, bookmarked = null, userId = null, timeCutoff = null) => {
   try {
     const q = query || '';
     const eventType = filter || null;
     const bmFlag = bookmarked === true || bookmarked === '1' || bookmarked === 1 ? true : null;
-    const { rows } = await pool.query(SearchAlgo.SEARCH_EVENT_ALGORITHM, [`%${q}%`, eventType, limit, offset, bmFlag, userId || null] );
+    const { rows } = await pool.query(SearchAlgo.SEARCH_EVENT_ALGORITHM, [`%${q}%`, eventType, limit, offset, bmFlag, userId || null, timeCutoff || null] );
     const total = rows[0]?.total || 0;
     return { rows, total: parseInt(total, 10) };
   } catch (error) {
@@ -146,9 +146,9 @@ const searchGame = async (query, limit, offset) => {
 };
 
 
-const discoverPost = async ({userId, interests, limit, offset}) => {
+const discoverPost = async ({userId, interests, limit, offset, sortBy = 'relevance', timeCutoff = null}) => {
   try {
-    const {rows} = await pool.query(SearchAlgo.DISCOVER_POSTS_ALGORITHM, [userId, interests, limit, offset] )
+    const {rows} = await pool.query(SearchAlgo.DISCOVER_POSTS_ALGORITHM, [userId, interests, limit, offset, sortBy, timeCutoff || null] )
     const total = rows[0]?.total || 0;
     return { rows, total: parseInt(total, 10) };
   } catch (error) {

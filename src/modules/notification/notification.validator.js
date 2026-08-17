@@ -22,8 +22,15 @@ const paginationQuerySchema = z.object({
     .max(100, 'Maximum limit allowed is 100')
     .default(10).optional(),
 
-  type: z.string().max(50).optional(),
+  type: z.string().max(100).optional(),
   unread: z.enum(['true', 'false']).optional(),
+
+  // Server-side search (mirrors the global search params): q is the free-text
+  // term, sort/time are accepted for parity (notifications are always
+  // newest-first, but the time window narrows by created_at).
+  q: z.string().max(200).optional(),
+  sort: z.string().max(20).optional(),
+  time: z.enum(['recent', 'past_week', 'past_month', 'past_year', 'all_time']).optional(),
 }).strict();
 
 

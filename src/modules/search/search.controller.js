@@ -28,6 +28,7 @@ class SearchController {
         offset,
         userId,
         bookmarked: req.query.bookmarked || null,
+        notified: req.query.notified || null,
       });
       const meta = paginationMeta(total, page, limit);
       // The mixed/discovery view paginates PER TYPE — the summed-total formula

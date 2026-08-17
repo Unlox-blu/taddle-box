@@ -120,7 +120,7 @@ const LIST_FIELDS_QUALIFIED = [
   'n.resource_type', 'n.resource_id', 'n.meta', 'n.is_read', 'n.read_at', 'n.created_at',
 ].join(', ');
 
-const findByUser = async (userId, limit, offset, unreadOnly = false, type = null) => {
+const findByUser = async (userId, limit, offset, unreadOnly = false, types = null, q = '', timeCutoff = null, sort = 'latest') => {
   try {
     const { rows } = await pool.query(
       `SELECT ${LIST_FIELDS_QUALIFIED},
@@ -131,10 +131,57 @@ const findByUser = async (userId, limit, offset, unreadOnly = false, type = null
       LEFT JOIN users u ON u.id = n.sender_id
       LEFT JOIN media avatar_media ON avatar_media.id = u.avatar_url
       WHERE n.recipient_id = $1 AND ($4 = FALSE OR n.is_read = FALSE)
-        AND ($5::text IS NULL OR n.type = $5)
-      ORDER BY n.created_at DESC 
+        -- $5 is a comma-separated list of stored types (e.g. COMMENT,REPLY).
+        -- UPPER() comparison because the table carries BOTH uppercase types
+        -- (publishNotification/normalizeType, e.g. POST_LIKE, FOLLOW) and
+        -- legacy lowercase ones (notification.jobprocessor, e.g. post_liked,
+        -- follow) — callers pass the uppercase spelling of each.
+        AND ($5::text[] IS NULL OR UPPER(n.type) = ANY($5::text[]))
+        -- Server-side search: title / message / sender name / sender username.
+        AND (
+            $6 = ''
+            OR n.title ILIKE $6
+            OR COALESCE(n.message, '') ILIKE $6
+            OR COALESCE(u.name, '') ILIKE $6
+            OR COALESCE(u.username, '') ILIKE $6
+        )
+        -- Time-window filter ($7 = cutoff timestamp; null = all time).
+        AND ($7::timestamptz IS NULL OR n.created_at >= $7)
+      ORDER BY
+        -- Sort ($8), mirroring global search:
+        --  · 'latest' (default) → newest-first (created_at DESC).
+        --  · 'top' → most-engaged first: stacked notifications carry
+        --    meta.actorCount (how many people interacted, Instagram-style);
+        --    unstacked rows count as 1.
+        --  · 'hot' → the same engagement decayed by age (Reddit-style),
+        --    mirroring the post search's hot formula.
+        --  · 'relevance' → query-match strength (exact title/message/sender
+        --    match > prefix > fuzzy) + freshness, like the post search. No
+        --    query ($6 = '') → the CASE is NULL → created_at wins.
+        CASE WHEN $8 = 'top' THEN
+          CASE WHEN n.meta ? 'actorCount' THEN (n.meta->>'actorCount')::int ELSE 1 END
+        END DESC,
+        CASE WHEN $8 = 'hot' THEN
+          CASE WHEN n.meta ? 'actorCount' THEN (n.meta->>'actorCount')::int ELSE 1 END
+          / POWER(EXTRACT(EPOCH FROM (NOW() - n.created_at)) / 3600 + 2, 1.5)
+        END DESC,
+        CASE WHEN $8 = 'relevance' AND $6 != '' THEN
+          (
+            CASE WHEN LOWER(COALESCE(n.title, '')) = LOWER($9) THEN 10000 ELSE 0 END
+            + CASE WHEN LOWER(COALESCE(n.title, '')) LIKE LOWER($9) || '%' THEN 7000 ELSE 0 END
+            + CASE WHEN COALESCE(n.title, '') ILIKE $6 THEN 5000 ELSE 0 END
+            + CASE WHEN LOWER(COALESCE(n.message, '')) = LOWER($9) THEN 8000 ELSE 0 END
+            + CASE WHEN COALESCE(n.message, '') ILIKE $6 THEN 4000 ELSE 0 END
+            + CASE WHEN LOWER(COALESCE(u.name, '')) = LOWER($9) THEN 6000 ELSE 0 END
+            + CASE WHEN COALESCE(u.name, '') ILIKE $6 THEN 3000 ELSE 0 END
+            + CASE WHEN LOWER(COALESCE(u.username, '')) = LOWER($9) THEN 6000 ELSE 0 END
+            + CASE WHEN COALESCE(u.username, '') ILIKE $6 THEN 3000 ELSE 0 END
+            + GREATEST(100 - EXTRACT(EPOCH FROM (NOW() - n.created_at)) / 86400, 0)
+          )
+        END DESC,
+        n.created_at DESC
       LIMIT $2 OFFSET $3`,
-      [userId, limit, offset, unreadOnly, type]
+      [userId, limit, offset, unreadOnly, types, q ? `%${q}%` : '', timeCutoff, sort, q]
     );
     const total = rows[0]?.total || 0;
     const notifications = rows.map((row) => ({
@@ -174,6 +221,41 @@ const markAllRead = async (userId) => {
     );
   } catch (error) {
     if (isMissingRelation(error)) return;
+    throw error;
+  }
+};
+
+// Per-bucket counts for the notification pills, computed with the SAME
+// q/time filters as the list so the numbers match what a bucket would show.
+const countByTypes = async (userId, q = '', timeCutoff = null) => {
+  try {
+    const { likes, comments, follows } = require('./notification.constants').NOTIFICATION_TYPE_BUCKETS;
+    const { rows } = await pool.query(
+      `SELECT
+          COUNT(*) FILTER (WHERE UPPER(type) = ANY($2::text[])) AS likes,
+          COUNT(*) FILTER (WHERE UPPER(type) = ANY($3::text[])) AS comments,
+          COUNT(*) FILTER (WHERE UPPER(type) = ANY($4::text[])) AS follows
+       FROM ${NotificationModel.NOTIFICATION_TABLE} n
+       LEFT JOIN users u ON u.id = n.sender_id
+       WHERE n.recipient_id = $1
+         AND (
+             $5 = ''
+             OR n.title ILIKE $5
+             OR COALESCE(n.message, '') ILIKE $5
+             OR COALESCE(u.name, '') ILIKE $5
+             OR COALESCE(u.username, '') ILIKE $5
+         )
+         AND ($6::timestamptz IS NULL OR n.created_at >= $6)`,
+      [userId, likes, comments, follows, q ? `%${q}%` : '', timeCutoff]
+    );
+    const r = rows[0] || {};
+    return {
+      likes: parseInt(r.likes, 10) || 0,
+      comments: parseInt(r.comments, 10) || 0,
+      follows: parseInt(r.follows, 10) || 0,
+    };
+  } catch (error) {
+    if (isMissingRelation(error)) return { likes: 0, comments: 0, follows: 0 };
     throw error;
   }
 };
@@ -235,4 +317,4 @@ const upsertPreferences = async (userId, updates) => {
 };
 
 
-module.exports = { createNotification, createNotificationsBatch, createBatchNotification, addToBatchNotification, findByUser, markOneRead, markAllRead, getUnreadCount, createDefaultPreferences, findPreferenceByUserId, upsertPreferences };
+module.exports = { createNotification, createNotificationsBatch, createBatchNotification, addToBatchNotification, findByUser, markOneRead, markAllRead, countByTypes, getUnreadCount, createDefaultPreferences, findPreferenceByUserId, upsertPreferences };

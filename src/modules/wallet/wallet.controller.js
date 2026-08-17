@@ -2,6 +2,7 @@
 
 const { apiResponse } = require('../../utils/response.util');
 const { getPaginationParams, paginationMeta } = require('../../utils/pagination.util');
+const { timeToCutoff } = require('../../utils/time.util');
 
 class WalletController {
   constructor({ walletService }) {
@@ -34,7 +35,11 @@ class WalletController {
       const userId = req.userId;
       const { limit, offset, page } = getPaginationParams(req.query);
       const q = req.query.q || '';
-      const { transactions, total } = await this.walletSvc.getTransactions({userId, limit, offset, q});
+      // TIME window + SORT mirror global search: 'top' = biggest amount
+      // first, everything else newest-first.
+      const timeCutoff = timeToCutoff(req.query?.time);
+      const sort = req.query?.sort ? String(req.query.sort) : 'latest';
+      const { transactions, total } = await this.walletSvc.getTransactions({userId, limit, offset, q, timeCutoff, sort});
       res.json(
         apiResponse(transactions, 'Transactions fetched', paginationMeta(total, page, limit))
       );

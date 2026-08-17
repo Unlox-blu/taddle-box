@@ -676,13 +676,32 @@ const TransactionRow = ({ data, ctx }: RowProps) => {
 };
 
 // Fallback for backend result kinds that don't have a dedicated renderer yet.
-export const GenericRow = ({ data, ctx }: RowProps) => (
-  <View style={ctx.styles.genericRow}>
-    <Text style={{ color: ctx.colors.text.primary }}>
-      {data.name || data.title || "Result"}
-    </Text>
-  </View>
-);
+// A readable card showing the type name (the backend stamps `itemType` on
+// every row) plus the item's title, so new backend groups appear as proper
+// cards instead of a bare line of text.
+export const GenericRow = ({ data, ctx }: RowProps) => {
+  const { styles, colors } = ctx;
+  const typeLabel = String(data?.itemType || "")
+    .replace(/[_-]+/g, " ")
+    .trim();
+  const title = data?.name || data?.title || data?.text || "Result";
+  return (
+    <View style={styles.genericRow}>
+      <View style={styles.genericIconBubble}>
+        <Ionicons name="apps-outline" size={18} color={colors.text.muted} />
+      </View>
+      <View style={styles.peopleInfo}>
+        {typeLabel ? (
+          <Text style={styles.genericTypeLabel}>{typeLabel}</Text>
+        ) : null}
+        <Text style={styles.peopleName} numberOfLines={2}>
+          {title}
+        </Text>
+        <Text style={styles.peopleMeta}>New result type</Text>
+      </View>
+    </View>
+  );
+};
 
 // The declarative dispatch: add a backend group → add a component + one entry.
 // Unknown types render the generic fallback (never a crash, never a blank row).

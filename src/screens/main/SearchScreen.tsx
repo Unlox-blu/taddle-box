@@ -29,7 +29,7 @@ import { searchService, type SearchType } from "../../services/search.service";
 import { userService } from "../../services/user.service";
 import { communityService } from "../../services/community.service";
 import { hashtagService } from "../../services/hashtag.service";
-import { notificationService } from "../../services/notification.service";
+import { mapNotificationRow } from "../../services/notification.service";
 import { walletService } from "../../services/wallet.service";
 import { xpService } from "../../services/xp.service";
 import type { HomeStackParamList, Post, Transaction } from "../../types";
@@ -57,28 +57,6 @@ type Props = NativeStackScreenProps<HomeStackParamList, "Search">;
 // community's posts, `#tag` scopes them to posts carrying that hashtag — they
 // combine (e.g. "@pravin_viswa c/tvk #peaceful").
 const TOKEN_FILTER_RE = /^(@[^\s@]+|c\/[^\s/]+|#[^\s#]+|\.\/[a-z]+)$/i;
-
-// Time-window cutoff (epoch ms) for the LOCAL scopes (wallet/notifications) —
-// mirrors the backend's bare `time` token values.
-const timeCutoffMs = (time: string): number | null => {
-  const hours: Record<string, number> = {
-    recent: 24,
-    past_week: 24 * 7,
-    past_month: 24 * 30,
-    past_year: 24 * 365,
-  };
-  const h = hours[time];
-  return h ? Date.now() - h * 3600 * 1000 : null;
-};
-
-// Notifications-mode tabs — the only legacy tab set left (it filters the
-// fetched notifications locally, no search API involved).
-const NOTIF_TABS: { key: string; label: string }[] = [
-  { key: "n-all", label: "All" },
-  { key: "n-likes", label: "Likes" },
-  { key: "n-comments", label: "Comments" },
-  { key: "n-follows", label: "Follows" },
-];
 
 const SETTINGS_ITEMS = [
   { id: "edit_profile", title: "Edit Profile", icon: "person-outline", route: "EditProfile", keywords: ["name", "avatar", "bio", "profile"] },
@@ -184,7 +162,7 @@ export default function SearchScreen({ navigation, route }: Props) {
   // own display label, so the pill row is rendered verbatim. Re-populated on
   // every unified fetch.
   const [serverTypes, setServerTypes] = useState<
-    { type: string; label: string }[]
+    { type: string; label: string; count?: number }[]
   >([]);
 
   const [showFilters, setShowFilters] = useState(false);
@@ -564,12 +542,15 @@ export default function SearchScreen({ navigation, route }: Props) {
   };
 
   // Stable key for deduping mixed-type rows on append (posts, media and
-  // comments each use different id columns).
-  const rowKey = (row: Row): string => {
-    const it = row.isHeader ? row.type : row.item;
-    return `${row.type}:${
-      it?.id || it?.media_id || it?.text || it?.username || it?.slug || ""
-    }`;
+  // comments each use different id columns). Rows with NO stable identity
+  // field (a future backend type may not carry id/media_id/text/username/slug)
+  // return null — the dedupe then keeps every such row instead of collapsing
+  // them all onto one shared key.
+  const rowKey = (row: Row): string | null => {
+    if (row.isHeader) return `header:${row.type}`;
+    const it = row.item;
+    const id = it?.id ?? it?.media_id ?? it?.text ?? it?.username ?? it?.slug;
+    return id ? `${row.type}:${id}` : null;
   };
 
   const fetchResults = useCallback(
@@ -597,35 +578,47 @@ export default function SearchScreen({ navigation, route }: Props) {
         }
 
         if (sourceRef.current === "notifications") {
-          const res = await notificationService.getNotifications(1, 100);
-          const term = q.toLowerCase();
-          let filtered = res.data.filter(n => n.text?.toLowerCase().includes(term) || n.actor?.toLowerCase().includes(term));
-          
-          if (tab === "n-likes") filtered = filtered.filter(n => n.type === "like");
-          else if (tab === "n-comments") filtered = filtered.filter(n => n.type === "comment");
-          else if (tab === "n-follows") filtered = filtered.filter(n => n.type === "follow");
-
-          // The sort modal applies here too: TIME narrows by when the
-          // notification arrived, and the sort is newest-first (latest).
-          const cutoff = timeCutoffMs(timeWindowRef.current);
-          if (cutoff)
-            filtered = filtered.filter((n: any) => {
-              const ts = n.createdAt
-                ? new Date(n.createdAt).getTime()
-                : Date.now();
-              return ts >= cutoff;
-            });
-          filtered = [...filtered].sort((a: any, b: any) => {
-            const ta = a.createdAt ? new Date(a.createdAt).getTime() : 0;
-            const tb = b.createdAt ? new Date(b.createdAt).getTime() : 0;
-            return tb - ta;
+          // Fully global-search driven: notifications go through the SAME
+          // unified /search endpoint (notified=1) as bookmarks — server-owned
+          // ordering, pagination and type pills (All / Likes / Comments /
+          // Follows, each with a count). Rows are mapped into the app's
+          // Notification shape before rendering.
+          const res = await searchService.universalSearch({
+            q,
+            sort: sortByRef.current,
+            time: timeWindowRef.current,
+            filter: "",
+            type: resultTypeRef.current,
+            notified: "1",
+            page: pageToLoad,
+            limit: 10,
           });
-
-          setRowsByTab((prev) => ({
-            ...prev,
-            [tab]: filtered.map(item => ({ isHeader: false, item, type: "notification_item" as SearchType }))
+          // A newer request (typing / pill switch) started after this one — drop it.
+          if (searchReqRef.current !== reqId) return;
+          tabHasMoreRef.current[tab] = res.hasNext;
+          tabPageRef.current[tab] = res.page;
+          setServerTypes(res.types);
+          const newRows: Row[] = (res.results || []).map((item: any) => ({
+            isHeader: false,
+            item: mapNotificationRow(item),
+            type: "notification_item" as ResultType,
           }));
-          setLoading(false);
+          setRowsByTab((prev) => {
+            const existing = prev[tab] || [];
+            const merged = append ? [...existing, ...newRows] : newRows;
+            // Dedupe by (type, id) so infinite-scroll pages never repeat rows.
+            const seen = new Set<string>();
+            return {
+              ...prev,
+              [tab]: merged.filter((row: Row) => {
+                const key = rowKey(row);
+                if (key === null) return true;
+                if (seen.has(key)) return false;
+                seen.add(key);
+                return true;
+              }),
+            };
+          });
           return;
         }
 
@@ -634,10 +627,33 @@ export default function SearchScreen({ navigation, route }: Props) {
         // (not just the first page); the local pass applies the TIME window
         // and the chosen SORT on top.
         if (sourceRef.current === "wallet") {
+          // Backend-driven like the other scopes: q/time/sort go to BOTH the
+          // cash and XP transaction endpoints, each paginating server-side
+          // (no more 100-row ceiling). The two ordered pages merge and sort
+          // by the same key (top = amount, else newest); hasNext = either
+          // endpoint still has rows.
           const [cashRes, xpRes] = await Promise.all([
-            walletService.getTransactions(1, 100, q),
-            xpService.getTransactions(1, 100, q),
+            walletService.getTransactions(
+              pageToLoad,
+              10,
+              q,
+              timeWindowRef.current,
+              sortByRef.current,
+            ),
+            xpService.getTransactions(
+              pageToLoad,
+              10,
+              q,
+              timeWindowRef.current,
+              sortByRef.current,
+            ),
           ]);
+          // A newer request (typing / sort change) started after this one — drop it.
+          if (searchReqRef.current !== reqId) return;
+          tabHasMoreRef.current[tab] = !!(
+            cashRes?.meta?.hasNext || xpRes?.meta?.hasNext
+          );
+          tabPageRef.current[tab] = pageToLoad;
           const toCashTxn = (t: any): Transaction => ({
             id: t.id,
             title:
@@ -670,37 +686,37 @@ export default function SearchScreen({ navigation, route }: Props) {
             type: t.transactionType === "spent" ? "spend" : "earn",
             status: t.status || "completed",
           });
-          const all = [
+          // Merge both ordered pages and apply the chosen order (top = biggest
+          // amount, otherwise newest first — matching the old local sort).
+          const merged = [
             ...(cashRes?.data || []).map(toCashTxn),
             ...(xpRes?.data || []).map(toXpTxn),
-          ];
-          const term = q.toLowerCase();
-          const cutoff = timeCutoffMs(timeWindowRef.current);
-          let filtered = all.filter(
-            (t) =>
-              (!cutoff || (t.ts ?? 0) >= cutoff) &&
-              (t.title?.toLowerCase().includes(term) ||
-                t.type?.toLowerCase().includes(term) ||
-                t.currency?.toLowerCase().includes(term) ||
-                String(t.amount).includes(term) ||
-                (t.status || "").toLowerCase().includes(term)),
-          );
-          // top = biggest amount first; otherwise newest first (relevance /
-          // latest / hot all keep the recency order).
-          filtered = filtered.sort((a, b) =>
+          ].sort((a, b) =>
             sortByRef.current === "top"
               ? Math.abs(b.amount) - Math.abs(a.amount)
               : (b.ts ?? 0) - (a.ts ?? 0),
           );
-          setRowsByTab((prev) => ({
-            ...prev,
-            [tab]: filtered.map((item) => ({
-              isHeader: false,
-              item,
-              type: "transaction_item" as SearchType,
-            })),
+          const newRows: Row[] = merged.map((item) => ({
+            isHeader: false,
+            item,
+            type: "transaction_item" as ResultType,
           }));
-          setLoading(false);
+          setRowsByTab((prev) => {
+            const existing = prev[tab] || [];
+            const combined = append ? [...existing, ...newRows] : newRows;
+            // Dedupe by (type, id) so infinite-scroll pages never repeat rows.
+            const seen = new Set<string>();
+            return {
+              ...prev,
+              [tab]: combined.filter((row: Row) => {
+                const key = rowKey(row);
+                if (key === null) return true;
+                if (seen.has(key)) return false;
+                seen.add(key);
+                return true;
+              }),
+            };
+          });
           return;
         }
 
@@ -732,11 +748,13 @@ export default function SearchScreen({ navigation, route }: Props) {
           const existing = prev[tab] || [];
           const merged = append ? [...existing, ...newRows] : newRows;
           // Dedupe by (type, id) so infinite-scroll pages never repeat rows.
+          // Rows without a stable identity (rowKey === null) are always kept.
           const seen = new Set<string>();
           return {
             ...prev,
             [tab]: merged.filter((row: Row) => {
               const key = rowKey(row);
+              if (key === null) return true;
               if (seen.has(key)) return false;
               seen.add(key);
               return true;
@@ -782,20 +800,6 @@ export default function SearchScreen({ navigation, route }: Props) {
       true,
     );
   }, [activeTab, loadingMore, loading, effectiveQuery, fetchResults]);
-
-  // Switching tabs saves the outgoing tab's scroll offset so it can be
-  // restored exactly on return. The QUERY is shared state, so it stays
-  // pre-filled in the input on every tab; the tab-switch effect below either
-  // restores the incoming tab's cached rows + scroll (already fetched for this
-  // query) or fetches its first page fresh.
-  const switchTab = useCallback(
-    (tab: string) => {
-      if (tab === activeTab) return;
-      scrollOffsetsRef.current[activeTab] = scrollOffsetCurrentRef.current;
-      setActiveTab(tab);
-    },
-    [activeTab],
-  );
 
   // Single debounced effect: on a QUERY change every tab's cache is invalidated
   // and the active tab refetches; on a TAB switch the cached rows (if any) are
@@ -967,13 +971,19 @@ export default function SearchScreen({ navigation, route }: Props) {
       serverTypes.map((t) => ({
         key: t.type,
         label: t.label,
+        count: t.count,
       })),
     [serverTypes],
   );
 
   // Instagram-style hide-on-scroll for the search chrome — the search bar and
   // the result-pill row slide up with the results for a full-screen view.
-  const searchHeaderH = 60 + insets.top; // search bar row + status-bar inset
+  // The header is an absolute overlay whose true height (status-bar inset +
+  // search bar + padding + border) varies by device/font scale — hardcoding
+  // it made the pills row sit PARTIALLY BEHIND the search bar. It's measured
+  // on layout so pills/suggestions/results align to the real height.
+  const [headerMeasuredH, setHeaderMeasuredH] = useState<number | null>(null);
+  const searchHeaderH = headerMeasuredH ?? 60 + insets.top; // measured, or fallback
   const searchPillsH = 56; // horizontal result-pill row
   const searchOverlayY = useSharedValue(0);
   const searchPrevY = useRef(0);
@@ -1007,7 +1017,11 @@ export default function SearchScreen({ navigation, route }: Props) {
       },
     ],
   }));
-  const renderPill = (pill: { key: string; label: string }) => {
+  const renderPill = (pill: {
+    key: string;
+    label: string;
+    count?: number;
+  }) => {
     const isActive = resultType === pill.key;
     return (
       <TouchableOpacity
@@ -1019,37 +1033,30 @@ export default function SearchScreen({ navigation, route }: Props) {
       >
         <Text style={[styles.tabText, isActive && styles.tabTextActive]}>
           {pill.label}
-        </Text>
-      </TouchableOpacity>
-    );
-  };
-
-  const renderTab = (tab: { key: string; label: string }) => {
-    const isActive = activeTab === tab.key;
-    return (
-      <TouchableOpacity
-        style={[styles.tabBtn, isActive && styles.tabBtnActive]}
-        onPress={() => switchTab(tab.key)}
-        activeOpacity={0.8}
-      >
-        <Text style={[styles.tabText, isActive && styles.tabTextActive]}>
-          {tab.label}
+          {typeof pill.count === "number" ? ` (${pill.count})` : ""}
         </Text>
       </TouchableOpacity>
     );
   };
 
   const isEmptyQuery = !query.trim() && !filtersActive;
+  // Sort/time apply in discovery only to groups whose queries honor them —
+  // the mixed "all" view and the posts/events pills (posts: sort+time,
+  // events: time window). The fixed-order pills (people/communities/games)
+  // can't, so the sort/filter modal is hidden while only they are showing.
+  const sortTimeApplies =
+    !isEmptyQuery ||
+    resultType === "all" ||
+    resultType === "posts" ||
+    resultType === "events";
   const hasResults = rows.length > 0;
   // Friendly tab name for empty-state text — the active result pill's label
-  // (from the server) when the unified search is on, otherwise the
-  // notifications tab keys (n-*) or the wallet transactions scope.
+  // (from the server) when the unified search is on, otherwise the wallet
+  // transactions scope.
   const activeTabLabel =
     source === "wallet"
       ? "transactions"
-      : serverTypes.find((t) => t.type === resultType)?.label ||
-        NOTIF_TABS.find((t) => t.key === activeTab)?.label ||
-        activeTab;
+      : serverTypes.find((t) => t.type === resultType)?.label || activeTab;
 
   // Show a discovery hint when there's no search query.
   // Don't show the generic "type something" empty state when we already know
@@ -1116,6 +1123,7 @@ export default function SearchScreen({ navigation, route }: Props) {
           style) so the results go full screen. The status-bar inset lives on
           the header itself (like MainHeader), not the container. */}
       <Animated.View
+        onLayout={(e) => setHeaderMeasuredH(e.nativeEvent.layout.height)}
         style={[
           styles.header,
           {
@@ -1407,10 +1415,11 @@ export default function SearchScreen({ navigation, route }: Props) {
               />
             </TouchableOpacity>
           )}
-          {/* Sort/filter modal — hidden only in the settings scope (its items
-              have no sortable/time attributes); notifications and wallet apply
-              the chosen sort/time locally. */}
-          {source !== "settings" && (
+          {/* Sort/filter modal — hidden in the settings scope (its items have
+              no sortable/time attributes) and in discovery while only
+              fixed-order pills (people/communities/games) are showing, where
+              sort/time can't apply. */}
+          {source !== "settings" && sortTimeApplies && (
               <TouchableOpacity
                 onPress={() => {
                   // Open the modal with the CURRENT sort/time as the drafts.
@@ -1571,8 +1580,9 @@ export default function SearchScreen({ navigation, route }: Props) {
       {/* Pills Row — shown ONLY when there are pills to show. The unified
           search renders the SERVER-driven result pills verbatim (whatever the
           backend returns — even none); tapping one re-requests with
-          type=<type>. Only the notifications scope keeps its local n-* tab
-          set; the wallet scope is a local transaction filter (no pills). */}
+          type=<type>. This includes the notifications scope (All / Likes /
+          Comments / Follows with counts); the wallet scope is a local
+          transaction filter (no pills). */}
       {showPills && (
         <Animated.View
           style={[
@@ -1592,12 +1602,10 @@ export default function SearchScreen({ navigation, route }: Props) {
           <FlatList
             horizontal
             showsHorizontalScrollIndicator={false}
-            data={source === "notifications" ? NOTIF_TABS : universalPills}
+            data={universalPills}
             keyExtractor={(item) => item.key}
             contentContainerStyle={styles.tabsContainer}
-            renderItem={({ item }) =>
-              source === "notifications" ? renderTab(item) : renderPill(item)
-            }
+            renderItem={({ item }) => renderPill(item)}
           />
         </Animated.View>
       )}

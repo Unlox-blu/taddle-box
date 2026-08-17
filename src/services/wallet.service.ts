@@ -14,9 +14,13 @@ export const walletService = {
   },
 
   /** Fetch wallet transactions. `q` searches the FULL history server-side
-      (description/type/category/status/amount) — not just the first page. */
-  getTransactions: async (page = 1, limit = 20, q = '') => {
-    const query = `page=${page}&limit=${limit}${q ? `&q=${encodeURIComponent(q)}` : ''}`;
+      (description/type/category/status/amount); `time` narrows by window and
+      `sort` is 'top' (biggest amount first) or anything else = newest-first
+      — all applied server-side so pagination stays correct past page 1. */
+  getTransactions: async (page = 1, limit = 20, q = '', time?: string, sort?: string) => {
+    const timeParam = time && time !== 'all_time' ? `&time=${encodeURIComponent(time)}` : '';
+    const sortParam = sort && sort !== 'relevance' ? `&sort=${encodeURIComponent(sort)}` : '';
+    const query = `page=${page}&limit=${limit}${q ? `&q=${encodeURIComponent(q)}` : ''}${timeParam}${sortParam}`;
     const response = await apiClient.get(`/wallet/me/transactions?${query}`);
     return response.data;
   },

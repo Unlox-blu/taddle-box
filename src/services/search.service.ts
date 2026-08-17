@@ -21,8 +21,9 @@ export type UniversalResultType =
 
 export type UniversalSearchResults = {
   /** Result-type pills the server computed for this query, each carrying its
-      display label — the client renders them verbatim, no label map needed. */
-  types: { type: string; label: string }[];
+      display label — the client renders them verbatim, no label map needed.
+      The notifications scope also carries a per-bucket `count`. */
+  types: { type: string; label: string; count?: number }[];
   /** Flat, ordered, heterogeneous result rows. Each item carries an `itemType`
       (posts | comments | media | people | communities | events | games | text)
       so the client can render it — the client never reorders this list. */
@@ -49,6 +50,7 @@ export const searchService = {
     filter,
     type,
     bookmarked,
+    notified,
     page,
     limit,
   }: {
@@ -58,6 +60,7 @@ export const searchService = {
     filter?: string;
     type?: string;
     bookmarked?: string;
+    notified?: string;
     page?: number;
     limit?: number;
   }): Promise<UniversalSearchResults> => {
@@ -76,6 +79,9 @@ export const searchService = {
     // filters (events, games, communities, …) are sent.
     if (type && type !== "all") parts.push(`type=${encodeURIComponent(type)}`);
     if (bookmarked) parts.push(`bookmarked=${encodeURIComponent(bookmarked)}`);
+    // Notifications scope — mirror of bookmarked=1; the result groups become
+    // the notification buckets (likes/comments/follows) with per-bucket counts.
+    if (notified) parts.push(`notified=${encodeURIComponent(notified)}`);
     parts.push(`page=${page || 1}`);
     parts.push(`limit=${limit || 10}`);
     const res = await apiClient.get(`/search?${parts.join("&")}`);

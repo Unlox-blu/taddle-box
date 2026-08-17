@@ -183,7 +183,9 @@ function makeStyles(c: ColorPalette) {
     },
     
     emptyState: {
-      alignItems: 'center', justifyContent: 'center',
+      // flex: 1 fills the space below the header so the "all caught up"
+      // block is truly screen-centered (not hugging the top).
+      flex: 1, alignItems: 'center', justifyContent: 'center',
       paddingVertical: 60, marginHorizontal: spacing.xl,
     },
     emptyEmoji: { fontSize: 64, marginBottom: 16 },

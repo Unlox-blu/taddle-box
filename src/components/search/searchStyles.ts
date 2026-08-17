@@ -232,13 +232,36 @@ export function makeStyles(c: ColorPalette) {
       width: "100%",
       height: "100%",
     },
+    // Fallback card for backend result kinds without a dedicated renderer —
+    // icon bubble + type name + title, matching the people row layout.
     genericRow: {
+      flexDirection: "row",
+      alignItems: "center",
       backgroundColor: c.bg.card,
       padding: spacing.md,
       marginHorizontal: spacing.md,
       borderRadius: radii.lg,
       borderWidth: 1,
       borderColor: c.border,
+    },
+    genericIconBubble: {
+      width: 44,
+      height: 44,
+      borderRadius: 22,
+      backgroundColor: c.bg.elevated,
+      borderWidth: 1,
+      borderColor: c.border,
+      alignItems: "center",
+      justifyContent: "center",
+      marginRight: 12,
+    },
+    genericTypeLabel: {
+      fontSize: fontSizes.xs,
+      fontWeight: "700",
+      color: c.text.muted,
+      textTransform: "capitalize",
+      letterSpacing: 0.4,
+      marginBottom: 2,
     },
     hashtagRow: {
       flexDirection: "row",

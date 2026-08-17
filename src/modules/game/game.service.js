@@ -269,15 +269,21 @@ class GameService {
 	      if(!match)
 	        throw createError("Match already completed", 409)
 
-	      if (calculated.xpEarned > 0 && this.xpSvc) {
-	        await this.xpSvc.creditXP({
-	          userId,
-	          xp: calculated.xpEarned,
-	          transactionType: 'earned',
-	          sourceType: `game_match_${match.id}`,
-	        })
-	      }
-	      return match
+      if (calculated.xpEarned > 0 && this.xpSvc) {
+        await this.xpSvc.creditXP({
+          userId,
+          xp: calculated.xpEarned,
+          transactionType: 'earned',
+          sourceType: `game_match_${match.id}`,
+        })
+      }
+      // A real win changes the weekly Games leaderboard — tell the app to
+      // silently refetch it (legacy direct-match path).
+      if (calculated.result === 'WIN') {
+        const { emitLeaderboardsChanged } = require('../../sockets/notification.socket');
+        emitLeaderboardsChanged(userId);
+      }
+      return match
     } catch (error) {
       throw error;
     }
@@ -783,6 +789,13 @@ class GameService {
           });
         }
 
+        // A real win changes the weekly Games leaderboard (wins this week) —
+        // tell the app to silently refetch it.
+        if (myResult === 'WIN') {
+          const { emitLeaderboardsChanged } = require('../../sockets/notification.socket');
+          emitLeaderboardsChanged(userId);
+        }
+
         const ledgerEntry = await this.gameRepo.createRewardLedgerEntry({
           ledgerData: {
             sessionId, userId, gameId: game.id,
@@ -873,7 +886,11 @@ class GameService {
           }).catch(console.error);
         }
 
-        const { emitNotification } = require('../../sockets/notification.socket');
+        const { emitNotification, emitLeaderboardsChanged } = require('../../sockets/notification.socket');
+        // A real win changes the weekly Games leaderboard — tell each winner
+        // (self and/or opponent) to silently refetch it.
+        if (myResult === 'WIN') emitLeaderboardsChanged(userId);
+        if (opResult === 'WIN') emitLeaderboardsChanged(opponentSession.user_id);
         emitNotification(opponentSession.user_id, {
           type: 'MATCH_RESOLVED',
           title: 'Match Resolved',

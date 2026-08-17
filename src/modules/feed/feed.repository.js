@@ -78,6 +78,22 @@ const getPersonalizedPosts = async ({userId, followingId, communityId, prefCateg
   }
 };
 
+// User-personalized trending hashtags (Home chips). Weighted toward the user's
+// feed (following / communities / prefs / interests) — see
+// TRENDING_HASHTAGS_ALGORITHM. Returns an array of tag strings, highest
+// relevance first.
+const getTrendingHashtags = async ({ userId, followingId, communityId, prefTags, interests, limit = 15 }) => {
+  try {
+    const { rows } = await pool.query(
+      FEED_ALGO.TRENDING_HASHTAGS_ALGORITHM,
+      [userId, followingId || [], communityId || [], prefTags || [], interests || [], limit]
+    );
+    return rows.map((r) => r.hashtag);
+  } catch (error) {
+    throw error;
+  }
+};
+
 const recordInteraction = async (userId, postId, interactionType) => {
   try {
     await pool.query(
@@ -194,6 +210,7 @@ const findFollowingCommunity = async (userId, limit, offset) => {
 
 module.exports = {
   getPersonalizedPosts,
+  getTrendingHashtags,
   recordInteraction,
   upsertUserPreferences,
   getUserPreferences,

@@ -11,9 +11,14 @@ class HighlightController {
   getSpotligth = async (req, res, next) => {
     try {
       const { limit, offset, page } = getPaginationParams(req.query);
-      const { spotligth, total } = await this.highlightSvc.getSpotligth({ limit, offset });
+      const { spotlight, featuredEvents, trendingGames, total } =
+        await this.highlightSvc.getSpotligth({ limit, offset });
       res.json(
-        apiResponse(spotligth, 'Spotligth fetched successfully', paginationMeta(total, page, limit))
+        apiResponse(
+          { spotlight, featuredEvents, trendingGames },
+          'Spotlight fetched successfully',
+          paginationMeta(total, page, limit)
+        )
       );
     } catch (error) {
       next(error);

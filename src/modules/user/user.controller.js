@@ -83,17 +83,6 @@ class UserController {
     }
   };
 
-  getPresenceBatch = async (req, res, next) => {
-    try {
-      const userId = req.userId;
-      const userIds = req.body?.userIds || [];
-      const result = await this.userSvc.getPresenceBatch({ userId, userIds });
-      res.json(apiResponse(result, 'Presence fetched successfully'));
-    } catch (error) {
-      next(error);
-    }
-  };
-
   updatePrivacy = async (req, res, next) => {
     try {
       const userId = req.userId

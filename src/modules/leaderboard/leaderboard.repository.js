@@ -182,6 +182,13 @@ const getEventsLeaderboard = async ({limit, userId}) => {
 };
 
 
+const LEADERBOARD_GETTERS = {
+  feed: getFeedLeaderboard,
+  community: getCommunityLeaderboard,
+  games: getGamesLeaderboard,
+  events: getEventsLeaderboard,
+};
+
 const getWeeklyLeaderboards = async ({limit, userId}) => {
   const [feed, community, games, events] = await Promise.all([
     getFeedLeaderboard({limit, userId}),
@@ -206,6 +213,25 @@ const getWeeklyLeaderboards = async ({limit, userId}) => {
   };
 };
 
+// Single-tab variant — the app refetches ONLY the leaderboard tab the user is
+// looking at when it gets a leaderboards:changed socket event, instead of the
+// whole four-tab bundle (feed+community+games+events are heavy aggregate
+// queries; a burst of likes on one post only moves the Feed board). Returns
+// the same shape as getWeeklyLeaderboards with only the requested tab filled,
+// so the client can merge it into the cached bundle in place.
+const getWeeklyLeaderboard = async ({type, limit, userId}) => {
+  const getter = LEADERBOARD_GETTERS[type];
+  if (!getter) return null;
+  const { top, currentUser } = await getter({limit, userId});
+  return {
+    weekStart: new Date().toISOString(),
+    rewards: REWARDS,
+    [type]: top,
+    currentUser: {[type]: currentUser},
+  };
+};
+
 module.exports = {
   getWeeklyLeaderboards,
+  getWeeklyLeaderboard,
 };

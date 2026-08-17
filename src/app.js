@@ -44,6 +44,11 @@ app.use(sanitizeMiddleware);
 // Health check (no auth needed)
 app.get('/health', (_req, res) => res.json({ status: 'ok', timestamp: new Date().toISOString() }));
 
+// Root landing page — pretty HTML status page for browsers, JSON for API
+// clients that explicitly send `Accept: application/json`.
+const { homeHandler } = require('./utils/home.util');
+app.get('/', homeHandler);
+
 // Auth routes with strict rate limiter
 // app.use('/api/v1/auth', authRateLimiter, require('./routes/index').authOnly);
 app.use('/api/v1/auth', require('./routes/index').authOnly);

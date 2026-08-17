@@ -21,6 +21,15 @@ class FeedController {
     }
   };
 
+  getTrendingHashtags = async (req, res, next) => {
+    try {
+      const hashtags = await this.feedSvc.getTrendingHashtags({ userId: req.userId });
+      res.json(apiResponse(hashtags, 'Trending hashtags fetched'));
+    } catch (error) {
+      next(error);
+    }
+  };
+
   getFeed = async (req, res, next) => {
     try {
       const { limit, offset, page } = getPaginationParams(req.query);

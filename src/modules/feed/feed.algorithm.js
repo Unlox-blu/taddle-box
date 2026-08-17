@@ -240,4 +240,109 @@ const FEED_ALGORITHM = `WITH ranked_posts AS (
                             LIMIT $9
                             OFFSET $10;`;
 
-module.exports = { FEED_ALGORITHM };
+// User-personalized trending hashtags for the Home trending-chips row.
+// Ranks hashtags by how relevant their posts are to THIS user (followed
+// authors / joined communities / preferred tags / interests) blended with
+// engagement velocity — NOT the global search-page ranking, which is just
+// "most recent posts carrying the tag". Visibility rules mirror the feed
+// query so chips only surface tags from posts the user could actually see.
+// Params: $1 userId, $2 followingId[], $3 communityId[], $4 prefTags[],
+//         $5 interests[], $6 limit
+const TRENDING_HASHTAGS_ALGORITHM = `WITH ranked_posts AS (
+                                    SELECT
+                                        p.id,
+                                        p.tags,
+                                        p.published_at,
+
+                                        CASE
+                                            WHEN p.author_id = ANY($2::uuid[]) THEN 10000
+                                            ELSE 0
+                                        END AS following_score,
+
+                                        CASE
+                                            WHEN p.community_id = ANY($3::uuid[])
+                                            THEN 8000
+                                            ELSE 0
+                                        END AS community_score,
+
+                                        CASE
+                                            WHEN p.tags && $4 THEN 450
+                                            ELSE 0
+                                        END AS tag_score,
+
+                                        CASE
+                                            WHEN EXISTS (
+                                                SELECT 1
+                                                FROM unnest($5::text[]) i
+                                                WHERE
+                                                    LOWER(COALESCE(p.title,'')) LIKE '%' || LOWER(i) || '%'
+                                                    OR LOWER(COALESCE(p.content,'')) LIKE '%' || LOWER(i) || '%'
+                                                    OR LOWER(i) = ANY(
+                                                        ARRAY(
+                                                            SELECT LOWER(x)
+                                                            FROM unnest(p.tags) x
+                                                        )
+                                                    )
+                                                    OR LOWER(i) = ANY(
+                                                        ARRAY(
+                                                            SELECT LOWER(x)
+                                                            FROM unnest(p.category) x
+                                                        )
+                                                    )
+                                            )
+                                            THEN 350
+                                            ELSE 0
+                                        END AS interest_score,
+
+                                        -- Engagement velocity (same shape as the
+                                        -- feed's trending_score)
+                                        (
+                                            p.likes_count
+                                            + p.comments_count * 3
+                                            + p.shares_count * 5
+                                            + p.views_count * 0.05
+                                        ) /
+                                        POWER(
+                                            EXTRACT(EPOCH FROM (NOW() - p.published_at))/3600 + 2,
+                                            1.4
+                                        ) AS trending_score
+
+                                    FROM posts p
+                                    JOIN users u ON u.id = p.author_id
+                                    LEFT JOIN communities c ON p.community_id = c.id
+                                    WHERE
+                                        p.deleted_at IS NULL
+                                        AND p.status = 'published'
+                                        AND (
+                                            p.community_id IS NULL
+                                            OR c.privacy = 'public'
+                                            OR p.community_id = ANY($3::uuid[])
+                                        )
+                                        AND (
+                                            u.privacy = 'public'
+                                            OR p.author_id = $1
+                                            OR p.author_id = ANY($2::uuid[])
+                                        )
+                                        AND p.tags IS NOT NULL
+                                )
+                                SELECT
+                                    LOWER(TRIM(t.tag)) AS hashtag,
+                                    COUNT(DISTINCT rp.id) AS count,
+                                    MAX(rp.published_at) AS latest_post_at
+                                FROM ranked_posts rp
+                                CROSS JOIN LATERAL unnest(rp.tags) AS t(tag)
+                                WHERE TRIM(t.tag) <> ''
+                                GROUP BY LOWER(TRIM(t.tag))
+                                ORDER BY
+                                    SUM(
+                                        rp.following_score
+                                        + rp.community_score
+                                        + rp.tag_score
+                                        + rp.interest_score
+                                    ) DESC,
+                                    SUM(rp.trending_score) DESC,
+                                    latest_post_at DESC,
+                                    hashtag ASC
+                                LIMIT $6;`;
+
+module.exports = { FEED_ALGORITHM, TRENDING_HASHTAGS_ALGORITHM };

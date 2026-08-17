@@ -18,14 +18,17 @@ module.exports = {
       out_file: './logs/pm2-out.log',
       log_date_format: 'YYYY-MM-DD HH:mm:ss Z',
       merge_logs: true,
-      // Env
+      // Env — PORT is what nginx proxies to (127.0.0.1:1999, see
+      // nginx/nginx.conf). PM2 injects this as an env var, so it OVERRIDES
+      // .env's PORT (dotenv never replaces an existing env var) — keep the
+      // two in sync.
       env: {
         NODE_ENV: 'development',
-        PORT: 8080,
+        PORT: 1999,
       },
       env_production: {
         NODE_ENV: 'production',
-        PORT: 8080,
+        PORT: 1999,
       },
     },
     {

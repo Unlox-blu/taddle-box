@@ -7,7 +7,7 @@ const { verifyToken, optionalAuth } = require('../middlewares/auth.middleware');
 const { validateRequest }               = require('../middlewares/validator.middleware');
 const { uploadSingle }           = require('../middlewares/upload.middleware');
 const { locationCaptureLimiter } = require('../middlewares/rate-limiter.middleware');
-const { updateProfileSchema, updateUsernameSchema, updatePrivacySchema, updateBannerSchema, updateAvatarSchema, usernameSchema, followerIdSchema, locationBodySchema, presenceBodySchema } = require('../modules/user/user.validator');
+const { updateProfileSchema, updateUsernameSchema, updatePrivacySchema, updateBannerSchema, updateAvatarSchema, usernameSchema, followerIdSchema, locationBodySchema } = require('../modules/user/user.validator');
 
 // GEO location telemetry (only sent when the user granted location permission).
 // POST appends a capture-history row; DELETE wipes that history (Settings → Privacy).
@@ -15,8 +15,6 @@ const { updateProfileSchema, updateUsernameSchema, updatePrivacySchema, updateBa
 // append-only history table can't be flooded by a misbehaving client.
 router.post('/location',                 verifyToken,     locationCaptureLimiter,    validateRequest({body: locationBodySchema}),     userController.recordLocation);
 router.delete('/location',               verifyToken,                                                    userController.clearLocation);
-// Bulk presence for feed/profile avatars — restricted to self + followed users
-router.post('/presence',                 verifyToken,     validateRequest({body: presenceBodySchema}),     userController.getPresenceBatch);
 
 router.patch('/update-profile',             verifyToken,     validateRequest({body: updateProfileSchema}),  userController.updateProfile);
 router.patch('/update-avatar',               verifyToken,    validateRequest({body: updateAvatarSchema}),   userController.updateAvatar);

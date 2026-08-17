@@ -120,7 +120,7 @@ class WalletService {
 
       await client.query('COMMIT');
 
-      emitXPUpdate(userId, updatedXp.Xp);
+      emitXPUpdate(userId, { xp: updatedXp.Xp, totalXpEarned: updatedXp.totalXpEarned });
       emitWalletUpdate(userId, updatedWallet.balanceCents);
 
       return { wallet: updatedWallet, xp: updatedXp };
@@ -307,7 +307,7 @@ class WalletService {
       await client.query('COMMIT');
 
       emitWalletUpdate(userId, updatedWallet.balanceCents);
-      emitXPUpdate(userId, updatedXp.Xp);
+      emitXPUpdate(userId, { xp: updatedXp.Xp, totalXpEarned: updatedXp.totalXpEarned });
 
       return { wallet: updatedWallet, xp: updatedXp, xpAmount, rate: config.XP_PER_RUPEE };
     } catch (error) {

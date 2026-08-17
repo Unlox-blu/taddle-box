@@ -102,7 +102,7 @@ class XpService {
         status: 'completed',
       });
 
-      emitXPUpdate(userId, updatedXP.Xp);
+      emitXPUpdate(userId, { xp: updatedXP.Xp, totalXpEarned: updatedXP.totalXpEarned });
 
       // Level Up Logic
       const levelBefore = Math.floor(totalEarnedBefore / 1000) + 1;
@@ -163,7 +163,7 @@ class XpService {
         status: 'completed',
       });
 
-      emitXPUpdate(userId, updatedXP.Xp);
+      emitXPUpdate(userId, { xp: updatedXP.Xp, totalXpEarned: updatedXP.totalXpEarned });
 
       return xpTransaction;
     } catch (error) {

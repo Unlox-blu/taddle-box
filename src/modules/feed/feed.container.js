@@ -8,7 +8,14 @@ const FeedService = require('./feed.service')
 const FeedController = require('./feed.controller')
 
 // Dependencies from other modules
-const {postRepository} = require('../post/post.container')
+// Require the post REPOSITORY directly, not post.container: post.container
+// requires feed.container for its feedService, so pulling postRepository from
+// it here would create a circular require (feed.container → post.container →
+// feed.container). At load time post.container's exports are still empty, so
+// postRepository would resolve to undefined and Node would print a
+// circular-dependency warning. The repository file is a leaf (pool + model),
+// so requiring it breaks the cycle and hands the same cached instance over.
+const postRepository = require('../post/post.repository')
 const {followerRepository} = require('../user/user.container')
 const {xpService} = require('../xp/xp.container')
 

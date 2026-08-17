@@ -55,10 +55,39 @@ const emitFollowStateChanged = (userId, { otherUserId, isFollowing }) => {
   _io.to(`user:${userId}`).emit('follow:stateChanged', { otherUserId, isFollowing });
 };
 
-// Emits an XP balance update to a specific user.
-const emitXPUpdate = (userId, newXP) => {
+// Emits an XP update to a specific user. Carries BOTH the spendable balance
+// (xp) and the cumulative total earned (totalXpEarned) so the profile's level/
+// rank/progress UI can update live from the same event that refreshes the
+// wallet balance — spending XP moves only `xp`, never totalXpEarned.
+const emitXPUpdate = (userId, payload) => {
   if (!_io) return;
-  _io.to(`user:${userId}`).emit('xp:updated', { xp: newXP });
+  _io.to(`user:${userId}`).emit('xp:updated', {
+    xp: payload?.xp != null ? payload.xp : null,
+    totalXpEarned: payload?.totalXpEarned != null ? payload.totalXpEarned : undefined,
+  });
 };
 
-module.exports = { setupNotificationSocket, emitNotification, emitWalletUpdate, emitXPUpdate, emitFollowRequestCancelled, emitFollowRequestResolved, emitFollowStateChanged };
+// Tells a user their weekly leaderboard rankings changed (e.g. a fresh game
+// win). The rankings are server-computed, so this is just a trigger for the
+// app to silently refetch /leaderboards/weekly.
+//
+// Debounced PER USER: a burst of engagement (a post racking up likes/views
+// from many viewers, multiple community joins) fires this once per action, but
+// each emit makes the client refetch the leaderboard endpoint. Coalescing into
+// a single trailing emit (3s window, latest reason wins) keeps the socket and
+// the follow-up fetch to one per burst without losing the update.
+const LEADERBOARDS_CHANGED_DEBOUNCE_MS = 3000;
+const leaderboardsChangedDebounceTimers = new Map();
+
+const emitLeaderboardsChanged = (userId, reason = 'game_win') => {
+  if (!_io) return;
+  const prev = leaderboardsChangedDebounceTimers.get(userId);
+  if (prev) clearTimeout(prev.timer);
+  const timer = setTimeout(() => {
+    leaderboardsChangedDebounceTimers.delete(userId);
+    _io.to(`user:${userId}`).emit('leaderboards:changed', { reason });
+  }, LEADERBOARDS_CHANGED_DEBOUNCE_MS);
+  leaderboardsChangedDebounceTimers.set(userId, { timer, reason });
+};
+
+module.exports = { setupNotificationSocket, emitNotification, emitWalletUpdate, emitXPUpdate, emitLeaderboardsChanged, emitFollowRequestCancelled, emitFollowRequestResolved, emitFollowStateChanged };

@@ -102,6 +102,13 @@ class EventService {
         await addJob('email:send_invitation_event', {...jobdata, attachments})
       }
 
+      // A confirmed registration moves the attendee's Events score (+10);
+      // waitlisted entries don't rank until promoted to registered.
+      if (status === 'registered') {
+        const { emitLeaderboardsChanged } = require('../../sockets/notification.socket');
+        emitLeaderboardsChanged(userId, 'event_registration');
+      }
+
       // Award XP for joining a free event
       if (event.isFree && this.xpSvc) {
         this.xpSvc.creditXP({

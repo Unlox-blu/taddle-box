@@ -28,6 +28,17 @@ class ActiveStatusController {
     }
   };
 
+  getBatch = async (req, res, next) => {
+    try {
+      const userId = req.userId;
+      const userIds = req.body?.userIds || [];
+      const result = await this.activeStatusSvc.getBatch({ userId, userIds });
+      res.json(apiResponse(result, 'Active statuses fetched successfully'));
+    } catch (error) {
+      next(error);
+    }
+  };
+
 }
 
 module.exports = ActiveStatusController;

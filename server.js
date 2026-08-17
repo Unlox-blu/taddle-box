@@ -27,15 +27,36 @@ process.on('uncaughtException', (error) => {
   process.exit(1);
 });
 
+// Fail fast if a core service is unreachable at boot — a hung or silent start
+// would otherwise leave PM2 running a dead server. The checks are time-boxed
+// because both drivers QUEUE commands while disconnected: pg's pool rejects
+// after connectionTimeoutMillis, but ioredis (retryStrategy +
+// maxRetriesPerRequest: null) buffers ping() forever while reconnecting, so a
+// Redis outage would hang the bootstrap instead of exiting non-zero. A timeout
+// turns the silent wait into a hard failure PM2 can see (errored + restart).
+const withTimeout = (promise, ms, label) =>
+  new Promise((resolve, reject) => {
+    const timer = setTimeout(
+      () => reject(new Error(`${label} check timed out after ${ms}ms`)),
+      ms
+    );
+    promise.then(
+      (value) => { clearTimeout(timer); resolve(value); },
+      (error) => { clearTimeout(timer); reject(error); }
+    );
+  });
+
 // Bootstrap
 const bootstrap = async () => {
   try {
-    // Verify DB connection
-    await pool.query('SELECT 1');
+    // Verify DB connection — pool.query already rejects after the pool's
+    // 10s connectionTimeoutMillis; the extra margin keeps the message ours.
+    await withTimeout(pool.query('SELECT 1'), 15000, 'PostgreSQL');
     logger.info('PostgreSQL connected');
 
-    // Verify Redis connection
-    await redis.ping();
+    // Verify Redis connection — ping() alone would queue forever on a down
+    // Redis; the timeout makes the startup check fail with a clear reason.
+    await withTimeout(redis.ping(), 15000, 'Redis');
     logger.info('Redis connected');
 
     // Create HTTP server

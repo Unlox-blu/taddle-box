@@ -33,6 +33,26 @@ class FeedService {
     }
   }
 
+  // Trending hashtags for the Home chips row — personalized to the user's
+  // feed (following / communities / preferred tags / interests), unlike the
+  // global search-page hashtag ranking.
+  async getTrendingHashtags({ userId }) {
+    try {
+      const followingId = await this.getFollowingUserIds({ userId, page: 1 });
+      const communityId = await this.getFollowingCommunityIds({ userId, page: 1 });
+      const { prefTags, interests } = await this.getPreferences({ userId });
+      return this.feedRepo.getTrendingHashtags({
+        userId,
+        followingId,
+        communityId,
+        prefTags,
+        interests,
+      });
+    } catch (error) {
+      throw error;
+    }
+  }
+
   
 
   async recordInteraction(userId, postId, interactionType) {

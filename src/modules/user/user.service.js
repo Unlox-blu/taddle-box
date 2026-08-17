@@ -2,6 +2,7 @@
 
 const { createError } = require('../../utils/error.util');
 const { notificationService } = require('../notification/notification.container');
+const { activeStatusService } = require('../activestatus/activestatus.container');
 const { emitFollowRequestCancelled, emitFollowRequestResolved, emitFollowStateChanged } = require('../../sockets/notification.socket');
 const appleUtil = require('../../utils/apple.util');
 
@@ -97,9 +98,9 @@ class UserService {
         finalUser.following = [];
       }
 
-      // Presence (online / last-seen) — Instagram-style: only surfaced to the
-      // account owner and approved followers, and only when the target has the
-      // Activity Status setting enabled (missing settings row → default ON).
+      // Active status (online / last-seen) — Instagram-style: only surfaced to
+      // the account owner and approved followers, and only when the target has
+      // the Activity Status setting enabled (missing settings row → default ON).
       try {
         const pool = require('../../config/database');
         const settingsRes = await pool.query(
@@ -109,12 +110,12 @@ class UserService {
         const showStatus = settingsRes.rows[0]?.activity_status !== false;
         const isSelf = !!userId && userId === finalUser.id;
         if (isSelf || (showStatus && !!finalUser.isFollowing)) {
-          finalUser.presence = await this._resolvePresence(finalUser.id);
+          finalUser.activeStatus = await activeStatusService.resolve(finalUser.id);
         } else {
-          finalUser.presence = null;
+          finalUser.activeStatus = null;
         }
       } catch (err) {
-        finalUser.presence = null;
+        finalUser.activeStatus = null;
       }
 
       // Aggregate XP, Level, Rank
@@ -151,97 +152,6 @@ class UserService {
     } catch (error) {
       throw error;
     }
-  }
-
-  // Resolve a user's presence from the hot Redis key first (set on socket
-  // connect / heartbeat / disconnect), falling back to the active_status row.
-  async _resolvePresence(userId) {
-    const redis = require('../../config/redis');
-    const pool = require('../../config/database');
-    const statusKey = `user:status:${userId}`;
-    const cached = await redis.get(statusKey).catch(() => null);
-    if (cached === 'online') return { online: true, lastSeen: null };
-    if (cached) return { online: false, lastSeen: cached };
-    const { rows } = await pool.query(
-      `SELECT is_active, last_seen FROM active_status WHERE user_id = $1`,
-      [userId]
-    );
-    const st = rows[0];
-    if (!st) return null;
-    return st.is_active === 'online'
-      ? { online: true, lastSeen: null }
-      : { online: false, lastSeen: st.last_seen };
-  }
-
-  // Bulk presence for feed avatars — restricted to self + people the viewer
-  // actively follows, and gated by each target's Activity Status setting.
-  async getPresenceBatch({ userId: viewerId, userIds }) {
-    const ids = [...new Set((userIds || []).filter(Boolean))].slice(0, 50);
-    const result = {};
-    if (!ids.length) return result;
-    const redis = require('../../config/redis');
-    const pool = require('../../config/database');
-
-    // The two authz checks below are cached in Redis (60s TTL) so a warm batch
-    // costs zero SQL — presence polling is chatty by nature, and the client's
-    // freshness window means the same viewer repeats the same id set, so the
-    // cache absorbs nearly all of it. Only first access (or TTL expiry) hits
-    // Postgres.
-
-    // Allow-list: self + users the viewer actively follows.
-    const followsKey = `presence:follows:${viewerId}`;
-    let allowed = null;
-    const cachedFollows = await redis.get(followsKey).catch(() => null);
-    if (cachedFollows) {
-      try {
-        allowed = new Set(JSON.parse(cachedFollows));
-      } catch {
-        allowed = null; // corrupt value → rebuild from DB
-      }
-    }
-    if (!allowed) {
-      const { rows: followRows } = await pool.query(
-        `SELECT following_id FROM followers
-         WHERE follower_id = $1 AND status = 'active'`,
-        [viewerId]
-      );
-      allowed = new Set(followRows.map((r) => r.following_id));
-      allowed.add(viewerId);
-      redis.setex(followsKey, 60, JSON.stringify([...allowed])).catch(() => {});
-    }
-
-    // Per-user Activity Status visibility (defaults to visible when no row).
-    const settings = new Map();
-    const cachedVis = await Promise.all(
-      ids.map((id) => redis.get(`presence:setting:${id}`).catch(() => null))
-    );
-    const missIds = [];
-    ids.forEach((id, i) => {
-      if (cachedVis[i] === null) missIds.push(id);
-      else settings.set(id, cachedVis[i] === '1');
-    });
-    if (missIds.length > 0) {
-      const { rows: settingsRows } = await pool.query(
-        `SELECT user_id, activity_status FROM settings WHERE user_id = ANY($1::uuid[])`,
-        [missIds]
-      );
-      const byId = new Map(settingsRows.map((r) => [r.user_id, r.activity_status !== false]));
-      missIds.forEach((id) => {
-        // No settings row → Activity Status is visible (the app's default).
-        const visible = byId.has(id) ? byId.get(id) : true;
-        settings.set(id, visible);
-        redis.setex(`presence:setting:${id}`, 60, visible ? '1' : '0').catch(() => {});
-      });
-    }
-
-    for (const id of ids) {
-      if (!allowed.has(id) || settings.get(id) === false) {
-        result[id] = null;
-        continue;
-      }
-      result[id] = await this._resolvePresence(id);
-    }
-    return result;
   }
 
   // GEO location telemetry — appends a history row (lat/lng + optional free-text

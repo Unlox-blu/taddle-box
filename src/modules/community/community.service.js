@@ -140,6 +140,13 @@ class CommunityService {
       const isPending = community.privacy === 'private';
       const status = isPending ? 'pending' : 'active';
       await this.communityRepo.addMember(communityId, userId, 'member', status);
+
+      // An active join moves the member's Community-activity score (+5);
+      // pending private-community requests don't rank until approved.
+      if (status === 'active') {
+        const { emitLeaderboardsChanged } = require('../../sockets/notification.socket');
+        emitLeaderboardsChanged(userId, 'community_activity');
+      }
       
       const user = await this.userRepo.findById(userId)
       const admins = await this.communityRepo.getAdminsId(communityId)

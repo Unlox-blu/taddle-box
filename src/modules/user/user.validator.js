@@ -76,8 +76,4 @@ const locationBodySchema = z.object({
   place: z.string().max(255, 'Place name too long').optional(),
 }).strict()
 
-const presenceBodySchema = z.object({
-  userIds: z.array(z.string().uuid({ message: 'Invalid user ID format' })).max(50, 'Too many users').optional(),
-}).strict()
-
-module.exports = { updateProfileSchema, updateUsernameSchema, updatePrivacySchema, updateBannerSchema, updateAvatarSchema, usernameSchema, userIdSchema, followerIdSchema, locationBodySchema, presenceBodySchema };
+module.exports = { updateProfileSchema, updateUsernameSchema, updatePrivacySchema, updateBannerSchema, updateAvatarSchema, usernameSchema, userIdSchema, followerIdSchema, locationBodySchema };

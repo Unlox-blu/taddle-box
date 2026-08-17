@@ -24,6 +24,7 @@
     "@socket.io/redis-adapter": "^8.3.0",
     "@vimeo/vimeo": "^2.1.1",
     "adm-zip": "^0.6.0",
+    "app-info-parser": "^1.1.6",
     "bcryptjs": "^3.0.2",
     "bullmq": "^5.12.0",
     "chess.js": "^1.4.0",

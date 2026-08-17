@@ -1,7 +1,7 @@
 'use strict';
 
-const AppUpdateService = require('./app-update.service');
-const AppUpdateController = require('./app-update.controller');
+const AppUpdateService = require('./appupdate.service');
+const AppUpdateController = require('./appupdate.controller');
 const storageService = require('../../integrations/storage/storage.service');
 
 const appUpdateService = new AppUpdateService({ storageService });

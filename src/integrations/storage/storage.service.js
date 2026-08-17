@@ -51,6 +51,50 @@ const confirmUpload = async (s3Key) => {
 };
 
 
+const fs = require('fs');
+
+const uploadFile = async (s3Key, filePath, mimeType, metadata = {}) => {
+  try {
+    const fileStream = fs.createReadStream(filePath);
+    const command = new PutObjectCommand({
+      Bucket: BUCKET_NAME,
+      Key: s3Key,
+      Body: fileStream,
+      ContentType: mimeType,
+      Metadata: metadata,
+    });
+    await s3Client.send(command);
+    return `${CLOUDFRONT_DOMAIN}/${s3Key}`;
+  } catch (error) {
+    throw error;
+  }
+};
+
+const getMetadata = async (s3Key) => {
+  try {
+    const command = new HeadObjectCommand({ Bucket: BUCKET_NAME, Key: s3Key });
+    const response = await s3Client.send(command);
+    return response.Metadata || {};
+  } catch (error) {
+    return null;
+  }
+};
+
+const uploadJson = async (s3Key, jsonObject) => {
+  try {
+    const command = new PutObjectCommand({
+      Bucket: BUCKET_NAME,
+      Key: s3Key,
+      Body: JSON.stringify(jsonObject),
+      ContentType: 'application/json',
+    });
+    await s3Client.send(command);
+    return `${CLOUDFRONT_DOMAIN}/${s3Key}`;
+  } catch (error) {
+    throw error;
+  }
+};
+
 const deleteFile = async (s3Key) => {
   try {
     const command = new DeleteObjectCommand({ Bucket: BUCKET_NAME, Key: s3Key });
@@ -74,4 +118,4 @@ const getBucketFiles = async () => {
   }
 }
 
-module.exports = { generateS3Key, getSignedUploadUrl, uploadBuffer, confirmUpload, deleteFile, getBucketFiles };
+module.exports = { generateS3Key, getSignedUploadUrl, uploadBuffer, uploadFile, uploadJson, getMetadata, confirmUpload, deleteFile, getBucketFiles };

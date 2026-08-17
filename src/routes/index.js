@@ -26,7 +26,7 @@ router.use('/settings',      require('./settings.route'));
 router.use('/highlight',     require('./highlight.route'));
 router.use('/active-status', require('./activestatus.route'));
 router.use('/app-config',    require('./appconfig.route'));
-router.use('/app-update',    require('./app-update.route'));
+router.use('/app-update',    require('./appupdate.route'));
 router.use('/bookmark',      require('./bookmark.route'));
 router.use('/save',          require('./save.route'));
 router.use('/game',          require('./game.route'));

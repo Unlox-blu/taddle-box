@@ -87,8 +87,11 @@ async function main() {
   try {
     const response = await uploadApk(devServer, updateKey);
     if (response.status >= 200 && response.status < 300) {
-      console.log('✔ Upload successful! Backend is processing the DEV APK.');
-      console.log('ℹ The local APK has been kept in build/apk/taddlebox-dev.apk as requested.');
+      const proxyLink = `${devServer.replace(/\/+$/, '')}/api/v1/app-releases/android/download?track=development`;
+      console.log('✔ Upload successful!\n');
+      console.log('APK:');
+      console.log(`Downloadable Link: ${proxyLink}`);
+      console.log(`Local Folder: ${APK_PATH}`);
       return;
     } else {
       throw new Error(`Upload failed with status ${response.status}`);
@@ -114,8 +117,11 @@ async function main() {
     try {
       const prodResponse = await uploadApk(fallbackServer, updateKey);
       if (prodResponse.status >= 200 && prodResponse.status < 300) {
-        console.log(`✔ Fallback Upload successful! Backend (${fallbackServer}) is processing the DEV APK.`);
-        console.log('ℹ The local APK has been kept in build/apk/taddlebox-dev.apk as requested.');
+        const proxyLink = `${fallbackServer.replace(/\/+$/, '')}/api/v1/app-releases/android/download?track=development`;
+        console.log('✔ Fallback Upload successful!\n');
+        console.log('APK:');
+        console.log(`Downloadable Link: ${proxyLink}`);
+        console.log(`Local Folder: ${APK_PATH}`);
         return;
       } else {
         throw new Error(`Fallback upload failed with status ${prodResponse.status}`);
@@ -127,7 +133,11 @@ async function main() {
          try {
            const finalResponse = await uploadApk('https://server.taddlebox.com', updateKey);
            if (finalResponse.status >= 200 && finalResponse.status < 300) {
-             console.log(`✔ Final Fallback Upload successful! Backend (https://server.taddlebox.com) is processing the DEV APK.`);
+             const proxyLink = `https://server.taddlebox.com/api/v1/app-releases/android/download?track=development`;
+             console.log('✔ Final Fallback Upload successful!\n');
+             console.log('APK:');
+             console.log(`Downloadable Link: ${proxyLink}`);
+             console.log(`Local Folder: ${APK_PATH}`);
              return;
            } else {
              throw new Error(`Final fallback upload failed with status ${finalResponse.status}`);

@@ -81,6 +81,7 @@ class SocketService {
 
       this.socket = io(SOCKET_URL, {
         auth: { token },
+        transports: ["websocket"],
         extraHeaders: {
           "ngrok-skip-browser-warning": "true",
         },

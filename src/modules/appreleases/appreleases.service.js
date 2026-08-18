@@ -6,7 +6,8 @@ const crypto = require('crypto');
 const AppInfoParser = require('app-info-parser');
 const redis = require('../../config/redis');
 
-const DEFAULT_MANIFEST_PATH = path.join(__dirname, 'appreleases.android.manifest.json');
+const axios = require('axios');
+
 const APK_FOLDER = 'apks';
 const APK_MIME = 'application/vnd.android.package-archive';
 const S3_APK_KEY = `${APK_FOLDER}/taddlebox.apk`;
@@ -26,17 +27,19 @@ class AppReleasesService {
     return track === 'development' ? `${REDIS_KEY}:development` : REDIS_KEY;
   }
 
-  _getManifestPath(track) {
-    if (process.env.APP_UPDATE_MANIFEST_PATH) return process.env.APP_UPDATE_MANIFEST_PATH;
-    return track === 'development'
-      ? path.join(__dirname, 'appreleases.android.manifest.development.json')
-      : DEFAULT_MANIFEST_PATH;
+  _getManifestS3Url(track) {
+    const key = track === 'development' ? `${APK_FOLDER}/appreleases.android.manifest.development.json` : `${APK_FOLDER}/appreleases.android.manifest.json`;
+    return `https://cdn.taddlebox.com/${key}`;
+  }
+
+  _getManifestS3Key(track) {
+    return track === 'development' ? `${APK_FOLDER}/appreleases.android.manifest.development.json` : `${APK_FOLDER}/appreleases.android.manifest.json`;
   }
 
   async processApk(filePath, track = 'production') {
     const s3Key = this._getS3Key(track);
     const redisKey = this._getRedisKey(track);
-    const manifestPath = this._getManifestPath(track);
+    const manifestS3Key = this._getManifestS3Key(track);
     try {
       // 1. Parse APK to get versionCode and validate package
       const parser = new AppInfoParser(filePath);
@@ -95,9 +98,9 @@ class AppReleasesService {
         },
       };
 
-      // 5. Save manifest directly to backend's local disk
-      console.log(`Saving manifest to local disk at ${manifestPath}...`);
-      fs.writeFileSync(manifestPath, JSON.stringify(manifest, null, 2));
+      // 5. Upload manifest JSON perfectly to S3
+      console.log(`Saving JSON manifest directly to S3 at ${manifestS3Key}...`);
+      await this.storageSvc.uploadJson(manifestS3Key, manifest);
 
       // 6. Instantly cache the verified manifest in Redis
       console.log('Caching verified manifest in Redis...');
@@ -115,7 +118,7 @@ class AppReleasesService {
   async getManifest(track = 'production') {
     const s3Key = this._getS3Key(track);
     const redisKey = this._getRedisKey(track);
-    const manifestPath = this._getManifestPath(track);
+    const manifestS3Url = this._getManifestS3Url(track);
 
     try {
       // Fast path: Check Redis cache first! (0 S3 hammering, 0 disk reads)
@@ -125,10 +128,10 @@ class AppReleasesService {
         if (manifest && manifest.android) return manifest;
       }
 
-      // Slow path: Cache miss. We must perform the handshake to recover the cache.
-      if (fs.existsSync(manifestPath)) {
-        const raw = fs.readFileSync(manifestPath, 'utf8');
-        const manifest = JSON.parse(raw);
+      // Slow path: Cache miss. We must download from S3 and perform the handshake to recover the cache.
+      try {
+        const response = await axios.get(manifestS3Url);
+        const manifest = response.data;
         if (!manifest || !manifest.android) return { android: null };
 
         // Perform the S3 Handshake
@@ -149,6 +152,11 @@ class AppReleasesService {
         // Handshake successful! Repopulate the Redis cache for the next 8 hours
         await redis.setex(redisKey, CACHE_TTL, JSON.stringify(manifest));
         return manifest;
+      } catch (axiosError) {
+         if (axiosError.response && axiosError.response.status === 404) {
+           return { android: null }; // No manifest published yet
+         }
+         throw axiosError;
       }
       return { android: null };
     } catch (error) {
@@ -165,13 +173,17 @@ class AppReleasesService {
   async verifyDownload(track = 'production') {
     const s3Key = this._getS3Key(track);
     const redisKey = this._getRedisKey(track);
-    const manifestPath = this._getManifestPath(track);
+    const manifestS3Url = this._getManifestS3Url(track);
 
     try {
-      if (!fs.existsSync(manifestPath)) return null;
+      let manifest;
+      try {
+         const response = await axios.get(manifestS3Url);
+         manifest = response.data;
+      } catch(e) {
+         return null;
+      }
       
-      const raw = fs.readFileSync(manifestPath, 'utf8');
-      const manifest = JSON.parse(raw);
       if (!manifest || !manifest._security) return null;
 
       // Perform the S3 Handshake

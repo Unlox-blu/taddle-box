@@ -15,7 +15,7 @@ import { Platform } from "react-native";
  */
 export function getBackendOrigin(): string {
   if (process.env.EXPO_PUBLIC_BACKEND_URL) {
-    return process.env.EXPO_PUBLIC_BACKEND_URL;
+    return process.env.EXPO_PUBLIC_BACKEND_URL.replace(/\/+$/, "");
   }
   const debuggerHost = Constants.expoConfig?.hostUri;
   const currentIp =

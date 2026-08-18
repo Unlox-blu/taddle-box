@@ -26,7 +26,7 @@ const currentIp = localhost || fallbackIp;
 // builds must carry EXPO_PUBLIC_BACKEND_URL, otherwise fall back to the
 // production domain instead of a device-unreachable emulator address.
 const SOCKET_URL = process.env.EXPO_PUBLIC_BACKEND_URL
-  ? process.env.EXPO_PUBLIC_BACKEND_URL
+  ? process.env.EXPO_PUBLIC_BACKEND_URL.replace(/\/+$/, "")
   : __DEV__
     ? `http://${currentIp}:1999`
     : (() => {

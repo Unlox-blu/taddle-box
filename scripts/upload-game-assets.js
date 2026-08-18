@@ -31,7 +31,9 @@ const {
 } = require('@aws-sdk/client-s3');
 const { s3Client, BUCKET_NAME, CLOUDFRONT_DOMAIN } = require('../src/config/s3');
 
-const PREFIX = 'game-assets/';
+// Mirrors the public URL scheme: /app-assets/games/<file> →
+// s3://<S3_BUCKET_NAME>/app-assets/games/<file>.
+const PREFIX = 'app-assets/games/';
 const CACHE_CONTROL = 'public, max-age=31536000';
 const DEFAULT_SRC = path.join(__dirname, '..', '..', 'taddlebox-app', 'build', 'game-assets');
 

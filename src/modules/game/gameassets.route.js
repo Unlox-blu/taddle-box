@@ -1,7 +1,9 @@
 'use strict';
 
 /**
- * GET /game-assets/* — serves the game logos + sounds to the app.
+ * GET /app-assets/* — streams app assets from S3 to the app: game logos +
+ * sounds + mirrored card art under games/{logos,sounds,cards}/, and the
+ * app-level lottie branding under lottie/.
  *
  * The client NEVER talks to S3 directly: the backend streams the objects from
  * S3 (the origin, pushed by scripts/upload-game-assets.js) so the bucket name
@@ -14,8 +16,14 @@
  * with a 304 without streaming the body — one HEAD to S3 instead of a full
  * GET. The disk fallback (res.sendFile) handles its own ETag/304.
  *
- * The mount point in app.js wraps this router in a Redis-backed per-IP rate
- * limiter (assetRateLimiter) so a scraper can't hammer the S3 proxy.
+ * Served prefixes: games/logos/, games/sounds/ (game pack, uploaded by
+ * scripts/upload-game-assets.js), games/cards/ (mirrored card art, uploaded
+ * by scripts/sync-third-party-images.js) and lottie/ (app branding animation,
+ * mirrored by the same script).
+ *
+ * The mount point in app.js (/app-assets → routes/appassets.route.js)
+ * wraps this router in a Redis-backed per-IP rate limiter (assetRateLimiter)
+ * so a scraper can't hammer the S3 proxy.
  *
  * Fallback: if S3 is unreachable or the object is missing, the route serves
  * the local disk copy (GAME_ASSETS_DIR, default taddle-box/game-assets/) so
@@ -32,9 +40,12 @@ const { s3Client, BUCKET_NAME } = require('../../config/s3');
 const router = express.Router();
 
 const CACHE_CONTROL = 'public, max-age=31536000';
-const S3_PREFIX = 'game-assets/';
-const ALLOWED_PREFIXES = ['logos/', 'sounds/'];
-const ALLOWED_EXT = new Set(['.webp', '.wav', '.png', '.jpg', '.jpeg', '.json']);
+// S3 keys mirror the public URL 1:1: /app-assets/<prefix>/<file> →
+// s3://bucket/app-assets/<prefix>/<file>. Game content lives under
+// games/{logos,sounds,cards}/; app-level branding (lottie) under lottie/.
+const S3_PREFIX = 'app-assets/';
+const ALLOWED_PREFIXES = ['games/logos/', 'games/sounds/', 'games/cards/', 'lottie/'];
+const ALLOWED_EXT = new Set(['.webp', '.wav', '.png', '.jpg', '.jpeg', '.json', '.lottie']);
 const DISK_DIR =
   process.env.GAME_ASSETS_DIR || path.join(__dirname, '..', '..', '..', 'game-assets');
 

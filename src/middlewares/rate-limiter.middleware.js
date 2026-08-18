@@ -93,10 +93,10 @@ const searchRateLimiter = rateLimit({
   message: { success: false, message: 'Too many search requests. Please try again shortly.' },
 });
 
-// 600 requests per min per IP — /game-assets is a public static proxy (no
+// 600 requests per min per IP — /app-assets is a public static proxy (no
 // auth on it), so the budget is IP-keyed. Generous for a device loading the
 // logo grid + sounds (a burst of ~7-20 files), but stops a scraper from
-// hammering the S3 proxy. Applied at the /game-assets mount in app.js.
+// hammering the S3 proxy. Applied at the /app-assets mount in app.js.
 const assetRateLimiter = rateLimit({
   windowMs: 60 * 1000,
   max: 600,

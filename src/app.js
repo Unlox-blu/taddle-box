@@ -49,14 +49,17 @@ app.get('/health', (_req, res) => res.json({ status: 'ok', timestamp: new Date()
 const { homeHandler } = require('./utils/home.util');
 app.get('/', homeHandler);
 
-// Game assets — the app's on-demand game downloads (logos + sounds, see
-// taddlebox-app/src/games/gameAssets.ts). The client only ever talks to the
-// backend: this route streams the objects from S3 (the origin, pushed by
-// scripts/upload-game-assets.js) with long cache headers + ETag/304
-// revalidation, falling back to the local disk folder (GAME_ASSETS_DIR) when
-// S3 is unreachable. Rate-limited per IP so a scraper can't hammer the S3
-// proxy.
-app.use('/game-assets', assetRateLimiter, require('./modules/game/gameassets.route'));
+// Public app-asset routes (aggregated in routes/appassets.route.js): the
+// app's on-demand game downloads + mirrored third-party images (see
+// taddlebox-app/src/games/gameAssets.ts). Single mount at /app-assets with
+// sub-paths (e.g. /app-assets/games/logos/...). The client only ever talks
+// to the backend — routes stream the objects from S3 (the origin, pushed by
+// scripts/upload-game-assets.js and scripts/sync-third-party-images.js) with
+// long cache headers + ETag/304 revalidation, falling back to the local disk
+// folder (GAME_ASSETS_DIR) when S3 is unreachable. Rate-limited per IP so a
+// scraper can't hammer the S3 proxy.
+const appAssetsRouter = require('./routes/appassets.route');
+app.use('/app-assets', assetRateLimiter, appAssetsRouter);
 
 // Auth routes with strict rate limiter
 // app.use('/api/v1/auth', authRateLimiter, require('./routes/index').authOnly);

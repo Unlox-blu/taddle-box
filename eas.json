@@ -12,6 +12,7 @@
       },
       "env": {
         "NODE_ENV": "development",
+        "APP_ENV": "development",
         "APP_UPDATER_ENABLED": "1",
         "EXPO_PUBLIC_APP_TRACK": "development"
       }

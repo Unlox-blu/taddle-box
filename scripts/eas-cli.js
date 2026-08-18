@@ -70,19 +70,31 @@ const args = process.argv
 const cmd = `npx --yes eas-cli@${version} ${args}`.trim();
 
 try {
-  const envPath = path.join(APP_ROOT, '.env');
-  if (fs.existsSync(envPath)) {
-    const content = fs.readFileSync(envPath, 'utf8');
-    content.split(/\r?\n/).forEach((line) => {
-      const parts = line.split('=');
-      if (parts.length >= 2) {
-        const key = parts[0].trim();
-        const value = parts.slice(1).join('=').trim();
-        if (process.env[key] === undefined) {
+  // Determine which environment file to load based on the profile
+  let envSuffix = '';
+  if (cmd.includes('development')) envSuffix = '.development';
+  else if (cmd.includes('production') || cmd.includes('direct')) envSuffix = '.production';
+
+  const envPaths = [
+    path.join(APP_ROOT, '.env'),
+    envSuffix ? path.join(APP_ROOT, `.env${envSuffix}`) : null
+  ].filter(Boolean);
+
+  for (const envPath of envPaths) {
+    if (fs.existsSync(envPath)) {
+      const content = fs.readFileSync(envPath, 'utf8');
+      content.split(/\r?\n/).forEach((line) => {
+        // Ignore comments
+        if (line.trim().startsWith('#')) return;
+        const parts = line.split('=');
+        if (parts.length >= 2) {
+          const key = parts[0].trim();
+          const value = parts.slice(1).join('=').trim();
+          // Let environment-specific files override the base .env
           process.env[key] = value;
         }
-      }
-    });
+      });
+    }
   }
 } catch (e) {
   // ignore

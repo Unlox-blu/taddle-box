@@ -46,9 +46,10 @@ const MANIFEST = [
   { url: 'https://images.unsplash.com/photo-1586165368502-1bad197a6461?q=80&w=600&auto=format&fit=crop', key: 'chess.jpg' },
   { url: 'https://images.unsplash.com/photo-1555448248-2571daf6344b?q=80&w=600&auto=format&fit=crop', key: 'word-rush.jpg' },
   // Logo Lottie animation (splash/loaders) — app branding, NOT game content:
-  // lives under /app-assets/lottie/. (The old banner lottie URL never
-  // existed in the bucket and was already dropped by the app.)
-  { url: 'https://unlox-dev-test.s3.ap-south-1.amazonaws.com/app-assets/app_logo_lottie/taddle_lottie.lottie', key: 'taddle_lottie.lottie', dir: 'app-assets/lottie/' },
+  // lives under /app-assets/lottie/. Source is the live copy in the same
+  // bucket (the old app-assets/app_logo_lottie/ master was deleted as dead
+  // storage). (The old banner lottie URL never existed and was dropped.)
+  { url: 'https://unlox-dev-test.s3.ap-south-1.amazonaws.com/app-assets/lottie/taddle_lottie.lottie', key: 'taddle_lottie.lottie', dir: 'app-assets/lottie/' },
 ];
 
 function streamToBuffer(stream) {

@@ -1,12 +1,18 @@
 import * as FileSystem from "expo-file-system/legacy";
+import { getBackendOrigin } from "./backendUrl";
 
 const CACHE_DIR = FileSystem.documentDirectory + "lottie_cache/";
 
-export const S3_APP_ICON_LOTTIE_URL =
-  "https://unlox-dev-test.s3.ap-south-1.amazonaws.com/app-assets/app_logo_lottie/taddle_lottie.lottie";
+// App-branding lottie files, mirrored to S3 and served through the backend's
+// /app-assets route (see taddle-box/scripts/sync-third-party-images.js). The
+// domain comes from EXPO_PUBLIC_BACKEND_URL via the shared resolver — never a
+// hardcoded host.
+const APP_ASSETS_LOTTIE = `${getBackendOrigin()}/app-assets/lottie/`;
+
+export const S3_APP_ICON_LOTTIE_URL = APP_ASSETS_LOTTIE + "taddle_lottie.lottie";
 
 export const S3_APP_BANNER_LOTTIE_URL =
-  "https://unlox-dev-test.s3.ap-south-1.amazonaws.com/app-assets/app_banner_lottie/taddle_banner_lottie.lottie";
+  APP_ASSETS_LOTTIE + "taddle_banner_lottie.lottie";
 
 let memoryCache: Record<string, any> = {};
 

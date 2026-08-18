@@ -7,11 +7,11 @@
  * never shows an empty tile before the branded logo is cached.
  *
  * Hosting: taddle-box/scripts/upload-game-assets.js syncs build/game-assets/
- * to S3 (the origin). The app fetches from the BACKEND route /game-assets/
- * (https://server.prepfree.in/game-assets/), which streams from S3 — the
- * client never touches the bucket directly. Bump the file names (or
- * GAME_ASSET_VERSION in gameAssets.ts) when artwork changes so old caches
- * are busted.
+ * to S3 (the origin). The app fetches from the BACKEND route
+ * /app-assets/games/ (origin resolved from EXPO_PUBLIC_BACKEND_URL), which
+ * streams from S3 — the client never touches the bucket directly. Bump the
+ * file names (or GAME_ASSET_VERSION in gameAssets.ts) when artwork changes
+ * so old caches are busted.
  */
 export type GameAssetManifest = {
   emoji: string;
@@ -25,23 +25,30 @@ export type GameAssetManifest = {
   averageDurationLabel: string;
 };
 
-// The app NEVER talks to S3 directly: the backend serves /game-assets/ by
-// streaming from S3 (the origin, pushed by scripts/upload-game-assets.js), so
-// the bucket name stays server-side. Override per-build with
-// EXPO_PUBLIC_GAME_ASSETS_URL (e.g. a CDN in front of the API) when needed.
+// The app NEVER talks to S3 (or a third-party image host) directly: the
+// backend serves /app-assets/games/ by streaming from S3 (the origin, pushed
+// by scripts/upload-game-assets.js + scripts/sync-third-party-images.js), so
+// the bucket name stays server-side. The base URL derives from
+// EXPO_PUBLIC_BACKEND_URL via the shared resolver (see backendUrl.ts) — never
+// a hardcoded domain. Override per-build with EXPO_PUBLIC_GAME_ASSETS_URL
+// (e.g. a CDN in front of the API) when needed.
+import { getBackendOrigin } from "../services/backendUrl";
+
 export const GAME_ASSETS_BASE_URL =
   process.env.EXPO_PUBLIC_GAME_ASSETS_URL ||
-  "https://server.prepfree.in/game-assets/";
+  `${getBackendOrigin()}/app-assets/games/`;
 
 const logoUrl = (file: string) => `${GAME_ASSETS_BASE_URL}logos/${file}`;
+
+/** Mirrored card art served through the backend (/app-assets/games/cards). */
+const cardUrl = (file: string) => `${GAME_ASSETS_BASE_URL}cards/${file}`;
 
 export const GAME_ASSETS: Record<string, GameAssetManifest> = {
   "tap-rush": {
     emoji: "TR",
     logoUrl: logoUrl("tap-rush.webp"),
     logoFile: "tap-rush.webp",
-    imageUrl:
-      "https://images.unsplash.com/photo-1550745165-9bc0b252726f?q=80&w=600&auto=format&fit=crop",
+    imageUrl: cardUrl("tap-rush.jpg"),
     gradient: ["#7C3AED", "#0891B2"],
     averageDurationLabel: "20 sec",
   },
@@ -49,8 +56,7 @@ export const GAME_ASSETS: Record<string, GameAssetManifest> = {
     emoji: "MG",
     logoUrl: logoUrl("memory-grid.webp"),
     logoFile: "memory-grid.webp",
-    imageUrl:
-      "https://images.unsplash.com/photo-1518770660439-4636190af475?q=80&w=600&auto=format&fit=crop",
+    imageUrl: cardUrl("memory-grid.jpg"),
     gradient: ["#0F766E", "#4F46E5"],
     averageDurationLabel: "1 min",
   },
@@ -58,8 +64,7 @@ export const GAME_ASSETS: Record<string, GameAssetManifest> = {
     emoji: "✏️",
     logoUrl: logoUrl("scribble.webp"),
     logoFile: "scribble.webp",
-    imageUrl:
-      "https://images.unsplash.com/photo-1513364776144-60967b0f800f?q=80&w=600&auto=format&fit=crop",
+    imageUrl: cardUrl("scribble.jpg"),
     gradient: ["#F59E0B", "#EF4444"],
     averageDurationLabel: "3 min",
   },
@@ -67,8 +72,7 @@ export const GAME_ASSETS: Record<string, GameAssetManifest> = {
     emoji: "🎲",
     logoUrl: logoUrl("ludo.webp"),
     logoFile: "ludo.webp",
-    imageUrl:
-      "https://images.unsplash.com/photo-1550745165-9bc0b252726f?q=80&w=600&auto=format&fit=crop",
+    imageUrl: cardUrl("ludo.jpg"),
     gradient: ["#10B981", "#3B82F6"],
     averageDurationLabel: "10 min",
   },
@@ -76,8 +80,7 @@ export const GAME_ASSETS: Record<string, GameAssetManifest> = {
     emoji: "🐍",
     logoUrl: logoUrl("snake-ladder.webp"),
     logoFile: "snake-ladder.webp",
-    imageUrl:
-      "https://images.unsplash.com/photo-1570303363992-7f95ee20ebdb?q=80&w=600&auto=format&fit=crop",
+    imageUrl: cardUrl("snake-ladder.jpg"),
     gradient: ["#8B5CF6", "#EC4899"],
     averageDurationLabel: "8 min",
   },
@@ -85,8 +88,7 @@ export const GAME_ASSETS: Record<string, GameAssetManifest> = {
     emoji: "♟️",
     logoUrl: logoUrl("chess.webp"),
     logoFile: "chess.webp",
-    imageUrl:
-      "https://images.unsplash.com/photo-1586165368502-1bad197a6461?q=80&w=600&auto=format&fit=crop",
+    imageUrl: cardUrl("chess.jpg"),
     gradient: ["#374151", "#111827"],
     averageDurationLabel: "15 min",
   },
@@ -94,8 +96,7 @@ export const GAME_ASSETS: Record<string, GameAssetManifest> = {
     emoji: "📝",
     logoUrl: logoUrl("word-rush.webp"),
     logoFile: "word-rush.webp",
-    imageUrl:
-      "https://images.unsplash.com/photo-1555448248-2571daf6344b?q=80&w=600&auto=format&fit=crop",
+    imageUrl: cardUrl("word-rush.jpg"),
     gradient: ["#F43F5E", "#8B5CF6"],
     averageDurationLabel: "2 min",
   },

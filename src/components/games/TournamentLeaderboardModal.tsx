@@ -81,10 +81,15 @@ export default function TournamentLeaderboardModal({ visible, tournament, onClos
         }}
       >
         <Text style={styles.rankText}>#{index + 1}</Text>
-        <Image 
-          source={{ uri: item.avatarUrl || "https://unlox-dev-test.s3.ap-south-1.amazonaws.com/default-avatar.png" }} 
-          style={styles.avatar} 
-        />
+        {item.avatarUrl ? (
+          <Image source={{ uri: item.avatarUrl }} style={styles.avatar} />
+        ) : (
+          // App convention: icon fallback when a player has no avatar (the
+          // old hardcoded S3 placeholder URL was 404).
+          <View style={[styles.avatar, styles.avatarFallback]}>
+            <Ionicons name="person" size={18} color="#fff" />
+          </View>
+        )}
         <View style={styles.playerInfo}>
           <Text style={styles.playerName} numberOfLines={1}>{item.name}</Text>
           <Text style={styles.playerUsername}>@{item.username}</Text>
@@ -252,6 +257,11 @@ const makeStyles = (c: any, insets: any) =>
       height: 40,
       borderRadius: radii.full,
       marginRight: spacing.md,
+    },
+    avatarFallback: {
+      alignItems: "center",
+      justifyContent: "center",
+      backgroundColor: "rgba(124,58,237,0.25)",
     },
     playerInfo: {
       flex: 1,

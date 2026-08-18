@@ -1,31 +1,11 @@
 import axios from "axios";
 import * as SecureStore from "expo-secure-store";
-import { Platform } from "react-native";
+import { getBackendOrigin } from "./backendUrl";
 
-import Constants from "expo-constants";
-
-const debuggerHost = Constants.expoConfig?.hostUri;
-const localhost = debuggerHost?.split(":")[0];
-
-// Dev builds (Expo Go / dev client) point at the Metro host so a phone on the
-// same network can reach the local backend. Production builds must be given
-// EXPO_PUBLIC_BACKEND_URL at build time; if it's missing we fail loudly by
-// logging and falling back to the production domain rather than silently
-// dialing an emulator-only address (10.0.2.2 / localhost) that can never work
-// on a real device.
-const fallbackIp = Platform.OS === "android" ? "10.0.2.2" : "localhost";
-const currentIp = localhost || fallbackIp;
-
-const API_URL = process.env.EXPO_PUBLIC_BACKEND_URL
-  ? `${process.env.EXPO_PUBLIC_BACKEND_URL}/api/v1`
-  : __DEV__
-    ? `http://${currentIp}:1999/api/v1`
-    : (() => {
-        console.warn(
-          "[apiClient] EXPO_PUBLIC_BACKEND_URL is not set in this production build. App will not be able to reach the backend server",
-        );
-        return "https://www.taddlebox.com";
-      })();
+// Origin comes from EXPO_PUBLIC_BACKEND_URL (.env / build profile) via the
+// shared resolver — dev falls back to the Metro host, production warns loudly
+// if the env var is missing rather than silently dialing an emulator address.
+const API_URL = `${getBackendOrigin()}/api/v1`;
 
 export const apiClient = axios.create({
   baseURL: API_URL,

@@ -33,24 +33,8 @@ function loadEnv() {
   }
 }
 
-async function main() {
-  loadEnv();
-
-  if (!fs.existsSync(APK_PATH)) {
-    console.log(`ℹ No APK found at ${APK_PATH}. Nothing to publish.`);
-    return;
-  }
-
-  const server = process.env.APP_UPDATE_SERVER_URL || process.env.EXPO_PUBLIC_BACKEND_URL;
-  if (!server) {
-    console.error('❌ Missing APP_UPDATE_SERVER_URL or EXPO_PUBLIC_BACKEND_URL in .env');
-    process.exit(1);
-  }
-
-  const updateKey = process.env.APP_UPDATE_UPLOAD_KEY || '';
-  const endpoint = `${server.replace(/\/+$/, '')}/api/v1/app-releases/android/upload?track=development`;
-
-  console.log(`ℹ Found APK at ${APK_PATH}.`);
+async function uploadApk(serverUrl, updateKey) {
+  const endpoint = `${serverUrl.replace(/\/+$/, '')}/api/v1/app-releases/android/upload?track=development`;
   console.log(`ℹ Uploading to backend: ${endpoint}...`);
 
   const form = new FormData();
@@ -61,30 +45,116 @@ async function main() {
     headers['X-Update-Key'] = updateKey;
   }
 
-  try {
-    const response = await axios.post(endpoint, form, {
-      headers,
-      maxContentLength: Infinity,
-      maxBodyLength: Infinity,
-    });
+  const response = await axios.post(endpoint, form, {
+    headers,
+    maxContentLength: Infinity,
+    maxBodyLength: Infinity,
+  });
 
+  return response;
+}
+
+function getEnvVarFromFile(envFile, key) {
+  const fullPath = path.join(APP_ROOT, envFile);
+  if (!fs.existsSync(fullPath)) return null;
+  const content = fs.readFileSync(fullPath, 'utf8');
+  for (const line of content.split(/\r?\n/)) {
+    const parts = line.split('=');
+    if (parts.length >= 2 && parts[0].trim() === key) {
+      return parts.slice(1).join('=').trim();
+    }
+  }
+  return null;
+}
+
+async function main() {
+  loadEnv();
+
+  if (!fs.existsSync(APK_PATH)) {
+    console.log(`ℹ No APK found at ${APK_PATH}. Nothing to publish.`);
+    return;
+  }
+
+  const devServer = process.env.APP_UPDATE_SERVER_URL || process.env.EXPO_PUBLIC_BACKEND_URL;
+  if (!devServer) {
+    console.error('❌ Missing APP_UPDATE_SERVER_URL or EXPO_PUBLIC_BACKEND_URL in .env');
+    process.exit(1);
+  }
+
+  const updateKey = process.env.APP_UPDATE_UPLOAD_KEY || '';
+  console.log(`ℹ Found APK at ${APK_PATH}.`);
+
+  try {
+    const response = await uploadApk(devServer, updateKey);
     if (response.status >= 200 && response.status < 300) {
       console.log('✔ Upload successful! Backend is processing the DEV APK.');
       console.log('ℹ The local APK has been kept in build/apk/taddlebox-dev.apk as requested.');
+      return;
     } else {
-      console.error(`❌ Upload failed with status ${response.status}`);
-      process.exit(1);
+      throw new Error(`Upload failed with status ${response.status}`);
     }
   } catch (error) {
-    console.error('❌ Upload failed:');
+    console.warn(`⚠ Upload to dev server (${devServer}) failed.`);
     if (error.response) {
-      console.error(`Status: ${error.response.status}`);
-      console.error(error.response.data);
+      console.warn(`  Status: ${error.response.status}`);
     } else {
-      console.error(error.message);
+      console.warn(`  Error: ${error.message}`);
     }
-    console.log('ℹ The APK remains in the queue (build/apk/taddlebox-dev.apk). It will be retried next time.');
-    process.exit(1);
+
+    console.log('\nℹ Attempting fallback to production server...');
+    const prodServer = getEnvVarFromFile('.env.production', 'EXPO_PUBLIC_BACKEND_URL');
+    
+    let fallbackServer = prodServer;
+    if (!fallbackServer) {
+      console.warn('⚠ Could not find EXPO_PUBLIC_BACKEND_URL in .env.production.');
+      fallbackServer = 'https://server.taddlebox.com';
+      console.log(`ℹ Attempting hardcoded final fallback to: ${fallbackServer}`);
+    }
+
+    try {
+      const prodResponse = await uploadApk(fallbackServer, updateKey);
+      if (prodResponse.status >= 200 && prodResponse.status < 300) {
+        console.log(`✔ Fallback Upload successful! Backend (${fallbackServer}) is processing the DEV APK.`);
+        console.log('ℹ The local APK has been kept in build/apk/taddlebox-dev.apk as requested.');
+        return;
+      } else {
+        throw new Error(`Fallback upload failed with status ${prodResponse.status}`);
+      }
+    } catch (fallbackError) {
+      if (prodServer) {
+         console.warn(`\n⚠ Fallback to .env.production server failed.`);
+         console.log(`ℹ Attempting hardcoded final fallback to: https://server.taddlebox.com`);
+         try {
+           const finalResponse = await uploadApk('https://server.taddlebox.com', updateKey);
+           if (finalResponse.status >= 200 && finalResponse.status < 300) {
+             console.log(`✔ Final Fallback Upload successful! Backend (https://server.taddlebox.com) is processing the DEV APK.`);
+             return;
+           } else {
+             throw new Error(`Final fallback upload failed with status ${finalResponse.status}`);
+           }
+         } catch (finalError) {
+            console.error('\n❌ All upload attempts failed:');
+            if (finalError.response) {
+              console.error(`Status: ${finalError.response.status}`);
+              console.error(finalError.response.data);
+            } else {
+              console.error(finalError.message);
+            }
+            console.log('ℹ The APK remains in the queue (build/apk/taddlebox-dev.apk). It will be retried next time.');
+            process.exit(1);
+         }
+      } else {
+        console.error('\n❌ Fallback upload failed:');
+        if (fallbackError.response) {
+          console.error(`Status: ${fallbackError.response.status}`);
+          console.error(fallbackError.response.data);
+        } else {
+          console.error(fallbackError.message);
+        }
+        console.log('ℹ The APK remains in the queue (build/apk/taddlebox-dev.apk). It will be retried next time.');
+        process.exit(1);
+      }
+    }
   }
 }
 

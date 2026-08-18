@@ -11,8 +11,8 @@ const optional = (key, defaultValue = '') => process.env[key] || defaultValue;
 module.exports = {
   // App
   NODE_ENV: optional('NODE_ENV', 'development'),
-  PORT: parseInt(optional('PORT', '8080'), 10),
-  BASE_URL: optional('BASE_URL', 'http://localhost:8080'),
+  PORT: parseInt(optional('PORT', '1999'), 10),
+  BASE_URL: optional('BASE_URL', 'http://localhost:1999'),
   FRONTEND_URL: optional('FRONTEND_URL', 'http://localhost:3000'),
   ALLOWED_ORIGINS: optional('ALLOWED_ORIGINS', 'http://localhost:3000').split(','),
 
@@ -25,7 +25,7 @@ module.exports = {
     database: optional('DB_NAME', 'taddle_box_dev'),
     max: parseInt(optional('DB_MAX_CONNECTIONS', '20'), 10),
     ssl: optional('DB_SSL', 'false') === 'true',
-    connectionString: optional('DB_CONNECTION_STRING')
+    connectionString: optional('DB_CONNECTION_STRING'),
   },
 
   // Redis
@@ -48,7 +48,7 @@ module.exports = {
   REFRESH_TOKEN_COOKIE_MAX_AGE_SECONDS: optional('REFRESH_TOKEN_COOKIE_MAX_AGE_SECONDS'),
   OTP_EXPIRES_IN: optional('OTP_EXPIRES_IN', '300000'),
   VALIDATE_OTP_VERIFICATION: optional('VALIDATE_OTP_VERIFICATION'),
-  
+
   // Cloudinary
   CLOUDINARY_CLOUD_NAME: optional('CLOUDINARY_CLOUD_NAME'),
   CLOUDINARY_API_KEY: optional('CLOUDINARY_API_KEY'),
@@ -96,14 +96,13 @@ module.exports = {
 
   // Google OAuth
   GOOGLE_CLIENT_ID: optional('GOOGLE_CLIENT_ID'),
-  
+
   // Apple Client Secret
   APPLE_TEAM_ID: optional('APPLE_TEAM_ID'),
   APPLE_SERVICE_ID: optional('APPLE_SERVICE_ID'),
   APPLE_KEY_ID: optional('APPLE_KEY_ID'),
   APPLE_P8_PATH: optional('APPLE_P8_PATH'),
   APPLE_P8_KEY: optional('APPLE_P8_KEY'),
-
 
   // Email
   EMAIL: {

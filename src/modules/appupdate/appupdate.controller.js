@@ -24,11 +24,12 @@ class AppUpdateController {
 
   getManifest = async (req, res, next) => {
     try {
-      const manifest = await this.appUpdateSvc.getManifest();
+      const track = req.query.track || 'production';
+      const manifest = await this.appUpdateSvc.getManifest(track);
       
       // Rewrite the URL to point to our JIT proxy
       if (manifest && manifest.android && manifest.android.url) {
-        manifest.android.url = `${req.protocol}://${req.get('host')}/api/v1/app-update/download`;
+        manifest.android.url = `${req.protocol}://${req.get('host')}/api/v1/app-update/download?track=${track}`;
       }
       
       res.json(apiResponse(manifest, 'App update manifest fetched successfully'));
@@ -43,7 +44,8 @@ class AppUpdateController {
    */
   downloadApk = async (req, res, next) => {
     try {
-      const realUrl = await this.appUpdateSvc.verifyDownload();
+      const track = req.query.track || 'production';
+      const realUrl = await this.appUpdateSvc.verifyDownload(track);
       if (!realUrl) {
         return res.status(404).send('Update not found or corrupted.');
       }
@@ -75,7 +77,8 @@ class AppUpdateController {
         fs.writeFileSync(tempFilePath, apkFile.data); // fallback
       }
 
-      const result = await this.appUpdateSvc.processApk(tempFilePath);
+      const track = req.query.track || 'production';
+      const result = await this.appUpdateSvc.processApk(tempFilePath, track);
       res.json(apiResponse(result, 'APK uploaded and processed successfully'));
     } catch (error) {
       // Return 200 even on error to prevent Expo from retrying

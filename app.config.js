@@ -34,8 +34,8 @@ module.exports = ({ config }) => {
         // GET {EXPO_PUBLIC_BACKEND_URL}/api/v1/app-update (see the
         // app-updater/README.md for the contract and the server endpoint).
         manifestUrl: process.env.EXPO_PUBLIC_BACKEND_URL
-          ? `${process.env.EXPO_PUBLIC_BACKEND_URL}/api/v1/app-update`
-          : 'https://your-server.com/api/v1/app-update',
+          ? `${process.env.EXPO_PUBLIC_BACKEND_URL}/api/v1/app-update?track=${process.env.EXPO_PUBLIC_APP_TRACK || 'production'}`
+          : `https://your-server.com/api/v1/app-update?track=${process.env.EXPO_PUBLIC_APP_TRACK || 'production'}`,
       },
     },
     android: {

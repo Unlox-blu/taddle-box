@@ -5,7 +5,7 @@ import { Platform } from "react-native";
 import Constants from "expo-constants";
 
 const debuggerHost = Constants.expoConfig?.hostUri;
-const localhost = debuggerHost?.split(':')[0];
+const localhost = debuggerHost?.split(":")[0];
 
 // Dev builds (Expo Go / dev client) point at the Metro host so a phone on the
 // same network can reach the local backend. Production builds must be given
@@ -19,10 +19,12 @@ const currentIp = localhost || fallbackIp;
 const API_URL = process.env.EXPO_PUBLIC_BACKEND_URL
   ? `${process.env.EXPO_PUBLIC_BACKEND_URL}/api/v1`
   : __DEV__
-    ? `http://${currentIp}:8080/api/v1`
+    ? `http://${currentIp}:1999/api/v1`
     : (() => {
-        console.warn('[apiClient] EXPO_PUBLIC_BACKEND_URL is not set in this production build. App will not be able to reach the backend server');
-        return 'https://www.taddlebox.com';
+        console.warn(
+          "[apiClient] EXPO_PUBLIC_BACKEND_URL is not set in this production build. App will not be able to reach the backend server",
+        );
+        return "https://www.taddlebox.com";
       })();
 
 export const apiClient = axios.create({

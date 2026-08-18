@@ -12,7 +12,10 @@
     "build:android:store:local": "node -e \"require('fs').mkdirSync('build/aab', {recursive:true})\" && node scripts/set-entry.js store && node scripts/eas-cli.js build --platform android --profile production_base --local --output build/aab/taddlebox.aab",
     "build:android:direct:cloud": "node -e \"require('fs').mkdirSync('build/apk', {recursive:true})\" && node scripts/set-entry.js direct && node scripts/eas-cli.js build --platform android --profile direct --wait && npx eas-cli build:download --platform android --profile direct --output build/apk/taddlebox.apk",
     "build:android:direct:local": "node -e \"require('fs').mkdirSync('build/apk', {recursive:true})\" && node scripts/set-entry.js direct && node scripts/eas-cli.js build --platform android --profile direct_base --local --output build/apk/taddlebox.apk",
+    "build:android:development:cloud": "node -e \"require('fs').mkdirSync('build/apk', {recursive:true})\" && node scripts/set-entry.js direct && node scripts/eas-cli.js build --platform android --profile development --wait && npx eas-cli build:download --platform android --profile development --output build/apk/taddlebox-dev.apk",
+    "build:android:development:local": "node -e \"require('fs').mkdirSync('build/apk', {recursive:true})\" && node scripts/set-entry.js direct && node scripts/eas-cli.js build --platform android --profile development_base --local --output build/apk/taddlebox-dev.apk",
     "publish:android:update:direct": "node scripts/publish-update-direct.js",
+    "publish:android:update:development": "node scripts/publish-update-development.js",
     "publish:android:update:store": "echo \"Store publish not yet implemented\"",
     "postinstall": "patch-package"
   },

@@ -1,8 +1,11 @@
 /**
  * gameSound — centralized sound effects + haptic feedback for the game flow.
  *
- * - Sounds: expo-audio (SDK 54 successor to expo-av) with all WAVs
- *   preloaded once and replayed on demand.
+ * - Sounds: expo-audio (SDK 54 successor to expo-av). The WAVs are NOT
+ *   bundled in the APK anymore — they download to the app cache the first
+ *   time a game is played (gameAssets.ensureGameAssets) and initGameSound
+ *   creates players from the cached files. Sounds that aren't cached yet
+ *   simply play nothing (best-effort, never a crash).
  * - Haptics: expo-haptics (light/medium impacts + success/error/warning).
  * - Preferences: persisted in SecureStore (same pattern as ThemeContext) and
  *   exposed through a live subscription + `useGameSoundPrefs` hook so the
@@ -13,41 +16,23 @@ import type { AudioPlayer } from "expo-audio";
 import * as Haptics from "expo-haptics";
 import * as SecureStore from "expo-secure-store";
 import { useEffect, useRef, useState } from "react";
+import { GAME_SOUND_NAMES } from "../games/assets";
+import { getCachedSoundUri } from "../games/gameAssets";
 
-export type SoundName =
-  | "tick"
-  | "go"
-  | "turn"
-  | "win"
-  | "loss"
-  | "tap"
-  | "correct"
-  | "error"
-  | "snake"
-  | "ladder"
-  | "hop";
-
-const SOUND_SOURCES: Record<SoundName, number> = {
-  tick: require("../../assets/sounds/tick.wav"),
-  go: require("../../assets/sounds/go.wav"),
-  turn: require("../../assets/sounds/turn.wav"),
-  win: require("../../assets/sounds/win.wav"),
-  loss: require("../../assets/sounds/loss.wav"),
-  tap: require("../../assets/sounds/tap.wav"),
-  correct: require("../../assets/sounds/correct.wav"),
-  error: require("../../assets/sounds/error.wav"),
-  snake: require("../../assets/sounds/snake.wav"),
-  ladder: require("../../assets/sounds/ladder.wav"),
-  hop: require("../../assets/sounds/hop.wav"),
-};
+export type SoundName = (typeof GAME_SOUND_NAMES)[number];
 
 const SOUND_KEY = "game_soundEnabled";
 const HAPTICS_KEY = "game_hapticsEnabled";
 
 let soundEnabled = true;
 let hapticsEnabled = true;
-let initPromise: Promise<void> | null = null;
+let prefsLoaded = false;
+// In-flight guard so concurrent initGameSound calls don't double-build.
+let building = false;
 const soundCache = new Map<SoundName, AudioPlayer>();
+// Sounds whose players were already created — prevents leaking a native
+// player when initGameSound re-runs after new files get cached.
+const loadedSounds = new Set<SoundName>();
 const listeners = new Set<() => void>();
 
 function notify() {
@@ -60,38 +45,50 @@ function notify() {
   });
 }
 
-/** Load preferences + preload all WAVs. Safe to call many times. */
+/**
+ * Load preferences + build players for every sound currently cached on disk.
+ * Safe to call many times. NEVER downloads — after a PLAY tap caches the WAVs
+ * (gameAssets.ensureGameAssets), call initGameSound again to pick them up.
+ */
 export async function initGameSound(): Promise<void> {
-  if (initPromise) return initPromise;
-  initPromise = (async () => {
-    try {
-      // Game sounds should play even when the device is on silent.
-      await setAudioModeAsync({ playsInSilentMode: true });
+  if (building) return;
+  building = true;
+  try {
+    // Game sounds should play even when the device is on silent.
+    await setAudioModeAsync({ playsInSilentMode: true });
+    if (!prefsLoaded) {
       const [s, h] = await Promise.all([
         SecureStore.getItemAsync(SOUND_KEY),
         SecureStore.getItemAsync(HAPTICS_KEY),
       ]);
       soundEnabled = s !== "false";
       hapticsEnabled = h !== "false";
-      await Promise.all(
-        (Object.keys(SOUND_SOURCES) as SoundName[]).map(async (name) => {
-          const player = createAudioPlayer(SOUND_SOURCES[name]);
-          soundCache.set(name, player);
-        }),
-      );
-    } catch (e) {
-      console.warn("[gameSound] init failed", e);
+      prefsLoaded = true;
     }
-    notify();
-  })();
-  return initPromise;
+    await Promise.all(
+      GAME_SOUND_NAMES.map(async (name) => {
+        if (loadedSounds.has(name)) return;
+        const uri = await getCachedSoundUri(name);
+        if (uri) {
+          soundCache.set(name, createAudioPlayer(uri));
+          loadedSounds.add(name);
+        }
+      }),
+    );
+  } catch (e) {
+    console.warn("[gameSound] init failed", e);
+  } finally {
+    building = false;
+  }
+  notify();
 }
 
 function play(name: SoundName) {
   if (!soundEnabled) return;
   const player = soundCache.get(name);
   if (!player) {
-    // Not loaded yet — trigger init; playback for this call is best-effort.
+    // Not cached (or not loaded yet) — trigger init; playback for this call
+    // is best-effort. init only ever reads the cache, it never downloads.
     initGameSound();
     return;
   }

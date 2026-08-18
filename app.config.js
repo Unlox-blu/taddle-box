@@ -31,11 +31,11 @@ module.exports = ({ config }) => {
       appUpdater: {
         enabled: updaterEnabled,
         // The update manifest endpoint lives on the same backend as the app:
-        // GET {EXPO_PUBLIC_BACKEND_URL}/api/v1/app-update (see the
+        // GET {EXPO_PUBLIC_BACKEND_URL}/api/v1/app-releases/android (see the
         // app-updater/README.md for the contract and the server endpoint).
         manifestUrl: process.env.EXPO_PUBLIC_BACKEND_URL
-          ? `${process.env.EXPO_PUBLIC_BACKEND_URL}/api/v1/app-update?track=${process.env.EXPO_PUBLIC_APP_TRACK || 'production'}`
-          : `https://your-server.com/api/v1/app-update?track=${process.env.EXPO_PUBLIC_APP_TRACK || 'production'}`,
+          ? `${process.env.EXPO_PUBLIC_BACKEND_URL}/api/v1/app-releases/android?track=${process.env.EXPO_PUBLIC_APP_TRACK || 'production'}`
+          : `https://your-server.com/api/v1/app-releases/android?track=${process.env.EXPO_PUBLIC_APP_TRACK || 'production'}`,
       },
     },
     android: {

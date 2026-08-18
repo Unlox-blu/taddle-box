@@ -58,6 +58,12 @@ import MemoryGridGame from "../../components/games/MemoryGridGame";
 import GameLogo from "../../components/games/GameLogo";
 import GameStartScreen from "../../components/games/GameStartScreen";
 import { GAME_ASSETS } from "../../games/assets";
+import {
+  ensureGameAssets,
+  ensureGameLogos,
+  getCachedGameLogo,
+  useGameAssetsVersion,
+} from "../../games/gameAssets";
 import type { Game } from "../../types";
 import type { HtmlGameResult } from "../../games/types";
 import MatchModeModal from "../../components/games/MatchModeModal";
@@ -66,7 +72,11 @@ import { socketClient } from "../../services/socketClient";
 import type { User } from "../../types";
 import { useAuth } from "../../context/AuthContext";
 import TournamentLeaderboardModal from "../../components/games/TournamentLeaderboardModal";
-import { gameSound, useGameSoundPrefs } from "../../services/gameSound";
+import {
+  gameSound,
+  initGameSound,
+  useGameSoundPrefs,
+} from "../../services/gameSound";
 import { themedAlert } from "../../components/common/ThemedAlert";
 import GamesMatchmakingModal from "../../components/games/GamesMatchmakingModal";
 
@@ -152,8 +162,11 @@ export default function GamesScreen() {
     refreshGames,
   } = useGames();
 
-  // Merge backend games with local assets, then order the display list so
-  // trending games (top 3) appear FIRST, followed by the rest.
+  // Merges backend games with local assets, then orders the display list so
+  // trending games (top 3) appear FIRST, followed by the rest. The branded
+  // logo is the cached download (file URI) when present, else null → the card
+  // shows the remote image / monogram tile until the player taps PLAY.
+  const logoVersion = useGameAssetsVersion();
   const realGames: Game[] = useMemo(() => {
     if (!backendGames || backendGames.length === 0) return [];
     const merged = backendGames.map((bg) => {
@@ -163,7 +176,7 @@ export default function GamesScreen() {
         emoji: bg.emoji || assets.emoji,
         gradient: bg.metadata?.gradient || assets.gradient,
         imageUrl: bg.thumbnail || assets.imageUrl,
-        logo: assets.logo,
+        logo: getCachedGameLogo(bg.slug),
         entryFee: bg.metadata?.entryFee || bg.entryFee,
         prize: bg.metadata?.prize || bg.prize,
         averageDurationLabel:
@@ -182,7 +195,7 @@ export default function GamesScreen() {
       }
     }
     return [...trending, ...rest];
-  }, [backendGames, backendTrending]);
+  }, [backendGames, backendTrending, logoVersion]);
 
   const findLocalGame = useCallback(
     (gameId: string) =>
@@ -229,25 +242,56 @@ export default function GamesScreen() {
   const [gameSettingsVisible, setGameSettingsVisible] = useState(false);
   const [globalMatchModalVisible, setGlobalMatchModalVisible] = useState(false);
 
-  const handleGamePlay = useCallback((game: Game, isRejoin: boolean) => {
-    if (isRejoin) {
-      setActiveSession({
-        ...(reconnectSession as any),
-        isRejoin: true,
+  // Which game's assets are downloading right now (drives the card spinner).
+  const [downloadingSlug, setDownloadingSlug] = useState<string | null>(null);
+
+  // Fire-and-forget asset warm for flows that open the match modal directly
+  // (invites, rematch) — the download runs while the user picks a mode.
+  const preloadGameAssets = useCallback((slug?: string) => {
+    if (!slug) return;
+    ensureGameAssets(slug)
+      .then(() => initGameSound())
+      .catch(() => {
+        /* asset download failure must never block play */
       });
-      setReconnectSession(null);
-      return;
-    }
-    if (!user || user.xp < (game.entryFee || 0)) {
-      themedAlert(
-        "Insufficient XP",
-        `You need ${game.entryFee || 0} XP to play ${game.name}.`
-      );
-      return;
-    }
-    setSelectedGame(game);
-    setMatchModalVisible(true);
-  }, [reconnectSession, user]);
+  }, []);
+
+  const handleGamePlay = useCallback(
+    async (game: Game, isRejoin: boolean) => {
+      if (isRejoin) {
+        setActiveSession({
+          ...(reconnectSession as any),
+          isRejoin: true,
+        });
+        setReconnectSession(null);
+        return;
+      }
+      if (!user || user.xp < (game.entryFee || 0)) {
+        themedAlert(
+          "Insufficient XP",
+          `You need ${game.entryFee || 0} XP to play ${game.name}.`
+        );
+        return;
+      }
+      if (downloadingSlug) return; // one download at a time
+      // The game's logo + sounds download ONLY on this PLAY tap — never at
+      // app launch (see gameAssets.ts). Best-effort: on failure the game
+      // still opens — logo falls back to the monogram tile, sounds stay
+      // silent until cached.
+      setDownloadingSlug(game.slug || null);
+      try {
+        await ensureGameAssets(game.slug || "");
+        await initGameSound();
+      } catch {
+        /* asset download failure must never block play */
+      } finally {
+        setDownloadingSlug(null);
+      }
+      setSelectedGame(game);
+      setMatchModalVisible(true);
+    },
+    [reconnectSession, user, downloadingSlug],
+  );
 
   const loadGamesData = useCallback(async () => {
     setLoading(true);
@@ -306,6 +350,12 @@ export default function GamesScreen() {
   const gamesScrollOffsetRef = useRef(0);
   useFocusEffect(
     useCallback(() => {
+      // Logos download when the Games tab opens so the grid shows the real
+      // artwork (idempotent — disk-checked after the first time). Sounds stay
+      // on the PLAY tap. Never runs at app launch.
+      ensureGameLogos().catch(() => {
+        /* logo download failure must never block the tab */
+      });
       if (!hasLoadedRef.current) {
         hasLoadedRef.current = true;
         loadGamesData();
@@ -361,6 +411,7 @@ export default function GamesScreen() {
           setSelectedGame(game);
           setIncomingInviteCode(inviteCode);
           setMatchModalVisible(true);
+          preloadGameAssets(game.slug);
         }
       },
     );
@@ -539,6 +590,7 @@ export default function GamesScreen() {
     const s = activeSession as ActiveSession | null;
     setActiveSession(null);
     setSelectedGame(s?.game || null);
+    preloadGameAssets(s?.game?.slug);
     setSelectedTournamentId(s?.tournamentId || null);
     // Custom lobbies can't be re-queued instantly (they need a fresh lobby),
     // so only auto-queue AUTO / practice / tournament rematches.
@@ -653,6 +705,7 @@ export default function GamesScreen() {
                         setIncomingInviteCode(inviteCode);
                         setMatchModalVisible(true);
                         setIncomingInvite(null);
+                        preloadGameAssets(game.slug);
                       }
                     }}
                   >
@@ -689,6 +742,7 @@ export default function GamesScreen() {
                     }}
                     isRejoin={isRejoin}
                     rejoinWindowMs={rejoinWindowMs}
+                    downloading={downloadingSlug === game.slug}
                     onRejoinExpired={() => {
                       // Window expired — drop the stale session so the card
                       // reverts to a normal PLAY button.
@@ -848,12 +902,15 @@ function GameCard({
   game,
   isRejoin,
   rejoinWindowMs,
+  downloading,
   onPlayClick,
   onRejoinExpired,
 }: {
   game: Game;
   isRejoin?: boolean;
   rejoinWindowMs?: number | null;
+  /** True while this game's assets are downloading on first PLAY tap. */
+  downloading?: boolean;
   onPlayClick: () => void;
   onRejoinExpired?: () => void;
 }) {
@@ -942,7 +999,10 @@ function GameCard({
         </Text>
         <Text style={styles.gameMeta}>Earn Up to {game.maxXp} XP</Text>
 
-        <TouchableOpacity style={{ marginTop: 12 }} onPress={onPlayClick}>
+        <TouchableOpacity
+          style={{ marginTop: 12 }}
+          onPress={downloading ? undefined : onPlayClick}
+        >
           <LinearGradient
             colors={
               isRejoin
@@ -951,15 +1011,19 @@ function GameCard({
             }
             style={styles.primaryButton}
           >
-            {isRejoin ? (
+            {downloading ? (
+              <ActivityIndicator size="small" color="#fff" />
+            ) : isRejoin ? (
               <Ionicons name="play-forward" size={16} color="#fff" />
             ) : (
               <Ionicons name="play" size={16} color="#fff" />
             )}
             <Text style={styles.primaryButtonText}>
-              {isRejoin
-                ? `REJOIN MATCH ${timeLeft && timeLeft > 0 ? `(${formatTime(timeLeft)})` : ""}`
-                : `PLAY | ${game.entryFee || 0} XP`}
+              {downloading
+                ? "LOADING..."
+                : isRejoin
+                  ? `REJOIN MATCH ${timeLeft && timeLeft > 0 ? `(${formatTime(timeLeft)})` : ""}`
+                  : `PLAY | ${game.entryFee || 0} XP`}
             </Text>
           </LinearGradient>
         </TouchableOpacity>
@@ -1573,7 +1637,7 @@ function MatchRow({ match }: { match: GameMatch }) {
     gradient:
       GAME_ASSETS[match.gameSlug || ""]?.gradient ||
       (["#7C3AED", "#0891B2"] as [string, string]),
-    logo: GAME_ASSETS[match.gameSlug || ""]?.logo,
+    logo: getCachedGameLogo(match.gameSlug || ""),
     slug: match.gameSlug,
     maxXp: 0,
     isHot: false,

@@ -1,8 +1,10 @@
 import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
 import * as SecureStore from 'expo-secure-store';
 import Constants from 'expo-constants';
+import NetInfo from '@react-native-community/netinfo';
 import { authService } from '../services/auth.service';
 import { socketClient } from '../services/socketClient';
+import { ensureGameLogos } from '../games/gameAssets';
 import type { XPUpdatedPayload } from '../types';
 
 type AuthContextType = {
@@ -123,6 +125,31 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       socketClient.events.off('xp:updated', handleXPUpdate);
     };
   }, []);
+
+  // Prewarm the game logos shortly after login so the Games tab feels
+  // instant — but ONLY on an unmetered connection and only after startup
+  // traffic has settled (idle network). Best-effort by design: the Games tab
+  // warms logos on entry too, so a skipped prewarm is never a failure.
+  useEffect(() => {
+    if (!isLoggedIn) return;
+    let cancelled = false;
+    const t = setTimeout(async () => {
+      try {
+        const state = await NetInfo.fetch();
+        if (cancelled) return;
+        if (!state.isConnected || state.isInternetReachable === false) return;
+        // Skip metered links (cellular) — the tab-entry warm covers them.
+        if (state.type !== 'wifi' && state.type !== 'ethernet') return;
+        await ensureGameLogos();
+      } catch {
+        /* prewarm is best-effort */
+      }
+    }, 12000); // let auth + feed traffic settle first
+    return () => {
+      cancelled = true;
+      clearTimeout(t);
+    };
+  }, [isLoggedIn]);
 
   const checkToken = async () => {
     try {

@@ -12,17 +12,24 @@ const APP_ROOT = path.join(__dirname, '..');
 const APK_PATH = path.join(APP_ROOT, 'build', 'apk', 'taddlebox-dev.apk');
 
 function loadEnv() {
-  const envPath = path.join(APP_ROOT, '.env');
-  if (fs.existsSync(envPath)) {
-    const content = fs.readFileSync(envPath, 'utf8');
-    content.split(/\r?\n/).forEach(line => {
-      const parts = line.split('=');
-      if (parts.length >= 2) {
-        const key = parts[0].trim();
-        const value = parts.slice(1).join('=').trim();
-        if (process.env[key] === undefined) process.env[key] = value;
-      }
-    });
+  const envPaths = [
+    path.join(APP_ROOT, '.env.development'),
+    path.join(APP_ROOT, '.env.local'),
+    path.join(APP_ROOT, '.env')
+  ];
+
+  for (const envPath of envPaths) {
+    if (fs.existsSync(envPath)) {
+      const content = fs.readFileSync(envPath, 'utf8');
+      content.split(/\r?\n/).forEach(line => {
+        const parts = line.split('=');
+        if (parts.length >= 2) {
+          const key = parts[0].trim();
+          const value = parts.slice(1).join('=').trim();
+          if (process.env[key] === undefined) process.env[key] = value;
+        }
+      });
+    }
   }
 }
 
@@ -41,7 +48,7 @@ async function main() {
   }
 
   const updateKey = process.env.APP_UPDATE_UPLOAD_KEY || '';
-  const endpoint = `${server.replace(/\/+$/, '')}/api/v1/app-update/upload?track=development`;
+  const endpoint = `${server.replace(/\/+$/, '')}/api/v1/app-releases/android/upload?track=development`;
 
   console.log(`ℹ Found APK at ${APK_PATH}.`);
   console.log(`ℹ Uploading to backend: ${endpoint}...`);

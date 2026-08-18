@@ -5,6 +5,7 @@ const pool = require('../../config/database');
 const { emitNotification } = require('../../sockets/notification.socket');
 const notificationRepository = require('./notification.repository');
 const { addJob } = require('../../jobs/queues/job.queue');
+const pushNotificationPrefCache = require('./pushNotification.prefcache');
 
 // Instagram-style stacked copy. The FIRST actor's name renders in the app's
 // actor line (senderName), so the message is just the tail:
@@ -165,11 +166,38 @@ const CATEGORY_COLUMN = {
 
 async function shouldPushForCategory(userId, type) {
   try {
-    const prefs = await notificationRepository.findPreferenceByUserId(userId);
-    if (!prefs) return true;
-    const column = CATEGORY_COLUMN[String(type || '').toUpperCase()];
-    if (!column) return true;
-    return prefs[column] === undefined ? true : Boolean(prefs[column]);
+    // Try cache first.
+    let cached = await pushNotificationPrefCache.get(userId);
+    if (!cached) {
+      const [prefs, settings] = await Promise.all([
+        notificationRepository.findPreferenceByUserId(userId),
+        pool.query(
+          `SELECT system_notification, notif_xp, notif_promos
+           FROM settings WHERE user_id = $1`,
+          [userId]
+        ).then(({ rows }) => rows[0] || null),
+      ]);
+      cached = { prefs, settings };
+      await pushNotificationPrefCache.set(userId, cached);
+    }
+
+    const { prefs, settings } = cached;
+
+    // 1. Check notification_preferences (granular per-category toggles).
+    if (prefs) {
+      const column = CATEGORY_COLUMN[String(type || '').toUpperCase()];
+      if (column && prefs[column] === false) return false;
+    }
+
+    // 2. Check settings table (system_notification master toggle +
+    //    per-type toggles that the Settings screen exposes).
+    if (settings) {
+      if (settings.system_notification === false) return false;
+      const t = String(type || '').toUpperCase();
+      if (t === 'PROMOTION' && settings.notif_promos === false) return false;
+    }
+
+    return true;
   } catch (e) {
     return true;
   }

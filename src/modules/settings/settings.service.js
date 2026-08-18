@@ -1,6 +1,7 @@
 'use strict';
 
 const { createError } = require('../../utils/error.util');
+const pushNotificationPrefCache = require('../notification/pushNotification.prefcache');
 
 class SettingsService {
   constructor({ settingsRepository, userRepository }) {
@@ -51,6 +52,7 @@ class SettingsService {
     try {
       await this._getOrCreateSettings(userId);
       const notification = await this.settingsRepo.toggleSystemNotification(userId);
+      await pushNotificationPrefCache.invalidate(userId);
       return notification;
     } catch (error) {
       throw error;
@@ -70,7 +72,9 @@ class SettingsService {
   async toggleNotifXP({ userId }) {
     try {
       await this._getOrCreateSettings(userId);
-      return await this.settingsRepo.toggleNotifXP(userId);
+      const result = await this.settingsRepo.toggleNotifXP(userId);
+      await pushNotificationPrefCache.invalidate(userId);
+      return result;
     } catch (error) {
       throw error;
     }
@@ -88,7 +92,9 @@ class SettingsService {
   async toggleNotifPromos({ userId }) {
     try {
       await this._getOrCreateSettings(userId);
-      return await this.settingsRepo.toggleNotifPromos(userId);
+      const result = await this.settingsRepo.toggleNotifPromos(userId);
+      await pushNotificationPrefCache.invalidate(userId);
+      return result;
     } catch (error) {
       throw error;
     }

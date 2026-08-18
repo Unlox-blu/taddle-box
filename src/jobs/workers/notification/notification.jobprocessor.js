@@ -6,8 +6,9 @@ const { emitNotification } = require('../../../sockets/notification.socket');
 const NotificationModel = require('../../../modules/notification/notification.model');
 const { logger } = require('../../../middlewares/logger.middleware');
 const { getPromotionalNotificationByUserId } = require('../../../modules/settings/settings.repository');
-const { pushService } = require('../../../modules/push/push.container');
+const { pushNotificationService } = require('../../../modules/pushNotification/pushNotification.container');
 const emitNotificationBatch = require('../../../modules/notification/notification.worker');
+const { addJob } = require('../../../jobs/queues/job.queue');
 
 const notificationJobProcessor = async (job) => {
       logger.info(`[NotifWorker] Processing: ${job.name}`, { id: job.id });
@@ -173,24 +174,79 @@ const notificationJobProcessor = async (job) => {
           // — surface it in the push data so a tray tap can deep-link straight
           // to the mentioned comment on the post page.
           const commentIdMatch = String(payload.message || '').match(/\|\s*([0-9a-fA-F-]{36})$/);
-          return pushService.sendToUser({
-          userId: payload.recipientId,
-          title: payload.title,
-          message: payload.message || "Push notification" ,
-          data: {
-            senderId: payload.senderId,
-            type: payload.type,
-            resourceId: payload.resourceId,
-            resourceType: payload.resourceType,
-            commentId: commentIdMatch ? commentIdMatch[1] : undefined,
-          },
-        });
+          const receipts = await pushNotificationService.sendToUser({
+            userId: payload.recipientId,
+            title: payload.title,
+            message: payload.message || "Push notification" ,
+            data: {
+              senderId: payload.senderId,
+              type: payload.type,
+              resourceId: payload.resourceId,
+              resourceType: payload.resourceType,
+              commentId: commentIdMatch ? commentIdMatch[1] : undefined,
+            },
+          });
+
+          // Log delivery outcomes per token so push failures are
+          // diagnosable without reproducing on-device.
+          if (Array.isArray(receipts) && receipts.length > 0) {
+            for (const r of receipts) {
+              if (r.status === 'ok') {
+                logger.info('[PushDelivery] success', {
+                  jobId: job.id,
+                  recipientId: payload.recipientId,
+                  type: payload.type,
+                  provider: r.pushProvider || 'expo',
+                  token: r.token,
+                });
+              } else {
+                logger.warn('[PushDelivery] failed', {
+                  jobId: job.id,
+                  recipientId: payload.recipientId,
+                  type: payload.type,
+                  provider: r.pushProvider || 'expo',
+                  token: r.token,
+                  status: r.status,
+                  error: r.message || r.details?.error || 'unknown',
+                });
+              }
+            }
+
+            // Schedule receipt polling ~45 s from now to catch delayed
+            // delivery failures (RateLimited, DeviceNotRegistered that the
+            // ticket response didn't catch, etc.).
+            const hasTicketIds = receipts.some((r) => r.ticketId);
+            if (hasTicketIds) {
+              await addJob('notification:receipt-poll', {
+                receipts,
+                recipientId: payload.recipientId,
+                type: payload.type,
+              }, { delay: 45000 }).catch(() => {});
+            }
+          } else {
+            logger.warn('[PushDelivery] no tokens found for user', {
+              jobId: job.id,
+              recipientId: payload.recipientId,
+              type: payload.type,
+            });
+          }
+
+          return receipts;
         }
 
         case 'emit': {
           const payload = job.data || {};
           logger.info(`[EmitNotificationWorker] Processing: notification`, { id: job.id, recipientId: payload.recipientId });
           await emitNotificationBatch(payload)
+          break;
+        }
+
+        case 'receipt-poll': {
+          const { receipts: savedReceipts } = job.data || {};
+          if (Array.isArray(savedReceipts) && savedReceipts.length > 0) {
+            logger.info('[ReceiptPoll] Polling delivery receipts', { jobId: job.id, count: savedReceipts.length });
+            await pushNotificationService.pollAndPruneReceipts(savedReceipts);
+          }
           break;
         }
 

@@ -723,12 +723,20 @@ class AuthService {
     }
   }
 
-  // Clears refresh token in DB (invalidates all sessions for this token family).
+  // Clears refresh token in DB (invalidates all sessions for this token family)
+  // and removes push device tokens so stale tokens don't keep receiving pushes.
   async logout({ userId }) {
     try {
       await this.authUserRepo.updateRefreshToken({ userId, tokenHash: null });
     } catch (error) {
       throw error;
+    }
+    // Best-effort push token cleanup — don't let a failure here block logout.
+    try {
+      const { pushNotificationService } = require('../pushNotification/pushNotification.container');
+      await pushNotificationService.deleteTokensForUser(userId);
+    } catch (_) {
+      // Intentionally swallowed
     }
   }
 

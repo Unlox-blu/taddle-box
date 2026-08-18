@@ -15,6 +15,7 @@ const {
 } = require('./notification.constants');
 const { emitNotification, emitWalletUpdate } = require('../../sockets/notification.socket');
 const { addJob } = require('../../jobs/queues/job.queue');
+const pushNotificationPrefCache = require('./pushNotification.prefcache');
 
 class NotificationService {
   constructor({
@@ -243,7 +244,11 @@ class NotificationService {
     }
 
     await this.ensurePreferences(userId);
-    return this.notifRepo.upsertPreferences(userId, sanitized);
+    const result = await this.notifRepo.upsertPreferences(userId, sanitized);
+    // Invalidate the push preferences cache so the next shouldPush call
+    // picks up the updated settings immediately.
+    await pushNotificationPrefCache.invalidate(userId);
+    return result;
   }
 
   async emitWalletUpdate(userId, newBalanceCents) {
@@ -335,37 +340,80 @@ class NotificationService {
     // pushing here would send a duplicate.
     const isOnline = (await redis.get(activeCacheKey)) === 'online';
 
-    if (!isOnline && !policy.batch && (await this.shouldPush(recipientId, policy.category))) {
+    if (!isOnline && !policy.batch && policy.push !== false && (await this.shouldPush(recipientId, policy.category, type))) {
       const pushNotification = { recipientId, senderId, type, title, message: event.message, resourceType, resourceId };
       await addJob('notification:push', pushNotification);
     }
   }
 
   // Respects the recipient's notification preferences before queueing a push.
-  // Any preference we can't map or can't load defaults to enabled so delivery
-  // is never silently blocked by a schema mismatch.
-  async shouldPush(userId, category) {
+  // Checks BOTH the notification_preferences table (per-category granular
+  // toggles) AND the settings table (system_notification master toggle +
+  // notif_xp / notif_withdraw / notif_promos which the Settings screen uses).
+  // Results are cached in Redis for 60 s to avoid N+1 DB queries on viral posts.
+  async shouldPush(userId, category, notificationType) {
     try {
-      const prefs = await this.notifRepo.findPreferenceByUserId(userId);
-      if (!prefs) return true;
-      const columnMap = {
-        likes: 'post_like',
-        comments: 'comment',
-        replies: 'reply',
-        mentions: 'mention',
-        follows: 'follow',
-        communities: 'community',
-        events: 'event',
-        marketing: 'promotion',
-      };
-      const column = columnMap[category];
-      if (!column) return true;
-      const value = prefs[column];
-      return value === undefined ? true : Boolean(value);
+      // Try cache first.
+      let cached = await pushNotificationPrefCache.get(userId);
+      if (!cached) {
+        const [prefs, settings] = await Promise.all([
+          this.notifRepo.findPreferenceByUserId(userId),
+          (async () => {
+            const pool = require('../../config/database');
+            const { rows } = await pool.query(
+              `SELECT system_notification, notif_xp, notif_withdraw, notif_promos
+               FROM settings WHERE user_id = $1`,
+              [userId]
+            );
+            return rows[0] || null;
+          })(),
+        ]);
+        cached = { prefs, settings };
+        await pushNotificationPrefCache.set(userId, cached);
+      }
+
+      const { prefs, settings } = cached;
+
+      // 1. Check the notification_preferences table (granular per-category).
+      if (prefs) {
+        const columnMap = {
+          likes: 'post_like',
+          comments: 'comment',
+          replies: 'reply',
+          mentions: 'mention',
+          follows: 'follow',
+          communities: 'community',
+          events: 'event',
+          marketing: 'promotion',
+        };
+        const column = columnMap[category];
+        if (column) {
+          const value = prefs[column];
+          if (value === false) return false;
+        }
+      }
+
+      // 2. Check the settings table (system_notification master toggle +
+      //    per-type toggles that the Settings screen exposes).
+      if (settings) {
+        // Master toggle — when OFF, block ALL push notifications.
+        if (settings.system_notification === false) return false;
+
+        // Per-type toggles from the Settings screen.
+        const type = String(notificationType || '').toUpperCase();
+        if (type === 'REFERRAL_REWARD' || type === 'STREAK_REWARD' || type === 'STREAK_AT_RISK') {
+          if (settings.notif_xp === false) return false;
+        } else if (type === 'PROMOTION') {
+          if (settings.notif_promos === false) return false;
+        }
+        // notif_withdraw would gate withdrawal-related pushes — add when
+        // those notification types are wired up.
+      }
+
+      return true;
     } catch (error) {
       return true;
     }
   }
-}
 
 module.exports = NotificationService;

@@ -1,4 +1,4 @@
-import React, { useEffect, useRef } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { View, StyleSheet, Dimensions, Animated, Image } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { StatusBar } from 'expo-status-bar';
@@ -11,9 +11,11 @@ const { height } = Dimensions.get('window');
 
 type Props = {
   onAnimationFinish: () => void;
+  /** Called once the Lottie view has mounted and the next frame is available. */
+  onReady?: () => void;
 };
 
-export default function AnimatedSplashScreen({ onAnimationFinish }: Props) {
+export default function AnimatedSplashScreen({ onAnimationFinish, onReady }: Props) {
   const { colors: themeColors, isDark } = useTheme();
   const scale = useRef(new Animated.Value(0.8)).current;
   const opacity = useRef(new Animated.Value(0)).current;
@@ -21,7 +23,19 @@ export default function AnimatedSplashScreen({ onAnimationFinish }: Props) {
   const tagOpac = useRef(new Animated.Value(0)).current;
 
   const [lottieSource, setLottieSource] = React.useState<any>(getCachedLottieSync(S3_APP_ICON_LOTTIE_URL));
+  const [lottieMounted, setLottieMounted] = useState(false);
   const finishedRef = useRef(false);
+
+  // Signal readiness when both the Lottie source is loaded AND the view
+  // has been laid out.  requestAnimationFrame gives the next frame a
+  // chance to paint before we hand off from the native splash.
+  useEffect(() => {
+    if (lottieSource && lottieMounted) {
+      requestAnimationFrame(() => {
+        onReady?.();
+      });
+    }
+  }, [lottieSource, lottieMounted]);
 
   const handleFinish = () => {
     if (finishedRef.current) return;
@@ -75,6 +89,7 @@ export default function AnimatedSplashScreen({ onAnimationFinish }: Props) {
       colors={[themeColors.bg.base, themeColors.bg.surface, themeColors.bg.base]}
       style={styles.container}
     >
+      {/* Ensures the gradient background is fully opaque before the native splash hides */}
       <StatusBar style={isDark ? "light" : "dark"} />
 
       {/* Background glow */}
@@ -82,7 +97,10 @@ export default function AnimatedSplashScreen({ onAnimationFinish }: Props) {
 
       <Animated.View style={{ opacity, transform: [{ scale }, { translateY: logoSlide }], alignItems: 'center' }}>
         {lottieSource ? (
-          <View style={{ width: 120, height: 120, borderRadius: 60, overflow: 'hidden', backgroundColor: 'transparent' }}>
+          <View
+            style={{ width: 120, height: 120, borderRadius: 60, overflow: 'hidden', backgroundColor: 'transparent' }}
+            onLayout={() => setLottieMounted(true)}
+          >
             <LottieView
               source={lottieSource}
               autoPlay

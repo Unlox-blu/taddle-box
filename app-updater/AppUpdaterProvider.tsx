@@ -37,11 +37,17 @@ const CHECK_COOLDOWN_MS = 30 * 60 * 1000; // re-check at most every 30 min
 export function AppUpdaterProvider({ children }: { children?: React.ReactNode }) {
   const colors = useThemeColors();
   const [state, setState] = useState<UpdaterState>({ status: 'idle' });
+  // Gate: blocks rendering children until the initial update check completes
+  // so the app doesn't flash past the update screen.
+  const [initialCheckDone, setInitialCheckDone] = useState(!isUpdaterEnabled());
   const lastCheckRef = useRef(0);
   const checkingRef = useRef(false);
 
-  const runCheck = useCallback(async () => {
-    if (!isUpdaterEnabled() || checkingRef.current) return;
+  const runCheck = useCallback(async (isInitial = false) => {
+    if (!isUpdaterEnabled() || checkingRef.current) {
+      if (isInitial) setInitialCheckDone(true);
+      return;
+    }
     checkingRef.current = true;
     try {
       const update = await fetchUpdateManifest();
@@ -50,11 +56,12 @@ export function AppUpdaterProvider({ children }: { children?: React.ReactNode })
       }
     } finally {
       checkingRef.current = false;
+      if (isInitial) setInitialCheckDone(true);
     }
   }, []);
 
   useEffect(() => {
-    runCheck();
+    runCheck(true);
     const sub = AppState.addEventListener('change', (next) => {
       if (next === 'active' && Date.now() - lastCheckRef.current > CHECK_COOLDOWN_MS) {
         lastCheckRef.current = Date.now();
@@ -85,12 +92,26 @@ export function AppUpdaterProvider({ children }: { children?: React.ReactNode })
     }
   }, []);
 
+  // Direct/dev APK builds: ALL updates are mandatory (no skip).
+  // Store builds respect the manifest's mandatory flag.
+  const isMandatory = useCallback(
+    (update: AppUpdate) => update.mandatory || isUpdaterEnabled(),
+    [],
+  );
+
   const dismiss = useCallback(() => {
     setState((prev) => {
-      if (prev.status === 'available' && prev.update.mandatory) return prev; // cannot skip
+      if (prev.status === 'available' && isMandatory(prev.update)) return prev; // cannot skip
       return { status: 'idle' };
     });
-  }, []);
+  }, [isMandatory]);
+
+  // Block rendering until the initial check is done.
+  if (!initialCheckDone) return (
+    <View style={{ flex: 1, backgroundColor: colors.bg.base, alignItems: 'center', justifyContent: 'center' }}>
+      <ActivityIndicator size="large" color={colors.primaryLight} />
+    </View>
+  );
 
   if (state.status === 'idle') return <>{children}</>;
 
@@ -147,7 +168,7 @@ export function AppUpdaterProvider({ children }: { children?: React.ReactNode })
                   <Text style={styles.updateBtnText}>Update Now</Text>
                 </TouchableOpacity>
               </LinearGradient>
-              {!state.update.mandatory && (
+              {!isMandatory(state.update) && (
                 <TouchableOpacity style={styles.laterBtn} onPress={dismiss} activeOpacity={0.7}>
                   <Text style={[styles.laterText, { color: colors.text.muted }]}>Later</Text>
                 </TouchableOpacity>

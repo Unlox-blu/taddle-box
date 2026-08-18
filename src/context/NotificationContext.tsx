@@ -3,7 +3,7 @@ import * as Notifications from "expo-notifications";
 import { useAuth } from "./AuthContext";
 import { socketClient } from "../services/socketClient";
 import { notificationService } from "../services/notification.service";
-import { registerForPushNotificationsAsync, clearPushBadge } from "../services/push.service";
+import { registerForPushNotificationsAsync, clearPushBadge, startTokenRefreshListener, stopTokenRefreshListener } from "../services/pushNotification.service";
 import { notificationBus, NOTIF_EVENTS } from "../lib/notificationBus";
 import type { NotificationNewPayload } from "../types";
 
@@ -116,9 +116,18 @@ export function NotificationProvider({ children }: { children: React.ReactNode }
   // ── Push token registration + system notification listeners ──────────────
   useEffect(() => {
     if (!isLoggedIn || registeredRef.current) return;
-    registeredRef.current = true;
 
-    registerForPushNotificationsAsync();
+    // Set the guard immediately to prevent double-registration from concurrent
+    // renders, but clear it on failure so a retry is possible (e.g. user
+    // grants permission after initially denying it).
+    registeredRef.current = true;
+    registerForPushNotificationsAsync().catch(() => {
+      registeredRef.current = false;
+    });
+
+    // On Android, FCM tokens rotate periodically.  Listen for token changes
+    // and re-register so pushes keep landing on this device.
+    startTokenRefreshListener();
 
     // Tapped from the system tray. Post-bound pushes (mention / reply / like /
     // comment / new post) deep-link straight to the post's detail page — with
@@ -169,6 +178,7 @@ export function NotificationProvider({ children }: { children: React.ReactNode }
     return () => {
       responseSub.remove();
       notifSub.remove();
+      stopTokenRefreshListener();
     };
   }, [isLoggedIn, handleIncoming, clearUnread]);
 

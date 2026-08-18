@@ -1,6 +1,7 @@
 import { Platform } from "react-native";
 import * as Device from "expo-device";
 import * as Notifications from "expo-notifications";
+import * as SecureStore from "expo-secure-store";
 import Constants from "expo-constants";
 import { apiClient } from "./apiClient";
 
@@ -16,6 +17,18 @@ Notifications.setNotificationHandler({
 });
 
 const isAndroid = Platform.OS === "android";
+
+// ── Device ID ───────────────────────────────────────────────────────────────
+const DEVICE_ID_KEY = "push_device_id";
+
+async function getOrCreateDeviceId(): Promise<string> {
+  let id = await SecureStore.getItemAsync(DEVICE_ID_KEY);
+  if (!id) {
+    id = crypto.randomUUID();
+    await SecureStore.setItemAsync(DEVICE_ID_KEY, id);
+  }
+  return id;
+}
 
 // Creates the default Android notification channel (required on Android 8+).
 async function ensureAndroidChannel() {
@@ -34,7 +47,7 @@ async function ensureAndroidChannel() {
 
 /**
  * Requests permission and registers this device with the backend so push
- * notifications can be delivered. Returns the Expo push token (or null when
+ * notifications can be delivered.  Returns the Expo push token (or null when
  * unavailable — e.g. simulator, permission denied, or web).
  */
 export async function registerForPushNotificationsAsync(): Promise<string | null> {
@@ -57,31 +70,65 @@ export async function registerForPushNotificationsAsync(): Promise<string | null
       return null;
     }
 
-    // projectId lets getExpoPushTokenAsync work in production builds; in Expo Go
-    // it falls back to the experienceId automatically.
     const projectId =
       Constants.expoConfig?.extra?.eas?.projectId ||
       Constants.easConfig?.projectId;
 
-    const token = (
+    const pushToken = (
       await Notifications.getExpoPushTokenAsync(
         projectId ? { projectId } : undefined,
       )
     ).data;
 
-    if (token) {
+    if (pushToken) {
+      const deviceId = await getOrCreateDeviceId();
       await apiClient
-        .post("/push/register", {
-          token,
+        .post("/push-notification/register", {
+          pushToken,
+          pushProvider: "expo",
+          deviceId,
           platform: isAndroid ? "android" : "ios",
         })
         .catch((e) => console.warn("Failed to register push token with backend", e));
     }
 
-    return token;
+    return pushToken;
   } catch (e) {
     console.warn("Push registration failed", e);
     return null;
+  }
+}
+
+// ── Android token refresh listener ───────────────────────────────────────────
+let tokenRefreshSubscription: ReturnType<
+  typeof Notifications.addExpoPushTokenListener
+> | null = null;
+
+export function startTokenRefreshListener() {
+  if (tokenRefreshSubscription) return;
+
+  tokenRefreshSubscription = Notifications.addExpoPushTokenListener(
+    async (newToken) => {
+      try {
+        console.info("[PushNotification] Token refreshed, re-registering with backend");
+        const deviceId = await getOrCreateDeviceId();
+        await apiClient.post("/push-notification/register", {
+          pushToken: newToken.data,
+          pushProvider: "expo",
+          deviceId,
+          platform: isAndroid ? "android" : "ios",
+        });
+      } catch (e) {
+        console.warn("Failed to re-register refreshed push token", e);
+      }
+    },
+  );
+}
+
+export function stopTokenRefreshListener() {
+  if (tokenRefreshSubscription) {
+    tokenRefreshSubscription.remove();
+    tokenRefreshSubscription = null;
   }
 }
 

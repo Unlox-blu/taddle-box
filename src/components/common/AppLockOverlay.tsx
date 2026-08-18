@@ -38,12 +38,12 @@ export default function AppLockOverlay() {
     isLockedRef.current = isLocked;
   }, [isLocked]);
 
-  const lockAndCheck = async () => {
+  const lockAndCheck = async (delayMs = 300) => {
     if (isLockedRef.current) return; // already locked, don't double-trigger
     setIsLocked(true);
     isLockedRef.current = true;
     // Delay slightly so the overlay renders before biometric prompt
-    setTimeout(() => checkBiometric(), 300);
+    setTimeout(() => checkBiometric(), delayMs);
   };
 
   const handleAppStateChange = (nextAppState: AppStateStatus) => {
@@ -60,8 +60,20 @@ export default function AppLockOverlay() {
     }
   };
 
+  // Lock on cold start / fresh app open.
+  // The overlay only mounts after the auth check completes (isLoading → false),
+  // so isLoggedIn and user are already resolved here.
   useEffect(() => {
-    // DON'T lock on initial mount — only lock when returning from background
+    if (isLoggedIn && user?.appLockEnabled) {
+      // Longer delay than background→foreground to let the app fully mount
+      const timer = setTimeout(() => lockAndCheck(500), 100);
+      return () => clearTimeout(timer);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Lock on background→foreground transitions
+  useEffect(() => {
     const subscription = AppState.addEventListener(
       "change",
       handleAppStateChange,
@@ -70,18 +82,18 @@ export default function AppLockOverlay() {
     // Re-register when auth state changes
   }, [isLoggedIn, user?.appLockEnabled]);
 
-  const checkBiometric = async () => {
+  const checkBiometric = async (retryCount = 0) => {
     const enabled = await SecureStore.getItemAsync("app_biometricEnabled");
     if (enabled !== "true") return;
     const hasHardware = await LocalAuthentication.hasHardwareAsync();
     const isEnrolled = await LocalAuthentication.isEnrolledAsync();
     if (hasHardware && isEnrolled) {
       setShowBiometric(true);
-      triggerBiometric();
+      triggerBiometric(retryCount);
     }
   };
 
-  const triggerBiometric = async () => {
+  const triggerBiometric = async (retryCount = 0) => {
     try {
       setIsVerifying(true);
       const result = await LocalAuthentication.authenticateAsync({
@@ -93,8 +105,19 @@ export default function AppLockOverlay() {
         setIsLocked(false);
         isLockedRef.current = false;
       }
+      // On Android, the biometric prompt can silently fail on first attempt
+      // (race with the activity resuming from background). Auto-retry once
+      // after a short delay so the user doesn't have to tap the fingerprint
+      // icon manually.
+      else if (retryCount < 1 && result.error === "unknown") {
+        setTimeout(() => triggerBiometric(retryCount + 1), 600);
+      }
     } catch (e) {
       console.log("Biometric error", e);
+      // If the prompt threw entirely, retry once
+      if (retryCount < 1) {
+        setTimeout(() => triggerBiometric(retryCount + 1), 600);
+      }
     } finally {
       setIsVerifying(false);
     }

@@ -8,6 +8,7 @@ import {
   Dimensions,
   FlatList,
   Image,
+  TextInput,
   DeviceEventEmitter,
 
   } from "react-native";
@@ -1695,6 +1696,18 @@ function FollowListModal({
   const [hasMore, setHasMore] = useState(false);
   const [loading, setLoading] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
+  const [searchQuery, setSearchQuery] = useState("");
+
+  // Client-side filter for the search bar
+  const filteredUsers = React.useMemo(() => {
+    if (!searchQuery.trim()) return users;
+    const q = searchQuery.toLowerCase();
+    return users.filter(
+      (u: any) =>
+        (u.name || "").toLowerCase().includes(q) ||
+        (u.username || "").toLowerCase().includes(q)
+    );
+  }, [users, searchQuery]);
 
   const fetchPage = React.useCallback(
     async (nextPage: number, refresh = false) => {
@@ -1779,6 +1792,24 @@ function FollowListModal({
             </TouchableOpacity>
           </View>
 
+          {/* Search bar */}
+          <View style={{ flexDirection: "row", alignItems: "center", backgroundColor: colors.bg.elevated, borderRadius: 12, paddingHorizontal: 12, marginBottom: 12 }}>
+            <Ionicons name="search" size={18} color={colors.text.muted} />
+            <TextInput
+              style={{ flex: 1, paddingVertical: 10, paddingHorizontal: 8, color: colors.text.primary, fontSize: 14 }}
+              placeholder={`Search ${type === "followers" ? "followers" : type === "mutuals" ? "mutuals" : "following"}...`}
+              placeholderTextColor={colors.text.muted}
+              value={searchQuery}
+              onChangeText={setSearchQuery}
+              autoCorrect={false}
+            />
+            {searchQuery.length > 0 && (
+              <TouchableOpacity onPress={() => setSearchQuery("")}>
+                <Ionicons name="close-circle" size={18} color={colors.text.muted} />
+              </TouchableOpacity>
+            )}
+          </View>
+
           {loading ? (
             <Text
               style={{
@@ -1801,10 +1832,10 @@ function FollowListModal({
             </Text>
           ) : (
             <FlatList
-              data={users}
+              data={filteredUsers}
               keyExtractor={(item, index) => item.id || item.user_id || String(index)}
               onEndReached={() => {
-                if (hasMore && !loading) fetchPage(page + 1);
+                if (hasMore && !loading && !searchQuery.trim()) fetchPage(page + 1);
               }}
               onEndReachedThreshold={0.4}
               refreshing={refreshing}
@@ -1812,6 +1843,7 @@ function FollowListModal({
                 setRefreshing(true);
                 fetchPage(1, true);
               }}
+              contentContainerStyle={{ paddingBottom: 20 }}
               ListFooterComponent={
                 loading && users.length > 0 ? (
                   <StateBlock inline loading style={{ paddingVertical: 14 }} />

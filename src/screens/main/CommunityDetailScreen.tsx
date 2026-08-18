@@ -1,7 +1,7 @@
 import React, { useMemo, useState, useEffect, useRef, useCallback } from 'react';
 import {
   View, Text, ScrollView, TouchableOpacity, TouchableWithoutFeedback,
-  StyleSheet, Share, FlatList, Image
+  StyleSheet, Share, FlatList, Image, TextInput
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useNavigation, useRoute, useFocusEffect, type RouteProp } from '@react-navigation/native';
@@ -813,6 +813,7 @@ function ManageMembersModal({ visible, onClose, communityId, isAdmin, isOwner, c
   const [hasMore, setHasMore] = useState(false);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
+  const [searchQuery, setSearchQuery] = useState('');
   // Viewer's role in this community (owner/admin/moderator/member/visitor) —
   // drives which actions the ⋯ menu offers. Seeded from the screen's props,
   // refreshed from the members fetch so a just-transferred owner immediately
@@ -820,6 +821,17 @@ function ManageMembersModal({ visible, onClose, communityId, isAdmin, isOwner, c
   const [viewerRole, setViewerRole] = useState<string>(isOwner ? 'owner' : isAdmin ? 'admin' : 'visitor');
   // Member whose ⋯ menu is open — renders the action sheet overlay.
   const [actionMember, setActionMember] = useState<any | null>(null);
+
+  // Client-side filter for the search bar
+  const filteredMembers = React.useMemo(() => {
+    if (!searchQuery.trim()) return members;
+    const q = searchQuery.toLowerCase();
+    return members.filter(
+      (m: any) =>
+        (m.name || '').toLowerCase().includes(q) ||
+        (m.username || '').toLowerCase().includes(q)
+    );
+  }, [members, searchQuery]);
 
   useEffect(() => {
     if (visible) {
@@ -983,17 +995,35 @@ function ManageMembersModal({ visible, onClose, communityId, isAdmin, isOwner, c
               <Ionicons name="close" size={24} color={colors.text.secondary} />
             </TouchableOpacity>
           </View>
-          
+
+          {/* Search bar */}
+          <View style={{ flexDirection: 'row', alignItems: 'center', backgroundColor: colors.bg.elevated, borderRadius: 12, paddingHorizontal: 12, marginBottom: 12 }}>
+            <Ionicons name="search" size={18} color={colors.text.muted} />
+            <TextInput
+              style={{ flex: 1, paddingVertical: 10, paddingHorizontal: 8, color: colors.text.primary, fontSize: 14 }}
+              placeholder="Search members..."
+              placeholderTextColor={colors.text.muted}
+              value={searchQuery}
+              onChangeText={setSearchQuery}
+              autoCorrect={false}
+            />
+            {searchQuery.length > 0 && (
+              <TouchableOpacity onPress={() => setSearchQuery('')}>
+                <Ionicons name="close-circle" size={18} color={colors.text.muted} />
+              </TouchableOpacity>
+            )}
+          </View>
+
           {loading ? (
             <Text style={{ color: colors.text.muted, textAlign: 'center', padding: 20 }}>Loading...</Text>
           ) : members.length === 0 ? (
             <Text style={{ color: colors.text.muted, textAlign: 'center', padding: 20 }}>No members found.</Text>
           ) : (
             <FlatList
-              data={members}
+              data={filteredMembers}
               keyExtractor={item => item.user_id}
               onEndReached={() => {
-                if (hasMore && !loading) loadMembers(page + 1);
+                if (hasMore && !loading && !searchQuery.trim()) loadMembers(page + 1);
               }}
               onEndReachedThreshold={0.4}
               refreshing={refreshing}
@@ -1001,6 +1031,7 @@ function ManageMembersModal({ visible, onClose, communityId, isAdmin, isOwner, c
                 setRefreshing(true);
                 loadMembers(1, true);
               }}
+              contentContainerStyle={{ paddingBottom: 20 }}
               ListFooterComponent={
                 loading && members.length > 0 ? (
                   <StateBlock inline loading style={{ paddingVertical: 14 }} />

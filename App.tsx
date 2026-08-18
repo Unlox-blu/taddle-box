@@ -1,5 +1,5 @@
 import "react-native-gesture-handler";
-import React, { useEffect } from "react";
+import React, { useEffect, useState } from "react";
 import {
   StatusBar as RNStatusBar,
   AppState,
@@ -43,6 +43,7 @@ function AppShell() {
   const { colors, isDark } = useTheme();
 
   const { isLoading, isSplashVisible, setLottieFinished } = useAuth();
+  const [lottieReady, setLottieReady] = useState(false);
 
   useEffect(() => {
     // Prefetch the Lotties in the background so they're ready for pull-to-refresh & headers!
@@ -50,10 +51,14 @@ function AppShell() {
     getCachedLottie(S3_APP_BANNER_LOTTIE_URL).catch(() => {});
   }, []);
 
+  // Hide the native splash only after the Lottie splash has mounted and
+  // painted its first frame.  This prevents a blank flash between the native
+  // splash disappearing and the Lottie becoming visible.
   useEffect(() => {
-    // Hide the native static splash screen immediately, because our AnimatedSplashScreen is now handling it!
-    SplashScreen.hideAsync();
-  }, []);
+    if (lottieReady) {
+      SplashScreen.hideAsync();
+    }
+  }, [lottieReady]);
 
   return (
     <GestureHandlerRootView
@@ -79,7 +84,10 @@ function AppShell() {
 
           {/* Global Lottie Splash Screen Overlay */}
           {isSplashVisible && (
-            <AnimatedSplashScreen onAnimationFinish={() => setLottieFinished(true)} />
+            <AnimatedSplashScreen
+              onAnimationFinish={() => setLottieFinished(true)}
+              onReady={() => setLottieReady(true)}
+            />
           )}
         </ScrollProvider>
       </SafeAreaProvider>

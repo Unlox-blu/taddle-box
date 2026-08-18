@@ -11,11 +11,6 @@
     "icon": "./assets/icon.png",
     "primaryColor": "#7C3AED",
     "userInterfaceStyle": "automatic",
-    "splash": {
-      "image": "./assets/splash.png",
-      "resizeMode": "contain",
-      "backgroundColor": "#070714"
-    },
     "ios": {
       "supportsTablet": false,
       "bundleIdentifier": "com.taddlebox.app",
@@ -32,6 +27,17 @@
       "softwareKeyboardLayoutMode": "resize"
     },
     "plugins": [
+      [
+        "expo-splash-screen",
+        {
+          "backgroundColor": "#F8F9FA",
+          "image": "./assets/splash-light.png",
+          "dark": {
+            "backgroundColor": "#070714",
+            "image": "./assets/splash-dark.png"
+          }
+        }
+      ],
       "expo-font",
       "@react-native-community/datetimepicker",
       "expo-local-authentication",

@@ -9,9 +9,9 @@ const path = require('path');
 const os = require('os');
 const axios = require('axios'); // for downloading the webhook buildUrl
 
-class AppUpdateController {
-  constructor({ appUpdateService }) {
-    this.appUpdateSvc = appUpdateService;
+class AppReleasesController {
+  constructor({ appReleasesService }) {
+    this.appReleasesSvc = appReleasesService;
   }
 
   checkUpdateKey(req) {
@@ -25,11 +25,11 @@ class AppUpdateController {
   getManifest = async (req, res, next) => {
     try {
       const track = req.query.track || 'production';
-      const manifest = await this.appUpdateSvc.getManifest(track);
+      const manifest = await this.appReleasesSvc.getManifest(track);
       
       // Rewrite the URL to point to our JIT proxy
       if (manifest && manifest.android && manifest.android.url) {
-        manifest.android.url = `${req.protocol}://${req.get('host')}/api/v1/app-update/download?track=${track}`;
+        manifest.android.url = `${req.protocol}://${req.get('host')}/api/v1/app-releases/android/download?track=${track}`;
       }
       
       res.json(apiResponse(manifest, 'App update manifest fetched successfully'));
@@ -38,14 +38,14 @@ class AppUpdateController {
     }
   };
 
-  /**
-   * GET /api/v1/app-update/download
+    /**
+   * GET /api/v1/app-releases/android/download
    * JIT Handshake intercept. Redirects to CloudFront on success.
    */
   downloadApk = async (req, res, next) => {
     try {
       const track = req.query.track || 'production';
-      const realUrl = await this.appUpdateSvc.verifyDownload(track);
+      const realUrl = await this.appReleasesSvc.verifyDownload(track);
       if (!realUrl) {
         return res.status(404).send('Update not found or corrupted.');
       }
@@ -57,7 +57,7 @@ class AppUpdateController {
   };
 
   /**
-   * POST /api/v1/app-update/upload
+   * POST /api/v1/app-releases/android/upload
    * Local upload script handler. Expects a multipart/form-data 'apk' file.
    */
   uploadApk = async (req, res, next) => {
@@ -78,7 +78,7 @@ class AppUpdateController {
       }
 
       const track = req.query.track || 'production';
-      const result = await this.appUpdateSvc.processApk(tempFilePath, track);
+      const result = await this.appReleasesSvc.processApk(tempFilePath, track);
       res.json(apiResponse(result, 'APK uploaded and processed successfully'));
     } catch (error) {
       // Return 200 even on error to prevent Expo from retrying
@@ -87,4 +87,4 @@ class AppUpdateController {
   };
 }
 
-module.exports = AppUpdateController;
+module.exports = AppReleasesController;

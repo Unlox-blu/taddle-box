@@ -93,6 +93,20 @@ const searchRateLimiter = rateLimit({
   message: { success: false, message: 'Too many search requests. Please try again shortly.' },
 });
 
+// 600 requests per min per IP — /game-assets is a public static proxy (no
+// auth on it), so the budget is IP-keyed. Generous for a device loading the
+// logo grid + sounds (a burst of ~7-20 files), but stops a scraper from
+// hammering the S3 proxy. Applied at the /game-assets mount in app.js.
+const assetRateLimiter = rateLimit({
+  windowMs: 60 * 1000,
+  max: 600,
+  standardHeaders: true,
+  legacyHeaders: false,
+  store: makeStore('rl:asset:'),
+  keyGenerator: ipOnlyKey,
+  message: { success: false, message: 'Too many asset requests. Please try again shortly.' },
+});
+
 // 20 uploads per hour — runs AFTER verifyToken on the media routes, so the
 // budget is per ACCOUNT: a NAT'd office/campus no longer shares one bucket,
 // and rotating IPs can't stretch the upload cap.
@@ -140,6 +154,7 @@ module.exports = {
   globalRateLimiter,
   authRateLimiter,
   searchRateLimiter,
+  assetRateLimiter,
   otpRateLimiter,
   otpTargetRateLimiter,
   uploadRateLimiter,

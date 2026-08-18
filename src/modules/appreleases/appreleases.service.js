@@ -6,14 +6,14 @@ const crypto = require('crypto');
 const AppInfoParser = require('app-info-parser');
 const redis = require('../../config/redis');
 
-const DEFAULT_MANIFEST_PATH = path.join(__dirname, 'appupdate.manifest.json');
+const DEFAULT_MANIFEST_PATH = path.join(__dirname, 'appreleases.android.manifest.json');
 const APK_FOLDER = 'apks';
 const APK_MIME = 'application/vnd.android.package-archive';
 const S3_APK_KEY = `${APK_FOLDER}/taddlebox.apk`;
-const REDIS_KEY = 'app_update_manifest';
+const REDIS_KEY = 'app_releases:android:manifest';
 const CACHE_TTL = 60 * 60 * 24 * 30; // 30 days in seconds
 
-class AppUpdateService {
+class AppReleasesService {
   constructor({ storageService }) {
     this.storageSvc = storageService;
   }
@@ -29,7 +29,7 @@ class AppUpdateService {
   _getManifestPath(track) {
     if (process.env.APP_UPDATE_MANIFEST_PATH) return process.env.APP_UPDATE_MANIFEST_PATH;
     return track === 'development'
-      ? path.join(__dirname, 'appupdate.manifest.development.json')
+      ? path.join(__dirname, 'appreleases.android.manifest.development.json')
       : DEFAULT_MANIFEST_PATH;
   }
 
@@ -198,4 +198,4 @@ class AppUpdateService {
   }
 }
 
-module.exports = AppUpdateService;
+module.exports = AppReleasesService;

@@ -7,6 +7,7 @@ const AppInfoParser = require('app-info-parser');
 const redis = require('../../config/redis');
 
 const axios = require('axios');
+const { CLOUDFRONT_DOMAIN } = require('../../config/s3');
 
 const APK_FOLDER = 'apks';
 const APK_MIME = 'application/vnd.android.package-archive';
@@ -29,7 +30,7 @@ class AppReleasesService {
 
   _getManifestS3Url(track) {
     const key = track === 'development' ? `${APK_FOLDER}/appreleases.android.manifest.development.json` : `${APK_FOLDER}/appreleases.android.manifest.json`;
-    return `https://cdn.taddlebox.com/${key}`;
+    return `${CLOUDFRONT_DOMAIN}/${key}`;
   }
 
   _getManifestS3Key(track) {

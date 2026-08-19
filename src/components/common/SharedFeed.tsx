@@ -91,17 +91,8 @@ export default function SharedFeed({
   const flatListRef = useRef<any>(null);
   useScrollToTop(flatListRef);
 
-  // A remounted list (profile tab switch back to Posts/Reposts) starts at
   // offset 0 — hop back to the saved position once its first content is in.
-  const restoredOffsetRef = useRef(false);
-  useEffect(() => {
-    if (!initialScrollOffset || restoredOffsetRef.current || posts.length === 0) return;
-    restoredOffsetRef.current = true;
-    const t = setTimeout(() => {
-      flatListRef.current?.scrollToOffset({ offset: initialScrollOffset, animated: false });
-    }, 30);
-    return () => clearTimeout(t);
-  }, [initialScrollOffset, posts.length]);
+  // Using native contentOffset on FlatList instead of a delayed scrollToOffset
 
   // Home-style tab-bar behavior: single-tap scrolls to top, double-tap also
   // scrolls to top (the refresh for double-tap is handled by the owning
@@ -268,6 +259,7 @@ export default function SharedFeed({
           { paddingTop: headerHeight, paddingBottom: footerHeight },
           contentContainerStyle
         ]}
+        contentOffset={initialScrollOffset ? { x: 0, y: initialScrollOffset } : undefined}
         onScroll={(e) => onScroll?.(e.nativeEvent.contentOffset.y)}
         scrollEventThrottle={16}
         // iOS only: without this, a short list (few posts / short bookmarks /

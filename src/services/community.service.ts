@@ -44,8 +44,10 @@ export const communityService = {
     return response.data;
   },
 
-  getMembers: async (id: string, page = 1, limit = 20): Promise<{ data: any[]; meta?: any; ownerId?: string; viewerRole?: string }> => {
-    const response = await apiClient.get(`/communities/${id}/members?page=${page}&limit=${limit}`);
+  getMembers: async (id: string, page = 1, limit = 20, search?: string): Promise<{ data: any[]; meta?: any; ownerId?: string; viewerRole?: string }> => {
+    let url = `/communities/${id}/members?page=${page}&limit=${limit}`;
+    if (search) url += `&search=${encodeURIComponent(search)}`;
+    const response = await apiClient.get(url);
     return response.data;
   },
 

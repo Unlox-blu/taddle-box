@@ -1,23 +1,7 @@
 import { apiClient } from "./apiClient";
 
-export type SearchType =
-  | "all"
-  | "posts"
-  | "people"
-  | "communities"
-  | "events"
-  | "games"
-  | "hashtags";
-
-export type UniversalResultType =
-  | "posts"
-  | "comments"
-  | "media"
-  | "people"
-  | "communities"
-  | "events"
-  | "games"
-  | "text";
+export type SearchType = string;
+export type UniversalResultType = string;
 
 export type UniversalSearchResults = {
   /** Result-type pills the server computed for this query, each carrying its
@@ -44,30 +28,29 @@ export const searchService = {
       `types` (pills) plus an ordered `results` array that may mix posts,
       comments, media, people, communities, events and text rows. */
   universalSearch: async ({
+    scope,
     q,
     sort,
     time,
     filter,
     type,
-    bookmarked,
-    notified,
     page,
     limit,
   }: {
+    scope?: 'global' | 'bookmarks' | 'notifications';
     q?: string;
     sort?: string;
     time?: string;
     filter?: string;
     type?: string;
-    bookmarked?: string;
-    notified?: string;
     page?: number;
     limit?: number;
   }): Promise<UniversalSearchResults> => {
     // Built manually (not URLSearchParams) to keep the param order stable.
-    // Order: filter → q → sort → time → type → bookmarked → page → limit.
+    // Order: scope → filter → q → sort → time → type → page → limit.
     // No version marker — there is no legacy search anymore.
     const parts: string[] = [];
+    if (scope && scope !== 'global') parts.push(`scope=${encodeURIComponent(scope)}`);
     if (filter) parts.push(`filter=${encodeURIComponent(filter)}`);
     if (q) parts.push(`q=${encodeURIComponent(q)}`);
     if (sort) parts.push(`sort=${encodeURIComponent(sort)}`);
@@ -78,10 +61,6 @@ export const searchService = {
     // stays clean (?sort=relevance&time=all_time&page=1&limit=10). Only real type
     // filters (events, games, communities, …) are sent.
     if (type && type !== "all") parts.push(`type=${encodeURIComponent(type)}`);
-    if (bookmarked) parts.push(`bookmarked=${encodeURIComponent(bookmarked)}`);
-    // Notifications scope — mirror of bookmarked=1; the result groups become
-    // the notification buckets (likes/comments/follows) with per-bucket counts.
-    if (notified) parts.push(`notified=${encodeURIComponent(notified)}`);
     parts.push(`page=${page || 1}`);
     parts.push(`limit=${limit || 10}`);
     const res = await apiClient.get(`/search?${parts.join("&")}`);

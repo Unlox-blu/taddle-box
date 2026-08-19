@@ -18,6 +18,7 @@ import { appLockBypass } from '../../utils/appLockBypass';
 import { themedAlert } from '../../components/common/ThemedAlert';
 import SmartInput from '../../components/common/SmartInput';
 import StateBlock from '../../components/common/StateBlock';
+import { useGlobalScroll } from '../../context/ScrollContext';
 
 const OCCUPATION_OPTIONS = [
   "Student",
@@ -55,6 +56,7 @@ export default function EditProfileScreen() {
   const colors     = useThemeColors();
   const { isDark } = useTheme();
   const { user, updateUser, refreshUser } = useAuth();
+  const { footerHeight } = useGlobalScroll();
 
   const [name,       setName]       = useState<string>(user?.name       ?? '');
   const [username,   setUsername]   = useState<string>(user?.username   ?? '');
@@ -620,7 +622,7 @@ export default function EditProfileScreen() {
       >
         <ScrollView
           ref={scrollRef}
-          contentContainerStyle={styles.body}
+          contentContainerStyle={[styles.body, { paddingBottom: footerHeight + 40 }]}
           keyboardShouldPersistTaps="handled"
           keyboardDismissMode="on-drag"
           automaticallyAdjustKeyboardInsets

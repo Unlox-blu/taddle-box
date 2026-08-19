@@ -1,7 +1,7 @@
 import React, { useMemo, useState, useEffect, useRef, useCallback } from 'react';
 import {
   View, Text, ScrollView, TouchableOpacity, TouchableWithoutFeedback,
-  StyleSheet, Share, FlatList, Image, TextInput
+  StyleSheet, Share, FlatList, Image, TextInput, Modal, KeyboardAvoidingView, Platform
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useNavigation, useRoute, useFocusEffect, type RouteProp } from '@react-navigation/native';
@@ -446,6 +446,19 @@ export default function CommunityDetailScreen() {
               <Ionicons name="settings-outline" size={20} color="#fff" />
             </TouchableOpacity>
           )}
+          <TouchableOpacity style={styles.shareBtn} onPress={async () => {
+            try {
+              const res = await postsService.toggleBookmark('community', community.id);
+              setCommunity((prev: any) => prev ? {
+                ...prev,
+                isBookmarked: res?.data?.bookmarked ?? !prev?.isBookmarked,
+              } : prev);
+            } catch (e) {
+              console.warn('Failed to toggle community bookmark', e);
+            }
+          }}>
+            <Ionicons name={community?.isBookmarked ? 'bookmark' : 'bookmark-outline'} size={20} color="#fff" />
+          </TouchableOpacity>
           <TouchableOpacity style={styles.shareBtn} onPress={() =>
             Share.share({ message: `Check out ${community.name} on TADDLEBOX!` })
           }>
@@ -822,31 +835,28 @@ function ManageMembersModal({ visible, onClose, communityId, isAdmin, isOwner, c
   // Member whose ⋯ menu is open — renders the action sheet overlay.
   const [actionMember, setActionMember] = useState<any | null>(null);
 
-  // Client-side filter for the search bar
-  const filteredMembers = React.useMemo(() => {
-    if (!searchQuery.trim()) return members;
-    const q = searchQuery.toLowerCase();
-    return members.filter(
-      (m: any) =>
-        (m.name || '').toLowerCase().includes(q) ||
-        (m.username || '').toLowerCase().includes(q)
-    );
-  }, [members, searchQuery]);
+  const [debouncedSearch, setDebouncedSearch] = useState('');
+
+  // Debounce search query so we don't spam the backend
+  useEffect(() => {
+    const t = setTimeout(() => setDebouncedSearch(searchQuery.trim()), 300);
+    return () => clearTimeout(t);
+  }, [searchQuery]);
 
   useEffect(() => {
     if (visible) {
       setMembers([]);
       setPage(1);
       setHasMore(false);
-      loadMembers(1, true);
+      loadMembers(1, true, debouncedSearch);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [visible, communityId]);
+  }, [visible, communityId, debouncedSearch]);
 
-  const loadMembers = async (nextPage: number, refresh = false) => {
-    setLoading(true);
+  const loadMembers = async (nextPage: number, refresh = false, searchStr = debouncedSearch) => {
+    if (!refresh) setLoading(true);
     try {
-      const res = await communityService.getMembers(communityId, nextPage, 20);
+      const res = await communityService.getMembers(communityId, nextPage, 20, searchStr);
       const rows = res.data || [];
       const meta = res.meta as any;
       // Server reports the true viewer role + owner mapping — trust it over the
@@ -986,8 +996,9 @@ function ManageMembersModal({ visible, onClose, communityId, isAdmin, isOwner, c
   if (!visible) return null;
 
   return (
-    <View style={[StyleSheet.absoluteFill, { zIndex: 999 }]}>
-      <View style={styles.modalContainer}>
+    <Modal visible={visible} transparent animationType="fade" onRequestClose={onClose}>
+      <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'height' : undefined} style={{ flex: 1 }}>
+        <View style={styles.modalContainer}>
         <View style={styles.modalContent}>
           <View style={styles.modalHeader}>
             <Text style={styles.modalTitle}>Members</Text>
@@ -1020,16 +1031,16 @@ function ManageMembersModal({ visible, onClose, communityId, isAdmin, isOwner, c
             <Text style={{ color: colors.text.muted, textAlign: 'center', padding: 20 }}>No members found.</Text>
           ) : (
             <FlatList
-              data={filteredMembers}
+              data={members}
               keyExtractor={item => item.user_id}
               onEndReached={() => {
-                if (hasMore && !loading && !searchQuery.trim()) loadMembers(page + 1);
+                if (hasMore && !loading) loadMembers(page + 1);
               }}
               onEndReachedThreshold={0.4}
               refreshing={refreshing}
               onRefresh={() => {
                 setRefreshing(true);
-                loadMembers(1, true);
+                loadMembers(1, true, debouncedSearch);
               }}
               contentContainerStyle={{ paddingBottom: 20 }}
               ListFooterComponent={
@@ -1123,6 +1134,7 @@ function ManageMembersModal({ visible, onClose, communityId, isAdmin, isOwner, c
           </View>
         </View>
       )}
-    </View>
+    </KeyboardAvoidingView>
+  </Modal>
   );
 }

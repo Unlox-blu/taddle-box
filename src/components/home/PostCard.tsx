@@ -15,6 +15,7 @@ import {
   Platform,
   ActivityIndicator,
   FlatList,
+  TextInput,
 } from "react-native";
 import { VideoView, useVideoPlayer } from "expo-video";
 import { useEvent } from "expo";
@@ -2639,7 +2640,7 @@ function UsersModal({
   postId: string;
   title: string;
   emptyText: string;
-  fetchPage: (postId: string, page: number, limit: number) => Promise<{ data: any[] }>;
+  fetchPage: (postId: string, page: number, limit: number, search?: string) => Promise<{ data: any[] }>;
   onClose: () => void;
 }) {
   const colors = useThemeColors();
@@ -2651,11 +2652,20 @@ function UsersModal({
   const [loading, setLoading] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
 
-  const load = async (nextPage: number, refresh = false) => {
+  const [searchQuery, setSearchQuery] = useState('');
+  const [debouncedSearch, setDebouncedSearch] = useState('');
+
+  // Debounce search query so we don't spam the backend
+  useEffect(() => {
+    const t = setTimeout(() => setDebouncedSearch(searchQuery.trim()), 300);
+    return () => clearTimeout(t);
+  }, [searchQuery]);
+
+  const load = async (nextPage: number, refresh = false, searchStr = debouncedSearch) => {
     if (loading) return;
     setLoading(true);
     try {
-      const res = await fetchPage(postId, nextPage, 20);
+      const res = await fetchPage(postId, nextPage, 20, searchStr);
       const rows = res?.data || [];
       setHasMore(rows.length === 20);
       setUsers((prev) => (refresh ? rows : [...prev, ...rows]));
@@ -2673,10 +2683,10 @@ function UsersModal({
       setUsers([]);
       setPage(1);
       setHasMore(false);
-      load(1, true);
+      load(1, true, debouncedSearch);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [visible, postId]);
+  }, [visible, postId, debouncedSearch]);
 
   // Optimistic toggle so Follow/Following flips instantly and stays synced
   // with every other surface. PRIVATE accounts create a follow REQUEST
@@ -2729,10 +2739,11 @@ function UsersModal({
 
   return (
     <Modal visible transparent animationType="fade" onRequestClose={onClose}>
-      <View style={sheetStyles.likersBackdrop}>
-        <TouchableWithoutFeedback onPress={onClose}>
-          <View style={StyleSheet.absoluteFill} />
-        </TouchableWithoutFeedback>
+      <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'height' : undefined} style={{ flex: 1 }}>
+        <View style={sheetStyles.likersBackdrop}>
+          <TouchableWithoutFeedback onPress={onClose}>
+            <View style={StyleSheet.absoluteFill} />
+          </TouchableWithoutFeedback>
         <View
           style={[
             sheetStyles.likersSheet,
@@ -2748,6 +2759,24 @@ function UsersModal({
             </TouchableOpacity>
           </View>
 
+          {/* Search bar */}
+          <View style={{ flexDirection: 'row', alignItems: 'center', backgroundColor: colors.bg.elevated, borderRadius: 12, paddingHorizontal: 12, marginBottom: 12, marginHorizontal: 16 }}>
+            <Ionicons name="search" size={18} color={colors.text.muted} />
+            <TextInput
+              style={{ flex: 1, paddingVertical: 10, paddingHorizontal: 8, color: colors.text.primary, fontSize: 14 }}
+              placeholder={`Search ${title.toLowerCase()}...`}
+              placeholderTextColor={colors.text.muted}
+              value={searchQuery}
+              onChangeText={setSearchQuery}
+              autoCorrect={false}
+            />
+            {searchQuery.length > 0 && (
+              <TouchableOpacity onPress={() => setSearchQuery('')}>
+                <Ionicons name="close-circle" size={18} color={colors.text.muted} />
+              </TouchableOpacity>
+            )}
+          </View>
+
           <FlatList
             data={users}
             keyExtractor={(item, index) => item.id || String(index)}
@@ -2756,7 +2785,7 @@ function UsersModal({
             refreshing={refreshing}
             onRefresh={() => {
               setRefreshing(true);
-              load(1, true);
+              load(1, true, debouncedSearch);
             }}
             onEndReached={() => {
               if (hasMore && !loading) load(page + 1);
@@ -2855,6 +2884,7 @@ function UsersModal({
           />
         </View>
       </View>
+      </KeyboardAvoidingView>
     </Modal>
   );
 }

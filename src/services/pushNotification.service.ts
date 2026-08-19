@@ -4,7 +4,7 @@ import * as Notifications from "expo-notifications";
 import * as SecureStore from "expo-secure-store";
 import Constants from "expo-constants";
 import { apiClient } from "./apiClient";
-
+import * as Crypto from "expo-crypto";
 // Foreground notifications: we render our own in-app banner, so don't double up
 // with the OS alert. Background/killed deliveries still use the system tray.
 Notifications.setNotificationHandler({
@@ -24,7 +24,7 @@ const DEVICE_ID_KEY = "push_device_id";
 async function getOrCreateDeviceId(): Promise<string> {
   let id = await SecureStore.getItemAsync(DEVICE_ID_KEY);
   if (!id) {
-    id = crypto.randomUUID();
+    id = Crypto.randomUUID();
     await SecureStore.setItemAsync(DEVICE_ID_KEY, id);
   }
   return id;
@@ -101,13 +101,13 @@ export async function registerForPushNotificationsAsync(): Promise<string | null
 
 // ── Android token refresh listener ───────────────────────────────────────────
 let tokenRefreshSubscription: ReturnType<
-  typeof Notifications.addExpoPushTokenListener
+  typeof Notifications.addPushTokenListener
 > | null = null;
 
 export function startTokenRefreshListener() {
   if (tokenRefreshSubscription) return;
 
-  tokenRefreshSubscription = Notifications.addExpoPushTokenListener(
+  tokenRefreshSubscription = Notifications.addPushTokenListener(
     async (newToken) => {
       try {
         console.info("[PushNotification] Token refreshed, re-registering with backend");

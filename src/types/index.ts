@@ -185,6 +185,7 @@ export interface Community {
   memberRole?: 'member' | 'moderator' | 'admin' | null;
   /** Community "Allow Reposting" toggle — owner-controlled, false blocks new reposts of the community's posts. */
   allowReposts?: boolean;
+  isBookmarked?: boolean;
 }
 
 export interface Event {

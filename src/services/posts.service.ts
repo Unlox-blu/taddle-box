@@ -21,6 +21,22 @@ export const postsService = {
     return response.data;
   },
 
+  // Multi-type bookmarks
+  getBookmarksByType: async (type: string, page = 1, limit = 20) => {
+    const response = await apiClient.get(`/bookmark?type=${type}&page=${page}&limit=${limit}`);
+    return response.data;
+  },
+
+  toggleBookmark: async (itemType: string, itemId: string) => {
+    const response = await apiClient.post('/bookmark/toggle', { itemType, itemId });
+    return response.data;
+  },
+
+  checkBookmark: async (itemType: string, itemId: string): Promise<{ data: { bookmarked: boolean } }> => {
+    const response = await apiClient.get(`/bookmark/check?type=${itemType}&itemId=${itemId}`);
+    return response.data;
+  },
+
   createPost: async (postData: any): Promise<{ data: Post }> => {
     const response = await apiClient.post('/posts/create-post', postData);
     return response.data;
@@ -66,10 +82,11 @@ export const postsService = {
     postId: string,
     page = 1,
     limit = 20,
+    search?: string
   ): Promise<{ data: any[] }> => {
-    const response = await apiClient.get(
-      `/posts/${postId}/likes?page=${page}&limit=${limit}`,
-    );
+    let url = `/posts/${postId}/likes?page=${page}&limit=${limit}`;
+    if (search) url += `&search=${encodeURIComponent(search)}`;
+    const response = await apiClient.get(url);
     return response.data;
   },
 
@@ -79,10 +96,11 @@ export const postsService = {
     postId: string,
     page = 1,
     limit = 20,
+    search?: string
   ): Promise<{ data: any[] }> => {
-    const response = await apiClient.get(
-      `/posts/${postId}/reposts?page=${page}&limit=${limit}`,
-    );
+    let url = `/posts/${postId}/reposts?page=${page}&limit=${limit}`;
+    if (search) url += `&search=${encodeURIComponent(search)}`;
+    const response = await apiClient.get(url);
     return response.data;
   },
 
@@ -95,10 +113,11 @@ export const postsService = {
     optionIndex: number,
     page = 1,
     limit = 20,
+    search?: string
   ): Promise<{ data: any[] }> => {
-    const response = await apiClient.get(
-      `/posts/${postId}/poll/voters?option=${optionIndex}&page=${page}&limit=${limit}`,
-    );
+    let url = `/posts/${postId}/poll/voters?option=${optionIndex}&page=${page}&limit=${limit}`;
+    if (search) url += `&search=${encodeURIComponent(search)}`;
+    const response = await apiClient.get(url);
     return response.data;
   },
 

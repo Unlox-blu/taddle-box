@@ -75,7 +75,7 @@ const SETTINGS_ITEMS = [
 
 // Result kinds the unified search can return, plus the legacy SearchType tabs
 // still used by bookmarks/settings/notifications scopes.
-type ResultType = SearchType | "polls" | "comments" | "media" | "text";
+type ResultType = string;
 type Row =
   | { isHeader: true; title: string; type: ResultType }
   | { isHeader: false; item: any; type: ResultType };
@@ -587,9 +587,9 @@ export default function SearchScreen({ navigation, route }: Props) {
             q,
             sort: sortByRef.current,
             time: timeWindowRef.current,
-            filter: "",
+            filter: buildFilterString(),
             type: resultTypeRef.current,
-            notified: "1",
+            scope: "notifications",
             page: pageToLoad,
             limit: 10,
           });
@@ -730,7 +730,7 @@ export default function SearchScreen({ navigation, route }: Props) {
           time: timeWindowRef.current,
           filter: buildFilterString(),
           type: resultTypeRef.current,
-          bookmarked: sourceRef.current === "bookmarks" ? "1" : "",
+          scope: (sourceRef.current || 'global') as any,
           page: pageToLoad,
           limit: 10,
         });
@@ -1156,70 +1156,8 @@ export default function SearchScreen({ navigation, route }: Props) {
             contentContainerStyle={{ alignItems: "center" }}
             keyboardShouldPersistTaps="handled"
           >
-            {/* Reddit-style filter chips — @user (author) and c/community, each
-                with an X to drop it. Typing "@user c/community" in the box
-                produces the same chips; they combine when searching posts. */}
-            {authorFilters.map((u) => (
-              <TouchableOpacity
-                key={u}
-                style={[
-                  styles.filterChip,
-                  {
-                    backgroundColor: colors.primaryLight + "22",
-                    marginLeft: 0,
-                    marginRight: 8,
-                  },
-                ]}
-                onPress={() =>
-                  setAuthorFilters((prev) => prev.filter((x) => x !== u))
-                }
-                activeOpacity={0.8}
-              >
-                <Text
-                  style={[
-                    styles.filterChipText,
-                    { color: colors.primaryLight },
-                  ]}
-                  numberOfLines={1}
-                >
-                  @{u}
-                </Text>
-                <Ionicons
-                  name="close-circle"
-                  size={13}
-                  color={colors.primaryLight}
-                />
-              </TouchableOpacity>
-            ))}
-            {communityFilters.map((slug) => (
-              <TouchableOpacity
-                key={slug}
-                style={[
-                  styles.filterChip,
-                  {
-                    backgroundColor: colors.cyanLight + "22",
-                    marginLeft: 0,
-                    marginRight: 8,
-                  },
-                ]}
-                onPress={() =>
-                  setCommunityFilters((prev) => prev.filter((x) => x !== slug))
-                }
-                activeOpacity={0.8}
-              >
-                <Text
-                  style={[styles.filterChipText, { color: colors.cyanLight }]}
-                  numberOfLines={1}
-                >
-                  c/{slug}
-                </Text>
-                <Ionicons
-                  name="close-circle"
-                  size={13}
-                  color={colors.cyanLight}
-                />
-              </TouchableOpacity>
-            ))}
+            {/* Scope / source chips — always FIRST so the user sees which
+                domain they're searching before the filter tokens. */}
             {source === "bookmarks" ? (
               <TouchableOpacity
                 style={[
@@ -1349,6 +1287,69 @@ export default function SearchScreen({ navigation, route }: Props) {
                 />
               </TouchableOpacity>
             ) : null}
+            {/* Filter chips — @user (author) and c/community, each with an X
+                to drop it. They appear AFTER scope tags. */}
+            {authorFilters.map((u) => (
+              <TouchableOpacity
+                key={u}
+                style={[
+                  styles.filterChip,
+                  {
+                    backgroundColor: colors.primaryLight + "22",
+                    marginLeft: 0,
+                    marginRight: 8,
+                  },
+                ]}
+                onPress={() =>
+                  setAuthorFilters((prev) => prev.filter((x) => x !== u))
+                }
+                activeOpacity={0.8}
+              >
+                <Text
+                  style={[
+                    styles.filterChipText,
+                    { color: colors.primaryLight },
+                  ]}
+                  numberOfLines={1}
+                >
+                  @{u}
+                </Text>
+                <Ionicons
+                  name="close-circle"
+                  size={13}
+                  color={colors.primaryLight}
+                />
+              </TouchableOpacity>
+            ))}
+            {communityFilters.map((slug) => (
+              <TouchableOpacity
+                key={slug}
+                style={[
+                  styles.filterChip,
+                  {
+                    backgroundColor: colors.cyanLight + "22",
+                    marginLeft: 0,
+                    marginRight: 8,
+                  },
+                ]}
+                onPress={() =>
+                  setCommunityFilters((prev) => prev.filter((x) => x !== slug))
+                }
+                activeOpacity={0.8}
+              >
+                <Text
+                  style={[styles.filterChipText, { color: colors.cyanLight }]}
+                  numberOfLines={1}
+                >
+                  c/{slug}
+                </Text>
+                <Ionicons
+                  name="close-circle"
+                  size={13}
+                  color={colors.cyanLight}
+                />
+              </TouchableOpacity>
+            ))}
             {tagFilters.map((t) => (
               <TouchableOpacity
                 key={t}

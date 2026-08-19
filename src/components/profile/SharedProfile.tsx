@@ -1,4 +1,10 @@
-import React, { useMemo, useState, useEffect, useCallback, useRef } from "react";
+import React, {
+  useMemo,
+  useState,
+  useEffect,
+  useCallback,
+  useRef,
+} from "react";
 import {
   View,
   Text,
@@ -10,8 +16,10 @@ import {
   Image,
   TextInput,
   DeviceEventEmitter,
-
-  } from "react-native";
+  Modal,
+  KeyboardAvoidingView,
+  Platform,
+} from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import { LinearGradient } from "expo-linear-gradient";
@@ -33,7 +41,7 @@ import ActiveStatusDot from "../common/ActiveStatusDot";
 import { notificationService } from "../../services/notification.service";
 import { socketClient } from "../../services/socketClient";
 import type { XPUpdatedPayload } from "../../types";
-import { themedAlert } from '../common/ThemedAlert';
+import { themedAlert } from "../common/ThemedAlert";
 import BioText, { normalizeUrl } from "../common/BioText";
 
 const { width } = Dimensions.get("window");
@@ -58,7 +66,10 @@ function makeStyles(c: ColorPalette) {
     bannerImage: { width: "100%", height: "100%" },
     bannerShade: {
       position: "absolute",
-      top: 0, bottom: 0, left: 0, right: 0,
+      top: 0,
+      bottom: 0,
+      left: 0,
+      right: 0,
     },
     // Melts the banner into the page background. Tall + dark-at-top so the
     // overlapping avatar/name sit on a soft scrim that becomes the exact page
@@ -73,13 +84,21 @@ function makeStyles(c: ColorPalette) {
     },
     bannerEditBtn: {
       position: "absolute",
-      top: 12, right: 12,
-      flexDirection: "row", alignItems: "center", gap: 5,
+      top: 12,
+      right: 12,
+      flexDirection: "row",
+      alignItems: "center",
+      gap: 5,
       backgroundColor: "rgba(0,0,0,0.45)",
-      paddingVertical: 6, paddingHorizontal: 12,
+      paddingVertical: 6,
+      paddingHorizontal: 12,
       borderRadius: radii.full,
     },
-    bannerEditText: { fontSize: fontSizes.xs, fontWeight: "700", color: "#fff" },
+    bannerEditText: {
+      fontSize: fontSizes.xs,
+      fontWeight: "700",
+      color: "#fff",
+    },
     heroGrad: { paddingBottom: 4 },
     // NO solid background — the row floats over the banner's fade gradient so
     // the avatar and identity block visually melt into the cover instead of
@@ -139,8 +158,18 @@ function makeStyles(c: ColorPalette) {
     },
     levelText: { fontSize: fontSizes.xs, fontWeight: "800", color: "#1A0A00" },
     profileInfo: { flex: 1, paddingBottom: 2 },
-    name: { fontSize: fontSizes.xxl, fontWeight: "800", color: c.text.primary, marginBottom: 2 },
-    handleRow: { flexDirection: "row", alignItems: "center", gap: 6, marginBottom: 6 },
+    name: {
+      fontSize: fontSizes.xxl,
+      fontWeight: "800",
+      color: c.text.primary,
+      marginBottom: 2,
+    },
+    handleRow: {
+      flexDirection: "row",
+      alignItems: "center",
+      gap: 6,
+      marginBottom: 6,
+    },
     handleRank: {
       fontSize: fontSizes.sm,
       color: c.text.muted,
@@ -361,8 +390,16 @@ function makeStyles(c: ColorPalette) {
       overflow: "hidden",
     },
     mentionBody: { flex: 1, gap: 2 },
-    mentionName: { fontSize: fontSizes.sm, fontWeight: "800", color: c.text.primary },
-    mentionText: { fontSize: fontSizes.xs, color: c.text.secondary, lineHeight: 17 },
+    mentionName: {
+      fontSize: fontSizes.sm,
+      fontWeight: "800",
+      color: c.text.primary,
+    },
+    mentionText: {
+      fontSize: fontSizes.xs,
+      color: c.text.secondary,
+      lineHeight: 17,
+    },
     mentionTime: { fontSize: fontSizes.xs, color: c.text.muted, marginTop: 2 },
     mentionThumb: {
       width: 44,
@@ -496,11 +533,12 @@ export default function SharedProfile({
   const [user, setUser] = useState<any>(initialUser);
   const [followed, setFollowed] = useState(!!initialUser?.isFollowing);
   const [followStatus, setFollowStatus] = useState<string | null>(
-    initialUser?.followStatus || null
+    initialUser?.followStatus || null,
   );
   const [loadingProfile, setLoadingProfile] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [qrModalVisible, setQrModalVisible] = useState(false);
+  const [isBookmarked, setIsBookmarked] = useState(false);
 
   const [showFollowList, setShowFollowList] = useState(false);
   const [followListType, setFollowListType] = useState<
@@ -515,7 +553,9 @@ export default function SharedProfile({
   // Profile feed filter: "Posts" (originals), "Reposts" (Twitter-style), and
   // "Mentions" — @-mentions of this user, rendered like the notifications UI
   // (own profile only: someone else's mentions are private).
-  const [profileTab, setProfileTab] = useState<"posts" | "reposts" | "mentions">("posts");
+  const [profileTab, setProfileTab] = useState<
+    "posts" | "reposts" | "mentions"
+  >("posts");
   // Guards against out-of-order responses when switching tabs fast — only the
   // latest request may commit its posts.
   const postsReqRef = useRef(0);
@@ -558,41 +598,44 @@ export default function SharedProfile({
   // Mention row tap — post & comment mentions both carry the post id; open the
   // full post page (same redirect as the notifications screen). Falls back to
   // the sender's profile when the post is gone (deleted / private / legacy).
-  const openMention = useCallback(async (notif: any) => {
-    const resourceId = notif?.resourceId;
-    if (resourceId) {
-      try {
-        const res = await postsService.getPost(resourceId);
-        const post = res?.data;
-        if (post) {
-          // Comment mentions carry the exact comment id → the post page
-          // auto-scrolls to and highlights that comment.
-          (navigation as any).push('PostDetail', {
-            post,
-            commentId: notif?.payload?.commentId,
-          } as any);
-          return;
+  const openMention = useCallback(
+    async (notif: any) => {
+      const resourceId = notif?.resourceId;
+      if (resourceId) {
+        try {
+          const res = await postsService.getPost(resourceId);
+          const post = res?.data;
+          if (post) {
+            // Comment mentions carry the exact comment id → the post page
+            // auto-scrolls to and highlights that comment.
+            (navigation as any).push("PostDetail", {
+              post,
+              commentId: notif?.payload?.commentId,
+            } as any);
+            return;
+          }
+        } catch (e) {
+          // fall through to the sender's profile
         }
-      } catch (e) {
-        // fall through to the sender's profile
       }
-    }
-    const username = notif?.payload?.username;
-    if (username) {
-      (navigation as any).push('UserProfile', {
-        user: {
-          name: notif.actor,
-          username,
-          avatarUrl: notif.avatarUrl,
-          handle: username,
-          avatar: '👾',
-          level: 1,
-          xp: 0,
-          xpToNext: 100,
-        } as any,
-      });
-    }
-  }, [navigation]);
+      const username = notif?.payload?.username;
+      if (username) {
+        (navigation as any).push("UserProfile", {
+          user: {
+            name: notif.actor,
+            username,
+            avatarUrl: notif.avatarUrl,
+            handle: username,
+            avatar: "👾",
+            level: 1,
+            xp: 0,
+            xpToNext: 100,
+          } as any,
+        });
+      }
+    },
+    [navigation],
+  );
 
   const renderMentionRow = (notif: any) => (
     <TouchableOpacity
@@ -603,7 +646,10 @@ export default function SharedProfile({
     >
       <View style={styles.mentionAvatar}>
         {notif?.avatarUrl ? (
-          <Image source={{ uri: notif.avatarUrl }} style={{ width: "100%", height: "100%" }} />
+          <Image
+            source={{ uri: notif.avatarUrl }}
+            style={{ width: "100%", height: "100%" }}
+          />
         ) : (
           <Text style={{ fontSize: 15 }}>{notif?.avatar || "👤"}</Text>
         )}
@@ -618,7 +664,11 @@ export default function SharedProfile({
         <Text style={styles.mentionTime}>{notif?.time || ""}</Text>
       </View>
       {notif?.thumbnailUrl ? (
-        <Image source={{ uri: notif.thumbnailUrl }} style={styles.mentionThumb} resizeMode="cover" />
+        <Image
+          source={{ uri: notif.thumbnailUrl }}
+          style={styles.mentionThumb}
+          resizeMode="cover"
+        />
       ) : null}
     </TouchableOpacity>
   );
@@ -632,6 +682,14 @@ export default function SharedProfile({
         setUser(profileRes.data);
         setFollowed(!!profileRes.data.isFollowing);
         setFollowStatus(profileRes.data.followStatus || null);
+
+        // Check if this profile is bookmarked by the current user
+        try {
+          const bookmarkRes = await postsService.checkBookmark('profile', profileRes.data.id);
+          setIsBookmarked(!!bookmarkRes?.data?.bookmarked);
+        } catch (err) {
+          // Ignore bookmark check failures
+        }
       }
     } catch (e) {
       console.warn("Failed to load profile", e);
@@ -642,7 +700,7 @@ export default function SharedProfile({
 
   const loadPosts = useCallback(async () => {
     // The Mentions tab has its own loader + list — never fetch posts for it.
-    if (profileTab === 'mentions') {
+    if (profileTab === "mentions") {
       setPosts([]);
       setLoadingPosts(false);
       return;
@@ -657,7 +715,12 @@ export default function SharedProfile({
         return;
       }
       setLoadingPosts(true);
-      const postsRes = await postsService.getUserPosts(user.id, 1, 20, profileTab);
+      const postsRes = await postsService.getUserPosts(
+        user.id,
+        1,
+        20,
+        profileTab,
+      );
       // A newer request (e.g. tab switch) started after this one — drop this.
       if (postsReqRef.current !== reqId) return;
       if (postsRes?.data) {
@@ -672,34 +735,55 @@ export default function SharedProfile({
 
   // Mentions — the user's @-mention notifications (post + comment mentions),
   // server-filtered by type, paginated like the notifications screen.
-  const loadMentions = useCallback(async (page = 1, append = false) => {
-    const reqId = ++mentionsReqRef.current;
-    try {
-      if (!user?.id) return;
-      if (!append) setLoadingMentions(true);
-      const res = await notificationService.getNotifications(page, 20, false, 'MENTION');
-      if (mentionsReqRef.current !== reqId) return;
-      const rows = res.data || [];
-      const meta = res.meta as any;
-      setHasMoreMentions(meta ? !!meta.hasNext : rows.length === 20);
-      setMentions((prev) =>
-        append
-          ? [...prev, ...rows.filter((r: any) => !prev.some((p: any) => p.id === r.id))]
-          : rows,
-      );
-      setMentionPage(page);
-    } catch (e) {
-      console.warn("Failed to load mentions", e);
-    } finally {
-      if (mentionsReqRef.current === reqId) setLoadingMentions(false);
-    }
-  }, [user?.id]);
+  const loadMentions = useCallback(
+    async (page = 1, append = false) => {
+      const reqId = ++mentionsReqRef.current;
+      try {
+        if (!user?.id) return;
+        if (!append) setLoadingMentions(true);
+        const res = await notificationService.getNotifications(
+          page,
+          20,
+          false,
+          "MENTION",
+        );
+        if (mentionsReqRef.current !== reqId) return;
+        const rows = res.data || [];
+        const meta = res.meta as any;
+        setHasMoreMentions(meta ? !!meta.hasNext : rows.length === 20);
+        setMentions((prev) =>
+          append
+            ? [
+                ...prev,
+                ...rows.filter(
+                  (r: any) => !prev.some((p: any) => p.id === r.id),
+                ),
+              ]
+            : rows,
+        );
+        setMentionPage(page);
+      } catch (e) {
+        console.warn("Failed to load mentions", e);
+      } finally {
+        if (mentionsReqRef.current === reqId) setLoadingMentions(false);
+      }
+    },
+    [user?.id],
+  );
 
   useEffect(() => {
     if (!user?.id) return;
-    if (profileTab === 'mentions') loadMentions();
+    if (profileTab === "mentions") loadMentions();
     else loadPosts();
-  }, [user?.id, user?.privacy, followed, isOwnProfile, loadPosts, loadMentions, profileTab]);
+  }, [
+    user?.id,
+    user?.privacy,
+    followed,
+    isOwnProfile,
+    loadPosts,
+    loadMentions,
+    profileTab,
+  ]);
 
   // Refetch profile + posts whenever the screen regains focus so follower/post/
   // XP counts stay fresh (e.g. new followers or posts while away) without a
@@ -708,9 +792,9 @@ export default function SharedProfile({
     useCallback(() => {
       loadProfile();
       if (!user?.id) return;
-      if (profileTab === 'mentions') loadMentions();
+      if (profileTab === "mentions") loadMentions();
       else loadPosts();
-    }, [loadProfile, loadPosts, loadMentions, profileTab, user?.id])
+    }, [loadProfile, loadPosts, loadMentions, profileTab, user?.id]),
   );
 
   // Live XP on the profile header: the backend emits xp:updated (balance +
@@ -736,8 +820,7 @@ export default function SharedProfile({
           xp: data?.xp != null ? Number(data.xp) : prev.xp,
           totalXpEarned,
           level,
-          rank:
-            level > 10 ? "Pro" : level > 5 ? "Intermediate" : "Beginner",
+          rank: level > 10 ? "Pro" : level > 5 ? "Intermediate" : "Beginner",
           xpToNext: level * 1000,
         };
       });
@@ -750,7 +833,8 @@ export default function SharedProfile({
   // captured from the previous tab (posts/reposts) so the header and tab bar
   // stay exactly where they were instead of snapping to the top.
   useEffect(() => {
-    if (profileTab !== 'mentions' || loadingMentions || mentions.length === 0) return;
+    if (profileTab !== "mentions" || loadingMentions || mentions.length === 0)
+      return;
     const t = setTimeout(() => {
       mentionsListRef.current?.scrollToOffset({
         offset: profileScrollOffset.current,
@@ -761,8 +845,7 @@ export default function SharedProfile({
   }, [profileTab, loadingMentions, mentions.length]);
 
   // Private accounts hide their posts until the viewer is an approved follower.
-  const isLocked =
-    !isOwnProfile && user?.privacy === "private" && !followed;
+  const isLocked = !isOwnProfile && user?.privacy === "private" && !followed;
 
   // Notification deep links: open the post's comments right inside this page.
   // A full post shipped via `openPost` opens instantly; otherwise wait until
@@ -814,13 +897,11 @@ export default function SharedProfile({
       if (followed) {
         await userService.unfollowUser(user.username);
         setFollowed(false);
-        setFollowStatus(null);
         setUser((prev: any) => ({
           ...prev,
-          followerCount: Math.max(0, (prev.followerCount || 0) - 1),
+          followerCount: Math.max((prev.followerCount || 0) - 1, 0),
         }));
       } else if (followStatus === "pending") {
-        // Cancel a pending follow request.
         await userService.unfollowUser(user.username);
         setFollowStatus(null);
       } else {
@@ -841,17 +922,32 @@ export default function SharedProfile({
     }
   };
 
+  const handleBookmarkToggle = async () => {
+    if (!user?.id) return;
+    const previous = isBookmarked;
+    setIsBookmarked(!previous);
+    try {
+      await postsService.toggleBookmark('profile', user.id);
+    } catch (e) {
+      setIsBookmarked(previous);
+      console.warn("Failed to toggle bookmark", e);
+    }
+  };
+
   const onRefresh = useCallback(async () => {
     setRefreshing(true);
     try {
       await loadProfile();
       if (!user?.id) return;
-      if (profileTab === 'mentions') {
+      if (profileTab === "mentions") {
         await loadMentions();
-      } else if (
-        !(!isOwnProfile && user?.privacy === "private" && !followed)
-      ) {
-        const postsRes = await postsService.getUserPosts(user.id, 1, 20, profileTab);
+      } else if (!(!isOwnProfile && user?.privacy === "private" && !followed)) {
+        const postsRes = await postsService.getUserPosts(
+          user.id,
+          1,
+          20,
+          profileTab,
+        );
         if (postsRes?.data) setPosts(postsRes.data);
       }
     } catch (e) {
@@ -868,12 +964,12 @@ export default function SharedProfile({
   // mentions list scrolls via its own ref here.
   useEffect(() => {
     const subs = [
-      DeviceEventEmitter.addListener('profileSingleTap', () => {
+      DeviceEventEmitter.addListener("profileSingleTap", () => {
         mentionsListRef.current?.scrollToOffset({ offset: 0, animated: true });
       }),
-      DeviceEventEmitter.addListener('profileDoubleTap', () => {
+      DeviceEventEmitter.addListener("profileDoubleTap", () => {
         mentionsListRef.current?.scrollToOffset({ offset: 0, animated: true });
-        DeviceEventEmitter.emit('triggerPullRefresh');
+        DeviceEventEmitter.emit("triggerPullRefresh");
         setTimeout(() => onRefresh(), 500);
       }),
     ];
@@ -886,7 +982,7 @@ export default function SharedProfile({
     if (isLocked) {
       themedAlert(
         "Private Account",
-        `Follow @${user?.username || "user"} to see their ${type === "followers" ? "followers" : "following"}.`
+        `Follow @${user?.username || "user"} to see their ${type === "followers" ? "followers" : "following"}.`,
       );
       return;
     }
@@ -898,8 +994,12 @@ export default function SharedProfile({
   // mutuals for the logged-in viewer; mutuals are GLOBAL (shown even on
   // private accounts without a follow request). Hidden on the viewer's OWN
   // profile: "Followed by" makes no sense when the viewer IS the account.
-  const mutualUsers = isOwnProfile ? [] : (user?.mutuals?.users || []).slice(0, 2);
-  const mutualCount = isOwnProfile ? 0 : user?.mutuals?.count || mutualUsers.length;
+  const mutualUsers = isOwnProfile
+    ? []
+    : (user?.mutuals?.users || []).slice(0, 2);
+  const mutualCount = isOwnProfile
+    ? 0
+    : user?.mutuals?.count || mutualUsers.length;
 
   // The cover banner sits below the absolute MainHeader (which hides over the
   // content on scroll — Instagram style). Each scrollable below adds its own
@@ -932,7 +1032,11 @@ export default function SharedProfile({
               profileTab === tab && styles.postTabTextActive,
             ]}
           >
-            {tab === "posts" ? "Posts" : tab === "reposts" ? "Reposts" : "Mentions"}
+            {tab === "posts"
+              ? "Posts"
+              : tab === "reposts"
+                ? "Reposts"
+                : "Mentions"}
           </Text>
           {profileTab === tab && <View style={styles.postTabActiveBar} />}
         </TouchableOpacity>
@@ -1033,11 +1137,13 @@ export default function SharedProfile({
         <View style={styles.profileInfo}>
           <Text style={styles.name}>{user?.name || "Taddle User"}</Text>
           <View style={styles.handleRow}>
-            <Text style={styles.handleRank}>
-              @{user?.username || "user"}
-            </Text>
+            <Text style={styles.handleRank}>@{user?.username || "user"}</Text>
             {user?.privacy === "private" && (
-              <Ionicons name="lock-closed" size={12} color={colors.text.muted} />
+              <Ionicons
+                name="lock-closed"
+                size={12}
+                color={colors.text.muted}
+              />
             )}
           </View>
         </View>
@@ -1056,7 +1162,11 @@ export default function SharedProfile({
         ) : null}
         {!!user?.location && (
           <View style={styles.locationRow}>
-            <Ionicons name="location-outline" size={13} color={colors.text.muted} />
+            <Ionicons
+              name="location-outline"
+              size={13}
+              color={colors.text.muted}
+            />
             <Text style={styles.locationText} numberOfLines={1}>
               {user.location}
             </Text>
@@ -1069,9 +1179,7 @@ export default function SharedProfile({
           const orgName =
             typeof user?.organization === "string"
               ? user.organization
-              : user?.organization?.name ||
-                user?.organization?.type ||
-                "";
+              : user?.organization?.name || user?.organization?.type || "";
           if (!orgName || orgName === "None") return null;
           return (
             <View style={styles.locationRow}>
@@ -1125,11 +1233,17 @@ export default function SharedProfile({
                   key={i}
                   style={[
                     styles.mutualAvatar,
-                    { marginLeft: i === 0 ? 0 : -8, zIndex: mutualUsers.length - i },
+                    {
+                      marginLeft: i === 0 ? 0 : -8,
+                      zIndex: mutualUsers.length - i,
+                    },
                   ]}
                 >
                   {u.avatar ? (
-                    <Image source={{ uri: u.avatar }} style={styles.mutualAvatarImg} />
+                    <Image
+                      source={{ uri: u.avatar }}
+                      style={styles.mutualAvatarImg}
+                    />
                   ) : (
                     <Text style={styles.mutualAvatarText}>
                       {(u.name || u.username || "?")[0].toUpperCase()}
@@ -1148,10 +1262,13 @@ export default function SharedProfile({
                 // text nodes inside <Text> trigger RN's "Text strings must be
                 // rendered within a <Text> component" error.
                 <Text style={styles.mutualText}>
-                  {" "}and{" "}
+                  {" "}
+                  and{" "}
                   <Text style={styles.mutualName}>
                     {mutualCount - mutualUsers.length}{" "}
-                    {mutualCount - mutualUsers.length === 1 ? "other" : "others"}
+                    {mutualCount - mutualUsers.length === 1
+                      ? "other"
+                      : "others"}
                   </Text>
                 </Text>
               )}
@@ -1167,144 +1284,158 @@ export default function SharedProfile({
       </View>
 
       <View style={styles.statsRow}>
+        <View style={styles.statItem}>
+          <Text style={styles.statVal}>
+            {(user?.postCount || 0).toLocaleString()}
+          </Text>
+          <Text style={styles.statLabel}>Posts</Text>
+        </View>
+        {isLocked ? (
+          // Private + not approved — count only, no tappable list.
           <View style={styles.statItem}>
             <Text style={styles.statVal}>
-              {(user?.postCount || 0).toLocaleString()}
+              {(user?.followerCount || 0).toLocaleString()}
             </Text>
-            <Text style={styles.statLabel}>Posts</Text>
+            <Text style={styles.statLabel}>Followers</Text>
           </View>
-          {isLocked ? (
-            // Private + not approved — count only, no tappable list.
-            <View style={styles.statItem}>
-              <Text style={styles.statVal}>
-                {(user?.followerCount || 0).toLocaleString()}
-              </Text>
-              <Text style={styles.statLabel}>Followers</Text>
-            </View>
-          ) : (
-            <TouchableOpacity
-              style={styles.statItem}
-              onPress={() => openFollowList("followers")}
-            >
-              <Text style={styles.statVal}>
-                {(user?.followerCount || 0).toLocaleString()}
-              </Text>
-              <Text style={styles.statLabel}>Followers</Text>
-            </TouchableOpacity>
-          )}
-          {isLocked ? (
-            <View style={styles.statItem}>
-              <Text style={styles.statVal}>
-                {(user?.followingCount || 0).toLocaleString()}
-              </Text>
-              <Text style={styles.statLabel}>Following</Text>
-            </View>
-          ) : (
-            <TouchableOpacity
-              style={styles.statItem}
-              onPress={() => openFollowList("following")}
-            >
-              <Text style={styles.statVal}>
-                {(user?.followingCount || 0).toLocaleString()}
-              </Text>
-              <Text style={styles.statLabel}>Following</Text>
-            </TouchableOpacity>
-          )}
-          <View style={styles.statItem}>
-            <Text
-              numberOfLines={1}
-              adjustsFontSizeToFit
-              style={[styles.statVal, { color: colors.xpGold }]}
-            >
-              {user?.rank || "Beginner"}
-            </Text>
-            {/* Rank icon replaces the old "Rank" label text — the rank name
-                (Beginner/Pro/...) stays as the value, the icon sits below it. */}
-            <Ionicons name="ribbon" size={14} color={colors.xpGold} style={{ marginTop: 3 }} />
-          </View>
-        </View>
-
-        <View style={styles.btnRow}>
-          {isOwnProfile ? (
-            <TouchableOpacity
-              style={styles.editBtn}
-              onPress={() => navigation.navigate("EditProfile")}
-            >
-              <Ionicons
-                name="pencil-outline"
-                size={14}
-                color={colors.text.primary}
-              />
-              <Text style={styles.editBtnText}>Edit Profile</Text>
-            </TouchableOpacity>
-          ) : (
-            <TouchableOpacity
-              disabled={loadingProfile}
-              onPress={handleFollowToggle}
-              style={[
-                styles.primaryBtn,
-                (followed || followStatus === "pending") &&
-                  styles.primaryBtnActive,
-                loadingProfile && { opacity: 0.5 },
-              ]}
-            >
-              {loadingProfile ? (
-                <StateBlock inline loading loaderSize={18} />
-              ) : (
-                <>
-                  {followed ? (
-                    <Ionicons
-                      name="checkmark"
-                      size={16}
-                      color={colors.text.primary}
-                      style={{ marginRight: 6 }}
-                    />
-                  ) : followStatus === "pending" ? (
-                    <Ionicons
-                      name="time-outline"
-                      size={16}
-                      color={colors.text.primary}
-                      style={{ marginRight: 6 }}
-                    />
-                  ) : (
-                    <Ionicons
-                      name="person-add-outline"
-                      size={16}
-                      color="#fff"
-                      style={{ marginRight: 6 }}
-                    />
-                  )}
-                  <Text
-                    style={[
-                      styles.primaryBtnText,
-                      (followed || followStatus === "pending") &&
-                        styles.primaryBtnTextActive,
-                    ]}
-                  >
-                    {followed
-                      ? "Following"
-                      : followStatus === "pending"
-                        ? "Requested"
-                        : user?.privacy === "private"
-                          ? "Request to Follow"
-                          : "Follow"}
-                  </Text>
-                </>
-              )}
-            </TouchableOpacity>
-          )}
-
+        ) : (
           <TouchableOpacity
-            style={styles.shareBtn}
-            onPress={() => setQrModalVisible(true)}
+            style={styles.statItem}
+            onPress={() => openFollowList("followers")}
+          >
+            <Text style={styles.statVal}>
+              {(user?.followerCount || 0).toLocaleString()}
+            </Text>
+            <Text style={styles.statLabel}>Followers</Text>
+          </TouchableOpacity>
+        )}
+        {isLocked ? (
+          <View style={styles.statItem}>
+            <Text style={styles.statVal}>
+              {(user?.followingCount || 0).toLocaleString()}
+            </Text>
+            <Text style={styles.statLabel}>Following</Text>
+          </View>
+        ) : (
+          <TouchableOpacity
+            style={styles.statItem}
+            onPress={() => openFollowList("following")}
+          >
+            <Text style={styles.statVal}>
+              {(user?.followingCount || 0).toLocaleString()}
+            </Text>
+            <Text style={styles.statLabel}>Following</Text>
+          </TouchableOpacity>
+        )}
+        <View style={styles.statItem}>
+          <Text
+            numberOfLines={1}
+            adjustsFontSizeToFit
+            style={[styles.statVal, { color: colors.xpGold }]}
+          >
+            {user?.rank || "Beginner"}
+          </Text>
+          {/* Rank icon replaces the old "Rank" label text — the rank name
+                (Beginner/Pro/...) stays as the value, the icon sits below it. */}
+          <Ionicons
+            name="ribbon"
+            size={14}
+            color={colors.xpGold}
+            style={{ marginTop: 3 }}
+          />
+        </View>
+      </View>
+
+      <View style={styles.btnRow}>
+        {isOwnProfile ? (
+          <TouchableOpacity
+            style={styles.editBtn}
+            onPress={() => navigation.navigate("EditProfile")}
           >
             <Ionicons
-              name="qr-code-outline"
-              size={18}
-              color={colors.text.secondary}
+              name="pencil-outline"
+              size={14}
+              color={colors.text.primary}
             />
+            <Text style={styles.editBtnText}>Edit Profile</Text>
           </TouchableOpacity>
-        </View>
+        ) : (
+          <TouchableOpacity
+            disabled={loadingProfile}
+            onPress={handleFollowToggle}
+            style={[
+              styles.primaryBtn,
+              (followed || followStatus === "pending") &&
+                styles.primaryBtnActive,
+              loadingProfile && { opacity: 0.5 },
+            ]}
+          >
+            {loadingProfile ? (
+              <StateBlock inline loading loaderSize={18} />
+            ) : (
+              <>
+                {followed ? (
+                  <Ionicons
+                    name="checkmark"
+                    size={16}
+                    color={colors.text.primary}
+                    style={{ marginRight: 6 }}
+                  />
+                ) : followStatus === "pending" ? (
+                  <Ionicons
+                    name="time-outline"
+                    size={16}
+                    color={colors.text.primary}
+                    style={{ marginRight: 6 }}
+                  />
+                ) : (
+                  <Ionicons
+                    name="person-add-outline"
+                    size={16}
+                    color="#fff"
+                    style={{ marginRight: 6 }}
+                  />
+                )}
+                <Text
+                  style={[
+                    styles.primaryBtnText,
+                    (followed || followStatus === "pending") &&
+                      styles.primaryBtnTextActive,
+                  ]}
+                >
+                  {followed
+                    ? "Following"
+                    : followStatus === "pending"
+                      ? "Requested"
+                      : user?.privacy === "private"
+                        ? "Request to Follow"
+                        : "Follow"}
+                </Text>
+              </>
+            )}
+          </TouchableOpacity>
+        )}
+
+        {!isOwnProfile && (
+          <TouchableOpacity
+            style={styles.shareBtn}
+            onPress={handleBookmarkToggle}
+          >
+            <Ionicons name={isBookmarked ? "bookmark" : "bookmark-outline"} size={18} color={isBookmarked ? colors.primary : colors.text.secondary} />
+          </TouchableOpacity>
+        )}
+
+        <TouchableOpacity
+          style={styles.shareBtn}
+          onPress={() => setQrModalVisible(true)}
+        >
+          <Ionicons
+            name="qr-code-outline"
+            size={18}
+            color={colors.text.secondary}
+          />
+        </TouchableOpacity>
+      </View>
 
       {isOwnProfile && (user?.pendingRequestsCount || 0) > 0 && (
         <TouchableOpacity
@@ -1323,7 +1454,10 @@ export default function SharedProfile({
           </View>
           <View style={{ flex: 1 }}>
             <Text
-              style={[styles.requestsBannerTitle, { color: colors.text.primary }]}
+              style={[
+                styles.requestsBannerTitle,
+                { color: colors.text.primary },
+              ]}
             >
               Pending follow requests
             </Text>
@@ -1400,57 +1534,51 @@ export default function SharedProfile({
       {headerComponent}
 
       {isLocked ? (
-        <PullToRefreshWrapper {...refreshProps} >
+        <PullToRefreshWrapper {...refreshProps}>
           <ScrollView
             showsVerticalScrollIndicator={false}
             contentContainerStyle={{ paddingTop: headerHeight }}
           >
-          {profileHeader}
-          <View style={{ padding: 48, alignItems: "center", gap: 12 }}>
-            <View style={styles.lockCircle}>
-              <Ionicons name="lock-closed" size={32} color={colors.text.muted} />
-            </View>
-            <Text style={[styles.lockTitle, { color: colors.text.primary }]}>
-              This account is private
-            </Text>
-            <Text style={[styles.lockSub, { color: colors.text.muted }]}>
-              {followStatus === "pending"
-                ? "Your follow request is waiting for approval."
-                : `Follow @${user?.username || "user"} to see their posts and achievements.`}
-            </Text>
-          </View>
-          </ScrollView>
-        </PullToRefreshWrapper>
-      // Mentions tab — notification-style list (own profile only). Spinner on
-      // first load, paginated via onEndReached like the notifications screen.
-      ) : profileTab === 'mentions' ? (
-        loadingMentions && mentions.length === 0 ? (
-          <PullToRefreshWrapper {...refreshProps} >
-            <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingTop: headerHeight }}>
             {profileHeader}
-            <StateBlock loading style={{ paddingVertical: 40 }} />
-            </ScrollView>
-          </PullToRefreshWrapper>
-        ) : mentions.length === 0 ? (
-          <PullToRefreshWrapper {...refreshProps} >
-            <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingTop: headerHeight }}>
-            {profileHeader}
-            <View style={{ padding: 40, alignItems: "center" }}>
-              <Text style={{ color: colors.text.muted }}>
-                No mentions yet — when someone @mentions you, it shows up here.
+            <View style={{ padding: 48, alignItems: "center", gap: 12 }}>
+              <View style={styles.lockCircle}>
+                <Ionicons
+                  name="lock-closed"
+                  size={32}
+                  color={colors.text.muted}
+                />
+              </View>
+              <Text style={[styles.lockTitle, { color: colors.text.primary }]}>
+                This account is private
+              </Text>
+              <Text style={[styles.lockSub, { color: colors.text.muted }]}>
+                {followStatus === "pending"
+                  ? "Your follow request is waiting for approval."
+                  : `Follow @${user?.username || "user"} to see their posts and achievements.`}
               </Text>
             </View>
-            </ScrollView>
-          </PullToRefreshWrapper>
-        ) : (
-          <PullToRefreshWrapper {...refreshProps} >
-            <FlatList
-              ref={mentionsListRef}
-              data={mentions}
-              keyExtractor={(item: any) => String(item.id)}
-              showsVerticalScrollIndicator={false}
-              ListHeaderComponent={profileHeader}
-              contentContainerStyle={{ paddingTop: headerHeight, paddingBottom: 24 }}
+          </ScrollView>
+        </PullToRefreshWrapper>
+      ) : // Mentions tab — notification-style list (own profile only). Spinner on
+      // first load, paginated via onEndReached like the notifications screen.
+      profileTab === "mentions" ? (
+        <PullToRefreshWrapper {...refreshProps}>
+          <FlatList
+            ref={mentionsListRef}
+            data={mentions}
+            keyExtractor={(item: any) => String(item.id)}
+            showsVerticalScrollIndicator={false}
+            ListHeaderComponent={profileHeader}
+            contentContainerStyle={{
+              paddingTop: headerHeight,
+              paddingBottom: 24,
+              flexGrow: 1,
+            }}
+            contentOffset={
+              profileScrollOffset.current
+                ? { x: 0, y: profileScrollOffset.current }
+                : undefined
+            }
             onScroll={(e: any) => {
               profileScrollOffset.current = e.nativeEvent.contentOffset.y;
             }}
@@ -1459,42 +1587,52 @@ export default function SharedProfile({
             onEndReached={() => {
               if (hasMoreMentions && !loadingMoreMentions) {
                 setLoadingMoreMentions(true);
-                loadMentions(mentionPage + 1, true).finally(() => setLoadingMoreMentions(false));
+                loadMentions(mentionPage + 1, true).finally(() =>
+                  setLoadingMoreMentions(false),
+                );
               }
             }}
             onEndReachedThreshold={0.4}
+            ListEmptyComponent={
+              loadingMentions ? (
+                <StateBlock loading style={{ paddingVertical: 40 }} />
+              ) : (
+                <View
+                  style={{
+                    flex: 1,
+                    padding: 40,
+                    alignItems: "center",
+                    justifyContent: "center",
+                    minHeight: Dimensions.get("window").height - 150,
+                  }}
+                >
+                  <Ionicons
+                    name="at-circle-outline"
+                    size={48}
+                    color={colors.text.muted}
+                    style={{ marginBottom: 12, opacity: 0.5 }}
+                  />
+                  <Text
+                    style={{
+                      color: colors.text.muted,
+                      textAlign: "center",
+                      fontSize: 15,
+                    }}
+                  >
+                    No mentions yet. When someone @mentions you, it shows up
+                    here.
+                  </Text>
+                </View>
+              )
+            }
             ListFooterComponent={
-              loadingMoreMentions ? (
+              loadingMoreMentions && mentions.length > 0 ? (
                 <StateBlock inline loading style={{ paddingVertical: 14 }} />
               ) : (
                 <View style={{ height: 80 }} />
               )
             }
-            />
-          </PullToRefreshWrapper>
-        )
-      // Keep the feed list mounted during tab switches (only show the
-      // full-screen spinner on the very first load) so switching Posts ↔
-      // Reposts never resets the scroll position to the top of the page.
-      ) : loadingPosts && posts.length === 0 ? (
-        <PullToRefreshWrapper {...refreshProps} >
-          <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingTop: headerHeight }}>
-          {profileHeader}
-          <StateBlock loading style={{ paddingVertical: 40 }} />
-          </ScrollView>
-        </PullToRefreshWrapper>
-      ) : posts.length === 0 ? (
-        <PullToRefreshWrapper {...refreshProps} >
-          <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingTop: headerHeight }}>
-          {profileHeader}
-          <View style={{ padding: 40, alignItems: "center" }}>
-            <Text style={{ color: colors.text.muted }}>
-              {profileTab === "reposts"
-                ? "No reposts yet."
-                : "No posts yet — pull down to refresh."}
-            </Text>
-          </View>
-          </ScrollView>
+          />
         </PullToRefreshWrapper>
       ) : (
         <SharedFeed
@@ -1505,15 +1643,50 @@ export default function SharedProfile({
           refreshing={refreshing}
           onRefresh={onRefresh}
           ListHeaderComponent={profileHeader}
+          ListEmptyComponent={
+            loadingPosts ? (
+              <StateBlock loading style={{ paddingVertical: 40 }} />
+            ) : (
+              <View
+                style={{
+                  flex: 1,
+                  padding: 40,
+                  alignItems: "center",
+                  justifyContent: "center",
+                  minHeight: Dimensions.get("window").height - 150,
+                }}
+              >
+                <Ionicons
+                  name="document-text-outline"
+                  size={48}
+                  color={colors.text.muted}
+                  style={{ marginBottom: 12, opacity: 0.5 }}
+                />
+                <Text
+                  style={{
+                    color: colors.text.muted,
+                    textAlign: "center",
+                    fontSize: 15,
+                  }}
+                >
+                  {profileTab === "reposts"
+                    ? "No reposts yet."
+                    : "No posts yet."}
+                </Text>
+              </View>
+            )
+          }
           ListFooterComponent={<View style={{ height: 100 }} />}
-          contentContainerStyle={{ gap: 12 }}
+          contentContainerStyle={{ gap: 12, flexGrow: 1 }}
           // View counts are shown ONLY on the profile page, never in the
           // main feed / community feeds.
           showViews
           // Keep the header + tab bar at the same scroll spot when this list
           // remounts after a visit to the Mentions tab (it unmounts during
           // mentions, and a fresh mount starts at the top).
-          onScroll={(y) => { profileScrollOffset.current = y; }}
+          onScroll={(y) => {
+            profileScrollOffset.current = y;
+          }}
           initialScrollOffset={profileScrollOffset.current}
         />
       )}
@@ -1627,7 +1800,12 @@ export default function SharedProfile({
 
       {/* In-app browser for profile/bio links — stays inside the app */}
       {browserUrl && (
-        <View style={[StyleSheet.absoluteFill, { zIndex: 1000, backgroundColor: colors.bg.base }]}>
+        <View
+          style={[
+            StyleSheet.absoluteFill,
+            { zIndex: 1000, backgroundColor: colors.bg.base },
+          ]}
+        >
           <View
             style={{
               flexDirection: "row",
@@ -1651,7 +1829,10 @@ export default function SharedProfile({
             >
               {browserUrl.replace(/^https?:\/\//, "")}
             </Text>
-            <TouchableOpacity onPress={() => setBrowserUrl(null)} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
+            <TouchableOpacity
+              onPress={() => setBrowserUrl(null)}
+              hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+            >
               <Ionicons name="close" size={22} color={colors.text.secondary} />
             </TouchableOpacity>
           </View>
@@ -1660,10 +1841,13 @@ export default function SharedProfile({
             style={{ flex: 1 }}
             javaScriptEnabled
             domStorageEnabled
-            originWhitelist={['*']}
+            originWhitelist={["*"]}
             startInLoadingState
             renderLoading={() => (
-              <StateBlock loading style={{ flex: 1, justifyContent: "center" }} />
+              <StateBlock
+                loading
+                style={{ flex: 1, justifyContent: "center" }}
+              />
             )}
           />
         </View>
@@ -1698,36 +1882,48 @@ function FollowListModal({
   const [refreshing, setRefreshing] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
 
-  // Client-side filter for the search bar
-  const filteredUsers = React.useMemo(() => {
-    if (!searchQuery.trim()) return users;
-    const q = searchQuery.toLowerCase();
-    return users.filter(
-      (u: any) =>
-        (u.name || "").toLowerCase().includes(q) ||
-        (u.username || "").toLowerCase().includes(q)
-    );
-  }, [users, searchQuery]);
+  const [debouncedSearch, setDebouncedSearch] = useState("");
+
+  // Debounce search query so we don't spam the backend
+  useEffect(() => {
+    const t = setTimeout(() => setDebouncedSearch(searchQuery.trim()), 300);
+    return () => clearTimeout(t);
+  }, [searchQuery]);
 
   const fetchPage = React.useCallback(
-    async (nextPage: number, refresh = false) => {
+    async (nextPage: number, refresh = false, searchStr = debouncedSearch) => {
       const username = user?.username;
       if (!username) return;
-      setLoading(true);
+      if (!refresh) setLoading(true);
       try {
         const res =
           type === "followers"
-            ? await userService.getFollowers(username, nextPage, 20)
+            ? await userService.getFollowers(username, nextPage, 20, searchStr)
             : type === "following"
-              ? await userService.getFollowing(username, nextPage, 20)
-              : await userService.getMutuals(username, nextPage, 20);
+              ? await userService.getFollowing(
+                  username,
+                  nextPage,
+                  20,
+                  searchStr,
+                )
+              : await userService.getMutuals(username, nextPage, 20, searchStr);
         const rows = res?.data || [];
         const meta = res?.meta;
         // Server returns page*limit sized pages → more exists when a full page
         // came back (meta.hasNext is the authoritative signal when present).
         setHasMore(meta ? !!meta.hasNext : rows.length === 20);
         setUsers((prev) =>
-          refresh ? rows : [...prev, ...rows.filter((r: any) => !prev.some((p: any) => (p.id || p.user_id) === (r.id || r.user_id)))],
+          refresh
+            ? rows
+            : [
+                ...prev,
+                ...rows.filter(
+                  (r: any) =>
+                    !prev.some(
+                      (p: any) => (p.id || p.user_id) === (r.id || r.user_id),
+                    ),
+                ),
+              ],
         );
         setPage(nextPage);
       } catch (e) {
@@ -1740,16 +1936,16 @@ function FollowListModal({
     [type, user?.username],
   );
 
-  // Reset + fetch the first page when opened (or when the target changes).
+  // Reset + fetch the first page when opened (or when the target/search changes).
   React.useEffect(() => {
     if (visible) {
       setUsers(source);
       setPage(1);
       setHasMore(false);
-      fetchPage(1, true);
+      fetchPage(1, true, debouncedSearch);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [visible, type, user?.username]);
+  }, [visible, type, user?.username, debouncedSearch]);
 
   const handleUnfollow = async (targetUsername: string) => {
     try {
@@ -1776,132 +1972,179 @@ function FollowListModal({
   if (!visible) return null;
 
   return (
-    <View style={[StyleSheet.absoluteFill, { zIndex: 999 }]}>
-      <View style={styles.modalContainer}>
-        <View style={styles.modalContent}>
-          <View style={styles.modalHeader}>
-            <Text style={styles.modalTitle}>
-              {type === "followers"
-                ? "Followers"
-                : type === "mutuals"
-                  ? "Mutuals"
-                  : "Following"}
-            </Text>
-            <TouchableOpacity onPress={onClose}>
-              <Ionicons name="close" size={24} color={colors.text.secondary} />
-            </TouchableOpacity>
-          </View>
-
-          {/* Search bar */}
-          <View style={{ flexDirection: "row", alignItems: "center", backgroundColor: colors.bg.elevated, borderRadius: 12, paddingHorizontal: 12, marginBottom: 12 }}>
-            <Ionicons name="search" size={18} color={colors.text.muted} />
-            <TextInput
-              style={{ flex: 1, paddingVertical: 10, paddingHorizontal: 8, color: colors.text.primary, fontSize: 14 }}
-              placeholder={`Search ${type === "followers" ? "followers" : type === "mutuals" ? "mutuals" : "following"}...`}
-              placeholderTextColor={colors.text.muted}
-              value={searchQuery}
-              onChangeText={setSearchQuery}
-              autoCorrect={false}
-            />
-            {searchQuery.length > 0 && (
-              <TouchableOpacity onPress={() => setSearchQuery("")}>
-                <Ionicons name="close-circle" size={18} color={colors.text.muted} />
+    <Modal
+      visible={visible}
+      transparent
+      animationType="fade"
+      onRequestClose={onClose}
+    >
+      <KeyboardAvoidingView
+        behavior={Platform.OS === "ios" ? "height" : undefined}
+        style={{ flex: 1 }}
+      >
+        <View style={styles.modalContainer}>
+          <View style={styles.modalContent}>
+            <View style={styles.modalHeader}>
+              <Text style={styles.modalTitle}>
+                {type === "followers"
+                  ? "Followers"
+                  : type === "mutuals"
+                    ? "Mutuals"
+                    : "Following"}
+              </Text>
+              <TouchableOpacity onPress={onClose}>
+                <Ionicons
+                  name="close"
+                  size={24}
+                  color={colors.text.secondary}
+                />
               </TouchableOpacity>
-            )}
-          </View>
+            </View>
 
-          {loading ? (
-            <Text
+            {/* Search bar */}
+            <View
               style={{
-                color: colors.text.muted,
-                textAlign: "center",
-                padding: 20,
+                flexDirection: "row",
+                alignItems: "center",
+                backgroundColor: colors.bg.elevated,
+                borderRadius: 12,
+                paddingHorizontal: 12,
+                marginBottom: 12,
               }}
             >
-              Loading...
-            </Text>
-          ) : users.length === 0 ? (
-            <Text
-              style={{
-                color: colors.text.muted,
-                textAlign: "center",
-                padding: 20,
-              }}
-            >
-              No one here yet.
-            </Text>
-          ) : (
-            <FlatList
-              data={filteredUsers}
-              keyExtractor={(item, index) => item.id || item.user_id || String(index)}
-              onEndReached={() => {
-                if (hasMore && !loading && !searchQuery.trim()) fetchPage(page + 1);
-              }}
-              onEndReachedThreshold={0.4}
-              refreshing={refreshing}
-              onRefresh={() => {
-                setRefreshing(true);
-                fetchPage(1, true);
-              }}
-              contentContainerStyle={{ paddingBottom: 20 }}
-              ListFooterComponent={
-                loading && users.length > 0 ? (
-                  <StateBlock inline loading style={{ paddingVertical: 14 }} />
-                ) : null
-              }
-              renderItem={({ item }) => (
-                <TouchableOpacity
-                  style={styles.userRow}
-                  onPress={() => {
-                    onClose();
-                    navigation.push("UserProfile", { user: item });
-                  }}
-                >
-                  <View style={styles.userInfo}>
-                    <View style={{ position: "relative" }}>
-                      <View style={styles.userAvatar}>
-                        {item.avatarUrl || item.avatar_url || item.avatar ? (
-                          <Image
-                            source={{ uri: item.avatarUrl || item.avatar_url || item.avatar }}
-                            style={{ width: "100%", height: "100%" }}
-                          />
-                        ) : (
-                          <Text style={{ fontSize: 20 }}>👾</Text>
-                        )}
-                      </View>
-                      <ActiveStatusDot userId={item.id || item.user_id} size={13} />
-                    </View>
-                    <View>
-                      <Text style={styles.userName}>
-                        {item.name || item.username}
-                      </Text>
-                      <Text style={styles.userHandle}>@{item.username}</Text>
-                    </View>
-                  </View>
-                  {(type === "following" || type === "mutuals") && (
-                    // Mutuals are, by definition, people the viewer already
-                    // follows — offer Unfollow right from the list.
-                    <TouchableOpacity
-                      style={styles.unfollowBtn}
-                      onPress={() => handleUnfollow(item.username)}
-                    >
-                      <Text style={styles.unfollowBtnText}>Unfollow</Text>
-                    </TouchableOpacity>
-                  )}
-                  {isOwnProfile && type === "followers" && (
-                    <TouchableOpacity
-                      style={styles.unfollowBtn}
-                      onPress={() => handleRemoveFollower(item.username)}
-                    >
-                      <Text style={styles.unfollowBtnText}>Remove</Text>
-                    </TouchableOpacity>
-                  )}
+              <Ionicons name="search" size={18} color={colors.text.muted} />
+              <TextInput
+                style={{
+                  flex: 1,
+                  paddingVertical: 10,
+                  paddingHorizontal: 8,
+                  color: colors.text.primary,
+                  fontSize: 14,
+                }}
+                placeholder={`Search ${type === "followers" ? "followers" : type === "mutuals" ? "mutuals" : "following"}...`}
+                placeholderTextColor={colors.text.muted}
+                value={searchQuery}
+                onChangeText={setSearchQuery}
+                autoCorrect={false}
+              />
+              {searchQuery.length > 0 && (
+                <TouchableOpacity onPress={() => setSearchQuery("")}>
+                  <Ionicons
+                    name="close-circle"
+                    size={18}
+                    color={colors.text.muted}
+                  />
                 </TouchableOpacity>
               )}
-            />
-          )}
+            </View>
+
+            {loading ? (
+              <Text
+                style={{
+                  color: colors.text.muted,
+                  textAlign: "center",
+                  padding: 20,
+                }}
+              >
+                Loading...
+              </Text>
+            ) : users.length === 0 ? (
+              <Text
+                style={{
+                  color: colors.text.muted,
+                  textAlign: "center",
+                  padding: 20,
+                }}
+              >
+                No one here yet.
+              </Text>
+            ) : (
+              <FlatList
+                data={users}
+                keyExtractor={(item, index) =>
+                  item.id || item.user_id || String(index)
+                }
+                onEndReached={() => {
+                  if (hasMore && !loading) fetchPage(page + 1);
+                }}
+                onEndReachedThreshold={0.4}
+                refreshing={refreshing}
+                onRefresh={() => {
+                  setRefreshing(true);
+                  fetchPage(1, true, debouncedSearch);
+                }}
+                contentContainerStyle={{ paddingBottom: 20 }}
+                ListFooterComponent={
+                  loading && users.length > 0 ? (
+                    <StateBlock
+                      inline
+                      loading
+                      style={{ paddingVertical: 14 }}
+                    />
+                  ) : null
+                }
+                renderItem={({ item }) => (
+                  <TouchableOpacity
+                    style={styles.userRow}
+                    onPress={() => {
+                      onClose();
+                      navigation.push("UserProfile", { user: item });
+                    }}
+                  >
+                    <View style={styles.userInfo}>
+                      <View style={{ position: "relative" }}>
+                        <View style={styles.userAvatar}>
+                          {item.avatarUrl || item.avatar_url || item.avatar ? (
+                            <Image
+                              source={{
+                                uri:
+                                  item.avatarUrl ||
+                                  item.avatar_url ||
+                                  item.avatar,
+                              }}
+                              style={{ width: "100%", height: "100%" }}
+                            />
+                          ) : (
+                            <Text style={{ fontSize: 20 }}>👾</Text>
+                          )}
+                        </View>
+                        <ActiveStatusDot
+                          userId={item.id || item.user_id}
+                          size={13}
+                        />
+                      </View>
+                      <View>
+                        <Text style={styles.userName}>
+                          {item.name || item.username}
+                        </Text>
+                        <Text style={styles.userHandle}>@{item.username}</Text>
+                      </View>
+                    </View>
+                    {(type === "following" || type === "mutuals") && (
+                      // Mutuals are, by definition, people the viewer already
+                      // follows — offer Unfollow right from the list.
+                      <TouchableOpacity
+                        style={styles.unfollowBtn}
+                        onPress={() => handleUnfollow(item.username)}
+                      >
+                        <Text style={styles.unfollowBtnText}>Unfollow</Text>
+                      </TouchableOpacity>
+                    )}
+                    {isOwnProfile && type === "followers" && (
+                      <TouchableOpacity
+                        style={styles.unfollowBtn}
+                        onPress={() => handleRemoveFollower(item.username)}
+                      >
+                        <Text style={styles.unfollowBtnText}>Remove</Text>
+                      </TouchableOpacity>
+                    )}
+                  </TouchableOpacity>
+                )}
+              />
+            )}
+          </View>
         </View>
-      </View>
-    </View>
+      </KeyboardAvoidingView>
+    </Modal>
   );
 }

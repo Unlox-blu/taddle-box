@@ -9,23 +9,26 @@ class BookmarkController {
   }
 
   // GET /bookmark?page=&limit=
+  // Directly queries the bookmark table — bypasses the search engine's
+  // visibility/privacy filters so bookmarked items always appear.
   getBookmarks = async (req, res, next) => {
     try {
       const userId = req.userId;
       const { limit, offset, page } = getPaginationParams(req.query);
-      const { type } = req.query;
-      const { searchService } = require('../search/search.container');
-      const result = await searchService.universalSearch({
-        scope: 'bookmarks',
-        type: type || 'all',
+      const result = await this.bookmarkSvc.getBookmarks({
+        userId,
         limit,
         offset,
-        page,
-        userId,
       });
-      // The search API already returns { dataType, data, total, hasNext }
-      // The frontend expects the paginated results list directly in the response
-      res.json(apiResponse(result.data, 'Bookmarks fetched successfully', paginationMeta(result.total, page, limit)));
+      // Return results in the same shape the frontend expects:
+      // { results: [...], types: [...] }
+      res.json(
+        apiResponse(
+          { results: result.bookmark, types: [] },
+          'Bookmarks fetched successfully',
+          paginationMeta(result.total, page, limit),
+        ),
+      );
     } catch (error) {
       next(error);
     }

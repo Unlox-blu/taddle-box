@@ -189,6 +189,7 @@ const findProfileBookmarks = async ({ userId, limit, offset }) => {
           u.bio,
           u.privacy,
           u.avatar_url,
+          um.cloudfront_url AS avatar_cloudfront_url,
           (SELECT COUNT(*) FROM followers f WHERE f.following_id = u.id) AS follower_count,
           (SELECT COUNT(*) FROM posts p WHERE p.author_id = u.id AND p.deleted_at IS NULL AND p.status = 'published') AS post_count,
           EXISTS(SELECT 1 FROM followers f WHERE f.follower_id = $1 AND f.following_id = u.id) AS is_following,
@@ -233,9 +234,10 @@ const findCommunityBookmarks = async ({ userId, limit, offset }) => {
           c.category,
           c.privacy,
           c.avatar_url,
-          (SELECT COUNT(*) FROM community_members cm WHERE cm.community_id = c.id) AS member_count,
+          cm.avatar_cloudfront_url,
+          (SELECT COUNT(*) FROM community_members cm2 WHERE cm2.community_id = c.id) AS member_count,
           (SELECT COUNT(*) FROM posts p WHERE p.community_id = c.id AND p.deleted_at IS NULL AND p.status = 'published') AS post_count,
-          EXISTS(SELECT 1 FROM community_members cm WHERE cm.community_id = c.id AND cm.user_id = $1) AS is_member,
+          EXISTS(SELECT 1 FROM community_members cm3 WHERE cm3.community_id = c.id AND cm3.user_id = $1) AS is_member,
           b.created_at AS bookmarked_at,
           COUNT(*) OVER() AS total
 
@@ -244,7 +246,7 @@ const findCommunityBookmarks = async ({ userId, limit, offset }) => {
       JOIN ${BookmarkModel.COMMUNITY_TABLE} c
           ON c.id = b.source_id
 
-      LEFT JOIN ${BookmarkModel.MEDIA_TABLE} cm
+      LEFT JOIN (SELECT id, cloudfront_url AS avatar_cloudfront_url FROM ${BookmarkModel.MEDIA_TABLE}) cm
           ON cm.id = c.avatar_url
 
       WHERE b.user_id = $1

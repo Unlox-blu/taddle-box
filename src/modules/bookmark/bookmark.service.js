@@ -32,15 +32,24 @@ class BookmarkService {
     return this.bookmarkRepo.exists(userId, itemType, itemId);
   }
 
-  // ── Get bookmarks by type ──────────────────────────────────────────────
+  // ── Get bookmarks (all types, sorted by created_at DESC) ──────────────
 
-  async getBookmarks({ userId, itemType = 'post', limit, offset }) {
-    const { bookmark, total } = await this.bookmarkRepo.findByUserId({
-      userId,
-      itemType,
-      limit,
-      offset,
-    });
+  async getBookmarks({ userId, limit, offset }) {
+    // Fetch all types in parallel, then merge + sort by bookmark date.
+    const types = ['post', 'profile', 'community'];
+    const results = await Promise.all(
+      types.map((t) =>
+        this.bookmarkRepo.findByUserId({ userId, itemType: t, limit: limit * 2, offset: 0 })
+          .then(({ bookmark }) => bookmark.map((b) => ({ ...b, itemType: t })))
+          .catch(() => []),
+      ),
+    );
+    // Flatten, sort by bookmark date (newest first), apply pagination.
+    const all = results
+      .flat()
+      .sort((a, b) => new Date(b.bookmarkedAt || b.publishedAt || 0) - new Date(a.bookmarkedAt || a.publishedAt || 0));
+    const total = all.length;
+    const bookmark = all.slice(offset, offset + limit);
     return { bookmark, total };
   }
 

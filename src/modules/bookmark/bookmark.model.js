@@ -67,16 +67,20 @@ const formatPost = (row) => {
 // ── Profile bookmark formatter ──────────────────────────────────────────────
 const formatProfile = (row) => {
   if (!row) return null;
+  const avatar = row.avatar_cloudfront_url || row.avatar_url || null;
   return {
     id: row.id,
     name: row.name || row.username,
     username: row.username,
-    avatarUrl: row.avatar_url?.cloudfront_url || null,
+    avatarUrl: avatar,
+    avatar: avatar,
     bio: row.bio || '',
     level: row.level || 1,
     rank: row.rank || 'Beginner',
     privacy: row.privacy || 'public',
+    follower_count: row.follower_count ?? 0,
     followerCount: row.follower_count ?? 0,
+    post_count: row.post_count ?? 0,
     postCount: row.post_count ?? 0,
     isFollowing: row.is_following || false,
     bookmarkedAt: row.bookmarked_at,
@@ -86,6 +90,7 @@ const formatProfile = (row) => {
 // ── Community bookmark formatter ────────────────────────────────────────────
 const formatCommunity = (row) => {
   if (!row) return null;
+  const avatar = row.avatar_cloudfront_url || row.avatar_url || null;
   return {
     id: row.id,
     name: row.name,
@@ -93,9 +98,12 @@ const formatCommunity = (row) => {
     description: row.description || '',
     category: row.category || '',
     privacy: row.privacy || 'public',
+    member_count: row.member_count ?? 0,
     memberCount: row.member_count ?? 0,
+    post_count: row.post_count ?? 0,
     postCount: row.post_count ?? 0,
-    avatarUrl: row.avatar_url?.cloudfront_url || null,
+    avatarUrl: avatar,
+    avatar: avatar,
     isMember: row.is_member || false,
     bookmarkedAt: row.bookmarked_at,
   };

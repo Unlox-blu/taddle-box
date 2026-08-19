@@ -11,7 +11,7 @@ const { NOTIFICATION_TYPE_BUCKETS } = require('../notification/notification.cons
 const UNIVERSAL_TYPES = ['posts', 'polls', 'comments', 'media', 'people', 'communities', 'text'];
 // Saved-content (bookmarked) mode — only content the user saved: posts,
 // comments/media on those posts, and their saved events.
-const BOOKMARKED_TYPES = ['posts', 'comments', 'media', 'events'];
+const BOOKMARKED_TYPES = ['posts', 'comments', 'media', 'events', 'people', 'communities'];
 // Discovery (empty query) keeps the classic section feel — people/communities/
 // events/games first, then posts.
 const DISCOVERY_TYPES = ['people', 'communities', 'events', 'games', 'posts', 'text'];
@@ -44,7 +44,7 @@ const pill = (type, count) => ({
   ...(count !== undefined ? { count } : {}),
 });
 // Discovery inside Bookmarks — just the user's saved posts and events.
-const DISCOVERY_BOOKMARKED_TYPES = ['posts', 'events'];
+const DISCOVERY_BOOKMARKED_TYPES = ['people', 'communities', 'posts', 'events'];
 
 // Parses the combined `filter` query param into its scoped parts. Accepts
 // comma-separated tokens, optionally wrapped in [ ]:
@@ -122,6 +122,7 @@ class SearchService {
   // a flat, ordered `results` array that may mix posts, comments, media,
   // people, communities and text rows — the client renders it verbatim.
   async universalSearch({
+    scope = 'global',
     q,
     sort = 'relevance',
     time = 'all_time',
@@ -131,8 +132,6 @@ class SearchService {
     limit = 10,
     offset = 0,
     userId = null,
-    bookmarked = null,
-    notified = null,
   }) {
     try {
       const query = String(q || '').trim();
@@ -141,14 +140,15 @@ class SearchService {
       const sortBy = sort;
       const timeCutoff = timeToCutoff(time);
       const requestedType = normalizeUniversalType(type);
-      const bm = bookmarked === true || bookmarked === '1' || bookmarked === 1;
+      const isBookmarks = scope === 'bookmarks';
+      const isNotifications = scope === 'notifications';
+      const bm = isBookmarks;
       // Notifications scope — notifications go through the SAME unified
       // search API as bookmarks (notified=1), grouped into the three stored-
       // type buckets with server-owned ordering + pills.
-      const isNotifications =
-        notified === true || notified === '1' || notified === 1;
       const isDiscovery =
         !isNotifications &&
+        !bm &&
         !query &&
         communities.length === 0 &&
         people.length === 0 &&
@@ -284,11 +284,11 @@ class SearchService {
               // A person filter (@user) already scopes content to those people
               // — searching for people themselves is redundant.
               if (people.length) return { rows: [], total: 0 };
-              if (isDiscovery) {
+              if (isDiscovery && !bm) {
                 const d = await this.discoverPeople({ userId, page, limit: lmt, offset: off });
                 return { rows: d.data, total: d.total };
               }
-              const { rows, total } = await this.searchRepo.searchUser(query, lmt, off);
+              const { rows, total } = await this.searchRepo.searchUser(query, lmt, off, userId, bm ? true : null);
               return { rows, total };
             }
             case 'communities': {
@@ -296,7 +296,7 @@ class SearchService {
               // communities — searching for the communities themselves is
               // redundant.
               if (communities.length) return { rows: [], total: 0 };
-              if (isDiscovery) {
+              if (isDiscovery && !bm) {
                 const d = await this.discoverCommunity({ userId, page, limit: lmt, offset: off });
                 return { rows: d.data, total: d.total };
               }
@@ -304,7 +304,9 @@ class SearchService {
                 query,
                 null,
                 lmt,
-                off
+                off,
+                userId,
+                bm ? true : null
               );
               return { rows, total };
             }

@@ -97,9 +97,10 @@ class UserController {
   getMutuals = async (req, res, next) => {
     try {
       const { limit, offset, page } = getPaginationParams(req.query);
+      const { search } = req.query;
       const viewerId = req.userId;
       const { username } = req.params;
-      const { users, total } = await this.userSvc.getMutuals({ viewerId, username, limit, offset });
+      const { users, total } = await this.userSvc.getMutuals({ viewerId, username, limit, offset, search });
       res.json(apiResponse(users, 'Mutuals fetched successfully', paginationMeta(total, page, limit)));
     } catch (error) {
       next(error);
@@ -109,9 +110,10 @@ class UserController {
   getFollowers = async (req, res, next) => {
     try {
       const { limit, offset, page } = getPaginationParams(req.query);
+      const { search } = req.query;
       const userId = req.userId;
       const { username } = req.params;
-      const { followers, total } = await this.userSvc.getFollowers({userId, username, limit, offset});
+      const { followers, total } = await this.userSvc.getFollowers({userId, username, limit, offset, search});
       res.json(apiResponse(followers, 'Followers fetched successfully', paginationMeta(total, page, limit)));
     } catch (error) {
       next(error);
@@ -121,9 +123,10 @@ class UserController {
   getFollowing = async (req, res, next) => {
     try {
       const { limit, offset, page } = getPaginationParams(req.query);
+      const { search } = req.query;
       const userId = req.userId;
       const { username } = req.params;
-      const { followings, total } = await this.userSvc.getFollowing({userId, username, limit, offset});
+      const { followings, total } = await this.userSvc.getFollowing({userId, username, limit, offset, search});
       res.json(apiResponse(followings, 'Followings fetched successfully', paginationMeta(total, page, limit)));
     } catch (error) {
       next(error);

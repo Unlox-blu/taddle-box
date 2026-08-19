@@ -7,8 +7,9 @@ const PostModel = require('./post.model');
 // Paginated list of users who liked a post, with the viewer's follow state
 // on each liker (so the app can render Follow/Unfollow buttons in the list).
 // Returns { rows, total } where rows are raw liker rows.
-const findLikers = async (postId, currentUserId, limit, offset) => {
+const findLikers = async (postId, currentUserId, limit, offset, search = '') => {
   try {
+    const q = search ? `%${search}%` : '';
     const { rows } = await pool.query(
       `SELECT
           u.id,
@@ -35,9 +36,10 @@ const findLikers = async (postId, currentUserId, limit, offset) => {
        LEFT JOIN media AS avatar_media ON avatar_media.id = u.avatar_url
        WHERE pl.post_id = $1
          AND u.deleted_at IS NULL
+         AND ($5 = '' OR u.username ILIKE $5 OR u.name ILIKE $5)
        ORDER BY pl.created_at DESC
        LIMIT $3 OFFSET $4`,
-      [postId, currentUserId, limit, offset]
+      [postId, currentUserId, limit, offset, q]
     );
     const total = rows[0]?.total || 0;
     return { rows, total: parseInt(total, 10) };
@@ -49,8 +51,9 @@ const findLikers = async (postId, currentUserId, limit, offset) => {
 // Paginated list of users who reposted a post (a repost is a post row whose
 // repost_of_id points at the original). Same response shape as findLikers so
 // the app can reuse the same users-list modal for both.
-const findReposters = async (postId, currentUserId, limit, offset) => {
+const findReposters = async (postId, currentUserId, limit, offset, search = '') => {
   try {
+    const q = search ? `%${search}%` : '';
     // MULTIPLE-REPOST semantics: one user can hold several repost rows of the
     // same post, so the list DEDUPES by user (newest repost wins) and the
     // total counts distinct users — a triple-reposter appears once, not thrice.
@@ -84,12 +87,13 @@ const findReposters = async (postId, currentUserId, limit, offset) => {
          WHERE rp.repost_of_id = $1
            AND rp.deleted_at IS NULL
            AND u.deleted_at IS NULL
+           AND ($5 = '' OR u.username ILIKE $5 OR u.name ILIKE $5)
          ORDER BY rp.author_id, rp.created_at DESC
        ) sub
        LEFT JOIN media AS avatar_media ON avatar_media.id = sub.avatar_url
        ORDER BY sub.last_reposted_at DESC
        LIMIT $3 OFFSET $4`,
-      [postId, currentUserId, limit, offset]
+      [postId, currentUserId, limit, offset, q]
     );
     const total = rows[0]?.total || 0;
     return { rows, total: parseInt(total, 10) };
@@ -102,8 +106,9 @@ const findReposters = async (postId, currentUserId, limit, offset) => {
 // viewer's follow state (active follow + pending request) and each voter's
 // privacy — the same shape as findLikers so the app reuses the users-list
 // modal. Returns { rows, total }.
-const findPollVoters = async (postId, optionIndex, currentUserId, limit, offset) => {
+const findPollVoters = async (postId, optionIndex, currentUserId, limit, offset, search = '') => {
   try {
+    const q = search ? `%${search}%` : '';
     const { rows } = await pool.query(
       `SELECT
           u.id,
@@ -129,9 +134,10 @@ const findPollVoters = async (postId, optionIndex, currentUserId, limit, offset)
        WHERE pv.post_id = $1
          AND pv.option_index = $2
          AND u.deleted_at IS NULL
+         AND ($6 = '' OR u.username ILIKE $6 OR u.name ILIKE $6)
        ORDER BY pv.created_at DESC
        LIMIT $4 OFFSET $5`,
-      [postId, optionIndex, currentUserId, limit, offset]
+      [postId, optionIndex, currentUserId, limit, offset, q]
     );
     const total = rows[0]?.total || 0;
     return { rows, total: parseInt(total, 10) };
@@ -146,7 +152,7 @@ const findById = async (postId, currentUserId = null) => {
       `SELECT 
         ${PostModel.LIST_FIELDS},
         EXISTS(SELECT 1 FROM post_likes pl WHERE pl.post_id = p.id AND pl.user_id = $2) AS is_liked,
-        EXISTS(SELECT 1 FROM bookmark bm WHERE bm.post_id = p.id AND bm.user_id = $2) AS is_bookmarked,
+        EXISTS(SELECT 1 FROM bookmark bm WHERE bm.source_id = p.id AND bm.source_type = 'post' AND bm.user_id = $2) AS is_bookmarked,
         EXISTS(
           SELECT 1 FROM xp_transactions xt
           WHERE xt.xp_id = (SELECT id FROM xp WHERE user_id = $2 LIMIT 1)
@@ -214,7 +220,7 @@ const findManyByUser = async (authorId, limit, offset, currentUserId = null, typ
       `SELECT 
         ${PostModel.LIST_FIELDS},
         EXISTS(SELECT 1 FROM post_likes pl WHERE pl.post_id = p.id AND pl.user_id = $4) AS is_liked,
-        EXISTS(SELECT 1 FROM bookmark bm WHERE bm.post_id = p.id AND bm.user_id = $4) AS is_bookmarked,
+        EXISTS(SELECT 1 FROM bookmark bm WHERE bm.source_id = p.id AND bm.source_type = 'post' AND bm.user_id = $4) AS is_bookmarked,
         EXISTS(
           SELECT 1 FROM xp_transactions xt
           WHERE xt.xp_id = (SELECT id FROM xp WHERE user_id = $4 LIMIT 1)
@@ -278,7 +284,7 @@ const findManyByCommunity = async (communityId, limit, offset, currentUserId = n
     const { rows } = await pool.query(
       `SELECT ${PostModel.LIST_FIELDS}, 
         EXISTS(SELECT 1 FROM post_likes pl WHERE pl.post_id = p.id AND pl.user_id = $4) AS is_liked,
-        EXISTS(SELECT 1 FROM bookmark bm WHERE bm.post_id = p.id AND bm.user_id = $4) AS is_bookmarked,
+        EXISTS(SELECT 1 FROM bookmark bm WHERE bm.source_id = p.id AND bm.source_type = 'post' AND bm.user_id = $4) AS is_bookmarked,
         EXISTS(
           SELECT 1 FROM xp_transactions xt
           WHERE xt.xp_id = (SELECT id FROM xp WHERE user_id = $4 LIMIT 1)
@@ -604,7 +610,7 @@ const search = async (query, limit, offset, currentUserId = null) => {
     const { rows } = await pool.query(
       `SELECT ${PostModel.LIST_FIELDS}, COUNT(*) OVER() AS total,
         EXISTS(SELECT 1 FROM post_likes pl WHERE pl.post_id = p.id AND pl.user_id = $4) AS is_liked,
-        EXISTS(SELECT 1 FROM bookmark bm WHERE bm.post_id = p.id AND bm.user_id = $4) AS is_bookmarked,
+        EXISTS(SELECT 1 FROM bookmark bm WHERE bm.source_id = p.id AND bm.source_type = 'post' AND bm.user_id = $4) AS is_bookmarked,
         EXISTS(
           SELECT 1 FROM xp_transactions xt
           WHERE xt.xp_id = (SELECT id FROM xp WHERE user_id = $4 LIMIT 1)

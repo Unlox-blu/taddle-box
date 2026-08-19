@@ -139,8 +139,9 @@ class CommunityController {
     try {
       const { communityId } = req.params;
       const userId = req.userId;
+      const { search } = req.query;
       const { limit, offset, page } = getPaginationParams(req.query);
-      const { rows, total, ownerId, viewerRole } = await this.communitySvc.getMembers({ communityId, userId, limit, offset });
+      const { rows, total, ownerId, viewerRole } = await this.communitySvc.getMembers({ communityId, userId, limit, offset, search });
       // ownerId + viewerRole ride alongside so the app can show the right
       // per-member actions (make/remove admin, transfer ownership, kick).
       res.json({ ...apiResponse(rows, 'Members fetched', paginationMeta(total, page, limit)), ownerId, viewerRole });

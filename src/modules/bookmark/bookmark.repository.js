@@ -3,50 +3,52 @@
 const pool = require('../../config/database');
 const BookmarkModel = require('./bookmark.model');
 
-const create = async (userId, postId) => {
-    try {
-        await pool.query(
-            `INSERT INTO ${BookmarkModel.BOOKMARK_TABLE}
-            (user_id, post_id)
-            VALUES($1, $2)
-            `,
-            [userId, postId]
-        )
-    } catch (error) {
-        throw error
-    }
-}
+// ── Generic CRUD ────────────────────────────────────────────────────────────
 
-const findByUserIdAndPostId = async (userId, postId) => {
-    try {
-        const {rows} = await pool.query(
-            `SELECT 1 FROM ${BookmarkModel.BOOKMARK_TABLE}
-            WHERE user_id = $1 AND post_id = $2
-            `,
-            [userId, postId]
-        )
-        return rows.length > 0
-    } catch (error) {
-        throw error
-    }
-}
+const create = async (userId, itemType, itemId) => {
+  try {
+    await pool.query(
+      `INSERT INTO ${BookmarkModel.BOOKMARK_TABLE}
+        (user_id, source_type, source_id)
+       VALUES ($1, $2, $3)
+       ON CONFLICT (user_id, source_type, source_id) DO NOTHING`,
+      [userId, itemType, itemId],
+    );
+  } catch (error) {
+    throw error;
+  }
+};
 
-const hardDelete = async (userId, postId) => {
+const exists = async (userId, itemType, itemId) => {
+  try {
+    const { rows } = await pool.query(
+      `SELECT 1 FROM ${BookmarkModel.BOOKMARK_TABLE}
+       WHERE user_id = $1 AND source_type = $2 AND source_id = $3`,
+      [userId, itemType, itemId],
+    );
+    return rows.length > 0;
+  } catch (error) {
+    throw error;
+  }
+};
+
+const hardDelete = async (userId, itemType, itemId) => {
   try {
     await pool.query(
       `DELETE FROM ${BookmarkModel.BOOKMARK_TABLE}
-      WHERE user_id = $1 AND post_id = $2
-      `,
-      [userId, postId]
-    )
+       WHERE user_id = $1 AND source_type = $2 AND source_id = $3`,
+      [userId, itemType, itemId],
+    );
   } catch (error) {
-    throw error
+    throw error;
   }
-}
+};
 
-const findByUserId = async ({userId, limit, offset}) => {
+// ── Post bookmarks (existing detailed query) ────────────────────────────────
+
+const findPostBookmarks = async ({ userId, limit, offset }) => {
   try {
-    const {rows} = await pool.query(
+    const { rows } = await pool.query(
       `
       SELECT
           p.id,
@@ -62,26 +64,21 @@ const findByUserId = async ({userId, limit, offset}) => {
           p.shares_count,
           p.views_count,
           p.poll_data,
-          -- Location: repost rows have none — fall back to the original's.
           COALESCE(orig.latitude,  p.latitude)  AS latitude,
           COALESCE(orig.longitude, p.longitude) AS longitude,
           COALESCE(orig.place,     p.place)     AS place,
           p.published_at,
 
-          -- Viewer state
           EXISTS(SELECT 1 FROM post_likes pl WHERE pl.post_id = p.id AND pl.user_id = $1) AS is_liked,
           EXISTS(
             SELECT 1 FROM posts rp
             WHERE rp.repost_of_id = p.id AND rp.author_id = $1 AND rp.deleted_at IS NULL
           ) AS is_reposted,
-          -- Which poll option the viewing user voted for — bookmark cards
-          -- highlight their saved selection like feed cards do.
           (
             SELECT pv.option_index FROM poll_votes pv
             WHERE pv.post_id = p.id AND pv.user_id = $1 LIMIT 1
           ) AS my_poll_vote,
 
-          -- Author
           json_build_object(
               'id', u.id,
               'name', u.name,
@@ -90,13 +87,10 @@ const findByUserId = async ({userId, limit, offset}) => {
               'avatar_url',
                   CASE
                       WHEN u.avatar_url IS NULL THEN NULL
-                      ELSE json_build_object(
-                          'cloudfront_url', ua.cloudfront_url
-                      )
+                      ELSE json_build_object('cloudfront_url', ua.cloudfront_url)
                   END
           ) AS author,
 
-          -- Community
           CASE
               WHEN c.id IS NULL THEN NULL
               ELSE json_build_object(
@@ -105,17 +99,14 @@ const findByUserId = async ({userId, limit, offset}) => {
                   'slug', c.slug,
                   'privacy', c.privacy,
                   'reposts_enabled', COALESCE(c.allow_reposts, TRUE),
-                  'avatar_url', 
+                  'avatar_url',
                   CASE
                       WHEN c.avatar_url IS NULL THEN NULL
-                      ELSE json_build_object(
-                          'cloudfront_url', ca.cloudfront_url
-                      )
+                      ELSE json_build_object('cloudfront_url', ca.cloudfront_url)
                   END
               )
           END AS community,
 
-          -- Post Media
           COALESCE(
               json_agg(
                   CASE
@@ -138,7 +129,7 @@ const findByUserId = async ({userId, limit, offset}) => {
       FROM ${BookmarkModel.BOOKMARK_TABLE} b
 
       JOIN ${BookmarkModel.POST_TABLE} p
-          ON p.id = b.post_id
+          ON p.id = b.source_id
 
       JOIN ${BookmarkModel.USER_TABLE} u
           ON u.id = p.author_id
@@ -165,36 +156,131 @@ const findByUserId = async ({userId, limit, offset}) => {
           AND pm.deleted_at IS NULL
 
       WHERE b.user_id = $1
+      AND b.source_type = 'post'
       AND p.deleted_at IS NULL
       AND p.status = 'published'
 
       GROUP BY
-          p.id,
-          u.id,
-          ua.id,
-          c.id,
-          ca.id,
-          s.user_id,
-          b.created_at,
-          orig.id
+          p.id, u.id, ua.id, c.id, ca.id, s.user_id, b.created_at, orig.id
 
       ORDER BY b.created_at DESC
       LIMIT $2 OFFSET $3
       `,
-      [userId, limit, offset]
-    )
+      [userId, limit, offset],
+    );
     const total = rows[0]?.total || 0;
-    const bookmark = rows.map(BookmarkModel.format)
+    const bookmark = rows.map((r) => BookmarkModel.formatPost(r));
     return { bookmark, total: parseInt(total, 10) };
   } catch (error) {
-    throw error
+    throw error;
   }
-}
+};
 
+// ── Profile bookmarks ───────────────────────────────────────────────────────
+
+const findProfileBookmarks = async ({ userId, limit, offset }) => {
+  try {
+    const { rows } = await pool.query(
+      `
+      SELECT
+          u.id,
+          u.name,
+          u.username,
+          u.bio,
+          u.privacy,
+          u.avatar_url,
+          (SELECT COUNT(*) FROM followers f WHERE f.following_id = u.id) AS follower_count,
+          (SELECT COUNT(*) FROM posts p WHERE p.author_id = u.id AND p.deleted_at IS NULL AND p.status = 'published') AS post_count,
+          EXISTS(SELECT 1 FROM followers f WHERE f.follower_id = $1 AND f.following_id = u.id) AS is_following,
+          b.created_at AS bookmarked_at,
+          COUNT(*) OVER() AS total
+
+      FROM ${BookmarkModel.BOOKMARK_TABLE} b
+
+      JOIN ${BookmarkModel.USER_TABLE} u
+          ON u.id = b.source_id
+
+      LEFT JOIN ${BookmarkModel.MEDIA_TABLE} um
+          ON um.id = u.avatar_url
+
+      WHERE b.user_id = $1
+      AND b.source_type = 'profile'
+
+      ORDER BY b.created_at DESC
+      LIMIT $2 OFFSET $3
+      `,
+      [userId, limit, offset],
+    );
+    const total = rows[0]?.total || 0;
+    const bookmark = rows.map((r) => BookmarkModel.formatProfile(r));
+    return { bookmark, total: parseInt(total, 10) };
+  } catch (error) {
+    throw error;
+  }
+};
+
+// ── Community bookmarks ─────────────────────────────────────────────────────
+
+const findCommunityBookmarks = async ({ userId, limit, offset }) => {
+  try {
+    const { rows } = await pool.query(
+      `
+      SELECT
+          c.id,
+          c.name,
+          c.slug,
+          c.description,
+          c.category,
+          c.privacy,
+          c.avatar_url,
+          (SELECT COUNT(*) FROM community_members cm WHERE cm.community_id = c.id) AS member_count,
+          (SELECT COUNT(*) FROM posts p WHERE p.community_id = c.id AND p.deleted_at IS NULL AND p.status = 'published') AS post_count,
+          EXISTS(SELECT 1 FROM community_members cm WHERE cm.community_id = c.id AND cm.user_id = $1) AS is_member,
+          b.created_at AS bookmarked_at,
+          COUNT(*) OVER() AS total
+
+      FROM ${BookmarkModel.BOOKMARK_TABLE} b
+
+      JOIN ${BookmarkModel.COMMUNITY_TABLE} c
+          ON c.id = b.source_id
+
+      LEFT JOIN ${BookmarkModel.MEDIA_TABLE} cm
+          ON cm.id = c.avatar_url
+
+      WHERE b.user_id = $1
+      AND b.source_type = 'community'
+
+      ORDER BY b.created_at DESC
+      LIMIT $2 OFFSET $3
+      `,
+      [userId, limit, offset],
+    );
+    const total = rows[0]?.total || 0;
+    const bookmark = rows.map((r) => BookmarkModel.formatCommunity(r));
+    return { bookmark, total: parseInt(total, 10) };
+  } catch (error) {
+    throw error;
+  }
+};
+
+
+// ── Dispatcher ──────────────────────────────────────────────────────────────
+
+const findByUserId = async ({ userId, itemType, limit, offset }) => {
+  switch (itemType) {
+    case 'post':     return findPostBookmarks({ userId, limit, offset });
+    case 'profile':  return findProfileBookmarks({ userId, limit, offset });
+    case 'community': return findCommunityBookmarks({ userId, limit, offset });
+    default:         return findPostBookmarks({ userId, limit, offset });
+  }
+};
 
 module.exports = {
-    create,
-    findByUserIdAndPostId,
-    hardDelete,
-    findByUserId
-}
+  create,
+  exists,
+  hardDelete,
+  findByUserId,
+  findPostBookmarks,
+  findProfileBookmarks,
+  findCommunityBookmarks,
+};

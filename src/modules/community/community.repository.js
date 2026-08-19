@@ -308,8 +308,9 @@ const transferOwnership = async ({ communityId, newOwnerId, oldOwnerId }) => {
   }
 };
 
-const getMembers = async (communityId, status, limit, offset) => {
+const getMembers = async (communityId, status, limit, offset, search = '') => {
   try {
+    const q = search ? `%${search}%` : '';
     const { rows } = await pool.query(
       `SELECT cm.*, u.name, u.username, ua.cloudfront_url AS avatar_url, COUNT(*) OVER() AS total
      FROM ${CommunityModel.MEMBERS_TABLE} cm
@@ -317,6 +318,7 @@ const getMembers = async (communityId, status, limit, offset) => {
      LEFT JOIN media ua ON u.avatar_url = ua.id
      JOIN ${CommunityModel.TABLE} c ON c.id = cm.community_id
      WHERE cm.community_id = $1 AND cm.status = $2
+     AND ($5 = '' OR u.username ILIKE $5 OR u.name ILIKE $5)
      -- Owner first, then admins/moderators, then everyone else — so the
      -- member list always leads with leadership regardless of page size.
      ORDER BY
@@ -325,7 +327,7 @@ const getMembers = async (communityId, status, limit, offset) => {
             ELSE 2 END,
        cm.joined_at ASC
      LIMIT $3 OFFSET $4`,
-      [communityId, status, limit, offset]
+      [communityId, status, limit, offset, q]
     );
     const total = rows[0]?.total || 0;
     return { rows, total: parseInt(total, 10) };

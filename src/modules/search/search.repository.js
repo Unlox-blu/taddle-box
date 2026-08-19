@@ -6,9 +6,10 @@ const SearchAlgo = require('./search.algorithm')
 
 
 
-const searchUser = async (query, limit, offset) => {
+const searchUser = async (query, limit, offset, userId = null, bookmarked = null) => {
   try {
-    const { rows } = await pool.query( SearchAlgo.SEARCH_USER_ALGORITHM, [`%${query}%`, limit, offset] );
+    const bmFlag = bookmarked === true || bookmarked === '1' || bookmarked === 1 ? true : null;
+    const { rows } = await pool.query( SearchAlgo.SEARCH_USER_ALGORITHM, [`%${query}%`, limit, offset, bmFlag, userId] );
     const total = rows[0]?.total || 0;
     return { rows, total: parseInt(total, 10) };
   } catch (error) {
@@ -16,11 +17,12 @@ const searchUser = async (query, limit, offset) => {
   }
 };
 
-const searchCommunity = async (query, filter, limit, offset) => {
+const searchCommunity = async (query, filter, limit, offset, userId = null, bookmarked = null) => {
   try {
     const q = query || '';
     const category = filter || null;
-    const { rows } = await pool.query(SearchAlgo.SEARCH_COMMUNITY_ALGORITHM, [`%${q}%`, category, limit, offset]);
+    const bmFlag = bookmarked === true || bookmarked === '1' || bookmarked === 1 ? true : null;
+    const { rows } = await pool.query(SearchAlgo.SEARCH_COMMUNITY_ALGORITHM, [`%${q}%`, category, limit, offset, bmFlag, userId]);
     const total = rows[0]?.total || 0;
     return { rows, total: parseInt(total, 10) };
   } catch (error) {

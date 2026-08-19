@@ -12,6 +12,7 @@ const SEARCH_USER_ALGORITHM = `SELECT
                                     AND u.is_active = TRUE 
                                     AND u.is_banned = FALSE
                                     AND ($1 = '' OR username ILIKE $1 OR name ILIKE $1)
+                                    AND ($4::boolean IS NULL OR EXISTS(SELECT 1 FROM bookmark b WHERE b.source_id = u.id AND b.source_type = 'profile' AND b.user_id = $5))
                                 ORDER BY u.follower_count DESC
                                 LIMIT $2 OFFSET $3`;
 
@@ -28,6 +29,7 @@ const SEARCH_COMMUNITY_ALGORITHM = `SELECT
                                         -- Private communities are discoverable (their content is gated on the detail screen)
                                         AND ($1 = '' OR c.name ILIKE $1 OR c.description ILIKE $1)
                                         AND ($2::text IS NULL OR $2 = ANY(c.category))
+                                        AND ($5::boolean IS NULL OR EXISTS(SELECT 1 FROM bookmark b WHERE b.source_id = c.id AND b.source_type = 'community' AND b.user_id = $6))
                                     ORDER BY c.member_count DESC
                                     LIMIT $3 OFFSET $4`;
 
@@ -40,7 +42,7 @@ const SEARCH_POSt_ALGORITHM = `SELECT
 
                                 EXISTS(
                                     SELECT 1 FROM bookmark bm 
-                                    WHERE bm.post_id = p.id AND bm.user_id = $4
+                                    WHERE bm.source_id = p.id AND bm.source_type = 'post' AND bm.user_id = $4
                                 ) AS is_bookmarked,
 
                                 EXISTS(
@@ -348,7 +350,7 @@ const SEARCH_POSt_ALGORITHM = `SELECT
                                     $10::boolean IS NOT TRUE
                                     OR EXISTS (
                                         SELECT 1 FROM bookmark b
-                                        WHERE b.post_id = p.id AND b.user_id = $4
+                                        WHERE b.source_id = p.id AND b.source_type = 'post' AND b.user_id = $4
                                     )
                                 )
                                 -- My-own-posts scope ($11 = true): only the
@@ -452,7 +454,7 @@ const SEARCH_POLLS_ALGORITHM = `SELECT * FROM (
                                 ) AS is_liked,
                                 EXISTS(
                                     SELECT 1 FROM bookmark bm
-                                    WHERE bm.post_id = p.id AND bm.user_id = $4
+                                    WHERE bm.source_id = p.id AND bm.source_type = 'post' AND bm.user_id = $4
                                 ) AS is_bookmarked,
                                 '[]'::json AS media,
                                 p.poll_data::jsonb AS poll_data,
@@ -688,7 +690,7 @@ const DISCOVER_POSTS_ALGORITHM = `WITH ranked_posts AS (
                                     
                                                 EXISTS(
                                                         SELECT 1 FROM bookmark bm 
-                                                        WHERE bm.post_id = p.id AND bm.user_id = $1
+                                                        WHERE bm.source_id = p.id AND bm.source_type = 'post' AND bm.user_id = $1
                                                 ) AS is_bookmarked,
                                     
                                                 EXISTS(
@@ -1056,7 +1058,7 @@ const SEARCH_COMMENT_ALGORITHM = `SELECT
                                     $10::boolean IS NOT TRUE
                                     OR EXISTS (
                                         SELECT 1 FROM bookmark b
-                                        WHERE b.post_id = p.id AND b.user_id = $4
+                                        WHERE b.source_id = p.id AND b.source_type = 'post' AND b.user_id = $4
                                     )
                                 )
                                 -- My-own-posts scope ($11 = true): only comments
@@ -1247,7 +1249,7 @@ const SEARCH_MEDIA_ALGORITHM = `SELECT
                                     $10::boolean IS NOT TRUE
                                     OR EXISTS (
                                         SELECT 1 FROM bookmark b
-                                        WHERE b.post_id = p.id AND b.user_id = $4
+                                        WHERE b.source_id = p.id AND b.source_type = 'post' AND b.user_id = $4
                                     )
                                 )
                                 -- My-own-posts scope ($11 = true): only media

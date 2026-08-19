@@ -19,18 +19,18 @@ const registerSchema = z.object({
   deviceId:     z.string().min(1).optional(),
   token:        z.string().min(1).optional(),
   platform:     z.string().min(1, { message: 'Platform is required' }),
-}).refine(
+}).strict().refine(
   (data) => data.pushToken || data.token,
   { message: 'Either pushToken or token is required' },
-).strict();
+);
 
 const toggleNotificationSchema = z.object({
   deviceId: z.string().min(1).optional(),
   token:    z.string().min(1).optional(),
-}).refine(
+}).strict().refine(
   (data) => data.deviceId || data.token,
   { message: 'Either deviceId or token is required' },
-).strict();
+);
 
 const sendSchema = z.object({
   userId:  z.string().uuid({ message: 'Invalid user ID format' }),

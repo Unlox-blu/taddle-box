@@ -18,7 +18,7 @@ const FEED_ALGORITHM = `WITH ranked_posts AS (
 
                                     EXISTS(
                                         SELECT 1 FROM bookmark bm 
-                                        WHERE bm.post_id = p.id AND bm.user_id = $1
+                                        WHERE bm.source_id = p.id AND bm.source_type = 'post' AND bm.user_id = $1
                                     ) AS is_bookmarked,
 
                                     EXISTS(

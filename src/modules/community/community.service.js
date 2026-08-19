@@ -223,7 +223,7 @@ class CommunityService {
     }
   }
 
-  async getMembers({communityId, userId, limit, offset}) {
+  async getMembers({communityId, userId, limit, offset, search}) {
     try {
       const community = await this.communityRepo.findById(communityId);
       if (!community) throw createError('Community not found', 404);
@@ -234,7 +234,7 @@ class CommunityService {
           throw createError("Only community members can access this private community", 403);
       }
 
-      const { rows, total } = await this.communityRepo.getMembers(communityId, 'active', limit, offset);
+      const { rows, total } = await this.communityRepo.getMembers(communityId, 'active', limit, offset, search);
       // The owner's membership row stores role='admin' (seeded at creation) —
       // surface it distinctly so the app can render owner/admin/member badges
       // and show the right contextual actions in the member list.

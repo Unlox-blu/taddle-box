@@ -327,7 +327,7 @@ class UserService {
 
   // Instagram-style mutuals list: users the VIEWER follows who also follow this
   // profile (same query the profile header uses for the "Followed by x" row).
-  async getMutuals({viewerId, username, limit, offset}) {
+  async getMutuals({viewerId, username, limit, offset, search = ''}) {
     try {
       const user = await this.userRepo.findByUsername(username);
       if (!user) throw createError('User not found', 404);
@@ -336,6 +336,7 @@ class UserService {
       // own mutual connections, not the target's private follower list, so no
       // follow/approval gate applies — public or private account alike.
       const pool = require('../../config/database');
+      const q = search ? `%${search}%` : '';
       const { rows } = await pool.query(
         // users.avatar_url is a UUID (media id) — same fix as getProfile.
         `SELECT u.id, u.name, u.username, am.cloudfront_url AS avatar_url, COUNT(*) OVER() AS total
@@ -347,9 +348,10 @@ class UserService {
          JOIN users u ON u.id = f1.following_id AND u.deleted_at IS NULL
          LEFT JOIN media am ON am.id = u.avatar_url AND am.deleted_at IS NULL
          WHERE f1.follower_id = $1 AND f1.status = 'active'
+         AND ($5 = '' OR u.username ILIKE $5 OR u.name ILIKE $5)
          ORDER BY u.name ASC
          LIMIT $3 OFFSET $4`,
-        [viewerId, user.id, limit, offset]
+        [viewerId, user.id, limit, offset, q]
       );
       const total = rows[0]?.total || 0;
       const users = rows.map((r) => ({
@@ -364,7 +366,7 @@ class UserService {
     }
   }
 
-  async getFollowers({userId, username, limit, offset}) {
+  async getFollowers({userId, username, limit, offset, search}) {
     try {
       const user = await this.userRepo.findByUsername(username);
       if (!user) throw createError('User not found', 404);
@@ -379,7 +381,8 @@ class UserService {
       const { followers, total } = await this.followersRepo.findByFollowingId(
         user.id,
         limit,
-        offset
+        offset,
+        search
       );
       return { followers, total };
     } catch (error) {
@@ -387,7 +390,7 @@ class UserService {
     }
   }
 
-  async getFollowing({userId, username, limit, offset}) {
+  async getFollowing({userId, username, limit, offset, search}) {
     try {
       const user = await this.userRepo.findByUsername(username);
       if (!user) throw createError('User not found', 404);
@@ -402,7 +405,8 @@ class UserService {
       const { followings, total } = await this.followersRepo.findByFollowerId(
         user.id,
         limit,
-        offset
+        offset,
+        search
       );
       return { followings, total };
     } catch (error) {

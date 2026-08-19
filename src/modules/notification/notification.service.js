@@ -415,5 +415,6 @@ class NotificationService {
       return true;
     }
   }
+}
 
 module.exports = NotificationService;

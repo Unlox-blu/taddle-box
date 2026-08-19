@@ -1,44 +1,47 @@
 'use strict';
 
 const { createError } = require('../../utils/error.util');
+const BookmarkModel = require('./bookmark.model');
 
 class BookmarkService {
   constructor({ bookmarkRepository }) {
     this.bookmarkRepo = bookmarkRepository;
   }
 
-  async getBookmarks({ userId, limit, offset }) {
-    try {
-      const { bookmark, total } = await this.bookmarkRepo.findByUserId({userId, limit, offset});
-      
-      return { bookmark, total };
-    } catch (error) {
-      throw error;
+  // ── Toggle bookmark (creates or removes) ────────────────────────────────
+
+  async toggle({ userId, itemType, itemId }) {
+    if (!BookmarkModel.ITEM_TYPES.includes(itemType)) {
+      throw createError(`Invalid bookmark type: ${itemType}`, 400);
     }
+
+    const isBookmarked = await this.bookmarkRepo.exists(userId, itemType, itemId);
+
+    if (isBookmarked) {
+      await this.bookmarkRepo.hardDelete(userId, itemType, itemId);
+      return { bookmarked: false };
+    }
+
+    await this.bookmarkRepo.create(userId, itemType, itemId);
+    return { bookmarked: true };
   }
 
-  async create({userId, postId}) {
-    try {
-      const isBookmarked = await this.bookmarkRepo.findByUserIdAndPostId(userId, postId)
-      if(isBookmarked) 
-        throw createError("Post is already bookmarked", 409)
-      
-      await this.bookmarkRepo.create(userId, postId);
-    } catch (error) {
-      throw error;
-    }
+  // ── Check if a specific item is bookmarked ─────────────────────────────
+
+  async isBookmarked({ userId, itemType, itemId }) {
+    return this.bookmarkRepo.exists(userId, itemType, itemId);
   }
 
-  async remove({userId, postId}) {
-    try {
-      const isBookmarked = await this.bookmarkRepo.findByUserIdAndPostId(userId, postId)
-      if(!isBookmarked) 
-        throw createError("Post is not bookmarked", 404)
+  // ── Get bookmarks by type ──────────────────────────────────────────────
 
-      await this.bookmarkRepo.hardDelete(userId, postId);
-    } catch (error) {
-      throw error;
-    }
+  async getBookmarks({ userId, itemType = 'post', limit, offset }) {
+    const { bookmark, total } = await this.bookmarkRepo.findByUserId({
+      userId,
+      itemType,
+      limit,
+      offset,
+    });
+    return { bookmark, total };
   }
 
 }

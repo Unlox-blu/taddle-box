@@ -8,17 +8,52 @@ class BookmarkController {
     this.bookmarkSvc = bookmarkService;
   }
 
+  // GET /bookmark?page=&limit=
   getBookmarks = async (req, res, next) => {
     try {
       const userId = req.userId;
       const { limit, offset, page } = getPaginationParams(req.query);
-      const { bookmark, total } = await this.bookmarkSvc.getBookmarks({userId, limit, offset});
-      res.json(apiResponse(bookmark, "Bookmark fetched successfuly", paginationMeta(total, page, limit)));
+      const { type } = req.query;
+      const { searchService } = require('../search/search.container');
+      const result = await searchService.universalSearch({
+        scope: 'bookmarks',
+        type: type || 'all',
+        limit,
+        offset,
+        page,
+        userId,
+      });
+      // The search API already returns { dataType, data, total, hasNext }
+      // The frontend expects the paginated results list directly in the response
+      res.json(apiResponse(result.data, 'Bookmarks fetched successfully', paginationMeta(result.total, page, limit)));
     } catch (error) {
       next(error);
     }
   };
 
+  // POST /bookmark/toggle  { itemType, itemId }
+  toggleBookmark = async (req, res, next) => {
+    try {
+      const userId = req.userId;
+      const { itemType, itemId } = req.body;
+      const result = await this.bookmarkSvc.toggle({ userId, itemType, itemId });
+      res.json(apiResponse(result, result.bookmarked ? 'Bookmark added' : 'Bookmark removed'));
+    } catch (error) {
+      next(error);
+    }
+  };
+
+  // GET /bookmark/check?type=post|profile|community&itemId=xxx
+  checkBookmark = async (req, res, next) => {
+    try {
+      const userId = req.userId;
+      const { type: itemType, itemId } = req.query;
+      const bookmarked = await this.bookmarkSvc.isBookmarked({ userId, itemType, itemId });
+      res.json(apiResponse({ bookmarked }, 'Bookmark status fetched'));
+    } catch (error) {
+      next(error);
+    }
+  };
 }
 
 module.exports = BookmarkController;

@@ -18,30 +18,23 @@ class SearchController {
       const userId = req.userId;
       const { limit, offset, page } = getPaginationParams(req.query);
       const { dataType, data, total, hasNext } = await this.searchSvc.universalSearch({
+        scope: req.query.scope || 'global',
+        filter: req.query.filter || '',
         q: req.query.q || '',
         sort: req.query.sort || 'relevance',
         time: req.query.time || 'all_time',
-        filter: req.query.filter || '',
         type: req.query.type || '',
         page,
         limit,
         offset,
         userId,
-        bookmarked: req.query.bookmarked || null,
-        notified: req.query.notified || null,
       });
       const meta = paginationMeta(total, page, limit);
       // The mixed/discovery view paginates PER TYPE — the summed-total formula
       // would keep hasNext true after a type is exhausted, so the service's
       // per-group hasNext wins.
       meta.hasNext = hasNext;
-      res.json(
-        apiResponse(
-          { dataType, data },
-          `${dataType} fetched`,
-          meta
-        )
-      );
+      res.json(apiResponse({ dataType, data }, `${dataType} fetched`, meta));
     } catch (error) {
       next(error);
     }

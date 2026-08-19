@@ -17,4 +17,4 @@ const searchService = new SearchService({searchRepository})
 const searchController = new SearchController({ searchService })
 
 // Export controller as default, but also export service and repository for other modules
-module.exports = {searchController}
+module.exports = {searchController, searchService}

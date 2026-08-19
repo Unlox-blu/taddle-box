@@ -592,11 +592,11 @@ class PostService {
           throw createError("You don't have permission to bookmark posts of this private account", 403);
       }
 
-      const isBookmarked = await this.bookmarkRepo.findByUserIdAndPostId(userId, postId)
+      const isBookmarked = await this.bookmarkRepo.exists(userId, 'post', postId)
       if(isBookmarked)
         throw createError("Post already bookmarked", 409)
 
-      await this.bookmarkRepo.create(userId, postId)
+      await this.bookmarkRepo.create(userId, 'post', postId)
     } catch (error) {
       throw error
     }
@@ -604,10 +604,10 @@ class PostService {
 
   async removebookmarkPost({userId, postId}) {
     try {
-      const isBookmarked = await this.bookmarkRepo.findByUserIdAndPostId(userId, postId)
+      const isBookmarked = await this.bookmarkRepo.exists(userId, 'post', postId)
       if(!isBookmarked) throw createError('Post alreadey not bookmarked', 409)
       
-      await this.bookmarkRepo.hardDelete(userId, postId)
+      await this.bookmarkRepo.hardDelete(userId, 'post', postId)
     } catch (error) {
       throw error
     }
@@ -641,7 +641,7 @@ class PostService {
   }
 
   // Paginated likers with the viewer's follow state on each user.
-  async getLikers({postId, userId, limit, offset}) {
+  async getLikers({postId, userId, limit, offset, search}) {
     try {
       const post = await this.postRepo.findById(postId);
       if (!post) throw createError('Post not found', 404);
@@ -655,7 +655,7 @@ class PostService {
           throw createError("You don't have permission to view likes on this post", 403);
       }
 
-      const { rows, total } = await this.postRepo.findLikers(postId, userId, limit, offset);
+      const { rows, total } = await this.postRepo.findLikers(postId, userId, limit, offset, search);
       const likers = rows.map((row) => ({
         id: row.id,
         name: row.name,
@@ -676,7 +676,7 @@ class PostService {
 
   // Paginated list of users who reposted a post — mirrors getLikers (same
   // privacy gate + response shape) so the app can reuse the users-list modal.
-  async getReposters({postId, userId, limit, offset}) {
+  async getReposters({postId, userId, limit, offset, search}) {
     try {
       const post = await this.postRepo.findById(postId);
       if (!post) throw createError('Post not found', 404);
@@ -690,7 +690,7 @@ class PostService {
           throw createError("You don't have permission to view reposts on this post", 403);
       }
 
-      const { rows, total } = await this.postRepo.findReposters(postId, userId, limit, offset);
+      const { rows, total } = await this.postRepo.findReposters(postId, userId, limit, offset, search);
       const reposters = rows.map((row) => ({
         id: row.id,
         name: row.name,
@@ -712,7 +712,7 @@ class PostService {
   // Paginated voters of ONE poll option, with the viewer's follow state on
   // each voter (same response shape as getLikers so the app reuses the
   // users-list modal).
-  async getPollVoters({ postId, optionIndex, userId, limit, offset }) {
+  async getPollVoters({ postId, optionIndex, userId, limit, offset, search }) {
     try {
       const post = await this.postRepo.findPollByPostId(postId);
       if (!post) throw createError('Post not found', 404);
@@ -732,7 +732,7 @@ class PostService {
           throw createError("You don't have permission to view voters on this poll", 403);
       }
 
-      const { rows, total } = await this.postRepo.findPollVoters(postId, optionIndex, userId, limit, offset);
+      const { rows, total } = await this.postRepo.findPollVoters(postId, optionIndex, userId, limit, offset, search);
       const voters = rows.map((row) => ({
         id: row.id,
         name: row.name,

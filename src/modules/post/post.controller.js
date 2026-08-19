@@ -124,8 +124,9 @@ class PostController {
     try {
       const { postId } = req.params;
       const userId = req.userId;
+      const { search } = req.query;
       const { limit, offset, page } = getPaginationParams(req.query);
-      const { likers, total } = await this.postSvc.getLikers({ postId, userId, limit, offset });
+      const { likers, total } = await this.postSvc.getLikers({ postId, userId, limit, offset, search });
       res.json(apiResponse(likers, 'Likers fetched', paginationMeta(total, page, limit)));
     } catch (error) {
       next(error);
@@ -137,9 +138,10 @@ class PostController {
     try {
       const userId = req.userId;
       const postId = req.params.postId;
+      const { search } = req.query;
       const optionIndex = parseInt(req.query.option, 10);
       const { limit, offset } = getPaginationParams(req.query);
-      const { voters, total } = await this.postSvc.getPollVoters({ postId, optionIndex, userId, limit, offset });
+      const { voters, total } = await this.postSvc.getPollVoters({ postId, optionIndex, userId, limit, offset, search });
       res.json(apiResponse({ dataType: 'voters', data: voters, total }, 'Poll voters fetched'));
     } catch (error) {
       next(error);
@@ -150,8 +152,9 @@ class PostController {
     try {
       const { postId } = req.params;
       const userId = req.userId;
+      const { search } = req.query;
       const { limit, offset, page } = getPaginationParams(req.query);
-      const { reposters, total } = await this.postSvc.getReposters({ postId, userId, limit, offset });
+      const { reposters, total } = await this.postSvc.getReposters({ postId, userId, limit, offset, search });
       res.json(apiResponse(reposters, 'Reposters fetched', paginationMeta(total, page, limit)));
     } catch (error) {
       next(error);

@@ -53,6 +53,25 @@ class BookmarkService {
     return { bookmark, total };
   }
 
+  async searchBookmark({ userId, query, communities, people, tags, sortBy, timeCutoff, requestedType = 'all', limit = 10, offset = 0 }) {
+    try {
+      return await this.bookmarkRepo.search({
+        userId,
+        query,
+        communities,
+        people,
+        tags,
+        sortBy,
+        timeCutoff,
+        requestedType,
+        limit,
+        offset,
+      });
+    } catch (error) {
+      throw error;
+    }
+  }
+
 }
 
 module.exports = BookmarkService;

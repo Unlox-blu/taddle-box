@@ -8,10 +8,10 @@ const SearchService = require('./search.service')
 const SearchController = require('./search.controller')
 
 // Dependencies from other modules
-
+const {bookmarkService} = require('./../bookmark/bookmark.container')
 
 // Instantiate Service
-const searchService = new SearchService({searchRepository})
+const searchService = new SearchService({searchRepository, bookmarkService})
 
 // Instantiate Controller
 const searchController = new SearchController({ searchService })

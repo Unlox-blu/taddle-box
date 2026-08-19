@@ -266,6 +266,121 @@ const findCommunityBookmarks = async ({ userId, limit, offset }) => {
 };
 
 
+const search = async ({ userId, query = '', communities = [], people = [], tags = [], sortBy = 'relevance', timeCutoff = null, requestedType = 'all', limit = 10, offset = 0 }) => {
+  try {
+    const types = requestedType === 'all' ? ['posts', 'people', 'communities'] : [requestedType];
+    const normalizedTypes = types.filter((type) => ['posts', 'people', 'communities'].includes(type));
+    const searchQuery = `%${String(query).trim()}%`;
+
+    const queries = {
+      posts: {
+        sql: `
+          SELECT p.*, b.created_at AS bookmarked_at,
+            EXISTS(SELECT 1 FROM post_likes pl WHERE pl.post_id = p.id AND pl.user_id = $1) AS is_liked,
+            EXISTS(SELECT 1 FROM posts rp WHERE rp.repost_of_id = p.id AND rp.author_id = $1 AND rp.deleted_at IS NULL) AS is_reposted,
+            COALESCE(json_agg(json_build_object('id', m.id, 'media_type', m.media_type, 'cloudfront_url', m.cloudfront_url, 'width', m.width, 'height', m.height) ORDER BY m.created_at) FILTER (WHERE m.id IS NOT NULL), '[]'::json) AS media,
+            json_build_object('id', u.id, 'name', u.name, 'username', u.username, 'avatar_url', CASE WHEN u.avatar_url IS NULL THEN NULL ELSE json_build_object('cloudfront_url', ua.cloudfront_url) END) AS author,
+            CASE WHEN c.id IS NULL THEN NULL ELSE json_build_object('id', c.id, 'name', c.name, 'slug', c.slug, 'privacy', c.privacy, 'avatar_url', CASE WHEN c.avatar_url IS NULL THEN NULL ELSE json_build_object('cloudfront_url', ca.cloudfront_url) END) END AS community,
+            COUNT(*) OVER() AS total
+          FROM bookmark b
+          JOIN posts p ON p.id = b.source_id
+          JOIN users u ON u.id = p.author_id
+          LEFT JOIN media ua ON ua.id = u.avatar_url
+          LEFT JOIN communities c ON c.id = p.community_id
+          LEFT JOIN media ca ON ca.id = c.avatar_url
+          LEFT JOIN media m ON m.post_id = p.id AND m.deleted_at IS NULL
+          WHERE b.user_id = $1 AND b.source_type = 'post'
+            AND p.deleted_at IS NULL AND p.status = 'published'
+            AND ($2 = '' OR p.title ILIKE $2 OR p.content ILIKE $2 OR EXISTS (SELECT 1 FROM unnest(COALESCE(p.tags, ARRAY[]::text[])) t WHERE t ILIKE $2))
+            AND ($3::text[] IS NULL OR c.slug = ANY($3::text[]))
+            AND ($4::text[] IS NULL OR u.username = ANY($4::text[]))
+            AND ($5::text[] IS NULL OR COALESCE(p.tags, ARRAY[]::text[]) && $5::text[])
+            AND ($6::timestamptz IS NULL OR p.published_at >= $6)
+          GROUP BY p.id, b.created_at, u.id, ua.id, c.id, ca.id
+          ORDER BY CASE WHEN $7 = 'top' THEN p.likes_count + p.comments_count * 3 ELSE 0 END DESC, b.created_at DESC 
+          LIMIT $8 OFFSET $9`,
+        format: BookmarkModel.formatPost,
+      },
+      people: {
+        sql: `
+          SELECT u.*, b.created_at AS bookmarked_at, um.cloudfront_url AS avatar_cloudfront_url,
+            (SELECT COUNT(*) FROM followers f WHERE f.following_id = u.id) AS follower_count,
+            (SELECT COUNT(*) FROM posts p WHERE p.author_id = u.id AND p.deleted_at IS NULL AND p.status = 'published') AS post_count,
+            EXISTS(SELECT 1 FROM followers f WHERE f.follower_id = $1 AND f.following_id = u.id) AS is_following,
+            COUNT(*) OVER() AS total
+          FROM bookmark b
+          JOIN users u ON u.id = b.source_id
+          LEFT JOIN media um ON um.id = u.avatar_url
+          WHERE b.user_id = $1 AND b.source_type = 'profile'
+            AND u.deleted_at IS NULL AND u.is_active = TRUE AND u.is_banned = FALSE
+            AND ($2 = '' OR u.username ILIKE $2 OR u.name ILIKE $2 OR u.bio ILIKE $2)
+            AND ($3::text[] IS NULL OR u.username = ANY($3::text[]))
+            AND ($4::timestamptz IS NULL OR b.created_at >= $4)
+          ORDER BY CASE WHEN $5 = 'top' THEN u.follower_count ELSE 0 END DESC, b.created_at DESC
+          LIMIT $6 OFFSET $7`,
+        format: BookmarkModel.formatProfile,
+      },
+      communities: {
+        sql: `
+          SELECT c.*, b.created_at AS bookmarked_at, cm.cloudfront_url AS avatar_cloudfront_url,
+            (SELECT COUNT(*) FROM community_members cm2 WHERE cm2.community_id = c.id) AS member_count,
+            (SELECT COUNT(*) FROM posts p WHERE p.community_id = c.id AND p.deleted_at IS NULL AND p.status = 'published') AS post_count,
+            EXISTS(SELECT 1 FROM community_members cm3 WHERE cm3.community_id = c.id AND cm3.user_id = $1) AS is_member,
+            COUNT(*) OVER() AS total
+          FROM bookmark b
+          JOIN communities c ON c.id = b.source_id
+          LEFT JOIN media cm ON cm.id = c.avatar_url
+          WHERE b.user_id = $1 AND b.source_type = 'community'
+            AND c.deleted_at IS NULL AND c.is_active = TRUE
+            AND ($2 = '' OR c.name ILIKE $2 OR c.slug ILIKE $2 OR c.description ILIKE $2)
+            AND ($3::text[] IS NULL OR c.slug = ANY($3::text[]))
+            AND ($4::text[] IS NULL OR COALESCE(c.category, ARRAY[]::text[]) && $4::text[])
+            AND ($5::timestamptz IS NULL OR b.created_at >= $5)
+          ORDER BY CASE WHEN $6 = 'top' THEN c.member_count ELSE 0 END DESC, b.created_at DESC
+          LIMIT $7 OFFSET $8`,
+        format: BookmarkModel.formatCommunity,
+      },
+    };
+
+    const results = await Promise.all(normalizedTypes.map(async (type) => {
+      const params = type === 'people'
+        ? [userId, searchQuery, people.length ? people : null, timeCutoff, sortBy, limit, offset]
+        : type === 'communities'
+          ? [
+            userId,
+            searchQuery,
+            communities.length ? communities : null,
+            tags.length ? tags : null,
+            timeCutoff,
+            sortBy,
+            limit,
+            offset,
+          ]
+          : [
+          userId,
+          searchQuery,
+          communities.length ? communities : null,
+          people.length ? people : null,
+          tags.length ? tags : null,
+          timeCutoff,
+          sortBy,
+          limit,
+          offset,
+        ];
+      const { rows } = await pool.query(queries[type].sql, params);
+      return {
+        type,
+        rows: rows.map((row) => ({ ...queries[type].format(row), itemType: type })),
+        total: Number(rows[0]?.total || 0),
+      };
+    }));
+
+    return { results, types: ['all', 'posts', 'people', 'communities'], total: results.reduce((sum, result) => sum + result.total, 0) };
+  } catch (error) {
+    throw error;
+  }
+}
+
 // ── Dispatcher ──────────────────────────────────────────────────────────────
 
 const findByUserId = async ({ userId, itemType, limit, offset }) => {
@@ -285,4 +400,5 @@ module.exports = {
   findPostBookmarks,
   findProfileBookmarks,
   findCommunityBookmarks,
+  search,
 };

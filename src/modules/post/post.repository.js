@@ -335,13 +335,13 @@ const findManyByCommunity = async (communityId, limit, offset, currentUserId = n
       -- lives in. Posting into a community deliberately shares the post with
       -- that community, so members must see each other's posts — otherwise a
       -- community whose members keep private accounts looks permanently empty.
-      AND (u.privacy = 'public' OR p.author_id = $4 OR EXISTS (
-        SELECT 1 FROM followers f
-        WHERE f.follower_id = $4 AND f.following_id = p.author_id AND f.status = 'active'
-      ) OR EXISTS (
-        SELECT 1 FROM community_members cm
-        WHERE cm.community_id = p.community_id AND cm.user_id = $4 AND cm.status = 'active'
-      ))
+      -- AND (u.privacy = 'public' OR p.author_id = $4 OR EXISTS (
+      --  SELECT 1 FROM followers f
+      --  WHERE f.follower_id = $4 AND f.following_id = p.author_id AND f.status = 'active'
+      --) OR EXISTS (
+      --  SELECT 1 FROM community_members cm
+      --  WHERE cm.community_id = p.community_id AND cm.user_id = $4 AND cm.status = 'active'
+      --))
     GROUP BY p.id, u.id, ua.id, c.id, ca.id, s.user_id, orig.id
     ORDER BY p.created_at DESC
      LIMIT $2 OFFSET $3`,

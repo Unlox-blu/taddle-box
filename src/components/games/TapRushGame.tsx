@@ -5,6 +5,7 @@ import { Ionicons } from "@expo/vector-icons";
 import { createGameEngineSocket } from "../../services/socketClient";
 import { gameSound } from "../../services/gameSound";
 import type { HtmlGameResult } from "../../games/types";
+import { getSessionAvatar } from "../../services/sessionAvatarCache";
 
 const { width, height } = Dimensions.get("window");
 const GAME_AREA_WIDTH = width - 40;
@@ -299,7 +300,7 @@ export default function TapRushGame({
             <Image
               source={
                 players?.[0]?.avatar
-                  ? { uri: players[0].avatar }
+                  ? { uri: getSessionAvatar(players[0].avatar) }
                   : require("../../../assets/icon.png")
               }
               style={styles.avatar}

@@ -65,6 +65,7 @@ import {
   ensureGameAssets,
   ensureGameLogos,
   getCachedGameLogo,
+  getCachedGameCard,
   useGameAssetsVersion,
 } from "../../games/gameAssets";
 import type { Game } from "../../types";
@@ -181,6 +182,7 @@ export default function GamesScreen() {
         gradient: bg.metadata?.gradient || assets.gradient,
         imageUrl: bg.thumbnail || assets.imageUrl,
         logo: getCachedGameLogo(bg.slug),
+        card: getCachedGameCard(bg.slug || ""),
         entryFee: bg.metadata?.entryFee || bg.entryFee,
         prize: bg.metadata?.prize || bg.prize,
         averageDurationLabel:
@@ -978,6 +980,14 @@ function GameCard({
       {game.logo ? (
         <ImageBackground
           source={game.logo}
+          style={styles.gameArt}
+          resizeMode="cover"
+        >
+          {game.isHot && <Text style={styles.gameBadge}>TRENDING</Text>}
+        </ImageBackground>
+      ) : game.card ? (
+        <ImageBackground
+          source={game.card}
           style={styles.gameArt}
           resizeMode="cover"
         >

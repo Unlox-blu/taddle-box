@@ -25,6 +25,7 @@ const ROOT = FileSystem.documentDirectory + "game_assets/";
 const VERSION_DIR = `${ROOT}v${GAME_ASSET_VERSION}/`;
 export const LOGO_DIR = VERSION_DIR + "logos/";
 export const SOUND_DIR = VERSION_DIR + "sounds/";
+export const CARD_DIR = VERSION_DIR + "cards/";
 
 // Files known to exist on disk for THIS process. Disk state is checked
 // lazily (never at app launch); a warm entry means a cached file is usable.
@@ -75,6 +76,7 @@ async function ensureDirs(): Promise<void> {
   }
   await FileSystem.makeDirectoryAsync(LOGO_DIR, { intermediates: true });
   await FileSystem.makeDirectoryAsync(SOUND_DIR, { intermediates: true });
+  await FileSystem.makeDirectoryAsync(CARD_DIR, { intermediates: true });
   dirsReady = true;
 }
 
@@ -130,6 +132,30 @@ async function resolveLocalUri(localUri: string): Promise<string | null> {
 let logosFetching: Promise<void> | null = null;
 
 /**
+ * Warms the in-memory cache from disk on cold start.
+ * Checks all known asset paths (logos, sounds, cards) and populates
+ * the `downloaded` Set so sync lookups (getCachedGameLogo, getCachedGameCard)
+ * return immediately without a background disk stat.
+ * Call once after app launch — idempotent, never downloads.
+ */
+export async function warmAssetCache(): Promise<void> {
+  await init();
+  const checks: Promise<void>[] = [];
+  for (const manifest of Object.values(GAME_ASSETS)) {
+    // Logo
+    checks.push(resolveLocalUri(LOGO_DIR + manifest.logoFile).then(() => {}));
+    // Card image
+    const cardFile = manifest.logoFile.replace('.webp', '.jpg');
+    checks.push(resolveLocalUri(CARD_DIR + cardFile).then(() => {}));
+  }
+  // Sound files
+  for (const name of GAME_SOUND_NAMES) {
+    checks.push(resolveLocalUri(SOUND_DIR + `${name}.wav`).then(() => {}));
+  }
+  await Promise.all(checks);
+}
+
+/**
  * Downloads ALL game logos (no sounds) — fired when the player enters the
  * Games tab and by the post-login prewarm. Idempotent + disk-checked, so
  * repeat visits are just a few stat calls.
@@ -139,9 +165,13 @@ export async function ensureGameLogos(): Promise<void> {
   logosFetching = (async () => {
     try {
       await init();
+      // Download logos + card images in parallel — cards are the game tile artwork
       await Promise.all(
         Object.values(GAME_ASSETS).map((manifest) =>
-          downloadIfMissing(manifest.logoUrl, LOGO_DIR + manifest.logoFile),
+          Promise.all([
+            downloadIfMissing(manifest.logoUrl, LOGO_DIR + manifest.logoFile),
+            downloadIfMissing(manifest.imageUrl, CARD_DIR + manifest.logoFile.replace('.webp', '.jpg')),
+          ]),
         ),
       );
       notify();
@@ -199,4 +229,18 @@ export function getCachedGameLogo(slug: string): { uri: string } | null {
 /** Async disk lookup for a sound file — never downloads. */
 export async function getCachedSoundUri(name: string): Promise<string | null> {
   return resolveLocalUri(SOUND_DIR + `${name}.wav`);
+}
+
+/** Sync disk lookup for a game card image — returns { uri } if cached, null otherwise. */
+export function getCachedGameCard(slug: string): { uri: string } | null {
+  const manifest = GAME_ASSETS[slug];
+  if (!manifest) return null;
+  const cardFile = manifest.logoFile.replace('.webp', '.jpg');
+  const localUri = CARD_DIR + cardFile;
+  if (downloaded.has(localUri)) return { uri: localUri };
+  // Warm from disk in background
+  resolveLocalUri(localUri).then((uri) => {
+    if (uri) notify();
+  });
+  return null;
 }

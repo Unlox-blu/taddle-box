@@ -5,7 +5,7 @@ import NetInfo from '@react-native-community/netinfo';
 import { authService } from '../services/auth.service';
 import { apiClient } from '../services/apiClient';
 import { socketClient } from '../services/socketClient';
-import { ensureGameLogos } from '../games/gameAssets';
+import { ensureGameLogos, warmAssetCache } from '../games/gameAssets';
 import { getAccounts, addAccount as storeAddAccount, removeAccount as storeRemoveAccount, storeCurrentAccountTokens, restoreAccountTokens, clearAllAccounts, type AccountProfile } from '../utils/accountStore';
 import type { XPUpdatedPayload } from '../types';
 import { queryClient } from '../lib/react-query';
@@ -74,6 +74,7 @@ import { appConfigService } from '../services/appConfig.service';
 import { setForcedLogoutHandler, clearForcedLogoutHandler } from '../services/apiClient';
 import { deviceSocketClient } from '../services/deviceSocketClient';
 import { destroyGameSound } from '../services/gameSound';
+import { clearSessionAvatars } from '../services/sessionAvatarCache';
 import { validateStoredAccounts } from '../services/sessionValidator';
 
 // Real installed version comes from the Expo build config (app.json version).
@@ -267,6 +268,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     let cancelled = false;
     const t = setTimeout(async () => {
       if (cancelled) return;
+      // Warm the in-memory asset cache from disk so game logos/cards/sounds
+      // appear instantly when the user opens the Games tab.
+      warmAssetCache().catch(() => {});
       console.log('[Auth] Cold-start session validation');
       const result = await validateStoredAccounts();
       if (cancelled) return;
@@ -435,6 +439,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     socketClient.disconnect();
     // Release native audio players on logout
     destroyGameSound().catch(() => {});
+    clearSessionAvatars();
     setIsLoggedIn(false);
     setUser(undefined);
     await refreshAccounts();

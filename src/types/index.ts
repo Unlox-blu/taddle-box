@@ -227,6 +227,8 @@ export interface Game {
   imageUrl?: string;
   /** Branded logo asset (require'd PNG) — takes precedence over monogram tile */
   logo?: any;
+  /** Cached card image from disk — takes precedence over remote imageUrl */
+  card?: { uri: string } | null;
   slug?: string;
   metadata?: Record<string, any>;
   maxXp: number;

@@ -1696,14 +1696,16 @@ function MatchmakingRadar({
             transform: [{ scale: pulse.interpolate({ inputRange: [0, 1], outputRange: [0.97, 1.04] }) }],
           }}>
             {lottieSource ? (
-              <LottieView
-                source={lottieSource}
-                autoPlay
-                loop
-                cacheComposition={false}
-                resizeMode="cover"
-                style={{ width: "100%", height: "100%", borderRadius: 26, overflow: "hidden" }}
-              />
+              <View style={{ width: "100%", height: "100%", borderRadius: 24, overflow: "hidden" }}>
+                <LottieView
+                  source={lottieSource}
+                  autoPlay
+                  loop
+                  cacheComposition={false}
+                  resizeMode="cover"
+                  style={{ width: "100%", height: "100%" }}
+                />
+              </View>
             ) : (
               <View style={{ width: 6, height: 6, borderRadius: 3, backgroundColor: colors.primaryLight }} />
             )}

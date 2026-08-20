@@ -4,6 +4,7 @@ import { LinearGradient } from "expo-linear-gradient";
 import { createGameEngineSocket } from "../../services/socketClient";
 import { gameSound } from "../../services/gameSound";
 import type { HtmlGameResult } from "../../games/types";
+import { getSessionAvatar } from "../../services/sessionAvatarCache";
 
 const { width } = Dimensions.get("window");
 const GRID_SIZE = width - 48;
@@ -334,7 +335,7 @@ export default function MemoryGridGame({
             <Image
               source={
                 players?.[0]?.avatar
-                  ? { uri: players[0].avatar }
+                  ? { uri: getSessionAvatar(players[0].avatar) }
                   : require("../../../assets/icon.png")
               }
               style={styles.avatar}

@@ -27,6 +27,24 @@ export const apiClient = axios.create({
   timeout: 15000, // 15 seconds timeout
 });
 
+// ── Forced logout handler ──────────────────────────────────────────────────
+// When the refresh-token call itself fails with 401, the session has been
+// revoked (e.g. "Log out from all devices" on another device). AuthContext
+// registers a handler here so the interceptor can trigger a clean logout
+// without importing React context.
+type ForcedLogoutHandler = () => void | Promise<void>;
+let _forcedLogoutHandler: ForcedLogoutHandler | null = null;
+
+/** Register the forced-logout callback. Called by AuthContext on mount. */
+export const setForcedLogoutHandler = (handler: ForcedLogoutHandler) => {
+  _forcedLogoutHandler = handler;
+};
+
+/** Unregister on unmount. */
+export const clearForcedLogoutHandler = () => {
+  _forcedLogoutHandler = null;
+};
+
 // Interceptor to inject Authorization header
 apiClient.interceptors.request.use(
   async (config) => {
@@ -79,9 +97,31 @@ apiClient.interceptors.response.use(
             return apiClient(originalRequest);
           }
         }
-      } catch (refreshError) {
-        console.error("Refresh token failed:", refreshError);
-        // Dispatch event or callback to logout the user could be implemented here
+      } catch (refreshError: any) {
+        // ── Distinguish revoked session from transient network failure ──
+        // A 401 from the refresh endpoint means the session was revoked
+        // (e.g. "Log out from all devices" from another device) or the
+        // refresh token itself expired. Either way, the user must re-login.
+        //
+        // Network errors (ECONNREFUSED, timeout, no response) are transient
+        // and should NOT trigger a forced logout — the user might just have
+        // a temporarily flaky connection.
+        const refreshFailedWithAuth =
+          refreshError?.response?.status === 401 ||
+          refreshError?.response?.status === 403;
+
+        if (refreshFailedWithAuth) {
+          console.warn("Session revoked or refresh token expired — forcing logout");
+          // Fire-and-forget: the handler cleans up tokens, account store, socket.
+          // Use setTimeout(0) to avoid blocking the interceptor return path.
+          setTimeout(() => {
+            _forcedLogoutHandler?.();
+          }, 0);
+        } else {
+          console.error("Refresh token failed (transient):", refreshError?.message || refreshError);
+          // Transient network error — do NOT force logout. The next API call
+          // will retry the normal 401 → refresh flow.
+        }
       }
     }
     return Promise.reject(error);

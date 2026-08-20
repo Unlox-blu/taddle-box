@@ -3,5 +3,6 @@
 .env
 .env.local
 .env.development
+.env.production
 .expo
 build/

@@ -46,10 +46,10 @@ export default function LoginScreen({ navigation }: Props) {
     () => getStyles(themeColors, isDark),
     [themeColors, isDark],
   );
-  const { signIn, isAuthenticating, setIsAuthenticating, accounts, user } =
+  const { signIn, isAuthenticating, setIsAuthenticating, accounts, user, expiredAccountUsername } =
     useAuth();
   const hasAccounts = accounts.length > 0 || !!user?.id;
-  const [identifier, setIdentifier] = useState("");
+  const [identifier, setIdentifier] = useState(expiredAccountUsername ?? "");
   const [password, setPassword] = useState("");
 
   const [errors, setErrors] = useState<Record<string, string>>({});
@@ -385,6 +385,16 @@ export default function LoginScreen({ navigation }: Props) {
             <Text style={styles.subtitle}>Log in to continue taddling</Text>
           </View>
 
+          {/* Session expired banner */}
+          {expiredAccountUsername && (
+            <View style={[styles.sessionExpiredBanner, { backgroundColor: 'rgba(239,68,68,0.12)', borderColor: 'rgba(239,68,68,0.3)' }]}>
+              <Ionicons name="time-outline" size={16} color="#EF4444" style={{ marginRight: 8 }} />
+              <Text style={[styles.sessionExpiredText, { color: '#EF4444' }]}>
+                Session expired for @{expiredAccountUsername}. Enter your password to continue.
+              </Text>
+            </View>
+          )}
+
           {/* Form */}
           <View style={styles.form}>
             <Input
@@ -525,6 +535,20 @@ const getStyles = (themeColors: any, isDark: boolean) =>
       marginBottom: 6,
     },
     subtitle: { fontSize: fontSizes.md, color: themeColors.text.muted },
+    sessionExpiredBanner: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      padding: 12,
+      borderRadius: radii.md,
+      borderWidth: 1,
+      marginTop: 16,
+      marginBottom: 4,
+    },
+    sessionExpiredText: {
+      fontSize: fontSizes.sm,
+      fontWeight: '600',
+      flex: 1,
+    },
     form: { gap: 2 },
     forgotRow: { alignItems: "flex-end", marginBottom: 4 },
     forgotText: {

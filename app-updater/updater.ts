@@ -88,12 +88,10 @@ export async function fetchUpdateManifest(): Promise<AppUpdate | null> {
 }
 
 export function hasUpdate(update: AppUpdate): boolean {
-  if (process.env.EXPO_PUBLIC_APP_TRACK === 'development') {
-    // In dev builds, versionCode doesn't auto-increment, so we check if the
-    // versionName (which now has a timestamp) has changed.
+  if (process.env.EXPO_PUBLIC_APP_TRACK === 'development' || process.env.EXPO_PUBLIC_IS_DIRECT === 'true') {
     return (
-      update.versionCode > getInstalledVersionCode() ||
-      update.versionName !== Application.nativeApplicationVersion
+      update.versionName !== Application.nativeApplicationVersion ||
+      update.versionCode > getInstalledVersionCode()
     );
   }
   return update.versionCode > getInstalledVersionCode();
@@ -135,6 +133,14 @@ export async function downloadApk(
  * expo-file-system's FileProvider, so no FileUriExposedException).
  */
 export async function installApk(file: DownloadedApk): Promise<void> {
+  await IntentLauncher.startActivityAsync(
+    'android.intent.action.INSTALL_PACKAGE',
+    {
+      data: file.contentUri,
+      flags: INSTALL_FLAGS,
+    }
+  );
+}
   await IntentLauncher.startActivityAsync(
     'android.intent.action.INSTALL_PACKAGE',
     {

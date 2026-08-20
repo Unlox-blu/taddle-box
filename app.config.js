@@ -8,23 +8,29 @@
 // to the manifest, so sideloading is impossible — Play Store compliant.
 module.exports = ({ config }) => {
   const updaterEnabled = process.env.APP_UPDATER_ENABLED === '1';
-
-  // For development builds, append a timestamp to the versionName.
-  // This allows the updater to detect new builds even when the versionCode
-  // remains exactly the same.
+  const android = config.android || {};
+  
+  // Isolate development builds so they can be installed side-by-side with production
   if (process.env.APP_ENV === 'development') {
-    config.version = `${config.version}-dev.${Math.floor(Date.now() / 1000)}`;
+    config.name = `${config.name} (Dev)`;
+    if (android.package) android.package = `${android.package}.dev`;
+    if (config.ios?.bundleIdentifier) config.ios.bundleIdentifier = `${config.ios.bundleIdentifier}.dev`;
   }
 
-  const android = config.android || {};
+  // Append a timestamp to the versionName for both development and direct builds.
+  if (process.env.APP_ENV === 'development' || process.env.EXPO_PUBLIC_IS_DIRECT === 'true') {
+    const label = process.env.APP_ENV === 'development' ? 'dev' : 'direct';
+    config.version = `${config.version}-${label}.${Math.floor(Date.now() / 1000)}`;
+  }
+
   const permissions = Array.isArray(android.permissions)
     ? [...android.permissions]
     : [];
   if (
     updaterEnabled &&
-    !permissions.includes('android.permission.REQUEST_INSTALL_PACKAGES')
+    !permissions.includes("android.permission.REQUEST_INSTALL_PACKAGES")
   ) {
-    permissions.push('android.permission.REQUEST_INSTALL_PACKAGES');
+    permissions.push("android.permission.REQUEST_INSTALL_PACKAGES");
   }
 
   return {
@@ -41,8 +47,8 @@ module.exports = ({ config }) => {
         // GET {EXPO_PUBLIC_BACKEND_URL}/api/v1/app-releases/android (see the
         // app-updater/README.md for the contract and the server endpoint).
         manifestUrl: process.env.EXPO_PUBLIC_BACKEND_URL
-          ? `${process.env.EXPO_PUBLIC_BACKEND_URL.replace(/\/+$/, '')}/api/v1/app-releases/android?track=${process.env.EXPO_PUBLIC_APP_TRACK || 'production'}`
-          : `https://your-server.com/api/v1/app-releases/android?track=${process.env.EXPO_PUBLIC_APP_TRACK || 'production'}`,
+          ? `${process.env.EXPO_PUBLIC_BACKEND_URL.replace(/\/+$/, "")}/api/v1/app-releases/android?track=${process.env.EXPO_PUBLIC_APP_TRACK || "production"}`
+          : `https://your-server.com/api/v1/app-releases/android?track=${process.env.EXPO_PUBLIC_APP_TRACK || "production"}`,
       },
     },
     android: {

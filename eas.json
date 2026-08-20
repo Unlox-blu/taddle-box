@@ -6,6 +6,7 @@
   "build": {
     "development_base": {
       "distribution": "internal",
+      "autoIncrement": true,
       "android": {
         "buildType": "apk",
         "credentialsSource": "remote"
@@ -40,6 +41,7 @@
       "env": {
         "APP_UPDATER_ENABLED": "1",
         "EXPO_PUBLIC_APP_TRACK": "production",
+        "EXPO_PUBLIC_IS_DIRECT": "true",
         "NODE_ENV": "production"
       }
     },

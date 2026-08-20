@@ -37,6 +37,10 @@ type AuthContextType = {
   setHasSeenOnboarding: (val: boolean) => void;
   /** Park current account tokens and go to the auth screen to add a new account. */
   goToAddAccount: () => Promise<void>;
+  /** Username of an account whose session expired during switch — LoginScreen pre-fills it. */
+  expiredAccountUsername: string | null;
+  /** Clear the expired-account hint after the user has seen it. */
+  clearExpiredAccount: () => void;
 };
 
 const AuthContext = createContext<AuthContextType>({
@@ -61,9 +65,15 @@ const AuthContext = createContext<AuthContextType>({
   hasSeenOnboarding: false,
   setHasSeenOnboarding: () => {},
   goToAddAccount: async () => {},
+  expiredAccountUsername: null,
+  clearExpiredAccount: () => {},
 });
 
+import { AppState, AppStateStatus } from 'react-native';
 import { appConfigService } from '../services/appConfig.service';
+import { setForcedLogoutHandler, clearForcedLogoutHandler } from '../services/apiClient';
+import { deviceSocketClient } from '../services/deviceSocketClient';
+import { validateStoredAccounts } from '../services/sessionValidator';
 
 // Real installed version comes from the Expo build config (app.json version).
 const getAppVersion = (): string =>
@@ -93,12 +103,83 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [updateAvailable, setUpdateAvailable] = useState(false);
   const [storeUrl, setStoreUrl] = useState<string | null>(null);
   const [hasSeenOnboarding, setHasSeenOnboarding] = useState(false);
+  const [expiredAccountUsername, setExpiredAccountUsername] = useState<string | null>(null);
+
+  const clearExpiredAccount = useCallback(() => setExpiredAccountUsername(null), []);
 
   /** Refresh the accounts list from SecureStore. */
   const refreshAccounts = useCallback(async () => {
     const list = await getAccounts();
     setAccounts(list);
   }, []);
+
+  // ── Forced logout handler ──────────────────────────────────────────────
+  // When another device calls "Log out from all devices", the refresh-token
+  // call on this device fails with 401. The apiClient interceptor invokes
+  // this handler so we can clean up the account and redirect to login.
+  const handleForcedLogout = useCallback(async () => {
+    try {
+      const activeUserId = await SecureStore.getItemAsync('activeUserId');
+      const parsedId = activeUserId ? JSON.parse(activeUserId) : null;
+
+      // Remove this account from the stored list so it doesn't show in the switcher
+      if (parsedId != null) {
+        await storeRemoveAccount(parsedId);
+      }
+
+      // Clear all auth tokens
+      await SecureStore.deleteItemAsync('accessToken');
+      await SecureStore.deleteItemAsync('refreshToken');
+      await SecureStore.deleteItemAsync('sessionId');
+      await SecureStore.deleteItemAsync('activeUserId');
+
+      // Disconnect socket
+      socketClient.disconnect();
+
+      // Update React state — user will see auth screens
+      setIsLoggedIn(false);
+      setUser(undefined);
+      await refreshAccounts();
+    } catch (e) {
+      console.error('Forced logout cleanup failed', e);
+      // Last-resort: clear everything and hope for the best
+      setIsLoggedIn(false);
+      setUser(undefined);
+    }
+  }, [refreshAccounts]);
+
+  // Register the forced-logout handler with the API interceptor on mount,
+  // clean up on unmount.
+  useEffect(() => {
+    setForcedLogoutHandler(handleForcedLogout);
+    return () => clearForcedLogoutHandler();
+  }, [handleForcedLogout]);
+
+  // ── Device-level WebSocket ──────────────────────────────────────────────
+  // Connects once on mount (regardless of which account is active).
+  // Receives auth:session_revoked events when another device calls
+  // "Log out from all devices" — instantly cleans up the affected account.
+  useEffect(() => {
+    deviceSocketClient.connect();
+
+    const handleSessionRevoked = async (data: { userId: number | string }) => {
+      console.log('[Auth] Session revoked via device socket for userId:', data.userId);
+      // Remove the revoked account from the store
+      await storeRemoveAccount(data.userId);
+      await refreshAccounts();
+      // If the revoked account is the currently active one, force logout
+      if (user?.id && String(user.id) === String(data.userId)) {
+        await handleForcedLogout();
+      }
+    };
+
+    deviceSocketClient.events.on('auth:session_revoked', handleSessionRevoked);
+
+    return () => {
+      deviceSocketClient.events.off('auth:session_revoked', handleSessionRevoked);
+      deviceSocketClient.disconnect();
+    };
+  }, [handleForcedLogout, refreshAccounts, user?.id]);
 
   // The global splash screen is visible until BOTH the auth check completes AND the Lottie finishes its first loop,
   // OR when a manual login process is actively authenticating.
@@ -153,6 +234,51 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       socketClient.events.off('xp:updated', handleXPUpdate);
     };
   }, []);
+
+  // ── Session validation on foreground / cold start ─────────────────────
+  // When the app comes back to foreground or starts fresh, validate ALL
+  // stored accounts in one batch call. Revoked sessions are silently
+  // removed. If the active account is revoked, trigger forced logout.
+  useEffect(() => {
+    let previousState: AppStateStatus = AppState.currentState;
+
+    const handleAppStateChange = async (nextState: AppStateStatus) => {
+      // Only run when transitioning TO active from background/inactive
+      if (previousState.match(/background|inactive/) && nextState === 'active') {
+        console.log('[Auth] App foregrounded — validating stored sessions');
+        const result = await validateStoredAccounts();
+        await refreshAccounts();
+        if (result.activeAccountRevoked) {
+          await handleForcedLogout();
+        }
+      }
+      previousState = nextState;
+    };
+
+    const sub = AppState.addEventListener('change', handleAppStateChange);
+    return () => sub.remove();
+  }, [handleForcedLogout, refreshAccounts]);
+
+  // Cold-start validation: runs once after initial checkToken completes.
+  // Delayed 3s so it doesn't compete with splash/auth traffic.
+  useEffect(() => {
+    if (isLoading) return; // Wait for checkToken to finish
+    let cancelled = false;
+    const t = setTimeout(async () => {
+      if (cancelled) return;
+      console.log('[Auth] Cold-start session validation');
+      const result = await validateStoredAccounts();
+      if (cancelled) return;
+      await refreshAccounts();
+      if (result.activeAccountRevoked && isLoggedIn) {
+        await handleForcedLogout();
+      }
+    }, 3000);
+    return () => {
+      cancelled = true;
+      clearTimeout(t);
+    };
+  }, [isLoading]); // Only re-run when isLoading changes (cold start)
 
   // Prewarm the game logos shortly after login so the Games tab feels
   // instant — but ONLY on an unmetered connection and only after startup
@@ -224,6 +350,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   };
 
   const signIn = async (token: string, refreshToken?: string, sessionId?: string) => {
+    // Clear any expired-account hint — successful login means we're past it.
+    setExpiredAccountUsername(null);
     // If switching accounts, save current account's tokens first
     if (user?.id) {
       await storeCurrentAccountTokens(user.id);
@@ -339,10 +467,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       await socketClient.connect();
     } catch (e) {
       console.error('Failed to switch account', e);
-      // If the stored token is invalid, remove this account
-      await storeRemoveAccount(targetUserId);
-      await refreshAccounts();
-      if (!user?.id) setIsLoggedIn(false);
+      // Instagram-style: keep the account in the list, don't auto-remove.
+      // Instead, pass the username to LoginScreen so it can pre-fill it.
+      const targetProfile = accounts.find((a) => String(a.userId) === String(targetUserId));
+      setExpiredAccountUsername(targetProfile?.username || null);
+      // User is already logged out (setIsLoggedIn(false) above) — auth screens will show.
     } finally {
       setIsAuthenticating(false);
     }
@@ -395,6 +524,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         hasSeenOnboarding,
         setHasSeenOnboarding,
         goToAddAccount,
+        expiredAccountUsername,
+        clearExpiredAccount,
       }}
     >
       {children}

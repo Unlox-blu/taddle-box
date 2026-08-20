@@ -11,9 +11,12 @@ import {
   Text,
   TouchableOpacity,
   View,
+  Linking,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
+import * as IntentLauncher from 'expo-intent-launcher';
+import * as Application from 'expo-application';
 import { useThemeColors } from '../src/context/ThemeContext';
 import { fontSizes, spacing, radii } from '../src/theme';
 import {
@@ -105,6 +108,23 @@ export function AppUpdaterProvider({ children }: { children?: React.ReactNode })
       return { status: 'idle' };
     });
   }, [isMandatory]);
+
+  const triggerReinstall = useCallback(() => {
+    if (state.status !== 'error' || !state.update?.url) return;
+    
+    // 1. We MUST use the browser to download it. If our app downloads it directly, 
+    // Android puts it in the app's sandbox. When the app uninstalls itself in step 2,
+    // Android would instantly delete the downloaded APK! The browser safely puts it 
+    // in the public Downloads folder where it survives the uninstall.
+    Linking.openURL(state.update.url).catch(() => {});
+
+    // 2. Wait 1.5 seconds for the browser to launch, then pop the uninstall screen
+    setTimeout(() => {
+      IntentLauncher.startActivityAsync('android.intent.action.DELETE', {
+        data: `package:${Application.applicationId}`,
+      }).catch(() => {});
+    }, 1500);
+  }, [state]);
 
   // Block rendering until the initial check is done.
   if (!initialCheckDone) return (
@@ -221,6 +241,11 @@ export function AppUpdaterProvider({ children }: { children?: React.ReactNode })
               <Text style={[styles.sub, { color: colors.text.secondary }]}>
                 {state.message}
               </Text>
+              
+              <Text style={[styles.hint, { color: colors.text.muted, marginBottom: spacing.md, paddingHorizontal: spacing.sm }]}>
+                If it keeps failing, please tap Reinstall below to download the latest version and uninstall this broken one.
+              </Text>
+
               <LinearGradient
                 colors={[colors.primary, colors.cyanDark]}
                 start={{ x: 0, y: 0 }}
@@ -236,6 +261,19 @@ export function AppUpdaterProvider({ children }: { children?: React.ReactNode })
                   <Text style={styles.updateBtnText}>Try again</Text>
                 </TouchableOpacity>
               </LinearGradient>
+
+              {state.update?.url && (
+                <TouchableOpacity 
+                  style={[styles.updateBtn, { marginTop: spacing.md, backgroundColor: colors.bg.surface, borderWidth: 1, borderColor: colors.border }]} 
+                  onPress={triggerReinstall}
+                  activeOpacity={0.7}
+                >
+                  <View style={[styles.updateBtnInner, { paddingVertical: 11 }]}>
+                    <Ionicons name="build-outline" size={16} color={colors.text.primary} />
+                    <Text style={[styles.updateBtnText, { color: colors.text.primary }]}>Reinstall App</Text>
+                  </View>
+                </TouchableOpacity>
+              )}
             </>
           )}
 

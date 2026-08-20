@@ -122,7 +122,6 @@ const LIST_FIELDS_QUALIFIED = [
 ].join(', ');
 
 const findByUser = async ({userId, limit, offset, unreadOnly = false, types = null, query = '', timeCutoff = null, sortBy = 'latest', communities = null, people = null}) => {
-  console.log({communities, people})
   try {
     const all = NotificationConstent.NOTIFICATION_TYPE_BUCKETS.all
     const like = NotificationConstent.NOTIFICATION_TYPE_BUCKETS.likes

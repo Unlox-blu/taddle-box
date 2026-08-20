@@ -96,9 +96,10 @@ const tagRows = (rows, type) =>
   rows.map((r) => ({ ...r, itemType: type }));
 
 class SearchService {
-  constructor({ searchRepository, bookmarkService }) {
+  constructor({ searchRepository, bookmarkService, notificationService }) {
     this.searchRepo = searchRepository;
     this.bookmarkSvc = bookmarkService;
+    this.notificationSvc = notificationService;
   }
 
 
@@ -168,23 +169,41 @@ class SearchService {
           };
         }
 
+        if(isNotifications) {
+          const { notifications, total, filteredCount } = await this.notificationSvc.searchNotification({
+                userId, 
+                limit, 
+                offset, 
+                unreadOnly: false, 
+                sourceType: requestedType, 
+                query: '', 
+                timeCutoff, 
+                sortBy, 
+                communities, 
+                people
+              });
+              
+          return {
+            dataType: 'universal',
+            data: {
+              types: ['all', ...order].map((t) =>
+                pill(
+                  t,
+                  isNotifications
+                    ? filteredCount[t]
+                    : undefined
+                )
+              ),
+              results: tagRows(notifications, requestedType),
+              filter: { communities, people, tags },
+            },
+            total,
+            hasNext: total > page * limit,
+          };
+        }
+
         const searchGroup = async (group, lmt, off) => {
           try {
-            // if (isNotifications) {
-            //   const bucket = NOTIFICATION_TYPE_BUCKETS[group];
-            //   if (!bucket) return { rows: [], total: 0 };
-            //   const { notifications, total } = await notificationRepository.findByUser(
-            //     userId,
-            //     lmt,
-            //     off,
-            //     false,
-            //     bucket,
-            //     query,
-            //     timeCutoff,
-            //     sortBy
-            //   );
-            //   return { rows: notifications, total };
-            // }
             switch (group) {
               case 'posts': {
                 if (isDiscovery) {

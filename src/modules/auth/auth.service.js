@@ -765,12 +765,44 @@ class AuthService {
         // Device-specific logout: revoke only this session
         await clientRegistryService.revokeSession({ sessionId });
       } else {
-        // Full logout: revoke all sessions + clear legacy hash
+        // Full logout: notify all devices BEFORE revoking so the socket
+        // rooms still exist when the emit fires.
+        const { emitSessionRevoked } = require('../../sockets/notification.socket');
+        const deviceIds = await clientRegistryService.findDeviceIdsByUser(userId);
+        for (const deviceId of deviceIds) {
+          emitSessionRevoked(deviceId, { userId });
+        }
+
+        // Revoke all sessions + clear legacy hash
         await clientRegistryService.revokeAllSessions({ userId });
         await this.authUserRepo.updateRefreshToken({ userId, tokenHash: null });
       }
     } catch (error) {
       throw error;
+    }
+  }
+
+  // ── Revoke all sessions for a user ────────────────────────────────────
+  // Used after password changes/resets. Notifies all devices via the
+  // device socket, then revokes all sessions and clears the legacy hash.
+  // Best-effort: socket emit failures never block the password update.
+  async #revokeAllUserSessions(userId) {
+    try {
+      const { clientRegistryService } = require('../pushNotification/clientRegistry.container');
+      const { emitSessionRevoked } = require('../../sockets/notification.socket');
+
+      // Notify all devices BEFORE revoking so socket rooms still exist
+      const deviceIds = await clientRegistryService.findDeviceIdsByUser(userId);
+      for (const deviceId of deviceIds) {
+        emitSessionRevoked(deviceId, { userId });
+      }
+
+      // Revoke all sessions + clear legacy refresh hash
+      await clientRegistryService.revokeAllSessions({ userId });
+      await this.authUserRepo.updateRefreshToken({ userId, tokenHash: null });
+    } catch (err) {
+      // Best-effort: never block password change because of socket/cleanup
+      console.error('[AuthService] Failed to revoke sessions after password change:', err.message);
     }
   }
 
@@ -785,6 +817,10 @@ class AuthService {
 
       const passwordHash = await hashPassword(newPassword);
       await this.authUserRepo.updatePassword({ userId, passwordHash });
+
+      // Revoke all other sessions — after password change, all devices
+      // must re-authenticate with the new password.
+      await this.#revokeAllUserSessions(userId);
     } catch (error) {
       throw error;
     }
@@ -898,6 +934,9 @@ class AuthService {
       // Update password
       const passwordHash = await hashPassword(newPassword);
       await this.authUserRepo.updatePassword({ userId, passwordHash });
+
+      // OTP-verified password change — revoke all sessions
+      await this.#revokeAllUserSessions(userId);
     } catch (error) {
       throw error;
     }
@@ -994,6 +1033,21 @@ class AuthService {
       // Update password
       const passwordHash = await hashPassword(password);
       await this.authUserRepo.updatePassword({ userId, passwordHash });
+
+      // Forgot-password reset — ALWAYS revoke all sessions.
+      // The account may be compromised; no existing session should survive.
+      await this.#revokeAllUserSessions(userId);
+    } catch (error) {
+      throw error;
+    }
+  }
+
+  // Batch-validates stored account sessions without rotating tokens.
+  // Called by the client on app foreground to detect revoked sessions.
+  async validateSessions({ sessions }) {
+    try {
+      const { clientRegistryService } = require('../pushNotification/clientRegistry.container');
+      return await clientRegistryService.validateSessions({ sessions });
     } catch (error) {
       throw error;
     }

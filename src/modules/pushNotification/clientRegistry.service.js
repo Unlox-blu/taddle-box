@@ -124,6 +124,38 @@ class ClientRegistryService {
     await this.repo.revokeAllSessions({ userId });
   }
 
+  /**
+   * Returns all distinct device_ids for a user.
+   */
+  async findDeviceIdsByUser(userId) {
+    return await this.repo.findDeviceIdsByUser(userId);
+  }
+
+  /**
+   * Batch-validates sessions by checking session_id + refresh_hash.
+   * Returns a Map<sessionId, boolean> indicating validity.
+   */
+  async validateSessions({ sessions }) {
+    const { hashToken } = require('../../utils/token.util');
+    const sessionIds = sessions.map((s) => s.sessionId).filter(Boolean);
+    if (!sessionIds.length) return sessions.map((s) => ({ userId: s.userId, valid: false }));
+
+    const dbRows = await this.repo.findActiveSessionsBySessionIds(sessionIds);
+    const sessionMap = new Map(dbRows.map((r) => [r.session_id, r]));
+
+    return sessions.map((s) => {
+      const db = sessionMap.get(s.sessionId);
+      if (!db) return { userId: s.userId, valid: false };
+      if (String(db.user_id) !== String(s.userId)) return { userId: s.userId, valid: false };
+      if (db.refresh_hash !== hashToken(s.refreshToken)) return { userId: s.userId, valid: false };
+      // Check expiry (24h grace for clock skew)
+      if (db.session_expires_at && new Date(db.session_expires_at) < new Date(Date.now() - 24 * 60 * 60 * 1000)) {
+        return { userId: s.userId, valid: false };
+      }
+      return { userId: s.userId, valid: true };
+    });
+  }
+
   // ── Receipt polling (call ~30–60 s after sendToUser) ─────────────────────
   async pollAndPruneReceipts(receipts) {
     try {

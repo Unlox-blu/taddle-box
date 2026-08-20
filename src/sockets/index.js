@@ -6,6 +6,7 @@ const { socketAuthMiddleware } = require('./middleware/socket.auth');
 const { setupNotificationSocket } = require('./notification.socket');
 const { setupActiveStatus } = require('./status.socket');
 const { setupGameSocket } = require('./game.socket');
+const { setupDeviceSocket } = require('./device.socket');
 const { createAdapter } = require('@socket.io/redis-adapter');
 const redisClient = require('../config/redis');
 
@@ -88,6 +89,7 @@ const initializeSockets = (httpServer) => {
   setupActiveStatus(io);
   setupNotificationSocket(io);
   setupGameSocket(io);
+  setupDeviceSocket(io);
   _io = io;
   return io;
 };

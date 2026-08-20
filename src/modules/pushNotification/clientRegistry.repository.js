@@ -230,6 +230,45 @@ const revokeAllSessions = async ({ userId }) => {
   }
 };
 
+/**
+ * Returns all distinct device_ids for a user (active or revoked).
+ * Used by the device socket to know which devices to notify on session revocation.
+ */
+const findDeviceIdsByUser = async (userId) => {
+  try {
+    const { rows } = await pool.query(
+      `SELECT DISTINCT device_id FROM ${ClientRegistryModel.TABLE}
+       WHERE user_id = $1`,
+      [userId]
+    );
+    return rows.map((r) => r.device_id);
+  } catch (_error) {
+    return [];
+  }
+};
+
+/**
+ * Batch-validates sessions by session_id.
+ * Returns all active (non-revoked) rows matching the given session IDs.
+ * Used by the foreground validation to check stored accounts in one query.
+ */
+const findActiveSessionsBySessionIds = async (sessionIds) => {
+  if (!sessionIds || !sessionIds.length) return [];
+  try {
+    const { rows } = await pool.query(
+      `SELECT session_id, user_id, refresh_hash, session_expires_at
+       FROM ${ClientRegistryModel.TABLE}
+       WHERE session_id = ANY($1::uuid[])
+         AND revoked_at IS NULL
+         AND is_active = TRUE`,
+      [sessionIds]
+    );
+    return rows;
+  } catch (_error) {
+    return [];
+  }
+};
+
 module.exports = {
   create,
   findByUser,
@@ -242,4 +281,6 @@ module.exports = {
   findActiveSession,
   revokeSession,
   revokeAllSessions,
+  findDeviceIdsByUser,
+  findActiveSessionsBySessionIds,
 };

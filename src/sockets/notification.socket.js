@@ -90,4 +90,13 @@ const emitLeaderboardsChanged = (userId, reason = 'game_win') => {
   leaderboardsChangedDebounceTimers.set(userId, { timer, reason });
 };
 
-module.exports = { setupNotificationSocket, emitNotification, emitWalletUpdate, emitXPUpdate, emitLeaderboardsChanged, emitFollowRequestCancelled, emitFollowRequestResolved, emitFollowStateChanged };
+// Emits a session-revoked event to a specific device room.
+// Used when "Log out from all devices" is called — the backend looks up
+// all device_ids for the user and emits to each device room so the client
+// can clean up the affected account.
+const emitSessionRevoked = (deviceId, { userId }) => {
+  if (!_io) return;
+  _io.to(`device:${deviceId}`).emit('auth:session_revoked', { userId });
+};
+
+module.exports = { setupNotificationSocket, emitNotification, emitWalletUpdate, emitXPUpdate, emitLeaderboardsChanged, emitFollowRequestCancelled, emitFollowRequestResolved, emitFollowStateChanged, emitSessionRevoked };

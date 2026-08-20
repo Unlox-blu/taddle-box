@@ -404,6 +404,16 @@ class AuthController {
     }
   };
 
+  validateSessions = async (req, res, next) => {
+    try {
+      const { sessions } = req.body; // [{ userId, refreshToken, sessionId }]
+      const results = await this.authSvc.validateSessions({ sessions: sessions || [] });
+      res.json(apiResponse({ results }, 'Sessions validated'));
+    } catch (error) {
+      next(error);
+    }
+  };
+
   getMe = async (req, res, next) => {
     try {
       const userId = req.userId;

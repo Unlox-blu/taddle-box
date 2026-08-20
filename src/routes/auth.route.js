@@ -113,11 +113,12 @@ router.post(
   '/logout', 
   verifyToken, 
   authController.logout
+);router.post('/refresh-token', 
+  authController.refreshToken
 );
 
-router.post(
-  '/refresh-token', 
-  authController.refreshToken
+router.post('/validate-sessions', 
+  authController.validateSessions
 );
 
 router.post(

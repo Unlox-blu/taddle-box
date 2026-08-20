@@ -14,7 +14,7 @@ import { useThemeColors, useTheme } from '../../context/ThemeContext';
 import { authService } from '../../services/auth.service';
 import { mediaService } from '../../services/media.service';
 import { fontSizes, spacing, radii } from '../../theme';
-import { appLockBypass } from '../../utils/appLockBypass';
+import { nativeBypass } from '../../utils/nativeBypass';
 import { themedAlert } from '../../components/common/ThemedAlert';
 import SmartInput from '../../components/common/SmartInput';
 import StateBlock from '../../components/common/StateBlock';
@@ -166,7 +166,7 @@ export default function EditProfileScreen() {
     !!bannerAsset;
 
   const pickAvatar = async () => {
-    appLockBypass.beginNativeFlow();
+    nativeBypass.beginNativeFlow();
     try {
       const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
       if (status !== 'granted') {
@@ -185,7 +185,7 @@ export default function EditProfileScreen() {
         setAvatarAsset(result.assets[0]);
       }
     } finally {
-      appLockBypass.endNativeFlow();
+      nativeBypass.endNativeFlow();
     }
   };
 
@@ -217,7 +217,7 @@ export default function EditProfileScreen() {
   };
 
   const pickBanner = async () => {
-    appLockBypass.beginNativeFlow();
+    nativeBypass.beginNativeFlow();
     try {
       const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
       if (status !== 'granted') {
@@ -236,7 +236,7 @@ export default function EditProfileScreen() {
         setBannerAsset(result.assets[0]);
       }
     } finally {
-      appLockBypass.endNativeFlow();
+      nativeBypass.endNativeFlow();
     }
   };
 

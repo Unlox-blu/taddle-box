@@ -60,7 +60,7 @@ const TOKEN_FILTER_RE = /^(@[^\s@]+|c\/[^\s/]+|#[^\s#]+|\.\/[a-z]+)$/i;
 
 const SETTINGS_ITEMS = [
   { id: "edit_profile", title: "Edit Profile", icon: "person-outline", route: "EditProfile", keywords: ["name", "avatar", "bio", "profile"] },
-  { id: "app_lock", title: "App Lock & PIN", icon: "lock-closed-outline", route: "Settings", keywords: ["security", "passcode", "fingerprint", "face id", "lock"] },
+  { id: "app_lock", title: "Global Lock & PIN", icon: "lock-closed-outline", route: "Settings", keywords: ["security", "passcode", "fingerprint", "face id", "lock"] },
   { id: "change_password", title: "Change Password", icon: "key-outline", route: "ChangePassword", keywords: ["security", "password"] },
   { id: "phone", title: "Phone Number", icon: "call-outline", route: "ChangePhone", keywords: ["mobile", "phone"] },
   { id: "email", title: "Email Address", icon: "mail-outline", route: "ChangeEmail", keywords: ["contact", "email"] },

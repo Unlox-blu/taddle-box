@@ -37,7 +37,7 @@ import { useMyCommunities, useCommunity } from "../../queries/communities";
 import type { Post } from "../../types";
 import SmartInput from "./SmartInput";
 import AudiencePicker from "./AudiencePicker";
-import { appLockBypass } from "../../utils/appLockBypass";
+import { nativeBypass } from "../../utils/nativeBypass";
 import { themedAlert } from './ThemedAlert';
 
 const SCREEN_W = Dimensions.get("window").width;
@@ -520,7 +520,7 @@ export default function CreatePostModal({
           });
         }
       } else {
-        appLockBypass.beginNativeFlow();
+        nativeBypass.beginNativeFlow();
         try {
           const { status } =
             await ImagePicker.requestMediaLibraryPermissionsAsync();
@@ -538,7 +538,7 @@ export default function CreatePostModal({
           if (remaining <= 0) {
             themedAlert("Limit Reached", "You can only add up to 5 media files total.");
             setPickLoading(false);
-            appLockBypass.endNativeFlow();
+            nativeBypass.endNativeFlow();
             return;
           }
 
@@ -574,7 +574,7 @@ export default function CreatePostModal({
             });
           }
         } finally {
-          appLockBypass.endNativeFlow();
+          nativeBypass.endNativeFlow();
         }
       }
     } catch {
@@ -611,7 +611,7 @@ export default function CreatePostModal({
   // field (like signup) instead of closing the picker.
   const captureLocation = async (keepPanelOpen = false) => {
     setLocationLoading(true);
-    appLockBypass.beginNativeFlow();
+    nativeBypass.beginNativeFlow();
     try {
       const { status } =
         await Location.requestForegroundPermissionsAsync();
@@ -648,7 +648,7 @@ export default function CreatePostModal({
       console.warn("Failed to capture location", e);
       themedAlert("Error", "Could not fetch your location. Try again.");
     } finally {
-      appLockBypass.endNativeFlow();
+      nativeBypass.endNativeFlow();
       setLocationLoading(false);
     }
   };

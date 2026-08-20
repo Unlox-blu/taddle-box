@@ -88,6 +88,14 @@ export async function fetchUpdateManifest(): Promise<AppUpdate | null> {
 }
 
 export function hasUpdate(update: AppUpdate): boolean {
+  if (process.env.EXPO_PUBLIC_APP_TRACK === 'development') {
+    // In dev builds, versionCode doesn't auto-increment, so we check if the
+    // versionName (which now has a timestamp) has changed.
+    return (
+      update.versionCode > getInstalledVersionCode() ||
+      update.versionName !== Application.nativeApplicationVersion
+    );
+  }
   return update.versionCode > getInstalledVersionCode();
 }
 

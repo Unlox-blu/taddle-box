@@ -19,8 +19,10 @@ import * as SecureStore from "expo-secure-store";
 import { useThemeColors } from "../../context/ThemeContext";
 import { spacing, fontSizes } from "../../theme";
 import PinPad from "../../components/common/PinPad";
+import RemovePinModal from "../../components/common/RemovePinModal";
 import { authService } from "../../services/auth.service";
 import { useAuth } from "../../context/AuthContext";
+import { useWallet } from "../../context/WalletContext";
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 import { themedAlert } from '../../components/common/ThemedAlert';
 
@@ -47,7 +49,13 @@ export default function LockScreen() {
   const [showBiometric, setShowBiometric] = useState(false);
   const [setupStep, setSetupStep] = useState<"enter" | "confirm">("enter");
   const [firstPin, setFirstPin] = useState("");
+  const [removePinVisible, setRemovePinVisible] = useState(false);
   const { signOut, refreshUser } = useAuth();
+  
+  // Safe destructure since we may not be in WalletProvider in all test envs,
+  // but we are in production (AppShell).
+  const walletContext = useWallet();
+  const fetchWalletData = walletContext?.fetchWalletData;
 
   useFocusEffect(
     useCallback(() => {
@@ -109,7 +117,7 @@ export default function LockScreen() {
             return;
           }
           await authService.setupPin(pin);
-          await refreshUser(); // refresh so appLockEnabled toggle updates
+          await refreshUser(); // refresh so globalLockEnabled toggle updates
           themedAlert("Success", "PIN setup complete.");
           handleSuccess();
           return;
@@ -121,12 +129,18 @@ export default function LockScreen() {
 
       if (isDisable) {
         await authService.removePin(pin);
-        await refreshUser(); // refresh so appLockEnabled toggle updates
-        themedAlert("Success", "App Lock disabled.");
+        await SecureStore.deleteItemAsync('wallet_pinEnabled');
+        await SecureStore.deleteItemAsync('wallet_biometricEnabled');
+        await SecureStore.deleteItemAsync('app_biometricEnabled');
+        await refreshUser(); // refresh so globalLockEnabled toggle updates
+        if (fetchWalletData) {
+          await fetchWalletData(); // refresh wallet context to sync local locks instantly
+        }
+        themedAlert("Success", "Global Lock disabled.");
       } else if (isVerifyToEnable) {
-        await authService.toggleGlobalAppLock(pin, true);
+        await authService.toggleGlobalLock(pin, true);
         await refreshUser();
-        themedAlert("Success", "Global App Lock enabled.");
+        themedAlert("Success", "Global Lock enabled.");
       }
 
       handleSuccess();
@@ -173,11 +187,11 @@ export default function LockScreen() {
       ? "Create a 4-digit PIN"
       : "Confirm your PIN"
     : isDisable
-      ? "Enter PIN to Disable App Lock"
+      ? "Enter PIN to Disable Global Lock"
       : isVerifyToEnable
-        ? "Enter PIN to Enable App Lock"
+        ? "Enter PIN to Enable Global Lock"
         : mode === "app" 
-          ? "Enter App Lock PIN" 
+          ? "Enter Global Lock PIN" 
           : "Enter Wallet PIN";
 
   const subtitle = "Please enter your 4-digit PIN to continue";
@@ -225,14 +239,29 @@ export default function LockScreen() {
         error={error}
         isVerifying={isVerifying}
         resetKey={setupStep}
+        clearError={() => setError("")}
       />
-      {mode === "app" && !isSetup && !isDisable && (
-        <TouchableOpacity style={styles.logoutBtn} onPress={handleLogout}>
-          <Text style={[styles.logoutText, { color: colors.danger }]}>
-            Log out
-          </Text>
-        </TouchableOpacity>
+      {mode === "app" && !isSetup && (
+        <>
+          <TouchableOpacity style={styles.forgotBtn} onPress={() => setRemovePinVisible(true)}>
+            <Text style={[styles.forgotText, { color: colors.primaryLight }]}>Forgot PIN?</Text>
+          </TouchableOpacity>
+          <TouchableOpacity style={styles.logoutBtn} onPress={handleLogout}>
+            <Text style={[styles.logoutText, { color: colors.danger }]}>Log out</Text>
+          </TouchableOpacity>
+        </>
       )}
+
+      <RemovePinModal
+        visible={removePinVisible}
+        onClose={() => setRemovePinVisible(false)}
+        onSuccess={() => {
+          setRemovePinVisible(false);
+          refreshUser();
+          if (fetchWalletData) fetchWalletData();
+          navigation.goBack();
+        }}
+      />
     </SafeAreaView>
   );
 }
@@ -249,6 +278,15 @@ const styles = StyleSheet.create({
   backBtnInner: {
     padding: spacing.sm,
     borderRadius: 50,
+  },
+  forgotBtn: {
+    padding: spacing.sm,
+    alignItems: "center",
+    marginBottom: spacing.xs,
+  },
+  forgotText: {
+    fontSize: fontSizes.sm,
+    fontWeight: "600",
   },
   logoutBtn: {
     padding: spacing.md,

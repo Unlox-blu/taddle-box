@@ -3,9 +3,12 @@ import * as SecureStore from 'expo-secure-store';
 import Constants from 'expo-constants';
 import NetInfo from '@react-native-community/netinfo';
 import { authService } from '../services/auth.service';
+import { apiClient } from '../services/apiClient';
 import { socketClient } from '../services/socketClient';
 import { ensureGameLogos } from '../games/gameAssets';
+import { getAccounts, addAccount as storeAddAccount, removeAccount as storeRemoveAccount, storeCurrentAccountTokens, restoreAccountTokens, clearAllAccounts, type AccountProfile } from '../utils/accountStore';
 import type { XPUpdatedPayload } from '../types';
+import { queryClient } from '../lib/react-query';
 
 type AuthContextType = {
   isLoggedIn:  boolean;
@@ -15,10 +18,16 @@ type AuthContextType = {
   isSplashVisible: boolean;
   setLottieFinished: (val: boolean) => void;
   user:        any;
-  signIn:      (token: string, refreshToken?: string) => Promise<void>;
-  signOut:     () => Promise<void>;
+  signIn:      (token: string, refreshToken?: string, sessionId?: string) => Promise<void>;
+  signOut:     (opts?: { allDevices?: boolean }) => Promise<void>;
   refreshUser: () => Promise<void>;
   updateUser:  (partial: Partial<any>) => void;
+  /** All accounts stored on this device. */
+  accounts:    AccountProfile[];
+  /** Switch to another logged-in account on this device. */
+  switchAccount: (userId: number | string) => Promise<void>;
+  /** Remove an account from this device (does NOT log out server-side). */
+  removeAccountFromDevice: (userId: number | string) => Promise<void>;
   needsForceUpdate: boolean;
   /** A newer version exists but this one is still usable — soft update popup. */
   updateAvailable: boolean;
@@ -26,6 +35,8 @@ type AuthContextType = {
   storeUrl:    string | null;
   hasSeenOnboarding: boolean;
   setHasSeenOnboarding: (val: boolean) => void;
+  /** Park current account tokens and go to the auth screen to add a new account. */
+  goToAddAccount: () => Promise<void>;
 };
 
 const AuthContext = createContext<AuthContextType>({
@@ -40,12 +51,16 @@ const AuthContext = createContext<AuthContextType>({
   signOut:     async () => {},
   refreshUser: async () => {},
   updateUser:  () => {},
+  accounts:    [],
+  switchAccount: async () => {},
+  removeAccountFromDevice: async () => {},
   needsForceUpdate: false,
   updateAvailable: false,
   dismissUpdate: () => {},
   storeUrl:    null,
   hasSeenOnboarding: false,
   setHasSeenOnboarding: () => {},
+  goToAddAccount: async () => {},
 });
 
 import { appConfigService } from '../services/appConfig.service';
@@ -73,19 +88,32 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [isAuthenticating, setIsAuthenticating] = useState(false);
   const [lottieFinished, setLottieFinished] = useState(false);
   const [user, setUser] = useState<any>(undefined);
+  const [accounts, setAccounts] = useState<AccountProfile[]>([]);
   const [needsForceUpdate, setNeedsForceUpdate] = useState(false);
   const [updateAvailable, setUpdateAvailable] = useState(false);
   const [storeUrl, setStoreUrl] = useState<string | null>(null);
   const [hasSeenOnboarding, setHasSeenOnboarding] = useState(false);
 
+  /** Refresh the accounts list from SecureStore. */
+  const refreshAccounts = useCallback(async () => {
+    const list = await getAccounts();
+    setAccounts(list);
+  }, []);
+
   // The global splash screen is visible until BOTH the auth check completes AND the Lottie finishes its first loop,
   // OR when a manual login process is actively authenticating.
   const isSplashVisible = isLoading || !lottieFinished || isAuthenticating;
 
-  // We need to reset lottieFinished when we start authenticating again so it plays a full loop
+  // Reset lottieFinished when starting a fresh login (not account switch) so it
+  // plays a full loop. Account switches skip the lottie — the splash dismisses
+  // as soon as isAuthenticating flips back to false.
   useEffect(() => {
     if (isAuthenticating) {
-      setLottieFinished(false);
+      // If already logged in (account switch), skip lottie reset — splash
+      // will dismiss immediately when isAuthenticating becomes false.
+      if (!isLoggedIn) {
+        setLottieFinished(false);
+      }
     }
   }, [isAuthenticating]);
 
@@ -159,6 +187,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       const seen = await SecureStore.getItemAsync('hasSeenOnboarding');
       setHasSeenOnboarding(!!seen);
 
+      // Load stored accounts list
+      await refreshAccounts();
+
       const token = await SecureStore.getItemAsync('accessToken');
       if (token) {
         const res = await authService.getMe();
@@ -192,7 +223,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     setUser((prev: any) => prev ? { ...prev, ...partial } : prev);
   };
 
-  const signIn = async (token: string, refreshToken?: string) => {
+  const signIn = async (token: string, refreshToken?: string, sessionId?: string) => {
+    // If switching accounts, save current account's tokens first
+    if (user?.id) {
+      await storeCurrentAccountTokens(user.id);
+    }
+
     await SecureStore.deleteItemAsync('accessToken');
     if (token) {
       await SecureStore.setItemAsync('accessToken', token);
@@ -202,13 +238,31 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     if (refreshToken) {
       await SecureStore.setItemAsync('refreshToken', refreshToken);
     }
+
+    await SecureStore.deleteItemAsync('sessionId');
+    if (sessionId) {
+      await SecureStore.setItemAsync('sessionId', sessionId);
+    }
     // Fetch user after signing in
     try {
       // Also check app config on fresh login
       await checkAppConfig();
 
       const res = await authService.getMe();
-      setUser(res.data.user);
+      const newUser = res.data.user;
+      setUser(newUser);
+
+      // Persist this account in the accounts list
+      if (newUser) {
+        await storeAddAccount({
+          userId: newUser.id,
+          name: newUser.name || 'User',
+          username: newUser.username || 'user',
+          avatarUrl: newUser.avatarUrl,
+        });
+        await refreshAccounts();
+      }
+
       setIsLoggedIn(true);
       await socketClient.connect();
     } catch (e) {
@@ -222,17 +276,97 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const dismissUpdate = () => setUpdateAvailable(false);
 
-  const signOut = async () => {
+  const signOut = async (opts?: { allDevices?: boolean }) => {
+    const userId = user?.id;
     try {
       if (isLoggedIn) {
-        await authService.logout();
+        if (opts?.allDevices) {
+          // Revoke ALL sessions across all devices (no sessionId = full logout)
+          await apiClient.post('/auth/logout', {});
+        } else {
+          // Revoke only this device's session
+          const sessionId = await SecureStore.getItemAsync('sessionId');
+          if (sessionId) {
+            await apiClient.post('/auth/logout', { sessionId });
+          } else {
+            await authService.logout();
+          }
+        }
       }
     } catch (e) {
       console.warn('Backend logout failed, continuing local logout');
     }
     await SecureStore.deleteItemAsync('accessToken');
     await SecureStore.deleteItemAsync('refreshToken');
+    await SecureStore.deleteItemAsync('sessionId');
+    // Remove this account from the stored list
+    if (userId) {
+      await storeRemoveAccount(userId);
+    }
     socketClient.disconnect();
+    setIsLoggedIn(false);
+    setUser(undefined);
+    await refreshAccounts();
+  };
+
+  /** Switch to another logged-in account on this device. */
+  const switchAccount = async (targetUserId: number | string) => {
+    setIsAuthenticating(true); // Show splash screen during switch
+
+    // 1. Save current account tokens and disconnect if currently logged in
+    if (isLoggedIn && user?.id) {
+      await storeCurrentAccountTokens(user.id);
+      socketClient.disconnect();
+    }
+
+    // Force unmount the MainNavigator so all screens remount fresh
+    setIsLoggedIn(false);
+    setUser(undefined);
+    
+    // 2. Restore target account tokens
+    await restoreAccountTokens(targetUserId);
+    // 3. Mark as active
+    await SecureStore.setItemAsync('activeUserId', JSON.stringify(targetUserId));
+    
+    // Clear all previous user data from React Query cache
+    queryClient.clear();
+
+    // 4. Re-fetch user profile and reconnect
+    try {
+      const res = await authService.getMe();
+      setUser(res.data.user);
+      setIsLoggedIn(true);
+      await socketClient.connect();
+    } catch (e) {
+      console.error('Failed to switch account', e);
+      // If the stored token is invalid, remove this account
+      await storeRemoveAccount(targetUserId);
+      await refreshAccounts();
+      if (!user?.id) setIsLoggedIn(false);
+    } finally {
+      setIsAuthenticating(false);
+    }
+  };
+
+  /** Remove an account from this device's stored list. */
+  const removeAccountFromDevice = async (targetUserId: number | string) => {
+    await storeRemoveAccount(targetUserId);
+    await refreshAccounts();
+    // If removed the active account, sign out
+    if (user?.id && String(user.id) === String(targetUserId)) {
+      await signOut();
+    }
+  };
+
+  /** Park current account tokens and go to the auth screen to add a new account. */
+  const goToAddAccount = async () => {
+    if (user?.id) {
+      await storeCurrentAccountTokens(user.id);
+      socketClient.disconnect();
+    }
+    await SecureStore.deleteItemAsync('accessToken');
+    await SecureStore.deleteItemAsync('refreshToken');
+    await SecureStore.deleteItemAsync('sessionId');
     setIsLoggedIn(false);
     setUser(undefined);
   };
@@ -251,12 +385,16 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         signOut,
         refreshUser,
         updateUser,
+        accounts,
+        switchAccount,
+        removeAccountFromDevice,
         needsForceUpdate,
         updateAvailable,
         dismissUpdate,
         storeUrl,
         hasSeenOnboarding,
         setHasSeenOnboarding,
+        goToAddAccount,
       }}
     >
       {children}

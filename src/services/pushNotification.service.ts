@@ -18,15 +18,34 @@ Notifications.setNotificationHandler({
 
 const isAndroid = Platform.OS === "android";
 
-// ── Device ID ───────────────────────────────────────────────────────────────
+// ── Device & Session IDs ──────────────────────────────────────────────────────
 const DEVICE_ID_KEY = "push_device_id";
+const SESSION_ID_KEY = "push_session_id";
 
+/** Stable UUID per physical installation. Persists across app restarts. */
 async function getOrCreateDeviceId(): Promise<string> {
   let id = await SecureStore.getItemAsync(DEVICE_ID_KEY);
   if (!id) {
     id = Crypto.randomUUID();
     await SecureStore.setItemAsync(DEVICE_ID_KEY, id);
   }
+  return id;
+}
+
+/** Session UUID generated on each cold start. Rotates on app restart. */
+async function getOrCreateSessionId(): Promise<string> {
+  let id = await SecureStore.getItemAsync(SESSION_ID_KEY);
+  if (!id) {
+    id = Crypto.randomUUID();
+    await SecureStore.setItemAsync(SESSION_ID_KEY, id);
+  }
+  return id;
+}
+
+/** Rotates the session ID (call on cold start). */
+export async function rotateSessionId(): Promise<string> {
+  const id = Crypto.randomUUID();
+  await SecureStore.setItemAsync(SESSION_ID_KEY, id);
   return id;
 }
 
@@ -82,11 +101,13 @@ export async function registerForPushNotificationsAsync(): Promise<string | null
 
     if (pushToken) {
       const deviceId = await getOrCreateDeviceId();
+      const sessionId = await getOrCreateSessionId();
       await apiClient
         .post("/push-notification/register", {
           pushToken,
           pushProvider: "expo",
           deviceId,
+          sessionId,
           platform: isAndroid ? "android" : "ios",
         })
         .catch((e) => console.warn("Failed to register push token with backend", e));
@@ -112,10 +133,12 @@ export function startTokenRefreshListener() {
       try {
         console.info("[PushNotification] Token refreshed, re-registering with backend");
         const deviceId = await getOrCreateDeviceId();
+        const sessionId = await getOrCreateSessionId();
         await apiClient.post("/push-notification/register", {
           pushToken: newToken.data,
           pushProvider: "expo",
           deviceId,
+          sessionId,
           platform: isAndroid ? "android" : "ios",
         });
       } catch (e) {

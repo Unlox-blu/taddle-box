@@ -90,6 +90,7 @@ export default function BookmarksScreen() {
   
   const searchReqRef = useRef(0);
 
+  const [serverTypes, setServerTypes] = useState<string[]>([]);
   const [activePostId, setActivePostId] = useState<string | null>(null);
   const viewabilityConfig = useRef({ itemVisiblePercentThreshold: 60 }).current;
   const onViewableItemsChanged = useRef(({ viewableItems }: any) => {
@@ -104,47 +105,6 @@ export default function BookmarksScreen() {
 
   const { mutate: toggleLike } = useToggleLike();
   const { mutate: toggleSave } = useToggleSave();
-
-  const handleRefresh = useCallback(() => {
-    setRefreshing(true);
-    fetchBookmarks(1, false);
-  }, [fetchBookmarks]);
-
-  const rowCtx = useMemo<RowCtx>(
-    () => ({
-      styles: searchStyles, 
-      colors,
-      navigation,
-      isFocused,
-      activePostId,
-      currentUserId: currentUser?.id,
-      toggleLike: (id, liked) => toggleLike({ id, isCurrentlyLiked: liked }),
-      toggleSave: (id, saved) => toggleSave({ id, isCurrentlySaved: saved }),
-      patchPost: () => {},
-      sharePost: () => {},
-      reportPost: () => {},
-      refresh: handleRefresh,
-      openPost: (p) => navigation.push("PostDetail", { post: p }),
-      openUser: (u) => navigation.push("UserProfile", { user: u }),
-      openCommunity: (slug) => (navigation as any).navigate("Community", { screen: "CommunityDetail", params: { communitySlug: slug } }),
-      openGames: () => {},
-      openEvents: () => {},
-      openSettings: () => (navigation as any).navigate("Settings"),
-      openNotifications: () => (navigation as any).navigate("Notifications"),
-      addHashtag: () => {},
-    }),
-    [
-      searchStyles,
-      colors,
-      navigation,
-      isFocused,
-      activePostId,
-      currentUser?.id,
-      toggleLike,
-      toggleSave,
-      handleRefresh,
-    ]
-  );
 
   const fetchBookmarks = useCallback(async (pageToLoad = 1, append = false) => {
     const reqId = ++searchReqRef.current;
@@ -190,6 +150,47 @@ export default function BookmarksScreen() {
       }
     }
   }, []);
+
+  const handleRefresh = useCallback(() => {
+    setRefreshing(true);
+    fetchBookmarks(1, false);
+  }, [fetchBookmarks]);
+
+  const rowCtx = useMemo<RowCtx>(
+    () => ({
+      styles: searchStyles, 
+      colors,
+      navigation,
+      isFocused,
+      activePostId,
+      currentUserId: currentUser?.id,
+      toggleLike: (id, liked) => toggleLike({ id, isCurrentlyLiked: liked }),
+      toggleSave: (id, saved) => toggleSave({ id, isCurrentlySaved: saved }),
+      patchPost: () => {},
+      sharePost: () => {},
+      reportPost: () => {},
+      refresh: handleRefresh,
+      openPost: (p) => navigation.push("PostDetail", { post: p }),
+      openUser: (u) => navigation.push("UserProfile", { user: u }),
+      openCommunity: (slug) => (navigation as any).navigate("Community", { screen: "CommunityDetail", params: { communitySlug: slug } }),
+      openGames: () => {},
+      openEvents: () => {},
+      openSettings: () => (navigation as any).navigate("Settings"),
+      openNotifications: () => (navigation as any).navigate("Notifications"),
+      addHashtag: () => {},
+    }),
+    [
+      searchStyles,
+      colors,
+      navigation,
+      isFocused,
+      activePostId,
+      currentUser?.id,
+      toggleLike,
+      toggleSave,
+      handleRefresh,
+    ]
+  );
 
   useFocusEffect(
     useCallback(() => {

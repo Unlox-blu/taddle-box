@@ -5,9 +5,9 @@ import {
   TouchableOpacity,
   StyleSheet,
   Dimensions,
-
   Platform,
   Image,
+  Animated,
 } from "react-native";
 import { LinearGradient } from "expo-linear-gradient";
 import { NativeStackScreenProps } from "@react-navigation/native-stack";
@@ -21,7 +21,11 @@ import type { AuthStackParamList } from "../../types";
 import * as WebBrowser from "expo-web-browser";
 import * as AppleAuthentication from "expo-apple-authentication";
 import LottieView from "lottie-react-native";
-import { getCachedLottie, getCachedLottieSync, S3_APP_ICON_LOTTIE_URL } from "../../services/lottie.service";
+import {
+  getCachedLottie,
+  getCachedLottieSync,
+  S3_APP_ICON_LOTTIE_URL,
+} from "../../services/lottie.service";
 import { authService } from "../../services/auth.service";
 import * as AuthSession from "expo-auth-session";
 import * as Linking from "expo-linking";
@@ -29,17 +33,48 @@ import * as Linking from "expo-linking";
 WebBrowser.maybeCompleteAuthSession();
 
 import Constants from "expo-constants";
-import { themedAlert } from '../../components/common/ThemedAlert';
+import { themedAlert } from "../../components/common/ThemedAlert";
+import SwitchAccountSection from "../../components/common/SwitchAccountSection";
 
 const { height } = Dimensions.get("window");
 type Props = NativeStackScreenProps<AuthStackParamList, "Welcome">;
 
+const FEATURES = [
+  { icon: "trophy", text: "Earn XP & real cash rewards" },
+  { icon: "game-controller", text: "Play games & climb leaderboards" },
+  { icon: "people", text: "Join 100k+ communities" },
+  { icon: "calendar", text: "Book events & happenings" },
+];
+
 export default function WelcomeScreen({ navigation }: Props) {
   const { colors: themeColors, isDark } = useTheme();
-  const styles = React.useMemo(() => getStyles(themeColors, isDark), [themeColors, isDark]);
-  const { signIn, setIsAuthenticating } = useAuth();
+  const styles = React.useMemo(
+    () => getStyles(themeColors, isDark),
+    [themeColors, isDark],
+  );
+  const { signIn, setIsAuthenticating, accounts, user } = useAuth();
+  const hasAccounts = accounts.length > 0 || !!user?.id;
   const [appleAuthAvailable, setAppleAuthAvailable] = useState(false);
-  const [lottieSource, setLottieSource] = useState<any>(getCachedLottieSync(S3_APP_ICON_LOTTIE_URL));
+  const [lottieSource, setLottieSource] = useState<any>(
+    getCachedLottieSync(S3_APP_ICON_LOTTIE_URL),
+  );
+  
+  const [featureIndex, setFeatureIndex] = useState(0);
+  const fadeAnim = React.useRef(new Animated.Value(1)).current;
+
+  useEffect(() => {
+    const interval = setInterval(() => {
+      Animated.sequence([
+        Animated.timing(fadeAnim, { toValue: 0, duration: 400, useNativeDriver: true }),
+        Animated.timing(fadeAnim, { toValue: 1, duration: 400, useNativeDriver: true })
+      ]).start();
+      
+      setTimeout(() => {
+        setFeatureIndex((prev) => (prev + 1) % FEATURES.length);
+      }, 400);
+    }, 2800);
+    return () => clearInterval(interval);
+  }, []);
 
   useEffect(() => {
     getCachedLottie(S3_APP_ICON_LOTTIE_URL).then((animData) => {
@@ -79,8 +114,15 @@ export default function WelcomeScreen({ navigation }: Props) {
 
       if (result.type === "success" && result.url) {
         const urlParams = Linking.parse(result.url);
-        const { action, socialToken, data, accessToken, refreshToken, error } =
-          urlParams.queryParams || {};
+        const {
+          action,
+          socialToken,
+          data,
+          accessToken,
+          refreshToken,
+          sessionId,
+          error,
+        } = urlParams.queryParams || {};
 
         if (error) {
           themedAlert(
@@ -103,7 +145,11 @@ export default function WelcomeScreen({ navigation }: Props) {
         if (accessToken && refreshToken) {
           setIsAuthenticating(true);
           try {
-            await signIn(accessToken as string, refreshToken as string);
+            await signIn(
+              accessToken as string,
+              refreshToken as string,
+              sessionId as string | undefined,
+            );
           } finally {
             setIsAuthenticating(false);
           }
@@ -140,7 +186,7 @@ export default function WelcomeScreen({ navigation }: Props) {
               fullName,
             );
             const resultData = res.data || res;
-            
+
             if (resultData.action === "REGISTER_SOCIAL") {
               // @ts-ignore
               navigation.navigate("Register", {
@@ -154,8 +200,10 @@ export default function WelcomeScreen({ navigation }: Props) {
               resultData.sessionData?.accessToken || resultData.accessToken;
             const refreshToken =
               resultData.sessionData?.refreshToken || resultData.refreshToken;
+            const sessionId =
+              resultData.sessionData?.sessionId || resultData.sessionId;
             if (!accessToken) throw new Error("Could not extract access token");
-            await signIn(accessToken, refreshToken);
+            await signIn(accessToken, refreshToken, sessionId);
           } catch (e: any) {
             alert(
               e instanceof Error ? e.message : "Apple Login failed on backend",
@@ -202,6 +250,7 @@ export default function WelcomeScreen({ navigation }: Props) {
             data,
             accessToken,
             refreshToken,
+            sessionId,
             error,
           } = urlParams.queryParams || {};
 
@@ -226,7 +275,11 @@ export default function WelcomeScreen({ navigation }: Props) {
           if (accessToken && refreshToken) {
             setIsAuthenticating(true);
             try {
-              await signIn(accessToken as string, refreshToken as string);
+              await signIn(
+                accessToken as string,
+                refreshToken as string,
+                sessionId as string | undefined,
+              );
             } finally {
               setIsAuthenticating(false);
             }
@@ -241,54 +294,61 @@ export default function WelcomeScreen({ navigation }: Props) {
   };
 
   return (
-    <LinearGradient colors={[themeColors.bg.base, themeColors.bg.surface]} style={styles.container}>
+    <LinearGradient
+      colors={[themeColors.bg.base, themeColors.bg.surface]}
+      style={styles.container}
+    >
       <StatusBar style={isDark ? "light" : "dark"} />
 
       {/* Background glow */}
       <View style={styles.glow} />
 
-      {/* Logo */}
-      <View style={[styles.logoSection, { alignItems: 'center', justifyContent: 'center' }]}>
+      {/* Main Content Area (Logo + Tagline + Rolling Text) */}
+      <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', marginTop: 40 }}>
         {lottieSource ? (
-          <View style={{ width: 120, height: 120, borderRadius: 60, overflow: 'hidden', marginBottom: 24, backgroundColor: 'transparent' }}>
+          <View
+            style={{
+              width: 120,
+              height: 120,
+              borderRadius: 60,
+              overflow: "hidden",
+              marginBottom: 24,
+              backgroundColor: "transparent",
+            }}
+          >
             <LottieView
               source={lottieSource}
               autoPlay
               loop
               cacheComposition={false}
-              style={{ width: '100%', height: '100%' }}
+              style={{ width: "100%", height: "100%" }}
             />
           </View>
         ) : (
-          <Image 
-            source={require('../../../TaddleBox_Logo.png')} 
-            style={{ width: 120, height: 120, borderRadius: 60, resizeMode: 'cover', marginBottom: 24 }} 
+          <Image
+            source={require("../../../TaddleBox_Logo.png")}
+            style={{
+              width: 120,
+              height: 120,
+              borderRadius: 60,
+              resizeMode: "cover",
+              marginBottom: 24,
+            }}
           />
         )}
         <Text style={styles.tagline}>
           To rant, spill, overshare & have zero regrets about it.
         </Text>
-      </View>
 
-      {/* Feature highlights */}
-      <View style={styles.features}>
-        {[
-          { icon: "trophy", text: "Earn XP & real cash rewards" },
-          { icon: "game-controller", text: "Play games & climb leaderboards" },
-          { icon: "people", text: "Join 100k+ communities" },
-          { icon: "calendar", text: "Book events & happenings" },
-        ].map((f, i) => (
-          <View key={i} style={styles.featureRow}>
-            <View style={styles.featureIcon}>
-              <Ionicons
-                name={f.icon as any}
-                size={16}
-                color={themeColors.primaryLight}
-              />
-            </View>
-            <Text style={styles.featureText}>{f.text}</Text>
-          </View>
-        ))}
+        {/* Feature highlights */}
+        <View style={{ height: 24, alignItems: 'center', justifyContent: 'center', marginTop: 20 }}>
+          <Animated.View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, opacity: fadeAnim }}>
+            <Ionicons name={FEATURES[featureIndex].icon as any} size={18} color={themeColors.primaryLight} />
+            <Text style={{ fontSize: fontSizes.sm, color: themeColors.text.muted, fontWeight: '500' }}>
+              {FEATURES[featureIndex].text}
+            </Text>
+          </Animated.View>
+        </View>
       </View>
 
       {/* CTA buttons */}
@@ -308,8 +368,29 @@ export default function WelcomeScreen({ navigation }: Props) {
           style={{ marginTop: 12 }}
         />
 
-        {/* Social logins */}
-        <View style={styles.dividerRow}>
+        {hasAccounts && (
+          <>
+            <View
+              style={[styles.dividerRow, { marginTop: 24, marginBottom: 12 }]}
+            >
+              <View style={styles.dividerLine} />
+              <Text style={styles.dividerText}>or continue as</Text>
+              <View style={styles.dividerLine} />
+            </View>
+
+            {/* Show logged-in accounts if any exist (Instagram-style) */}
+            <View
+              style={{ alignItems: "center", marginTop: 0, marginBottom: 20 }}
+            >
+              <SwitchAccountSection
+                onAddAccount={() => navigation.navigate("Login")}
+              />
+            </View>
+          </>
+        )}
+
+        {/* Social logins divider */}
+        <View style={[styles.dividerRow, { marginTop: hasAccounts ? 0 : 20 }]}>
           <View style={styles.dividerLine} />
           <Text style={styles.dividerText}>or continue with</Text>
           <View style={styles.dividerLine} />
@@ -328,120 +409,140 @@ export default function WelcomeScreen({ navigation }: Props) {
             <Text style={styles.socialLabel}>Google</Text>
           </TouchableOpacity>
           <TouchableOpacity style={styles.socialBtn} onPress={handleAppleLogin}>
-            <Ionicons name="logo-apple" size={18} color={themeColors.text.primary} />
+            <Ionicons
+              name="logo-apple"
+              size={18}
+              color={themeColors.text.primary}
+            />
             <Text style={styles.socialLabel}>Apple</Text>
           </TouchableOpacity>
         </View>
 
         <Text style={styles.terms}>
           By continuing you agree to our{" "}
-          <Text onPress={() => navigation.navigate('Terms')} style={{ color: themeColors.primaryLight }}>Terms</Text> and{" "}
-          <Text onPress={() => navigation.navigate('Privacy')} style={{ color: themeColors.primaryLight }}>Privacy Policy</Text>
+          <Text
+            onPress={() => navigation.navigate("Terms")}
+            style={{ color: themeColors.primaryLight }}
+          >
+            Terms
+          </Text>{" "}
+          and{" "}
+          <Text
+            onPress={() => navigation.navigate("Privacy")}
+            style={{ color: themeColors.primaryLight }}
+          >
+            Privacy Policy
+          </Text>
         </Text>
       </View>
     </LinearGradient>
   );
 }
 
-const getStyles = (themeColors: any, isDark: boolean) => StyleSheet.create({
-  container: { flex: 1, paddingHorizontal: 24 },
-  glow: {
-    position: "absolute",
-    width: 360,
-    height: 360,
-    borderRadius: 180,
-    backgroundColor: isDark ? "rgba(124,58,237,0.1)" : "rgba(124,58,237,0.05)",
-    top: height * 0.1,
-    alignSelf: "center",
-  },
-  logoSection: {
-    flex: 1,
-    alignItems: "center",
-    justifyContent: "center",
-    paddingTop: 60,
-  },
-  iconBox: {
-    width: 80,
-    height: 80,
-    borderRadius: 24,
-    alignItems: "center",
-    justifyContent: "center",
-    marginBottom: 16,
-    shadowColor: themeColors.primary,
-    shadowOffset: { width: 0, height: 0 },
-    shadowOpacity: isDark ? 0.7 : 0.3,
-    shadowRadius: 20,
-    elevation: 10,
-  },
-  iconEmoji: { fontSize: 40 },
-  brand: {
-    fontSize: fontSizes.display - 6,
-    fontWeight: "800",
-    letterSpacing: -1,
-  },
-  brandW: { color: themeColors.text.primary },
-  brandG: { color: themeColors.primaryLight },
-  tagline: {
-    fontSize: fontSizes.md,
-    color: themeColors.text.muted,
-    marginTop: 6,
-    letterSpacing: 0.3,
-  },
-  features: {
-    gap: 10,
-    marginBottom: 28,
-  },
-  featureRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 12,
-  },
-  featureIcon: {
-    width: 32,
-    height: 32,
-    borderRadius: radii.sm,
-    backgroundColor: isDark ? "rgba(124,58,237,0.15)" : "rgba(124,58,237,0.1)",
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  featureText: { fontSize: fontSizes.sm, color: themeColors.text.secondary },
-  actions: { paddingBottom: 40 },
-  dividerRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 12,
-    marginVertical: 20,
-  },
-  dividerLine: { flex: 1, height: 1, backgroundColor: themeColors.border },
-  dividerText: { fontSize: fontSizes.xs, color: themeColors.text.muted },
-  socialRow: { flexDirection: "row", gap: 12 },
-  socialBtn: {
-    flex: 1,
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "center",
-    gap: 8,
-    backgroundColor: themeColors.bg.card,
-    borderWidth: 1,
-    borderColor: themeColors.borderHover,
-    borderRadius: radii.md,
-    paddingVertical: 12,
-  },
-  socialIcon: {
-    fontSize: fontSizes.md,
-    fontWeight: "800",
-    color: themeColors.text.primary,
-  },
-  socialLabel: {
-    fontSize: fontSizes.sm,
-    color: themeColors.text.primary,
-    fontWeight: "600",
-  },
-  terms: {
-    fontSize: fontSizes.xs,
-    color: themeColors.text.muted,
-    textAlign: "center",
-    marginTop: 18,
-    lineHeight: 18,
-  },
-});
+const getStyles = (themeColors: any, isDark: boolean) =>
+  StyleSheet.create({
+    container: { flex: 1, paddingHorizontal: 24 },
+    glow: {
+      position: "absolute",
+      width: 360,
+      height: 360,
+      borderRadius: 180,
+      backgroundColor: isDark
+        ? "rgba(124,58,237,0.1)"
+        : "rgba(124,58,237,0.05)",
+      top: height * 0.1,
+      alignSelf: "center",
+    },
+    logoSection: {
+      flex: 1,
+      alignItems: "center",
+      justifyContent: "center",
+      paddingTop: 60,
+    },
+    iconBox: {
+      width: 80,
+      height: 80,
+      borderRadius: 24,
+      alignItems: "center",
+      justifyContent: "center",
+      marginBottom: 16,
+      shadowColor: themeColors.primary,
+      shadowOffset: { width: 0, height: 0 },
+      shadowOpacity: isDark ? 0.7 : 0.3,
+      shadowRadius: 20,
+      elevation: 10,
+    },
+    iconEmoji: { fontSize: 40 },
+    brand: {
+      fontSize: fontSizes.display - 6,
+      fontWeight: "800",
+      letterSpacing: -1,
+    },
+    brandW: { color: themeColors.text.primary },
+    brandG: { color: themeColors.primaryLight },
+    tagline: {
+      fontSize: fontSizes.md,
+      color: themeColors.text.secondary,
+      marginTop: 6,
+      letterSpacing: 0.3,
+    },
+    features: {
+      gap: 10,
+      marginBottom: 28,
+    },
+    featureRow: {
+      flexDirection: "row",
+      alignItems: "center",
+      gap: 12,
+    },
+    featureIcon: {
+      width: 32,
+      height: 32,
+      borderRadius: radii.sm,
+      backgroundColor: isDark
+        ? "rgba(124,58,237,0.15)"
+        : "rgba(124,58,237,0.1)",
+      alignItems: "center",
+      justifyContent: "center",
+    },
+    featureText: { fontSize: fontSizes.sm, color: themeColors.text.secondary },
+    actions: { paddingBottom: 40 },
+    dividerRow: {
+      flexDirection: "row",
+      alignItems: "center",
+      gap: 12,
+      marginVertical: 20,
+    },
+    dividerLine: { flex: 1, height: 1, backgroundColor: themeColors.border },
+    dividerText: { fontSize: fontSizes.xs, color: themeColors.text.muted },
+    socialRow: { flexDirection: "row", gap: 12 },
+    socialBtn: {
+      flex: 1,
+      flexDirection: "row",
+      alignItems: "center",
+      justifyContent: "center",
+      gap: 8,
+      backgroundColor: themeColors.bg.card,
+      borderWidth: 1,
+      borderColor: themeColors.borderHover,
+      borderRadius: radii.md,
+      paddingVertical: 12,
+    },
+    socialIcon: {
+      fontSize: fontSizes.md,
+      fontWeight: "800",
+      color: themeColors.text.primary,
+    },
+    socialLabel: {
+      fontSize: fontSizes.sm,
+      color: themeColors.text.primary,
+      fontWeight: "600",
+    },
+    terms: {
+      fontSize: fontSizes.xs,
+      color: themeColors.text.muted,
+      textAlign: "center",
+      marginTop: 18,
+      lineHeight: 18,
+    },
+  });

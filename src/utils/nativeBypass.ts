@@ -2,7 +2,7 @@ let nativeFlowDepth = 0;
 let bypassUntil = 0;
 let safetyTimer: ReturnType<typeof setTimeout> | null = null;
 
-export const appLockBypass = {
+export const nativeBypass = {
   /**
    * Signal that a native OS flow (camera, image picker, etc.) has started.
    * The lock overlay will be suppressed until `endNativeFlow()` is called or

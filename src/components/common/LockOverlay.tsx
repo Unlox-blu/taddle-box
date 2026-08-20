@@ -15,12 +15,13 @@ import * as SecureStore from "expo-secure-store";
 import { useThemeColors } from "../../context/ThemeContext";
 import { fontSizes, spacing } from "../../theme";
 import PinPad from "./PinPad";
+import RemovePinModal from "./RemovePinModal";
 import { authService } from "../../services/auth.service";
 import { useAuth } from "../../context/AuthContext";
-import { appLockBypass } from "../../utils/appLockBypass";
+import { nativeBypass } from "../../utils/nativeBypass";
 import { themedAlert } from './ThemedAlert';
 
-export default function AppLockOverlay() {
+export default function LockOverlay() {
   const colors = useThemeColors();
   const { user, isLoggedIn, signOut } = useAuth();
 
@@ -28,6 +29,7 @@ export default function AppLockOverlay() {
   const [error, setError] = useState("");
   const [isVerifying, setIsVerifying] = useState(false);
   const [showBiometric, setShowBiometric] = useState(false);
+  const [removePinVisible, setRemovePinVisible] = useState(false);
 
   // Use a ref so handleAppStateChange always sees fresh values without re-registering
   const appStateRef = useRef(AppState.currentState);
@@ -51,36 +53,41 @@ export default function AppLockOverlay() {
     appStateRef.current = nextAppState;
 
     if (prev.match(/inactive|background/) && nextAppState === "active") {
-      if (appLockBypass.shouldBypassLock()) return;
+      if (nativeBypass.shouldBypassLock()) return;
 
       // App came back to foreground — lock if app lock is enabled
-      if (isLoggedIn && user?.appLockEnabled) {
+      if (isLoggedIn && (user?.globalLockEnabled || user?.appLockEnabled)) {
         lockAndCheck();
       }
     }
   };
 
-  // Lock on cold start / fresh app open.
-  // The overlay only mounts after the auth check completes (isLoading → false),
-  // so isLoggedIn and user are already resolved here.
+  // Unified effect: lock whenever the user is logged in AND global lock is enabled.
+  // Covers: cold start, account switch, and re-login after logout.
+  // The empty-effect fix: depend on the actual values so it re-fires when
+  // user loads async (cold start) or switches (account switch).
   useEffect(() => {
-    if (isLoggedIn && user?.appLockEnabled) {
-      // Longer delay than background→foreground to let the app fully mount
-      const timer = setTimeout(() => lockAndCheck(500), 100);
+    if (isLoggedIn && (user?.globalLockEnabled || user?.appLockEnabled)) {
+      // Small delay lets the app finish mounting after login/switch
+      const timer = setTimeout(() => lockAndCheck(500), 150);
       return () => clearTimeout(timer);
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+    // If the lock was showing and the user somehow disabled it elsewhere,
+      // dismiss the overlay.
+    if (!user?.globalLockEnabled && !user?.appLockEnabled && isLockedRef.current) {
+      setIsLocked(false);
+      isLockedRef.current = false;
+    }
+  }, [isLoggedIn, user?.globalLockEnabled, user?.appLockEnabled]);
 
-  // Lock on background→foreground transitions
+  // Lock on background→foreground transitions (re-registers when auth changes)
   useEffect(() => {
     const subscription = AppState.addEventListener(
       "change",
       handleAppStateChange,
     );
     return () => subscription.remove();
-    // Re-register when auth state changes
-  }, [isLoggedIn, user?.appLockEnabled]);
+  }, [isLoggedIn, user?.globalLockEnabled, user?.appLockEnabled]);
 
   const checkBiometric = async (retryCount = 0) => {
     const enabled = await SecureStore.getItemAsync("app_biometricEnabled");
@@ -131,7 +138,17 @@ export default function AppLockOverlay() {
       setIsLocked(false);
       isLockedRef.current = false;
     } catch (e: any) {
-      setError(e.response?.data?.message || "Invalid PIN");
+      const status = e?.response?.status;
+      // 401 = expired/invalid JWT — session is dead, force re-login
+      if (status === 401 && !e?.response?.data?.message?.includes('PIN')) {
+        themedAlert(
+          "Session Expired",
+          "Your session has expired. Please log in again.",
+          [{ text: "OK", onPress: () => signOut() }]
+        );
+      } else {
+        setError(e.response?.data?.message || "Invalid PIN");
+      }
     } finally {
       setIsVerifying(false);
     }
@@ -167,7 +184,7 @@ export default function AppLockOverlay() {
         style={[styles.container, { backgroundColor: colors.bg.base }]}
       >
         <PinPad
-          title="Enter App Lock PIN"
+          title="Enter Global Lock PIN"
           subtitle="Please enter your 4-digit PIN to continue"
           length={4}
           onPinComplete={handlePinComplete}
@@ -176,12 +193,23 @@ export default function AppLockOverlay() {
           error={error}
           isVerifying={isVerifying}
         />
+        <TouchableOpacity style={styles.forgotBtn} onPress={() => setRemovePinVisible(true)}>
+          <Text style={[styles.forgotText, { color: colors.primaryLight }]}>Forgot PIN?</Text>
+        </TouchableOpacity>
         <TouchableOpacity style={styles.logoutBtn} onPress={handleLogout}>
-          <Text style={[styles.logoutText, { color: colors.danger }]}>
-            Log out
-          </Text>
+          <Text style={[styles.logoutText, { color: colors.danger }]}>Log out</Text>
         </TouchableOpacity>
       </SafeAreaView>
+
+      <RemovePinModal
+        visible={removePinVisible}
+        onClose={() => setRemovePinVisible(false)}
+        onSuccess={() => {
+          setRemovePinVisible(false);
+          setIsLocked(false);
+          isLockedRef.current = false;
+        }}
+      />
     </Modal>
   );
 }
@@ -189,6 +217,15 @@ export default function AppLockOverlay() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
+  },
+  forgotBtn: {
+    padding: spacing.sm,
+    alignItems: "center",
+    marginBottom: spacing.xs,
+  },
+  forgotText: {
+    fontSize: fontSizes.sm,
+    fontWeight: "600",
   },
   logoutBtn: {
     padding: spacing.md,

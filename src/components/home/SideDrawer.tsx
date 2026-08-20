@@ -11,7 +11,7 @@ import {
   Modal,
   Image,
   Share,
-
+  Platform,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useNavigation } from "@react-navigation/native";
@@ -23,11 +23,12 @@ import { useAuth } from "../../context/AuthContext";
 import { xpService } from "../../services/xp.service";
 import { getReferralRewards } from "../../services/appConfig.service";
 import XPProgressBar from "./XPProgressBar";
-import { themedAlert } from '../common/ThemedAlert';
+import { themedAlert } from "../common/ThemedAlert";
+import { useTheme } from "../../context/ThemeContext";
 
 const { width: SW } = Dimensions.get("window");
 const DRAWER_W = Math.min(Math.round(SW * 0.82), 320);
-const CLOSE_DELAY = 280; // ms — wait for drawer to slide out before navigating
+const CLOSE_DELAY = Platform.OS === "ios" ? 450 : 280; // Give iOS extra time to unmount the Modal before navigating
 
 interface Props {
   visible: boolean;
@@ -54,9 +55,21 @@ export default function SideDrawer({
   onNavigateStack,
   onProfile,
 }: Props) {
-  const { user } = useAuth();
+  const {
+    user,
+    signOut,
+    goToAddAccount,
+    accounts,
+    switchAccount,
+    removeAccountFromDevice,
+  } = useAuth();
   const insets = useSafeAreaInsets();
-  const colors = useThemeColors();
+  const { isDark, colors } = useTheme();
+
+  const [accountsExpanded, setAccountsExpanded] = useState(false);
+  const otherAccounts = accounts.filter(
+    (a) => String(a.userId) !== String(user?.id),
+  );
 
   const [localXP, setLocalXP] = useState(0);
   const [totalXP, setTotalXP] = useState(0);
@@ -124,13 +137,16 @@ export default function SideDrawer({
   const shareReferral = async () => {
     const code = user?.referralCode || user?.referral_code;
     if (!code) {
-      themedAlert("Referral Unavailable", "Your referral code isn't ready yet. Please try again in a moment.");
+      themedAlert(
+        "Referral Unavailable",
+        "Your referral code isn't ready yet. Please try again in a moment.",
+      );
       return;
     }
     onClose();
-    const reward = referralXp != null ? `get ${referralXp} XP free` : "get bonus XP";
-    const message =
-      `🎮 Join me on TaddleBox! Use my referral code ${code} at signup and ${reward}. Let's play, post and win together! 🚀`;
+    const reward =
+      referralXp != null ? `get ${referralXp} XP free` : "get bonus XP";
+    const message = `🎮 Join me on TaddleBox! Use my referral code ${code} at signup and ${reward}. Let's play, post and win together! 🚀`;
     setTimeout(() => {
       Share.share({ message }).catch(() => {});
     }, CLOSE_DELAY);
@@ -152,22 +168,25 @@ export default function SideDrawer({
       label: "Wallet",
       purple: true,
       onPress: () => {
-        if (user?.appLockEnabled) {
+        if (user?.globalLockEnabled || user?.appLockEnabled) {
           onClose();
           setTimeout(() => {
-             navigation.navigate("LockScreen", { mode: 'app', returnScreen: 'Wallet' });
+            navigation.navigate("LockScreen", {
+              mode: "app",
+              returnScreen: "Wallet",
+            });
           }, CLOSE_DELAY);
         } else {
           closeAndNavigateTab("Wallet");
         }
       },
     },
-	    {
-	      icon: "bookmark-outline",
-	      label: "Bookmarks",
-	      purple: true,
-	      onPress: () => closeAndNavigateStack("Bookmarks"),
-	    },
+    {
+      icon: "bookmark-outline",
+      label: "Bookmarks",
+      purple: true,
+      onPress: () => closeAndNavigateStack("Bookmarks"),
+    },
   ];
 
   const moreMenu: MenuRow[] = [
@@ -216,63 +235,266 @@ export default function SideDrawer({
       >
         <ScrollView showsVerticalScrollIndicator={false} bounces={false}>
           {/* ── Profile header ── */}
-          <TouchableOpacity
-            style={styles.profileRow}
-            onPress={closeAndProfile}
-            activeOpacity={0.75}
-          >
-            <LinearGradient
-              colors={["#4C1D95", "#7C3AED"]}
-              style={styles.avatar}
-            >
-              {user?.avatarUrl ? (
-                <Image
-                  source={{ uri: user.avatarUrl }}
-                  style={styles.avatarImage}
+          <View style={styles.profileContainer}>
+            <View style={styles.profileRow}>
+              <TouchableOpacity
+                style={{
+                  flex: 1,
+                  flexDirection: "row",
+                  alignItems: "center",
+                  gap: 12,
+                }}
+                onPress={closeAndProfile}
+                activeOpacity={0.75}
+              >
+                <LinearGradient
+                  colors={["#4C1D95", "#7C3AED"]}
+                  style={styles.avatar}
+                >
+                  {user?.avatarUrl ? (
+                    <Image
+                      source={{ uri: user.avatarUrl }}
+                      style={styles.avatarImage}
+                    />
+                  ) : (
+                    <Text style={styles.avatarText}>👾</Text>
+                  )}
+                </LinearGradient>
+                <View style={styles.profileInfo}>
+                  <Text
+                    style={[styles.profileName, { color: colors.text.primary }]}
+                  >
+                    {user?.name || "Taddle User"}
+                  </Text>
+                  <Text
+                    style={[
+                      styles.profileHandle,
+                      { color: colors.primaryLight },
+                    ]}
+                  >
+                    @{user?.username || "user"}
+                  </Text>
+                </View>
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                style={{
+                  padding: 8,
+                  marginLeft: 4,
+                  backgroundColor: "rgba(124,58,237,0.1)",
+                  borderRadius: 20,
+                  borderWidth: 1,
+                  borderColor: "rgba(124,58,237,0.2)",
+                }}
+                onPress={() => setAccountsExpanded(!accountsExpanded)}
+                activeOpacity={0.6}
+              >
+                <Ionicons
+                  name={accountsExpanded ? "chevron-up" : "swap-horizontal"}
+                  size={18}
+                  color={colors.primaryLight}
                 />
-              ) : (
-                <Text style={styles.avatarText}>👾</Text>
-              )}
-            </LinearGradient>
-            <View style={styles.profileInfo}>
-              <Text
-                style={[styles.profileName, { color: colors.text.primary }]}
-              >
-                {user?.name || "Taddle User"}
-              </Text>
-              <Text
-                style={[styles.profileHandle, { color: colors.primaryLight }]}
-              >
-                @{user?.username || "user"}
-              </Text>
+              </TouchableOpacity>
             </View>
-            <Ionicons
-              name="chevron-forward"
-              size={18}
-              color={colors.text.muted}
-            />
-          </TouchableOpacity>
+
+            {/* ── Account Switcher Dropdown ── */}
+            {accountsExpanded && (
+              <View
+                style={[
+                  styles.expandedAccountsWrapper,
+                  {
+                    backgroundColor: isDark
+                      ? "rgba(255,255,255,0.03)"
+                      : "rgba(0,0,0,0.03)",
+                  },
+                ]}
+              >
+                {otherAccounts.map((account) => (
+                  <TouchableOpacity
+                    key={String(account.userId)}
+                    style={styles.expandedAccountRow}
+                    activeOpacity={0.7}
+                    onPress={() => {
+                      onClose();
+                      setTimeout(
+                        () => switchAccount(account.userId),
+                        CLOSE_DELAY,
+                      );
+                    }}
+                  >
+                    <View style={styles.expandedAvatarRing}>
+                      {account.avatarUrl ? (
+                        <Image
+                          source={{ uri: account.avatarUrl }}
+                          style={styles.avatarImage}
+                        />
+                      ) : (
+                        <View
+                          style={[
+                            styles.avatarFallback,
+                            { backgroundColor: colors.bg.card },
+                          ]}
+                        >
+                          <Text
+                            style={[
+                              styles.avatarInitial,
+                              { color: colors.text.primary },
+                            ]}
+                          >
+                            {(account.name || "U").charAt(0).toUpperCase()}
+                          </Text>
+                        </View>
+                      )}
+                    </View>
+                    <Text
+                      numberOfLines={1}
+                      style={[
+                        styles.expandedAccountName,
+                        { color: colors.text.secondary },
+                      ]}
+                    >
+                      @{account.username}
+                    </Text>
+                    <TouchableOpacity
+                      style={styles.expandedRemoveBtn}
+                      onPress={() => removeAccountFromDevice(account.userId)}
+                      hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                    >
+                      <Ionicons
+                        name="close-circle"
+                        size={18}
+                        color={colors.text.muted}
+                      />
+                    </TouchableOpacity>
+                  </TouchableOpacity>
+                ))}
+
+                <TouchableOpacity
+                  style={[styles.expandedAddRow, { marginTop: 4 }]}
+                  activeOpacity={0.7}
+                  onPress={() => {
+                    onClose();
+                    setTimeout(() => goToAddAccount(), CLOSE_DELAY);
+                  }}
+                >
+                  <View
+                    style={{
+                      width: 32,
+                      height: 32,
+                      borderRadius: 16,
+                      borderWidth: 1.5,
+                      borderStyle: 'dashed',
+                      borderColor: isDark ? 'rgba(124,58,237,0.5)' : 'rgba(124,58,237,0.4)',
+                      alignItems: "center",
+                      justifyContent: "center",
+                    }}
+                  >
+                    <Ionicons
+                      name="add"
+                      size={16}
+                      color={colors.primaryLight}
+                    />
+                  </View>
+                  <Text
+                    style={[
+                      styles.expandedAccountName,
+                      { color: colors.primaryLight, fontWeight: "600", fontSize: fontSizes.sm - 1 },
+                    ]}
+                  >
+                    Add Account
+                  </Text>
+                </TouchableOpacity>
+              </View>
+            )}
+          </View>
 
           <View style={{ paddingBottom: spacing.sm }}>
-            <XPProgressBar level={level} rank={rank} currentXP={totalXP} targetXP={Math.floor(totalXP / 1000 + 1) * 1000} />
+            <XPProgressBar
+              level={level}
+              rank={rank}
+              currentXP={totalXP}
+              targetXP={Math.floor(totalXP / 1000 + 1) * 1000}
+            />
           </View>
 
           <TouchableOpacity
-            style={[
-              styles.statsStrip,
-              { backgroundColor: 'rgba(251,191,36,0.1)', borderColor: 'rgba(251,191,36,0.3)', justifyContent: 'flex-start', paddingVertical: 12, paddingHorizontal: 16 }
-            ]}
+            activeOpacity={0.85}
             onPress={() => closeAndNavigateStack("Leaderboards")}
-            activeOpacity={0.8}
+            style={{ marginHorizontal: spacing.lg, marginBottom: spacing.sm }}
           >
-            <View style={{ width: 40, height: 40, borderRadius: 20, backgroundColor: 'rgba(251,191,36,0.2)', alignItems: 'center', justifyContent: 'center', marginRight: 12 }}>
-              <Ionicons name="trophy" size={20} color={colors.xpGold} />
-            </View>
-            <View style={{ flex: 1 }}>
-              <Text style={{ fontSize: 16, fontWeight: '700', color: colors.text.primary }}>Leaderboards</Text>
-              <Text style={{ fontSize: 13, color: colors.text.secondary, marginTop: 2 }}>See your weekly rankings</Text>
-            </View>
-            <Ionicons name="chevron-forward" size={20} color={colors.text.muted} />
+            <LinearGradient
+              colors={
+                isDark
+                  ? ["rgba(251,191,36,0.12)", "rgba(245,158,11,0.03)"]
+                  : ["rgba(251,191,36,0.15)", "rgba(245,158,11,0.05)"]
+              }
+              start={{ x: 0, y: 0 }}
+              end={{ x: 1, y: 1 }}
+              style={{
+                borderRadius: radii.md,
+                borderWidth: 1,
+                borderColor: isDark
+                  ? "rgba(251,191,36,0.25)"
+                  : "rgba(251,191,36,0.4)",
+                paddingVertical: 10,
+                paddingHorizontal: 12,
+                flexDirection: "row",
+                alignItems: "center",
+              }}
+            >
+              <LinearGradient
+                colors={["#FBBF24", "#D97706"]}
+                style={{
+                  width: 32,
+                  height: 32,
+                  borderRadius: 16,
+                  alignItems: "center",
+                  justifyContent: "center",
+                  marginRight: 12,
+                }}
+              >
+                <Ionicons name="trophy" size={16} color="#fff" />
+              </LinearGradient>
+              <View style={{ flex: 1 }}>
+                <Text
+                  style={{
+                    fontSize: fontSizes.sm,
+                    fontWeight: "800",
+                    color: isDark ? "#FBBF24" : "#B45309",
+                  }}
+                >
+                  Weekly Leaderboards
+                </Text>
+                <Text
+                  style={{
+                    fontSize: fontSizes.xs - 1,
+                    fontWeight: "600",
+                    color: colors.text.secondary,
+                    marginTop: 1,
+                  }}
+                >
+                  Rise the ranks & win rewards
+                </Text>
+              </View>
+              <View
+                style={{
+                  width: 24,
+                  height: 24,
+                  borderRadius: 12,
+                  backgroundColor: isDark
+                    ? "rgba(251,191,36,0.15)"
+                    : "rgba(251,191,36,0.2)",
+                  alignItems: "center",
+                  justifyContent: "center",
+                }}
+              >
+                <Ionicons
+                  name="chevron-forward"
+                  size={14}
+                  color={isDark ? "#FBBF24" : "#B45309"}
+                />
+              </View>
+            </LinearGradient>
           </TouchableOpacity>
 
           <View style={[styles.divider, { backgroundColor: colors.border }]} />
@@ -406,13 +628,14 @@ const styles = StyleSheet.create({
     width: DRAWER_W,
     borderRightWidth: 1,
   },
+  profileContainer: {
+    paddingTop: spacing.md,
+    paddingBottom: spacing.sm,
+    paddingHorizontal: spacing.lg,
+  },
   profileRow: {
     flexDirection: "row",
     alignItems: "center",
-    paddingHorizontal: spacing.lg,
-    paddingTop: spacing.md,
-    paddingBottom: spacing.md,
-    gap: 12,
   },
   avatar: {
     width: 60,
@@ -485,4 +708,57 @@ const styles = StyleSheet.create({
   },
   footerApp: { fontSize: fontSizes.sm, fontWeight: "800", letterSpacing: 1 },
   footerVersion: { fontSize: fontSizes.xs, marginTop: 4 },
+
+  expandedAccountsWrapper: {
+    marginTop: spacing.sm,
+    borderRadius: radii.md,
+    padding: 8,
+    gap: 8,
+  },
+  expandedAccountRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+    paddingVertical: 6,
+    paddingHorizontal: 8,
+    borderRadius: radii.sm,
+  },
+  expandedAvatarRing: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    overflow: "hidden",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  avatarFallback: {
+    width: "100%",
+    height: "100%",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  avatarInitial: {
+    fontSize: fontSizes.sm,
+    fontWeight: "700",
+  },
+  expandedAccountName: {
+    flex: 1,
+    fontSize: fontSizes.sm,
+    fontWeight: "600",
+  },
+  expandedRemoveBtn: {
+    padding: 4,
+  },
+  expandedAddRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+    paddingVertical: 6,
+    paddingHorizontal: 8,
+  },
+  expandedAddRing: {
+    backgroundColor: "transparent",
+    borderWidth: 1,
+    borderStyle: "dashed",
+  },
 });

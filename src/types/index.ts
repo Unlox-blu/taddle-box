@@ -112,6 +112,16 @@ export interface User {
   bio: string;
   organization: string;
   badges: Badge[];
+  /** Profile lock PIN hash (bcrypt) — only present for own profile */
+  lockPin?: string;
+  /** Whether the global profile lock is enabled */
+  globalLockEnabled?: boolean;
+  /** Whether the wallet-specific lock is enabled */
+  walletLockEnabled?: boolean;
+  /** @deprecated use lockPin */
+  appLock?: string;
+  /** @deprecated use globalLockEnabled */
+  appLockEnabled?: boolean;
 }
 
 export interface Post {

@@ -9,8 +9,9 @@ import {
 
   Linking,
   Image,
+  Modal,
 } from "react-native";
-import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { useSafeAreaInsets, SafeAreaView } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import { useNavigation } from "@react-navigation/native";
 import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
@@ -31,6 +32,8 @@ import * as LocalAuthentication from "expo-local-authentication";
 import { useFocusEffect } from "@react-navigation/native";
 import type { HomeStackParamList } from "../../types";
 import { themedAlert, themedPrompt } from '../../components/common/ThemedAlert';
+import PinPad from "../../components/common/PinPad";
+import { nativeBypass } from "../../utils/nativeBypass";
 
 type NavProp = NativeStackNavigationProp<HomeStackParamList, "Settings">;
 
@@ -83,6 +86,11 @@ const maskPhone = (phone?: string, countryCode?: string) => {
   const [appBiometric, setAppBiometric] = useState(false);
   const [safeSearch, setSafeSearch] = useState("moderate");
 
+  const [verifyPinVisible, setVerifyPinVisible] = useState(false);
+  const [verifyPinError, setVerifyPinError] = useState("");
+  const [isVerifyingPin, setIsVerifyingPin] = useState(false);
+  const [pendingBiometricAction, setPendingBiometricAction] = useState<"enable" | "disable" | null>(null);
+
   useFocusEffect(
     useCallback(() => {
       fetchWalletData();
@@ -109,20 +117,18 @@ const maskPhone = (phone?: string, countryCode?: string) => {
 
   const toggleBiometric = async () => {
     // Biometric can only be enabled if PIN (App Lock) is set first
-    if (!CURRENT_USER?.appLockEnabled) {
+    if (!CURRENT_USER?.globalLockEnabled) {
       themedAlert(
         "PIN Required",
-        "Please enable Global App Lock (PIN) before turning on biometric authentication.",
+        "Please enable Global Lock (PIN) before turning on biometric authentication.",
         [
-          { text: "Cancel", style: "cancel" },
-          {
-            text: "Set Up PIN",
-            onPress: () =>
-              navigation.navigate("LockScreen", {
-                mode: "app",
-                isSetup: true,
-                returnScreen: "Settings",
-              }),
+          { text: "Cancel", style: "cancel" },              { text: "Set Up PIN",
+                onPress: () =>
+                  navigation.navigate("LockScreen", {
+                    mode: "app",
+                    isSetup: true,
+                    returnScreen: "Settings",
+                  }),
           },
         ],
       );
@@ -141,10 +147,28 @@ const maskPhone = (phone?: string, countryCode?: string) => {
           );
           return;
         }
+      }
+      setPendingBiometricAction(newValue ? "enable" : "disable");
+      setVerifyPinVisible(true);
+    } catch (e) {
+      console.log("Biometric error", e);
+    }
+  };
+
+  const handleVerifyPinComplete = async (pin: string) => {
+    try {
+      setIsVerifyingPin(true);
+      setVerifyPinError("");
+      await authService.verifyPin(pin);
+      
+      if (pendingBiometricAction === "enable") {
+        nativeBypass.beginNativeFlow();
         const result = await LocalAuthentication.authenticateAsync({
-          promptMessage: "Authenticate to enable biometric app lock",
+          promptMessage: "Authenticate to enable biometric global lock",
           cancelLabel: "Cancel",
         });
+        nativeBypass.endNativeFlow();
+        
         if (result.success) {
           await SecureStore.setItemAsync("app_biometricEnabled", "true");
           setAppBiometric(true);
@@ -153,8 +177,12 @@ const maskPhone = (phone?: string, countryCode?: string) => {
         await SecureStore.setItemAsync("app_biometricEnabled", "false");
         setAppBiometric(false);
       }
-    } catch (e) {
-      console.log("Biometric error", e);
+      setVerifyPinVisible(false);
+      setPendingBiometricAction(null);
+    } catch (e: any) {
+      setVerifyPinError(e?.response?.data?.message || e?.message || "Invalid PIN");
+    } finally {
+      setIsVerifyingPin(false);
     }
   };
 
@@ -220,14 +248,23 @@ const maskPhone = (phone?: string, countryCode?: string) => {
   };
 
   const handleLogout = () => {
-    themedAlert("Log Out", "Are you sure you want to log out?", [
-      { text: "Cancel", style: "cancel" },
-      {
-        text: "Log Out",
-        style: "destructive",
-        onPress: () => signOut(),
-      },
-    ]);
+    themedAlert(
+      "Log Out",
+      "Choose how you want to log out:",
+      [
+        { text: "Cancel", style: "cancel" },
+        {
+          text: "Log Out from This Device",
+          style: "default" as any,
+          onPress: () => signOut(),
+        },
+        {
+          text: "Log Out from All Devices",
+          style: "destructive",
+          onPress: () => signOut({ allDevices: true }),
+        },
+      ],
+    );
   };
 
   const handleDeleteAccount = () => {
@@ -381,18 +418,18 @@ const maskPhone = (phone?: string, countryCode?: string) => {
         <SettingsGroup>
           <SettingsToggle
             icon="shield-checkmark-outline"
-            label="Global App Lock"
+            label="Global Lock"
             description="Require PIN to open app"
-            value={CURRENT_USER?.appLockEnabled || false}
+            value={CURRENT_USER?.globalLockEnabled || false}
             onToggle={() => {
-              if (CURRENT_USER?.appLockEnabled) {
+              if (CURRENT_USER?.globalLockEnabled) {
                 navigation.navigate("LockScreen", {
                   mode: "app",
                   isSetup: false,
                   isDisable: true,
                   returnScreen: "Settings",
                 });
-              } else if (CURRENT_USER?.appLock) {
+              } else if (CURRENT_USER?.lockPin || CURRENT_USER?.appLock) {
                 navigation.navigate("LockScreen", {
                   mode: "app",
                   isSetup: false,
@@ -409,13 +446,13 @@ const maskPhone = (phone?: string, countryCode?: string) => {
           />
           <SettingsToggle
             icon="finger-print-outline"
-            label="Biometric App Lock"
+            label="Biometric Global Lock"
             description={
-              CURRENT_USER?.appLockEnabled
-                ? "Use Face ID / Touch ID for App Lock"
-                : "Requires App Lock PIN to be set first"
+              CURRENT_USER?.globalLockEnabled
+                ? "Use Face ID / Touch ID for Global Lock"
+                : "Requires Global Lock PIN to be set first"
             }
-            value={appBiometric && !!CURRENT_USER?.appLockEnabled}
+            value={appBiometric && !!CURRENT_USER?.globalLockEnabled}
             onToggle={toggleBiometric}
           />
           <SettingsRow
@@ -693,6 +730,28 @@ const maskPhone = (phone?: string, countryCode?: string) => {
           </TouchableOpacity>
         </SettingsGroup>
       </ScrollView>
+
+      {verifyPinVisible && (
+        <Modal visible={verifyPinVisible} animationType="slide" presentationStyle="pageSheet" onRequestClose={() => setVerifyPinVisible(false)}>
+          <SafeAreaView style={{ flex: 1, backgroundColor: colors.bg.base }}>
+            <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', padding: spacing.md, borderBottomWidth: 1, borderBottomColor: colors.border }}>
+              <TouchableOpacity onPress={() => setVerifyPinVisible(false)}>
+                <Ionicons name="arrow-back" size={24} color={colors.text.secondary} />
+              </TouchableOpacity>
+              <Text style={{ fontSize: fontSizes.lg, fontWeight: '700', color: colors.text.primary }}>Verify PIN</Text>
+              <View style={{ width: 24 }} />
+            </View>
+            <PinPad
+              title="Enter your PIN"
+              subtitle="Verify your PIN to disable biometric unlock"
+              length={4}
+              onPinComplete={handleVerifyPinComplete}
+              error={verifyPinError}
+              isVerifying={isVerifyingPin}
+            />
+          </SafeAreaView>
+        </Modal>
+      )}
     </View>
   );
 }

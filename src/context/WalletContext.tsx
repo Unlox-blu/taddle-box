@@ -3,6 +3,7 @@ import type { Transaction, XPUpdatedPayload, WalletUpdatedPayload } from '../typ
 import { walletService } from '../services/wallet.service';
 import { xpService } from '../services/xp.service';
 import { settingsService } from '../services/settings.service';
+import { authService } from '../services/auth.service';
 import { useAuth } from './AuthContext';
 import { socketClient } from '../services/socketClient';
 import * as SecureStore from 'expo-secure-store';
@@ -243,6 +244,7 @@ type WalletContextType = {
   linkUPI:         (upiId: string) => void;
   linkBank:        (bank: string) => void;
   toggleSetting:   (key: 'pinEnabled' | 'biometricEnabled' | 'notifXP' | 'notifWithdraw' | 'notifPromos') => void;
+  toggleWalletLock: (pin: string, isEnabled: boolean) => Promise<void>;
   unlockWallet:    () => void;
   lockWallet:      () => void; // Used when App Lock re-locks or session ends
 };
@@ -259,6 +261,7 @@ const WalletContext = createContext<WalletContextType>({
   linkUPI:       () => {},
   linkBank:      () => {},
   toggleSetting: () => {},
+  toggleWalletLock: async () => {},
   unlockWallet: () => {},
   lockWallet: () => {},
 });
@@ -346,11 +349,12 @@ export function WalletProvider({ children }: { children: React.ReactNode }) {
   const fetchWalletData = useCallback(async () => {
     dispatch({ type: 'SET_LOADING', isLoading: true });
     try {
-      const [walletRes, cashTxnsRes, xpTxnsRes, settingsRes] = await Promise.all([
+      const [walletRes, cashTxnsRes, xpTxnsRes, settingsRes, biometricRes] = await Promise.all([
         walletService.getWallet(),
         walletService.getTransactions(1, 50),
         xpService.getTransactions(1, 50),
-        settingsService.getSettings()
+        settingsService.getSettings(),
+        SecureStore.getItemAsync('wallet_biometricEnabled'),
       ]);
 
       const cashTxns = (cashTxnsRes.data || []).map(mapCashTxn);
@@ -368,11 +372,15 @@ export function WalletProvider({ children }: { children: React.ReactNode }) {
       dispatch({ type: 'SET_DATA', payload: {
         cashBalance: (walletRes.data?.balanceCents || 0) / 100,
         heldBalance: (walletRes.data?.heldBalanceCents || 0) / 100,
+        totalEarned: (walletRes.data?.totalEarnedCents || 0) / 100,
+        totalWithdrawn: (walletRes.data?.totalWithdrawnCents || 0) / 100,
         linkedUPI: walletRes.data?.linkedUpi || null,
         notifXP: settingsRes.data?.notifXP ?? true,
         notifWithdraw: settingsRes.data?.notifWithdraw ?? true,
         notifPromos: settingsRes.data?.notifPromos ?? false,
         hasMoreTxns: hasMoreRef.current,
+        biometricEnabled: biometricRes === 'true',
+        pinEnabled: user?.walletLockEnabled ?? false
       }});
       dispatch({ type: 'SET_TRANSACTIONS', transactions: combinedTxns });
     } catch (e) {
@@ -482,7 +490,18 @@ export function WalletProvider({ children }: { children: React.ReactNode }) {
     },
     linkBank:      (bank) => { /* Mock or api call */ },
     toggleSetting: async (key) => {
-      if (key === 'biometricEnabled' || key === 'pinEnabled') {
+      if (key === 'pinEnabled') {
+        // Wallet lock is now DB-backed — the actual toggle is handled by
+        // the wallet settings modal which calls authService.toggleWalletLock.
+        // This dispatch is only for optimistic UI update after the modal succeeds.
+        const newValue = !wallet[key];
+        dispatch({ type: 'TOGGLE_SETTING', key });
+        // If turning OFF PIN, automatically turn OFF biometric too since it requires a PIN
+        if (!newValue && wallet.biometricEnabled) {
+          await SecureStore.setItemAsync('wallet_biometricEnabled', 'false');
+          dispatch({ type: 'TOGGLE_SETTING', key: 'biometricEnabled' });
+        }
+      } else if (key === 'biometricEnabled') {
         const newValue = !wallet[key];
         try {
           await SecureStore.setItemAsync(`wallet_${key}`, newValue ? 'true' : 'false');
@@ -504,6 +523,21 @@ export function WalletProvider({ children }: { children: React.ReactNode }) {
       }
     },
     
+    toggleWalletLock: useCallback(async (pin: string, isEnabled: boolean) => {
+      try {
+        await authService.toggleWalletLock(pin, isEnabled);
+        dispatch({ type: 'TOGGLE_SETTING', key: 'pinEnabled' });
+        // If turning OFF wallet PIN, automatically turn OFF biometric too
+        if (!isEnabled && wallet.biometricEnabled) {
+          await SecureStore.setItemAsync('wallet_biometricEnabled', 'false');
+          dispatch({ type: 'TOGGLE_SETTING', key: 'biometricEnabled' });
+        }
+      } catch (e) {
+        console.error('Wallet lock toggle failed', e);
+        throw e;
+      }
+    }, [wallet.biometricEnabled]),
+
     unlockWallet: useCallback(() => {
       dispatch({ type: 'UNLOCK' });
     }, []),

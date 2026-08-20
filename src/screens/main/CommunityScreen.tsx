@@ -37,7 +37,7 @@ import { SectionHeader } from "../../components/common/SectionChrome";
 import * as ImagePicker from "expo-image-picker";
 import * as FileSystem from "expo-file-system";
 import { mediaService } from "../../services/media.service";
-import { appLockBypass } from "../../utils/appLockBypass";
+import { nativeBypass } from "../../utils/nativeBypass";
 import { themedAlert } from '../../components/common/ThemedAlert';
 import SmartInput from "../../components/common/SmartInput";
 import BioText from "../../components/common/BioText";
@@ -1032,7 +1032,7 @@ function CreateCommunityModal({
   };
 
   const pickImage = async (type: "avatar" | "banner") => {
-    appLockBypass.beginNativeFlow();
+    nativeBypass.beginNativeFlow();
     try {
       const { status } =
         await ImagePicker.requestMediaLibraryPermissionsAsync();
@@ -1051,7 +1051,7 @@ function CreateCommunityModal({
         else setBannerAsset(result.assets[0]);
       }
     } finally {
-      appLockBypass.endNativeFlow();
+      nativeBypass.endNativeFlow();
     }
   };
 

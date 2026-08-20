@@ -9,6 +9,13 @@
 module.exports = ({ config }) => {
   const updaterEnabled = process.env.APP_UPDATER_ENABLED === '1';
 
+  // For development builds, append a timestamp to the versionName.
+  // This allows the updater to detect new builds even when the versionCode
+  // remains exactly the same.
+  if (process.env.APP_ENV === 'development') {
+    config.version = `${config.version}-dev.${Math.floor(Date.now() / 1000)}`;
+  }
+
   const android = config.android || {};
   const permissions = Array.isArray(android.permissions)
     ? [...android.permissions]

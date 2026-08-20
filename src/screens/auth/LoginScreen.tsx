@@ -7,7 +7,6 @@ import {
   ScrollView,
   KeyboardAvoidingView,
   Platform,
-
   Image,
 } from "react-native";
 import { LinearGradient } from "expo-linear-gradient";
@@ -21,33 +20,43 @@ import Input from "../../components/common/Input";
 import type { AuthStackParamList } from "../../types";
 import { useAuth } from "../../context/AuthContext";
 import { authService } from "../../services/auth.service";
-import * as WebBrowser from 'expo-web-browser';
-import * as Google from 'expo-auth-session/providers/google';
-import * as AppleAuthentication from 'expo-apple-authentication';
-import * as AuthSession from 'expo-auth-session';
-import * as Linking from 'expo-linking';
+import * as WebBrowser from "expo-web-browser";
+import * as Google from "expo-auth-session/providers/google";
+import * as AppleAuthentication from "expo-apple-authentication";
+import * as AuthSession from "expo-auth-session";
+import * as Linking from "expo-linking";
 import LottieView from "lottie-react-native";
-import { getCachedLottie, getCachedLottieSync, S3_APP_ICON_LOTTIE_URL } from "../../services/lottie.service";
+import {
+  getCachedLottie,
+  getCachedLottieSync,
+  S3_APP_ICON_LOTTIE_URL,
+} from "../../services/lottie.service";
 
 WebBrowser.maybeCompleteAuthSession();
 
-import Constants from 'expo-constants';
-import { themedAlert } from '../../components/common/ThemedAlert';
-
-
+import Constants from "expo-constants";
+import { themedAlert } from "../../components/common/ThemedAlert";
+import SwitchAccountSection from "../../components/common/SwitchAccountSection";
 
 type Props = NativeStackScreenProps<AuthStackParamList, "Login">;
 
 export default function LoginScreen({ navigation }: Props) {
   const { colors: themeColors, isDark } = useTheme();
-  const styles = React.useMemo(() => getStyles(themeColors, isDark), [themeColors, isDark]);
-  const { signIn, isAuthenticating, setIsAuthenticating } = useAuth();
+  const styles = React.useMemo(
+    () => getStyles(themeColors, isDark),
+    [themeColors, isDark],
+  );
+  const { signIn, isAuthenticating, setIsAuthenticating, accounts, user } =
+    useAuth();
+  const hasAccounts = accounts.length > 0 || !!user?.id;
   const [identifier, setIdentifier] = useState("");
   const [password, setPassword] = useState("");
 
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [appleAuthAvailable, setAppleAuthAvailable] = useState(false);
-  const [lottieSource, setLottieSource] = useState<any>(getCachedLottieSync(S3_APP_ICON_LOTTIE_URL));
+  const [lottieSource, setLottieSource] = useState<any>(
+    getCachedLottieSync(S3_APP_ICON_LOTTIE_URL),
+  );
 
   useEffect(() => {
     getCachedLottie(S3_APP_ICON_LOTTIE_URL).then((animData) => {
@@ -61,7 +70,8 @@ export default function LoginScreen({ navigation }: Props) {
 
   const validate = () => {
     const e: Record<string, string> = {};
-    if (!identifier.trim()) e.identifier = "Email, phone or username is required";
+    if (!identifier.trim())
+      e.identifier = "Email, phone or username is required";
     if (!password.trim()) e.password = "Password is required";
     setErrors(e);
     return Object.keys(e).length === 0;
@@ -83,7 +93,11 @@ export default function LoginScreen({ navigation }: Props) {
         res.data?.sessionData?.refreshToken ||
         res.sessionData?.refreshToken ||
         res.data?.refreshToken;
-      await signIn(accessToken, refreshToken);
+      const sessionId =
+        res.data?.sessionData?.sessionId ||
+        res.sessionData?.sessionId ||
+        res.data?.sessionId;
+      await signIn(accessToken, refreshToken, sessionId);
     } catch (e: any) {
       alert(e instanceof Error ? e.message : "Login failed");
     } finally {
@@ -100,42 +114,61 @@ export default function LoginScreen({ navigation }: Props) {
     if (!hasGoogleConfig || !webId) {
       themedAlert(
         "Service Unavailable",
-        "Google Sign-In is currently unavailable on this platform."
+        "Google Sign-In is currently unavailable on this platform.",
       );
       return;
     }
 
     try {
-      const webUrl = process.env.EXPO_PUBLIC_BACKEND_URL || 'https://taddlebox.com';
+      const webUrl =
+        process.env.EXPO_PUBLIC_BACKEND_URL || "https://taddlebox.com";
       const redirectUri = `${webUrl}/api/v1/auth/google/callback`;
-      const returnUrl = Linking.createURL('google-auth');
+      const returnUrl = Linking.createURL("google-auth");
       const state = encodeURIComponent(JSON.stringify({ returnUrl }));
       const nonce = Math.random().toString(36).substring(2);
-      
+
       const authUrl = `https://accounts.google.com/o/oauth2/v2/auth?client_id=${webId}&redirect_uri=${encodeURIComponent(redirectUri)}&response_type=id_token&response_mode=form_post&scope=openid%20profile%20email&state=${state}&nonce=${nonce}`;
 
       const result = await WebBrowser.openAuthSessionAsync(authUrl, returnUrl);
 
-      if (result.type === 'success' && result.url) {
+      if (result.type === "success" && result.url) {
         const urlParams = Linking.parse(result.url);
-        const { action, socialToken, data, accessToken, refreshToken, error } = urlParams.queryParams || {};
-        
+        const {
+          action,
+          socialToken,
+          data,
+          accessToken,
+          refreshToken,
+          sessionId,
+          error,
+        } = urlParams.queryParams || {};
+
         if (error) {
-          themedAlert("Google Sign-In Error", decodeURIComponent(error as string));
+          themedAlert(
+            "Google Sign-In Error",
+            decodeURIComponent(error as string),
+          );
           return;
         }
 
-        if (action === 'REGISTER_SOCIAL' && socialToken && data) {
-           const socialData = JSON.parse(decodeURIComponent(data as string));
-           // @ts-ignore
-           navigation.navigate('Register', { socialToken: socialToken as string, socialData });
-           return;
+        if (action === "REGISTER_SOCIAL" && socialToken && data) {
+          const socialData = JSON.parse(decodeURIComponent(data as string));
+          // @ts-ignore
+          navigation.navigate("Register", {
+            socialToken: socialToken as string,
+            socialData,
+          });
+          return;
         }
-        
+
         if (accessToken && refreshToken) {
           setIsAuthenticating(true);
           try {
-            await signIn(accessToken as string, refreshToken as string);
+            await signIn(
+              accessToken as string,
+              refreshToken as string,
+              sessionId as string | undefined,
+            );
           } finally {
             setIsAuthenticating(false);
           }
@@ -144,7 +177,7 @@ export default function LoginScreen({ navigation }: Props) {
         }
       }
     } catch (error: any) {
-      if (error.code !== 'ERR_REQUEST_CANCELED') {
+      if (error.code !== "ERR_REQUEST_CANCELED") {
         themedAlert("Error", error.message);
       }
     }
@@ -167,68 +200,105 @@ export default function LoginScreen({ navigation }: Props) {
         if (credential.identityToken) {
           setIsAuthenticating(true);
           try {
-            const res = await authService.appleLogin(credential.identityToken, fullName);
+            const res = await authService.appleLogin(
+              credential.identityToken,
+              fullName,
+            );
             const resultData = res.data || res;
 
-            if (resultData.action === 'REGISTER_SOCIAL') {
-               // @ts-ignore
-               navigation.navigate('Register', { socialToken: resultData.socialToken, socialData: resultData.data });
-               return;
+            if (resultData.action === "REGISTER_SOCIAL") {
+              // @ts-ignore
+              navigation.navigate("Register", {
+                socialToken: resultData.socialToken,
+                socialData: resultData.data,
+              });
+              return;
             }
 
-            const accessToken = resultData.sessionData?.accessToken || resultData.accessToken;
-            const refreshToken = resultData.sessionData?.refreshToken || resultData.refreshToken;
+            const accessToken =
+              resultData.sessionData?.accessToken || resultData.accessToken;
+            const refreshToken =
+              resultData.sessionData?.refreshToken || resultData.refreshToken;
+            const sessionId =
+              resultData.sessionData?.sessionId || resultData.sessionId;
             if (!accessToken) throw new Error("Could not extract access token");
-            await signIn(accessToken, refreshToken);
+            await signIn(accessToken, refreshToken, sessionId);
           } catch (e: any) {
-            alert(e instanceof Error ? e.message : "Apple Login failed on backend");
+            alert(
+              e instanceof Error ? e.message : "Apple Login failed on backend",
+            );
           } finally {
             setIsAuthenticating(false);
           }
         }
       } catch (e: any) {
-        if (e.code !== 'ERR_REQUEST_CANCELED') {
+        if (e.code !== "ERR_REQUEST_CANCELED") {
           themedAlert("Apple Sign-In Error", e.message);
         }
       }
     } else {
       const appleServiceId = process.env.EXPO_PUBLIC_APPLE_SERVICE_ID;
-      const webUrl = process.env.EXPO_PUBLIC_BACKEND_URL || 'https://taddlebox.com';
-      
+      const webUrl =
+        process.env.EXPO_PUBLIC_BACKEND_URL || "https://taddlebox.com";
+
       if (!appleServiceId) {
-        themedAlert("Service Unavailable", "Apple Sign-In is currently unavailable on this platform.");
+        themedAlert(
+          "Service Unavailable",
+          "Apple Sign-In is currently unavailable on this platform.",
+        );
         return;
       }
-      
+
       try {
         const redirectUri = `${webUrl}/auth/apple/callback`;
-        const returnUrl = Linking.createURL('apple-auth');
+        const returnUrl = Linking.createURL("apple-auth");
         const state = encodeURIComponent(JSON.stringify({ returnUrl }));
-        
+
         const authUrl = `https://appleid.apple.com/auth/authorize?client_id=${appleServiceId}&redirect_uri=${encodeURIComponent(redirectUri)}&response_type=code%20id_token&response_mode=form_post&scope=name%20email&state=${state}`;
-        
-        const result = await WebBrowser.openAuthSessionAsync(authUrl, returnUrl);
-        
-        if (result.type === 'success' && result.url) {
+
+        const result = await WebBrowser.openAuthSessionAsync(
+          authUrl,
+          returnUrl,
+        );
+
+        if (result.type === "success" && result.url) {
           const urlParams = Linking.parse(result.url);
-          const { action, socialToken, data, accessToken, refreshToken, error } = urlParams.queryParams || {};
-          
+          const {
+            action,
+            socialToken,
+            data,
+            accessToken,
+            refreshToken,
+            sessionId,
+            error,
+          } = urlParams.queryParams || {};
+
           if (error) {
-            themedAlert("Apple Sign-In Error", decodeURIComponent(error as string));
+            themedAlert(
+              "Apple Sign-In Error",
+              decodeURIComponent(error as string),
+            );
             return;
           }
 
-          if (action === 'REGISTER_SOCIAL' && socialToken && data) {
-             const socialData = JSON.parse(decodeURIComponent(data as string));
-             // @ts-ignore
-             navigation.navigate('Register', { socialToken: socialToken as string, socialData });
-             return;
+          if (action === "REGISTER_SOCIAL" && socialToken && data) {
+            const socialData = JSON.parse(decodeURIComponent(data as string));
+            // @ts-ignore
+            navigation.navigate("Register", {
+              socialToken: socialToken as string,
+              socialData,
+            });
+            return;
           }
-          
+
           if (accessToken && refreshToken) {
             setIsAuthenticating(true);
             try {
-              await signIn(accessToken as string, refreshToken as string);
+              await signIn(
+                accessToken as string,
+                refreshToken as string,
+                sessionId as string | undefined,
+              );
             } finally {
               setIsAuthenticating(false);
             }
@@ -243,9 +313,11 @@ export default function LoginScreen({ navigation }: Props) {
   };
 
   return (
-    <LinearGradient colors={[themeColors.bg.base, themeColors.bg.surface]} style={styles.container}>
+    <LinearGradient
+      colors={[themeColors.bg.base, themeColors.bg.surface]}
+      style={styles.container}
+    >
       <StatusBar style={isDark ? "light" : "dark"} />
-
 
       {/* On Android the window already resizes natively (adjustResize) and the
           ScrollView auto-scrolls the focused field into view — a height-based
@@ -276,19 +348,37 @@ export default function LoginScreen({ navigation }: Props) {
           {/* Header */}
           <View style={styles.header}>
             {lottieSource ? (
-              <View style={{ width: 80, height: 80, borderRadius: 40, overflow: 'hidden', marginBottom: 12, marginLeft: -8, backgroundColor: 'transparent' }}>
+              <View
+                style={{
+                  width: 80,
+                  height: 80,
+                  borderRadius: 40,
+                  overflow: "hidden",
+                  marginBottom: 12,
+                  marginLeft: -8,
+                  backgroundColor: "transparent",
+                }}
+              >
                 <LottieView
                   source={lottieSource}
                   autoPlay
                   loop
                   cacheComposition={false}
-                  style={{ width: '100%', height: '100%' }}
+                  style={{ width: "100%", height: "100%" }}
                 />
               </View>
             ) : (
-              <Image 
-                source={require('../../../TaddleBox_Logo.png')} 
-                style={{ width: 80, height: 80, borderRadius: 40, resizeMode: 'cover', alignSelf: 'flex-start', marginBottom: 12, marginLeft: -8 }} 
+              <Image
+                source={require("../../../TaddleBox_Logo.png")}
+                style={{
+                  width: 80,
+                  height: 80,
+                  borderRadius: 40,
+                  resizeMode: "cover",
+                  alignSelf: "flex-start",
+                  marginBottom: 12,
+                  marginLeft: -8,
+                }}
               />
             )}
             <Text style={styles.title}>Welcome back taddler!</Text>
@@ -301,7 +391,10 @@ export default function LoginScreen({ navigation }: Props) {
               label="Email, Phone or Username"
               icon="person-outline"
               value={identifier}
-              onChangeText={(text) => { setIdentifier(text); setErrors({}); }}
+              onChangeText={(text) => {
+                setIdentifier(text);
+                setErrors({});
+              }}
               placeholder="Email, phone or username"
               keyboardType="default"
               autoCapitalize="none"
@@ -337,8 +430,33 @@ export default function LoginScreen({ navigation }: Props) {
             />
           </View>
 
+          {hasAccounts && (
+            <>
+              {/* Divider */}
+              <View
+                style={[styles.dividerRow, { marginTop: 20, marginBottom: 16 }]}
+              >
+                <View style={styles.line} />
+                <Text style={styles.dividerText}>or continue as</Text>
+                <View style={styles.line} />
+              </View>
+
+              {/* Show logged-in accounts if any exist (Instagram-style) */}
+              <View style={{ alignItems: "center", marginBottom: 20 }}>
+                <SwitchAccountSection
+                  onAddAccount={() => navigation.navigate("Login")}
+                />
+              </View>
+            </>
+          )}
+
           {/* Divider */}
-          <View style={styles.dividerRow}>
+          <View
+            style={[
+              styles.dividerRow,
+              { marginTop: hasAccounts ? 0 : 20, marginBottom: 20 },
+            ]}
+          >
             <View style={styles.line} />
             <Text style={styles.dividerText}>or continue with</Text>
             <View style={styles.line} />
@@ -346,11 +464,21 @@ export default function LoginScreen({ navigation }: Props) {
 
           {/* Social */}
           <View style={styles.socialRow}>
-            <TouchableOpacity style={styles.socialBtn} onPress={handleGoogleLogin}>
-              <Ionicons name="logo-google" size={18} color={themeColors.text.primary} />
+            <TouchableOpacity
+              style={styles.socialBtn}
+              onPress={handleGoogleLogin}
+            >
+              <Ionicons
+                name="logo-google"
+                size={18}
+                color={themeColors.text.primary}
+              />
               <Text style={styles.socialLabel}>Google</Text>
             </TouchableOpacity>
-            <TouchableOpacity style={styles.socialBtn} onPress={handleAppleLogin}>
+            <TouchableOpacity
+              style={styles.socialBtn}
+              onPress={handleAppleLogin}
+            >
               <Ionicons
                 name="logo-apple"
                 size={18}
@@ -373,76 +501,77 @@ export default function LoginScreen({ navigation }: Props) {
   );
 }
 
-const getStyles = (themeColors: any, isDark: boolean) => StyleSheet.create({
-  container: { flex: 1 },
-  kav: { flex: 1 },
-  scroll: { flexGrow: 1, padding: 24, paddingTop: 60, paddingBottom: 140 },
-  back: {
-    width: 40,
-    height: 40,
-    borderRadius: radii.md,
-    backgroundColor: themeColors.bg.card,
-    borderWidth: 1,
-    borderColor: themeColors.border,
-    alignItems: "center",
-    justifyContent: "center",
-    marginBottom: 28,
-  },
-  header: { marginBottom: 32 },
-  title: {
-    fontSize: fontSizes.h2,
-    fontWeight: "800",
-    color: themeColors.text.primary,
-    marginBottom: 6,
-  },
-  subtitle: { fontSize: fontSizes.md, color: themeColors.text.muted },
-  form: { gap: 2 },
-  forgotRow: { alignItems: "flex-end", marginBottom: 4 },
-  forgotText: {
-    fontSize: fontSizes.sm,
-    color: themeColors.primaryLight,
-    fontWeight: "600",
-  },
-  dividerRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 12,
-    marginVertical: 28,
-  },
-  line: { flex: 1, height: 1, backgroundColor: themeColors.border },
-  dividerText: { fontSize: fontSizes.xs, color: themeColors.text.muted },
-  socialRow: { flexDirection: "row", gap: 12, marginBottom: 32 },
-  socialBtn: {
-    flex: 1,
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "center",
-    gap: 8,
-    backgroundColor: themeColors.bg.card,
-    borderWidth: 1,
-    borderColor: themeColors.borderHover,
-    borderRadius: radii.md,
-    paddingVertical: 12,
-  },
-  socialIcon: {
-    fontSize: fontSizes.md,
-    fontWeight: "800",
-    color: themeColors.text.primary,
-  },
-  socialLabel: {
-    fontSize: fontSizes.sm,
-    color: themeColors.text.primary,
-    fontWeight: "600",
-  },
-  registerRow: {
-    flexDirection: "row",
-    justifyContent: "center",
-    alignItems: "center",
-  },
-  registerText: { fontSize: fontSizes.sm, color: themeColors.text.muted },
-  registerLink: {
-    fontSize: fontSizes.sm,
-    color: themeColors.primaryLight,
-    fontWeight: "700",
-  },
-});
+const getStyles = (themeColors: any, isDark: boolean) =>
+  StyleSheet.create({
+    container: { flex: 1 },
+    kav: { flex: 1 },
+    scroll: { flexGrow: 1, padding: 24, paddingTop: 60, paddingBottom: 140 },
+    back: {
+      width: 40,
+      height: 40,
+      borderRadius: radii.md,
+      backgroundColor: themeColors.bg.card,
+      borderWidth: 1,
+      borderColor: themeColors.border,
+      alignItems: "center",
+      justifyContent: "center",
+      marginBottom: 28,
+    },
+    header: { marginBottom: 32 },
+    title: {
+      fontSize: fontSizes.h2,
+      fontWeight: "800",
+      color: themeColors.text.primary,
+      marginBottom: 6,
+    },
+    subtitle: { fontSize: fontSizes.md, color: themeColors.text.muted },
+    form: { gap: 2 },
+    forgotRow: { alignItems: "flex-end", marginBottom: 4 },
+    forgotText: {
+      fontSize: fontSizes.sm,
+      color: themeColors.primaryLight,
+      fontWeight: "600",
+    },
+    dividerRow: {
+      flexDirection: "row",
+      alignItems: "center",
+      gap: 12,
+      marginVertical: 28,
+    },
+    line: { flex: 1, height: 1, backgroundColor: themeColors.border },
+    dividerText: { fontSize: fontSizes.xs, color: themeColors.text.muted },
+    socialRow: { flexDirection: "row", gap: 12, marginBottom: 32 },
+    socialBtn: {
+      flex: 1,
+      flexDirection: "row",
+      alignItems: "center",
+      justifyContent: "center",
+      gap: 8,
+      backgroundColor: themeColors.bg.card,
+      borderWidth: 1,
+      borderColor: themeColors.borderHover,
+      borderRadius: radii.md,
+      paddingVertical: 12,
+    },
+    socialIcon: {
+      fontSize: fontSizes.md,
+      fontWeight: "800",
+      color: themeColors.text.primary,
+    },
+    socialLabel: {
+      fontSize: fontSizes.sm,
+      color: themeColors.text.primary,
+      fontWeight: "600",
+    },
+    registerRow: {
+      flexDirection: "row",
+      justifyContent: "center",
+      alignItems: "center",
+    },
+    registerText: { fontSize: fontSizes.sm, color: themeColors.text.muted },
+    registerLink: {
+      fontSize: fontSizes.sm,
+      color: themeColors.primaryLight,
+      fontWeight: "700",
+    },
+  });

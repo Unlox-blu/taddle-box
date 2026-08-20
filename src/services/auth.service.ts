@@ -1,9 +1,10 @@
-import { apiClient } from './apiClient';
+import { apiClient, getDeviceId } from './apiClient';
 import type { User } from '../types';
 
 export const authService = {
   login: async (identifier: string, password?: string) => {
-    const response = await apiClient.post('/auth/login', { identifier, password });
+    const deviceId = await getDeviceId();
+    const response = await apiClient.post('/auth/login', { identifier, password, deviceId });
     return response.data;
   },
   
@@ -30,6 +31,7 @@ export const authService = {
   },
 
   logout: async () => {
+    // Include sessionId so the backend revokes only this device's session
     const response = await apiClient.post('/auth/logout');
     return response.data;
   },
@@ -59,8 +61,23 @@ export const authService = {
     return response.data;
   },
 
-  toggleGlobalAppLock: async (pin: string, isEnabled: boolean) => {
+  toggleGlobalLock: async (pin: string, isEnabled: boolean) => {
     const response = await apiClient.post('/users/pin/toggle-global', { pin, isEnabled });
+    return response.data;
+  },
+
+  toggleWalletLock: async (pin: string, isEnabled: boolean) => {
+    const response = await apiClient.post('/users/pin/toggle-wallet', { pin, isEnabled });
+    return response.data;
+  },
+
+  removePinSendOtp: async () => {
+    const response = await apiClient.post('/users/pin/remove/send-otp');
+    return response.data;
+  },
+
+  removePinVerify: async (password: string, emailOtp: string, phoneOtp?: string) => {
+    const response = await apiClient.post('/users/pin/remove/verify', { password, emailOtp, phoneOtp });
     return response.data;
   },
 

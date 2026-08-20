@@ -172,9 +172,10 @@ export default function OTPScreen({ navigation, route }: Props) {
       
       const accessToken = res.data?.sessionData?.accessToken || res.sessionData?.accessToken || res.data?.accessToken;
       const refreshToken = res.data?.sessionData?.refreshToken || res.sessionData?.refreshToken || res.data?.refreshToken;
+      const sessionId = res.data?.sessionData?.sessionId || res.sessionData?.sessionId || res.data?.sessionId;
       
       setTimeout(() => {
-        signIn(accessToken, refreshToken);
+        signIn(accessToken, refreshToken, sessionId);
       }, 1200);
 
     } catch (e: any) {

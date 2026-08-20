@@ -523,7 +523,7 @@ export default function HomeScreen() {
                     },
                   ]}
                   onPress={() => {
-                    if (CURRENT_USER?.appLockEnabled) {
+                    if (CURRENT_USER?.globalLockEnabled || CURRENT_USER?.appLockEnabled) {
                       navigation.navigate("LockScreen", {
                         mode: "app",
                         returnScreen: "Wallet",

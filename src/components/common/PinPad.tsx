@@ -18,6 +18,7 @@ interface PinPadProps {
   error?: string;
   isVerifying?: boolean;
   resetKey?: string | number; // change this to force a pin reset
+  clearError?: () => void;
 }
 
 export default function PinPad({
@@ -30,6 +31,7 @@ export default function PinPad({
   error,
   isVerifying = false,
   resetKey,
+  clearError,
 }: PinPadProps) {
   const colors = useThemeColors();
   const [pin, setPin] = useState<string>('');
@@ -54,6 +56,7 @@ export default function PinPad({
 
   const handlePress = (val: string) => {
     if (isVerifying) return;
+    if (error && clearError) clearError();
     if (pin.length < length) {
       setPin(prev => prev + val);
     }
@@ -61,6 +64,7 @@ export default function PinPad({
 
   const handleBackspace = () => {
     if (isVerifying) return;
+    if (error && clearError) clearError();
     setPin(prev => prev.slice(0, -1));
   };
 

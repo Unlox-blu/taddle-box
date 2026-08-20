@@ -23,7 +23,7 @@ import { GamesProvider } from "./src/context/GamesContext";
 import { NotificationProvider } from "./src/context/NotificationContext";
 import { QueryClientProvider } from "@tanstack/react-query";
 import { queryClient } from "./src/lib/react-query";
-import AppLockOverlay from "./src/components/common/AppLockOverlay";
+import LockOverlay from "./src/components/common/LockOverlay";
 import NotificationBanner from "./src/components/common/NotificationBanner";
 import { ThemedAlertHost } from "./src/components/common/ThemedAlert";
 import { ActiveStatusProvider } from "./src/context/ActiveStatusContext";
@@ -77,7 +77,7 @@ function AppShell() {
               <LocationTracker />
               <AppNavigator />
               <NotificationBanner />
-              <AppLockOverlay />
+              <LockOverlay />
               <ThemedAlertHost />
             </>
           )}

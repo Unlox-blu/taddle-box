@@ -15,7 +15,7 @@ import { useThemeColors, useTheme } from '../../context/ThemeContext';
 import { useAuth } from '../../context/AuthContext';
 import { communityService } from '../../services/community.service';
 import { mediaService } from '../../services/media.service';
-import { appLockBypass } from '../../utils/appLockBypass';
+import { nativeBypass } from '../../utils/nativeBypass';
 import type { CommunityStackParamList } from '../../types';
 import { themedAlert } from '../../components/common/ThemedAlert';
 import SmartInput from '../../components/common/SmartInput';
@@ -132,7 +132,7 @@ export default function CommunitySettingsScreen() {
   };
 
   const pickImage = async (type: 'avatar' | 'banner') => {
-    appLockBypass.beginNativeFlow();
+    nativeBypass.beginNativeFlow();
     try {
       const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
       if (status !== 'granted') {
@@ -152,7 +152,7 @@ export default function CommunitySettingsScreen() {
         else setBannerAsset(result.assets[0]);
       }
     } finally {
-      appLockBypass.endNativeFlow();
+      nativeBypass.endNativeFlow();
     }
   };
 

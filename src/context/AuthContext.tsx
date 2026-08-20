@@ -73,6 +73,7 @@ import { AppState, AppStateStatus } from 'react-native';
 import { appConfigService } from '../services/appConfig.service';
 import { setForcedLogoutHandler, clearForcedLogoutHandler } from '../services/apiClient';
 import { deviceSocketClient } from '../services/deviceSocketClient';
+import { destroyGameSound } from '../services/gameSound';
 import { validateStoredAccounts } from '../services/sessionValidator';
 
 // Real installed version comes from the Expo build config (app.json version).
@@ -432,6 +433,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       await storeRemoveAccount(userId);
     }
     socketClient.disconnect();
+    // Release native audio players on logout
+    destroyGameSound().catch(() => {});
     setIsLoggedIn(false);
     setUser(undefined);
     await refreshAccounts();

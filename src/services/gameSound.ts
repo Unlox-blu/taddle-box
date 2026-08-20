@@ -83,6 +83,20 @@ export async function initGameSound(): Promise<void> {
   notify();
 }
 
+/**
+ * Releases all native AudioPlayer instances and clears the cache.
+ * Call this when the game session ends or on logout to free native memory.
+ * initGameSound() will recreate players on next use.
+ */
+export async function destroyGameSound(): Promise<void> {
+  for (const [, player] of soundCache) {
+    try { player.remove(); } catch { /* best-effort */ }
+  }
+  soundCache.clear();
+  loadedSounds.clear();
+  building = false;
+}
+
 function play(name: SoundName) {
   if (!soundEnabled) return;
   const player = soundCache.get(name);

@@ -4,7 +4,7 @@ export const queryClient = new QueryClient({
   defaultOptions: {
     queries: {
       staleTime: 60 * 1000, // 1 minute
-      gcTime: 10 * 60 * 1000, // 10 minutes (formerly cacheTime)
+      gcTime: 5 * 60 * 1000, // 5 minutes — frees cached query data sooner on mobile
       retry: 2,
       refetchOnReconnect: true,
       refetchOnMount: false,

@@ -48,13 +48,16 @@ import MainHeader from "../../components/common/MainHeader";
 import { SectionHeader } from "../../components/common/SectionChrome";
 import ActiveStatusDot from "../../components/common/ActiveStatusDot";
 import StateBlock from "../../components/common/StateBlock";
-import ChessGame from "../../components/games/ChessGame";
-import LudoGame from "../../components/games/LudoGame";
-import SnakeLadderGame from "../../components/games/SnakeLadderGame";
-import ScribbleGame from "../../components/games/ScribbleGame";
-import WordRushGame from "../../components/games/WordRushGame";
-import TapRushGame from "../../components/games/TapRushGame";
-import MemoryGridGame from "../../components/games/MemoryGridGame";
+// Lazy-load game components — deferred until a match starts to reduce
+// startup memory. React.lazy in RN defers component initialization
+// (PanResponder, Animated values, intervals) until first render.
+const ChessGame = React.lazy(() => import("../../components/games/ChessGame"));
+const LudoGame = React.lazy(() => import("../../components/games/LudoGame"));
+const SnakeLadderGame = React.lazy(() => import("../../components/games/SnakeLadderGame"));
+const ScribbleGame = React.lazy(() => import("../../components/games/ScribbleGame"));
+const WordRushGame = React.lazy(() => import("../../components/games/WordRushGame"));
+const TapRushGame = React.lazy(() => import("../../components/games/TapRushGame"));
+const MemoryGridGame = React.lazy(() => import("../../components/games/MemoryGridGame"));
 import GameLogo from "../../components/games/GameLogo";
 import GameStartScreen from "../../components/games/GameStartScreen";
 import { GAME_ASSETS } from "../../games/assets";
@@ -75,6 +78,7 @@ import TournamentLeaderboardModal from "../../components/games/TournamentLeaderb
 import {
   gameSound,
   initGameSound,
+  destroyGameSound,
   useGameSoundPrefs,
 } from "../../services/gameSound";
 import { themedAlert } from "../../components/common/ThemedAlert";
@@ -579,7 +583,10 @@ export default function GamesScreen() {
     [user?.id],
   );
 
-  const handleSessionClose = () => {
+  const handleSessionClose = async () => {
+    // Release native audio players — frees ~11 AudioPlayer allocations.
+    // initGameSound() will recreate them on next PLAY tap.
+    destroyGameSound().catch(() => {});
     setActiveSession(null);
     loadGamesData();
   };
@@ -1469,6 +1476,13 @@ function GamePlayModal({
                 const NativeGame = GAME_COMPONENTS[slug];
                 if (NativeGame && token) {
                   return (
+                    <React.Suspense
+                      fallback={
+                        <View style={[StyleSheet.absoluteFill, { justifyContent: 'center', alignItems: 'center' }]}>
+                          <ActivityIndicator size="large" color="#7C3AED" />
+                        </View>
+                      }
+                    >
                     <View
                       style={[
                         StyleSheet.absoluteFill,
@@ -1497,6 +1511,7 @@ function GamePlayModal({
                         onComplete={handleComplete}
                       />
                     </View>
+                    </React.Suspense>
                   );
                 }
               }

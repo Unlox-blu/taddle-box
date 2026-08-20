@@ -32,6 +32,7 @@
     "axios": "^1.18.1",
     "chess.js": "^1.4.0",
     "chess.ts": "^0.16.2",
+    "events": "^3.3.0",
     "expo": "~54.0.37",
     "expo-apple-authentication": "~8.0.8",
     "expo-application": "~7.0.8",

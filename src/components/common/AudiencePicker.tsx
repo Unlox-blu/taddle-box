@@ -4,6 +4,7 @@ import {
   StyleSheet, Modal, ActivityIndicator, Image,
   KeyboardAvoidingView, Platform,
 } from 'react-native';
+import { FlashList } from '@shopify/flash-list';
 import { Ionicons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { fontSizes, spacing, radii, type ColorPalette } from '../../theme';
@@ -191,7 +192,7 @@ export function AudiencePickerList({
         )}
       </View>
 
-      <FlatList
+      <FlashList
         data={communities}
         keyExtractor={(c) => c.id}
         keyboardShouldPersistTaps="handled"

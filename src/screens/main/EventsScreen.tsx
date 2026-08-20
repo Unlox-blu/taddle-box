@@ -12,7 +12,8 @@ import {
   DeviceEventEmitter,
   Dimensions,
 } from "react-native";
-import { useNavigation, useFocusEffect } from "@react-navigation/native";
+import { FlashList } from '@shopify/flash-list';
+import { useNavigation, useIsFocused, useFocusEffect } from "@react-navigation/native";
 import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
 import { Ionicons } from "@expo/vector-icons";
 import PullToRefreshWrapper from "../../components/common/PullToRefreshWrapper";
@@ -454,6 +455,7 @@ const CalendarView = ({ selectedDate, onSelectDate, events, styles }: any) => {
 };
 
 export default function EventsScreen() {
+  const isFocused = useIsFocused();
   const navigation = useNavigation<NativeStackNavigationProp<any>>();
   const { isDark } = useTheme();
   const colors = useThemeColors();
@@ -543,7 +545,7 @@ export default function EventsScreen() {
   const featuredScrollRef = useRef<ScrollView>(null);
 
   useEffect(() => {
-    if (activeTab === "all" && featuredList.length > 1) {
+    if (isFocused && activeTab === "all" && featuredList.length > 1) {
       let currentIndex = 0;
       const interval = setInterval(() => {
         currentIndex = (currentIndex + 1) % featuredList.length;
@@ -652,7 +654,7 @@ export default function EventsScreen() {
         }
         sectionHeaderH={144}
       >
-        <FlatList
+        <FlashList
           ref={eventsListRef}
           data={activeTab === "all" ? discoverList : displayEvents}
           keyExtractor={(item) => item.id}
@@ -905,6 +907,7 @@ function EventCard({
   colors: ColorPalette;
   typeMeta: Record<string, TypeMeta>;
 }) {
+  const isFocused = useIsFocused();
   const navigation = useNavigation<NativeStackNavigationProp<any>>();
   const meta = typeMeta[e.type] || typeMeta["meetup"];
   return (

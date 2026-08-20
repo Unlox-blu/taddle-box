@@ -24,6 +24,7 @@
         "backgroundColor": "#070714"
       },
       "package": "com.taddlebox.app",
+      "versionCode": 16,
       "softwareKeyboardLayoutMode": "resize"
     },
     "plugins": [

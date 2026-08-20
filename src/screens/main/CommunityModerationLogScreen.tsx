@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { View, Text, StyleSheet, FlatList, TouchableOpacity, ActivityIndicator, Image } from 'react-native';
+import { FlashList } from '@shopify/flash-list';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useNavigation, useRoute, type RouteProp } from '@react-navigation/native';
 import { Ionicons } from '@expo/vector-icons';
@@ -79,7 +80,7 @@ export default function CommunityModerationLogScreen() {
       </View>
 
       <PullToRefreshWrapper refreshing={refreshing} onRefresh={() => { setRefreshing(true); load(1, true); }}>
-        <FlatList
+        <FlashList
           data={entries}
           keyExtractor={item => String(item.id)}
           contentContainerStyle={{ padding: spacing.lg, flexGrow: 1 }}

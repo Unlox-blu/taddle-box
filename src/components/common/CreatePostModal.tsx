@@ -101,6 +101,12 @@ function PreviewVideo({
   useEffect(() => {
     player.muted = muted;
   }, [player, muted]);
+  // Release native video player when preview unmounts
+  useEffect(() => {
+    return () => {
+      try { player.release(); } catch { /* best-effort */ }
+    };
+  }, [player]);
   return (
     <VideoView
       player={player}

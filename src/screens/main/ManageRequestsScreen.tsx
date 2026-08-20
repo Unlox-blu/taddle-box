@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { View, Text, StyleSheet, FlatList, TouchableOpacity, ActivityIndicator,  Image } from 'react-native';
+import { FlashList } from '@shopify/flash-list';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useNavigation, useRoute, type RouteProp } from '@react-navigation/native';
 import { Ionicons } from '@expo/vector-icons';
@@ -71,7 +72,7 @@ export default function ManageRequestsScreen() {
         <Text style={[styles.headerTitle, { color: colors.text.primary }]}>Join Requests</Text>
       </View>
 
-      <FlatList
+      <FlashList
         data={requests}
         keyExtractor={item => item.id}
         contentContainerStyle={{ padding: spacing.lg }}

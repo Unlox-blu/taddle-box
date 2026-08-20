@@ -18,6 +18,7 @@ import {
   ScrollView,
   Keyboard,
 } from "react-native";
+import { FlashList } from '@shopify/flash-list';
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons, MaterialCommunityIcons } from "@expo/vector-icons";
 import { StatusBar } from "expo-status-bar";
@@ -503,7 +504,7 @@ export default function SearchScreen({ navigation, route }: Props) {
   // Per-tab scroll offsets — saved on leave, restored on return.
   const scrollOffsetsRef = useRef<Record<string, number>>({});
   const scrollOffsetCurrentRef = useRef(0);
-  const listRef = useRef<FlatList<any>>(null);
+  const listRef = useRef<any>(null);
 
   // Only the first ≥60%-visible post row plays its audio/video, and only while
   // the search screen is focused — the same viewability + focus gating the
@@ -1600,7 +1601,7 @@ export default function SearchScreen({ navigation, route }: Props) {
             pillsAnimStyle,
           ]}
         >
-          <FlatList
+          <FlashList
             horizontal
             showsHorizontalScrollIndicator={false}
             data={universalPills}
@@ -1627,7 +1628,7 @@ export default function SearchScreen({ navigation, route }: Props) {
           onRefresh={onRefresh}
           headerOffsetH={searchOverlayH}
         >
-          <FlatList
+          <FlashList
             ref={listRef}
             data={rows}
             keyExtractor={(row, index) =>

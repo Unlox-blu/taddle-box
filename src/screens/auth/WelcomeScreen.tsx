@@ -300,42 +300,42 @@ export default function WelcomeScreen({ navigation }: Props) {
     >
       <StatusBar style={isDark ? "light" : "dark"} />
 
-      {/* Background glow */}
-      <View style={styles.glow} />
-
       {/* Main Content Area (Logo + Tagline + Rolling Text) */}
       <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', marginTop: 40 }}>
-        {lottieSource ? (
-          <View
-            style={{
-              width: 120,
-              height: 120,
-              borderRadius: 60,
-              overflow: "hidden",
-              marginBottom: 24,
-              backgroundColor: "transparent",
-            }}
-          >
-            <LottieView
-              source={lottieSource}
-              autoPlay
-              loop
-              cacheComposition={false}
-              style={{ width: "100%", height: "100%" }}
+        <View style={{ position: 'relative', alignItems: 'center', justifyContent: 'center', marginBottom: 24 }}>
+          {/* Background glow perfectly centered behind the logo */}
+          <View style={styles.glow} />
+          
+          {lottieSource ? (
+            <View
+              style={{
+                width: 120,
+                height: 120,
+                borderRadius: 60,
+                overflow: "hidden",
+                backgroundColor: "transparent",
+              }}
+            >
+              <LottieView
+                source={lottieSource}
+                autoPlay
+                loop
+                cacheComposition={false}
+                style={{ width: "100%", height: "100%" }}
+              />
+            </View>
+          ) : (
+            <Image
+              source={require("../../../TaddleBox_Logo.png")}
+              style={{
+                width: 120,
+                height: 120,
+                borderRadius: 60,
+                resizeMode: "cover",
+              }}
             />
-          </View>
-        ) : (
-          <Image
-            source={require("../../../TaddleBox_Logo.png")}
-            style={{
-              width: 120,
-              height: 120,
-              borderRadius: 60,
-              resizeMode: "cover",
-              marginBottom: 24,
-            }}
-          />
-        )}
+          )}
+        </View>
         <Text style={styles.tagline}>
           To rant, spill, overshare & have zero regrets about it.
         </Text>
@@ -450,8 +450,9 @@ const getStyles = (themeColors: any, isDark: boolean) =>
       backgroundColor: isDark
         ? "rgba(124,58,237,0.1)"
         : "rgba(124,58,237,0.05)",
-      top: height * 0.1,
-      alignSelf: "center",
+      top: "50%",
+      left: "50%",
+      transform: [{ translateX: -180 }, { translateY: -180 }],
     },
     logoSection: {
       flex: 1,

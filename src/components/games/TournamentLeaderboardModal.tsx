@@ -8,6 +8,7 @@ import {
   FlatList,
   Image,
 } from "react-native";
+import { FlashList } from '@shopify/flash-list';
 import { Ionicons } from "@expo/vector-icons";
 import { LinearGradient } from "expo-linear-gradient";
 import StateBlock from "../common/StateBlock";
@@ -127,7 +128,7 @@ export default function TournamentLeaderboardModal({ visible, tournament, onClos
             </View>
           ) : (
             <>
-              <FlatList
+              <FlashList
                 data={leaderboard}
                 keyExtractor={(item) => item.userId}
                 renderItem={renderItem}

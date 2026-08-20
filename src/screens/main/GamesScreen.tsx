@@ -20,6 +20,7 @@ import {
   View,
   ImageBackground,
 } from "react-native";
+import { FlashList } from "@shopify/flash-list";
 import { Ionicons } from "@expo/vector-icons";
 import { LinearGradient } from "expo-linear-gradient";
 import { StatusBar } from "expo-status-bar";
@@ -732,8 +733,12 @@ export default function GamesScreen() {
         {activeTab === "games" && (
           <>
             <ContentSectionHeader title="Available Games" />
-            <View style={styles.gameGrid}>
-              {realGames.map((game) => {
+            <FlashList
+              data={realGames}
+              numColumns={2}
+              
+              keyExtractor={(item) => item.id}
+              renderItem={({ item: game }) => {
                 const isRejoin =
                   !!reconnectSession && reconnectSession.gameId === game.id;
                 const rejoinWindowMs = isRejoin
@@ -741,7 +746,6 @@ export default function GamesScreen() {
                   : null;
                 return (
                   <GameCard
-                    key={game.id}
                     game={{
                       ...game,
                       isHot:
@@ -753,16 +757,14 @@ export default function GamesScreen() {
                     rejoinWindowMs={rejoinWindowMs}
                     downloading={downloadingSlug === game.slug}
                     onRejoinExpired={() => {
-                      // Window expired — drop the stale session so the card
-                      // reverts to a normal PLAY button.
                       setReconnectSession(null);
                       loadGamesData();
                     }}
                     onPlayClick={() => handleGamePlay(game, isRejoin)}
                   />
                 );
-              })}
-            </View>
+              }}
+            />
           </>
         )}
 

@@ -3,6 +3,7 @@ import {
   View, Text, FlatList, TouchableOpacity, Image,
   StyleSheet, ActivityIndicator, 
 } from 'react-native';
+import { FlashList } from '@shopify/flash-list';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { useNavigation } from '@react-navigation/native';
@@ -190,7 +191,7 @@ export default function CommentsThread({
   const [highlightId, setHighlightId] = useState<string | null>(null);
   const localComposerRef = useRef<any>(null);
   const effectiveComposerRef = composerRef || localComposerRef;
-  const listRef = useRef<FlatList<any>>(null);
+  const listRef = useRef<any>(null);
   // Mirrors of list state so the async scroll-to-comment flow reads fresh
   // values instead of stale closures.
   const commentsRef = useRef<Comment[]>(comments);
@@ -626,19 +627,13 @@ export default function CommentsThread({
 
   return (
     <>
-      <FlatList
+      <FlashList
         ref={listRef}
         data={comments}
         keyExtractor={(item) => item.id}
         showsVerticalScrollIndicator={false}
         style={{ flex: 1 }}
         contentContainerStyle={styles.listContent}
-        onScrollToIndexFailed={({ index, averageItemLength }) => {
-          listRef.current?.scrollToOffset({
-            offset: Math.max(0, averageItemLength * index - 40),
-            animated: true,
-          });
-        }}
         // The header (e.g. the post detail card) renders even while comments
         // load so a post tap shows content immediately, not a blank spinner.
         // The sort toggle sits under whatever header the parent provided.

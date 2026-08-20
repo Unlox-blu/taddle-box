@@ -9,6 +9,7 @@ import {
 
   Image,
   } from "react-native";
+import { FlashList } from '@shopify/flash-list';
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useNavigation } from "@react-navigation/native";
 import { Ionicons } from "@expo/vector-icons";
@@ -235,7 +236,7 @@ export default function FollowRequestsScreen() {
           </View>
         }
       >
-        <FlatList
+        <FlashList
           data={requests}
           keyExtractor={(item) => item.id}
           contentContainerStyle={styles.listContent}

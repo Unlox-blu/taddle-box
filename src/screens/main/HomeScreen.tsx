@@ -57,6 +57,11 @@ const getTodayKey = () => {
 
 export default function HomeScreen() {
   const scrollRef = useRef<FlatList>(null);
+  // Scroll-based timer optimization: pause the streak countdown when the
+  // banner scrolls out of view to save CPU/battery.
+  const scrollYRef = useRef(0);
+  const streakBannerYRef = useRef(0);
+  const [streakBannerVisible, setStreakBannerVisible] = useState(true);
 
   const { user: CURRENT_USER, refreshUser } = useAuth();
   const { wallet, fetchWalletSummary } = useWallet();
@@ -119,10 +124,18 @@ export default function HomeScreen() {
 
   const [now, setNow] = useState(Date.now());
   useEffect(() => {
-    if (!streakRestorable) return;
+    if (!isFocused || !streakRestorable || !streakBannerVisible) return;
     const interval = setInterval(() => setNow(Date.now()), 1000);
     return () => clearInterval(interval);
-  }, [streakRestorable, restoreDeadline]);
+  }, [isFocused, streakRestorable, restoreDeadline, streakBannerVisible]);
+  // Track whether the streak banner is scrolled into view.
+  // When the banner scrolls off-screen, the timer pauses (see above).
+  useEffect(() => {
+    const bannerTop = streakBannerYRef.current;
+    const bannerBottom = bannerTop + 60; // approximate banner height
+    const isVisible = scrollYRef.current < bannerBottom;
+    setStreakBannerVisible(isVisible);
+  }, [now]); // re-check on each tick to catch scroll changes
 
   const deadlineMs = restoreDeadline ? new Date(restoreDeadline).getTime() : 0;
   const remainingMs = streakRestorable && deadlineMs ? Math.max(0, deadlineMs - now) : 0;
@@ -418,6 +431,9 @@ export default function HomeScreen() {
       <MainHeader />
 
       <SharedFeed
+        onScroll={(offsetY) => {
+          scrollYRef.current = offsetY;
+        }}
         posts={filteredPosts}
         // Only the actual pull gesture (or the tab-double-tap refresh) should
         // show the refresh indicator. Feeding isRefetching in here made EVERY
@@ -480,6 +496,9 @@ export default function HomeScreen() {
                 ]}
                 onPress={openStreakModal}
                 activeOpacity={0.8}
+                onLayout={(e) => {
+                  streakBannerYRef.current = e.nativeEvent.layout.y;
+                }}
               >
                 <Text style={styles.miniEmoji}>{streakRestorable ? "⏳" : "🔥"}</Text>
                 <View style={styles.miniText}>

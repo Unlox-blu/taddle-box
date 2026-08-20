@@ -3,6 +3,7 @@ import {
   View, Text, FlatList, TouchableOpacity,
   StyleSheet, KeyboardAvoidingView, Platform, Modal, Animated, Dimensions, TouchableWithoutFeedback, Keyboard, ActivityIndicator, Image, 
 } from 'react-native';
+import { FlashList } from '@shopify/flash-list';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { StatusBar } from 'expo-status-bar';
@@ -469,7 +470,7 @@ export default function CommentsModal({ visible, onClose, post }: Props) {
           {loading ? (
             <ActivityIndicator style={{ flex: 1 }} color={colors.primary} />
           ) : (
-            <FlatList
+            <FlashList
               data={comments}
               keyExtractor={item => item.id}
               showsVerticalScrollIndicator={false}

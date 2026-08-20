@@ -3,6 +3,7 @@ import {
   View, Text, ScrollView, TouchableOpacity, TouchableWithoutFeedback,
   StyleSheet, Share, FlatList, Image, TextInput, Modal, KeyboardAvoidingView, Platform
 } from 'react-native';
+import { FlashList } from '@shopify/flash-list';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useNavigation, useRoute, useFocusEffect, type RouteProp } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
@@ -776,7 +777,7 @@ function ManageRequestsModal({ visible, onClose, communityId, styles, colors }: 
           ) : requests.length === 0 ? (
             <Text style={{ color: colors.text.muted, textAlign: 'center', padding: 20 }}>No pending requests.</Text>
           ) : (
-            <FlatList
+            <FlashList
               data={requests}
               keyExtractor={item => item.user_id}
               renderItem={({ item }) => (
@@ -1030,7 +1031,7 @@ function ManageMembersModal({ visible, onClose, communityId, isAdmin, isOwner, c
           ) : members.length === 0 ? (
             <Text style={{ color: colors.text.muted, textAlign: 'center', padding: 20 }}>No members found.</Text>
           ) : (
-            <FlatList
+            <FlashList
               data={members}
               keyExtractor={item => item.user_id}
               onEndReached={() => {

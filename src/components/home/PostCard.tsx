@@ -72,6 +72,11 @@ interface PostCardProps {
   showDelete?: boolean;
 }
 
+// React.memo: only re-renders when props actually change.
+// With stable callbacks from SharedFeed, this prevents cascade
+// re-renders across all visible PostCards when one card updates.
+export default React.memo(PostCardInner);
+
 function makeStyles(c: ColorPalette) {
   return StyleSheet.create({
     card: {
@@ -269,6 +274,14 @@ function FeedVideo({
     if (active) player.play();
     else player.pause();
   }, [player, active]);
+  // Release native video player when the card unmounts (scrolls off-screen).
+  // Without this, each video holds a native player instance in memory even
+  // after the PostCard is recycled by FlashList.
+  useEffect(() => {
+    return () => {
+      try { player.release(); } catch { /* best-effort */ }
+    };
+  }, [player]);
   // Report duration once ready (replaces expo-av's onLoad). The callback is
   // kept in a ref so re-renders can't re-report and inflate extraVideoTime.
   const durationRef = useRef(onDuration);
@@ -370,7 +383,7 @@ const RollingText = ({ items, isActive = true }: { items: React.ReactNode[]; isA
   );
 };
 
-export default function PostCard({
+function PostCardInner({
   post,
   isActive,
   onLike,

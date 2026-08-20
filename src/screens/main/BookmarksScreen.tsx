@@ -3,6 +3,7 @@ import {
   View, Text, StyleSheet,
   FlatList
 } from 'react-native';
+import { FlashList } from '@shopify/flash-list';
 import { useNavigation, useFocusEffect, useIsFocused } from '@react-navigation/native';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { fontSizes, spacing, type ColorPalette } from '../../theme';
@@ -242,7 +243,7 @@ export default function BookmarksScreen() {
             <Text style={styles.emptyDesc}>Tap the bookmark icon on any post, profile, or community to save it here for later.</Text>
           </View>
         ) : (
-          <FlatList
+          <FlashList
             data={rows}
             keyExtractor={(row, idx) => rowKey(row) || idx.toString()}
             showsVerticalScrollIndicator={false}

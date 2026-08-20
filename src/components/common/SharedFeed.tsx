@@ -1,5 +1,6 @@
 import React, { useState, useRef, useCallback, useEffect } from 'react';
-import { FlatList, View, Text, Share, DeviceEventEmitter } from 'react-native';
+import { View, Text, Share, DeviceEventEmitter } from 'react-native';
+import { FlashList } from '@shopify/flash-list';
 import { useIsFocused, useNavigation, useScrollToTop } from '@react-navigation/native';
 import PostCard from '../home/PostCard';
 import CommentsModal from '../home/CommentsModal';
@@ -208,15 +209,12 @@ export default function SharedFeed({
             index={index}
             isActive={isFocused && item.id === activePostId}
             showViews={showViews}
-            onAuthorPress={() => handleAuthorPress(item)}
-            // Pass the tapped post through — a repost card's embedded original
-            // preview calls onComment with the ORIGINAL post so tapping it opens
-            // that post's thread, not the repost's.
-            onComment={(p) => handleComment((p as Post) ?? item)}
-            onShare={() => handleShare(item)}
+            onAuthorPress={handleAuthorPress}
+            onComment={handleComment}
+            onShare={handleShare}
             onReposted={onReposted}
-            onLike={() => handleLikeInternal(item.id)}
-            onSave={() => handleSaveInternal(item.id)}
+            onLike={handleLikeInternal}
+            onSave={handleSaveInternal}
             onDelete={onDelete}
             onReport={onReport || (() => themedAlert('Reported', 'Thank you. This post has been reported for review.'))}
             showDelete={currentUser?.id === (item as any)?.author?.id || currentUser?.id === (item as any)?.author_id || currentUser?.id === (item as any)?.authorId || isAdmin}
@@ -245,15 +243,12 @@ export default function SharedFeed({
         sectionHeader={sectionHeader}
         sectionHeaderH={sectionHeaderH}
       >
-      <FlatList
+      <FlashList
         ref={flatListRef}
         data={posts}
         keyExtractor={item => item.id}
-        // Android's default removeClippedSubviews detaches off-screen cards
-        // while the feed is being scrolled; when the data array is replaced
-        // (refetch) the re-attached cards can render blank/white. Keeping the
-        // views mounted avoids that glitch — FlatList still virtualizes.
-        removeClippedSubviews={false}
+        // FlashList handles view recycling internally — no need for
+        // removeClippedSubviews workaround.
         showsVerticalScrollIndicator={false}
         contentContainerStyle={[
           { paddingTop: headerHeight, paddingBottom: footerHeight },
@@ -279,15 +274,12 @@ export default function SharedFeed({
             index={index}
             isActive={isFocused && item.id === activePostId}
             showViews={showViews}
-            onAuthorPress={() => handleAuthorPress(item)}
-            // Pass the tapped post through — a repost card's embedded original
-            // preview calls onComment with the ORIGINAL post so tapping it opens
-            // that post's thread, not the repost's.
-            onComment={(p) => handleComment((p as Post) ?? item)}
-            onShare={() => handleShare(item)}
+            onAuthorPress={handleAuthorPress}
+            onComment={handleComment}
+            onShare={handleShare}
             onReposted={onReposted}
-            onLike={() => handleLikeInternal(item.id)}
-            onSave={() => handleSaveInternal(item.id)}
+            onLike={handleLikeInternal}
+            onSave={handleSaveInternal}
             onDelete={onDelete}
             onReport={onReport || (() => themedAlert('Reported', 'Thank you. This post has been reported for review.'))}
             showDelete={currentUser?.id === (item as any)?.author?.id || currentUser?.id === (item as any)?.author_id || currentUser?.id === (item as any)?.authorId || isAdmin}

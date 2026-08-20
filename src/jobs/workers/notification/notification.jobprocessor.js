@@ -6,7 +6,7 @@ const { emitNotification } = require('../../../sockets/notification.socket');
 const NotificationModel = require('../../../modules/notification/notification.model');
 const { logger } = require('../../../middlewares/logger.middleware');
 const { getPromotionalNotificationByUserId } = require('../../../modules/settings/settings.repository');
-const { pushNotificationService } = require('../../../modules/pushNotification/pushNotification.container');
+const { clientRegistryService: pushNotificationService } = require('../../../modules/pushNotification/clientRegistry.container');
 const emitNotificationBatch = require('../../../modules/notification/notification.worker');
 const { addJob } = require('../../../jobs/queues/job.queue');
 

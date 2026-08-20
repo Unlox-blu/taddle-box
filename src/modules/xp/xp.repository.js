@@ -43,20 +43,18 @@ const incrementXp = async (userId, amount, client) => {
     [userId, amount]
   );
   return XpModel.formatXP(rows[0]);
-};
-
-const decrementXp = async (userId, amount, client) => {
+};const decrementXp = async (userId, amount, client) => {
   const db = client || pool;
   const { rows } = await db.query(
     `
     UPDATE ${XpModel.TABLE}
-    SET xp = GREATEST(0, xp - $2),
+    SET xp = xp - $2,
         updated_at = NOW()
-    WHERE user_id = $1
-    RETURNING ${XpModel.XP_FIELDS}
-    `,
+    WHERE user_id = $1 AND xp >= $2
+    RETURNING ${XpModel.XP_FIELDS}`,
     [userId, amount]
   );
+  if (!rows[0]) throw new Error('Insufficient XP balance');
   return XpModel.formatXP(rows[0]);
 };
 
@@ -225,9 +223,22 @@ const getTransactionCount = async (userId) => {
   return rows[0].count;
 };
 
+// Row-level lock for transactional operations (prevents concurrent race conditions)
+const lockForUpdate = async (userId, client) => {
+  const db = client || pool;
+  const { rows } = await db.query(
+    `SELECT ${XpModel.XP_FIELDS}
+     FROM ${XpModel.TABLE}
+     WHERE user_id = $1 FOR UPDATE`,
+    [userId]
+  );
+  return rows[0] ? XpModel.formatXP(rows[0]) : null;
+};
+
 module.exports = {
   create,
   findByUserId,
+  lockForUpdate,
   incrementXp,
   decrementXp,
   createTransaction,

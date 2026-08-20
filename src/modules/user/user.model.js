@@ -16,7 +16,7 @@ const PRIVATE_FIELDS = [
 ].join(', ');
 
 const AUTH_FIELDS = [
-  'u.id', 'u.email', 'u.name', 'u.username', 'u.password_hash', 'u.role', 'u.app_lock_enabled', 'u.app_lock',
+  'u.id', 'u.email', 'u.name', 'u.username', 'u.password_hash', 'u.role', 'u.global_lock_enabled', 'u.lock_pin', 'u.wallet_lock_enabled',
   'u.is_verified', 'u.is_active', 'u.is_banned', 'u.google_id', 'u.refresh_token_hash',
 ].join(', ');
 
@@ -43,8 +43,9 @@ const sanitize = (row) => {
     email_verify_token_exp,
     password_reset_token_hash,
     password_reset_token_exp,
-    app_lock_enabled,
-    app_lock,
+    global_lock_enabled,
+    lock_pin,
+    wallet_lock_enabled,
     ...safe
   } = row;
   return safe;
@@ -93,8 +94,9 @@ const format = (row) => {
     phone: row.phone_number,
     dateOfBirth: row.date_of_birth,
     gender: row.gender,
-    appLock: row.app_lock,
-    appLockEnabled: row.app_lock_enabled,
+    lockPin: row.lock_pin,
+    globalLockEnabled: row.global_lock_enabled,
+    walletLockEnabled: row.wallet_lock_enabled,
     appleRefreshToken: row.apple_refresh_token,
     occupation: row.occupation,
     organization: row.organization,

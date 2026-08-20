@@ -203,6 +203,25 @@ const findTransactionByRazorpayOrderId = async (orderId) => {
   }
 };
 
+const getWalletStats = async (walletId) => {
+  try {
+    const { rows } = await pool.query(
+      `SELECT 
+         COALESCE(SUM(CASE WHEN type = 'credit' THEN amount_cents ELSE 0 END), 0) AS total_earned,
+         COALESCE(SUM(CASE WHEN category = 'withdrawal' AND status != 'failed' THEN amount_cents ELSE 0 END), 0) AS total_withdrawn
+       FROM ${WalletModel.TRANSACTIONS_TABLE}
+       WHERE wallet_id = $1`,
+      [walletId]
+    );
+    return {
+      totalEarnedCents: parseInt(rows[0]?.total_earned || 0, 10),
+      totalWithdrawnCents: parseInt(rows[0]?.total_withdrawn || 0, 10)
+    };
+  } catch (error) {
+    throw error;
+  }
+};
+
 module.exports = {
   findByUserId,
   findById,
@@ -216,4 +235,5 @@ module.exports = {
   createTransaction,
   getTransactions,
   findTransactionByRazorpayOrderId,
+  getWalletStats,
 };

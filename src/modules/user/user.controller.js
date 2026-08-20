@@ -244,7 +244,7 @@ class UserController {
     try {
       const userId = req.userId;
       const { pin, enableGlobal } = req.body;
-      const result = await this.userSvc.setupAppLock({ userId, pin, enableGlobal });
+      const result = await this.userSvc.setupLockPin({ userId, pin, enableGlobal });
       res.json(apiResponse(result, 'PIN setup successfully'));
     } catch (error) {
       next(error);
@@ -255,7 +255,7 @@ class UserController {
     try {
       const userId = req.userId;
       const { pin } = req.body;
-      const result = await this.userSvc.verifyAppLock({ userId, pin });
+      const result = await this.userSvc.verifyLockPin({ userId, pin });
       res.json(apiResponse(result, 'PIN verified'));
     } catch (error) {
       next(error);
@@ -266,7 +266,7 @@ class UserController {
     try {
       const userId = req.userId;
       const { password, newPin } = req.body;
-      const result = await this.userSvc.resetAppLock({ userId, password, newPin });
+      const result = await this.userSvc.resetLockPin({ userId, password, newPin });
       res.json(apiResponse(result, 'PIN reset successfully'));
     } catch (error) {
       next(error);
@@ -277,8 +277,19 @@ class UserController {
     try {
       const userId = req.userId;
       const { pin, isEnabled } = req.body;
-      const result = await this.userSvc.toggleAppLockEnabled({ userId, pin, isEnabled });
-      res.json(apiResponse(result, `Global App Lock ${isEnabled ? 'enabled' : 'disabled'}`));
+      const result = await this.userSvc.toggleGlobalLock({ userId, pin, isEnabled });
+      res.json(apiResponse(result, `Global Lock ${isEnabled ? 'enabled' : 'disabled'}`));
+    } catch (error) {
+      next(error);
+    }
+  };
+
+  toggleWalletLock = async (req, res, next) => {
+    try {
+      const userId = req.userId;
+      const { pin, isEnabled } = req.body;
+      const result = await this.userSvc.toggleWalletLock({ userId, pin, isEnabled });
+      res.json(apiResponse(result, `Wallet Lock ${isEnabled ? 'enabled' : 'disabled'}`));
     } catch (error) {
       next(error);
     }
@@ -288,8 +299,29 @@ class UserController {
     try {
       const userId = req.userId;
       const { pin } = req.body;
-      const result = await this.userSvc.removeAppLock({ userId, pin });
+      const result = await this.userSvc.removeLockPin({ userId, pin });
       res.json(apiResponse(result, 'PIN removed successfully'));
+    } catch (error) {
+      next(error);
+    }
+  };
+
+  removePinSendOtp = async (req, res, next) => {
+    try {
+      const userId = req.userId;
+      const result = await this.userSvc.removePinSendOtp({ userId });
+      res.json(apiResponse(result, 'OTP sent successfully'));
+    } catch (error) {
+      next(error);
+    }
+  };
+
+  removePinVerify = async (req, res, next) => {
+    try {
+      const userId = req.userId;
+      const { password, emailOtp, phoneOtp } = req.body;
+      const result = await this.userSvc.removePinVerify({ userId, password, emailOtp, phoneOtp });
+      res.json(apiResponse(result, 'Global lock disabled'));
     } catch (error) {
       next(error);
     }

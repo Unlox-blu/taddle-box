@@ -54,7 +54,7 @@ const getPromotionalNotificationByUserId = async (userId) => {
 const getAppLockByUserId = async (userId) => {
   const { rows } = await pool.query(
     `
-    SELECT app_lock
+    SELECT lock_pin
     FROM ${SettingsModel.TABLE}
     WHERE user_id = $1
   `,

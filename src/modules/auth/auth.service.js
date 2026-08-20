@@ -361,7 +361,7 @@ class AuthService {
     return crypto.randomBytes(5).toString('hex').toUpperCase();
   }
 
-  async signUp({ email, countryCode, phone, userData, socialToken }) {
+  async signUp({ email, countryCode, phone, userData, socialToken, deviceId, pushToken, pushProvider, platform }) {
     try {
       const { name, username, password, dateOfBirth, gender, location, latitude, longitude, occupation, organization, interests } = userData;
 
@@ -542,7 +542,7 @@ class AuthService {
       await addJob('email:welcome', jobdata);
 
       await redis.del(verificationKey);
-      const { sessionData } = await this.#issueTokens(newUser);
+      const { sessionData } = await this.#issueTokens(newUser, { deviceId, pushToken, pushProvider, platform });
 
       // Include the referrer's public profile so the app can greet the new
       // joiner with a "gift from @referrer" welcome when a code was used.
@@ -569,7 +569,7 @@ class AuthService {
     }
   }
 
-  async login({ identifier, email, password }) {
+  async login({ identifier, email, password, deviceId, pushToken, pushProvider, platform }) {
     try {
       const loginIdentifier = identifier || email;
       const user = await this.authUserRepo.findByIdentifierLogin({ identifier: loginIdentifier });
@@ -595,7 +595,7 @@ class AuthService {
 
       if (!isPhoneVerified) return { success: false, message: 'Phone is not verified', userId };
 
-      const { userData, sessionData } = await this.#issueTokens(user);
+      const { userData, sessionData } = await this.#issueTokens(user, { deviceId, pushToken, pushProvider, platform });
 
       const jobdata = {
         to: user.email,
@@ -613,11 +613,11 @@ class AuthService {
     try {
       const user = await this.authUserRepo.findByIdAppLock({ userId });
 
-      if (!user.appLockEnabled) 
-        throw createError('App lock is not enabled', 400);
+      if (!user.globalLockEnabled) 
+        throw createError('Global lock is not enabled', 400);
       
 
-      if (user.appLock !== pin) 
+      if (user.lockPin !== pin) 
         throw createError('Invalid PIN', 401);
       
     } catch (error) {
@@ -629,7 +629,7 @@ class AuthService {
     try {
       const user = await this.authUserRepo.findByIdAppLock({ userId });
 
-      if (user.appLockEnabled) throw createError('App lock PIN is already set', 400);
+      if (user.globalLockEnabled) throw createError('Global lock PIN is already set', 400);
 
       await this.authUserRepo.setAppLock({ userId, pin });
     } catch (error) {
@@ -641,11 +641,11 @@ class AuthService {
     try {
       const user = await this.authUserRepo.findByIdAppLock({ userId });
 
-      if (!user.appLockEnabled) 
-        throw createError('App lock is not enabled', 400);
+      if (!user.globalLockEnabled) 
+        throw createError('Global lock is not enabled', 400);
       
 
-      if (user.appLock !== currentPin) 
+      if (user.lockPin !== currentPin) 
         throw createError('Current PIN is incorrect', 401);
       
 
@@ -659,10 +659,10 @@ class AuthService {
     try {
       const user = await this.authUserRepo.findByIdAppLock({ userId });
 
-      if (!user.appLockEnabled) 
-        throw createError('App lock is not enabled', 400);
+      if (!user.globalLockEnabled) 
+        throw createError('Global lock is not enabled', 400);
 
-      if (user.appLock !== currentPin) 
+      if (user.lockPin !== currentPin) 
         throw createError('Current PIN is incorrect', 401);
 
       await this.authUserRepo.removeAppLock({ userId });
@@ -703,7 +703,8 @@ class AuthService {
   //   }
   // }
 
-  // Rotates refresh token. Validates hash against DB.
+  // Rotates refresh token. Validates hash against client_registry (multi-session)
+  // with fallback to users.refresh_token_hash for legacy single-session tokens.
 
   async refreshToken({ refreshToken }) {
     try {
@@ -711,6 +712,37 @@ class AuthService {
 
       const payload = decodeToken(refreshToken);
       const userId = payload.userId;
+      const sessionId = payload.sessionId;
+
+      // ── New path: session-aware refresh via client_registry ──
+      if (sessionId) {
+        const { clientRegistryService } = require('../pushNotification/clientRegistry.container');
+        const session = await clientRegistryService.findActiveSession({ sessionId });
+
+        if (!session || session.userId !== userId) {
+          throw createError('Invalid or expired session', 401);
+        }
+        if (session.refreshHash !== hashToken(refreshToken)) {
+          throw createError('Invalid refresh token', 401);
+        }
+        // Reject if the session has expired (grace: 24h beyond stated expiry for clock skew)
+        if (session.sessionExpiresAt && new Date(session.sessionExpiresAt) < new Date(Date.now() - 24 * 60 * 60 * 1000)) {
+          throw createError('Session expired — please log in again', 401);
+        }
+
+        const user = await this.authUserRepo.getRefreshTokenById({ userId });
+        if (!user) throw createError('User not found', 404);
+
+        const { userData, sessionData } = await this.#issueTokens(user, {
+          deviceId: session.deviceId,
+          pushToken: session.pushToken,
+          pushProvider: session.pushProvider,
+          platform: session.platform,
+        });
+        return { userData, sessionData };
+      }
+
+      // ── Legacy path: single refresh token on users table ──
       const user = await this.authUserRepo.getRefreshTokenById({ userId });
 
       if (!user || user.refreshTokenHash !== hashToken(refreshToken)) {
@@ -723,20 +755,22 @@ class AuthService {
     }
   }
 
-  // Clears refresh token in DB (invalidates all sessions for this token family)
-  // and removes push device tokens so stale tokens don't keep receiving pushes.
-  async logout({ userId }) {
+  // Logs out a user. Device-specific if sessionId is provided;
+  // otherwise revokes ALL sessions (full logout, backward-compatible).
+  async logout({ userId, sessionId }) {
     try {
-      await this.authUserRepo.updateRefreshToken({ userId, tokenHash: null });
+      const { clientRegistryService } = require('../pushNotification/clientRegistry.container');
+
+      if (sessionId) {
+        // Device-specific logout: revoke only this session
+        await clientRegistryService.revokeSession({ sessionId });
+      } else {
+        // Full logout: revoke all sessions + clear legacy hash
+        await clientRegistryService.revokeAllSessions({ userId });
+        await this.authUserRepo.updateRefreshToken({ userId, tokenHash: null });
+      }
     } catch (error) {
       throw error;
-    }
-    // Best-effort push token cleanup — don't let a failure here block logout.
-    try {
-      const { pushNotificationService } = require('../pushNotification/pushNotification.container');
-      await pushNotificationService.deleteTokensForUser(userId);
-    } catch (_) {
-      // Intentionally swallowed
     }
   }
 
@@ -1013,7 +1047,7 @@ class AuthService {
     }
   }
 
-  async googleAuth(idToken) {
+  async googleAuth(idToken, deviceInfo = {}) {
     try {
       if (!process.env.GOOGLE_CLIENT_ID) {
         throw createError('Google login is temporarily unavailable', 503);
@@ -1037,13 +1071,13 @@ class AuthService {
         // Link google account to existing user (assuming authUserRepo has a method or we'd just update it, mocked for now)
       }
 
-      return await this.#issueTokens(user);
+      return await this.#issueTokens(user, deviceInfo);
     } catch (error) {
       throw error;
     }
   }
 
-  async appleAuth(identityToken, fullName) {
+  async appleAuth(identityToken, fullName, deviceInfo = {}) {
     try {
       // In production, verify using apple-signin-auth
       
@@ -1063,23 +1097,47 @@ class AuthService {
         return { success: false, action: 'REGISTER_SOCIAL', socialToken, data: { name: fullName || 'Apple User', email: generatedEmail } };
       }
 
-      return await this.#issueTokens(user);
+      return await this.#issueTokens(user, deviceInfo);
     } catch (error) {
       throw error;
     }
   }
 
   // Private
-  async #issueTokens(user) {
+  // Issues an access + refresh token pair. When deviceInfo is provided,
+  // creates/updates a client_registry session row for multi-device support.
+  // Without deviceInfo, falls back to legacy single-session behavior.
+  async #issueTokens(user, deviceInfo = {}) {
     try {
       const userId = user.id;
       const role = user.role;
-      const payload = { userId, role };
+      const { deviceId, pushToken, pushProvider, platform } = deviceInfo;
+
+      // Generate a stable session ID for this device login
+      const sessionId = crypto.randomUUID();
+
+      // JWT payload includes sessionId so refresh can look up the session
+      const payload = { userId, role, sessionId };
       const accessToken = generateToken(payload, config.ACCESS_TOKEN_EXPIRES_IN);
       const refreshToken = generateToken(payload, config.REFRESH_TOKEN_EXPIRES_IN);
 
-      const tokenHash = hashToken(refreshToken);
-      await this.authUserRepo.updateRefreshToken({ userId, tokenHash });
+      const refreshTokenHash = hashToken(refreshToken);
+
+      if (deviceId) {
+        // Multi-session path: store refresh hash in client_registry
+        const { clientRegistryService } = require('../pushNotification/clientRegistry.container');
+        const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000); // 7 days
+        await clientRegistryService.upsertSession({
+          userId, deviceId, sessionId,
+          refreshHash: refreshTokenHash,
+          sessionExpiresAt: expiresAt,
+          pushToken, pushProvider, platform,
+        });
+      } else {
+        // Legacy path: store refresh hash on users table (backward compat)
+        await this.authUserRepo.updateRefreshToken({ userId, tokenHash: refreshTokenHash });
+      }
+
       await this.authUserRepo.updateLastLogin({ userId });
 
       const userData = {
@@ -1090,6 +1148,7 @@ class AuthService {
       const sessionData = {
         accessToken,
         refreshToken,
+        sessionId,
         cookieOpts: COOKIE_OPTS,
       };
       return { userData, sessionData };

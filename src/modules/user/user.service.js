@@ -1,5 +1,8 @@
 'use strict';
 
+const crypto = require('crypto');
+const redis = require('../../config/redis');
+const { addJob } = require('../../jobs/queues/job.queue');
 const { createError } = require('../../utils/error.util');
 const { notificationService } = require('../notification/notification.container');
 const { activeStatusService } = require('../activestatus/activestatus.container');
@@ -619,43 +622,49 @@ class UserService {
     }
   }
 
-  async setupAppLock({ userId, pin, enableGlobal }) {
+  async setupLockPin({ userId, pin, enableGlobal }) {
     if (!pin || pin.length !== 4) throw createError('PIN must be 4 digits', 400);
     const hash = await bcrypt.hash(pin, 10);
-    await this.userRepo.updateAppLock(userId, hash, enableGlobal);
-    return { message: 'App lock PIN set successfully' };
+    await this.userRepo.updateLockPin(userId, hash, enableGlobal);
+    return { message: 'Global lock PIN set successfully' };
   }
 
-  async verifyAppLock({ userId, pin }) {
+  async verifyLockPin({ userId, pin }) {
     if (!pin) throw createError('PIN is required', 400);
-    const appLock = await this.userRepo.getAppLock(userId);
-    if (!appLock) {
+    const lockPin = await this.userRepo.getLockPin(userId);
+    if (!lockPin) {
       // Corrupt state: lock is enabled but no PIN hash — auto-heal by disabling the lock
-      await this.userRepo.removeAppLock(userId);
-      throw createError('App lock PIN not set up. Lock has been disabled — please set up a new PIN.', 400);
+      await this.userRepo.removeLockPin(userId);
+      throw createError('Global lock PIN not set up. Lock has been disabled — please set up a new PIN.', 400);
     }
     
-    const isValid = await bcrypt.compare(pin, appLock);
+    const isValid = await bcrypt.compare(pin, lockPin);
     if (!isValid) throw createError('Invalid PIN', 401);
     
     return { valid: true };
   }
 
-  async toggleAppLockEnabled({ userId, pin, isEnabled }) {
+  async toggleGlobalLock({ userId, pin, isEnabled }) {
     // Verify PIN first
-    await this.verifyAppLock({ userId, pin });
-    await this.userRepo.toggleAppLockEnabled(userId, isEnabled);
-    return { message: `Global App Lock ${isEnabled ? 'enabled' : 'disabled'}` };
+    await this.verifyLockPin({ userId, pin });
+    await this.userRepo.toggleGlobalLock(userId, isEnabled);
+    return { message: `Global Lock ${isEnabled ? 'enabled' : 'disabled'}` };
   }
 
-  async resetAppLock({ userId, password, newPin }) {
+  async toggleWalletLock({ userId, pin, isEnabled }) {
+    await this.verifyLockPin({ userId, pin });
+    await this.userRepo.toggleWalletLockEnabled(userId, isEnabled);
+    return { message: `Wallet Lock ${isEnabled ? 'enabled' : 'disabled'}` };
+  }
+
+  async resetLockPin({ userId, password, newPin }) {
     if (!newPin || newPin.length !== 4) throw createError('New PIN must be 4 digits', 400);
     if (!password) throw createError('Password is required', 400);
     
     const user = await this.userRepo.findByIdPrivate(userId);
     if (!user) throw createError('User not found', 404);
 
-    // Verify password (assuming auth format is passwordHash)
+    // Verify password
     const { rows } = await require('../../config/database').query('SELECT password_hash FROM users WHERE id = $1', [userId]);
     const passwordHash = rows[0]?.password_hash;
     if (!passwordHash) throw createError('Password not set for this account', 400);
@@ -664,26 +673,101 @@ class UserService {
     if (!isPasswordValid) throw createError('Invalid password', 401);
 
     const hash = await bcrypt.hash(newPin, 10);
-    await this.userRepo.updateAppLock(userId, hash);
-    return { message: 'App lock PIN reset successfully' };
+    await this.userRepo.updateLockPin(userId, hash);
+    return { message: 'Global lock PIN reset successfully' };
   }
 
-  async removeAppLock({ userId, pin }) {
+  async removeLockPin({ userId, pin }) {
     if (!pin) throw createError('PIN is required', 400);
     
-    const appLock = await this.userRepo.getAppLock(userId);
-    if (!appLock) {
-      // Nothing to remove — just ensure app_lock_enabled is false and return success
-      await this.userRepo.removeAppLock(userId);
-      return { message: 'App lock cleared' };
+    const lockPin = await this.userRepo.getLockPin(userId);
+    if (!lockPin) {
+      // Nothing to remove — just ensure flags are false and return success
+      await this.userRepo.removeLockPin(userId);
+      return { message: 'Global lock cleared' };
     }
 
-    const isValid = await bcrypt.compare(pin, appLock);
+    const isValid = await bcrypt.compare(pin, lockPin);
     if (!isValid) throw createError('Invalid PIN', 401);
 
-    // Wipe PIN hash and disable lock
-    await this.userRepo.removeAppLock(userId);
-    return { message: 'App lock PIN removed successfully' };
+    // Wipe PIN hash and disable all locks
+    await this.userRepo.removeLockPin(userId);
+    return { message: 'Global lock PIN removed successfully' };
+  }
+
+  // ── Remove PIN: send OTPs ──────────────────────────────────────────────────
+  // Sends email + phone OTPs so the user can verify identity and disable the
+  // lock without knowing the current PIN.
+  async removePinSendOtp({ userId }) {
+    const user = await this.userRepo.findByIdAuth(userId);
+    if (!user) throw createError('User not found', 404);
+
+    const email = user.email;
+    const phoneDetails = await this.userRepo.getPhoneByUserId(userId);
+    const hasPhone = !!(phoneDetails && phoneDetails.phoneNumber && phoneDetails.countryCode);
+
+    const emailOtp = crypto.randomInt(100000, 1000000).toString();
+    const phoneOtp = crypto.randomInt(100000, 1000000).toString();
+
+    // Store in Redis with lock-specific prefix
+    const emailKey = `otp:email:remove_pin:${email}`;
+    await redis.setex(emailKey, 60 * 5, JSON.stringify({ email, otp: emailOtp }));
+    await addJob('email:otp-verification', { to: email, otp: emailOtp });
+
+    if (hasPhone) {
+      const phoneKey = `otp:phone:remove_pin:${phoneDetails.countryCode}${phoneDetails.phoneNumber}`;
+      await redis.setex(phoneKey, 60 * 5, JSON.stringify({ phone: phoneDetails.phoneNumber, countryCode: phoneDetails.countryCode, otp: phoneOtp }));
+      await addJob('sms:otp-verification', { to: `${phoneDetails.countryCode}${phoneDetails.phoneNumber}`, otp: phoneOtp });
+    }
+
+    return { hasPhone, email };
+  }
+
+  // ── Remove PIN: verify + disable lock ──────────────────────────────────────
+  // Verifies password + email OTP + phone OTP, then wipes the lock.
+  // Constant-time string comparison to prevent timing attacks on OTPs.
+  #timingSafeEqual(a, b) {
+    if (typeof a !== 'string' || typeof b !== 'string') return false;
+    const bufA = Buffer.from(a);
+    const bufB = Buffer.from(b);
+    if (bufA.length !== bufB.length) return false;
+    return crypto.timingSafeEqual(bufA, bufB);
+  }
+
+  async removePinVerify({ userId, password, emailOtp, phoneOtp }) {
+    const user = await this.userRepo.findByIdAuth(userId);
+    if (!user) throw createError('User not found', 404);
+
+    // 1. Verify password
+    if (!user.passwordHash) throw createError('Password not set for this account. Please use a different device to disable the lock.', 400);
+    const isPasswordValid = await bcrypt.compare(password, user.passwordHash);
+    if (!isPasswordValid) throw createError('Invalid password', 401);
+
+    // 2. Verify email OTP (constant-time comparison)
+    const emailKey = `otp:email:remove_pin:${user.email}`;
+    const emailCached = await redis.get(emailKey);
+    const emailData = emailCached ? JSON.parse(emailCached) : null;
+    if (!emailData) throw createError('Email OTP expired. Please request a new one.', 400);
+    if (!this.#timingSafeEqual(emailData.otp, emailOtp)) throw createError('Invalid email OTP', 400);
+
+    // 3. Verify phone OTP (if user has phone, constant-time comparison)
+    const phoneDetails = await this.userRepo.getPhoneByUserId(userId);
+    if (phoneDetails && phoneDetails.phoneNumber && phoneDetails.countryCode) {
+      if (!phoneOtp) throw createError('Phone OTP is required', 400);
+      const phoneKey = `otp:phone:remove_pin:${phoneDetails.countryCode}${phoneDetails.phoneNumber}`;
+      const phoneCached = await redis.get(phoneKey);
+      const phoneData = phoneCached ? JSON.parse(phoneCached) : null;
+      if (!phoneData) throw createError('Phone OTP expired. Please request a new one.', 400);
+      if (!this.#timingSafeEqual(phoneData.otp, phoneOtp)) throw createError('Invalid phone OTP', 400);
+      await redis.del(phoneKey);
+    }
+
+    // 4. Clear OTP keys
+    await redis.del(emailKey);
+
+    // 5. Wipe lock
+    await this.userRepo.removeLockPin(userId);
+    return { message: 'Global lock disabled successfully' };
   }
 }
 

@@ -274,13 +274,13 @@ const createWithGoogle = async ({ name, username, email, googleId, googleAvatar 
   }
 };
 
-const updateAppLock = async (userId, pin, enableGlobal = null) => {
+const updateLockPin = async (userId, pin, enableGlobal = null) => {
   try {
-    // If enableGlobal is true/false, it will set app_lock_enabled to that value.
-    // If enableGlobal is null, it preserves the existing app_lock_enabled state.
+    // If enableGlobal is true/false, it will set global_lock_enabled to that value.
+    // If enableGlobal is null, it preserves the existing global_lock_enabled state.
     await pool.query(
       `UPDATE ${UserModel.TABLE} 
-      SET app_lock = $1, app_lock_enabled = COALESCE($3, app_lock_enabled), updated_at = NOW() 
+      SET lock_pin = $1, global_lock_enabled = COALESCE($3, global_lock_enabled), updated_at = NOW() 
       WHERE id = $2`,
       [pin, userId, enableGlobal]
     )
@@ -289,11 +289,13 @@ const updateAppLock = async (userId, pin, enableGlobal = null) => {
   }
 }
 
-const toggleAppLockEnabled = async (userId, isEnabled) => {
+const toggleGlobalLock = async (userId, isEnabled) => {
   try {
+    // When toggling global lock, cascade to wallet lock:
+    // enable global → also enable wallet lock; disable global → also disable wallet lock.
     await pool.query(
       `UPDATE ${UserModel.TABLE}
-       SET app_lock_enabled = $1, updated_at = NOW()
+       SET global_lock_enabled = $1, wallet_lock_enabled = $1, updated_at = NOW()
        WHERE id = $2`,
       [isEnabled, userId]
     )
@@ -302,11 +304,24 @@ const toggleAppLockEnabled = async (userId, isEnabled) => {
   }
 }
 
-const removeAppLock = async (userId, pin) => {
+const toggleWalletLockEnabled = async (userId, isEnabled) => {
+  try {
+    await pool.query(
+      `UPDATE ${UserModel.TABLE}
+       SET wallet_lock_enabled = $1, updated_at = NOW()
+       WHERE id = $2`,
+      [isEnabled, userId]
+    )
+  } catch (error) {
+    throw error
+  }
+}
+
+const removeLockPin = async (userId) => {
   try {
     await pool.query(
       `UPDATE ${UserModel.TABLE} 
-      SET app_lock = NULL, app_lock_enabled = FALSE, updated_at = NOW() 
+      SET lock_pin = NULL, global_lock_enabled = FALSE, wallet_lock_enabled = FALSE, updated_at = NOW() 
       WHERE id = $1`,
       [userId]
     )
@@ -315,13 +330,13 @@ const removeAppLock = async (userId, pin) => {
   }
 }
 
-const getAppLock = async (userId) => {
+const getLockPin = async (userId) => {
   try {
     const { rows } = await pool.query(
-      `SELECT app_lock FROM ${UserModel.TABLE} WHERE id = $1`,
+      `SELECT lock_pin FROM ${UserModel.TABLE} WHERE id = $1`,
       [userId]
     );
-    return rows[0]?.app_lock;
+    return rows[0]?.lock_pin;
   } catch (error) {
     throw error;
   }
@@ -557,6 +572,19 @@ const getPasswordByUserId = async (userId) => {
   }
 }
 
+const getPhoneByUserId = async (userId) => {
+  try {
+    const { rows } = await pool.query(
+      `SELECT country_code, phone_number FROM ${UserModel.TABLE} WHERE id = $1`,
+      [userId]
+    );
+    if (!rows[0]) return null;
+    return { countryCode: rows[0].country_code, phoneNumber: rows[0].phone_number };
+  } catch (error) {
+    throw error;
+  }
+};
+
 const updatePassword = async (userId, passwordHash) => {
   try {
     await pool.query(
@@ -608,10 +636,11 @@ module.exports = {
   create,
   createWithGoogle,
   updateProfile,
-  updateAppLock,
-  toggleAppLockEnabled,
-  getAppLock,
-  removeAppLock,
+  updateLockPin,
+  toggleGlobalLock,
+  toggleWalletLockEnabled,
+  getLockPin,
+  removeLockPin,
   findAvatarAndBanner,
   updateAvatar,
   updateBanner,
@@ -625,6 +654,7 @@ module.exports = {
   updatePasswordResetToken,
   findByPasswordResetToken,
   getPasswordByUserId,
+  getPhoneByUserId,
   updatePassword,
   linkGoogleAccount,
   verifyEmail,

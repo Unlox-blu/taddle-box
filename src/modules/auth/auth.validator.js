@@ -84,6 +84,10 @@ const signupSchema = z.object({
   interests: z.preprocess(typeCheck, z.array(z.string()).min(3, "Please select at least 3 interests").default([])),
   referralCode: z.string().trim().min(3).max(12).optional(),
   socialToken: z.string().optional(),
+  deviceId: z.string().optional(),
+  pushToken: z.string().optional(),
+  pushProvider: z.string().optional(),
+  platform: z.string().optional(),
 }).strict().superRefine((data, ctx) => {
   if (!data.socialToken) {
     const result = passwordRules.safeParse(data.password);
@@ -101,6 +105,10 @@ const loginSchema = z.object({
   identifier: loginIdentifierSchema.optional(),
   email: loginIdentifierSchema.optional(),
   password: z.string('Password must be string').min(1, 'Password is required'),
+  deviceId: z.string().optional(),
+  pushToken: z.string().optional(),
+  pushProvider: z.string().optional(),
+  platform: z.string().optional(),
 }).strict().superRefine((data, ctx) => {
   if (!data.identifier && !data.email) {
     ctx.addIssue({
@@ -119,11 +127,19 @@ const loginPinSchema = z.object({
 
 const googleAuthSchema = z.object({
   idToken: z.string().min(1, 'Google ID token is required'),
+  deviceId: z.string().optional(),
+  pushToken: z.string().optional(),
+  pushProvider: z.string().optional(),
+  platform: z.string().optional(),
 }).strict();
 
 const appleAuthSchema = z.object({
   identityToken: z.string().min(1, 'Google ID token is required'),
   fullName: z.string().min(1, 'Full Name must have at least 1 character').optional(),
+  deviceId: z.string().optional(),
+  pushToken: z.string().optional(),
+  pushProvider: z.string().optional(),
+  platform: z.string().optional(),
 }).strict();
 
 const appleAuthCallbackSchema = z.object({

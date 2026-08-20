@@ -6,8 +6,8 @@ const { userController }         = require('../modules/user/user.container');
 const { verifyToken, optionalAuth } = require('../middlewares/auth.middleware');
 const { validateRequest }               = require('../middlewares/validator.middleware');
 const { uploadSingle }           = require('../middlewares/upload.middleware');
-const { locationCaptureLimiter } = require('../middlewares/rate-limiter.middleware');
-const { updateProfileSchema, updateUsernameSchema, updatePrivacySchema, updateBannerSchema, updateAvatarSchema, usernameSchema, followerIdSchema, locationBodySchema } = require('../modules/user/user.validator');
+const { locationCaptureLimiter, pinVerifyRateLimiter, pinRemoveRateLimiter, otpRateLimiter } = require('../middlewares/rate-limiter.middleware');
+const { updateProfileSchema, updateUsernameSchema, updatePrivacySchema, updateBannerSchema, updateAvatarSchema, usernameSchema, followerIdSchema, locationBodySchema, removePinVerifySchema } = require('../modules/user/user.validator');
 
 // GEO location telemetry (only sent when the user granted location permission).
 // POST appends a capture-history row; DELETE wipes that history (Settings → Privacy).
@@ -26,10 +26,13 @@ router.get('/save',                         verifyToken,                        
 router.delete('/me',                        verifyToken,                                                    userController.deleteAccount);
 // Security / App Lock
 router.post('/pin/setup',                   verifyToken,                                                    userController.setupAppLock);
-router.post('/pin/verify',                  verifyToken,                                                    userController.verifyAppLock);
+router.post('/pin/verify',                  verifyToken,     pinVerifyRateLimiter,                        userController.verifyAppLock);
 router.post('/pin/reset',                   verifyToken,                                                    userController.resetAppLock);
 router.post('/pin/remove',                  verifyToken,                                                    userController.removeAppLock);
-router.post('/pin/toggle-global',           verifyToken,                                                    userController.toggleAppLock);
+router.post('/pin/toggle-global',           verifyToken,     pinVerifyRateLimiter,                        userController.toggleAppLock);
+router.post('/pin/toggle-wallet',           verifyToken,     pinVerifyRateLimiter,                        userController.toggleWalletLock);
+router.post('/pin/remove/send-otp',          verifyToken,     otpRateLimiter,                              userController.removePinSendOtp);
+router.post('/pin/remove/verify',            verifyToken,     pinRemoveRateLimiter, validateRequest({ body: removePinVerifySchema }), userController.removePinVerify);
 
 // follow/unfollow routes
 router.get('/follow-requests',              verifyToken,                                                    userController.getFollowRequests);

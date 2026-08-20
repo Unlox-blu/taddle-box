@@ -150,6 +150,31 @@ const postViewLimiter = rateLimit({
   message: { success: false, message: 'Too many post views. Please try again later.' },
 });
 
+// 5 attempts per 15 min per ACCOUNT — applied on PIN verify. Stops brute
+// forcing a 4-digit PIN (10k combos). bcrypt is slow but not slow enough
+// against a distributed attack; this caps the total attempts.
+const pinVerifyRateLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 5,
+  standardHeaders: true,
+  legacyHeaders: false,
+  store: makeStore('rl:pin-verify:'),
+  keyGenerator: accountOrIpKey,
+  message: { success: false, message: 'Too many PIN attempts. Please try again in 15 minutes.' },
+});
+
+// 3 attempts per 15 min per ACCOUNT — applied on Remove PIN verify.
+// Stricter than pinVerify because this endpoint wipes the lock entirely.
+const pinRemoveRateLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 3,
+  standardHeaders: true,
+  legacyHeaders: false,
+  store: makeStore('rl:pin-remove:'),
+  keyGenerator: accountOrIpKey,
+  message: { success: false, message: 'Too many remove PIN attempts. Please try again in 15 minutes.' },
+});
+
 module.exports = {
   globalRateLimiter,
   authRateLimiter,
@@ -160,4 +185,6 @@ module.exports = {
   uploadRateLimiter,
   locationCaptureLimiter,
   postViewLimiter,
+  pinVerifyRateLimiter,
+  pinRemoveRateLimiter,
 };

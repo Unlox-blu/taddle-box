@@ -82,8 +82,9 @@ class AuthController {
       const countryCode = req.countryCode;
       const phone = req.phone;
       const socialToken = userData.socialToken; // Extract from userData
+      const { deviceId, pushToken, pushProvider, platform } = userData;
       
-      const { user, sessionData, referrer, COOKIE_OPTS } = await this.authSvc.signUp({email, countryCode, phone, userData, socialToken});
+      const { user, sessionData, referrer, COOKIE_OPTS } = await this.authSvc.signUp({email, countryCode, phone, userData, socialToken, deviceId, pushToken, pushProvider, platform});
 
       res.clearCookie('verification_token', {...COOKIE_OPTS});
       res.cookie('access_token', sessionData.accessToken, {
@@ -102,8 +103,8 @@ class AuthController {
 
   login = async (req, res, next) => {
     try {
-      const { identifier, email, password } = req.body;
-      const result = await this.authSvc.login({ identifier: identifier || email, password });
+      const { identifier, email, password, deviceId, pushToken, pushProvider, platform } = req.body;
+      const result = await this.authSvc.login({ identifier: identifier || email, password, deviceId, pushToken, pushProvider, platform });
 
       if(!result.success){
         res.json(result)
@@ -177,8 +178,8 @@ class AuthController {
 
   googleAuth = async (req, res, next) => {
     try {
-      const { idToken } = req.body;
-      const result = await this.authSvc.googleAuth(idToken);
+      const { idToken, deviceId, pushToken, pushProvider, platform } = req.body;
+      const result = await this.authSvc.googleAuth(idToken, { deviceId, pushToken, pushProvider, platform });
       
       if (result.action === 'REGISTER_SOCIAL') {
         res.json(apiResponse(result, 'Social Registration Required'));
@@ -223,7 +224,7 @@ class AuthController {
         return;
       }
       
-      const redirectUri = `${returnUrl}${separator}accessToken=${result.sessionData.accessToken}&refreshToken=${result.sessionData.refreshToken}`;
+      const redirectUri = `${returnUrl}${separator}accessToken=${result.sessionData.accessToken}&refreshToken=${result.sessionData.refreshToken}&sessionId=${result.sessionData.sessionId || ''}`;
       res.redirect(redirectUri);
     } catch (error) {
       const separator = returnUrl ? (returnUrl.includes('?') ? '&' : '?') : '?';
@@ -234,8 +235,8 @@ class AuthController {
 
   appleAuth = async (req, res, next) => {
     try {
-      const { identityToken, fullName } = req.body;
-      const result = await this.authSvc.appleAuth(identityToken, fullName);
+      const { identityToken, fullName, deviceId, pushToken, pushProvider, platform } = req.body;
+      const result = await this.authSvc.appleAuth(identityToken, fullName, { deviceId, pushToken, pushProvider, platform });
       
       if (result.action === 'REGISTER_SOCIAL') {
         res.json(apiResponse(result, 'Social Registration Required'));
@@ -292,7 +293,7 @@ class AuthController {
         return;
       }
       
-      const redirectUri = `${returnUrl}${separator}accessToken=${result.sessionData.accessToken}&refreshToken=${result.sessionData.refreshToken}`;
+      const redirectUri = `${returnUrl}${separator}accessToken=${result.sessionData.accessToken}&refreshToken=${result.sessionData.refreshToken}&sessionId=${result.sessionData.sessionId || ''}`;
       res.redirect(redirectUri);
     } catch (error) {
       const separator = returnUrl ? (returnUrl.includes('?') ? '&' : '?') : '?';
@@ -307,7 +308,8 @@ class AuthController {
       // SecureStore, not cookies) or the cookie (web). The service result
       // carries the new tokens under sessionData.
       const refreshToken = req.body?.refreshToken || req.cookies?.refresh_token;
-      const result = await this.authSvc.refreshToken({refreshToken});
+      const sessionId = req.body?.sessionId;
+      const result = await this.authSvc.refreshToken({refreshToken, sessionId});
       const { accessToken, refreshToken: nextRefreshToken, cookieOpts } = result.sessionData;
       res.cookie('access_token', accessToken, {
         ...cookieOpts,
@@ -330,7 +332,8 @@ class AuthController {
   logout = async (req, res, next) => {
     try {
       const userId = req.userId;
-      await this.authSvc.logout({userId});
+      const sessionId = req.body?.sessionId;
+      await this.authSvc.logout({userId, sessionId});
       res.clearCookie('access_token');
       res.clearCookie('refresh_token');
       res.json(apiResponse(null, 'Logged out successfully'));

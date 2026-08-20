@@ -568,6 +568,17 @@ class GameService {
       const game = await this.gameRepo.findGameById({ gameId });
       if (!game) throw createError("Game not found", 404);
 
+      // Multi-device guard: prevent starting a second session while one is active.
+      // If the user is already in a game on another device, they must complete
+      // or abandon it first — or the resolution job will expire it.
+      const existingActive = await this.gameRepo.findActiveSession({ userId });
+      if (existingActive && existingActive.id !== matchGroupId) {
+        throw createError(
+          'You already have an active game session. Complete or leave it before starting a new one.',
+          409
+        );
+      }
+
       // Deduct XP (tournaments are paid upfront)
       if (mode !== 'TOURNAMENT' && mode !== 'tournament') {
         const entryFeeMap = {

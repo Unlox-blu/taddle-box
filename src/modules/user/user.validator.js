@@ -76,4 +76,10 @@ const locationBodySchema = z.object({
   place: z.string().max(255, 'Place name too long').optional(),
 }).strict()
 
-module.exports = { updateProfileSchema, updateUsernameSchema, updatePrivacySchema, updateBannerSchema, updateAvatarSchema, usernameSchema, userIdSchema, followerIdSchema, locationBodySchema };
+const removePinVerifySchema = z.object({
+  password: z.string().min(1, 'Password is required'),
+  emailOtp: z.string().length(6, 'Email OTP must be 6 digits').regex(/^[0-9]+$/, 'Email OTP must be numeric'),
+  phoneOtp: z.string().length(6, 'Phone OTP must be 6 digits').regex(/^[0-9]+$/, 'Phone OTP must be numeric').optional(),
+}).strict();
+
+module.exports = { updateProfileSchema, updateUsernameSchema, updatePrivacySchema, updateBannerSchema, updateAvatarSchema, usernameSchema, userIdSchema, followerIdSchema, locationBodySchema, removePinVerifySchema };

@@ -31,7 +31,12 @@ class WalletService {
       const wallet = await this.walletRepo.findByUserId(userId);
       if (!wallet) throw createError('Wallet not found', 404);
 
-      return wallet;
+      const stats = await this.walletRepo.getWalletStats(wallet.id);
+
+      return {
+        ...wallet,
+        ...stats,
+      };
     } catch (error) {
       throw error;
     }
@@ -89,12 +94,14 @@ class WalletService {
     try {
       await client.query('BEGIN');
 
-      const xpWallet = await this.xpRepo.findByUserId(userId);
+      // Lock both rows to prevent concurrent double-credit race conditions
+      const xpWallet = await this.xpRepo.lockForUpdate(userId, client);
       if (!xpWallet) throw createError('XP wallet not found', 404);
       if (xpWallet.Xp < xpAmount) throw createError('Insufficient XP balance', 400);
 
       const wallet = await this.walletRepo.findByUserId(userId);
       if (!wallet) throw createError('Cash wallet not found', 404);
+      await this.walletRepo.lockForUpdate(wallet.id, client);
 
       // Hardcoded conversion rate: 100 XP = 1 Cash Unit (₹1 = 100 cents)
       // So 100 XP = 100 cents. Or simply 1 XP = 1 cent. 
@@ -277,11 +284,13 @@ class WalletService {
 
       await client.query('BEGIN');
 
+      // Lock both rows to prevent concurrent double-credit race conditions
       const wallet = await this.walletRepo.findByUserId(userId);
       if (!wallet) throw createError('Cash wallet not found', 404);
-      if (wallet.balanceCents < amountCents) throw createError('Insufficient cash balance', 400);
+      const lockedWallet = await this.walletRepo.lockForUpdate(wallet.id, client);
+      if (lockedWallet.balanceCents < amountCents) throw createError('Insufficient cash balance', 400);
 
-      const xpWallet = await this.xpRepo.findByUserId(userId);
+      const xpWallet = await this.xpRepo.lockForUpdate(userId, client);
       if (!xpWallet) throw createError('XP wallet not found', 404);
 
       const xpAmount = Math.round((amountCents / 100) * config.XP_PER_RUPEE);
@@ -335,9 +344,11 @@ class WalletService {
       await client.query('BEGIN');
       const wallet = await this.walletRepo.findByUserId(userId);
       if (!wallet) throw createError('Cash wallet not found', 404);
-      if (wallet.balanceCents < amountCents) throw createError('Insufficient cash balance', 400);
+      // Lock the wallet row to prevent concurrent withdrawal race conditions
+      const lockedWallet = await this.walletRepo.lockForUpdate(wallet.id, client);
+      if (lockedWallet.balanceCents < amountCents) throw createError('Insufficient cash balance', 400);
       // Payouts go to the linked UPI — refuse withdrawals without a payout rail.
-      if (!wallet.linkedUpi) throw createError('Link a UPI ID before withdrawing', 400);
+      if (!lockedWallet.linkedUpi) throw createError('Link a UPI ID before withdrawing', 400);
 
       const updatedWallet = await this.walletRepo.holdBalance(wallet.id, amountCents, client);
       

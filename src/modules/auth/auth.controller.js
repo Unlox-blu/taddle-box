@@ -310,7 +310,7 @@ class AuthController {
       const refreshToken = req.body?.refreshToken || req.cookies?.refresh_token;
       const sessionId = req.body?.sessionId;
       const result = await this.authSvc.refreshToken({refreshToken, sessionId});
-      const { accessToken, refreshToken: nextRefreshToken, cookieOpts } = result.sessionData;
+      const { accessToken, refreshToken: nextRefreshToken, cookieOpts, sessionId: newSessionId } = result.sessionData;
       res.cookie('access_token', accessToken, {
         ...cookieOpts,
         maxAge: config.ACCESS_TOKEN_COOKIE_MAX_AGE_SECONDS
@@ -323,7 +323,7 @@ class AuthController {
       // stores them in SecureStore) can rotate them — without this the app's
       // interceptor reads res.data.data.accessToken and gets nothing, so every
       // expired session silently fails to refresh.
-      res.json(apiResponse({ accessToken, refreshToken: nextRefreshToken }, 'Token refreshed'));
+      res.json(apiResponse({ accessToken, refreshToken: nextRefreshToken, sessionId: newSessionId }, 'Token refreshed'));
     } catch (error) {
       next(error);
     }

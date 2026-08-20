@@ -141,11 +141,3 @@ export async function installApk(file: DownloadedApk): Promise<void> {
     }
   );
 }
-  await IntentLauncher.startActivityAsync(
-    'android.intent.action.INSTALL_PACKAGE',
-    {
-      data: file.contentUri,
-      flags: INSTALL_FLAGS,
-    }
-  );
-}

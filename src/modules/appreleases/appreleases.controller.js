@@ -81,8 +81,9 @@ class AppReleasesController {
       const result = await this.appReleasesSvc.processApk(tempFilePath, track);
       res.json(apiResponse(result, 'APK uploaded and processed successfully'));
     } catch (error) {
+      console.error('[AppReleasesController] Upload failed:', error);
       // Return 200 even on error to prevent Expo from retrying
-      res.status(200).send('Upload handled with internal errors');
+      res.status(200).send(`Upload handled with internal errors: ${error.message}`);
     }
   };
 }

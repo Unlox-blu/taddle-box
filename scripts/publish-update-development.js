@@ -87,6 +87,9 @@ async function main() {
   try {
     const response = await uploadApk(devServer, updateKey);
     if (response.status >= 200 && response.status < 300) {
+      if (typeof response.data === 'string' && response.data.includes('internal errors')) {
+        throw new Error(`Backend returned 200 but failed internally: ${response.data}`);
+      }
       const proxyLink = `${devServer.replace(/\/+$/, '')}/api/v1/app-releases/android/download?track=development`;
       console.log('✔ Upload successful!\n');
       console.log('APK:');
@@ -117,6 +120,9 @@ async function main() {
     try {
       const prodResponse = await uploadApk(fallbackServer, updateKey);
       if (prodResponse.status >= 200 && prodResponse.status < 300) {
+        if (typeof prodResponse.data === 'string' && prodResponse.data.includes('internal errors')) {
+          throw new Error(`Fallback backend returned 200 but failed internally: ${prodResponse.data}`);
+        }
         const proxyLink = `${fallbackServer.replace(/\/+$/, '')}/api/v1/app-releases/android/download?track=development`;
         console.log('✔ Fallback Upload successful!\n');
         console.log('APK:');
@@ -133,6 +139,9 @@ async function main() {
          try {
            const finalResponse = await uploadApk('https://server.taddlebox.com', updateKey);
            if (finalResponse.status >= 200 && finalResponse.status < 300) {
+             if (typeof finalResponse.data === 'string' && finalResponse.data.includes('internal errors')) {
+               throw new Error(`Final fallback backend returned 200 but failed internally: ${finalResponse.data}`);
+             }
              const proxyLink = `https://server.taddlebox.com/api/v1/app-releases/android/download?track=development`;
              console.log('✔ Final Fallback Upload successful!\n');
              console.log('APK:');

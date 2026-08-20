@@ -73,6 +73,9 @@ async function main() {
   try {
     const response = await uploadApk(prodServer, updateKey);
     if (response.status >= 200 && response.status < 300) {
+      if (typeof response.data === 'string' && response.data.includes('internal errors')) {
+        throw new Error(`Backend returned 200 but failed internally: ${response.data}`);
+      }
       const proxyLink = `${prodServer.replace(/\/+$/, '')}/api/v1/app-releases/android/download`;
       console.log('✔ Upload successful!\n');
       console.log('APK:');
@@ -96,6 +99,9 @@ async function main() {
     try {
       const fallbackResponse = await uploadApk(fallbackServer, updateKey);
       if (fallbackResponse.status >= 200 && fallbackResponse.status < 300) {
+        if (typeof fallbackResponse.data === 'string' && fallbackResponse.data.includes('internal errors')) {
+          throw new Error(`Fallback backend returned 200 but failed internally: ${fallbackResponse.data}`);
+        }
         const proxyLink = `${fallbackServer.replace(/\/+$/, '')}/api/v1/app-releases/android/download`;
         console.log('✔ Fallback Upload successful!\n');
         console.log('APK:');

@@ -6,7 +6,6 @@ import {
   TouchableWithoutFeedback,
   StyleSheet,
   Animated,
-  Image,
   Dimensions,
   ScrollView,
 
@@ -18,6 +17,7 @@ import {
   TextInput,
 } from "react-native";
 import { VideoView, useVideoPlayer } from "expo-video";
+import { Image } from "expo-image";
 import { useEvent } from "expo";
 import PostMenuSheet from './PostMenuSheet';
 import { AudiencePickerList } from '../common/AudiencePicker';
@@ -1560,7 +1560,7 @@ function PostCardInner({
             <Image
               source={{ uri: post.mediaUri }}
               style={{ width: mediaW, height: previewH, backgroundColor: "#000" }}
-              resizeMode="contain"
+              contentFit="contain"
             />
           ) : post.type === "image" && post.image ? (
             <View style={styles.imageBanner}>
@@ -1638,7 +1638,7 @@ function PostCardInner({
                           height: previewH,
                           backgroundColor: "#000",
                         }}
-                        resizeMode="contain"
+                        contentFit="contain"
                       />
                     </TouchableWithoutFeedback>
                   ) : null;
@@ -2524,7 +2524,7 @@ function RepostedPostCard({
                       <Image
                         source={{ uri: url }}
                         style={{ width: previewW, height: mediaH }}
-                        resizeMode="cover"
+                        contentFit="cover"
                       />
                     )}
                   </View>

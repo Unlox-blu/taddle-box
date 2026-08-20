@@ -27,6 +27,22 @@ const ActiveStatusContext = createContext<ActiveStatusContextValue>({
 // How recent a lastSeen must be to show the "recently active" clock indicator.
 export const ACTIVE_STATUS_RECENT_MS = 24 * 60 * 60 * 1000;
 
+// Maximum entries to keep in the active status map. Prevents unbounded growth
+// when the user follows many people. Oldest entries (by fetchedAt) are evicted.
+const MAX_STATUS_ENTRIES = 500;
+
+/** Evicts oldest entries when map exceeds MAX_STATUS_ENTRIES. */
+function evictOldEntries(map: ActiveStatusMap): ActiveStatusMap {
+  const keys = Object.keys(map);
+  if (keys.length <= MAX_STATUS_ENTRIES) return map;
+  // Sort by fetchedAt ascending (oldest first) and remove extras
+  const sorted = keys.sort((a, b) => (map[a].fetchedAt || 0) - (map[b].fetchedAt || 0));
+  const toRemove = sorted.slice(0, keys.length - MAX_STATUS_ENTRIES);
+  const next = { ...map };
+  toRemove.forEach((k) => delete next[k]);
+  return next;
+}
+
 export function ActiveStatusProvider({ children }: { children: React.ReactNode }) {
   const [map, setMap] = useState<ActiveStatusMap>({});
   const queueRef = useRef<Set<string>>(new Set());
@@ -73,7 +89,7 @@ export function ActiveStatusProvider({ children }: { children: React.ReactNode }
             fetchedAt: Date.now(),
           };
         });
-        return next;
+        return evictOldEntries(next);
       });
       needed.slice(0, BATCH_MAX).forEach((id) => failedRef.current.delete(id));
     } catch (e) {
@@ -106,7 +122,7 @@ export function ActiveStatusProvider({ children }: { children: React.ReactNode }
     const onActiveStatusChanged = (data: ActiveStatusChangedPayload) => {
       const { userId, online, lastSeen } = data || {};
       if (!userId) return;
-      setMap((prev) => ({
+      setMap((prev) => evictOldEntries({
         ...prev,
         [userId]: {
           online: !!online,
@@ -128,7 +144,7 @@ export function ActiveStatusProvider({ children }: { children: React.ReactNode }
             fetchedAt: now,
           };
         });
-        return next;
+        return evictOldEntries(next);
       });
     };
     socketClient.events.on('activeStatus:changed', onActiveStatusChanged);

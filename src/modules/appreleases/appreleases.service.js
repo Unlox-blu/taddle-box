@@ -47,8 +47,9 @@ class AppReleasesService {
       const result = await parser.parse();
       
       const packageName = result.package || result.application?.package;
-      if (packageName !== 'com.taddlebox.app') {
-        throw new Error(`CRITICAL: The uploaded APK has an invalid package name (${packageName}). Expected com.taddlebox.app. Upload rejected to prevent publishing the wrong app!`);
+      const expectedPackageName = track === 'development' ? 'com.taddlebox.app.dev' : 'com.taddlebox.app';
+      if (packageName !== expectedPackageName) {
+        throw new Error(`CRITICAL: The uploaded APK has an invalid package name (${packageName}). Expected ${expectedPackageName} for track '${track}'. Upload rejected to prevent publishing the wrong app!`);
       }
 
       const versionCode = result.versionCode || result.application?.versionCode;

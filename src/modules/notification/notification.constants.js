@@ -169,10 +169,17 @@ const TYPE_ALIASES = {
 // COMMENT, REPLY, MENTION, …) and the legacy lowercase job-processor
 // spelling uppercased (post_liked, post_comment, …). Filters match with
 // UPPER(n.type), so both pipelines land in the right bucket.
+const likes = ['POST_LIKE', 'POST_LIKED', 'LIKE_POST', 'LIKE_COMMENT'];
+
+const comments = ['COMMENT', 'POST_COMMENT', 'REPLY', 'MENTION'];
+
+const follows = ['FOLLOW', 'REQUEST_TO_FOLLOW', 'APPROVED_TO_FOLLOW'];
+
 const NOTIFICATION_TYPE_BUCKETS = {
-  likes: ['POST_LIKE', 'POST_LIKED', 'LIKE_POST', 'LIKE_COMMENT'],
-  comments: ['COMMENT', 'POST_COMMENT', 'REPLY', 'MENTION'],
-  follows: ['FOLLOW', 'REQUEST_TO_FOLLOW', 'APPROVED_TO_FOLLOW'],
+  likes,
+  comments,
+  follows,
+  all: [...likes, ...comments, ...follows],
 };
 
 const normalizeType = (type) => {

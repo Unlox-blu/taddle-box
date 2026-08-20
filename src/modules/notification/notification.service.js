@@ -12,6 +12,7 @@ const {
   PRIORITY,
   normalizeType,
   resolveNotificationPolicy,
+  NOTIFICATION_TYPE_BUCKETS,
 } = require('./notification.constants');
 const { emitNotification, emitWalletUpdate } = require('../../sockets/notification.socket');
 const { addJob } = require('../../jobs/queues/job.queue');
@@ -70,17 +71,17 @@ class NotificationService {
     return total;
   }
 
-  async getAll({ userId, limit, offset, unreadOnly, types, q, timeCutoff, sort }) {
-    const { notifications, total } = await this.notifRepo.findByUser(
+  async getAll({ userId, limit, offset, unreadOnly, types= null, q='', timeCutoff=null, sort='latest' }) {
+    const { notifications, total } = await this.notifRepo.findByUser({
       userId,
       limit,
       offset,
       unreadOnly,
-      types || null,
-      q || '',
-      timeCutoff || null,
-      sort || 'latest'
-    );
+      types,
+      q,
+      timeCutoff,
+      sort
+    });
     const unreadCount = await this.notifRepo.getUnreadCount(userId);
     // Per-bucket counts for the type pills — same q/time filters as the list.
     const counts = await this.notifRepo.countByTypes(
@@ -413,6 +414,27 @@ class NotificationService {
       return true;
     } catch (error) {
       return true;
+    }
+  }
+
+  async searchNotification({userId, limit, offset, unreadOnly = false, sourceType = 'all', query = '', timeCutoff, sortBy, communities, people}) {
+    try {
+      const types = NOTIFICATION_TYPE_BUCKETS[sourceType];
+      const { notifications, total, filteredCount } = await this.notifRepo.findByUser({
+                userId,
+                limit,
+                offset,
+                unreadOnly,
+                types,
+                query,
+                timeCutoff,
+                sortBy,
+                communities: communities.length ? communities : null, 
+                people: people.length ? people : null
+              });
+      return { notifications, total, filteredCount }
+    } catch (error) {
+      
     }
   }
 }

@@ -15,6 +15,12 @@ module.exports = ({ config }) => {
     config.name = `${config.name} (Dev)`;
     if (android.package) android.package = `${android.package}.dev`;
     if (config.ios?.bundleIdentifier) config.ios.bundleIdentifier = `${config.ios.bundleIdentifier}.dev`;
+    
+    // Also isolate the deep link scheme so dev and prod don't conflict!
+    // This stops the Android OS from asking "Which app?" during Google OAuth.
+    if (Array.isArray(config.scheme)) {
+      config.scheme = config.scheme.map(s => s === 'taddlebox' ? 'taddlebox-dev' : s);
+    }
   }
 
   // Append a timestamp to the versionName for both development and direct builds.

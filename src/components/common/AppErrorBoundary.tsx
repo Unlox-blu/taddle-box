@@ -1,5 +1,6 @@
 import React from 'react';
 import { View, Text, TouchableOpacity, StyleSheet, DevSettings } from 'react-native';
+import * as SplashScreen from 'expo-splash-screen';
 
 /**
  * Global error boundary — React 19 unmounts the entire app root on an uncaught
@@ -19,6 +20,7 @@ export default class AppErrorBoundary extends React.Component<
 
   componentDidCatch(error: Error, info: React.ErrorInfo) {
     console.error('AppErrorBoundary caught:', error, info?.componentStack);
+    SplashScreen.hideAsync().catch(() => {});
   }
 
   reload = () => {

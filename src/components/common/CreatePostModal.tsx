@@ -1,6 +1,7 @@
 import React, { useState, useRef, useEffect } from "react";
 import {
   Modal,
+  DeviceEventEmitter,
   View,
   Text,
   StyleSheet,
@@ -88,16 +89,25 @@ const PreviewVideo = React.memo(function PreviewVideo({
   width,
   height,
   muted,
+  isActive,
 }: {
   uri: string;
   width: number;
   height: number;
   muted: boolean;
+  isActive: boolean;
 }) {
   const player = useVideoPlayer({ uri }, (p) => {
     p.loop = true;
-    p.play();
   });
+  // Only play when this slide is active
+  useEffect(() => {
+    if (isActive) {
+      player.play();
+    } else {
+      player.pause();
+    }
+  }, [isActive, player]);
   useEffect(() => {
     player.muted = muted;
   }, [player, muted]);
@@ -262,6 +272,8 @@ export default function CreatePostModal({
   // player but does NOT pause a looping AVPlayer, so an explicit pause() is
   // required to actually stop the preview audio.
   const soundRef = useRef<AudioPlayer | null>(null);
+  // Track all video preview players for cleanup on close
+  const videoPlayersRef = useRef<any[]>([]);
 
   // Clear memory on close/open
   React.useEffect(() => {
@@ -838,6 +850,10 @@ export default function CreatePostModal({
       soundRef.current = null;
       setSound(null);
     }
+    // Force-clear media items to unmount PreviewVideo components
+    // and trigger their cleanup effects (releasing native video players)
+    setMediaItems([]);
+    setAudioItem(null);
     onClose();
   };
 
@@ -981,7 +997,19 @@ export default function CreatePostModal({
 
       // Publish post via mutation
       await createPostAsync(postPayload);
+      // Close modal immediately + show spinner on + icon
+      DeviceEventEmitter.emit('postSubmitting');
       resetAndClose();
+      // Reset state after close
+      setTitle("");
+      setContent("");
+      setMediaItems([]);
+      setAudioItem(null);
+      setHashtags([]);
+      setPollEnabled(false);
+      setPollQuestion("");
+      setPollOptions(["", ""]);
+      setPostLocation(null);
     } catch (err) {
       // Roll back any media that already made it to S3 so a failed publish
       // doesn't leave orphaned uploads behind.
@@ -994,8 +1022,10 @@ export default function CreatePostModal({
       }
       themedAlert("Error", "Failed to upload media or create post. Try again.");
       console.error(err);
+    } finally {
+      setUploading(false);
+      DeviceEventEmitter.emit('postCompleted');
     }
-    setUploading(false);
   };
 
   // ── Computed media preview height ────────────────────────────────
@@ -1326,6 +1356,7 @@ export default function CreatePostModal({
                           width={previewW}
                           height={previewH}
                           muted={!!audioItem}
+                          isActive={index === currentMediaPage}
                         />
                       ) : (
                         <Image

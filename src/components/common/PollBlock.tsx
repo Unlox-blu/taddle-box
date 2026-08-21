@@ -1,5 +1,11 @@
 import React, { useEffect, useRef } from "react";
-import { Animated, StyleSheet, Text, TouchableOpacity, View } from "react-native";
+import {
+  Animated,
+  StyleSheet,
+  Text,
+  TouchableOpacity,
+  View,
+} from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { useThemeColors } from "../../context/ThemeContext";
 import { fontSizes, radii, spacing } from "../../theme";
@@ -153,12 +159,12 @@ export default function PollBlock({
         inset && styles.cardInset,
       ]}
     >
-      <View style={styles.questionRow}>
+      <View style={{ alignSelf: "flex-start", marginBottom: 8 }}>
         <PollStatusPill closed={closed} />
-        <Text style={[styles.question, { flex: 1 }]} numberOfLines={3}>
-          {poll.question || "Poll"}
-        </Text>
       </View>
+      <Text style={styles.question}>
+        {poll.question || "Poll"}
+      </Text>
 
       {options.map((o, i) => {
         const votes = Number(o.votes) || 0;
@@ -230,9 +236,7 @@ export default function PollBlock({
           : ""}
         {interactive && myVote == null ? " · Tap to vote" : ""}
         {onShowVoters ? " · Long-press an option for voters" : ""}
-        {closed
-          ? ` · Voting closed${closedRel ? ` · ${closedRel}` : ""}`
-          : ""}
+        {closed ? ` · Voting closed${closedRel ? ` · ${closedRel}` : ""}` : ""}
       </Text>
     </View>
   );
@@ -255,7 +259,7 @@ const makeStyles = (c: any) =>
     // marginTop gives the poll breathing room from the media above it.
     cardInset: {
       paddingHorizontal: spacing.md,
-      paddingTop: spacing.md,
+      paddingTop: 0,
       paddingBottom: spacing.sm,
     },
     // Repost preview: the poll sits directly under the media carousel there
@@ -286,9 +290,10 @@ const makeStyles = (c: any) =>
     // question's first line without fixed-height/centering math.
     statusPill: {
       flexDirection: "row",
-      alignItems: "flex-start",
+      alignItems: "center",
       gap: 5,
       paddingHorizontal: 10,
+      paddingVertical: 4,
       borderRadius: radii.full,
     },
     statusPillDot: {

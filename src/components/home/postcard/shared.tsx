@@ -1,5 +1,12 @@
 import React, { useEffect, useRef, useState } from "react";
 import { Animated, StyleSheet, View, AppState } from "react-native";
+import { Gesture, GestureDetector } from "react-native-gesture-handler";
+import Reanimated, {
+  useSharedValue,
+  useAnimatedStyle,
+  withSpring,
+  runOnJS,
+} from "react-native-reanimated";
 import { VideoView, useVideoPlayer } from "expo-video";
 import { useAudioPlayer, useAudioPlayerStatus } from "expo-audio";
 import { useEvent } from "expo";
@@ -14,13 +21,15 @@ let _preloadPlayerCount = 0;
 const _playerLog = (label: string, url: string) => {
   if (__DEV__) {
     console.log(
-      `[VideoPlayer] ${label} | active=${_activePlayerCount} preload=${_preloadPlayerCount} total=${_activePlayerCount + _preloadPlayerCount} | ${url.slice(0, 60)}`,
+      `[VideoPlayer] ${label} | active=${_activePlayerCount} preload=${_preloadPlayerCount} total=${_activePlayerCount + _preloadPlayerCount} | ${url?.slice(0, 60) ?? "(no url)"}`,
     );
   }
 };
 
 // ── formatInstagramTime ─────────────────────────────────────────────────────
-export const formatInstagramTime = (dateString: string | undefined | null): string => {
+export const formatInstagramTime = (
+  dateString: string | undefined | null,
+): string => {
   if (!dateString) return "";
   const date = new Date(dateString);
   if (isNaN(date.getTime())) return dateString;
@@ -31,11 +40,16 @@ export const formatInstagramTime = (dateString: string | undefined | null): stri
   const diffInHrs = Math.floor(diffInMins / 60);
   const diffInDays = Math.floor(diffInHrs / 24);
   if (diffInSecs < 60) return "Just now";
-  if (diffInMins < 60) return `${diffInMins} minute${diffInMins > 1 ? "s" : ""} ago`;
+  if (diffInMins < 60)
+    return `${diffInMins} minute${diffInMins > 1 ? "s" : ""} ago`;
   if (diffInHrs < 24) return `${diffInHrs} hour${diffInHrs > 1 ? "s" : ""} ago`;
   if (diffInDays === 1) return "Yesterday";
-  if (diffInDays < 30) return `${diffInDays} day${diffInDays > 1 ? "s" : ""} ago`;
-  const options: Intl.DateTimeFormatOptions = { day: "numeric", month: "short" };
+  if (diffInDays < 30)
+    return `${diffInDays} day${diffInDays > 1 ? "s" : ""} ago`;
+  const options: Intl.DateTimeFormatOptions = {
+    day: "numeric",
+    month: "short",
+  };
   if (now.getFullYear() !== date.getFullYear()) options.year = "numeric";
   return date.toLocaleDateString("en-US", options);
 };
@@ -100,43 +114,45 @@ export const FeedVideo = ({
   // Track player count
   useEffect(() => {
     _activePlayerCount++;
-    _playerLog('+active(legacy)', url);
+    _playerLog("+active(legacy)", url);
     return () => {
       _activePlayerCount = Math.max(0, _activePlayerCount - 1);
-      _playerLog('-active(legacy)', url);
+      _playerLog("-active(legacy)", url);
     };
   }, [url]);
 
+  // Pause on background
   useEffect(() => {
-    return () => {
-      try { player.release(); } catch {}
-    };
-  }, [player]);
-
-  // Release on background (not just pause)
-  useEffect(() => {
-    const sub = AppState.addEventListener('change', (state) => {
-      if (state === 'background' || state === 'inactive') {
-        try { player.release(); } catch {}
+    const sub = AppState.addEventListener("change", (state) => {
+      if (state === "background" || state === "inactive") {
+        try {
+          player.pause();
+        } catch {}
       }
     });
     return () => sub.remove();
   }, [player]);
 
   useEffect(() => {
-    player.muted = muted;
+    try {
+      player.muted = muted;
+    } catch {}
   }, [player, muted]);
 
   useEffect(() => {
-    if (active) {
-      player.play();
-    } else {
-      player.pause();
-    }
+    try {
+      if (active) {
+        player.play();
+      } else {
+        player.pause();
+      }
+    } catch {}
   }, [active, player]);
 
   const reported = useRef(false);
-  const { status } = useEvent(player, "statusChange", { status: player.status });
+  const { status } = useEvent(player, "statusChange", {
+    status: player.status,
+  });
   useEffect(() => {
     if (status === "readyToPlay" && !reported.current) {
       reported.current = true;
@@ -144,7 +160,15 @@ export const FeedVideo = ({
     }
   }, [status, player]);
 
-  return <VideoView style={{ width, height }} player={player} nativeControls={false} allowsFullscreen={false} contentFit="cover" useExoShutter={false} />;
+  return (
+    <VideoView
+      style={{ width, height }}
+      player={player}
+      nativeControls={false}
+      contentFit="cover"
+      useExoShutter={false}
+    />
+  );
 };
 
 // ── ActiveVideo: player-owning component, mounts ONLY when active ──────────
@@ -157,6 +181,7 @@ export const ActiveVideo = ({
   muted,
   loop = true,
   preloadOnly = false,
+  isPausedOverride = false,
   onDuration,
 }: {
   url: string;
@@ -165,63 +190,73 @@ export const ActiveVideo = ({
   muted: boolean;
   loop?: boolean;
   preloadOnly?: boolean;
+  isPausedOverride?: boolean;
   onDuration?: (durationMillis: number) => void;
 }) => {
-  const player = useVideoPlayer({ uri: url }, (p) => {
+  const player = useVideoPlayer(url ? { uri: url } : null, (p) => {
+    if (!url) return;
     p.loop = loop;
   });
+
+  // Guard: no URL means no media to play — bail early before the debug logger
+  // or native player can crash on undefined.
+  if (!url) return null;
 
   // Track player count
   useEffect(() => {
     if (preloadOnly) {
       _preloadPlayerCount++;
-      _playerLog('+preload', url);
+      _playerLog("+preload", url);
     } else {
       _activePlayerCount++;
-      _playerLog('+active', url);
+      _playerLog("+active", url);
     }
     return () => {
       if (preloadOnly) {
         _preloadPlayerCount = Math.max(0, _preloadPlayerCount - 1);
-        _playerLog('-preload', url);
+        _playerLog("-preload", url);
       } else {
         _activePlayerCount = Math.max(0, _activePlayerCount - 1);
-        _playerLog('-active', url);
+        _playerLog("-active", url);
       }
     };
   }, [preloadOnly, url]);
 
-  // Release on unmount
+  // Strong background handling
   useEffect(() => {
-    return () => {
-      try { player.release(); } catch {}
-    };
-  }, [player]);
-
-  // Strong background handling: release player entirely (not just pause)
-  // This frees native decoder/surface resources, not just stopping playback.
-  useEffect(() => {
-    const sub = AppState.addEventListener('change', (state) => {
-      if (state === 'background' || state === 'inactive') {
-        try { player.release(); } catch {}
+    const sub = AppState.addEventListener("change", (state) => {
+      if (state === "background" || state === "inactive") {
+        try {
+          player.pause();
+        } catch {}
       }
     });
     return () => sub.remove();
   }, [player]);
 
   useEffect(() => {
-    player.muted = muted;
+    try {
+      player.muted = muted;
+    } catch {}
   }, [player, muted]);
 
   // Auto-play on mount (skip if preloadOnly — just buffer)
   useEffect(() => {
     if (!preloadOnly) {
-      player.play();
+      try {
+        if (isPausedOverride) {
+          player.pause();
+        } else {
+          player.play();
+        }
+      } catch {}
     }
-  }, [player, preloadOnly]);
+  }, [player, preloadOnly, isPausedOverride]);
 
   const reported = useRef(false);
-  const { status } = useEvent(player, "statusChange", { status: player.status });
+  const { status } = useEvent(player, "statusChange", {
+    status: player.status,
+  });
   useEffect(() => {
     if (status === "readyToPlay" && !reported.current) {
       reported.current = true;
@@ -229,7 +264,15 @@ export const ActiveVideo = ({
     }
   }, [status, player]);
 
-  return <VideoView style={{ width, height }} player={player} nativeControls={false} allowsFullscreen={false} contentFit="cover" useExoShutter={false} />;
+  return (
+    <VideoView
+      style={{ width, height }}
+      player={player}
+      nativeControls={false}
+      contentFit="cover"
+      useExoShutter={false}
+    />
+  );
 };
 
 // ── VideoPoster: static thumbnail, NO player in memory ──────────────────────
@@ -262,6 +305,87 @@ export const VideoPoster = ({
   );
 };
 
+// ── ZoomableMedia: pure gesture pinch wrapper ───────────────────────────────
+export const ZoomableMedia = ({
+  children,
+  width,
+  height,
+  onPinchStateChange,
+}: {
+  children: React.ReactNode;
+  width: number;
+  height: number;
+  onPinchStateChange?: (isPinching: boolean) => void;
+}) => {
+  const scale = useSharedValue(1);
+  const focalX = useSharedValue(0);
+  const focalY = useSharedValue(0);
+  const translateX = useSharedValue(0);
+  const translateY = useSharedValue(0);
+  const originX = useSharedValue(0);
+  const originY = useSharedValue(0);
+  const isPinching = useSharedValue(false);
+
+  const pinch = Gesture.Pinch()
+    .onStart((e) => {
+      isPinching.value = true;
+      if (onPinchStateChange) runOnJS(onPinchStateChange)(true);
+      // RN scale is from center by default. Offset focal points by half width/height
+      focalX.value = e.focalX - width / 2;
+      focalY.value = e.focalY - height / 2;
+      originX.value = e.focalX;
+      originY.value = e.focalY;
+    })
+    .onUpdate((e) => {
+      // Instagram doesn't let you shrink the image below 1x.
+      // Clamping to 1 prevents extreme math jitter when fingers pinch closely together.
+      scale.value = Math.max(1, e.scale);
+
+      // Only allow translation if we are actually zoomed in
+      if (scale.value > 1) {
+        translateX.value = e.focalX - originX.value;
+        translateY.value = e.focalY - originY.value;
+      }
+    })
+    .onEnd(() => {
+      translateX.value = withSpring(0, { damping: 15, stiffness: 200 });
+      translateY.value = withSpring(0, { damping: 15, stiffness: 200 });
+      scale.value = withSpring(
+        1,
+        { damping: 15, stiffness: 200 },
+        (finished) => {
+          if (finished) {
+            isPinching.value = false;
+            if (onPinchStateChange) runOnJS(onPinchStateChange)(false);
+          }
+        },
+      );
+    });
+
+  const animatedStyle = useAnimatedStyle(() => {
+    return {
+      zIndex: isPinching.value ? 1000 : 0,
+      transform: [
+        { translateX: translateX.value },
+        { translateY: translateY.value },
+        { translateX: focalX.value },
+        { translateY: focalY.value },
+        { scale: scale.value },
+        { translateX: -focalX.value },
+        { translateY: -focalY.value },
+      ],
+    };
+  });
+
+  return (
+    <GestureDetector gesture={pinch}>
+      <Reanimated.View style={[{ width, height }, animatedStyle]}>
+        {children}
+      </Reanimated.View>
+    </GestureDetector>
+  );
+};
+
 // ── FeedAudio: lightweight audio player using expo-audio ────────────────────
 // Replaces the old FeedVideo(1×1) hack. Uses the proper audio API.
 export const FeedAudio = ({
@@ -281,37 +405,38 @@ export const FeedAudio = ({
     p.loop = loop;
   });
 
-  // Release on unmount
-  useEffect(() => {
-    return () => {
-      try { player.release(); } catch {}
-    };
-  }, [player]);
-
   // Pause when app goes to background
   useEffect(() => {
-    const sub = AppState.addEventListener('change', (state) => {
-      if (state === 'background' || state === 'inactive') {
-        try { player.release(); } catch {}
+    const sub = AppState.addEventListener("change", (state) => {
+      if (state === "background" || state === "inactive") {
+        try {
+          player.pause();
+        } catch {}
       }
     });
     return () => sub.remove();
   }, [player]);
 
   useEffect(() => {
-    player.muted = muted;
+    try {
+      player.muted = muted;
+    } catch {}
   }, [player, muted]);
 
   useEffect(() => {
-    if (active) {
-      player.play();
-    } else {
-      player.pause();
-    }
+    try {
+      if (active) {
+        player.play();
+      } else {
+        player.pause();
+      }
+    } catch {}
   }, [active, player]);
 
   const reported = useRef(false);
-  const { status } = useEvent(player, "statusChange", { status: player.status });
+  const { status } = useEvent(player, "statusChange", {
+    status: player.status,
+  });
   useEffect(() => {
     if (status === "readyToPlay" && !reported.current) {
       reported.current = true;

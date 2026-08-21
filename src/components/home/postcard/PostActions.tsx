@@ -59,6 +59,7 @@ interface PostActionsProps {
   onReport?: (post: Post) => void;
   showDelete?: boolean;
   onCloseMenu?: () => void;
+  onBodyTap?: () => void;
 }
 
 // ── UsersModal ──────────────────────────────────────────────────────────────
@@ -276,6 +277,7 @@ function PostActionsInner({
   onReport,
   showDelete,
   onCloseMenu,
+  onBodyTap,
 }: PostActionsProps) {
   const { user: currentUser } = useAuth();
   const queryClient = useQueryClient();
@@ -576,7 +578,7 @@ function PostActionsInner({
   return (
     <>
       {/* Actions row */}
-      <TouchableWithoutFeedback onPress={() => {}}>
+      <TouchableWithoutFeedback onPress={() => onBodyTap?.()}>
         <View style={s.actions}>
           <View style={{ flexDirection: "row", alignItems: "center", gap: 4 }}>
             <TouchableOpacity style={s.action} onPress={onLike}>

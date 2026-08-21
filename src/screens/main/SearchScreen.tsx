@@ -50,6 +50,7 @@ import {
   type RowCtx,
 } from "../../components/search/SearchRows";
 import AsyncStorage from "@react-native-async-storage/async-storage";
+import { useActivePostTracking } from "../../hooks/useActivePostTracking";
 
 type Props = NativeStackScreenProps<HomeStackParamList, "Search">;
 
@@ -506,22 +507,18 @@ export default function SearchScreen({ navigation, route }: Props) {
   const scrollOffsetCurrentRef = useRef(0);
   const listRef = useRef<any>(null);
 
-  // Only the first ≥60%-visible post row plays its audio/video, and only while
-  // the search screen is focused — the same viewability + focus gating the
-  // feeds use, so results don't all autoplay at once or keep playing after
-  // navigating away.
+  // FlashList viewability tells us which items are visible; the hook picks
+  // the most-visible post row. isFocused guards playback when navigating away.
   const isFocused = useIsFocused();
-  const [activePostId, setActivePostId] = useState<string | null>(null);
-  const viewabilityConfig = useRef({ itemVisiblePercentThreshold: 60 }).current;
-  const onViewableItemsChanged = useRef(({ viewableItems }: any) => {
-    const postRow = (viewableItems || []).find(
-      (v: any) => !v.item.isHeader && v.item.type === "posts",
-    );
-    if (postRow) {
-      const id = postRow.item.item.id;
-      setActivePostId((prev) => (prev === id ? prev : id));
-    }
-  }).current;
+  // For mixed-type rows, extract the post ID only from post-type rows.
+  const { activePostId, viewabilityConfig, onViewableItemsChanged,
+          trackLayout, handleScroll: handleScrollForTracking } =
+    useActivePostTracking([], {
+      getPostId: (row: any) =>
+        !row.isHeader && (row.type === 'posts' || row.type === 'post')
+          ? (row.item?.id ?? null)
+          : null,
+    });
 
   // Active tab's rows — derived from the cache so switching tabs is instant.
   const rows = rowsByTab[activeTab] || [];
@@ -930,9 +927,8 @@ export default function SearchScreen({ navigation, route }: Props) {
         setTagFilters((prev) => (prev.includes(tag) ? prev : [...prev, tag]));
         setResultType("all");
       },
+      trackLayout,
     };
-    // fetchResults identity changes on query/filter changes; query + activeTab
-    // already capture the parts the rows actually re-run on.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [
     styles,
@@ -947,6 +943,7 @@ export default function SearchScreen({ navigation, route }: Props) {
     openGames,
     query,
     activeTab,
+    trackLayout,
   ]);
 
   const renderItem = ({ item }: { item: Row }) => {
@@ -1648,11 +1645,10 @@ export default function SearchScreen({ navigation, route }: Props) {
             ItemSeparatorComponent={() => <View style={{ height: 10 }} />}
             keyboardDismissMode="on-drag"
             keyboardShouldPersistTaps="handled"
-            onViewableItemsChanged={onViewableItemsChanged}
-            viewabilityConfig={viewabilityConfig}
             // Track the live offset so switching tabs can save/restore it.
             onScroll={(e) => {
               scrollOffsetCurrentRef.current = e.nativeEvent.contentOffset.y;
+              handleScrollForTracking(e);
               // Instagram-style hide — the search bar + pill row ride up
               // WITH the finger (the same finger-tracking as the global
               // header): scrolling down translates them proportionally,
@@ -1674,6 +1670,8 @@ export default function SearchScreen({ navigation, route }: Props) {
               }
             }}
           scrollEventThrottle={16}
+          viewabilityConfig={viewabilityConfig}
+          onViewableItemsChanged={onViewableItemsChanged}
           onEndReached={loadMore}
           onEndReachedThreshold={0.4}
           ListFooterComponent={

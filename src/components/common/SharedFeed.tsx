@@ -1,15 +1,26 @@
-import React, { useState, useRef, useCallback, useEffect, useMemo } from 'react';
-import { View, Text, Share, DeviceEventEmitter, Dimensions, LayoutChangeEvent } from 'react-native';
-import { FlashList } from '@shopify/flash-list';
-import { useIsFocused, useNavigation, useScrollToTop } from '@react-navigation/native';
-import PostCard from '../home/PostCard';
-import CommentsModal from '../home/CommentsModal';
-import { postsService } from '../../services/posts.service';
-import { useAuth } from '../../context/AuthContext';
-import type { Post } from '../../types';
-import { themedAlert } from './ThemedAlert';
+import React, { useState, useRef, useCallback, useMemo } from "react";
+import {
+  View,
+  Text,
+  Share,
+  DeviceEventEmitter,
+  Dimensions,
+} from "react-native";
+import { FlashList } from "@shopify/flash-list";
+import {
+  useIsFocused,
+  useNavigation,
+  useScrollToTop,
+} from "@react-navigation/native";
+import PostCard from "../home/PostCard";
+import CommentsModal from "../home/CommentsModal";
+import { postsService } from "../../services/posts.service";
+import { useAuth } from "../../context/AuthContext";
+import type { Post } from "../../types";
+import { themedAlert } from "./ThemedAlert";
 import PullToRefreshWrapper from "./PullToRefreshWrapper";
-import { useGlobalScroll } from '../../context/ScrollContext';
+import { useGlobalScroll } from "../../context/ScrollContext";
+import { useActivePostTracking } from "../../hooks/useActivePostTracking";
 
 interface SharedFeedProps {
   posts: Post[];
@@ -69,14 +80,14 @@ export default function SharedFeed({
   sectionHeader,
   sectionHeaderH,
   onScroll,
-  initialScrollOffset
+  initialScrollOffset,
 }: SharedFeedProps) {
   // A string slipped into a List*Component (a caller passing "No posts" as a
   // literal instead of a <View>) would be rendered directly inside a host View
   // and trigger RN's "Text strings must be rendered within a <Text> component"
   // error. Wrapping raw values makes the whole feed class immune.
   const safeNode = (node: React.ReactNode): React.ReactElement | null =>
-    typeof node === 'string' || typeof node === 'number' ? (
+    typeof node === "string" || typeof node === "number" ? (
       <Text>{node}</Text>
     ) : (
       (node as React.ReactElement | null)
@@ -85,15 +96,23 @@ export default function SharedFeed({
   const isFocused = useIsFocused();
   const { user: currentUser } = useAuth();
   const { headerHeight, footerHeight } = useGlobalScroll();
-  const [activePostId, setActivePostId] = useState<string | null>(null);
+
+  const [listHeaderOffset, setListHeaderOffset] = useState(0);
+
+  // ── Active-post tracking (hybrid: viewability filter + layout.y + hysteresis) ─
+  const {
+    activePostId,
+    viewabilityConfig,
+    onViewableItemsChanged,
+    trackLayout,
+    handleScroll: handleScrollForTracking,
+  } = useActivePostTracking(posts, { listHeaderOffset, headerHeight });
+
   const [commentsVisible, setCommentsVisible] = useState(false);
   const [activeCommentPost, setActiveCommentPost] = useState<Post | null>(null);
 
   const flatListRef = useRef<any>(null);
   useScrollToTop(flatListRef);
-
-  // offset 0 — hop back to the saved position once its first content is in.
-  // Using native contentOffset on FlatList instead of a delayed scrollToOffset
 
   // Home-style tab-bar behavior: single-tap scrolls to top, double-tap also
   // scrolls to top (the refresh for double-tap is handled by the owning
@@ -113,56 +132,15 @@ export default function SharedFeed({
       if (!isFocusedRef.current) return;
       flatListRef.current?.scrollToOffset({ offset: 0, animated: true });
     };
-    const events = ['homeSingleTap', 'profileSingleTap', 'profileDoubleTap'];
+    const events = ["homeSingleTap", "profileSingleTap", "profileDoubleTap"];
     const subs = [
-      ...events.map((name) => DeviceEventEmitter.addListener(name, scrollToTop)),
-      DeviceEventEmitter.addListener('triggerPullRefresh', scrollToTop),
+      ...events.map((name) =>
+        DeviceEventEmitter.addListener(name, scrollToTop),
+      ),
+      DeviceEventEmitter.addListener("triggerPullRefresh", scrollToTop),
     ];
     return () => subs.forEach((s) => s.remove());
   }, []);
-
-  // ── XP active-post tracking ──────────────────────────────────────────
-  // ── XP active-post tracking ──────────────────────────────────────────
-  // Track actual rendered item heights so we can compute which post's
-  // HEADER is nearest the viewport CENTER — the XP pill triggers the
-  // moment the header enters the user's natural gaze zone.
-  const viewportH = useRef(Dimensions.get('window').height).current;
-  const itemLayoutsRef = useRef(new Map<string, { height: number; offset: number }>());
-  const nextOffsetRef = useRef(0);
-
-  const trackItemLayout = useCallback((id: string, e: LayoutChangeEvent) => {
-    const { height } = e.nativeEvent.layout;
-    const prev = itemLayoutsRef.current.get(id);
-    if (prev && Math.abs(prev.height - height) < 2) return;
-    itemLayoutsRef.current.set(id, { height, offset: nextOffsetRef.current });
-    nextOffsetRef.current += height;
-  }, []);
-
-  // On every scroll frame, find the item whose header (top edge) is
-  // closest to the viewport center (45% from top = natural eye gaze).
-  const handleScrollForXP = useCallback((e: any) => {
-    const scrollY = e.nativeEvent.contentOffset.y;
-    const center = scrollY + viewportH * 0.45;
-    let bestId: string | null = null;
-    let bestDist = Infinity;
-    for (const [id, layout] of itemLayoutsRef.current) {
-      const dist = Math.abs(layout.offset - center);
-      if (dist < bestDist) {
-        bestDist = dist;
-        bestId = id;
-      }
-    }
-    if (bestId) {
-      setActivePostId((prev) => (prev === bestId ? prev : bestId));
-    }
-  }, [viewportH]);
-
-  // Set the first post as active immediately on mount.
-  useEffect(() => {
-    if (posts.length > 0 && !activePostId) {
-      setActivePostId(posts[0].id);
-    }
-  }, [posts, activePostId]);
 
   // ── Video preload: find the next video post after active ────────────────
   // Only 1 video ahead gets preloaded. When the user scrolls to it,
@@ -176,7 +154,9 @@ export default function SharedFeed({
     for (let i = activeIdx + 1; i < posts.length; i++) {
       const p = posts[i] as any;
       const media = p.media || [];
-      const hasVideo = media.some((m: any) => m.media_type === 'video' || m.type === 'video');
+      const hasVideo = media.some(
+        (m: any) => m.media_type === "video" || m.type === "video",
+      );
       if (hasVideo) return p.id;
     }
     return null;
@@ -191,88 +171,134 @@ export default function SharedFeed({
     try {
       const shareTitle = (post as any).title || `${post.author.name}'s Post`;
       const appUrl = `https://taddlebox.com/post/${post.id}`;
-      const firstMedia = (post as any).media?.[0]?.url || (post as any).media?.[0]?.cloudfront_url || post.mediaUri;
-      
-      const message = firstMedia 
+      const firstMedia = (post as any).media?.[0]?.media_url || post.mediaUri;
+
+      const message = firstMedia
         ? `${shareTitle}\n\n${appUrl}\n\nMedia: ${firstMedia}`
         : `${shareTitle}\n\n${appUrl}`;
 
-      await Share.share({
-        message,
-        url: appUrl, // iOS uses this directly
-        title: shareTitle, // Android uses this in the intent
-      }, {
-        dialogTitle: 'Share Post'
-      });
+      await Share.share(
+        {
+          message,
+          url: appUrl, // iOS uses this directly
+          title: shareTitle, // Android uses this in the intent
+        },
+        {
+          dialogTitle: "Share Post",
+        },
+      );
     } catch (e) {
       console.warn("Failed to share", e);
     }
   }, []);
 
-  const handleAuthorPress = useCallback((post: Post) => {
-    if (post.author) {
-      if (currentUser?.id && post.author.id === currentUser.id) {
-        navigation.navigate("Profile");
-      } else {
-        // push (not navigate): from a profile grid opened off a detail page a
-        // UserProfile may already be in the stack — navigate would pop back to
-        // it and skip the screens in between.
-        navigation.push("UserProfile", { user: post.author });
+  const handleAuthorPress = useCallback(
+    (post: Post) => {
+      if (post.author) {
+        if (currentUser?.id && post.author.id === currentUser.id) {
+          navigation.navigate("Profile");
+        } else {
+          // push (not navigate): from a profile grid opened off a detail page a
+          // UserProfile may already be in the stack — navigate would pop back to
+          // it and skip the screens in between.
+          navigation.push("UserProfile", { user: post.author });
+        }
       }
-    }
-  }, [navigation, currentUser?.id]);
+    },
+    [navigation, currentUser?.id],
+  );
 
-  const handleLikeInternal = useCallback(async (id: string) => {
-    if (onLike) {
-      onLike(id);
-    } else if (setPosts) {
-      setPosts(prev => prev.map(p => {
-        if (p.id !== id) return p;
-        const currentLikes = p.likes ?? (p as any).likesCount ?? 0;
-        const newLikes = p.isLiked ? Math.max(0, currentLikes - 1) : currentLikes + 1;
-        return { ...p, isLiked: !p.isLiked, likes: newLikes, likesCount: newLikes };
-      }));
-      const post = posts.find(p => p.id === id);
-      if (post) {
-        await postsService.toggleLike(id, !!post.isLiked).catch(console.error);
+  const handleLikeInternal = useCallback(
+    async (id: string) => {
+      if (onLike) {
+        onLike(id);
+      } else if (setPosts) {
+        setPosts((prev) =>
+          prev.map((p) => {
+            if (p.id !== id) return p;
+            const currentLikes = p.likes ?? (p as any).likesCount ?? 0;
+            const newLikes = p.isLiked
+              ? Math.max(0, currentLikes - 1)
+              : currentLikes + 1;
+            return {
+              ...p,
+              isLiked: !p.isLiked,
+              likes: newLikes,
+              likesCount: newLikes,
+            };
+          }),
+        );
+        const post = posts.find((p) => p.id === id);
+        if (post) {
+          await postsService
+            .toggleLike(id, !!post.isLiked)
+            .catch(console.error);
+        }
       }
-    }
-  }, [onLike, setPosts, posts]);
+    },
+    [onLike, setPosts, posts],
+  );
 
-  const handleSaveInternal = useCallback(async (id: string) => {
-    if (onSave) {
-      onSave(id);
-    } else if (setPosts) {
-      setPosts(prev => prev.map(p => p.id !== id ? p : { ...p, isSaved: !p.isSaved }));
-      const post = posts.find(p => p.id === id);
-      if (post) {
-        await postsService.toggleSave(id, !!post.isSaved).catch(console.error);
+  const handleSaveInternal = useCallback(
+    async (id: string) => {
+      if (onSave) {
+        onSave(id);
+      } else if (setPosts) {
+        setPosts((prev) =>
+          prev.map((p) => (p.id !== id ? p : { ...p, isSaved: !p.isSaved })),
+        );
+        const post = posts.find((p) => p.id === id);
+        if (post) {
+          await postsService
+            .toggleSave(id, !!post.isSaved)
+            .catch(console.error);
+        }
       }
-    }
-  }, [onSave, setPosts, posts]);
+    },
+    [onSave, setPosts, posts],
+  );
 
   if (!scrollEnabled) {
     return (
-      <View style={[{ paddingTop: headerHeight, paddingBottom: footerHeight }, contentContainerStyle]}>
+      <View
+        style={[
+          { paddingTop: headerHeight, paddingBottom: footerHeight },
+          contentContainerStyle,
+        ]}
+      >
         {safeNode(ListHeaderComponent)}
-        {posts.length === 0 ? safeNode(ListEmptyComponent) : posts.map((item, index) => (
-          <PostCard
-            key={item.id}
-            post={item}
-            index={index}
-            isActive={isFocused && item.id === activePostId}
-            showViews={showViews}
-            onAuthorPress={handleAuthorPress}
-            onComment={handleComment}
-            onShare={handleShare}
-            onReposted={onReposted}
-            onLike={handleLikeInternal}
-            onSave={handleSaveInternal}
-            onDelete={onDelete}
-            onReport={onReport || (() => themedAlert('Reported', 'Thank you. This post has been reported for review.'))}
-            showDelete={currentUser?.id === (item as any)?.author?.id || currentUser?.id === (item as any)?.author_id || currentUser?.id === (item as any)?.authorId || isAdmin}
-          />
-        ))}
+        {posts.length === 0
+          ? safeNode(ListEmptyComponent)
+          : posts.map((item, index) => (
+              <PostCard
+                key={item.id}
+                post={item}
+                index={index}
+                isActive={isFocused && item.id === activePostId}
+                showViews={showViews}
+                onAuthorPress={handleAuthorPress}
+                onComment={handleComment}
+                onShare={handleShare}
+                onReposted={onReposted}
+                onLike={handleLikeInternal}
+                onSave={handleSaveInternal}
+                onDelete={onDelete}
+                onReport={
+                  onReport ||
+                  (() =>
+                    themedAlert(
+                      "Reported",
+                      "Thank you. This post has been reported for review.",
+                    ))
+                }
+                showDelete={
+                  currentUser?.id === (item as any)?.author?.id ||
+                  currentUser?.id === (item as any)?.author_id ||
+                  currentUser?.id === (item as any)?.authorId ||
+                  isAdmin
+                }
+              />
+            ))}
         {safeNode(ListFooterComponent)}
         <CommentsModal
           visible={commentsVisible}
@@ -296,55 +322,104 @@ export default function SharedFeed({
         sectionHeader={sectionHeader}
         sectionHeaderH={sectionHeaderH}
       >
-      <FlashList
-        ref={flatListRef}
-        data={posts}
-        keyExtractor={item => item.id}
-        // FlashList handles view recycling internally — no need for
-        // removeClippedSubviews workaround.
-        showsVerticalScrollIndicator={false}
-        keyboardDismissMode="on-drag"
-        contentContainerStyle={[
-          { paddingTop: headerHeight, paddingBottom: footerHeight },
-          contentContainerStyle
-        ]}
-        contentOffset={initialScrollOffset ? { x: 0, y: initialScrollOffset } : undefined}
-        onScroll={(e) => {
-          onScroll?.(e.nativeEvent.contentOffset.y);
-          handleScrollForXP(e);
-        }}
-        scrollEventThrottle={16}
-        // iOS only: without this, a short list (few posts / short bookmarks /
-        // profile with a handful of posts) can't be pulled down at all, so the
-        // refresh gesture silently does nothing.
-        alwaysBounceVertical
-        onEndReached={onEndReached}
-        onEndReachedThreshold={onEndReachedThreshold || 0.5}
-        ListHeaderComponent={enhancedHeader}
-        ListEmptyComponent={safeNode(ListEmptyComponent)}
-        ListFooterComponent={safeNode(ListFooterComponent)}
-        renderItem={({ item, index }) => (
-          <View onLayout={(e) => trackItemLayout(item.id, e)}>
-          <PostCard
-            post={item}
-            index={index}
-            isActive={isFocused && item.id === activePostId}
-            showViews={showViews}
-            onAuthorPress={handleAuthorPress}
-            onComment={handleComment}
-            onShare={handleShare}
-            onReposted={onReposted}
-            onLike={handleLikeInternal}
-            onSave={handleSaveInternal}
-            onDelete={onDelete}
-            onReport={onReport || (() => themedAlert('Reported', 'Thank you. This post has been reported for review.'))}
-            showDelete={currentUser?.id === (item as any)?.author?.id || currentUser?.id === (item as any)?.author_id || currentUser?.id === (item as any)?.authorId || isAdmin}
-            preloadVideo={item.id === preloadPostId}
-          />
-          </View>
-        )}
+        <FlashList
+          ref={flatListRef}
+          data={posts}
+          keyExtractor={(item) => item.id}
+          // FlashList handles view recycling internally — no need for
+          // removeClippedSubviews workaround.
+          showsVerticalScrollIndicator={false}
+          keyboardDismissMode="on-drag"
+          contentContainerStyle={[
+            { paddingTop: headerHeight, paddingBottom: footerHeight },
+            contentContainerStyle,
+          ]}
+          contentOffset={
+            initialScrollOffset ? { x: 0, y: initialScrollOffset } : undefined
+          }
+          onScroll={(e) => {
+            onScroll?.(e.nativeEvent.contentOffset.y);
+            handleScrollForTracking(e);
+          }}
+          scrollEventThrottle={16}
+          // iOS only: without this, a short list (few posts / short bookmarks /
+          // profile with a handful of posts) can't be pulled down at all, so the
+          // refresh gesture silently does nothing.
+          alwaysBounceVertical
+          onEndReached={onEndReached}
+          onEndReachedThreshold={onEndReachedThreshold || 0.5}
+          viewabilityConfig={viewabilityConfig}
+          onViewableItemsChanged={onViewableItemsChanged}
+          ListHeaderComponent={
+            enhancedHeader ? (
+              <View
+                onLayout={(e) =>
+                  setListHeaderOffset(e.nativeEvent.layout.height)
+                }
+              >
+                {enhancedHeader}
+              </View>
+            ) : undefined
+          }
+          ListEmptyComponent={safeNode(ListEmptyComponent)}
+          ListFooterComponent={safeNode(ListFooterComponent)}
+          renderItem={({ item, index }) => (
+            <View
+              onLayout={(e) => {
+                const { y, height } = e.nativeEvent.layout;
+                trackLayout(item.id, { top: y, bottom: y + height });
+              }}
+            >
+              <PostCard
+                post={item}
+                index={index}
+                isActive={isFocused && item.id === activePostId}
+                showViews={showViews}
+                onAuthorPress={handleAuthorPress}
+                onComment={handleComment}
+                onShare={handleShare}
+                onReposted={onReposted}
+                onLike={handleLikeInternal}
+                onSave={handleSaveInternal}
+                onDelete={onDelete}
+                onReport={
+                  onReport ||
+                  (() =>
+                    themedAlert(
+                      "Reported",
+                      "Thank you. This post has been reported for review.",
+                    ))
+                }
+                showDelete={
+                  currentUser?.id === (item as any)?.author?.id ||
+                  currentUser?.id === (item as any)?.author_id ||
+                  currentUser?.id === (item as any)?.authorId ||
+                  isAdmin
+                }
+                preloadVideo={item.id === preloadPostId}
+              />
+            </View>
+          )}
         />
       </PullToRefreshWrapper>
+
+      {/* Debug Overlay: 35% Focus Zone */}
+      <View
+        pointerEvents="none"
+        style={{
+          position: "absolute",
+          top: Dimensions.get("window").height * ((1 - 0.35) / 2),
+          height: Dimensions.get("window").height * 0.35,
+          left: 0,
+          right: 0,
+          backgroundColor: "rgba(0, 0, 0, 0.2)",
+          borderTopWidth: 1,
+          borderBottomWidth: 1,
+          borderColor: "rgba(255, 255, 255, 0.5)",
+          zIndex: 9999,
+        }}
+      />
+
       <CommentsModal
         visible={commentsVisible}
         onClose={() => setCommentsVisible(false)}

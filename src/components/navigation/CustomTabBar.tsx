@@ -1,6 +1,6 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
-  View, TouchableOpacity, Text, StyleSheet, DeviceEventEmitter
+  View, TouchableOpacity, Text, StyleSheet, DeviceEventEmitter, ActivityIndicator
 } from 'react-native';
 import { BottomTabBarProps } from '@react-navigation/bottom-tabs';
 import { Ionicons } from '@expo/vector-icons';
@@ -43,6 +43,12 @@ export default function CustomTabBar({ state, navigation }: BottomTabBarProps) {
   const { colors, isDark } = useTheme();
   const { footerTranslateY } = useGlobalScroll();
   const [createVisible, setCreateVisible] = useState(false);
+  const [isPosting, setIsPosting] = useState(false);
+  useEffect(() => {
+    const sub = DeviceEventEmitter.addListener('postSubmitting', () => setIsPosting(true));
+    const sub2 = DeviceEventEmitter.addListener('postCompleted', () => setIsPosting(false));
+    return () => { sub.remove(); sub2.remove(); };
+  }, []);
   const [preselectedCommunityId, setPreselectedCommunityId] = useState<string | undefined>(undefined);
   const lastPressRef = React.useRef<Record<string, number>>({});
 
@@ -147,7 +153,7 @@ export default function CustomTabBar({ state, navigation }: BottomTabBarProps) {
                 end={{ x: 1, y: 1 }}
                 style={styles.fab}
               >
-                <Ionicons name="add" size={28} color="#fff" />
+                {isPosting ? <ActivityIndicator size="small" color="#fff" /> : <Ionicons name="add" size={28} color="#fff" />}
               </LinearGradient>
             </TouchableOpacity>
           </View>

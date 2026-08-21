@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
-import { View, Text, TouchableOpacity, Animated, Dimensions } from "react-native";
+import { View, Text, TouchableOpacity, TouchableWithoutFeedback, Animated, Dimensions } from "react-native";
 import { xpService } from "../../../services/xp.service";
 import { Image } from "expo-image";
 import { Ionicons } from "@expo/vector-icons";
@@ -31,6 +31,7 @@ interface PostHeaderProps {
   onMenuToggle: () => void;
   index?: number;
   isActive?: boolean;
+  onBodyTap?: () => void;
 }
 
 // ── Module-level XP claim tracker ───────────────────────────────────────────
@@ -45,6 +46,7 @@ function PostHeaderInner({
   onMenuToggle,
   index,
   isActive,
+  onBodyTap,
 }: PostHeaderProps) {
   const navigation =
     useNavigation<NativeStackNavigationProp<HomeStackParamList>>();
@@ -218,7 +220,7 @@ function PostHeaderInner({
     const hasAudio = ((post as any).media || []).some(
       (m: any) => m.media_type === "audio" || m.type === "audio",
     );
-    if (hasAudio) {
+    if (hasAudio && !(post as any).repostOfId) {
       items.push(
         <View key="audio" style={{ flexDirection: "row", alignItems: "center", gap: 4 }}>
           <Ionicons name="musical-notes" size={12} color={colors.text.muted} />
@@ -234,28 +236,31 @@ function PostHeaderInner({
 
   return (
     <View style={s.header}>
-      <TouchableOpacity
-        style={s.authorRow}
-        onPress={() => onAuthorPress?.(post)}
-        activeOpacity={0.7}
-      >
-        <View style={{ position: "relative" }}>
-          <View style={s.avatar}>
-            {author.avatarUrl ? (
-              <Image source={{ uri: author.avatarUrl }} style={{ width: 44, height: 44, borderRadius: 22 }} />
-            ) : (
-              <Text style={s.avatarEmoji}>{author.avatar}</Text>
-            )}
+      <TouchableWithoutFeedback onPress={() => onBodyTap?.()}>
+        <View style={s.authorRow}>
+          <View style={{ position: "relative" }}>
+            <TouchableOpacity onPress={() => onAuthorPress?.(post)} activeOpacity={0.7}>
+              <View style={s.avatar}>
+                {author.avatarUrl ? (
+                  <Image source={{ uri: author.avatarUrl }} style={{ width: 44, height: 44, borderRadius: 22 }} />
+                ) : (
+                  <Text style={s.avatarEmoji}>{author.avatar}</Text>
+                )}
+              </View>
+            </TouchableOpacity>
+            <ActiveStatusDot userId={author.id || undefined} size={12} style={{ bottom: -2, right: -2 }} />
           </View>
-          <ActiveStatusDot userId={author.id || undefined} size={12} style={{ bottom: -2, right: -2 }} />
-        </View>
-        <View style={s.meta}>
-          <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
-            <Text style={[s.author, { flex: 1 }]} numberOfLines={1}>
-              {author.name}
-            </Text>
+          <View style={s.meta}>
+            <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
+              <TouchableOpacity onPress={() => onAuthorPress?.(post)} activeOpacity={0.7} style={{ flexShrink: 1 }}>
+                <Text style={[s.author]} numberOfLines={1}>
+                  {author.name}
+                </Text>
+              </TouchableOpacity>
 
-            {/* XP Pill */}
+              <View style={{ flex: 1 }} />
+
+              {/* XP Pill */}
             {showPill && (
               <Animated.View
                 style={[
@@ -290,6 +295,7 @@ function PostHeaderInner({
               </Animated.View>
             )}
 
+            {/* Three Dots */}
             <View style={{ position: "relative" }}>
               <TouchableOpacity
                 onPress={onMenuToggle}
@@ -302,7 +308,8 @@ function PostHeaderInner({
           </View>
           <RollingText items={rollItems} isActive={isActive ?? true} />
         </View>
-      </TouchableOpacity>
+        </View>
+      </TouchableWithoutFeedback>
     </View>
   );
 }

@@ -13,7 +13,13 @@ import { Ionicons } from "@expo/vector-icons";
 import { radii, spacing, type ColorPalette } from "../../../theme";
 import type { Post } from "../../../types";
 import type { PostCardStyles } from "./shared";
-import { FeedVideo, FeedAudio, ActiveVideo, VideoPoster } from "./shared";
+import {
+  FeedVideo,
+  FeedAudio,
+  ActiveVideo,
+  VideoPoster,
+  ZoomableMedia,
+} from "./shared";
 
 const SCREEN_W = Dimensions.get("window").width;
 
@@ -27,6 +33,8 @@ interface PostMediaProps {
   onBodyTap: () => void;
   onVideoDuration?: (ms: number) => void;
   preloadVideo?: boolean;
+  onPinchStateChange?: (isPinching: boolean) => void;
+  isPinching?: boolean;
 }
 
 function PostMediaInner({
@@ -39,11 +47,16 @@ function PostMediaInner({
   onBodyTap,
   onVideoDuration,
   preloadVideo,
+  onPinchStateChange,
+  isPinching = false,
 }: PostMediaProps) {
   const [currentMediaPage, setCurrentMediaPage] = useState(0);
   const { toggleMediaSound, mediaSoundEnabled } = useAudio();
   // Local mute override: per-card mute state that inherits from global preference
   const [localMuted, setLocalMuted] = useState(!mediaSoundEnabled);
+  // Long press tracking for simple pause/play override
+  const [isLongPressing, setIsLongPressing] = useState(false);
+
   // Sync with global pref when it changes
   useEffect(() => {
     setLocalMuted(!mediaSoundEnabled);
@@ -52,13 +65,20 @@ function PostMediaInner({
   const isMuted = localMuted;
 
   const allMedia = (post as any).media || [];
-  const hasMedia = allMedia.length > 0 || !!post.mediaUri || (post.type === "image" && !!post.image);
+  const hasMedia =
+    allMedia.length > 0 ||
+    !!post.mediaUri ||
+    (post.type === "image" && !!post.image);
 
   if (allMedia.length === 0) {
     return post.mediaUri ? (
       <Image
         source={{ uri: post.mediaUri }}
-        style={{ width: mediaW, height: previewH, backgroundColor: "#000" }}
+        style={{
+          width: mediaW,
+          height: previewH,
+          backgroundColor: colors.bg.card,
+        }}
         contentFit="contain"
       />
     ) : post.type === "image" && post.image ? (
@@ -78,81 +98,136 @@ function PostMediaInner({
     (m: any) => m.media_type === "audio" || m.type === "audio",
   );
   const hasAudioTrack = audioMedia.length > 0;
+  // Check if current carousel item has audio
+  const currentMedia = visualMedia[currentMediaPage] as any;
+  const currentHasAudio = currentMedia?.has_audio ?? (hasAudioTrack || false);
+
+  const renderMediaItem = (m: any, idx: number) => {
+    const url = m.media_url;
+    const isVideo = m.media_type === "video" || m.type === "video";
+    const isCurrentPage = idx === currentMediaPage;
+    const shouldPlay = isCurrentPage && isActive;
+    // Preload: mount first video as ActiveVideo with preloadOnly=true
+    // (buffers but doesn't play). Only for the next post in feed.
+    const shouldPreload = preloadVideo && idx === 0 && isVideo && !isActive;
+
+    if (isVideo) {
+      return (
+        <TouchableWithoutFeedback
+          key={idx}
+          onPress={onBodyTap}
+          onLongPress={() => setIsLongPressing(true)}
+          onPressOut={() => setIsLongPressing(false)}
+          delayLongPress={200}
+        >
+          <View
+            style={{
+              width: mediaW,
+              height: previewH,
+              backgroundColor: colors.bg.card,
+              overflow: "visible",
+              opacity: isPinching && !isCurrentPage ? 0 : 1,
+            }}
+          >
+            <ZoomableMedia
+              width={mediaW}
+              height={previewH}
+              onPinchStateChange={onPinchStateChange}
+            >
+              {shouldPlay ? (
+                <ActiveVideo
+                  url={url}
+                  width={mediaW}
+                  height={previewH}
+                  muted={isMuted || hasAudioTrack}
+                  loop
+                  onDuration={onVideoDuration}
+                  isPausedOverride={isLongPressing}
+                />
+              ) : shouldPreload ? (
+                <ActiveVideo
+                  url={url}
+                  width={mediaW}
+                  height={previewH}
+                  muted
+                  loop
+                  preloadOnly
+                />
+              ) : (
+                <VideoPoster
+                  url={url}
+                  previewUrl={m.preview_url}
+                  width={mediaW}
+                  height={previewH}
+                />
+              )}
+            </ZoomableMedia>
+          </View>
+        </TouchableWithoutFeedback>
+      );
+    }
+    return url ? (
+      <TouchableWithoutFeedback key={idx} onPress={onBodyTap}>
+        <View
+          style={{
+            width: mediaW,
+            height: previewH,
+            backgroundColor: colors.bg.card,
+            overflow: "visible",
+            opacity: isPinching && !isCurrentPage ? 0 : 1,
+          }}
+        >
+          <ZoomableMedia
+            width={mediaW}
+            height={previewH}
+            onPinchStateChange={onPinchStateChange}
+          >
+            <Image
+              source={{ uri: url }}
+              style={{ width: mediaW, height: previewH }}
+              contentFit="contain"
+            />
+          </ZoomableMedia>
+        </View>
+      </TouchableWithoutFeedback>
+    ) : null;
+  };
 
   return (
-    <View style={{ position: "relative" }}>
-      {visualMedia.length > 0 && (
+    <View
+      style={{
+        position: "relative",
+        overflow: isPinching ? "visible" : "hidden",
+        zIndex: 10,
+      }}
+    >
+      {visualMedia.length === 1 ? (
+        renderMediaItem(visualMedia[0], 0)
+      ) : visualMedia.length > 1 ? (
         <ScrollView
+          style={{ overflow: isPinching ? "visible" : "hidden" }}
           horizontal
-          pagingEnabled
           showsHorizontalScrollIndicator={false}
-          snapToInterval={mediaW}
+          snapToInterval={mediaW + 4}
+          disableIntervalMomentum={true}
           decelerationRate="fast"
+          contentContainerStyle={{ gap: 4 }}
           onScroll={(e) => {
             const x = e.nativeEvent.contentOffset.x;
             const page = Math.max(
               0,
-              Math.min(visualMedia.length - 1, Math.round(x / mediaW)),
+              Math.min(visualMedia.length - 1, Math.round(x / (mediaW + 4))),
             );
             if (page !== currentMediaPage) setCurrentMediaPage(page);
           }}
           scrollEventThrottle={16}
         >
-          {visualMedia.map((m: any, idx: number) => {
-            const url = m.media_url || m.cloudfront_url || m.url || m.uri;
-            const isVideo = m.media_type === "video" || m.type === "video";
-            const isCurrentPage = idx === currentMediaPage;
-            const shouldPlay = isCurrentPage && isActive;
-            // Preload: mount first video as ActiveVideo with preloadOnly=true
-            // (buffers but doesn't play). Only for the next post in feed.
-            const shouldPreload = preloadVideo && idx === 0 && isVideo && !isActive;
-
-            if (isVideo) {
-              return (
-                <TouchableWithoutFeedback key={idx} onPress={onBodyTap}>
-                  <View
-                    style={{ width: mediaW, height: previewH, backgroundColor: "#000" }}
-                  >
-                    {shouldPlay ? (
-                      <ActiveVideo
-                        url={url}
-                        width={mediaW}
-                        height={previewH}
-                        muted={isMuted || hasAudioTrack}
-                        loop
-                        onDuration={onVideoDuration}
-                      />
-                    ) : shouldPreload ? (
-                      <ActiveVideo
-                        url={url}
-                        width={mediaW}
-                        height={previewH}
-                        muted
-                        loop
-                        preloadOnly
-                      />
-                    ) : (
-                      <VideoPoster url={url} previewUrl={m.preview_url} width={mediaW} height={previewH} />
-                    )}
-                  </View>
-                </TouchableWithoutFeedback>
-              );
-            }
-            return url ? (
-              <TouchableWithoutFeedback key={idx} onPress={onBodyTap}>
-                <Image
-                  source={{ uri: url }}
-                  style={{ width: mediaW, height: previewH, backgroundColor: "#000" }}
-                  contentFit="contain"
-                />
-              </TouchableWithoutFeedback>
-            ) : null;
-          })}
+          {visualMedia.map(renderMediaItem)}
         </ScrollView>
-      )}
+      ) : null}
 
       {/* Pagination Dots */}
-      {visualMedia.length > 1 && (
+      {visualMedia.length > 1 && !isPinching && (
         <View
           style={{
             position: "absolute",
@@ -184,12 +259,11 @@ function PostMediaInner({
         </View>
       )}
 
-      {/* Invisible audio playback */}
-      {/* Audio playback � only when active, uses expo-audio properly */}
+      {/* Audio playback — renders nothing visible, just plays audio */}
       {audioMedia.length > 0 && isActive && (
-        <View style={{ position: "absolute", opacity: 0, width: 0, height: 0 }}>
+        <>
           {audioMedia.map((m: any, idx: number) => {
-            const url = m.media_url || m.cloudfront_url || m.url || m.uri;
+            const url = m.media_url;
             return url ? (
               <FeedAudio
                 key={`bg-audio-${idx}`}
@@ -200,14 +274,16 @@ function PostMediaInner({
               />
             ) : null;
           })}
-        </View>
+        </>
       )}
 
       {/* Mute Toggle Overlay — show only for active post with audio/video */}
-      {isActive && (hasAudioTrack ||
-        visualMedia.some(
-          (m: any) => m.media_type === "video" || m.type === "video",
-        )) && (
+      {isActive &&
+        !isPinching &&
+        (hasAudioTrack ||
+          visualMedia.some(
+            (m: any) => m.media_type === "video" || m.type === "video",
+          )) && (
           <TouchableOpacity
             style={{
               position: "absolute",
@@ -221,13 +297,22 @@ function PostMediaInner({
               justifyContent: "center",
               zIndex: 10,
             }}
-            onPress={() => { setLocalMuted((prev) => !prev); toggleMediaSound(); }}
+            onPress={() => {
+              setLocalMuted((prev) => !prev);
+              toggleMediaSound();
+            }}
             activeOpacity={0.7}
           >
             <Ionicons
-              name={isMuted ? "volume-mute" : "volume-high"}
+              name={
+                !currentHasAudio
+                  ? "volume-off"
+                  : isMuted
+                    ? "volume-mute"
+                    : "volume-high"
+              }
               size={14}
-              color="#fff"
+              color={!currentHasAudio ? "rgba(255,255,255,0.5)" : "#fff"}
             />
           </TouchableOpacity>
         )}

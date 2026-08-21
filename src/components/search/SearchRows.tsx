@@ -38,6 +38,9 @@ export type RowCtx = {
   openSettings: () => void;
   openNotifications: () => void;
   addHashtag: (tag: string) => void;
+  /** Reports this candidate's position in scroll-content space so the
+   *  gaze-zone tracker can compute the closest-to-centre post. */
+  trackLayout?: (id: string, rect: { top: number; bottom: number }) => void;
 };
 
 // Search returns raw snake_case columns — normalize them into the camelCase
@@ -145,27 +148,34 @@ const PostRow = ({ data, ctx }: RowProps) => {
   // so the useToggleSave/useToggleLike cache updates miss them).
   const { styles } = ctx;
   return (
-    <PostCard
-      post={post}
-      isActive={ctx.isFocused && post.id === ctx.activePostId}
-      onLike={() => {
-        ctx.toggleLike(post.id, post.isLiked || false);
-        ctx.patchPost(post.id, { isLiked: !post.isLiked });
+    <View
+      onLayout={(e) => {
+        const { y, height } = e.nativeEvent.layout;
+        ctx.trackLayout?.(post.id, { top: y, bottom: y + height });
       }}
-      onSave={() => {
-        ctx.toggleSave(post.id, post.isSaved || false);
-        ctx.patchPost(post.id, { isSaved: !post.isSaved });
-      }}
-      onComment={(p: any) => ctx.openPost(p ?? post)}
-      onShare={() => ctx.sharePost(post)}
-      onAuthorPress={() => ctx.openUser(post.author)}
-      onReport={() => ctx.reportPost()}
-      showDelete={
-        !!ctx.currentUserId &&
-        ctx.currentUserId === (post as any)?.author?.id
-      }
-      onReposted={() => ctx.refresh()}
-    />
+    >
+      <PostCard
+        post={post}
+        isActive={ctx.isFocused && post.id === ctx.activePostId}
+        onLike={() => {
+          ctx.toggleLike(post.id, post.isLiked || false);
+          ctx.patchPost(post.id, { isLiked: !post.isLiked });
+        }}
+        onSave={() => {
+          ctx.toggleSave(post.id, post.isSaved || false);
+          ctx.patchPost(post.id, { isSaved: !post.isSaved });
+        }}
+        onComment={(p: any) => ctx.openPost(p ?? post)}
+        onShare={() => ctx.sharePost(post)}
+        onAuthorPress={() => ctx.openUser(post.author)}
+        onReport={() => ctx.reportPost()}
+        showDelete={
+          !!ctx.currentUserId &&
+          ctx.currentUserId === (post as any)?.author?.id
+        }
+        onReposted={() => ctx.refresh()}
+      />
+    </View>
   );
 };
 
@@ -491,12 +501,7 @@ const CommentRow = ({ data, ctx }: RowProps) => {
 // the post's detail.
 const MediaRow = ({ data, ctx }: RowProps) => {
   const { styles, colors } = ctx;
-  const mediaUri =
-    data.media_url || data.cloudfront_url ||
-    data.preview_url || data.vimeo_thumbnail_url ||
-    data.vimeo_player_url ||
-    data.vimeo_uri ||
-    "";
+  const mediaUri = data.media_url || "";
   return (
     <TouchableOpacity
       style={styles.peopleRow}

@@ -1,4 +1,10 @@
-import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import React, {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import {
   View,
   Text,
@@ -34,6 +40,7 @@ import {
   FeedVideo,
   formatInstagramTime,
   makePostCardStyles,
+  RollingText,
 } from "./postcard/shared";
 
 const SCREEN_W = Dimensions.get("window").width;
@@ -88,6 +95,7 @@ function PostCardInner({
 
   const [showMenu, setShowMenu] = useState(false);
   const [isExpanded, setIsExpanded] = useState(false);
+  const [isPinching, setIsPinching] = useState(false);
   const postId = String(post?.id || "");
 
   // ── Poll state (shared between card and actions menu) ───────────────────
@@ -123,19 +131,33 @@ function PostCardInner({
     const raw = (post as any)?.author || {};
     return {
       id: raw.id || (post as any)?.authorId || (post as any)?.author_id || "",
-      name: raw.name || (post as any)?.authorName || (post as any)?.author_name || "Unknown User",
-      username: raw.username || (post as any)?.authorUsername || (post as any)?.author_username || "unknown",
-      avatarUrl: raw.avatarUrl || raw.avatar_url || (post as any)?.authorAvatar || (post as any)?.author_avatar,
+      name:
+        raw.name ||
+        (post as any)?.authorName ||
+        (post as any)?.author_name ||
+        "Unknown User",
+      username:
+        raw.username ||
+        (post as any)?.authorUsername ||
+        (post as any)?.author_username ||
+        "unknown",
+      avatarUrl:
+        raw.avatarUrl ||
+        raw.avatar_url ||
+        (post as any)?.authorAvatar ||
+        (post as any)?.author_avatar,
       avatar: raw.avatar || "👾",
       repostsEnabled:
-        (raw.repostsEnabled ?? (post as any)?.authorRepostsEnabled ?? (post as any)?.author_reposts_enabled) !== false,
+        (raw.repostsEnabled ??
+          (post as any)?.authorRepostsEnabled ??
+          (post as any)?.author_reposts_enabled) !== false,
     };
   }, [post]);
 
   // ── Media dimensions ────────────────────────────────────────────────────
-  const mediaW = fullBleed ? SCREEN_W : CARD_W;
+  const mediaW = fullBleed ? SCREEN_W : CARD_W - 2;
   const previewH = useMemo(() => {
-    const baseW = fullBleed ? SCREEN_W : CARD_W;
+    const baseW = fullBleed ? SCREEN_W : CARD_W - 2;
     let h = baseW;
     const media = (post as any).media;
     if (media && media.length > 0) {
@@ -176,7 +198,11 @@ function PostCardInner({
 
   const handleLike = useCallback(() => {
     Animated.sequence([
-      Animated.spring(scale, { toValue: 1.3, useNativeDriver: true, speed: 50 }),
+      Animated.spring(scale, {
+        toValue: 1.3,
+        useNativeDriver: true,
+        speed: 50,
+      }),
       Animated.spring(scale, { toValue: 1, useNativeDriver: true, speed: 50 }),
     ]).start();
     onLike?.(postId);
@@ -237,7 +263,10 @@ function PostCardInner({
 
   // ── Text rendering ──────────────────────────────────────────────────────
   const allMedia = (post as any).media || [];
-  const hasMedia = allMedia.length > 0 || !!post.mediaUri || (post.type === "image" && !!post.image);
+  const hasMedia =
+    allMedia.length > 0 ||
+    !!post.mediaUri ||
+    (post.type === "image" && !!post.image);
   const contentLimitLines = hasMedia ? 2 : 10;
   const contentCharLimit = hasMedia ? 80 : 350;
 
@@ -260,7 +289,16 @@ function PostCardInner({
                   style={{ color: colors.primaryLight, fontWeight: "700" }}
                   onPress={() =>
                     navigation.push("UserProfile", {
-                      user: { id, name, username: name, handle: name, avatar: "", level: 1, xp: 0, xpToNext: 100 },
+                      user: {
+                        id,
+                        name,
+                        username: name,
+                        handle: name,
+                        avatar: "",
+                        level: 1,
+                        xp: 0,
+                        xpToNext: 100,
+                      },
                     } as any)
                   }
                 >
@@ -274,23 +312,33 @@ function PostCardInner({
                 <Text
                   key={i}
                   style={{ color: colors.cyanLight }}
-                  onPress={() => navigation.navigate("Search", { query: hashMatch[1], tab: "hashtags" })}
+                  onPress={() =>
+                    navigation.navigate("Search", {
+                      query: hashMatch[1],
+                      tab: "hashtags",
+                    })
+                  }
                 >
                   #{hashMatch[1]}
                 </Text>
               );
             }
-            const communityMatch = part.match(/^\{c\/\}\[([^\]]+)\]\(([^)]+)\)$/);
+            const communityMatch = part.match(
+              /^\{c\/\}\[([^\]]+)\]\(([^)]+)\)$/,
+            );
             if (communityMatch) {
               return (
                 <Text
                   key={i}
                   style={{ color: colors.cyanLight, fontWeight: "700" }}
                   onPress={() =>
-                    navigation.navigate("Community" as any, {
-                      screen: "CommunityDetail",
-                      params: { communitySlug: communityMatch[1] },
-                    } as any)
+                    navigation.navigate(
+                      "Community" as any,
+                      {
+                        screen: "CommunityDetail",
+                        params: { communitySlug: communityMatch[1] },
+                      } as any,
+                    )
                   }
                 >
                   c/{communityMatch[1]}
@@ -304,10 +352,13 @@ function PostCardInner({
                   key={i}
                   style={{ color: colors.cyanLight, fontWeight: "700" }}
                   onPress={() =>
-                    navigation.navigate("Community" as any, {
-                      screen: "CommunityDetail",
-                      params: { communitySlug: plainCommunityMatch[1] },
-                    } as any)
+                    navigation.navigate(
+                      "Community" as any,
+                      {
+                        screen: "CommunityDetail",
+                        params: { communitySlug: plainCommunityMatch[1] },
+                      } as any,
+                    )
                   }
                 >
                   c/{plainCommunityMatch[1]}
@@ -321,7 +372,16 @@ function PostCardInner({
                   style={{ color: colors.primaryLight, fontWeight: "700" }}
                   onPress={() =>
                     navigation.push("UserProfile", {
-                      user: { id: part.slice(1), name: part.slice(1), username: part.slice(1), handle: part.slice(1), avatar: "", level: 1, xp: 0, xpToNext: 100 },
+                      user: {
+                        id: part.slice(1),
+                        name: part.slice(1),
+                        username: part.slice(1),
+                        handle: part.slice(1),
+                        avatar: "",
+                        level: 1,
+                        xp: 0,
+                        xpToNext: 100,
+                      },
                     } as any)
                   }
                 >
@@ -331,7 +391,13 @@ function PostCardInner({
             }
             if (part.startsWith("<mark>") && part.endsWith("</mark>")) {
               return (
-                <Text key={i} style={{ backgroundColor: colors.primaryLight + "40", fontWeight: "700" }}>
+                <Text
+                  key={i}
+                  style={{
+                    backgroundColor: colors.primaryLight + "40",
+                    fontWeight: "700",
+                  }}
+                >
                   {part.slice(6, -7)}
                 </Text>
               );
@@ -341,7 +407,12 @@ function PostCardInner({
                 <Text
                   key={i}
                   style={{ color: colors.cyanLight }}
-                  onPress={() => navigation.navigate("Search", { query: part.replace("#", ""), tab: "hashtags" })}
+                  onPress={() =>
+                    navigation.navigate("Search", {
+                      query: part.replace("#", ""),
+                      tab: "hashtags",
+                    })
+                  }
                 >
                   {part}
                 </Text>
@@ -376,11 +447,26 @@ function PostCardInner({
           };
         });
       };
-      queryClient.getQueryCache().findAll({ queryKey: queryKeys.feed }).forEach(apply);
-      queryClient.getQueryCache().findAll({ queryKey: ["bookmarks"] }).forEach(apply);
-      queryClient.getQueryCache().findAll({ queryKey: ["profile"] }).forEach(apply);
-      queryClient.getQueryCache().findAll({ queryKey: ["community"] }).forEach(apply);
-      queryClient.getQueryCache().findAll({ queryKey: ["search"] }).forEach(apply);
+      queryClient
+        .getQueryCache()
+        .findAll({ queryKey: queryKeys.feed })
+        .forEach(apply);
+      queryClient
+        .getQueryCache()
+        .findAll({ queryKey: ["bookmarks"] })
+        .forEach(apply);
+      queryClient
+        .getQueryCache()
+        .findAll({ queryKey: ["profile"] })
+        .forEach(apply);
+      queryClient
+        .getQueryCache()
+        .findAll({ queryKey: ["community"] })
+        .forEach(apply);
+      queryClient
+        .getQueryCache()
+        .findAll({ queryKey: ["search"] })
+        .forEach(apply);
     },
     [queryClient, postId],
   );
@@ -399,144 +485,165 @@ function PostCardInner({
   // ── Render ──────────────────────────────────────────────────────────────
   return (
     <TouchableWithoutFeedback onPress={handleBodyTap}>
-    <View
-      style={[
-        styles.card,
-        fullBleed && styles.cardFullBleed,
-        { zIndex: showMenu ? 99 : 1, elevation: showMenu ? 99 : 1 },
-      ]}
-    >
-      <PostHeader
-        post={post}
-        author={author}
-        colors={colors}
-        styles={styles}
-        onAuthorPress={onAuthorPress}
-        onMenuToggle={() => setShowMenu((v) => !v)}
-        index={index}
-        isActive={isActive}
-      />
-
-      {/* Body text */}
-      <TouchableWithoutFeedback onPress={handleBodyTap}>
-        <View style={[styles.body, { paddingTop: 0 }]}>
-          {!!(post as any).title &&
-            renderParsedText(
-              (post as any).title,
-              styles.title,
-              isExpanded ? undefined : 2,
-            )}
-          {!!post.content &&
-            renderParsedText(
-              (post as any).highlight_content || post.content,
-              styles.content,
-              isExpanded ? undefined : contentLimitLines,
-            )}
-
-          {!isExpanded &&
-            Boolean(
-              ((post as any).title && (post as any).title.length > 80) ||
-                (post.content && post.content.length > contentCharLimit),
-            ) && (
-              <TouchableOpacity
-                onPress={() => setIsExpanded(true)}
-                style={{ marginTop: -4, marginBottom: 8 }}
-                activeOpacity={0.7}
-              >
-                <Text style={{ color: colors.text.muted, fontSize: fontSizes.sm, fontWeight: "600" }}>
-                  Read more...
-                </Text>
-              </TouchableOpacity>
-            )}
-
-          {/* Reposted original preview */}
-          {(post as any).repostOfId ? (
-            <RepostedPostCard
-              postId={(post as any).repostOfId}
-              wrapperId={post.id}
-              isActive={isActive ?? true}
-              onOpen={(orig) => openPostThread(orig as Post)}
-              onTap={(singleTap) => registerTap(singleTap)}
-            />
-          ) : null}
-        </View>
-      </TouchableWithoutFeedback>
-
-      {/* Media */}
-      <PostMedia
-        post={post}
-        mediaW={mediaW}
-        previewH={previewH}
-        isActive={isActive ?? false}
-        colors={colors}
-        styles={styles}
-        onBodyTap={handleBodyTap}
-        onVideoDuration={(ms) => {}}
-        preloadVideo={preloadVideo}
-      />
-
-      {/* Poll */}
-      {pollData ? (
-        <PollBlock poll={pollData} myVote={myPollVote} onVote={handlePollVote} embedded inset />
-      ) : null}
-
-      {/* Actions */}
-      <PostActions
-        post={post}
-        postId={postId}
-        author={author}
-        displayLikes={displayLikes}
-        displayComments={displayComments}
-        displayShares={displayShares}
-        onLike={handleLike}
-        onComment={onComment}
-        onShare={onShare}
-        onSave={onSave}
-        onReposted={onReposted}
-        showViews={showViews}
-        colors={colors}
-        styles={styles}
-        flipRepostInCaches={flipRepostInCaches}
-        showMenu={showMenu}
-        onMenuToggle={() => setShowMenu((v) => !v)}
-        onDelete={onDelete}
-        onReport={onReport}
-        showDelete={showDelete}
-        onCloseMenu={() => setShowMenu(false)}
-      />
-
-      {/* Double Tap Heart Overlay */}
-      <Animated.View
-        style={{
-          position: "absolute",
-          top: 0,
-          bottom: 0,
-          left: 0,
-          right: 0,
-          alignItems: "center",
-          justifyContent: "center",
-          pointerEvents: "none",
-          opacity: doubleTapAnim.interpolate({
-            inputRange: [0, 1, 1.5],
-            outputRange: [0, 1, 1],
-          }),
-          transform: [{ scale: doubleTapAnim }],
-          zIndex: 10,
-        }}
+      <View
+        style={[
+          styles.card,
+          fullBleed && styles.cardFullBleed,
+          {
+            zIndex: showMenu || isPinching ? 99 : 1,
+            elevation: showMenu || isPinching ? 99 : 1,
+          },
+        ]}
       >
-        <Ionicons
-          name="heart"
-          size={100}
-          color={colors.primaryLight}
-          style={{
-            shadowColor: "#000",
-            shadowOffset: { width: 0, height: 4 },
-            shadowOpacity: 0.3,
-            shadowRadius: 5,
-          }}
+        <PostHeader
+          post={post}
+          author={author}
+          colors={colors}
+          styles={styles}
+          onAuthorPress={onAuthorPress}
+          onMenuToggle={() => setShowMenu((v) => !v)}
+          index={index}
+          isActive={isActive}
+          onBodyTap={handleBodyTap}
         />
-      </Animated.View>
-    </View>
+
+        {/* Body text */}
+        <TouchableWithoutFeedback onPress={handleBodyTap}>
+          <View style={[styles.body, { paddingTop: 0 }]}>
+            {!!(post as any).title &&
+              renderParsedText(
+                (post as any).title,
+                styles.title,
+                isExpanded ? undefined : 2,
+              )}
+            {!!post.content &&
+              renderParsedText(
+                (post as any).highlight_content || post.content,
+                styles.content,
+                isExpanded ? undefined : contentLimitLines,
+              )}
+
+            {!isExpanded &&
+              Boolean(
+                ((post as any).title && (post as any).title.length > 80) ||
+                (post.content && post.content.length > contentCharLimit),
+              ) && (
+                <TouchableOpacity
+                  onPress={() => setIsExpanded(true)}
+                  style={{ marginTop: -4, marginBottom: 8 }}
+                  activeOpacity={0.7}
+                >
+                  <Text
+                    style={{
+                      color: colors.text.muted,
+                      fontSize: fontSizes.sm,
+                      fontWeight: "600",
+                    }}
+                  >
+                    Read more...
+                  </Text>
+                </TouchableOpacity>
+              )}
+
+            {/* Reposted original preview */}
+            {(post as any).repostOfId ? (
+              <RepostedPostCard
+                postId={(post as any).repostOfId}
+                wrapperId={post.id}
+                isActive={isActive ?? true}
+                onOpen={(orig) => openPostThread(orig as Post)}
+                onTap={(singleTap) => registerTap(singleTap)}
+              />
+            ) : null}
+          </View>
+        </TouchableWithoutFeedback>
+
+        {/* Media */}
+        {!(post as any).repostOfId && (
+          <PostMedia
+            post={post}
+            mediaW={mediaW}
+            previewH={previewH}
+            isActive={isActive ?? false}
+            colors={colors}
+            styles={styles}
+            onBodyTap={handleBodyTap}
+            onVideoDuration={(ms) => {}}
+            preloadVideo={preloadVideo}
+            onPinchStateChange={setIsPinching}
+            isPinching={isPinching}
+          />
+        )}
+
+        {/* Poll */}
+        {pollData ? (
+          <PollBlock
+            poll={pollData}
+            myVote={myPollVote}
+            onVote={handlePollVote}
+            embedded
+            inset
+          />
+        ) : null}
+
+        {/* Actions */}
+        <PostActions
+          post={post}
+          postId={postId}
+          author={author}
+          displayLikes={displayLikes}
+          displayComments={displayComments}
+          displayShares={displayShares}
+          onLike={handleLike}
+          onComment={onComment}
+          onShare={onShare}
+          onSave={onSave}
+          onReposted={onReposted}
+          showViews={showViews}
+          colors={colors}
+          styles={styles}
+          flipRepostInCaches={flipRepostInCaches}
+          showMenu={showMenu}
+          onMenuToggle={() => setShowMenu((v) => !v)}
+          onDelete={onDelete}
+          onReport={onReport}
+          showDelete={showDelete}
+          onCloseMenu={() => setShowMenu(false)}
+          onBodyTap={handleBodyTap}
+        />
+
+        {/* Double Tap Heart Overlay */}
+        <Animated.View
+          style={{
+            position: "absolute",
+            top: 0,
+            bottom: 0,
+            left: 0,
+            right: 0,
+            alignItems: "center",
+            justifyContent: "center",
+            pointerEvents: "none",
+            opacity: doubleTapAnim.interpolate({
+              inputRange: [0, 1, 1.5],
+              outputRange: [0, 1, 1],
+            }),
+            transform: [{ scale: doubleTapAnim }],
+            zIndex: 10,
+          }}
+        >
+          <Ionicons
+            name="heart"
+            size={100}
+            color={colors.primaryLight}
+            style={{
+              shadowColor: "#000",
+              shadowOffset: { width: 0, height: 4 },
+              shadowOpacity: 0.3,
+              shadowRadius: 5,
+            }}
+          />
+        </Animated.View>
+      </View>
     </TouchableWithoutFeedback>
   );
 }
@@ -557,7 +664,10 @@ const cacheRepost = (id: string, data: any) => {
   }
 };
 
-const resolveRootPost = async (startId: string, wrapperId?: string): Promise<any | null> => {
+const resolveRootPost = async (
+  startId: string,
+  wrapperId?: string,
+): Promise<any | null> => {
   let current = startId;
   for (let hop = 0; hop < 5; hop++) {
     const cached = repostCache.get(current);
@@ -569,7 +679,8 @@ const resolveRootPost = async (startId: string, wrapperId?: string): Promise<any
     }
     let data: any = null;
     try {
-      const config = hop === 0 && wrapperId ? { viaRepostId: wrapperId } : undefined;
+      const config =
+        hop === 0 && wrapperId ? { viaRepostId: wrapperId } : undefined;
       const res = await postsService.getPost(current, config);
       data = res?.data || null;
     } catch {
@@ -601,7 +712,9 @@ function RepostedPostCard({
   const colors = useThemeColors();
   const [orig, setOrig] = React.useState<any>(() => {
     const cached = repostCache.get(postId);
-    return cached && cached.data && !cached.data.repostOfId ? cached.data : undefined;
+    return cached && cached.data && !cached.data.repostOfId
+      ? cached.data
+      : undefined;
   });
   const [loaded, setLoaded] = React.useState(!!orig);
   const [mediaPage, setMediaPage] = React.useState(0);
@@ -627,7 +740,9 @@ function RepostedPostCard({
         setOrig(null);
         setLoaded(true);
       });
-    return () => { cancelled = true; };
+    return () => {
+      cancelled = true;
+    };
   }, [postId]);
 
   if (!loaded) return null;
@@ -644,14 +759,42 @@ function RepostedPostCard({
           marginBottom: 6,
         }}
       >
-        <Text style={{ fontSize: 12, color: colors.text.muted, fontStyle: "italic" }}>
+        <Text
+          style={{
+            fontSize: 12,
+            color: colors.text.muted,
+            fontStyle: "italic",
+          }}
+        >
           Original post is unavailable
         </Text>
       </View>
     );
   }
 
-  const author = orig.author || {};
+  const rawAuthor = orig.author || {};
+  const extractedUsername =
+    rawAuthor.username ||
+    (orig as any)?.authorUsername ||
+    (orig as any)?.author_username ||
+    "unknown";
+  const author = {
+    id:
+      rawAuthor.id || (orig as any)?.authorId || (orig as any)?.author_id || "",
+    name:
+      rawAuthor.name ||
+      (orig as any)?.authorName ||
+      (orig as any)?.author_name ||
+      extractedUsername ||
+      "Unknown User",
+    username: extractedUsername,
+    avatarUrl:
+      rawAuthor.avatarUrl ||
+      rawAuthor.avatar_url ||
+      (orig as any)?.authorAvatar ||
+      (orig as any)?.author_avatar,
+    avatar: rawAuthor.avatar || "dY`_",
+  };
   const comm = (orig as any).community;
   const commName =
     typeof comm === "object" && comm
@@ -660,11 +803,20 @@ function RepostedPostCard({
         ? comm
         : "";
   const media = (orig as any).media || [];
-  const visual = media.filter((m: any) => m.media_type !== "audio" && m.type !== "audio");
-  const origAudioMedia = media.filter((m: any) => m.media_type === "audio" || m.type === "audio");
+  const visual = media.filter(
+    (m: any) => m.media_type !== "audio" && m.type !== "audio",
+  );
+  const origAudioMedia = media.filter(
+    (m: any) => m.media_type === "audio" || m.type === "audio",
+  );
   const origHasAudio = origAudioMedia.length > 0;
-  const origLoc = (orig as any)?.location as { lat: number; lon: number; place?: string } | null | undefined;
-  const origHasVideo = visual.some((m: any) => m.media_type === "video" || m.type === "video");
+  const origLoc = (orig as any)?.location as
+    | { lat: number; lon: number; place?: string }
+    | null
+    | undefined;
+  const origHasVideo = visual.some(
+    (m: any) => m.media_type === "video" || m.type === "video",
+  );
   const previewW = CARD_W - spacing.md * 2;
   let mediaH = 220;
   const first = visual[0];
@@ -704,38 +856,145 @@ function RepostedPostCard({
           }}
         >
           {author.avatarUrl ? (
-            <Image source={{ uri: author.avatarUrl }} style={{ width: 26, height: 26 }} />
+            <Image
+              source={{ uri: author.avatarUrl }}
+              style={{ width: 26, height: 26 }}
+            />
           ) : (
             <Text style={{ fontSize: 13 }}>👾</Text>
           )}
         </View>
         <View style={{ flex: 1 }}>
           <Text
-            style={{ fontSize: 12, fontWeight: "700", color: colors.text.primary }}
+            style={{
+              fontSize: 12,
+              fontWeight: "700",
+              color: colors.text.primary,
+            }}
             numberOfLines={1}
           >
             {author.name || author.username}
           </Text>
-          <Text style={{ fontSize: 11, color: colors.text.secondary, fontWeight: "500" }}>
-            @{author.username}
-            {commName ? (
-              <Text style={{ color: colors.primaryLight, fontWeight: "700" }}>
-                {" "}• c/{commName}
-              </Text>
-            ) : null}
-            {" · "}
-            {formatInstagramTime((orig as any).createdAt || (orig as any).publishedAt)}
-          </Text>
+          <RollingText
+            isActive={isActive ?? true}
+            items={[
+              <Text
+                key="username"
+                style={{
+                  fontSize: 10,
+                  color: colors.text.secondary,
+                  fontWeight: "500",
+                  marginTop: 0,
+                }}
+              >
+                @{author.username}
+                {commName ? (
+                  <Text
+                    style={{ color: colors.primaryLight, fontWeight: "700" }}
+                  >
+                    {" "}
+                    • c/{commName}
+                  </Text>
+                ) : null}
+              </Text>,
+              <Text
+                key="time"
+                style={{
+                  fontSize: 10,
+                  color: colors.text.secondary,
+                  fontWeight: "500",
+                  marginTop: 0,
+                }}
+              >
+                {formatInstagramTime(
+                  (orig as any).createdAt || (orig as any).publishedAt,
+                )}
+              </Text>,
+              ...(origLoc && !(orig as any).repostOfId
+                ? [
+                    <View
+                      key="location"
+                      style={{
+                        flexDirection: "row",
+                        alignItems: "center",
+                        gap: 4,
+                      }}
+                    >
+                      <Ionicons
+                        name="location"
+                        size={12}
+                        color={colors.text.muted}
+                      />
+                      <Text
+                        style={{
+                          color: colors.text.muted,
+                          fontSize: 10,
+                          fontWeight: "500",
+                        }}
+                        numberOfLines={1}
+                      >
+                        {origLoc.place ||
+                          `${(origLoc.lat ?? 0).toFixed(4)}, ${(origLoc.lon ?? 0).toFixed(4)}`}
+                      </Text>
+                    </View>,
+                  ]
+                : []),
+              ...(origHasAudio
+                ? [
+                    <View
+                      key="audio"
+                      style={{
+                        flexDirection: "row",
+                        alignItems: "center",
+                        gap: 4,
+                      }}
+                    >
+                      <Ionicons
+                        name="musical-notes"
+                        size={12}
+                        color={colors.text.muted}
+                      />
+                      <Text
+                        style={{
+                          color: colors.text.muted,
+                          fontSize: 10,
+                          fontWeight: "500",
+                        }}
+                        numberOfLines={1}
+                      >
+                        Original Audio
+                      </Text>
+                    </View>,
+                  ]
+                : []),
+            ]}
+          />
         </View>
       </View>
 
       {(orig as any).title ? (
-        <Text style={{ fontSize: fontSizes.md, fontWeight: '700', color: colors.text.primary, lineHeight: 21 }} numberOfLines={2}>
+        <Text
+          style={{
+            fontSize: fontSizes.md,
+            fontWeight: "700",
+            color: colors.text.primary,
+            lineHeight: 21,
+          }}
+          numberOfLines={2}
+        >
           {(orig as any).title}
         </Text>
       ) : null}
       {(orig as any).content ? (
-        <Text style={{ fontSize: fontSizes.sm, color: colors.text.secondary, lineHeight: 18, marginTop: (orig as any).title ? 4 : 0 }} numberOfLines={3}>
+        <Text
+          style={{
+            fontSize: fontSizes.sm,
+            color: colors.text.secondary,
+            lineHeight: 18,
+            marginTop: (orig as any).title ? 4 : 0,
+          }}
+          numberOfLines={3}
+        >
           {(orig as any).content}
         </Text>
       ) : null}
@@ -744,7 +1003,7 @@ function RepostedPostCard({
       {origAudioMedia.length > 0 && (
         <View style={{ position: "absolute", opacity: 0, width: 0, height: 0 }}>
           {origAudioMedia.map((m: any, idx: number) => {
-            const url = m.media_url || m.cloudfront_url || m.url || m.uri;
+            const url = m.cloudfront_url || m.url || m.uri || m.media_url;
             return url ? (
               <FeedVideo
                 key={`emb-audio-${idx}`}
@@ -765,25 +1024,35 @@ function RepostedPostCard({
         <View style={{ position: "relative" }}>
           <ScrollView
             horizontal
-            pagingEnabled
             showsHorizontalScrollIndicator={false}
-            snapToInterval={previewW}
+            snapToInterval={previewW + 4}
+            disableIntervalMomentum={true}
             decelerationRate="fast"
+            contentContainerStyle={{ gap: 4 }}
             onScroll={(e) => {
               const x = e.nativeEvent.contentOffset.x;
-              const page = Math.max(0, Math.min(visual.length - 1, Math.round(x / previewW)));
+              const page = Math.max(
+                0,
+                Math.min(visual.length - 1, Math.round(x / (previewW + 4))),
+              );
               if (page !== mediaPage) setMediaPage(page);
             }}
             scrollEventThrottle={16}
           >
             {visual.map((m: any, idx: number) => {
-              const url = m.media_url || m.cloudfront_url || m.url || m.uri;
+              const url = m.cloudfront_url || m.url || m.uri || m.media_url;
               const isVid = m.media_type === "video" || m.type === "video";
               if (!url) return null;
               return (
                 <View
                   key={idx}
-                  style={{ width: previewW, height: mediaH, borderRadius: radii.sm, overflow: "hidden", backgroundColor: "#000" }}
+                  style={{
+                    width: previewW,
+                    height: mediaH,
+                    borderRadius: radii.sm,
+                    overflow: "hidden",
+                    backgroundColor: "#000",
+                  }}
                 >
                   {isVid ? (
                     <FeedVideo
@@ -795,7 +1064,11 @@ function RepostedPostCard({
                       muted={isMuted || origHasAudio}
                     />
                   ) : (
-                    <Image source={{ uri: url }} style={{ width: previewW, height: mediaH }} contentFit="cover" />
+                    <Image
+                      source={{ uri: url }}
+                      style={{ width: previewW, height: mediaH }}
+                      contentFit="cover"
+                    />
                   )}
                 </View>
               );
@@ -803,7 +1076,17 @@ function RepostedPostCard({
           </ScrollView>
 
           {visual.length > 1 && (
-            <View style={{ position: "absolute", bottom: 8, left: 0, right: 0, flexDirection: "row", justifyContent: "center", gap: 5 }}>
+            <View
+              style={{
+                position: "absolute",
+                bottom: 8,
+                left: 0,
+                right: 0,
+                flexDirection: "row",
+                justifyContent: "center",
+                gap: 5,
+              }}
+            >
               {visual.map((_: any, i: number) => (
                 <View
                   key={i}
@@ -811,18 +1094,40 @@ function RepostedPostCard({
                     width: 6,
                     height: 6,
                     borderRadius: 3,
-                    backgroundColor: i === mediaPage ? "#fff" : "rgba(255,255,255,0.5)",
+                    backgroundColor:
+                      i === mediaPage ? "#fff" : "rgba(255,255,255,0.5)",
                   }}
                 />
               ))}
             </View>
           )}
 
-          {/* Audio indicator — bottom-right inside media */}
-          {origHasAudio && (
-            <View style={{ position: "absolute", bottom: 8, right: 8, backgroundColor: "rgba(0,0,0,0.5)", borderRadius: 12, width: 24, height: 24, alignItems: "center", justifyContent: "center" }}>
-              <Ionicons name="musical-notes" size={12} color="#fff" />
-            </View>
+          {/* Audio/Video mute toggle — bottom-right inside media */}
+          {(origHasAudio || origHasVideo) && (
+            <TouchableOpacity
+              activeOpacity={0.7}
+              onPress={(e) => {
+                e.stopPropagation();
+                setIsMuted(!isMuted);
+              }}
+              style={{
+                position: "absolute",
+                bottom: 8,
+                right: 8,
+                backgroundColor: "rgba(0,0,0,0.55)",
+                borderRadius: 13,
+                width: 26,
+                height: 26,
+                alignItems: "center",
+                justifyContent: "center",
+              }}
+            >
+              <Ionicons
+                name={isMuted ? "volume-mute" : "volume-high"}
+                size={14}
+                color="#fff"
+              />
+            </TouchableOpacity>
           )}
         </View>
       )}
@@ -831,21 +1136,68 @@ function RepostedPostCard({
         <PollBlock poll={pollData} myVote={myPollVote} embedded />
       ) : null}
 
-      {(((orig as any).likesCount ?? 0) + ((orig as any).commentsCount ?? 0) + ((orig as any).sharesCount ?? (orig as any).shares ?? 0) > 0 ||
+      {(((orig as any).likesCount ?? 0) +
+        ((orig as any).commentsCount ?? 0) +
+        ((orig as any).sharesCount ?? (orig as any).shares ?? 0) >
+        0 ||
         (isActive && (origHasAudio || origHasVideo))) && (
-        <View style={{ flexDirection: "row", alignItems: "center", gap: 14 }}>
-          <View style={{ flexDirection: "row", alignItems: "center", gap: 2 }}>
-            <Ionicons name="heart-outline" size={13} color={colors.text.muted} />
-            <Text style={{ fontSize: 11, color: colors.text.muted }}>{(orig as any).likesCount ?? 0}</Text>
+        <View
+          style={{
+            flexDirection: "row",
+            alignItems: "center",
+            justifyContent: "space-between",
+          }}
+        >
+          <View style={{ flexDirection: "row", alignItems: "center", gap: 14 }}>
+            <View
+              style={{ flexDirection: "row", alignItems: "center", gap: 2 }}
+            >
+              <Ionicons
+                name="heart-outline"
+                size={13}
+                color={colors.text.muted}
+              />
+              <Text style={{ fontSize: 11, color: colors.text.muted }}>
+                {(orig as any).likesCount ?? 0}
+              </Text>
+            </View>
+            <View
+              style={{ flexDirection: "row", alignItems: "center", gap: 2 }}
+            >
+              <Ionicons
+                name="chatbubble-outline"
+                size={12}
+                color={colors.text.muted}
+              />
+              <Text style={{ fontSize: 11, color: colors.text.muted }}>
+                {(orig as any).commentsCount ?? 0}
+              </Text>
+            </View>
+            <View
+              style={{ flexDirection: "row", alignItems: "center", gap: 2 }}
+            >
+              <Ionicons name="repeat" size={12} color={colors.text.muted} />
+              <Text style={{ fontSize: 11, color: colors.text.muted }}>
+                {(orig as any).sharesCount ?? (orig as any).shares ?? 0}
+              </Text>
+            </View>
           </View>
-          <View style={{ flexDirection: "row", alignItems: "center", gap: 2 }}>
-            <Ionicons name="chatbubble-outline" size={12} color={colors.text.muted} />
-            <Text style={{ fontSize: 11, color: colors.text.muted }}>{(orig as any).commentsCount ?? 0}</Text>
-          </View>
-          <View style={{ flexDirection: "row", alignItems: "center", gap: 2 }}>
-            <Ionicons name="repeat" size={12} color={colors.text.muted} />
-            <Text style={{ fontSize: 11, color: colors.text.muted }}>{(orig as any).sharesCount ?? (orig as any).shares ?? 0}</Text>
-          </View>
+          {visual.length === 0 && origHasAudio && (
+            <TouchableOpacity
+              activeOpacity={0.7}
+              onPress={(e) => {
+                e.stopPropagation();
+                setIsMuted(!isMuted);
+              }}
+              style={{ padding: 4 }}
+            >
+              <Ionicons
+                name={isMuted ? "volume-mute" : "volume-high"}
+                size={16}
+                color={colors.text.primary}
+              />
+            </TouchableOpacity>
+          )}
         </View>
       )}
     </TouchableOpacity>

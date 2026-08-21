@@ -24,6 +24,7 @@ import {
 } from "../../components/search/SearchRows";
 import { makeStyles as makeSearchStyles } from "../../components/search/searchStyles";
 import { useToggleLike, useToggleSave } from "../../mutations/posts";
+import { useActivePostTracking } from "../../hooks/useActivePostTracking";
 
 type NavProp = NativeStackNavigationProp<HomeStackParamList, "Bookmarks">;
 
@@ -101,17 +102,17 @@ export default function BookmarksScreen() {
   const searchReqRef = useRef(0);
 
   const [serverTypes, setServerTypes] = useState<string[]>([]);
-  const [activePostId, setActivePostId] = useState<string | null>(null);
-  const viewabilityConfig = useRef({ itemVisiblePercentThreshold: 60 }).current;
-  const onViewableItemsChanged = useRef(({ viewableItems }: any) => {
-    const postRow = (viewableItems || []).find(
-      (v: any) => v.item?.type === "posts" && v.isViewable,
-    );
-    if (postRow) {
-      const id = postRow.item.item.id;
-      setActivePostId((prev) => (prev === id ? prev : id));
-    }
-  }).current;
+  // Gaze-zone active-post tracking — same algorithm as SharedFeed.
+  // Only posts rows participate; other bookmark types (profiles, communities…)
+  // don’t call trackItemLayout and are skipped by the gaze math.
+  const { activePostId, viewabilityConfig, onViewableItemsChanged,
+          trackLayout, handleScroll: handleScrollForTracking } =
+    useActivePostTracking([], {
+      getPostId: (row: any) =>
+        !row.isHeader && (row.type === 'posts' || row.type === 'post')
+          ? (row.item?.id ?? null)
+          : null,
+    });
 
   const { mutate: toggleLike } = useToggleLike();
   const { mutate: toggleSave } = useToggleSave();
@@ -192,6 +193,7 @@ export default function BookmarksScreen() {
       openSettings: () => (navigation as any).navigate("Settings"),
       openNotifications: () => (navigation as any).navigate("Notifications"),
       addHashtag: () => {},
+      trackLayout,
     }),
     [
       searchStyles,
@@ -203,6 +205,7 @@ export default function BookmarksScreen() {
       toggleLike,
       toggleSave,
       handleRefresh,
+      trackLayout,
     ],
   );
 
@@ -286,8 +289,9 @@ export default function BookmarksScreen() {
               onEndReachedThreshold={0.4}
               renderItem={renderItem}
               ItemSeparatorComponent={() => <View style={{ height: 10 }} />}
-              onViewableItemsChanged={onViewableItemsChanged}
               viewabilityConfig={viewabilityConfig}
+              onViewableItemsChanged={onViewableItemsChanged}
+              onScroll={handleScrollForTracking}
               scrollEventThrottle={16}
             />
           )}

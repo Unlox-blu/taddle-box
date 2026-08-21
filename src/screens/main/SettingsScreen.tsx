@@ -758,16 +758,16 @@ const maskPhone = (phone?: string, countryCode?: string) => {
 
 // ─── Sub-components (each reads theme independently) ─────────────────────────
 
-function ContentSectionHeader({ title }: { title: string }) {
+const ContentSectionHeader = React.memo(function ContentSectionHeader({ title }: { title: string }) {
   const colors = useThemeColors();
   return (
     <Text style={[shared.sectionHeader, { color: colors.text.muted }]}>
       {title}
     </Text>
   );
-}
+})
 
-function SettingsGroup({ children }: { children: React.ReactNode }) {
+const SettingsGroup = React.memo(function SettingsGroup({ children }: { children: React.ReactNode }) {
   const colors = useThemeColors();
   return (
     <View
@@ -779,7 +779,7 @@ function SettingsGroup({ children }: { children: React.ReactNode }) {
       {children}
     </View>
   );
-}
+})
 
 type RowProps = {
   icon: keyof typeof Ionicons.glyphMap;
@@ -790,7 +790,7 @@ type RowProps = {
   last?: boolean;
 };
 
-function SettingsRow({ icon, label, value, description, onPress, last }: RowProps) {
+const SettingsRow = React.memo(function SettingsRow({ icon, label, value, description, onPress, last }: RowProps) {
   const colors = useThemeColors();
   return (
     <>
@@ -830,7 +830,7 @@ function SettingsRow({ icon, label, value, description, onPress, last }: RowProp
       )}
     </>
   );
-}
+})
 
 type ToggleProps = {
   icon: keyof typeof Ionicons.glyphMap;
@@ -841,7 +841,7 @@ type ToggleProps = {
   last?: boolean;
 };
 
-function SettingsToggle({
+const SettingsToggle = React.memo(function SettingsToggle({
   icon,
   label,
   description,
@@ -883,7 +883,7 @@ function SettingsToggle({
       )}
     </>
   );
-}
+})
 
 // ─── Styles ───────────────────────────────────────────────────────────────────
 

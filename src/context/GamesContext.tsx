@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useReducer, useCallback } from 'react';
+import React, { createContext, useContext, useReducer, useCallback, useMemo } from 'react';
 import { gamesService } from '../services/games.service';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -176,8 +176,7 @@ export function GamesProvider({ children }: { children: React.ReactNode }) {
     }
   }, []);
 
-  return (
-    <GamesContext.Provider value={{
+  const ctxValue = useMemo(() => ({
       matches:  state.matches,
       games: state.games,
       trendingSlugs: state.trendingSlugs,
@@ -185,7 +184,7 @@ export function GamesProvider({ children }: { children: React.ReactNode }) {
       fetchGamesData,
       refreshMatchHistory,
       refreshGames,
-      addMatch: async (matchData) => {
+      addMatch: async (matchData: any) => {
         const normalized = matchData?.result === 'WIN' || matchData?.result === 'LOSS'
           ? formatMatch(matchData)
           : matchData;
@@ -199,7 +198,10 @@ export function GamesProvider({ children }: { children: React.ReactNode }) {
 
         dispatch({ type: 'ADD_MATCH', match });
       },
-    }}>
+    }), [state.matches, state.games, state.trendingSlugs, state.isLoading, fetchGamesData, refreshMatchHistory, refreshGames]);
+
+  return (
+    <GamesContext.Provider value={ctxValue}>
       {children}
     </GamesContext.Provider>
   );

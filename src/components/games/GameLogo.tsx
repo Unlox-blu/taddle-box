@@ -1,5 +1,6 @@
 import React from "react";
-import { Image, StyleSheet, Text, View, type ViewStyle } from "react-native";
+import { StyleSheet, Text, View, type ViewStyle } from "react-native";
+import { Image } from "expo-image";
 import { LinearGradient } from "expo-linear-gradient";
 import { Ionicons } from "@expo/vector-icons";
 
@@ -71,7 +72,7 @@ export default function GameLogo({
         <Image
           source={game.logo}
           style={{ width: size, height: size, borderRadius: r }}
-          resizeMode="cover"
+          contentFit="cover"
         />
       </View>
     );
@@ -82,7 +83,7 @@ export default function GameLogo({
       <Image
         source={{ uri: game.imageUrl }}
         style={{ width: size, height: size, borderRadius: r }}
-        resizeMode="cover"
+        contentFit="cover"
       />
     );
   }

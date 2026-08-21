@@ -19,6 +19,7 @@ import CommentsThread from '../../components/home/CommentsThread';
 import { themedAlert } from '../../components/common/ThemedAlert';
 import { userService } from '../../services/user.service';
 import { communityService } from '../../services/community.service';
+import StateBlock from '../../components/common/StateBlock';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'PostDetail'>;
 
@@ -80,7 +81,6 @@ export default function PostDetailScreen({ navigation, route }: Props) {
   const [isCheckingAccess, setIsCheckingAccess] = useState(true);
   const [followRequested, setFollowRequested] = useState(false);
   const [joinRequested, setJoinRequested] = useState(false);
-
   const livePostRef = useRef<any>(livePost);
   livePostRef.current = livePost;
   const composerRef = useRef<any>(null);
@@ -334,7 +334,7 @@ export default function PostDetailScreen({ navigation, route }: Props) {
 
         {isCheckingAccess ? (
           <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center' }}>
-            {/* Loading placeholder while checking access */}
+            <StateBlock loading />
           </View>
         ) : accessRestricted ? (
           <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', padding: spacing.xl }}>

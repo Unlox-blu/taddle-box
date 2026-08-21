@@ -346,15 +346,20 @@ export default function SideDrawer({
                         </View>
                       )}
                     </View>
-                    <Text
-                      numberOfLines={1}
-                      style={[
-                        styles.expandedAccountName,
-                        { color: colors.text.secondary },
-                      ]}
-                    >
-                      @{account.username}
-                    </Text>
+                    <View style={{ flex: 1, justifyContent: "center" }}>
+                      <Text
+                        numberOfLines={1}
+                        style={{ color: colors.text.primary, fontSize: 13, fontWeight: "600" }}
+                      >
+                        {account.name || account.username}
+                      </Text>
+                      <Text
+                        numberOfLines={1}
+                        style={{ color: colors.text.muted, fontSize: 11, marginTop: 1 }}
+                      >
+                        @{account.username}
+                      </Text>
+                    </View>
                     <TouchableOpacity
                       style={styles.expandedRemoveBtn}
                       onPress={() => removeAccountFromDevice(account.userId)}

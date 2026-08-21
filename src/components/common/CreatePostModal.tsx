@@ -83,7 +83,7 @@ const URL_RE = /(https?:\/\/[^\s]+)/gi;
 /** Video preview inside the media grid — expo-video needs a hook per player,
  *  so the map entry is its own component. Loops and starts immediately;
  *  mutes itself when an audio attachment is playing instead. */
-function PreviewVideo({
+const PreviewVideo = React.memo(function PreviewVideo({
   uri,
   width,
   height,
@@ -115,7 +115,7 @@ function PreviewVideo({
       nativeControls={false}
     />
   );
-}
+})
 
 function detectMediaInText(text: string): {
   uri: string;

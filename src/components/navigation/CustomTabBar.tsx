@@ -9,7 +9,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { radii, fontSizes } from '../../theme';
 import { useTheme } from '../../context/ThemeContext';
 import { useGlobalScroll } from '../../context/ScrollContext';
-import CreatePostModal from '../common/CreatePostModal';
+const CreatePostModal = React.lazy(() => import('../common/CreatePostModal'));
 import Animated, { useAnimatedStyle } from 'react-native-reanimated';
 
 // Helper to deeply find the active route name and params
@@ -124,11 +124,13 @@ export default function CustomTabBar({ state, navigation }: BottomTabBarProps) {
 
   return (
     <>
+      <React.Suspense fallback={null}>
       <CreatePostModal 
         visible={createVisible} 
         onClose={() => setCreateVisible(false)} 
         preselectedCommunityId={preselectedCommunityId}
       />
+      </React.Suspense>
       <Animated.View style={[styles.container, { paddingBottom: insets.bottom || 10, backgroundColor: tabBarBg, borderTopColor: colors.border }, animatedStyle]}>
         <View style={styles.inner}>
           {/* Left tabs */}

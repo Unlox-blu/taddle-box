@@ -18,11 +18,11 @@ import { maskEmail, maskPhone } from '../../utils/mask.util';
 const OTP_LENGTH = 6;
 type Props = NativeStackScreenProps<AuthStackParamList, 'ForgotPassword'>;
 
-export default function ForgotPasswordScreen({ navigation }: Props) {
+export default function ForgotPasswordScreen({ navigation, route }: Props) {
   const { colors: themeColors, isDark } = useTheme();
   const styles = React.useMemo(() => getStyles(themeColors, isDark), [themeColors, isDark]);
   const [step, setStep] = useState<1 | 2 | 3>(1);
-  const [identifier, setIdentifier] = useState('');
+  const [identifier, setIdentifier] = useState(route.params?.initialIdentifier || '');
   const [resolvedEmail, setResolvedEmail] = useState('');
   const [resolvedPhone, setResolvedPhone] = useState('');
   const [resetToken, setResetToken] = useState('');

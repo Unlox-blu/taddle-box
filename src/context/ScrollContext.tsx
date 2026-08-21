@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useCallback } from 'react';
+import React, { createContext, useContext, useCallback, useMemo } from 'react';
 import { useSharedValue, SharedValue, withSpring, withTiming, Easing } from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
@@ -22,7 +22,7 @@ export function ScrollProvider({ children }: { children: React.ReactNode }) {
   const footerHeight = 85 + insets.bottom;
 
   return (
-    <ScrollContext.Provider value={{ headerTranslateY, footerTranslateY, headerHeight, footerHeight }}>
+    <ScrollContext.Provider value={useMemo(() => ({ headerTranslateY, footerTranslateY, headerHeight, footerHeight }), [headerTranslateY, footerTranslateY, headerHeight, footerHeight])}>
       {children}
     </ScrollContext.Provider>
   );

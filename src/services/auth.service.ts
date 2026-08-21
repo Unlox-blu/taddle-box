@@ -21,7 +21,8 @@ export const authService = {
 
   signup: async (data: any, token?: string) => {
     const config = token ? { headers: { Authorization: `Bearer ${token}` } } : {};
-    const response = await apiClient.post('/auth/signup', data, config);
+    const deviceId = await getDeviceId();
+    const response = await apiClient.post('/auth/signup', { ...data, deviceId }, config);
     return response.data;
   },
 
@@ -30,14 +31,16 @@ export const authService = {
     return response.data;
   },
 
-  logout: async () => {
+  logout: async (token?: string) => {
     // Include sessionId so the backend revokes only this device's session
-    const response = await apiClient.post('/auth/logout');
+    const config = token ? { headers: { Authorization: `Bearer ${token}` } } : {};
+    const response = await apiClient.post('/auth/logout', {}, config);
     return response.data;
   },
 
   appleLogin: async (identityToken: string, fullName?: string) => {
-    const response = await apiClient.post('/auth/apple', { identityToken, fullName });
+    const deviceId = await getDeviceId();
+    const response = await apiClient.post('/auth/apple', { identityToken, fullName, deviceId });
     return response.data;
   },
 

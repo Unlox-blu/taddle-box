@@ -9,8 +9,31 @@ import GamesScreen      from '../screens/main/GamesScreen';
 import WalletScreen     from '../screens/main/WalletScreen';
 import ProfileScreen    from '../screens/main/ProfileScreen';
 import CustomTabBar     from '../components/navigation/CustomTabBar';
+import TabErrorBoundary from '../components/common/TabErrorBoundary';
 
 const Tab = createBottomTabNavigator<MainTabParamList>();
+
+/** Wraps a screen component with TabErrorBoundary so a crash in one tab */
+function withTabBoundary(Screen: React.ComponentType<any>, tabName: string) {
+  const Wrapped = (props: any) => (
+    <TabErrorBoundary tabName={tabName}>
+      <Screen {...props} />
+    </TabErrorBoundary>
+  );
+  Wrapped.displayName = `TabBoundary(${tabName})`;
+  return Wrapped;
+}
+
+// IMPORTANT: Create wrapped components at module level so the component
+// identity is STABLE across renders. Creating them inside the render function
+// would make React see a new component type on every render, causing
+// unmount/remount cascades (infinite update depth).
+const HomeBounded      = withTabBoundary(HomeStackNavigator, 'Home');
+const CommunityBounded = withTabBoundary(CommunityStackNavigator, 'Community');
+const EventsBounded    = withTabBoundary(EventsScreen, 'Events');
+const GamesBounded     = withTabBoundary(GamesScreen, 'Games');
+const WalletBounded    = withTabBoundary(WalletScreen, 'Wallet');
+const ProfileBounded   = withTabBoundary(ProfileScreen, 'Profile');
 
 export default function MainNavigator() {
   return (
@@ -21,12 +44,12 @@ export default function MainNavigator() {
       // no longer fires for tabs the user never opened.
       screenOptions={{ headerShown: false, lazy: true }}
     >
-      <Tab.Screen name="Home"      component={HomeStackNavigator}      />
-      <Tab.Screen name="Community" component={CommunityStackNavigator} />
-      <Tab.Screen name="Events"    component={EventsScreen}    />
-      <Tab.Screen name="Games"     component={GamesScreen}     />
-      <Tab.Screen name="Wallet"    component={WalletScreen}    />
-      <Tab.Screen name="Profile"   component={ProfileScreen}   />
+      <Tab.Screen name="Home"      component={HomeBounded}      />
+      <Tab.Screen name="Community" component={CommunityBounded} />
+      <Tab.Screen name="Events"    component={EventsBounded}    />
+      <Tab.Screen name="Games"     component={GamesBounded}     />
+      <Tab.Screen name="Wallet"    component={WalletBounded}    />
+      <Tab.Screen name="Profile"   component={ProfileBounded}   />
     </Tab.Navigator>
   );
 }

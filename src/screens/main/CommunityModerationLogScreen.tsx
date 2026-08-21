@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { View, Text, StyleSheet, FlatList, TouchableOpacity, ActivityIndicator, Image } from 'react-native';
+import { View, Text, StyleSheet, FlatList, TouchableOpacity, Image } from 'react-native';
+import StateBlock from '../../components/common/StateBlock';
 import { FlashList } from '@shopify/flash-list';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useNavigation, useRoute, type RouteProp } from '@react-navigation/native';
@@ -87,12 +88,12 @@ export default function CommunityModerationLogScreen() {
         onEndReached={() => { if (hasMore && !loading) load(page + 1); }}
         onEndReachedThreshold={0.4}
         ListFooterComponent={loading && entries.length > 0 ? (
-          <ActivityIndicator size="small" color={colors.primary} style={{ paddingVertical: 14 }} />
+          <StateBlock inline loading loaderSize={18} style={{ paddingVertical: 14 }} />
         ) : null}
         ListEmptyComponent={() => (
           loading ? (
             <View style={styles.center}>
-              <ActivityIndicator size="large" color={colors.primary} />
+              <StateBlock loading />
             </View>
           ) : (
             <View style={styles.empty}>

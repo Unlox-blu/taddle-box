@@ -20,6 +20,7 @@ import Input from "../../components/common/Input";
 import type { AuthStackParamList } from "../../types";
 import { useAuth } from "../../context/AuthContext";
 import { authService } from "../../services/auth.service";
+import { getDeviceId } from "../../services/apiClient";
 import * as WebBrowser from "expo-web-browser";
 import * as Google from "expo-auth-session/providers/google";
 import * as AppleAuthentication from "expo-apple-authentication";
@@ -99,7 +100,8 @@ export default function LoginScreen({ navigation }: Props) {
         res.data?.sessionId;
       await signIn(accessToken, refreshToken, sessionId);
     } catch (e: any) {
-      alert(e instanceof Error ? e.message : "Login failed");
+      const msg = e?.response?.data?.message || e?.message || "Login failed";
+      themedAlert("Login Failed", msg);
     } finally {
       setIsAuthenticating(false);
     }
@@ -123,8 +125,9 @@ export default function LoginScreen({ navigation }: Props) {
       const webUrl =
         process.env.EXPO_PUBLIC_BACKEND_URL || "https://taddlebox.com";
       const redirectUri = `${webUrl}/api/v1/auth/google/callback`;
+      const deviceId = await getDeviceId();
       const returnUrl = Linking.createURL("google-auth");
-      const state = encodeURIComponent(JSON.stringify({ returnUrl }));
+      const state = encodeURIComponent(JSON.stringify({ returnUrl, deviceId }));
       const nonce = Math.random().toString(36).substring(2);
 
       const authUrl = `https://accounts.google.com/o/oauth2/v2/auth?client_id=${webId}&redirect_uri=${encodeURIComponent(redirectUri)}&response_type=id_token&response_mode=form_post&scope=openid%20profile%20email&state=${state}&nonce=${nonce}`;
@@ -386,7 +389,7 @@ export default function LoginScreen({ navigation }: Props) {
           </View>
 
           {/* Session expired banner */}
-          {expiredAccountUsername && (
+          {expiredAccountUsername && identifier === expiredAccountUsername && (
             <View style={[styles.sessionExpiredBanner, { backgroundColor: 'rgba(239,68,68,0.12)', borderColor: 'rgba(239,68,68,0.3)' }]}>
               <Ionicons name="time-outline" size={16} color="#EF4444" style={{ marginRight: 8 }} />
               <Text style={[styles.sessionExpiredText, { color: '#EF4444' }]}>
@@ -541,8 +544,8 @@ const getStyles = (themeColors: any, isDark: boolean) =>
       padding: 12,
       borderRadius: radii.md,
       borderWidth: 1,
-      marginTop: 16,
-      marginBottom: 4,
+      marginTop: -12,
+      marginBottom: 24,
     },
     sessionExpiredText: {
       fontSize: fontSizes.sm,

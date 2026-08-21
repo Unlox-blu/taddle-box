@@ -161,7 +161,8 @@ function makeStyles(c: ColorPalette) {
       backgroundColor: c.bg.card,
       borderTopLeftRadius: radii.xl, borderTopRightRadius: radii.xl,
       padding: spacing.lg,
-      maxHeight: '80%',
+      maxHeight: '85%',
+      minHeight: '50%',
     },
     modalHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: spacing.lg },
     modalTitle: { fontSize: fontSizes.lg, fontWeight: '800', color: c.text.primary },
@@ -394,7 +395,7 @@ export default function CommunityDetailScreen() {
     return (
       <View style={styles.container}>
         <StatusBar style={isDark ? 'light' : 'dark'} />
-        <StateBlock loading label="Loading community…" style={{ flex: 1, justifyContent: "center" }} />
+        <StateBlock loading label="Hang tight!" style={{ flex: 1, justifyContent: "center" }} />
       </View>
     );
   }
@@ -718,7 +719,7 @@ export default function CommunityDetailScreen() {
   );
 }
 
-function ManageRequestsModal({ visible, onClose, communityId, styles, colors }: any) {
+const ManageRequestsModal = React.memo(function ManageRequestsModal({ visible, onClose, communityId, styles, colors }: any) {
   const navigation = useNavigation<any>();
   const [requests, setRequests] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
@@ -818,9 +819,9 @@ function ManageRequestsModal({ visible, onClose, communityId, styles, colors }: 
       </View>
     </View>
   );
-}
+});
 
-function ManageMembersModal({ visible, onClose, communityId, isAdmin, isOwner, currentUserId, onChanged, styles, colors }: any) {
+const ManageMembersModal = React.memo(function ManageMembersModal({ visible, onClose, communityId, isAdmin, isOwner, currentUserId, onChanged, styles, colors }: any) {
   const navigation = useNavigation<any>();
   const [members, setMembers] = useState<any[]>([]);
   const [page, setPage] = useState(1);
@@ -1026,6 +1027,7 @@ function ManageMembersModal({ visible, onClose, communityId, isAdmin, isOwner, c
             )}
           </View>
 
+          <View style={{ flex: 1, minHeight: 200 }}>
           {loading ? (
             <Text style={{ color: colors.text.muted, textAlign: 'center', padding: 20 }}>Loading...</Text>
           ) : members.length === 0 ? (
@@ -1093,12 +1095,13 @@ function ManageMembersModal({ visible, onClose, communityId, isAdmin, isOwner, c
                   >
                     <Ionicons name="ellipsis-vertical" size={18} color={colors.text.secondary} />
                   </TouchableOpacity>
-                </View>
-              )}
+                </View>              )}
             />
           )}
+          </View>
         </View>
       </View>
+
 
       {/* Member action sheet — options depend on viewer role + target role. */}
       {actionMember && (
@@ -1138,4 +1141,4 @@ function ManageMembersModal({ visible, onClose, communityId, isAdmin, isOwner, c
     </KeyboardAvoidingView>
   </Modal>
   );
-}
+});

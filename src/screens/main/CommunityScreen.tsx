@@ -12,7 +12,6 @@ import {
   Image,
   Dimensions,
   Platform,
-  ActivityIndicator,
   DeviceEventEmitter,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -775,7 +774,7 @@ export default function CommunityScreen() {
 }
 
 // ─── Featured Community Card (Horizontal Scroll) ─────────────────────────────
-function FeaturedCommunityCard({
+const FeaturedCommunityCard = React.memo(function FeaturedCommunityCard({
   community: c,
   onPress,
   onToggleJoin,
@@ -874,10 +873,10 @@ function FeaturedCommunityCard({
       </View>
     </TouchableOpacity>
   );
-}
+})
 
 // ─── Compact Community Card (Vertical List) ──────────────────────────────────
-function CompactCommunityCard({
+const CompactCommunityCard = React.memo(function CompactCommunityCard({
   community: c,
   onPress,
   onToggleJoin,
@@ -974,7 +973,7 @@ function CompactCommunityCard({
       )}
     </TouchableOpacity>
   );
-}
+})
 
 // ─── Create Community Modal ──────────────────────────────────────────────────
 const EMOJI_OPTIONS = [
@@ -996,7 +995,7 @@ const EMOJI_OPTIONS = [
   "🎵",
 ];
 
-function CreateCommunityModal({
+const CreateCommunityModal = React.memo(function CreateCommunityModal({
   visible,
   onClose,
   onCreate,
@@ -1166,7 +1165,7 @@ function CreateCommunityModal({
           <Text style={styles.modalTitle}>Create Community</Text>
           <TouchableOpacity onPress={handleCreate} disabled={creating}>
             {creating ? (
-              <ActivityIndicator size="small" color={colors.primary} />
+              <StateBlock inline loading loaderSize={18} />
             ) : (
               <Text
                 style={{
@@ -1377,4 +1376,4 @@ function CreateCommunityModal({
       </KeyboardAvoidingView>
     </Modal>
   );
-}
+})

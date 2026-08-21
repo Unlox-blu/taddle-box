@@ -117,3 +117,15 @@ export async function restoreAccountTokens(
   if (refreshToken) await SecureStore.setItemAsync("refreshToken", refreshToken);
   if (sessionId) await SecureStore.setItemAsync("sessionId", sessionId);
 }
+
+/**
+ * Clears saved token storage keys for a specific account.
+ */
+export async function clearAccountTokens(
+  userId: number | string
+): Promise<void> {
+  const prefix = `user_${userId}_`;
+  await SecureStore.deleteItemAsync(`${prefix}accessToken`);
+  await SecureStore.deleteItemAsync(`${prefix}refreshToken`);
+  await SecureStore.deleteItemAsync(`${prefix}sessionId`);
+}

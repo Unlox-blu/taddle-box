@@ -28,6 +28,7 @@ import PostCard from "../../components/home/PostCard";
 import SpotlightCarousel from "../../components/home/SpotlightCarousel";
 import MainHeader from "../../components/common/MainHeader";
 import StateBlock from "../../components/common/StateBlock";
+import FeedSkeleton from "../../components/common/FeedSkeleton";
 import CommentsModal from "../../components/home/CommentsModal";
 import { useAuth } from "../../context/AuthContext";
 import { useWallet } from "../../context/WalletContext";
@@ -490,8 +491,8 @@ export default function HomeScreen() {
                         borderColor: "rgba(239,68,68,0.3)",
                       }
                     : {
-                        backgroundColor: "rgba(251,191,36,0.08)",
-                        borderColor: "rgba(251,191,36,0.22)",
+                        backgroundColor: "rgba(249,115,22,0.12)",
+                        borderColor: "rgba(249,115,22,0.28)",
                       },
                 ]}
                 onPress={openStreakModal}
@@ -500,7 +501,13 @@ export default function HomeScreen() {
                   streakBannerYRef.current = e.nativeEvent.layout.y;
                 }}
               >
-                <Text style={styles.miniEmoji}>{streakRestorable ? "⏳" : "🔥"}</Text>
+                <View style={styles.miniIconWrap}>
+                  <Ionicons 
+                    name={streakRestorable ? "hourglass" : "flame"} 
+                    size={24} 
+                    color={streakRestorable ? colors.danger : colors.xpOrange} 
+                  />
+                </View>
                 <View style={styles.miniText}>
                   <Text
                     style={[
@@ -522,7 +529,7 @@ export default function HomeScreen() {
                 <Ionicons
                   name="chevron-forward"
                   size={13}
-                  color={streakRestorable ? "rgba(239,68,68,0.45)" : "rgba(251,191,36,0.45)"}
+                  color={streakRestorable ? "rgba(239,68,68,0.45)" : "rgba(249,115,22,0.45)"}
                 />
               </TouchableOpacity>
 
@@ -553,9 +560,15 @@ export default function HomeScreen() {
                   }}
                   activeOpacity={0.8}
                 >
-                  <Text style={styles.miniEmoji}>⚡</Text>
+                  <View style={styles.miniIconWrap}>
+                    <Ionicons 
+                      name="flash" 
+                      size={24} 
+                      color={colors.primaryLight} 
+                    />
+                  </View>
                   <View style={styles.miniText}>
-                    <Text style={[styles.miniVal, { color: colors.xpGold }]}>
+                    <Text style={[styles.miniVal, { color: colors.text.primary }]}>
                       {wallet.xpBalance.toLocaleString()}
                     </Text>
                     <Text
@@ -567,7 +580,7 @@ export default function HomeScreen() {
                   <Ionicons
                     name="chevron-forward"
                     size={13}
-                    color="rgba(251,191,36,0.45)"
+                    color={colors.primaryLight}
                   />
                 </TouchableOpacity>
               </Animated.View>
@@ -663,18 +676,22 @@ export default function HomeScreen() {
           </View>
         }
         ListEmptyComponent={
-          <View
-            style={{ flex: 1, alignItems: "center", justifyContent: "center" }}
-          >
-            <Text
-              style={[
-                styles.emptyFilter,
-                { color: colors.text.muted, marginTop: 0 },
-              ]}
+          isLoading ? (
+            <FeedSkeleton count={4} />
+          ) : (
+            <View
+              style={{ flex: 1, alignItems: "center", justifyContent: "center" }}
             >
-              Hang tight!
-            </Text>
-          </View>
+              <Text
+                style={[
+                  styles.emptyFilter,
+                  { color: colors.text.muted, marginTop: 0 },
+                ]}
+              >
+                Hang tight!
+              </Text>
+            </View>
+          )
         }
       />
 
@@ -728,7 +745,7 @@ export default function HomeScreen() {
 
 // ─── Daily Reward Card (animated claim + auto-remove) ─────────────────────────
 
-function DailyRewardCard({
+const DailyRewardCard = React.memo(function DailyRewardCard({
   onClaimPos,
 }: {
   onClaimPos?: (x: number, y: number) => void;
@@ -878,7 +895,7 @@ function DailyRewardCard({
       )}
     </Animated.View>
   );
-}
+})
 
 // ─── Streak Modal ─────────────────────────────────────────────────────────────
 
@@ -890,7 +907,7 @@ const fmtCountdown = (ms: number) => {
   return `${h}h ${String(m).padStart(2, "0")}m ${String(s).padStart(2, "0")}s`;
 };
 
-function StreakModal({
+const StreakModal = React.memo(function StreakModal({
   visible,
   onClose,
   streakCount,
@@ -976,7 +993,9 @@ function StreakModal({
           <View style={[sm.handle, { backgroundColor: colors.border }]} />
 
           <View style={sm.titleRow}>
-            <Text style={sm.titleEmoji}>🔥</Text>
+            <View style={sm.titleIconWrap}>
+              <Ionicons name="flame" size={36} color={colors.xpOrange} />
+            </View>
             <View style={{ flex: 1 }}>
               <Text style={[sm.title, { color: colors.text.primary }]}>
                 Daily Streak
@@ -1007,8 +1026,8 @@ function StreakModal({
                     sm.dot,
                     { borderColor: colors.border },
                     done && {
-                      backgroundColor: "rgba(251,191,36,0.12)",
-                      borderColor: "rgba(251,191,36,0.30)",
+                      backgroundColor: "rgba(249,115,22,0.12)",
+                      borderColor: "rgba(249,115,22,0.30)",
                     },
                     missed && {
                       backgroundColor: "rgba(239,68,68,0.14)",
@@ -1017,17 +1036,23 @@ function StreakModal({
                     !done &&
                       !missed &&
                       isToday && {
-                        backgroundColor: "rgba(251,191,36,0.22)",
-                        borderColor: colors.xpGold,
+                        backgroundColor: "rgba(249,115,22,0.22)",
+                        borderColor: colors.xpOrange,
                       },
                   ]}
                 >
                   <Text style={[sm.dotDay, { color: colors.text.muted }]}>
                     Day {day}
                   </Text>
-                  <Text style={sm.dotIcon}>
-                    {done ? "✓" : missed ? "⚠️" : isToday ? "🔥" : ""}
-                  </Text>
+                  <View style={sm.dotIconWrap}>
+                    {done ? (
+                      <Ionicons name="checkmark" size={14} color={colors.text.muted} />
+                    ) : missed ? (
+                      <Ionicons name="warning" size={14} color={colors.danger} />
+                    ) : isToday ? (
+                      <Ionicons name="flame" size={14} color={colors.xpOrange} />
+                    ) : null}
+                  </View>
                 </View>
               );
             })}
@@ -1044,7 +1069,9 @@ function StreakModal({
               </Text>
             </View>
             <View style={sm.nextRewardBox}>
-              <Text style={sm.nextEmoji}>🎁</Text>
+              <View style={sm.nextIconWrap}>
+                <Ionicons name="gift" size={24} color={colors.xpGold} />
+              </View>
               <Text style={[sm.nextReward, { color: colors.xpGold }]}>
                 +{nextRewardXp} XP
               </Text>
@@ -1066,7 +1093,7 @@ function StreakModal({
               <View
                 style={{ flexDirection: "row", alignItems: "center", gap: 8 }}
               >
-                <Text style={{ fontSize: 18 }}>⏳</Text>
+                <Ionicons name="hourglass" size={20} color={colors.danger} />
                 <View style={{ flex: 1 }}>
                   <Text
                     style={{
@@ -1141,7 +1168,7 @@ function StreakModal({
       </View>
     </Modal>
   );
-}
+})
 
 // ─── Streak Reward Modal ──────────────────────────────────────────────────────
 
@@ -1332,7 +1359,7 @@ const styles = StyleSheet.create({
     gap: 8,
     borderWidth: 1,
   },
-  miniEmoji: { fontSize: 22 },
+  miniIconWrap: { width: 28, alignItems: "center", justifyContent: "center" },
   miniText: { flex: 1 },
   miniVal: { fontSize: fontSizes.md, fontWeight: "800" },
   miniLabel: { fontSize: fontSizes.xs, marginTop: 1 },
@@ -1449,7 +1476,7 @@ const sm = StyleSheet.create({
     gap: 12,
     marginBottom: spacing.md,
   },
-  titleEmoji: { fontSize: 36 },
+  titleIconWrap: { height: 40, justifyContent: "center" },
   title: { fontSize: fontSizes.xl, fontWeight: "800" },
   sub: { fontSize: fontSizes.sm, marginTop: 2 },
   closeBtn: {
@@ -1477,7 +1504,7 @@ const sm = StyleSheet.create({
     gap: 2,
   },
   dotDay: { fontSize: 8 },
-  dotIcon: { fontSize: 12 },
+  dotIconWrap: { height: 16, alignItems: "center", justifyContent: "center" },
   nextBox: {
     flexDirection: "row",
     alignItems: "center",
@@ -1490,7 +1517,7 @@ const sm = StyleSheet.create({
   nextLabel: { fontSize: fontSizes.xs },
   nextDays: { fontSize: fontSizes.lg, fontWeight: "800" },
   nextRewardBox: { alignItems: "flex-end", gap: 2 },
-  nextEmoji: { fontSize: 26 },
+  nextIconWrap: { justifyContent: "center", alignItems: "center" },
   nextReward: { fontSize: fontSizes.sm, fontWeight: "700" },
   milestoneHeader: {
     fontSize: fontSizes.xs,

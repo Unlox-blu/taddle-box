@@ -1607,6 +1607,7 @@ export default function SearchScreen({ navigation, route }: Props) {
             data={universalPills}
             keyExtractor={(item) => item.key}
             contentContainerStyle={styles.tabsContainer}
+            ItemSeparatorComponent={() => <View style={{ width: 12 }} />}
             renderItem={({ item }) => renderPill(item)}
           />
         </Animated.View>
@@ -1645,6 +1646,7 @@ export default function SearchScreen({ navigation, route }: Props) {
               { paddingTop: searchOverlayH, paddingBottom: footerHeight + 20 },
             ]}
             ItemSeparatorComponent={() => <View style={{ height: 10 }} />}
+            keyboardDismissMode="on-drag"
             keyboardShouldPersistTaps="handled"
             onViewableItemsChanged={onViewableItemsChanged}
             viewabilityConfig={viewabilityConfig}

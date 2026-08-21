@@ -1539,7 +1539,7 @@ function radarSpot(id: string): { x: number; y: number } {
   return { x: Math.cos(angle) * radius, y: Math.sin(angle) * radius };
 }
 
-function MatchmakingRadar({
+const MatchmakingRadar = React.memo(function MatchmakingRadar({
   colors,
   isActive,
   players = [],
@@ -1734,7 +1734,7 @@ function MatchmakingRadar({
       </View>
     </View>
   );
-}
+});
 
 function RadarPin({
   colors, player, x, y, delay = 0,

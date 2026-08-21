@@ -10,12 +10,15 @@ import {
   ScrollView,
   ActivityIndicator,
   Modal,
+  Alert,
 } from "react-native";
+import * as SecureStore from "expo-secure-store";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import { useThemeColors } from "../../context/ThemeContext";
 import { fontSizes, spacing, radii } from "../../theme";
 import { authService } from "../../services/auth.service";
+import { useAuth } from "../../context/AuthContext";
 import { themedAlert } from "./ThemedAlert";
 
 interface RemovePinModalProps {
@@ -30,6 +33,7 @@ export default function RemovePinModal({
   onSuccess,
 }: RemovePinModalProps) {
   const colors = useThemeColors();
+  const { user, signOut } = useAuth();
 
   const [step, setStep] = useState<"send-otp" | "verify">("send-otp");
   const [password, setPassword] = useState("");
@@ -124,6 +128,14 @@ export default function RemovePinModal({
     }
   };
 
+  const handleForgotPassword = async () => {
+    if (user?.username || user?.email) {
+      await SecureStore.setItemAsync("auth_redirect_forgot_password", user.username || user.email);
+    }
+    onClose();
+    signOut();
+  };
+
   const maskedEmail = email
     ? `${email.substring(0, 2)}***@${email.split("@")[1]}`
     : "";
@@ -206,6 +218,16 @@ export default function RemovePinModal({
                   ) : (
                     <Text style={styles.primaryBtnText}>Send OTP</Text>
                   )}
+                </TouchableOpacity>
+
+                <TouchableOpacity
+                  style={{ marginTop: spacing.md, alignItems: "center" }}
+                  onPress={handleForgotPassword}
+                  disabled={loading}
+                >
+                  <Text style={{ color: colors.primaryLight, fontSize: fontSizes.sm, fontWeight: "600" }}>
+                    Forgot Password?
+                  </Text>
                 </TouchableOpacity>
               </>
             ) : (

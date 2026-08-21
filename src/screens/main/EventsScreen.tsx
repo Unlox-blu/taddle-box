@@ -8,7 +8,6 @@ import {
   Image,
   ImageBackground,
   FlatList,
-  ActivityIndicator,
   DeviceEventEmitter,
   Dimensions,
 } from "react-native";
@@ -885,7 +884,7 @@ export default function EventsScreen() {
         )}
         ListFooterComponent={
           <View style={{ height: 100, alignItems: 'center', justifyContent: 'center' }}>
-            {isFetchingNextPage && <ActivityIndicator size="small" color={colors.primary} />}
+            {isFetchingNextPage && <StateBlock inline loading loaderSize={18} />}
           </View>
         }
       />
@@ -894,7 +893,7 @@ export default function EventsScreen() {
   );
 }
 
-function EventCard({
+const EventCard = React.memo(function EventCard({
   event: e,
   onRegister,
   styles,
@@ -1011,4 +1010,4 @@ function EventCard({
       </TouchableOpacity>
     </TouchableOpacity>
   );
-}
+})

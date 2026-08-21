@@ -1,6 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
-  ActivityIndicator,
   Animated,
   Image,
   ScrollView,
@@ -24,6 +23,7 @@ import {
 } from '../../services/leaderboard.service';
 import type { HomeStackParamList, LeaderboardsChangedPayload } from '../../types';
 import PullToRefreshWrapper from '../../components/common/PullToRefreshWrapper';
+import StateBlock from '../../components/common/StateBlock';
 import { useGlobalScroll } from '../../context/ScrollContext';
 import { socketClient } from '../../services/socketClient';
 
@@ -190,7 +190,7 @@ export default function LeaderboardsScreen() {
 
         {loading ? (
           <View style={styles.emptyPanel}>
-            <ActivityIndicator color={colors.primaryLight} />
+            <StateBlock inline loading loaderSize={24} />
             <Text style={styles.emptyTitle}>Loading leaderboard</Text>
           </View>
         ) : activeEntries.length === 0 ? (

@@ -23,6 +23,7 @@ import { useThemeColors } from "../../context/ThemeContext";
 import { useAuth } from "../../context/AuthContext";
 import { radii, fontSizes, spacing } from "../../theme";
 import type { AccountProfile } from "../../utils/accountStore";
+import { themedAlert } from "./ThemedAlert";
 
 interface Props {
   /** Called when user taps the "+" to add a new account. */
@@ -69,7 +70,7 @@ export default function SwitchAccountSection({
               onPress={() => handleSwitch(account.userId)}
               onLongPress={() => {
                 if (isActive && !hasOtherAccounts) return; // Don't remove the only active account this way
-                Alert.alert(
+                themedAlert(
                   "Remove Account",
                   `Are you sure you want to remove @${account.username} from this device?`,
                   [

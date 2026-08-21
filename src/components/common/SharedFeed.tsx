@@ -1,5 +1,5 @@
-import React, { useState, useRef, useCallback, useEffect } from 'react';
-import { View, Text, Share, DeviceEventEmitter } from 'react-native';
+import React, { useState, useRef, useCallback, useEffect, useMemo } from 'react';
+import { View, Text, Share, DeviceEventEmitter, Dimensions, LayoutChangeEvent } from 'react-native';
 import { FlashList } from '@shopify/flash-list';
 import { useIsFocused, useNavigation, useScrollToTop } from '@react-navigation/native';
 import PostCard from '../home/PostCard';
@@ -121,13 +121,66 @@ export default function SharedFeed({
     return () => subs.forEach((s) => s.remove());
   }, []);
 
-  const viewabilityConfig = useRef({ itemVisiblePercentThreshold: 60 }).current;
-  const onViewableItemsChanged = useRef(({ viewableItems }: any) => {
-    if (viewableItems.length > 0) {
-      const newActiveId = viewableItems[0].item.id;
-      setActivePostId((prev) => prev === newActiveId ? prev : newActiveId);
+  // ── XP active-post tracking ──────────────────────────────────────────
+  // ── XP active-post tracking ──────────────────────────────────────────
+  // Track actual rendered item heights so we can compute which post's
+  // HEADER is nearest the viewport CENTER — the XP pill triggers the
+  // moment the header enters the user's natural gaze zone.
+  const viewportH = useRef(Dimensions.get('window').height).current;
+  const itemLayoutsRef = useRef(new Map<string, { height: number; offset: number }>());
+  const nextOffsetRef = useRef(0);
+
+  const trackItemLayout = useCallback((id: string, e: LayoutChangeEvent) => {
+    const { height } = e.nativeEvent.layout;
+    const prev = itemLayoutsRef.current.get(id);
+    if (prev && Math.abs(prev.height - height) < 2) return;
+    itemLayoutsRef.current.set(id, { height, offset: nextOffsetRef.current });
+    nextOffsetRef.current += height;
+  }, []);
+
+  // On every scroll frame, find the item whose header (top edge) is
+  // closest to the viewport center (45% from top = natural eye gaze).
+  const handleScrollForXP = useCallback((e: any) => {
+    const scrollY = e.nativeEvent.contentOffset.y;
+    const center = scrollY + viewportH * 0.45;
+    let bestId: string | null = null;
+    let bestDist = Infinity;
+    for (const [id, layout] of itemLayoutsRef.current) {
+      const dist = Math.abs(layout.offset - center);
+      if (dist < bestDist) {
+        bestDist = dist;
+        bestId = id;
+      }
     }
-  }).current;
+    if (bestId) {
+      setActivePostId((prev) => (prev === bestId ? prev : bestId));
+    }
+  }, [viewportH]);
+
+  // Set the first post as active immediately on mount.
+  useEffect(() => {
+    if (posts.length > 0 && !activePostId) {
+      setActivePostId(posts[0].id);
+    }
+  }, [posts, activePostId]);
+
+  // ── Video preload: find the next video post after active ────────────────
+  // Only 1 video ahead gets preloaded. When the user scrolls to it,
+  // it plays immediately. This keeps 1 active + 1 preloaded = ~2 players max.
+  const preloadPostId = useMemo(() => {
+    if (!activePostId) return null;
+    const activeIdx = posts.findIndex((p) => p.id === activePostId);
+    if (activeIdx < 0) return null;
+
+    // Look ahead from active+1 for the next video post
+    for (let i = activeIdx + 1; i < posts.length; i++) {
+      const p = posts[i] as any;
+      const media = p.media || [];
+      const hasVideo = media.some((m: any) => m.media_type === 'video' || m.type === 'video');
+      if (hasVideo) return p.id;
+    }
+    return null;
+  }, [posts, activePostId]);
 
   const handleComment = useCallback((post: Post) => {
     setActiveCommentPost(post);
@@ -250,12 +303,16 @@ export default function SharedFeed({
         // FlashList handles view recycling internally — no need for
         // removeClippedSubviews workaround.
         showsVerticalScrollIndicator={false}
+        keyboardDismissMode="on-drag"
         contentContainerStyle={[
           { paddingTop: headerHeight, paddingBottom: footerHeight },
           contentContainerStyle
         ]}
         contentOffset={initialScrollOffset ? { x: 0, y: initialScrollOffset } : undefined}
-        onScroll={(e) => onScroll?.(e.nativeEvent.contentOffset.y)}
+        onScroll={(e) => {
+          onScroll?.(e.nativeEvent.contentOffset.y);
+          handleScrollForXP(e);
+        }}
         scrollEventThrottle={16}
         // iOS only: without this, a short list (few posts / short bookmarks /
         // profile with a handful of posts) can't be pulled down at all, so the
@@ -266,9 +323,8 @@ export default function SharedFeed({
         ListHeaderComponent={enhancedHeader}
         ListEmptyComponent={safeNode(ListEmptyComponent)}
         ListFooterComponent={safeNode(ListFooterComponent)}
-        onViewableItemsChanged={onViewableItemsChanged}
-        viewabilityConfig={viewabilityConfig}
         renderItem={({ item, index }) => (
+          <View onLayout={(e) => trackItemLayout(item.id, e)}>
           <PostCard
             post={item}
             index={index}
@@ -283,7 +339,9 @@ export default function SharedFeed({
             onDelete={onDelete}
             onReport={onReport || (() => themedAlert('Reported', 'Thank you. This post has been reported for review.'))}
             showDelete={currentUser?.id === (item as any)?.author?.id || currentUser?.id === (item as any)?.author_id || currentUser?.id === (item as any)?.authorId || isAdmin}
+            preloadVideo={item.id === preloadPostId}
           />
+          </View>
         )}
         />
       </PullToRefreshWrapper>

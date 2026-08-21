@@ -165,13 +165,11 @@ export async function ensureGameLogos(): Promise<void> {
   logosFetching = (async () => {
     try {
       await init();
-      // Download logos + card images in parallel — cards are the game tile artwork
+      // Download logos only — card images download per-game on PLAY tap
+      // to avoid fetching all 7 cards upfront (~5 MB) on tab open.
       await Promise.all(
         Object.values(GAME_ASSETS).map((manifest) =>
-          Promise.all([
-            downloadIfMissing(manifest.logoUrl, LOGO_DIR + manifest.logoFile),
-            downloadIfMissing(manifest.imageUrl, CARD_DIR + manifest.logoFile.replace('.webp', '.jpg')),
-          ]),
+          downloadIfMissing(manifest.logoUrl, LOGO_DIR + manifest.logoFile),
         ),
       );
       notify();
@@ -192,13 +190,15 @@ export async function ensureGameAssets(slug: string): Promise<string | null> {
   const manifest = GAME_ASSETS[slug];
   if (!manifest) return null;
   await init();
-  const logoUri = await downloadIfMissing(
-    manifest.logoUrl,
-    LOGO_DIR + manifest.logoFile,
-  );
-  await ensureSoundFiles();
+  // Download this game's logo + card image + shared sounds in parallel
+  const cardFile = manifest.logoFile.replace('.webp', '.jpg');
+  await Promise.all([
+    downloadIfMissing(manifest.logoUrl, LOGO_DIR + manifest.logoFile),
+    downloadIfMissing(manifest.imageUrl, CARD_DIR + cardFile),
+    ensureSoundFiles(),
+  ]);
   notify();
-  return logoUri;
+  return LOGO_DIR + manifest.logoFile;
 }
 
 /** Downloads the shared sound effects if any are missing. */

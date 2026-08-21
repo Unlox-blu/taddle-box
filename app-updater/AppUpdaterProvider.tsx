@@ -2,7 +2,7 @@
 // Mounts once at the app root. Checks for an update on launch (and when the app
 // returns to the foreground, with a cooldown) and drives the prompt → download
 // → install flow. Does nothing at all in store builds (see app.config.js).
-import React, { useCallback, useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from "react";
 import {
   AppState,
   ActivityIndicator,
@@ -12,34 +12,38 @@ import {
   TouchableOpacity,
   View,
   Linking,
-} from 'react-native';
-import { Ionicons } from '@expo/vector-icons';
-import { LinearGradient } from 'expo-linear-gradient';
-import * as IntentLauncher from 'expo-intent-launcher';
-import * as Application from 'expo-application';
-import { useThemeColors } from '../src/context/ThemeContext';
-import { fontSizes, spacing, radii } from '../src/theme';
+} from "react-native";
+import { Ionicons } from "@expo/vector-icons";
+import { LinearGradient } from "expo-linear-gradient";
+import * as IntentLauncher from "expo-intent-launcher";
+import * as Application from "expo-application";
+import { useThemeColors } from "../src/context/ThemeContext";
+import { fontSizes, spacing, radii } from "../src/theme";
 import {
   downloadApk,
   fetchUpdateManifest,
   hasUpdate,
   installApk,
   isUpdaterEnabled,
-} from './updater';
-import type { AppUpdate } from './types';
+} from "./updater";
+import type { AppUpdate } from "./types";
 
 type UpdaterState =
-  | { status: 'idle' }
-  | { status: 'available'; update: AppUpdate }
-  | { status: 'downloading'; update: AppUpdate; progress: number }
-  | { status: 'installing' }
-  | { status: 'error'; update: AppUpdate | null; message: string };
+  | { status: "idle" }
+  | { status: "available"; update: AppUpdate }
+  | { status: "downloading"; update: AppUpdate; progress: number }
+  | { status: "installing" }
+  | { status: "error"; update: AppUpdate | null; message: string };
 
 const CHECK_COOLDOWN_MS = 30 * 60 * 1000; // re-check at most every 30 min
 
-export function AppUpdaterProvider({ children }: { children?: React.ReactNode }) {
+export function AppUpdaterProvider({
+  children,
+}: {
+  children?: React.ReactNode;
+}) {
   const colors = useThemeColors();
-  const [state, setState] = useState<UpdaterState>({ status: 'idle' });
+  const [state, setState] = useState<UpdaterState>({ status: "idle" });
   // Gate: blocks rendering children until the initial update check completes
   // so the app doesn't flash past the update screen.
   const [initialCheckDone, setInitialCheckDone] = useState(!isUpdaterEnabled());
@@ -55,7 +59,7 @@ export function AppUpdaterProvider({ children }: { children?: React.ReactNode })
     try {
       const update = await fetchUpdateManifest();
       if (update && hasUpdate(update)) {
-        setState({ status: 'available', update });
+        setState({ status: "available", update });
       }
     } finally {
       checkingRef.current = false;
@@ -65,8 +69,11 @@ export function AppUpdaterProvider({ children }: { children?: React.ReactNode })
 
   useEffect(() => {
     runCheck(true);
-    const sub = AppState.addEventListener('change', (next) => {
-      if (next === 'active' && Date.now() - lastCheckRef.current > CHECK_COOLDOWN_MS) {
+    const sub = AppState.addEventListener("change", (next) => {
+      if (
+        next === "active" &&
+        Date.now() - lastCheckRef.current > CHECK_COOLDOWN_MS
+      ) {
         lastCheckRef.current = Date.now();
         runCheck();
       }
@@ -76,21 +83,22 @@ export function AppUpdaterProvider({ children }: { children?: React.ReactNode })
 
   const startDownload = useCallback(async (update: AppUpdate) => {
     if (!update) return;
-    setState({ status: 'downloading', update, progress: 0 });
+    setState({ status: "downloading", update, progress: 0 });
     try {
       const file = await downloadApk(update, (fraction) =>
-        setState({ status: 'downloading', update, progress: fraction })
+        setState({ status: "downloading", update, progress: fraction }),
       );
-      setState({ status: 'installing' });
+      setState({ status: "installing" });
       // System package installer opens on top; the promise resolves when the
       // user comes back to the app.
       await installApk(file);
-      setState({ status: 'idle' });
+      setState({ status: "idle" });
     } catch {
       setState({
-        status: 'error',
+        status: "error",
         update,
-        message: 'Could not download the update. Check your connection and try again.',
+        message:
+          "Could not download the update. Check your connection and try again.",
       });
     }
   }, []);
@@ -104,44 +112,44 @@ export function AppUpdaterProvider({ children }: { children?: React.ReactNode })
 
   const dismiss = useCallback(() => {
     setState((prev) => {
-      if (prev.status === 'available' && isMandatory(prev.update)) return prev; // cannot skip
-      return { status: 'idle' };
+      if (prev.status === "available" && isMandatory(prev.update)) return prev; // cannot skip
+      return { status: "idle" };
     });
   }, [isMandatory]);
 
   const triggerReinstall = useCallback(() => {
-    if (state.status !== 'error' || !state.update?.url) return;
-    
-    // 1. We MUST use the browser to download it. If our app downloads it directly, 
-    // Android puts it in the app's sandbox. When the app uninstalls itself in step 2,
-    // Android would instantly delete the downloaded APK! The browser safely puts it 
-    // in the public Downloads folder where it survives the uninstall.
-    Linking.openURL(state.update.url).catch(() => {});
+    if (state.status !== "error" || !state.update?.url) return;
 
-    // 2. Wait 1.5 seconds for the browser to launch, then pop the uninstall screen
-    setTimeout(() => {
-      IntentLauncher.startActivityAsync('android.intent.action.DELETE', {
-        data: `package:${Application.applicationId}`,
-      }).catch(() => {});
-    }, 1500);
+    // Fire the uninstall intent FIRST so it registers while the app is in the foreground
+    IntentLauncher.startActivityAsync("android.intent.action.DELETE", {
+      data: `package:${Application.applicationId}`,
+    }).catch((e) => console.error("Uninstall intent failed:", e));
+
+    // Immediately bounce the user to the browser to download the APK.
+    // The browser will open for the download, but the uninstall dialog
+    // is already queued and will appear as well.
+    Linking.openURL(state.update.url).catch((e) => console.error("Linking failed:", e));
   }, [state]);
 
   // Block rendering until the initial check is done.
-  if (!initialCheckDone) return (
-    <View style={{ flex: 1, backgroundColor: colors.bg.base, alignItems: 'center', justifyContent: 'center' }}>
-      <ActivityIndicator size="large" color={colors.primaryLight} />
-    </View>
-  );
+  if (!initialCheckDone)
+    return (
+      <View
+        style={{
+          flex: 1,
+          backgroundColor: colors.bg.base,
+          alignItems: "center",
+          justifyContent: "center",
+        }}
+      >
+        <ActivityIndicator size="large" color={colors.primaryLight} />
+      </View>
+    );
 
-  if (state.status === 'idle') return <>{children}</>;
+  if (state.status === "idle") return <>{children}</>;
 
   return (
-    <Modal
-      visible
-      transparent
-      animationType="fade"
-      onRequestClose={dismiss}
-    >
+    <Modal visible transparent animationType="fade" onRequestClose={dismiss}>
       <View style={styles.backdrop}>
         <View
           style={[
@@ -149,28 +157,38 @@ export function AppUpdaterProvider({ children }: { children?: React.ReactNode })
             { backgroundColor: colors.bg.card, borderColor: colors.border },
           ]}
         >
-          {state.status === 'available' && (
+          {state.status === "available" && (
             <>
               <View
                 style={[
                   styles.iconWrap,
-                  { backgroundColor: 'rgba(124,58,237,0.14)' },
+                  { backgroundColor: "rgba(124,58,237,0.14)" },
                 ]}
               >
-                <Ionicons name="cloud-download-outline" size={34} color={colors.primaryLight} />
+                <Ionicons
+                  name="cloud-download-outline"
+                  size={34}
+                  color={colors.primaryLight}
+                />
               </View>
               <Text style={[styles.title, { color: colors.text.primary }]}>
-                {state.update.mandatory ? 'Update required' : 'Update available'}
-                {state.update.versionName ? ` · v${state.update.versionName}` : ''}
+                {state.update.mandatory
+                  ? "Update required"
+                  : "Update available"}
+                {state.update.versionName
+                  ? ` · v${state.update.versionName}`
+                  : ""}
               </Text>
               {state.update.changelog ? (
-                <Text style={[styles.changelog, { color: colors.text.secondary }]}>
+                <Text
+                  style={[styles.changelog, { color: colors.text.secondary }]}
+                >
                   {state.update.changelog}
                 </Text>
               ) : (
                 <Text style={[styles.sub, { color: colors.text.secondary }]}>
-                  A newer version of Taddlebox is ready. Update now to get the latest
-                  features and fixes.
+                  A newer version of Taddlebox is ready. Update now to get the
+                  latest features and fixes.
                 </Text>
               )}
               <LinearGradient
@@ -189,23 +207,43 @@ export function AppUpdaterProvider({ children }: { children?: React.ReactNode })
                 </TouchableOpacity>
               </LinearGradient>
               {!isMandatory(state.update) && (
-                <TouchableOpacity style={styles.laterBtn} onPress={dismiss} activeOpacity={0.7}>
-                  <Text style={[styles.laterText, { color: colors.text.muted }]}>Later</Text>
+                <TouchableOpacity
+                  style={styles.laterBtn}
+                  onPress={dismiss}
+                  activeOpacity={0.7}
+                >
+                  <Text
+                    style={[styles.laterText, { color: colors.text.muted }]}
+                  >
+                    Later
+                  </Text>
                 </TouchableOpacity>
               )}
             </>
           )}
 
-          {state.status === 'downloading' && (
+          {state.status === "downloading" && (
             <>
-              <View style={[styles.iconWrap, { backgroundColor: 'rgba(6,182,212,0.14)' }]}>
+              <View
+                style={[
+                  styles.iconWrap,
+                  { backgroundColor: "rgba(6,182,212,0.14)" },
+                ]}
+              >
                 <Ionicons name="download" size={34} color={colors.cyanLight} />
               </View>
-              <Text style={[styles.title, { color: colors.text.primary }]}>Downloading update…</Text>
+              <Text style={[styles.title, { color: colors.text.primary }]}>
+                Downloading update…
+              </Text>
               <Text style={[styles.sub, { color: colors.text.secondary }]}>
                 {Math.round(state.progress * 100)}%
               </Text>
-              <View style={[styles.progressTrack, { backgroundColor: colors.bg.surface }]}>
+              <View
+                style={[
+                  styles.progressTrack,
+                  { backgroundColor: colors.bg.surface },
+                ]}
+              >
                 <View
                   style={[
                     styles.progressFill,
@@ -222,28 +260,51 @@ export function AppUpdaterProvider({ children }: { children?: React.ReactNode })
             </>
           )}
 
-          {state.status === 'installing' && (
+          {state.status === "installing" && (
             <>
               <ActivityIndicator size="large" color={colors.primaryLight} />
-              <Text style={[styles.title, { color: colors.text.primary }]}>Installing…</Text>
+              <Text style={[styles.title, { color: colors.text.primary }]}>
+                Installing…
+              </Text>
               <Text style={[styles.sub, { color: colors.text.secondary }]}>
                 Follow the on-screen steps to install the new version.
               </Text>
             </>
           )}
 
-          {state.status === 'error' && (
+          {state.status === "error" && (
             <>
-              <View style={[styles.iconWrap, { backgroundColor: 'rgba(239,68,68,0.14)' }]}>
-                <Ionicons name="alert-circle-outline" size={34} color={colors.danger} />
+              <View
+                style={[
+                  styles.iconWrap,
+                  { backgroundColor: "rgba(239,68,68,0.14)" },
+                ]}
+              >
+                <Ionicons
+                  name="alert-circle-outline"
+                  size={34}
+                  color={colors.danger}
+                />
               </View>
-              <Text style={[styles.title, { color: colors.text.primary }]}>Update failed</Text>
+              <Text style={[styles.title, { color: colors.text.primary }]}>
+                Update failed
+              </Text>
               <Text style={[styles.sub, { color: colors.text.secondary }]}>
                 {state.message}
               </Text>
-              
-              <Text style={[styles.hint, { color: colors.text.muted, marginBottom: spacing.md, paddingHorizontal: spacing.sm }]}>
-                If it keeps failing, please tap Reinstall below to download the latest version and uninstall this broken one.
+
+              <Text
+                style={[
+                  styles.hint,
+                  {
+                    color: colors.text.muted,
+                    marginBottom: spacing.md,
+                    paddingHorizontal: spacing.sm,
+                  },
+                ]}
+              >
+                If it keeps failing, please tap Reinstall below to download the
+                latest version and uninstall this broken one.
               </Text>
 
               <LinearGradient
@@ -254,7 +315,11 @@ export function AppUpdaterProvider({ children }: { children?: React.ReactNode })
               >
                 <TouchableOpacity
                   style={styles.updateBtnInner}
-                  onPress={state.update ? () => startDownload(state.update!) : undefined}
+                  onPress={
+                    state.update
+                      ? () => startDownload(state.update!)
+                      : undefined
+                  }
                   activeOpacity={0.85}
                 >
                   <Ionicons name="refresh" size={16} color="#fff" />
@@ -263,23 +328,50 @@ export function AppUpdaterProvider({ children }: { children?: React.ReactNode })
               </LinearGradient>
 
               {state.update?.url && (
-                <TouchableOpacity 
-                  style={[styles.updateBtn, { marginTop: spacing.md, backgroundColor: colors.bg.surface, borderWidth: 1, borderColor: colors.border }]} 
+                <TouchableOpacity
+                  style={[
+                    styles.updateBtn,
+                    {
+                      marginTop: spacing.md,
+                      backgroundColor: colors.bg.surface,
+                      borderWidth: 1,
+                      borderColor: colors.border,
+                    },
+                  ]}
                   onPress={triggerReinstall}
                   activeOpacity={0.7}
                 >
-                  <View style={[styles.updateBtnInner, { paddingVertical: 11 }]}>
-                    <Ionicons name="build-outline" size={16} color={colors.text.primary} />
-                    <Text style={[styles.updateBtnText, { color: colors.text.primary }]}>Reinstall App</Text>
+                  <View
+                    style={[styles.updateBtnInner, { paddingVertical: 11 }]}
+                  >
+                    <Ionicons
+                      name="build-outline"
+                      size={16}
+                      color={colors.text.primary}
+                    />
+                    <Text
+                      style={[
+                        styles.updateBtnText,
+                        { color: colors.text.primary },
+                      ]}
+                    >
+                      Reinstall App
+                    </Text>
                   </View>
                 </TouchableOpacity>
               )}
             </>
           )}
 
-          {state.status === 'error' && (
-            <TouchableOpacity style={styles.laterBtn} onPress={dismiss} activeOpacity={0.7}>
-              <Text style={[styles.laterText, { color: colors.text.muted }]}>Dismiss</Text>
+          {state.status === "error" && (
+            <TouchableOpacity
+              style={styles.laterBtn}
+              onPress={dismiss}
+              activeOpacity={0.7}
+            >
+              <Text style={[styles.laterText, { color: colors.text.muted }]}>
+                Dismiss
+              </Text>
             </TouchableOpacity>
           )}
         </View>
@@ -291,67 +383,67 @@ export function AppUpdaterProvider({ children }: { children?: React.ReactNode })
 const styles = StyleSheet.create({
   backdrop: {
     flex: 1,
-    backgroundColor: 'rgba(0,0,0,0.55)',
-    alignItems: 'center',
-    justifyContent: 'center',
+    backgroundColor: "rgba(0,0,0,0.55)",
+    alignItems: "center",
+    justifyContent: "center",
     paddingHorizontal: spacing.xl,
   },
   card: {
-    width: '100%',
+    width: "100%",
     maxWidth: 360,
     borderRadius: radii.xl,
     borderWidth: 1,
     padding: spacing.xl,
-    alignItems: 'center',
+    alignItems: "center",
   },
   iconWrap: {
     width: 64,
     height: 64,
     borderRadius: 32,
-    alignItems: 'center',
-    justifyContent: 'center',
+    alignItems: "center",
+    justifyContent: "center",
     marginBottom: spacing.md,
   },
   title: {
     fontSize: fontSizes.lg,
-    fontWeight: '800',
-    textAlign: 'center',
+    fontWeight: "800",
+    textAlign: "center",
     marginBottom: 8,
   },
   sub: {
     fontSize: fontSizes.sm,
     lineHeight: 20,
-    textAlign: 'center',
+    textAlign: "center",
     marginBottom: spacing.lg,
   },
   changelog: {
     fontSize: fontSizes.sm,
     lineHeight: 20,
-    textAlign: 'center',
+    textAlign: "center",
     marginBottom: spacing.lg,
   },
   updateBtn: {
-    alignSelf: 'stretch',
+    alignSelf: "stretch",
     borderRadius: radii.full,
-    overflow: 'hidden',
+    overflow: "hidden",
   },
   updateBtnInner: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
     gap: 8,
     paddingVertical: 13,
   },
-  updateBtnText: { color: '#fff', fontSize: fontSizes.md, fontWeight: '800' },
+  updateBtnText: { color: "#fff", fontSize: fontSizes.md, fontWeight: "800" },
   laterBtn: { paddingVertical: 12, paddingHorizontal: 24 },
-  laterText: { fontSize: fontSizes.sm, fontWeight: '600' },
+  laterText: { fontSize: fontSizes.sm, fontWeight: "600" },
   progressTrack: {
-    alignSelf: 'stretch',
+    alignSelf: "stretch",
     height: 10,
     borderRadius: radii.full,
-    overflow: 'hidden',
+    overflow: "hidden",
     marginBottom: spacing.md,
   },
-  progressFill: { height: '100%', borderRadius: radii.full },
-  hint: { fontSize: fontSizes.xs, textAlign: 'center' },
+  progressFill: { height: "100%", borderRadius: radii.full },
+  hint: { fontSize: fontSizes.xs, textAlign: "center" },
 });

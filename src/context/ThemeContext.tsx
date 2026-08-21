@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useState, useEffect } from 'react';
+import React, { createContext, useContext, useState, useEffect, useMemo } from 'react';
 import { Appearance, ColorSchemeName } from 'react-native';
 import * as SecureStore from 'expo-secure-store';
 import { DARK_COLORS, LIGHT_COLORS, type ColorPalette } from '../theme';
@@ -50,15 +50,15 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
     setPreference(pref);
   };
 
+  const ctxValue = useMemo(() => ({
+    isDark,
+    colors: isDark ? DARK_COLORS : LIGHT_COLORS,
+    themePreference,
+    setThemePreference,
+  }), [isDark, themePreference, setThemePreference]);
+
   return (
-    <ThemeContext.Provider
-      value={{
-        isDark,
-        colors: isDark ? DARK_COLORS : LIGHT_COLORS,
-        themePreference,
-        setThemePreference,
-      }}
-    >
+    <ThemeContext.Provider value={ctxValue}>
       {children}
     </ThemeContext.Provider>
   );

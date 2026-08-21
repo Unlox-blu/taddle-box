@@ -1,23 +1,22 @@
-import React, { useMemo, useState, useCallback, useRef } from 'react';
+import React, { useMemo, useState, useCallback, useRef } from "react";
+import { View, Text, StyleSheet, FlatList } from "react-native";
+import { FlashList } from "@shopify/flash-list";
 import {
-  View, Text, StyleSheet,
-  FlatList
-} from 'react-native';
-import { FlashList } from '@shopify/flash-list';
-import { useNavigation, useFocusEffect, useIsFocused } from '@react-navigation/native';
-import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
-import { fontSizes, spacing, type ColorPalette } from '../../theme';
-import { useThemeColors } from '../../context/ThemeContext';
-import { useAuth } from '../../context/AuthContext';
-import MainHeader from '../../components/common/MainHeader';
-import { SectionHeader } from '../../components/common/SectionChrome';
-import { bookmarkService } from '../../services/bookmark.service';
-import type { HomeStackParamList } from '../../types';
+  useNavigation,
+  useFocusEffect,
+  useIsFocused,
+} from "@react-navigation/native";
+import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
+import { fontSizes, spacing, type ColorPalette } from "../../theme";
+import { useThemeColors } from "../../context/ThemeContext";
+import { useAuth } from "../../context/AuthContext";
+import MainHeader from "../../components/common/MainHeader";
+import { SectionHeader } from "../../components/common/SectionChrome";
+import { bookmarkService } from "../../services/bookmark.service";
+import type { HomeStackParamList } from "../../types";
 import PullToRefreshWrapper from "../../components/common/PullToRefreshWrapper";
-import BrandedLoader from "../../components/common/BrandedLoader";
-import {
-  useGlobalScroll,
-} from "../../context/ScrollContext";
+import StateBlock from "../../components/common/StateBlock";
+import { useGlobalScroll } from "../../context/ScrollContext";
 import {
   ROW_RENDERERS,
   GenericRow,
@@ -26,7 +25,7 @@ import {
 import { makeStyles as makeSearchStyles } from "../../components/search/searchStyles";
 import { useToggleLike, useToggleSave } from "../../mutations/posts";
 
-type NavProp = NativeStackNavigationProp<HomeStackParamList, 'Bookmarks'>;
+type NavProp = NativeStackNavigationProp<HomeStackParamList, "Bookmarks">;
 
 type ResultType = string;
 
@@ -53,42 +52,52 @@ function makeStyles(c: ColorPalette) {
   return StyleSheet.create({
     container: { flex: 1, backgroundColor: c?.bg?.base },
     empty: {
-      flex: 1, alignItems: 'center', justifyContent: 'center',
-      paddingHorizontal: 48, paddingBottom: 80,
+      flex: 1,
+      alignItems: "center",
+      justifyContent: "center",
+      paddingHorizontal: 48,
+      paddingBottom: 80,
     },
     emptyEmoji: { fontSize: 56, marginBottom: spacing.lg },
     emptyTitle: {
-      fontSize: fontSizes.xl, fontWeight: '800',
-      color: c?.text?.primary, textAlign: 'center',
+      fontSize: fontSizes.xl,
+      fontWeight: "800",
+      color: c?.text?.primary,
+      textAlign: "center",
       marginBottom: spacing.sm,
     },
     emptyDesc: {
-      fontSize: fontSizes.sm, color: c?.text?.muted,
-      textAlign: 'center', lineHeight: 20,
+      fontSize: fontSizes.sm,
+      color: c?.text?.muted,
+      textAlign: "center",
+      lineHeight: 20,
     },
-
   });
 }
 
 export default function BookmarksScreen() {
   const navigation = useNavigation<NavProp>();
-  const colors     = useThemeColors();
-  const styles     = useMemo(() => makeStyles(colors), [colors]);
+  const colors = useThemeColors();
+  const styles = useMemo(() => makeStyles(colors), [colors]);
   const searchStyles = useMemo(() => makeSearchStyles(colors), [colors]);
-  const isFocused  = useIsFocused();
+  const isFocused = useIsFocused();
   const { user: currentUser } = useAuth();
   const { footerHeight } = useGlobalScroll();
-
-
-
-
 
   const [rows, setRows] = useState<Row[]>([]);
   const [page, setPage] = useState(1);
   const [hasMore, setHasMore] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
-  
+  const [isReady, setIsReady] = useState(false);
+
+  React.useEffect(() => {
+    const timer = setTimeout(() => {
+      setIsReady(true);
+    }, 400);
+    return () => clearTimeout(timer);
+  }, []);
+
   const searchReqRef = useRef(0);
 
   const [serverTypes, setServerTypes] = useState<string[]>([]);
@@ -96,7 +105,7 @@ export default function BookmarksScreen() {
   const viewabilityConfig = useRef({ itemVisiblePercentThreshold: 60 }).current;
   const onViewableItemsChanged = useRef(({ viewableItems }: any) => {
     const postRow = (viewableItems || []).find(
-      (v: any) => v.item?.type === "posts" && v.isViewable
+      (v: any) => v.item?.type === "posts" && v.isViewable,
     );
     if (postRow) {
       const id = postRow.item.item.id;
@@ -143,7 +152,7 @@ export default function BookmarksScreen() {
       setHasMore(res.hasNext);
       setPage(res.page);
     } catch (e) {
-      console.warn('Failed to load bookmarks', e);
+      console.warn("Failed to load bookmarks", e);
     } finally {
       if (searchReqRef.current === reqId) {
         setIsLoading(false);
@@ -159,7 +168,7 @@ export default function BookmarksScreen() {
 
   const rowCtx = useMemo<RowCtx>(
     () => ({
-      styles: searchStyles, 
+      styles: searchStyles,
       colors,
       navigation,
       isFocused,
@@ -173,7 +182,11 @@ export default function BookmarksScreen() {
       refresh: handleRefresh,
       openPost: (p) => navigation.push("PostDetail", { post: p }),
       openUser: (u) => navigation.push("UserProfile", { user: u }),
-      openCommunity: (slug) => (navigation as any).navigate("Community", { screen: "CommunityDetail", params: { communitySlug: slug } }),
+      openCommunity: (slug) =>
+        (navigation as any).navigate("Community", {
+          screen: "CommunityDetail",
+          params: { communitySlug: slug },
+        }),
       openGames: () => {},
       openEvents: () => {},
       openSettings: () => (navigation as any).navigate("Settings"),
@@ -190,32 +203,34 @@ export default function BookmarksScreen() {
       toggleLike,
       toggleSave,
       handleRefresh,
-    ]
+    ],
   );
 
   useFocusEffect(
     useCallback(() => {
-      fetchBookmarks(1, false);
-    }, [fetchBookmarks])
+      const task =
+        require("react-native").InteractionManager.runAfterInteractions(() => {
+          fetchBookmarks(1, false);
+        });
+      return () => task.cancel();
+    }, [fetchBookmarks]),
   );
-
-
 
   // ── Section header — passed to PullToRefreshWrapper ──
   // SectionChrome positions this absolutely below MainHeader. It hides/shows
   // with scroll in lockstep with MainHeader.
   const sectionHeader = (
-    <SectionHeader
-      title="Bookmarks"
-      subtitle={`${rows.length} saved`}
-    />
+    <SectionHeader title="Bookmarks" subtitle={`${rows.length} saved`} />
   );
 
   const renderItem = ({ item: row }: { item: Row }) => {
     if (row.isHeader) return null;
-    const Renderer = ROW_RENDERERS[row.type] || ROW_RENDERERS[row.type + 's'] || GenericRow;
+    const Renderer =
+      ROW_RENDERERS[row.type] || ROW_RENDERERS[row.type + "s"] || GenericRow;
     return (
-      <View style={{ paddingHorizontal: spacing.md, marginVertical: spacing.xs }}>
+      <View
+        style={{ paddingHorizontal: spacing.md, marginVertical: spacing.xs }}
+      >
         <Renderer data={row.item} ctx={rowCtx} />
       </View>
     );
@@ -225,41 +240,59 @@ export default function BookmarksScreen() {
     <View style={styles.container}>
       <MainHeader showBack />
 
-      <PullToRefreshWrapper
-        refreshing={refreshing}
-        onRefresh={handleRefresh}
-        sectionHeaderH={SECTION_HEADER_H}
-        sectionHeader={sectionHeader}
-      >
-        {isLoading && rows.length === 0 ? (
-          <View style={styles.empty}>
-            <BrandedLoader size={44} />
-            <Text style={[styles.emptyTitle, { fontSize: fontSizes.md, marginTop: spacing.md }]}>Loading...</Text>
-          </View>
-        ) : rows.length === 0 ? (
-          <View style={styles.empty}>
-            <Text style={styles.emptyEmoji}>🔖</Text>
-            <Text style={styles.emptyTitle}>No bookmarks yet</Text>
-            <Text style={styles.emptyDesc}>Tap the bookmark icon on any post, profile, or community to save it here for later.</Text>
-          </View>
-        ) : (
-          <FlashList
-            data={rows}
-            keyExtractor={(row, idx) => rowKey(row) || idx.toString()}
-            showsVerticalScrollIndicator={false}
-            contentContainerStyle={{ paddingBottom: footerHeight + 20 }}
-            onEndReached={() => {
-              if (hasMore) fetchBookmarks(page + 1, true);
-            }}
-            onEndReachedThreshold={0.4}
-            renderItem={renderItem}
-            ItemSeparatorComponent={() => <View style={{ height: 10 }} />}
-            onViewableItemsChanged={onViewableItemsChanged}
-            viewabilityConfig={viewabilityConfig}
-            scrollEventThrottle={16}
-          />
-        )}
-      </PullToRefreshWrapper>
+      {!isReady ? (
+        <View
+          style={{ flex: 1, justifyContent: "center", alignItems: "center" }}
+        >
+          <StateBlock loading />
+        </View>
+      ) : (
+        <PullToRefreshWrapper
+          refreshing={refreshing}
+          onRefresh={handleRefresh}
+          sectionHeaderH={SECTION_HEADER_H}
+          sectionHeader={sectionHeader}
+        >
+          {isLoading && rows.length === 0 ? (
+            <View style={styles.empty}>
+              <StateBlock loading />
+              <Text
+                style={[
+                  styles.emptyTitle,
+                  { fontSize: fontSizes.md, marginTop: spacing.md },
+                ]}
+              >
+                Loading...
+              </Text>
+            </View>
+          ) : rows.length === 0 ? (
+            <View style={styles.empty}>
+              <Text style={styles.emptyEmoji}>🔖</Text>
+              <Text style={styles.emptyTitle}>No bookmarks yet</Text>
+              <Text style={styles.emptyDesc}>
+                Tap the bookmark icon on any post, profile, or community to save
+                it here for later.
+              </Text>
+            </View>
+          ) : (
+            <FlashList
+              data={rows}
+              keyExtractor={(row, idx) => rowKey(row) || idx.toString()}
+              showsVerticalScrollIndicator={false}
+              contentContainerStyle={{ paddingBottom: footerHeight + 20 }}
+              onEndReached={() => {
+                if (hasMore) fetchBookmarks(page + 1, true);
+              }}
+              onEndReachedThreshold={0.4}
+              renderItem={renderItem}
+              ItemSeparatorComponent={() => <View style={{ height: 10 }} />}
+              onViewableItemsChanged={onViewableItemsChanged}
+              viewabilityConfig={viewabilityConfig}
+              scrollEventThrottle={16}
+            />
+          )}
+        </PullToRefreshWrapper>
+      )}
     </View>
   );
 }

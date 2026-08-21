@@ -6,7 +6,6 @@ import React, {
   useState,
 } from "react";
 import {
-  ActivityIndicator,
   Animated,
   DeviceEventEmitter,
   Easing,
@@ -62,6 +61,8 @@ const MemoryGridGame = React.lazy(() => import("../../components/games/MemoryGri
 import GameLogo from "../../components/games/GameLogo";
 import GameStartScreen from "../../components/games/GameStartScreen";
 import { GAME_ASSETS } from "../../games/assets";
+import LottieView from "lottie-react-native";
+import { getCachedLottieSync, getCachedLottie, S3_APP_ICON_LOTTIE_URL } from "../../services/lottie.service";
 import {
   ensureGameAssets,
   ensureGameLogos,
@@ -71,8 +72,8 @@ import {
 } from "../../games/gameAssets";
 import type { Game } from "../../types";
 import type { HtmlGameResult } from "../../games/types";
-import MatchModeModal from "../../components/games/MatchModeModal";
-import GameResultOverlay from "../../components/games/GameResultOverlay";
+const MatchModeModal = React.lazy(() => import("../../components/games/MatchModeModal"));
+const GameResultOverlay = React.lazy(() => import("../../components/games/GameResultOverlay"));
 import { socketClient } from "../../services/socketClient";
 import type { User } from "../../types";
 import { useAuth } from "../../context/AuthContext";
@@ -151,6 +152,18 @@ const NATIVE_GAME_SLUGS = new Set([
   "tap-rush",
   "memory-grid",
 ]);
+
+// Module-level map — created once, never recreated on re-renders.
+// Each game is React.lazy, so the actual bundle only loads when the slug matches.
+const GAME_COMPONENTS: Record<string, any> = {
+  chess: ChessGame,
+  ludo: LudoGame,
+  "snake-ladder": SnakeLadderGame,
+  scribble: ScribbleGame,
+  "word-rush": WordRushGame,
+  "tap-rush": TapRushGame,
+  "memory-grid": MemoryGridGame,
+};
 
 export default function GamesScreen() {
   const insets = useSafeAreaInsets();
@@ -733,38 +746,33 @@ export default function GamesScreen() {
         {activeTab === "games" && (
           <>
             <ContentSectionHeader title="Available Games" />
-            <FlashList
-              data={realGames}
-              numColumns={2}
-              
-              keyExtractor={(item) => item.id}
-              renderItem={({ item: game }) => {
-                const isRejoin =
-                  !!reconnectSession && reconnectSession.gameId === game.id;
-                const rejoinWindowMs = isRejoin
-                  ? reconnectSession.reconnectWindowMs
-                  : null;
+            <View style={{ flexDirection: 'row', flexWrap: 'wrap', paddingHorizontal: spacing.lg, marginHorizontal: -spacing.sm }}>
+              {realGames.map(game => {
+                const isRejoin = !!reconnectSession && reconnectSession.gameId === game.id;
+                const rejoinWindowMs = isRejoin ? reconnectSession.reconnectWindowMs : null;
                 return (
-                  <GameCard
-                    game={{
-                      ...game,
-                      isHot:
-                        backendTrending?.includes(game.id) ||
-                        backendTrending?.includes(game.slug || "") ||
-                        false,
-                    }}
-                    isRejoin={isRejoin}
-                    rejoinWindowMs={rejoinWindowMs}
-                    downloading={downloadingSlug === game.slug}
-                    onRejoinExpired={() => {
-                      setReconnectSession(null);
-                      loadGamesData();
-                    }}
-                    onPlayClick={() => handleGamePlay(game, isRejoin)}
-                  />
+                  <View key={game.id} style={{ width: '50%', paddingHorizontal: spacing.sm, marginBottom: spacing.md }}>
+                    <GameCard
+                      game={{
+                        ...game,
+                        isHot:
+                          backendTrending?.includes(game.id) ||
+                          backendTrending?.includes(game.slug || "") ||
+                          false,
+                      }}
+                      isRejoin={isRejoin}
+                      rejoinWindowMs={rejoinWindowMs}
+                      downloading={downloadingSlug === game.slug}
+                      onRejoinExpired={() => {
+                        setReconnectSession(null);
+                        loadGamesData();
+                      }}
+                      onPlayClick={() => handleGamePlay(game, isRejoin)}
+                    />
+                  </View>
                 );
-              }}
-            />
+              })}
+            </View>
           </>
         )}
 
@@ -838,6 +846,7 @@ export default function GamesScreen() {
         onPlayClick={handleGamePlay}
       />
 
+      <React.Suspense fallback={null}>
       <MatchModeModal
         visible={matchModalVisible}
         game={selectedGame}
@@ -854,6 +863,7 @@ export default function GamesScreen() {
         }}
         onMatched={handleMatched}
       />
+      </React.Suspense>
 
       {activeSession && (
         <GamePlayModal
@@ -905,6 +915,66 @@ function ContentSectionHeader({
           <Text style={styles.sectionAction}>{action}</Text>
         </TouchableOpacity>
       )}
+    </View>
+  );
+}
+
+/** Branded Lottie loader shown while React.lazy resolves a game bundle. */
+function BrandedGameLoader() {
+  const [lottieSource, setLottieSource] = useState<any>(getCachedLottieSync(S3_APP_ICON_LOTTIE_URL));
+  useEffect(() => {
+    if (lottieSource) return;
+    getCachedLottie(S3_APP_ICON_LOTTIE_URL).then((animData) => {
+      if (animData) setLottieSource(animData);
+    }).catch(() => {});
+  }, []);
+  return (
+    <View style={{ alignItems: 'center', gap: 16 }}>
+      {lottieSource ? (
+        <LottieView
+          source={lottieSource}
+          autoPlay
+          loop
+          style={{ width: 80, height: 80 }}
+          colorFilters={[{ keypath: '*', color: '#7C3AED' }]}
+        />
+      ) : (
+        <StateBlock inline loading loaderSize={44} />
+      )}
+      <Text style={{ color: '#7C3AED', fontSize: 14, fontWeight: '700' }}>
+        Loading game...
+      </Text>
+    </View>
+  );
+}
+
+/** Pulsing loader dots for the play button — lightweight, no Lottie dependency. */
+function BrandedButtonLoader() {
+  const dot1 = useRef(new Animated.Value(0.4)).current;
+  const dot2 = useRef(new Animated.Value(0.4)).current;
+  const dot3 = useRef(new Animated.Value(0.4)).current;
+  useEffect(() => {
+    const makeAnim = (val: Animated.Value, delay: number) =>
+      Animated.loop(
+        Animated.sequence([
+          Animated.delay(delay),
+          Animated.timing(val, { toValue: 1, duration: 400, useNativeDriver: true }),
+          Animated.timing(val, { toValue: 0.4, duration: 400, useNativeDriver: true }),
+        ]),
+      );
+    const a1 = makeAnim(dot1, 0);
+    const a2 = makeAnim(dot2, 150);
+    const a3 = makeAnim(dot3, 300);
+    a1.start(); a2.start(); a3.start();
+    return () => { a1.stop(); a2.stop(); a3.stop(); };
+  }, []);
+
+  const dotStyle = { width: 5, height: 5, borderRadius: 2.5, backgroundColor: '#fff' };
+  return (
+    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 3 }}>
+      <Animated.View style={[dotStyle, { opacity: dot1 }]} />
+      <Animated.View style={[dotStyle, { opacity: dot2 }]} />
+      <Animated.View style={[dotStyle, { opacity: dot3 }]} />
     </View>
   );
 }
@@ -1031,7 +1101,7 @@ function GameCard({
             style={styles.primaryButton}
           >
             {downloading ? (
-              <ActivityIndicator size="small" color="#fff" />
+              <BrandedButtonLoader />
             ) : isRejoin ? (
               <Ionicons name="play-forward" size={16} color="#fff" />
             ) : (
@@ -1462,27 +1532,19 @@ function GamePlayModal({
           )}
         </View>
 
-        {/* playStage: game mounts immediately so its socket connects and sends
-            READY. It stays invisible until the prestart screen is done.
-            GameStartScreen handles both "waiting for players" and "3-2-1"
-            as a single unified screen — matchStarted drives the transition. */}
+        {/* playStage: game mounts ONLY while phase === "playing".
+            During prestart the branded Lottie spinner shows while
+            React.lazy resolves the game bundle. When the game ends
+            (phase = "result") the component unmounts immediately,
+            freeing all native memory (video players, Animated values, 
+            PanResponder, intervals). */}
         <View style={styles.playStage}>
-          {(phase === "prestart" || phase === "playing") &&
+          {phase === "playing" &&
             (() => {
               const { slug } = session.game as any;
               const uid = user?.id || "";
               const token = session.wsToken || "";
               const mid = session.matchId;
-
-              const GAME_COMPONENTS: Record<string, any> = {
-                chess: ChessGame,
-                ludo: LudoGame,
-                "snake-ladder": SnakeLadderGame,
-                scribble: ScribbleGame,
-                "word-rush": WordRushGame,
-                "tap-rush": TapRushGame,
-                "memory-grid": MemoryGridGame,
-              };
 
               if (NATIVE_GAME_SLUGS.has(slug)) {
                 const NativeGame = GAME_COMPONENTS[slug];
@@ -1490,17 +1552,14 @@ function GamePlayModal({
                   return (
                     <React.Suspense
                       fallback={
-                        <View style={[StyleSheet.absoluteFill, { justifyContent: 'center', alignItems: 'center' }]}>
-                          <ActivityIndicator size="large" color="#7C3AED" />
+                        <View style={[StyleSheet.absoluteFill, { justifyContent: 'center', alignItems: 'center', backgroundColor: '#000' }]}>
+                          <BrandedGameLoader />
                         </View>
                       }
                     >
                     <View
-                      style={[
-                        StyleSheet.absoluteFill,
-                        { opacity: phase === "playing" ? 1 : 0 },
-                      ]}
-                      pointerEvents={phase === "playing" ? "auto" : "none"}
+                      style={[StyleSheet.absoluteFill, { opacity: 1 }]}
+                      pointerEvents="auto"
                     >
                       <NativeGame
                         key={mid}
@@ -1624,6 +1683,7 @@ function GamePlayModal({
           )}
 
           {phase === "result" && (
+            <React.Suspense fallback={null}>
             <GameResultOverlay
               key={result}
               result={result}
@@ -1646,6 +1706,7 @@ function GamePlayModal({
               onRematch={onRematch}
               onClose={onClose}
             />
+            </React.Suspense>
           )}
         </View>
       </View>
@@ -1904,7 +1965,7 @@ function makeStyles(c: ColorPalette) {
       justifyContent: "space-between",
     },
     gameCard: {
-      width: "48%",
+      width: "100%",
       marginBottom: spacing.md,
       borderRadius: radii.lg,
       overflow: "hidden",
@@ -1912,7 +1973,7 @@ function makeStyles(c: ColorPalette) {
       borderWidth: 1,
       borderColor: c.border,
     },
-    gameArt: { height: 100, alignItems: "center", justifyContent: "center" },
+    gameArt: { aspectRatio: 1, alignItems: "center", justifyContent: "center" },
     gameBadge: {
       position: "absolute",
       top: 6,

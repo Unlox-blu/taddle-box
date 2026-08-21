@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
-import { View, Text, StyleSheet, FlatList, TouchableOpacity, ActivityIndicator,  Image } from 'react-native';
+import { View, Text, StyleSheet, FlatList, TouchableOpacity, Image } from 'react-native';
+import StateBlock from '../../components/common/StateBlock';
 import { FlashList } from '@shopify/flash-list';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useNavigation, useRoute, type RouteProp } from '@react-navigation/native';
@@ -58,7 +59,7 @@ export default function ManageRequestsScreen() {
   if (loading) {
     return (
       <View style={[styles.center, { backgroundColor: colors.bg.base }]}>
-        <ActivityIndicator size="large" color={colors.primary} />
+        <StateBlock loading />
       </View>
     );
   }

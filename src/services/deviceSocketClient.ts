@@ -10,10 +10,10 @@
  * affected account from the switcher.
  */
 import { io, Socket } from "socket.io-client";
-import * as SecureStore from "expo-secure-store";
 import { Platform } from "react-native";
 import Constants from "expo-constants";
 import { EventEmitter } from "events";
+import * as SecureStore from "expo-secure-store";
 
 // ── URL resolution (same logic as socketClient.ts) ────────────────────────
 const debuggerHost = Constants.expoConfig?.hostUri;
@@ -44,7 +44,7 @@ class DeviceSocketClient {
 
     const deviceId = await SecureStore.getItemAsync("deviceId");
     if (!deviceId) {
-      console.warn("[deviceSocket] No deviceId found — skipping device socket");
+      console.log("[deviceSocket] No deviceId found — skipping device socket");
       return;
     }
 

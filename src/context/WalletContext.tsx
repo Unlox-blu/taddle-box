@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useReducer, useCallback, useEffect, useRef } from 'react';
+import React, { createContext, useContext, useReducer, useCallback, useEffect, useRef, useMemo } from 'react';
 import type { Transaction, XPUpdatedPayload, WalletUpdatedPayload } from '../types';
 import { walletService } from '../services/wallet.service';
 import { xpService } from '../services/xp.service';
@@ -547,7 +547,7 @@ export function WalletProvider({ children }: { children: React.ReactNode }) {
     }, []),
   };
 
-  return <WalletContext.Provider value={value}>{children}</WalletContext.Provider>;
+  return <WalletContext.Provider value={useMemo(() => value, [wallet])}>{children}</WalletContext.Provider>;
 }
 
 // ─── Hook ─────────────────────────────────────────────────────────────────────

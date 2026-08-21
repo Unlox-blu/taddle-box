@@ -1,14 +1,16 @@
-import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
+import React, { createContext, useContext, useState, useEffect, useCallback, useMemo } from 'react';
+
 import * as SecureStore from 'expo-secure-store';
 import Constants from 'expo-constants';
 import NetInfo from '@react-native-community/netinfo';
 import { authService } from '../services/auth.service';
 import { apiClient } from '../services/apiClient';
 import { socketClient } from '../services/socketClient';
-import { ensureGameLogos, warmAssetCache } from '../games/gameAssets';
-import { getAccounts, addAccount as storeAddAccount, removeAccount as storeRemoveAccount, storeCurrentAccountTokens, restoreAccountTokens, clearAllAccounts, type AccountProfile } from '../utils/accountStore';
+import { ensureGameLogos } from '../games/gameAssets';
+import { getAccounts, addAccount as storeAddAccount, removeAccount as storeRemoveAccount, storeCurrentAccountTokens, restoreAccountTokens, clearAccountTokens, clearAllAccounts, type AccountProfile } from '../utils/accountStore';
 import type { XPUpdatedPayload } from '../types';
 import { queryClient } from '../lib/react-query';
+import { themedAlert } from '../components/common/ThemedAlert';
 
 type AuthContextType = {
   isLoggedIn:  boolean;
@@ -19,7 +21,7 @@ type AuthContextType = {
   setLottieFinished: (val: boolean) => void;
   user:        any;
   signIn:      (token: string, refreshToken?: string, sessionId?: string) => Promise<void>;
-  signOut:     (opts?: { allDevices?: boolean }) => Promise<void>;
+  signOut:     (opts?: { allDevices?: boolean, keepAccount?: boolean }) => Promise<void>;
   refreshUser: () => Promise<void>;
   updateUser:  (partial: Partial<any>) => void;
   /** All accounts stored on this device. */
@@ -142,6 +144,15 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       setIsLoggedIn(false);
       setUser(undefined);
       await refreshAccounts();
+      // Delay the alert to allow LockOverlay modal (if active) to unmount,
+      // preventing the iOS quirk with overlapping system/app modals.
+      setTimeout(() => {
+        themedAlert(
+          'Session Expired',
+          'Your session has been logged out or expired. Please log in again.',
+          [{ text: 'OK' }]
+        );
+      }, 500);
     } catch (e) {
       console.error('Forced logout cleanup failed', e);
       // Last-resort: clear everything and hope for the best
@@ -268,9 +279,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     let cancelled = false;
     const t = setTimeout(async () => {
       if (cancelled) return;
-      // Warm the in-memory asset cache from disk so game logos/cards/sounds
-      // appear instantly when the user opens the Games tab.
-      warmAssetCache().catch(() => {});
+      // Game assets download per-game on PLAY tap (ensureGameAssets(slug)).
+      // No cold-start warm needed — logos download on Games tab focus.
       console.log('[Auth] Cold-start session validation');
       const result = await validateStoredAccounts();
       if (cancelled) return;
@@ -387,6 +397,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
       // Persist this account in the accounts list
       if (newUser) {
+        await SecureStore.setItemAsync('activeUserId', JSON.stringify(newUser.id));
+        await storeCurrentAccountTokens(newUser.id);
+        
         await storeAddAccount({
           userId: newUser.id,
           name: newUser.name || 'User',
@@ -409,7 +422,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const dismissUpdate = () => setUpdateAvailable(false);
 
-  const signOut = async (opts?: { allDevices?: boolean }) => {
+  const signOut = async (opts?: { allDevices?: boolean, keepAccount?: boolean }) => {
     const userId = user?.id;
     try {
       if (isLoggedIn) {
@@ -432,9 +445,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     await SecureStore.deleteItemAsync('accessToken');
     await SecureStore.deleteItemAsync('refreshToken');
     await SecureStore.deleteItemAsync('sessionId');
-    // Remove this account from the stored list
-    if (userId) {
+    // Remove this account from the stored list unless keepAccount is true
+    if (userId && !opts?.keepAccount) {
       await storeRemoveAccount(userId);
+    } else if (userId && opts?.keepAccount) {
+      // Clear the saved tokens for this account so it can't be auto-restored
+      await clearAccountTokens(userId);
     }
     socketClient.disconnect();
     // Release native audio players on logout
@@ -474,11 +490,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       setIsLoggedIn(true);
       await socketClient.connect();
     } catch (e) {
-      console.error('Failed to switch account', e);
-      // Instagram-style: keep the account in the list, don't auto-remove.
-      // Instead, pass the username to LoginScreen so it can pre-fill it.
+      console.warn('Failed to login to saved account', e);
       const targetProfile = accounts.find((a) => String(a.userId) === String(targetUserId));
       setExpiredAccountUsername(targetProfile?.username || null);
+      
+      // Auto-remove the account from the saved list on failure
+      await storeRemoveAccount(targetUserId);
+      await refreshAccounts();
       // User is already logged out (setIsLoggedIn(false) above) — auth screens will show.
     } finally {
       setIsAuthenticating(false);
@@ -487,11 +505,21 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   /** Remove an account from this device's stored list. */
   const removeAccountFromDevice = async (targetUserId: number | string) => {
+    // If we're removing an inactive account, we should still notify the backend 
+    // to destroy that session if possible.
+    const prefix = `user_${targetUserId}_`;
+    const targetAccessToken = await SecureStore.getItemAsync(`${prefix}accessToken`);
+    
     await storeRemoveAccount(targetUserId);
+    await clearAccountTokens(targetUserId);
     await refreshAccounts();
-    // If removed the active account, sign out
+    
+    // If removed the active account, sign out locally + backend
     if (user?.id && String(user.id) === String(targetUserId)) {
       await signOut();
+    } else if (targetAccessToken) {
+      // Fire-and-forget background logout to the backend for this inactive account
+      authService.logout(targetAccessToken).catch((e) => console.log("[Auth] Background logout for inactive account failed", e));
     }
   };
 
@@ -508,34 +536,40 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     setUser(undefined);
   };
 
+  const ctxValue = useMemo(() => ({
+    isLoggedIn,
+    isLoading,
+    isAuthenticating,
+    setIsAuthenticating,
+    isSplashVisible,
+    setLottieFinished,
+    user,
+    signIn,
+    signOut,
+    refreshUser,
+    updateUser,
+    accounts,
+    switchAccount,
+    removeAccountFromDevice,
+    needsForceUpdate,
+    updateAvailable,
+    dismissUpdate,
+    storeUrl,
+    hasSeenOnboarding,
+    setHasSeenOnboarding,
+    goToAddAccount,
+    expiredAccountUsername,
+    clearExpiredAccount,
+  }), [
+    isLoggedIn, isLoading, isAuthenticating, isSplashVisible, user,
+    accounts, needsForceUpdate, updateAvailable, storeUrl,
+    hasSeenOnboarding, expiredAccountUsername,
+    signIn, signOut, refreshUser, updateUser, switchAccount,
+    removeAccountFromDevice, dismissUpdate, goToAddAccount, clearExpiredAccount,
+  ]);
+
   return (
-    <AuthContext.Provider
-      value={{
-        isLoggedIn,
-        isLoading,
-        isAuthenticating,
-        setIsAuthenticating,
-        isSplashVisible,
-        setLottieFinished,
-        user,
-        signIn,
-        signOut,
-        refreshUser,
-        updateUser,
-        accounts,
-        switchAccount,
-        removeAccountFromDevice,
-        needsForceUpdate,
-        updateAvailable,
-        dismissUpdate,
-        storeUrl,
-        hasSeenOnboarding,
-        setHasSeenOnboarding,
-        goToAddAccount,
-        expiredAccountUsername,
-        clearExpiredAccount,
-      }}
-    >
+    <AuthContext.Provider value={ctxValue}>
       {children}
     </AuthContext.Provider>
   );

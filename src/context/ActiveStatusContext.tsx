@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useCallback, useEffect, useRef, useState } from 'react';
+import React, { createContext, useContext, useCallback, useEffect, useRef, useState, useMemo } from 'react';
 import { activeStatusService } from '../services/activeStatus.service';
 import { socketClient } from '../services/socketClient';
 import type {
@@ -156,7 +156,7 @@ export function ActiveStatusProvider({ children }: { children: React.ReactNode }
   }, []);
 
   return (
-    <ActiveStatusContext.Provider value={{ map, fetchActiveStatus }}>
+    <ActiveStatusContext.Provider value={useMemo(() => ({ map, fetchActiveStatus }), [map, fetchActiveStatus])}>
       {children}
     </ActiveStatusContext.Provider>
   );

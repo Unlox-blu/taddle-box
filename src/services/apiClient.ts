@@ -50,7 +50,7 @@ apiClient.interceptors.request.use(
   async (config) => {
     try {
       const token = await SecureStore.getItemAsync("accessToken");
-      if (token && config.headers) {
+      if (token && config.headers && !config.headers.Authorization) {
         config.headers.Authorization = `Bearer ${token}`;
       }
     } catch (error) {

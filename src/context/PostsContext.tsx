@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useReducer, useCallback } from 'react';
+import React, { createContext, useContext, useReducer, useCallback, useMemo } from 'react';
 import type { Post } from '../types';
 import { postsService } from '../services/posts.service';
 
@@ -203,7 +203,7 @@ export function PostsProvider({ children }: { children: React.ReactNode }) {
     },
   };
 
-  return <PostsContext.Provider value={value}>{children}</PostsContext.Provider>;
+  return <PostsContext.Provider value={useMemo(() => value, [state.posts])}>{children}</PostsContext.Provider>;
 }
 
 // ─── Hook ────────────────────────────────────────────────────────────────────

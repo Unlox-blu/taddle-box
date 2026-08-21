@@ -1,7 +1,7 @@
 import React, { useMemo, useState, useRef, useEffect } from 'react';
 import {
   View, Text, FlatList, TouchableOpacity,
-  StyleSheet, KeyboardAvoidingView, Platform, Modal, Animated, Dimensions, TouchableWithoutFeedback, Keyboard, ActivityIndicator, Image, 
+  StyleSheet, KeyboardAvoidingView, Platform, Modal, Animated, Dimensions, TouchableWithoutFeedback, Keyboard, Image, 
 } from 'react-native';
 import { FlashList } from '@shopify/flash-list';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -18,6 +18,7 @@ import { commentService, Comment } from '../../services/comment.service';
 import { postsService } from '../../services/posts.service';
 import { usePosts } from '../../context/PostsContext';
 import { themedAlert } from '../common/ThemedAlert';
+import StateBlock from '../common/StateBlock';
 
 const { height: SCREEN_H } = Dimensions.get('window');
 
@@ -468,7 +469,9 @@ export default function CommentsModal({ visible, onClose, post }: Props) {
           </View>
 
           {loading ? (
-            <ActivityIndicator style={{ flex: 1 }} color={colors.primary} />
+            <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', paddingVertical: 24 }}>
+              <StateBlock inline loading loaderSize={36} />
+            </View>
           ) : (
             <FlashList
               data={comments}
@@ -481,11 +484,9 @@ export default function CommentsModal({ visible, onClose, post }: Props) {
               onEndReachedThreshold={0.4}
               ListFooterComponent={
                 loadingMore ? (
-                  <ActivityIndicator
-                    size="small"
-                    color={colors.primary}
-                    style={{ paddingVertical: 14 }}
-                  />
+                  <View style={{ alignItems: 'center', paddingVertical: 14 }}>
+                    <StateBlock inline loading loaderSize={28} />
+                  </View>
                 ) : null
               }
               ListEmptyComponent={

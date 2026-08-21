@@ -8,12 +8,16 @@ import {
   Text,
   Modal,
   View,
+  Alert,
+  Image,
 } from "react-native";
-import { SafeAreaView } from "react-native-safe-area-context";
+import { Ionicons } from "@expo/vector-icons";
+import { LinearGradient } from "expo-linear-gradient";
+import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 import * as LocalAuthentication from "expo-local-authentication";
 import * as SecureStore from "expo-secure-store";
 import { useThemeColors } from "../../context/ThemeContext";
-import { fontSizes, spacing } from "../../theme";
+import { fontSizes, spacing, radii } from "../../theme";
 import PinPad from "./PinPad";
 import RemovePinModal from "./RemovePinModal";
 import { authService } from "../../services/auth.service";
@@ -23,7 +27,8 @@ import { themedAlert } from './ThemedAlert';
 
 export default function LockOverlay() {
   const colors = useThemeColors();
-  const { user, isLoggedIn, signOut } = useAuth();
+  const { user, isLoggedIn, signOut, goToAddAccount } = useAuth();
+  const insets = useSafeAreaInsets();
 
   const [isLocked, setIsLocked] = useState(false);
   const [error, setError] = useState("");
@@ -141,7 +146,7 @@ export default function LockOverlay() {
       const status = e?.response?.status;
       // 401 = expired/invalid JWT — session is dead, force re-login
       if (status === 401 && !e?.response?.data?.message?.includes('PIN')) {
-        themedAlert(
+        Alert.alert(
           "Session Expired",
           "Your session has expired. Please log in again.",
           [{ text: "OK", onPress: () => signOut() }]
@@ -155,22 +160,9 @@ export default function LockOverlay() {
   };
 
   const handleLogout = () => {
-    themedAlert(
-      "Log Out",
-      "Are you sure you want to log out? This will bring you back to the login screen.",
-      [
-        { text: "Cancel", style: "cancel" },
-        {
-          text: "Log Out",
-          style: "destructive",
-          onPress: () => {
-            setIsLocked(false);
-            isLockedRef.current = false;
-            signOut();
-          },
-        },
-      ],
-    );
+    setIsLocked(false);
+    isLockedRef.current = false;
+    signOut({ keepAccount: true });
   };
 
   return (
@@ -180,9 +172,40 @@ export default function LockOverlay() {
       statusBarTranslucent
       transparent={false}
     >
-      <SafeAreaView
-        style={[styles.container, { backgroundColor: colors.bg.base }]}
+      <View
+        style={[styles.container, { backgroundColor: colors.bg.base, paddingTop: insets.top }]}
       >
+        {user && (
+          <TouchableOpacity
+            style={styles.profileRow}
+            onPress={async () => {
+              setIsLocked(false);
+              isLockedRef.current = false;
+              await goToAddAccount();
+            }}
+            activeOpacity={0.7}
+          >
+            <LinearGradient colors={["#4C1D95", "#7C3AED"]} style={styles.avatar}>
+              {user?.avatarUrl ? (
+                <Image source={{ uri: user.avatarUrl }} style={styles.avatarImage} />
+              ) : (
+                <Text style={styles.avatarText}>👾</Text>
+              )}
+            </LinearGradient>
+            <View style={styles.profileInfo}>
+              <Text style={[styles.profileName, { color: colors.text.primary }]} numberOfLines={1}>
+                {user?.name || "Taddle User"}
+              </Text>
+              <Text style={[styles.profileHandle, { color: colors.primaryLight }]} numberOfLines={1}>
+                @{user?.username || "user"}
+              </Text>
+            </View>
+            <View style={styles.switchIconWrap}>
+              <Ionicons name="swap-horizontal" size={18} color={colors.primaryLight} />
+            </View>
+          </TouchableOpacity>
+        )}
+
         <PinPad
           title="Enter Global Lock PIN"
           subtitle="Please enter your 4-digit PIN to continue"
@@ -193,13 +216,14 @@ export default function LockOverlay() {
           error={error}
           isVerifying={isVerifying}
         />
+
         <TouchableOpacity style={styles.forgotBtn} onPress={() => setRemovePinVisible(true)}>
           <Text style={[styles.forgotText, { color: colors.primaryLight }]}>Forgot PIN?</Text>
         </TouchableOpacity>
         <TouchableOpacity style={styles.logoutBtn} onPress={handleLogout}>
           <Text style={[styles.logoutText, { color: colors.danger }]}>Log out</Text>
         </TouchableOpacity>
-      </SafeAreaView>
+      </View>
 
       <RemovePinModal
         visible={removePinVisible}
@@ -222,6 +246,55 @@ const styles = StyleSheet.create({
     padding: spacing.sm,
     alignItems: "center",
     marginBottom: spacing.xs,
+  },
+  profileRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    alignSelf: "center",
+    backgroundColor: "rgba(124,58,237,0.05)",
+    paddingVertical: 10,
+    paddingHorizontal: 16,
+    borderRadius: radii.full,
+    borderWidth: 1,
+    borderColor: "rgba(124,58,237,0.15)",
+    marginTop: spacing.xl,
+    marginBottom: 0,
+    gap: 12,
+    maxWidth: '80%',
+  },
+  avatar: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  avatarImage: {
+    width: "100%",
+    height: "100%",
+    borderRadius: 20,
+  },
+  avatarText: {
+    fontSize: 18,
+  },
+  profileInfo: {
+    flex: 1,
+    justifyContent: "center",
+  },
+  profileName: {
+    fontSize: fontSizes.md,
+    fontWeight: "700",
+  },
+  profileHandle: {
+    fontSize: fontSizes.sm,
+    fontWeight: "500",
+  },
+  switchIconWrap: {
+    padding: 6,
+    backgroundColor: "rgba(124,58,237,0.1)",
+    borderRadius: 20,
+    borderWidth: 1,
+    borderColor: "rgba(124,58,237,0.2)",
   },
   forgotText: {
     fontSize: fontSizes.sm,

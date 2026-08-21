@@ -54,7 +54,7 @@ export type AuthStackParamList = {
   Login:          undefined;
   Register:       undefined;
   OTP:            { phone: string; accessToken?: string; refreshToken?: string };
-  ForgotPassword: undefined;
+  ForgotPassword: { initialIdentifier?: string } | undefined;
   CompleteProfile: undefined;
   Terms:          undefined;
   Privacy:        undefined;

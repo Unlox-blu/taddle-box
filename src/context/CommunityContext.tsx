@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useReducer, useCallback } from 'react';
+import React, { createContext, useContext, useReducer, useCallback, useMemo } from 'react';
 import type { Community } from '../types';
 import { communityService } from '../services/community.service';
 
@@ -177,7 +177,7 @@ export function CommunityProvider({ children }: { children: React.ReactNode }) {
     },
   };
 
-  return <CommunityContext.Provider value={value}>{children}</CommunityContext.Provider>;
+  return <CommunityContext.Provider value={useMemo(() => value, [state.communities, state.isLoading, state.hasMore])}>{children}</CommunityContext.Provider>;
 }
 
 // ─── Hook ────────────────────────────────────────────────────────

@@ -12,7 +12,11 @@ import { SafeAreaProvider } from "react-native-safe-area-context";
 import { GestureHandlerRootView } from "react-native-gesture-handler";
 import * as SplashScreen from "expo-splash-screen";
 import { ThemeProvider, useTheme } from "./src/context/ThemeContext";
-import { getCachedLottie, S3_APP_ICON_LOTTIE_URL, S3_APP_BANNER_LOTTIE_URL } from "./src/services/lottie.service";
+import {
+  getCachedLottie,
+  S3_APP_ICON_LOTTIE_URL,
+  S3_APP_BANNER_LOTTIE_URL,
+} from "./src/services/lottie.service";
 import AnimatedSplashScreen from "./src/components/common/AnimatedSplashScreen";
 import AppNavigator from "./src/navigation/AppNavigator";
 import { AuthProvider } from "./src/context/AuthContext";
@@ -28,6 +32,8 @@ import NotificationBanner from "./src/components/common/NotificationBanner";
 import { ThemedAlertHost } from "./src/components/common/ThemedAlert";
 import { ActiveStatusProvider } from "./src/context/ActiveStatusContext";
 import { ScrollProvider } from "./src/context/ScrollContext";
+import { LoaderProvider } from "./src/context/LoaderContext";
+import { AudioProvider } from "./src/context/AudioContext";
 import { useAuth } from "./src/context/AuthContext";
 import { locationService } from "./src/services/location.service";
 import { initGameSound } from "./src/services/gameSound";
@@ -56,7 +62,9 @@ function AppShell() {
   // splash disappearing and the Lottie becoming visible.
   useEffect(() => {
     if (lottieReady) {
-      SplashScreen.hideAsync();
+      setTimeout(() => {
+        SplashScreen.hideAsync();
+      }, 250);
     }
   }, [lottieReady]);
 
@@ -70,7 +78,9 @@ function AppShell() {
             barStyle={isDark ? "light-content" : "dark-content"}
             backgroundColor={colors.bg.base}
           />
-          
+
+          <AudioProvider>
+          <LoaderProvider>
           {/* Render navigators underneath so they are ready */}
           {!isLoading && (
             <>
@@ -89,6 +99,8 @@ function AppShell() {
               onReady={() => setLottieReady(true)}
             />
           )}
+          </LoaderProvider>
+          </AudioProvider>
         </ScrollProvider>
       </SafeAreaProvider>
     </GestureHandlerRootView>

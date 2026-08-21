@@ -7,9 +7,9 @@ import {
   StyleSheet,
   Dimensions,
   ListRenderItem,
-  ActivityIndicator,
   ImageBackground,
 } from "react-native";
+import StateBlock from '../common/StateBlock';
 import { LinearGradient } from "expo-linear-gradient";
 import { Ionicons } from "@expo/vector-icons";
 import { useNavigation } from "@react-navigation/native";
@@ -256,7 +256,7 @@ export default function SpotlightCarousel() {
           { justifyContent: "center", alignItems: "center" },
         ]}
       >
-        <ActivityIndicator size="small" color={colors.primary} />
+        <StateBlock inline loading loaderSize={24} />
       </View>
     );
   }

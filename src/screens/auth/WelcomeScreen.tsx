@@ -12,6 +12,7 @@ import {
 import { LinearGradient } from "expo-linear-gradient";
 import { NativeStackScreenProps } from "@react-navigation/native-stack";
 import { StatusBar } from "expo-status-bar";
+import { SafeAreaView } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import { radii, fontSizes, spacing } from "../../theme";
 import { useTheme } from "../../context/ThemeContext";
@@ -21,6 +22,7 @@ import type { AuthStackParamList } from "../../types";
 import * as WebBrowser from "expo-web-browser";
 import * as AppleAuthentication from "expo-apple-authentication";
 import LottieView from "lottie-react-native";
+import * as SecureStore from "expo-secure-store";
 import {
   getCachedLottie,
   getCachedLottieSync,
@@ -36,7 +38,7 @@ import Constants from "expo-constants";
 import { themedAlert } from "../../components/common/ThemedAlert";
 import SwitchAccountSection from "../../components/common/SwitchAccountSection";
 
-const { height } = Dimensions.get("window");
+const { width, height } = Dimensions.get("window");
 type Props = NativeStackScreenProps<AuthStackParamList, "Welcome">;
 
 const FEATURES = [
@@ -47,28 +49,53 @@ const FEATURES = [
 ];
 
 export default function WelcomeScreen({ navigation }: Props) {
+  // Tagline fits perfectly on a 380px wide screen. If narrower, scale down proportionally.
+  const fontScale = Math.min(1, width / 380);
   const { colors: themeColors, isDark } = useTheme();
   const styles = React.useMemo(
     () => getStyles(themeColors, isDark),
     [themeColors, isDark],
   );
-  const { signIn, setIsAuthenticating, accounts, user } = useAuth();
+  const { signIn, setIsAuthenticating, accounts, user, expiredAccountUsername } = useAuth();
   const hasAccounts = accounts.length > 0 || !!user?.id;
   const [appleAuthAvailable, setAppleAuthAvailable] = useState(false);
   const [lottieSource, setLottieSource] = useState<any>(
     getCachedLottieSync(S3_APP_ICON_LOTTIE_URL),
   );
-  
+
+  useEffect(() => {
+    SecureStore.getItemAsync("auth_redirect_forgot_password").then(async (identifier) => {
+      if (identifier) {
+        await SecureStore.deleteItemAsync("auth_redirect_forgot_password");
+        navigation.navigate("ForgotPassword", { initialIdentifier: identifier });
+      }
+    });
+  }, [navigation]);
+
+  useEffect(() => {
+    if (expiredAccountUsername) {
+      navigation.navigate("Login");
+    }
+  }, [expiredAccountUsername, navigation]);
+
   const [featureIndex, setFeatureIndex] = useState(0);
   const fadeAnim = React.useRef(new Animated.Value(1)).current;
 
   useEffect(() => {
     const interval = setInterval(() => {
       Animated.sequence([
-        Animated.timing(fadeAnim, { toValue: 0, duration: 400, useNativeDriver: true }),
-        Animated.timing(fadeAnim, { toValue: 1, duration: 400, useNativeDriver: true })
+        Animated.timing(fadeAnim, {
+          toValue: 0,
+          duration: 400,
+          useNativeDriver: true,
+        }),
+        Animated.timing(fadeAnim, {
+          toValue: 1,
+          duration: 400,
+          useNativeDriver: true,
+        }),
       ]).start();
-      
+
       setTimeout(() => {
         setFeatureIndex((prev) => (prev + 1) % FEATURES.length);
       }, 400);
@@ -299,142 +326,188 @@ export default function WelcomeScreen({ navigation }: Props) {
       style={styles.container}
     >
       <StatusBar style={isDark ? "light" : "dark"} />
+      <SafeAreaView style={{ flex: 1 }} edges={["top", "bottom"]}>
+        {/* Main Content Area (Logo + Tagline + Rolling Text) */}
+        <View
+          style={{
+            flex: 1,
+            alignItems: "center",
+            justifyContent: "center",
+            marginTop: 80,
+          }}
+        >
+          <View
+            style={{
+              position: "relative",
+              alignItems: "center",
+              justifyContent: "center",
+              marginBottom: 24,
+            }}
+          >
+            {/* Background glow perfectly centered behind the logo */}
+            <View style={styles.glow} />
 
-      {/* Main Content Area (Logo + Tagline + Rolling Text) */}
-      <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', marginTop: 40 }}>
-        <View style={{ position: 'relative', alignItems: 'center', justifyContent: 'center', marginBottom: 24 }}>
-          {/* Background glow perfectly centered behind the logo */}
-          <View style={styles.glow} />
-          
-          {lottieSource ? (
-            <View
-              style={{
-                width: 120,
-                height: 120,
-                borderRadius: 60,
-                overflow: "hidden",
-                backgroundColor: "transparent",
-              }}
-            >
-              <LottieView
-                source={lottieSource}
-                autoPlay
-                loop
-                cacheComposition={false}
-                style={{ width: "100%", height: "100%" }}
+            {lottieSource ? (
+              <View
+                style={{
+                  width: 120,
+                  height: 120,
+                  borderRadius: 60,
+                  overflow: "hidden",
+                  backgroundColor: "transparent",
+                }}
+              >
+                <LottieView
+                  source={lottieSource}
+                  autoPlay
+                  loop
+                  cacheComposition={false}
+                  style={{ width: "100%", height: "100%" }}
+                />
+              </View>
+            ) : (
+              <Image
+                source={require("../../../TaddleBox_Logo.png")}
+                style={{
+                  width: 120,
+                  height: 120,
+                  borderRadius: 60,
+                  resizeMode: "cover",
+                }}
               />
-            </View>
-          ) : (
-            <Image
-              source={require("../../../TaddleBox_Logo.png")}
-              style={{
-                width: 120,
-                height: 120,
-                borderRadius: 60,
-                resizeMode: "cover",
-              }}
-            />
-          )}
-        </View>
-        <Text style={styles.tagline}>
-          To rant, spill, overshare & have zero regrets about it.
-        </Text>
-
-        {/* Feature highlights */}
-        <View style={{ height: 24, alignItems: 'center', justifyContent: 'center', marginTop: 20 }}>
-          <Animated.View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, opacity: fadeAnim }}>
-            <Ionicons name={FEATURES[featureIndex].icon as any} size={18} color={themeColors.primaryLight} />
-            <Text style={{ fontSize: fontSizes.sm, color: themeColors.text.muted, fontWeight: '500' }}>
-              {FEATURES[featureIndex].text}
-            </Text>
-          </Animated.View>
-        </View>
-      </View>
-
-      {/* CTA buttons */}
-      <View style={styles.actions}>
-        <Button
-          label="Create Account"
-          onPress={() => navigation.navigate("Register")}
-          variant="primary"
-          fullWidth
-          leftEmoji=""
-        />
-        <Button
-          label="Log In"
-          onPress={() => navigation.navigate("Login")}
-          variant="secondary"
-          fullWidth
-          style={{ marginTop: 12 }}
-        />
-
-        {hasAccounts && (
-          <>
-            <View
-              style={[styles.dividerRow, { marginTop: 24, marginBottom: 12 }]}
-            >
-              <View style={styles.dividerLine} />
-              <Text style={styles.dividerText}>or continue as</Text>
-              <View style={styles.dividerLine} />
-            </View>
-
-            {/* Show logged-in accounts if any exist (Instagram-style) */}
-            <View
-              style={{ alignItems: "center", marginTop: 0, marginBottom: 20 }}
-            >
-              <SwitchAccountSection
-                onAddAccount={() => navigation.navigate("Login")}
-              />
-            </View>
-          </>
-        )}
-
-        {/* Social logins divider */}
-        <View style={[styles.dividerRow, { marginTop: hasAccounts ? 0 : 20 }]}>
-          <View style={styles.dividerLine} />
-          <Text style={styles.dividerText}>or continue with</Text>
-          <View style={styles.dividerLine} />
-        </View>
-
-        <View style={styles.socialRow}>
-          <TouchableOpacity
-            style={styles.socialBtn}
-            onPress={handleGoogleLogin}
-          >
-            <Ionicons
-              name="logo-google"
-              size={18}
-              color={themeColors.text.primary}
-            />
-            <Text style={styles.socialLabel}>Google</Text>
-          </TouchableOpacity>
-          <TouchableOpacity style={styles.socialBtn} onPress={handleAppleLogin}>
-            <Ionicons
-              name="logo-apple"
-              size={18}
-              color={themeColors.text.primary}
-            />
-            <Text style={styles.socialLabel}>Apple</Text>
-          </TouchableOpacity>
-        </View>
-
-        <Text style={styles.terms}>
-          By continuing you agree to our{" "}
+            )}
+          </View>
           <Text
-            onPress={() => navigation.navigate("Terms")}
-            style={{ color: themeColors.primaryLight }}
+            style={[styles.tagline, { fontSize: 13 * fontScale }]}
+            numberOfLines={1}
           >
-            Terms
-          </Text>{" "}
-          and{" "}
-          <Text
-            onPress={() => navigation.navigate("Privacy")}
-            style={{ color: themeColors.primaryLight }}
-          >
-            Privacy Policy
+            To rant, spill, overshare & have zero regrets about it.
           </Text>
-        </Text>
-      </View>
+
+          <View
+            style={{
+              height: 24,
+              alignItems: "center",
+              justifyContent: "center",
+              marginTop: 20,
+            }}
+          >
+            <Animated.View
+              style={{
+                flexDirection: "row",
+                alignItems: "center",
+                gap: 8,
+                opacity: fadeAnim,
+              }}
+            >
+              <Ionicons
+                name={FEATURES[featureIndex].icon as any}
+                size={18 * fontScale}
+                color={themeColors.primaryLight}
+              />
+              <Text
+                style={{
+                  fontSize: fontSizes.sm * fontScale,
+                  color: themeColors.text.muted,
+                  fontWeight: "500",
+                }}
+              >
+                {FEATURES[featureIndex].text}
+              </Text>
+            </Animated.View>
+          </View>
+        </View>
+
+        {/* CTA buttons */}
+        <View style={styles.actions}>
+          <Button
+            label="Create Account"
+            onPress={() => navigation.navigate("Register")}
+            variant="primary"
+            fullWidth
+            leftEmoji=""
+          />
+          <Button
+            label="Log In"
+            onPress={() => navigation.navigate("Login")}
+            variant="secondary"
+            fullWidth
+            style={{ marginTop: 12 }}
+          />
+
+          {hasAccounts && (
+            <>
+              <View
+                style={[styles.dividerRow, { marginTop: 24, marginBottom: 12 }]}
+              >
+                <View style={styles.dividerLine} />
+                <Text style={styles.dividerText}>or continue as</Text>
+                <View style={styles.dividerLine} />
+              </View>
+
+              {/* Show logged-in accounts if any exist (Instagram-style) */}
+              <View
+                style={{ alignItems: "center", marginTop: 0, marginBottom: 20 }}
+              >
+                <SwitchAccountSection
+                  onAddAccount={() => navigation.navigate("Login")}
+                />
+              </View>
+            </>
+          )}
+
+          {/* Social logins divider */}
+          <View
+            style={[styles.dividerRow, { marginTop: hasAccounts ? 0 : 20 }]}
+          >
+            <View style={styles.dividerLine} />
+            <Text style={styles.dividerText}>or continue with</Text>
+            <View style={styles.dividerLine} />
+          </View>
+
+          <View style={styles.socialRow}>
+            <TouchableOpacity
+              style={styles.socialBtn}
+              onPress={handleGoogleLogin}
+            >
+              <Ionicons
+                name="logo-google"
+                size={18}
+                color={themeColors.text.primary}
+              />
+              <Text style={styles.socialLabel}>Google</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={styles.socialBtn}
+              onPress={handleAppleLogin}
+            >
+              <Ionicons
+                name="logo-apple"
+                size={18}
+                color={themeColors.text.primary}
+              />
+              <Text style={styles.socialLabel}>Apple</Text>
+            </TouchableOpacity>
+          </View>
+
+          <Text style={styles.terms}>
+            By continuing you agree to our{" "}
+            <Text
+              onPress={() => navigation.navigate("Terms")}
+              style={{ color: themeColors.primaryLight }}
+            >
+              Terms
+            </Text>{" "}
+            and{" "}
+            <Text
+              onPress={() => navigation.navigate("Privacy")}
+              style={{ color: themeColors.primaryLight }}
+            >
+              Privacy Policy
+            </Text>
+          </Text>
+        </View>
+      </SafeAreaView>
     </LinearGradient>
   );
 }
@@ -450,9 +523,8 @@ const getStyles = (themeColors: any, isDark: boolean) =>
       backgroundColor: isDark
         ? "rgba(124,58,237,0.1)"
         : "rgba(124,58,237,0.05)",
-      top: "50%",
-      left: "50%",
-      transform: [{ translateX: -180 }, { translateY: -180 }],
+      top: -120,
+      left: -120,
     },
     logoSection: {
       flex: 1,

@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useEffect, useRef, useState, useCallback } from "react";
+import React, { createContext, useContext, useEffect, useRef, useState, useCallback, useMemo } from "react";
 import * as Notifications from "expo-notifications";
 import { useAuth } from "./AuthContext";
 import { socketClient } from "../services/socketClient";
@@ -194,7 +194,7 @@ export function NotificationProvider({ children }: { children: React.ReactNode }
 
   return (
     <NotificationContext.Provider
-      value={{ unreadCount, banner, showBanner, hideBanner, refreshUnread, clearUnread }}
+      value={useMemo(() => ({ unreadCount, banner, showBanner, hideBanner, refreshUnread, clearUnread }), [unreadCount, banner, showBanner, hideBanner, refreshUnread, clearUnread])}
     >
       {children}
     </NotificationContext.Provider>

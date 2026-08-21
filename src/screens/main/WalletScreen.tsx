@@ -1015,7 +1015,7 @@ export default function WalletScreen() {
 
 // ─── TxnRow ───────────────────────────────────────────────────────────────────
 
-function TxnRow({ txn: t, isLast }: { txn: Transaction; isLast: boolean }) {
+const TxnRow = React.memo(function TxnRow({ txn: t, isLast }: { txn: Transaction; isLast: boolean }) {
   const meta = TXN_META[t.type] ?? TXN_META.earn;
   const isXP = t.currency === "XP";
   const isNeg = t.amount < 0 || t.type === "spend" || t.type === "withdraw";
@@ -1068,11 +1068,11 @@ function TxnRow({ txn: t, isLast }: { txn: Transaction; isLast: boolean }) {
       </View>
     </View>
   );
-}
+})
 
 // ─── WithdrawModal ────────────────────────────────────────────────────────────
 
-function WithdrawModal({
+const WithdrawModal = React.memo(function WithdrawModal({
   visible,
   cashBalance,
   linkedUPI,
@@ -1396,11 +1396,11 @@ function WithdrawModal({
       </KeyboardAvoidingView>
     </Modal>
   );
-}
+})
 
 // ─── LinkUPIModal ─────────────────────────────────────────────────────────────
 
-function LinkUPIModal({
+const LinkUPIModal = React.memo(function LinkUPIModal({
   visible,
   current,
   onLink,
@@ -1547,11 +1547,11 @@ function LinkUPIModal({
       </KeyboardAvoidingView>
     </Modal>
   );
-}
+})
 
 // ─── ConvertModal ─────────────────────────────────────────────────────────────
 
-function ConvertModal({
+const ConvertModal = React.memo(function ConvertModal({
   visible,
   xpBalance,
   onConvert,
@@ -1787,11 +1787,11 @@ function ConvertModal({
       </KeyboardAvoidingView>
     </Modal>
   );
-}
+})
 
 // ─── RechargeModal (Add Money via PayU) ─────────────────────────────────────
 
-function RechargeModal({
+const RechargeModal = React.memo(function RechargeModal({
   visible,
   onRecharge,
   onClose,
@@ -1982,11 +1982,11 @@ function RechargeModal({
       </KeyboardAvoidingView>
     </Modal>
   );
-}
+})
 
 // ─── BuyXPModal (Cash → XP) ──────────────────────────────────────────────────
 
-function BuyXPModal({
+const BuyXPModal = React.memo(function BuyXPModal({
   visible,
   cashBalance,
   onBuy,
@@ -2199,13 +2199,13 @@ function BuyXPModal({
       </KeyboardAvoidingView>
     </Modal>
   );
-}
+})
 
 // ─── HistoryModal ─────────────────────────────────────────────────────────────
 
 type HistFilter = "All" | "Earned" | "Spent" | "XP" | "Cash";
 
-function HistoryModal({
+const HistoryModal = React.memo(function HistoryModal({
   visible,
   transactions,
   hasMore,
@@ -2329,7 +2329,7 @@ function HistoryModal({
       </View>
     </Modal>
   );
-}
+})
 
 // ─── Shared Setting Components ──────────────────────────────────────────────────
 

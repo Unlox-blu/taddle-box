@@ -1,5 +1,6 @@
 import React from "react";
-import { View, Text, TouchableOpacity, Image } from "react-native";
+import { View, Text, TouchableOpacity } from "react-native";
+import { Image } from "expo-image";
 import { Ionicons } from "@expo/vector-icons";
 import { fontSizes, type ColorPalette } from "../../theme";
 import type { Post, Transaction } from "../../types";
@@ -491,8 +492,8 @@ const CommentRow = ({ data, ctx }: RowProps) => {
 const MediaRow = ({ data, ctx }: RowProps) => {
   const { styles, colors } = ctx;
   const mediaUri =
-    data.cloudfront_url ||
-    data.vimeo_thumbnail_url ||
+    data.media_url || data.cloudfront_url ||
+    data.preview_url || data.vimeo_thumbnail_url ||
     data.vimeo_player_url ||
     data.vimeo_uri ||
     "";

@@ -1,4 +1,4 @@
-import React, { useMemo } from 'react';
+import React, { useMemo, useEffect } from 'react';
 import {
   View,
   Text,
@@ -31,7 +31,18 @@ export default function EventDetailScreen() {
   const event = route.params?.event;
   const { mutate: toggleEventRegister } = useToggleEventRegister();
 
-  if (!event) return null;
+
+  if (!event) return (
+    <View style={{ flex: 1, backgroundColor: colors.bg.base }}>
+      <StatusBar style={isDark ? 'light' : 'dark'} />
+      <View style={{ flexDirection: 'row', alignItems: 'center', paddingHorizontal: 12, paddingTop: insets.top + 8, paddingBottom: 8 }}>
+        <TouchableOpacity onPress={() => navigation.goBack()} style={{ width: 38, height: 38, borderRadius: 19, alignItems: 'center', justifyContent: 'center' }}>
+          <Ionicons name="arrow-back" size={23} color={colors.text.primary} />
+        </TouchableOpacity>
+
+      </View>
+    </View>
+  );
 
   const handleJoin = () => {
     if (event.isRegistered) {
@@ -80,7 +91,7 @@ export default function EventDetailScreen() {
 
   return (
     <View style={styles.container}>
-      <StatusBar style="light" />
+      <StatusBar style={isDark ? 'light' : 'dark'} />
       <ScrollView showsVerticalScrollIndicator={false} bounces={false}>
         
         {/* Banner */}
@@ -89,7 +100,7 @@ export default function EventDetailScreen() {
           style={styles.banner}
         >
           <LinearGradient
-            colors={['rgba(0,0,0,0.7)', 'rgba(0,0,0,0)', 'rgba(0,0,0,0.8)']}
+            colors={isDark ? ['rgba(0,0,0,0.7)', 'rgba(0,0,0,0)', 'rgba(0,0,0,0.8)'] : ['rgba(0,0,0,0.45)', 'rgba(0,0,0,0)', 'rgba(0,0,0,0.55)']}
             style={StyleSheet.absoluteFillObject}
           />
           <TouchableOpacity

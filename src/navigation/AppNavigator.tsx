@@ -1,4 +1,5 @@
 import React from 'react';
+import { View } from 'react-native';
 import { createNavigationContainerRef, NavigationContainer, DefaultTheme, DarkTheme } from '@react-navigation/native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import type { RootStackParamList } from '../types';
@@ -8,17 +9,41 @@ import { useAuth } from '../context/AuthContext';
 import AuthNavigator from './AuthNavigator';
 import MainNavigator from './MainNavigator';
 import ForceUpdateScreen from '../screens/main/ForceUpdateScreen';
+// PostDetailScreen and UserProfileScreen are eagerly imported because PostCard
+// navigates to them frequently and they're registered in HomeStackNavigator too.
+// Lazy-loading caused Metro module resolution failures (module 2063).
 import PostDetailScreen from '../screens/main/PostDetailScreen';
 import UserProfileScreen from '../screens/main/UserProfileScreen';
-import SearchScreen from '../screens/main/SearchScreen';
-import EventDetailScreen from '../screens/events/EventDetailScreen';
+const SearchScreen = React.lazy(() => import('../screens/main/SearchScreen'));
+const EventDetailScreen = React.lazy(() => import('../screens/events/EventDetailScreen'));
 import UpdateAvailableModal from '../components/common/UpdateAvailableModal';
+import { BrandedStaticLoader } from '../components/common/BrandedLoader';
 
 const Stack = createNativeStackNavigator<RootStackParamList>();
 
 // App-wide navigation ref so non-component code (notification banners, deep
 // links, push response handlers) can navigate without being inside the tree.
 export const navigationRef = createNavigationContainerRef<RootStackParamList>();
+
+// Shared branded fallback for lazy-loaded screens — static image avoids
+// blocking the main thread during navigation transitions.
+const BrandedFallback = () => (
+  <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', backgroundColor: '#121216' }}>
+    <BrandedStaticLoader size={64} />
+  </View>
+);
+
+// Module-level wrappers so component identity is stable across renders.
+const SuspenseSearch = (props: any) => (
+  <React.Suspense fallback={<BrandedFallback />}>
+    <SearchScreen {...props} />
+  </React.Suspense>
+);
+const SuspenseEventDetail = (props: any) => (
+  <React.Suspense fallback={<BrandedFallback />}>
+    <EventDetailScreen {...props} />
+  </React.Suspense>
+);
 
 export default function AppNavigator() {
   const { isLoggedIn, needsForceUpdate } = useAuth();
@@ -46,41 +71,33 @@ export default function AppNavigator() {
         ) : isLoggedIn ? (
           <>
             <Stack.Screen name="Main" component={MainNavigator} />
-            {/* Post page lives ABOVE the tabs (root stack) so it opens full-screen
-                from any tab — feed, community, profile, notifications, tray taps.
-                Registering it only in the Home stack made taps from other tabs
-                bubble up unhandled (nothing happened). */}
+            <Stack.Group>
             <Stack.Screen
               name="PostDetail"
               component={PostDetailScreen}
               options={{ animation: 'slide_from_right' }}
             />
-            {/* Profiles reachable from the full-screen post page (author/mention
-                taps). Registered at root so those taps work; the Home-stack copy
-                still handles profile navigation inside the tab. */}
             <Stack.Screen
               name="UserProfile"
               component={UserProfileScreen}
               options={{ animation: 'slide_from_right' }}
             />
-            {/* Hashtag taps inside the full-screen post page / pushed profiles
-                land here (the Home-stack copy serves the in-tab search). */}
             <Stack.Screen
               name="Search"
-              component={SearchScreen}
+              component={SuspenseSearch}
               options={{ animation: 'slide_from_right' }}
             />
             <Stack.Screen
               name="EventDetail"
-              component={EventDetailScreen}
-              options={{ animation: 'slide_from_bottom' }}
+              component={SuspenseEventDetail}
+              options={{ animation: 'slide_from_right' }}
             />
+            </Stack.Group>
           </>
         ) : (
           <Stack.Screen name="Auth" component={AuthNavigator} />
         )}
       </Stack.Navigator>
-      {/* Soft update popup sits above everything; force updates block on the screen above. */}
       <UpdateAvailableModal />
     </NavigationContainer>
   );

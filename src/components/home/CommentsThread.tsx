@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   View, Text, FlatList, TouchableOpacity, Image,
-  StyleSheet, ActivityIndicator, 
+  StyleSheet, 
 } from 'react-native';
 import { FlashList } from '@shopify/flash-list';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -18,6 +18,7 @@ import { usePosts } from '../../context/PostsContext';
 import { useQueryClient } from '@tanstack/react-query';
 import type { Post, HomeStackParamList } from '../../types';
 import { themedAlert } from '../common/ThemedAlert';
+import StateBlock from '../common/StateBlock';
 
 interface Props {
   post: Post;
@@ -632,6 +633,7 @@ export default function CommentsThread({
         data={comments}
         keyExtractor={(item) => item.id}
         showsVerticalScrollIndicator={false}
+        keyboardDismissMode="on-drag"
         style={{ flex: 1 }}
         contentContainerStyle={styles.listContent}
         // The header (e.g. the post detail card) renders even while comments
@@ -664,17 +666,15 @@ export default function CommentsThread({
         onEndReachedThreshold={0.4}
         ListFooterComponent={
           loadingMore ? (
-            <ActivityIndicator
-              size="small"
-              color={colors.primary}
-              style={{ paddingVertical: 14 }}
-            />
+            <View style={{ alignItems: 'center', paddingVertical: 14 }}>
+              <StateBlock inline loading loaderSize={28} />
+            </View>
           ) : null
         }
         ListEmptyComponent={
           loading ? (
             <View style={styles.empty}>
-              <ActivityIndicator color={colors.primary} />
+              <StateBlock inline loading loaderSize={36} />
             </View>
           ) : (
             <View style={styles.empty}>

@@ -5,10 +5,9 @@ import {
   StyleSheet,
   FlatList,
   TouchableOpacity,
-  ActivityIndicator,
-
   Image,
-  } from "react-native";
+} from "react-native";
+import StateBlock from '../../components/common/StateBlock';
 import { FlashList } from '@shopify/flash-list';
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useNavigation } from "@react-navigation/native";
@@ -201,7 +200,7 @@ export default function FollowRequestsScreen() {
       <StatusBar style={isDark ? "light" : "dark"} />
       {loading ? (
         <View style={{ flex: 1, alignItems: "center", justifyContent: "center" }}>
-          <ActivityIndicator size="large" color={colors.primary} />
+          <StateBlock loading />
         </View>
       ) : (
       <PullToRefreshWrapper
@@ -225,7 +224,7 @@ export default function FollowRequestsScreen() {
                 onPress={handleAcceptAll}
               >
                 {acceptingAll ? (
-                  <ActivityIndicator size="small" color={colors.primaryLight} />
+                  <StateBlock inline loading loaderSize={18} />
                 ) : (
                   <Text style={styles.acceptAllText}>Accept All</Text>
                 )}
@@ -276,7 +275,7 @@ export default function FollowRequestsScreen() {
                   onPress={() => handleReject(item)}
                 >
                   {busyId === item.id ? (
-                    <ActivityIndicator size="small" color={colors.danger} />
+                    <StateBlock inline loading loaderSize={14} />
                   ) : (
                     <Ionicons name="close" size={18} color={colors.danger} />
                   )}
@@ -287,7 +286,7 @@ export default function FollowRequestsScreen() {
                   onPress={() => handleApprove(item)}
                 >
                   {busyId === item.id ? (
-                    <ActivityIndicator size="small" color="#fff" />
+                    <StateBlock inline loading loaderSize={14} />
                   ) : (
                     <Ionicons name="checkmark" size={18} color="#fff" />
                   )}

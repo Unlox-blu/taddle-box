@@ -228,7 +228,7 @@ export default function GameResultOverlay({
 
 // ─── Victory / defeat emblem ─────────────────────────────────────────────────
 
-function VictoryEmblem({ win, draw }: { win: boolean; draw?: boolean }) {
+const VictoryEmblem = React.memo(function VictoryEmblem({ win, draw }: { win: boolean; draw?: boolean }) {
   const pop = useRef(new Animated.Value(0)).current;
   const pulse = useRef(new Animated.Value(0)).current;
   const rays = useRef(new Animated.Value(0)).current;
@@ -367,9 +367,9 @@ function VictoryEmblem({ win, draw }: { win: boolean; draw?: boolean }) {
       </Animated.View>
     </View>
   );
-}
+})
 
-function WaitingEmblem() {
+const WaitingEmblem = React.memo(function WaitingEmblem() {
   const pulse = useRef(new Animated.Value(0)).current;
   useEffect(() => {
     const loop = Animated.loop(
@@ -418,11 +418,11 @@ function WaitingEmblem() {
       </View>
     </View>
   );
-}
+})
 
 // ─── Confetti rain (win only) ────────────────────────────────────────────────
 
-function ConfettiBurst() {
+const ConfettiBurst = React.memo(function ConfettiBurst() {
   const pieces = useMemo(
     () =>
       Array.from({ length: 42 }, (_, i) => ({
@@ -446,9 +446,9 @@ function ConfettiBurst() {
       ))}
     </View>
   );
-}
+})
 
-function ConfettiPiece({
+const ConfettiPiece = React.memo(function ConfettiPiece({
   x,
   delay,
   duration,
@@ -516,11 +516,11 @@ function ConfettiPiece({
       }}
     />
   );
-}
+})
 
 // ─── Animated stat card ──────────────────────────────────────────────────────
 
-function StatCard({
+const StatCard = React.memo(function StatCard({
   icon,
   label,
   value,
@@ -569,7 +569,7 @@ function StatCard({
       <Text style={styles.statLabel}>{label}</Text>
     </Animated.View>
   );
-}
+})
 
 // ─── XP count-up ─────────────────────────────────────────────────────────────
 

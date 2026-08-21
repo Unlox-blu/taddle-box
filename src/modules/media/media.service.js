@@ -32,8 +32,9 @@ class MediaService {
       const typePrefix = mimetype.split('/')[0]; // 'image', 'audio', 'video'
       
       const isVideo = typePrefix === 'video';
-      const maxAllowedBytes = isVideo ? MAX_VIDEO_BYTES : MAX_IMAGE_BYTES;
-      const maxAllowedMB = isVideo 
+      const isAudio = typePrefix === 'audio';
+      const maxAllowedBytes = (isVideo || isAudio) ? MAX_VIDEO_BYTES : MAX_IMAGE_BYTES;
+      const maxAllowedMB = (isVideo || isAudio)
         ? (process.env.MAX_VIDEO_SIZE_MB || 500) 
         : (process.env.MAX_FILE_SIZE_MB || 10);
 

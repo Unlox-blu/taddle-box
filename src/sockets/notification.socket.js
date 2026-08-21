@@ -8,6 +8,7 @@ const setupNotificationSocket = (io) => {
   _io = io;
 
   io.on('connection', (socket) => {
+    if (!socket.userId) return; // Device sockets don't process notifications
 
     // Client explicitly marks a notification as read via socket
     socket.on('notification:mark_read', async ({ notificationId }) => {

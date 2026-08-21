@@ -490,29 +490,6 @@ const findByIdAuth = async (id) => {
 
 
 
-const updateRefreshToken = async (userId, tokenHash) => {
-  try {
-    await pool.query(
-      `UPDATE ${UserModel.TABLE} SET refresh_token_hash = $1, updated_at = NOW() WHERE id = $2`,
-      [tokenHash, userId]
-    );
-  } catch (error) {
-    throw error;
-  }
-};
-
-const getRefreshTokenById = async (userId) => {
-  try {
-    const token = await pool.query(
-      `SELECT id, role, refresh_token_hash FROM ${UserModel.TABLE} WHERE id = $1`,
-      [userId]
-    );
-    return token.rows[0];
-  } catch (error) {
-    throw error;
-  }
-};
-
 const updateEmailVerifyToken = async (userId, tokenHash, exp) => {
   try {
     await pool.query(
@@ -647,8 +624,6 @@ module.exports = {
   updateUsername,
   updatePhone,
   updatePrivacy,
-  updateRefreshToken,
-  getRefreshTokenById,
   updateEmailVerifyToken,
   findByEmailVerifyToken,
   updatePasswordResetToken,

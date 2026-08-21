@@ -156,6 +156,7 @@ const postViewLimiter = rateLimit({
 const pinVerifyRateLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
   max: 5,
+  skipSuccessfulRequests: true,
   standardHeaders: true,
   legacyHeaders: false,
   store: makeStore('rl:pin-verify:'),
@@ -168,6 +169,7 @@ const pinVerifyRateLimiter = rateLimit({
 const pinRemoveRateLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
   max: 3,
+  skipSuccessfulRequests: true,
   standardHeaders: true,
   legacyHeaders: false,
   store: makeStore('rl:pin-remove:'),

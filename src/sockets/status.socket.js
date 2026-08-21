@@ -128,6 +128,8 @@ const setupActiveStatus = (io) => {
   _io = io;
 
   io.on('connection', async (socket) => {
+    if (!socket.userId) return; // Device sockets don't have active status
+
     const statusKey = `user:status:${socket.userId}`
 
     // Register synchronously (before any await) so the registry is consistent

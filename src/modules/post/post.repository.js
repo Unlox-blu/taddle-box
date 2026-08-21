@@ -150,7 +150,7 @@ const findById = async (postId, currentUserId = null) => {
   try {
     const { rows } = await pool.query(
       `SELECT 
-        ${PostModel.LIST_FIELDS},
+        'p.id', 'p.author_id', 'p.community_id', 'p.repost_of_id', 'p.title', 'p.content', 'p.tags', 'p.status', 'p.visibility', 'p.likes_count', 'p.comments_count', 'p.shares_count', 'p.views_count', 'p.is_pinned', 'p.poll_data', 'p.latitude', 'p.longitude', 'p.place', 'p.published_at', 'p.created_at', 'u.name AS author_name', 'u.username AS author_username', 'ua.cloudfront_url AS author_avatar', 'c.name AS community_name', 'c.slug AS community_slug', 'c.privacy AS community_privacy', 'ca.cloudfront_url AS community_avatar',
         EXISTS(SELECT 1 FROM post_likes pl WHERE pl.post_id = p.id AND pl.user_id = $2) AS is_liked,
         EXISTS(SELECT 1 FROM bookmark bm WHERE bm.source_id = p.id AND bm.source_type = 'post' AND bm.user_id = $2) AS is_bookmarked,
         EXISTS(
@@ -173,13 +173,15 @@ const findById = async (postId, currentUserId = null) => {
         COALESCE(
             json_agg(
                 json_build_object(
-                    'id', m.id,
+                    'media_id', m.id,
                     'media_type', m.media_type,
-                    'cloudfront_url', m.cloudfront_url,
+                    'media_url', m.cloudfront_url,
+                    'preview_url', COALESCE(m.vimeo_thumbnail_url, m.cloudfront_url),
                     'width', m.width,
                     'height', m.height,
-                    's3_key', m.s3_key,
-                    'processing_status', m.processing_status
+                    'duration_seconds', m.duration_seconds,
+                    'file_size_bytes', m.size_bytes,
+                    'mime_type', m.mime_type
                 ) ORDER BY m.created_at ASC 
             ) FILTER (WHERE m.deleted_at IS NULL AND m.processing_status = 'ready'), 
             '[]'::json
@@ -218,7 +220,7 @@ const findManyByUser = async (authorId, limit, offset, currentUserId = null, typ
       : '';
     const { rows } = await pool.query(
       `SELECT 
-        ${PostModel.LIST_FIELDS},
+        'p.id', 'p.author_id', 'p.community_id', 'p.repost_of_id', 'p.title', 'p.content', 'p.tags', 'p.status', 'p.visibility', 'p.likes_count', 'p.comments_count', 'p.shares_count', 'p.views_count', 'p.is_pinned', 'p.poll_data', 'p.latitude', 'p.longitude', 'p.place', 'p.published_at', 'p.created_at', 'u.name AS author_name', 'u.username AS author_username', 'ua.cloudfront_url AS author_avatar', 'c.name AS community_name', 'c.slug AS community_slug', 'c.privacy AS community_privacy', 'ca.cloudfront_url AS community_avatar',
         EXISTS(SELECT 1 FROM post_likes pl WHERE pl.post_id = p.id AND pl.user_id = $4) AS is_liked,
         EXISTS(SELECT 1 FROM bookmark bm WHERE bm.source_id = p.id AND bm.source_type = 'post' AND bm.user_id = $4) AS is_bookmarked,
         EXISTS(
@@ -241,12 +243,15 @@ const findManyByUser = async (authorId, limit, offset, currentUserId = null, typ
         COALESCE(
             json_agg(
                 json_build_object(
-                    'id', m.id,
+                    'media_id', m.id,
                     'media_type', m.media_type,
-                    'cloudfront_url', m.cloudfront_url,
+                    'media_url', m.cloudfront_url,
+                    'preview_url', COALESCE(m.vimeo_thumbnail_url, m.cloudfront_url),
                     'width', m.width,
                     'height', m.height,
-                    'processing_status', m.processing_status
+                    'duration_seconds', m.duration_seconds,
+                    'file_size_bytes', m.size_bytes,
+                    'mime_type', m.mime_type
                 ) ORDER BY m.created_at ASC
             ) FILTER (WHERE m.id IS NOT NULL AND m.deleted_at IS NULL), 
             '[]'::json
@@ -282,7 +287,7 @@ const findManyByUser = async (authorId, limit, offset, currentUserId = null, typ
 const findManyByCommunity = async (communityId, limit, offset, currentUserId = null) => {
   try {
     const { rows } = await pool.query(
-      `SELECT ${PostModel.LIST_FIELDS}, 
+      `SELECT p.id, p.author_id, 'p.community_id', 'p.repost_of_id', 'p.title', 'p.content', 'p.tags', 'p.status', 'p.visibility', 'p.likes_count', 'p.comments_count', 'p.shares_count', 'p.views_count', 'p.is_pinned', 'p.poll_data', 'p.latitude', 'p.longitude', 'p.place', 'p.published_at', 'p.created_at', 'u.name AS author_name', 'u.username AS author_username', 'ua.cloudfront_url AS author_avatar', 'c.name AS community_name', 'c.slug AS community_slug', 'c.privacy AS community_privacy', 'ca.cloudfront_url AS community_avatar', 
         EXISTS(SELECT 1 FROM post_likes pl WHERE pl.post_id = p.id AND pl.user_id = $4) AS is_liked,
         EXISTS(SELECT 1 FROM bookmark bm WHERE bm.source_id = p.id AND bm.source_type = 'post' AND bm.user_id = $4) AS is_bookmarked,
         EXISTS(
@@ -305,12 +310,15 @@ const findManyByCommunity = async (communityId, limit, offset, currentUserId = n
       COALESCE(
             json_agg(
                 json_build_object(
-                    'id', m.id,
+                    'media_id', m.id,
                     'media_type', m.media_type,
-                    'cloudfront_url', m.cloudfront_url,
+                    'media_url', m.cloudfront_url,
+                    'preview_url', COALESCE(m.vimeo_thumbnail_url, m.cloudfront_url),
                     'width', m.width,
                     'height', m.height,
-                    'processing_status', m.processing_status
+                    'duration_seconds', m.duration_seconds,
+                    'file_size_bytes', m.size_bytes,
+                    'mime_type', m.mime_type
                 ) ORDER BY m.created_at ASC
             ) FILTER (WHERE m.id IS NOT NULL AND m.deleted_at IS NULL), 
             '[]'::json
@@ -608,7 +616,7 @@ const search = async (query, limit, offset, currentUserId = null) => {
   try {
     const q = query || '';
     const { rows } = await pool.query(
-      `SELECT ${PostModel.LIST_FIELDS}, COUNT(*) OVER() AS total,
+      `SELECT p.id, p.author_id, 'p.community_id', 'p.repost_of_id', 'p.title', 'p.content', 'p.tags', 'p.status', 'p.visibility', 'p.likes_count', 'p.comments_count', 'p.shares_count', 'p.views_count', 'p.is_pinned', 'p.poll_data', 'p.latitude', 'p.longitude', 'p.place', 'p.published_at', 'p.created_at', 'u.name AS author_name', 'u.username AS author_username', 'ua.cloudfront_url AS author_avatar', 'c.name AS community_name', 'c.slug AS community_slug', 'c.privacy AS community_privacy', 'ca.cloudfront_url AS community_avatar', COUNT(*) OVER() AS total,
         EXISTS(SELECT 1 FROM post_likes pl WHERE pl.post_id = p.id AND pl.user_id = $4) AS is_liked,
         EXISTS(SELECT 1 FROM bookmark bm WHERE bm.source_id = p.id AND bm.source_type = 'post' AND bm.user_id = $4) AS is_bookmarked,
         EXISTS(
@@ -625,13 +633,30 @@ const search = async (query, limit, offset, currentUserId = null) => {
           WHERE pv.post_id = p.id AND pv.user_id = $4 LIMIT 1
         ) AS my_poll_vote,
         COALESCE(s.allow_reposts, TRUE) AS author_reposts_enabled,
-        COALESCE(c.allow_reposts, TRUE) AS community_reposts_enabled
+        COALESCE(c.allow_reposts, TRUE) AS community_reposts_enabled,
+        COALESCE(
+            json_agg(
+                json_build_object(
+                    'media_id', m.id,
+                    'media_type', m.media_type,
+                    'media_url', m.cloudfront_url,
+                    'preview_url', COALESCE(m.vimeo_thumbnail_url, m.cloudfront_url),
+                    'width', m.width,
+                    'height', m.height,
+                    'duration_seconds', m.duration_seconds,
+                    'file_size_bytes', m.size_bytes,
+                    'mime_type', m.mime_type
+                ) ORDER BY m.created_at ASC
+            ) FILTER (WHERE m.deleted_at IS NULL AND m.processing_status = 'ready'),
+            '[]'::json
+        ) AS media
      FROM ${PostModel.TABLE} p
      JOIN users u ON u.id = p.author_id
      LEFT JOIN media AS ua ON u.avatar_url = ua.id
      LEFT JOIN settings AS s ON s.user_id = u.id
      LEFT JOIN communities AS c ON p.community_id = c.id
      LEFT JOIN media AS ca ON c.avatar_url = ca.id
+     LEFT JOIN media m ON p.id = m.post_id
      WHERE p.deleted_at IS NULL AND p.status = 'published' AND p.visibility = 'public'
        -- Private accounts: posts only surface to the author or approved followers
        AND (u.privacy = 'public' OR p.author_id = $4 OR EXISTS (

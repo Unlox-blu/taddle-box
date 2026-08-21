@@ -204,17 +204,19 @@ class AuthController {
     let returnUrl = 'taddlebox://google-auth';
     try {
       const { id_token: identityToken, state } = req.body;
+      let deviceId;
       
       if (state) {
         try {
           const parsedState = JSON.parse(decodeURIComponent(state));
           if (parsedState.returnUrl) returnUrl = parsedState.returnUrl;
+          if (parsedState.deviceId) deviceId = parsedState.deviceId;
         } catch (e) {
           console.error("Failed to parse state", e);
         }
       }
 
-      const result = await this.authSvc.googleAuth(identityToken);
+      const result = await this.authSvc.googleAuth(identityToken, { deviceId });
       const separator = returnUrl.includes('?') ? '&' : '?';
 
       if (result.action === 'REGISTER_SOCIAL') {

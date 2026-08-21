@@ -10,14 +10,14 @@ const PUBLIC_FIELDS = [
 
 const PRIVATE_FIELDS = [
   'u.id', 'u.name', 'u.username', 'u.email', 'u.date_of_birth', 'u.avatar_url', 'u.banner_url', 'u.bio', 'u.website_url', 'u.role', 
- 'u.is_active', 'u.follower_count', 'u.following_count', 'u.post_count',
+  'u.is_active', 'u.follower_count', 'u.following_count', 'u.post_count',
   'u.email_verified_at', 'u.last_login_at', 'u.google_id', 'u.created_at', 'u.updated_at',
   'u.privacy', 'u.theme', 'u.apple_refresh_token', 'u.occupation', 'u.organization', 'u.location', 'u.interests', 'u.phone_number', 'u.country_code'
 ].join(', ');
 
 const AUTH_FIELDS = [
   'u.id', 'u.email', 'u.name', 'u.username', 'u.password_hash', 'u.role', 'u.global_lock_enabled', 'u.lock_pin', 'u.wallet_lock_enabled',
-  'u.is_verified', 'u.is_active', 'u.is_banned', 'u.google_id', 'u.refresh_token_hash',
+  'u.is_verified', 'u.is_active', 'u.is_banned', 'u.google_id',
 ].join(', ');
 
 const SEARCH_FIELDS = [
@@ -38,7 +38,6 @@ const sanitize = (row) => {
   if (!row) return null;
   const {
     password_hash,
-    refresh_token_hash,
     email_verify_token_hash,
     email_verify_token_exp,
     password_reset_token_hash,

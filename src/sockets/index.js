@@ -69,6 +69,8 @@ const initializeSockets = (httpServer) => {
   };
 
   io.on('connection', (socket) => {
+    if (!socket.userId) return; // Ignore device sockets for user-level setup
+
     // Join personal room for targeted notifications
     socket.join(`user:${socket.userId}`);
     console.info(`[Socket] Connected: ${socket.userId} (${socket.id})`);

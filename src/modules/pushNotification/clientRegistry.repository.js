@@ -258,7 +258,7 @@ const findActiveSessionsBySessionIds = async (sessionIds) => {
     const { rows } = await pool.query(
       `SELECT session_id, user_id, refresh_hash, session_expires_at
        FROM ${ClientRegistryModel.TABLE}
-       WHERE session_id = ANY($1::uuid[])
+       WHERE session_id = ANY($1::text[])
          AND revoked_at IS NULL
          AND is_active = TRUE`,
       [sessionIds]

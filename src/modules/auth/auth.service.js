@@ -59,7 +59,6 @@ class AuthService {
       const isUserNameExistDB = await this.authUserRepo.isUsernameExist({ username });
 
       if (isUserNameExistDB) throw createError('Username already taken', 400);
-
     } catch (error) {
       throw error;
     }
@@ -70,7 +69,6 @@ class AuthService {
       const isEmailRegistered = await this.authUserRepo.isEmailExist({ email });
 
       if (isEmailRegistered) throw createError('Email is already registered', 400);
-
     } catch (error) {
       throw error;
     }
@@ -81,7 +79,6 @@ class AuthService {
       const isPhoneRegistered = await this.authUserRepo.isPhoneExist({ countryCode, phone });
 
       if (isPhoneRegistered) throw createError('Phone is already registered', 400);
-
     } catch (error) {
       throw error;
     }
@@ -89,11 +86,10 @@ class AuthService {
 
   async sendOtp({ email, countryCode, phone, socialToken }) {
     try {
-
       const [existingEmail, existingPhone] = await Promise.all([
         this.authUserRepo.isEmailExist({ email }),
         this.authUserRepo.isPhoneExist({ countryCode, phone }),
-        ]);
+      ]);
       if (existingEmail) throw createError('Email is already registered', 409);
       if (existingPhone) throw createError('Phone is already registered', 409);
 
@@ -110,12 +106,12 @@ class AuthService {
           throw createError('Invalid or expired social token', 400);
         }
       }
-      
+
       const verificationKey = `${OTP_PREFIX}:${verifiedEmail}:${countryCode}${phone}`;
-      
+
       const emailOtp = crypto.randomInt(100000, 1000000).toString();
       const phoneOtp = crypto.randomInt(100000, 1000000).toString();
-      
+
       const otpExpIn = new Date(Date.now() + parseInt(config.OTP_EXPIRES_IN, 10));
       const verificationObj = {
         email: {
@@ -148,7 +144,11 @@ class AuthService {
       };
       await addJob('sms:otp-verification', smsJobdata);
 
-      const { sessionData } = await this.#issueVerificationTokens({ email: verifiedEmail, countryCode, phone });
+      const { sessionData } = await this.#issueVerificationTokens({
+        email: verifiedEmail,
+        countryCode,
+        phone,
+      });
 
       return sessionData;
     } catch (error) {
@@ -189,19 +189,31 @@ class AuthService {
       const user = await this.authUserRepo.findByIdPrivate({ userId });
       if (!user) throw createError('User not found', 404);
 
-      const existing = await this.authUserRepo.isPhoneExist({ countryCode: newCountryCode, phone: newPhone });
-      if (existing && existing.id !== userId) throw createError('Phone is already registered by another user', 409);
+      const existing = await this.authUserRepo.isPhoneExist({
+        countryCode: newCountryCode,
+        phone: newPhone,
+      });
+      if (existing && existing.id !== userId)
+        throw createError('Phone is already registered by another user', 409);
 
       const emailOtp = crypto.randomInt(100000, 1000000).toString();
       const phoneOtp = crypto.randomInt(100000, 1000000).toString();
       const otpExpIn = new Date(Date.now() + 5 * 60 * 1000); // 5 minutes
 
       const emailKey = `${OTP_PREFIX}:email:change_phone:${userId}`;
-      await redis.setex(emailKey, 60 * 5, JSON.stringify({ email: user.email, otp: emailOtp, otpExpIn }));
+      await redis.setex(
+        emailKey,
+        60 * 5,
+        JSON.stringify({ email: user.email, otp: emailOtp, otpExpIn })
+      );
       await addJob('email:otp-verification', { to: user.email, otp: emailOtp });
 
       const phoneKey = `${OTP_PREFIX}:phone:change_phone:${userId}`;
-      await redis.setex(phoneKey, 60 * 5, JSON.stringify({ phone: newPhone, countryCode: newCountryCode, otp: phoneOtp, otpExpIn }));
+      await redis.setex(
+        phoneKey,
+        60 * 5,
+        JSON.stringify({ phone: newPhone, countryCode: newCountryCode, otp: phoneOtp, otpExpIn })
+      );
       await addJob('sms:otp-verification', { to: `${newCountryCode}${newPhone}`, otp: phoneOtp });
 
       return { message: 'OTPs sent to registered email and new phone successfully' };
@@ -217,7 +229,7 @@ class AuthService {
 
       const [cachedEmailData, cachedPhoneData] = await Promise.all([
         redis.get(emailKey),
-        redis.get(phoneKey)
+        redis.get(phoneKey),
       ]);
 
       if (!cachedEmailData || !cachedPhoneData) throw createError('OTP is expired or invalid', 400);
@@ -226,7 +238,10 @@ class AuthService {
       const phoneData = JSON.parse(cachedPhoneData);
 
       const currentTime = new Date();
-      if (new Date(emailData.otpExpIn) < currentTime || new Date(phoneData.otpExpIn) < currentTime) {
+      if (
+        new Date(emailData.otpExpIn) < currentTime ||
+        new Date(phoneData.otpExpIn) < currentTime
+      ) {
         throw createError('OTP has expired', 400);
       }
 
@@ -235,10 +250,7 @@ class AuthService {
 
       await this.authUserRepo.updatePhone(userId, phoneData.countryCode, phoneData.phone);
 
-      await Promise.all([
-        redis.del(emailKey),
-        redis.del(phoneKey)
-      ]);
+      await Promise.all([redis.del(emailKey), redis.del(phoneKey)]);
 
       return { message: 'Phone updated successfully' };
     } catch (error) {
@@ -253,21 +265,39 @@ class AuthService {
 
       const phoneDetails = await this.authUserRepo.findPhoneByUserId(user.id);
       const hasPhone = !!(phoneDetails && phoneDetails.phone && phoneDetails.countryCode);
-      if (!hasPhone) throw createError('A registered phone number is required to change email', 400);
+      if (!hasPhone)
+        throw createError('A registered phone number is required to change email', 400);
 
       const existing = await this.authUserRepo.isEmailExist({ email: newEmail });
-      if (existing && existing.id !== userId) throw createError('Email is already registered by another user', 409);
+      if (existing && existing.id !== userId)
+        throw createError('Email is already registered by another user', 409);
 
       const emailOtp = crypto.randomInt(100000, 1000000).toString();
       const phoneOtp = crypto.randomInt(100000, 1000000).toString();
       const otpExpIn = new Date(Date.now() + 5 * 60 * 1000); // 5 minutes
 
       const phoneKey = `${OTP_PREFIX}:phone:change_email:${userId}`;
-      await redis.setex(phoneKey, 60 * 5, JSON.stringify({ phone: phoneDetails.phone, countryCode: phoneDetails.countryCode, otp: phoneOtp, otpExpIn }));
-      await addJob('sms:otp-verification', { to: `${phoneDetails.countryCode}${phoneDetails.phone}`, otp: phoneOtp });
+      await redis.setex(
+        phoneKey,
+        60 * 5,
+        JSON.stringify({
+          phone: phoneDetails.phone,
+          countryCode: phoneDetails.countryCode,
+          otp: phoneOtp,
+          otpExpIn,
+        })
+      );
+      await addJob('sms:otp-verification', {
+        to: `${phoneDetails.countryCode}${phoneDetails.phone}`,
+        otp: phoneOtp,
+      });
 
       const emailKey = `${OTP_PREFIX}:email:change_email:${userId}`;
-      await redis.setex(emailKey, 60 * 5, JSON.stringify({ email: newEmail, otp: emailOtp, otpExpIn }));
+      await redis.setex(
+        emailKey,
+        60 * 5,
+        JSON.stringify({ email: newEmail, otp: emailOtp, otpExpIn })
+      );
       await addJob('email:otp-verification', { to: newEmail, otp: emailOtp });
 
       return { message: 'OTPs sent to registered phone and new email successfully' };
@@ -283,7 +313,7 @@ class AuthService {
 
       const [cachedEmailData, cachedPhoneData] = await Promise.all([
         redis.get(emailKey),
-        redis.get(phoneKey)
+        redis.get(phoneKey),
       ]);
 
       if (!cachedEmailData || !cachedPhoneData) throw createError('OTP is expired or invalid', 400);
@@ -292,7 +322,10 @@ class AuthService {
       const phoneData = JSON.parse(cachedPhoneData);
 
       const currentTime = new Date();
-      if (new Date(emailData.otpExpIn) < currentTime || new Date(phoneData.otpExpIn) < currentTime) {
+      if (
+        new Date(emailData.otpExpIn) < currentTime ||
+        new Date(phoneData.otpExpIn) < currentTime
+      ) {
         throw createError('OTP has expired', 400);
       }
 
@@ -301,10 +334,7 @@ class AuthService {
 
       await this.authUserRepo.updateEmail(userId, emailData.email);
 
-      await Promise.all([
-        redis.del(emailKey),
-        redis.del(phoneKey)
-      ]);
+      await Promise.all([redis.del(emailKey), redis.del(phoneKey)]);
 
       return { message: 'Email updated successfully' };
     } catch (error) {
@@ -361,16 +391,42 @@ class AuthService {
     return crypto.randomBytes(5).toString('hex').toUpperCase();
   }
 
-  async signUp({ email, countryCode, phone, userData, socialToken, deviceId, pushToken, pushProvider, platform }) {
+  async signUp({
+    email,
+    countryCode,
+    phone,
+    userData,
+    socialToken,
+    deviceId,
+    pushToken,
+    pushProvider,
+    platform,
+  }) {
     try {
-      const { name, username, password, dateOfBirth, gender, location, latitude, longitude, occupation, organization, interests } = userData;
+      const {
+        name,
+        username,
+        password,
+        dateOfBirth,
+        gender,
+        location,
+        latitude,
+        longitude,
+        occupation,
+        organization,
+        interests,
+      } = userData;
 
       // Refer & Earn: optional referral code entered at signup. Validate it
       // belongs to a real user (cannot refer yourself) and link the accounts.
       let referredBy = null;
-      let enteredReferralCode = String(userData.referralCode || '').trim().toUpperCase();
+      let enteredReferralCode = String(userData.referralCode || '')
+        .trim()
+        .toUpperCase();
       if (enteredReferralCode) {
-        const referrer = await this.authUserRepo.findByReferralCode({ referralCode: enteredReferralCode });
+        const referrer = await this.authUserRepo.findByReferralCode({
+          referralCode: enteredReferralCode,
+        });
         if (!referrer) throw createError('Invalid referral code', 400);
         referredBy = referrer.id;
       }
@@ -414,7 +470,7 @@ class AuthService {
       if (existingUsername) throw createError('Username is already taken', 409);
 
       const passwordHash = await hashPassword(password);
-      
+
       const createData = {
         name,
         username,
@@ -455,7 +511,7 @@ class AuthService {
             const arrayBuffer = await response.arrayBuffer();
             const buffer = Buffer.from(arrayBuffer);
             const contentType = response.headers.get('content-type') || 'image/jpeg';
-            
+
             // Upload to S3
             const s3Key = this.storageSvc.generateS3Key('avatars', userId, contentType);
             await this.storageSvc.uploadBuffer(s3Key, buffer, contentType);
@@ -468,7 +524,7 @@ class AuthService {
               s3Key: s3Key,
               mimeType: contentType,
               sizeBytes: buffer.length,
-              processingStatus: 'ready'
+              processingStatus: 'ready',
             });
 
             // Update user with media ID
@@ -537,12 +593,17 @@ class AuthService {
 
       const jobdata = {
         to: email,
-        name: username
-      }
+        name: username,
+      };
       await addJob('email:welcome', jobdata);
 
       await redis.del(verificationKey);
-      const { sessionData } = await this.#issueTokens(newUser, { deviceId, pushToken, pushProvider, platform });
+      const { sessionData } = await this.#issueTokens(newUser, {
+        deviceId,
+        pushToken,
+        pushProvider,
+        platform,
+      });
 
       // Include the referrer's public profile so the app can greet the new
       // joiner with a "gift from @referrer" welcome when a code was used.
@@ -595,12 +656,17 @@ class AuthService {
 
       if (!isPhoneVerified) return { success: false, message: 'Phone is not verified', userId };
 
-      const { userData, sessionData } = await this.#issueTokens(user, { deviceId, pushToken, pushProvider, platform });
+      const { userData, sessionData } = await this.#issueTokens(user, {
+        deviceId,
+        pushToken,
+        pushProvider,
+        platform,
+      });
 
       const jobdata = {
         to: user.email,
-        name: user.name
-      }
+        name: user.name,
+      };
       await addJob('email:welcome', jobdata);
 
       return { success: true, userData, sessionData };
@@ -613,13 +679,9 @@ class AuthService {
     try {
       const user = await this.authUserRepo.findByIdAppLock({ userId });
 
-      if (!user.globalLockEnabled) 
-        throw createError('Global lock is not enabled', 400);
-      
+      if (!user.globalLockEnabled) throw createError('Global lock is not enabled', 400);
 
-      if (user.lockPin !== pin) 
-        throw createError('Invalid PIN', 401);
-      
+      if (user.lockPin !== pin) throw createError('Invalid PIN', 401);
     } catch (error) {
       throw error;
     }
@@ -641,13 +703,9 @@ class AuthService {
     try {
       const user = await this.authUserRepo.findByIdAppLock({ userId });
 
-      if (!user.globalLockEnabled) 
-        throw createError('Global lock is not enabled', 400);
-      
+      if (!user.globalLockEnabled) throw createError('Global lock is not enabled', 400);
 
-      if (user.lockPin !== currentPin) 
-        throw createError('Current PIN is incorrect', 401);
-      
+      if (user.lockPin !== currentPin) throw createError('Current PIN is incorrect', 401);
 
       await this.authUserRepo.setAppLock({ userId, pin: newPin });
     } catch (error) {
@@ -659,11 +717,9 @@ class AuthService {
     try {
       const user = await this.authUserRepo.findByIdAppLock({ userId });
 
-      if (!user.globalLockEnabled) 
-        throw createError('Global lock is not enabled', 400);
+      if (!user.globalLockEnabled) throw createError('Global lock is not enabled', 400);
 
-      if (user.lockPin !== currentPin) 
-        throw createError('Current PIN is incorrect', 401);
+      if (user.lockPin !== currentPin) throw createError('Current PIN is incorrect', 401);
 
       await this.authUserRepo.removeAppLock({ userId });
     } catch (error) {
@@ -714,41 +770,36 @@ class AuthService {
       const userId = payload.userId;
       const sessionId = payload.sessionId;
 
-      // ── New path: session-aware refresh via client_registry ──
-      if (sessionId) {
-        const { clientRegistryService } = require('../pushNotification/clientRegistry.container');
-        const session = await clientRegistryService.findActiveSession({ sessionId });
-
-        if (!session || session.userId !== userId) {
-          throw createError('Invalid or expired session', 401);
-        }
-        if (session.refreshHash !== hashToken(refreshToken)) {
-          throw createError('Invalid refresh token', 401);
-        }
-        // Reject if the session has expired (grace: 24h beyond stated expiry for clock skew)
-        if (session.sessionExpiresAt && new Date(session.sessionExpiresAt) < new Date(Date.now() - 24 * 60 * 60 * 1000)) {
-          throw createError('Session expired — please log in again', 401);
-        }
-
-        const user = await this.authUserRepo.getRefreshTokenById({ userId });
-        if (!user) throw createError('User not found', 404);
-
-        const { userData, sessionData } = await this.#issueTokens(user, {
-          deviceId: session.deviceId,
-          pushToken: session.pushToken,
-          pushProvider: session.pushProvider,
-          platform: session.platform,
-        });
-        return { userData, sessionData };
+      if (!sessionId) {
+        throw createError('Session ID is missing', 401);
       }
 
-      // ── Legacy path: single refresh token on users table ──
-      const user = await this.authUserRepo.getRefreshTokenById({ userId });
+      const { clientRegistryService } = require('../pushNotification/clientRegistry.container');
+      const session = await clientRegistryService.findActiveSession({ sessionId });
 
-      if (!user || user.refreshTokenHash !== hashToken(refreshToken)) {
+      if (!session || session.userId !== userId) {
+        throw createError('Invalid or expired session', 401);
+      }
+      if (session.refreshHash !== hashToken(refreshToken)) {
         throw createError('Invalid refresh token', 401);
       }
-      const { userData, sessionData } = await this.#issueTokens(user);
+      // Reject if the session has expired (grace: 24h beyond stated expiry for clock skew)
+      if (
+        session.sessionExpiresAt &&
+        new Date(session.sessionExpiresAt) < new Date(Date.now() - 24 * 60 * 60 * 1000)
+      ) {
+        throw createError('Session expired — please log in again', 401);
+      }
+
+      const user = await this.authUserRepo.findByIdUser({ userId });
+      if (!user) throw createError('User not found', 404);
+
+      const { userData, sessionData } = await this.#issueTokens(user, {
+        deviceId: session.deviceId,
+        pushToken: session.pushToken,
+        pushProvider: session.pushProvider,
+        platform: session.platform,
+      });
       return { userData, sessionData };
     } catch (error) {
       throw error;
@@ -773,9 +824,8 @@ class AuthService {
           emitSessionRevoked(deviceId, { userId });
         }
 
-        // Revoke all sessions + clear legacy hash
+        // Revoke all sessions exclusively via client_registry
         await clientRegistryService.revokeAllSessions({ userId });
-        await this.authUserRepo.updateRefreshToken({ userId, tokenHash: null });
       }
     } catch (error) {
       throw error;
@@ -797,9 +847,8 @@ class AuthService {
         emitSessionRevoked(deviceId, { userId });
       }
 
-      // Revoke all sessions + clear legacy refresh hash
+      // Revoke all sessions exclusively via client_registry
       await clientRegistryService.revokeAllSessions({ userId });
-      await this.authUserRepo.updateRefreshToken({ userId, tokenHash: null });
     } catch (err) {
       // Best-effort: never block password change because of socket/cleanup
       console.error('[AuthService] Failed to revoke sessions after password change:', err.message);
@@ -838,12 +887,12 @@ class AuthService {
       const userDetails = await this.authUserRepo.findByIdPrivate({ userId });
       const phoneDetails = await this.authUserRepo.findPhoneByUserId(userId);
       const hasPhone = !!(phoneDetails && phoneDetails.phone && phoneDetails.countryCode);
-      
+
       // Verify provided email matches
       if (!email || email.toLowerCase() !== userDetails.email.toLowerCase()) {
         throw createError('Provided email does not match registered email', 400);
       }
-      
+
       // Verify provided phone matches (if user has a phone)
       if (hasPhone) {
         if (!phone || !countryCode) {
@@ -866,11 +915,26 @@ class AuthService {
       // Store Phone OTP
       if (hasPhone) {
         const phoneKey = `${OTP_PREFIX}:phone:change_password:${userId}`;
-        await redis.setex(phoneKey, 60 * 5, JSON.stringify({ phone: phoneDetails.phone, countryCode: phoneDetails.countryCode, otp: phoneOtp, otpExpIn }));
-        await addJob('sms:otp-verification', { to: `${phoneDetails.countryCode}${phoneDetails.phone}`, otp: phoneOtp });
+        await redis.setex(
+          phoneKey,
+          60 * 5,
+          JSON.stringify({
+            phone: phoneDetails.phone,
+            countryCode: phoneDetails.countryCode,
+            otp: phoneOtp,
+            otpExpIn,
+          })
+        );
+        await addJob('sms:otp-verification', {
+          to: `${phoneDetails.countryCode}${phoneDetails.phone}`,
+          otp: phoneOtp,
+        });
       }
 
-      return { hasPhone, phone: hasPhone ? `${phoneDetails.countryCode}${phoneDetails.phone}` : undefined };
+      return {
+        hasPhone,
+        phone: hasPhone ? `${phoneDetails.countryCode}${phoneDetails.phone}` : undefined,
+      };
     } catch (error) {
       throw error;
     }
@@ -902,7 +966,7 @@ class AuthService {
         phoneKey = `${OTP_PREFIX}:phone:change_password:${userId}`;
         const phoneCached = await redis.get(phoneKey);
         const phoneData = phoneCached ? JSON.parse(phoneCached) : null;
-        
+
         if (!phoneData || new Date(phoneData.otpExpIn) < currentTime) {
           throw createError('Phone OTP has expired. Please request a new one.', 400);
         }
@@ -964,11 +1028,27 @@ class AuthService {
       // Store Phone OTP (only if user has a phone number)
       if (hasPhone) {
         const phoneKey = `${OTP_PREFIX}:phone:reset_password:${phoneDetails.countryCode}${phoneDetails.phone}`;
-        await redis.setex(phoneKey, 60 * 5, JSON.stringify({ phone: phoneDetails.phone, countryCode: phoneDetails.countryCode, otp: phoneOtp, otpExpIn }));
-        await addJob('sms:otp-verification', { to: `${phoneDetails.countryCode}${phoneDetails.phone}`, otp: phoneOtp });
+        await redis.setex(
+          phoneKey,
+          60 * 5,
+          JSON.stringify({
+            phone: phoneDetails.phone,
+            countryCode: phoneDetails.countryCode,
+            otp: phoneOtp,
+            otpExpIn,
+          })
+        );
+        await addJob('sms:otp-verification', {
+          to: `${phoneDetails.countryCode}${phoneDetails.phone}`,
+          otp: phoneOtp,
+        });
       }
 
-      return { hasPhone, phone: hasPhone ? `${phoneDetails.countryCode}${phoneDetails.phone}` : undefined, email };
+      return {
+        hasPhone,
+        phone: hasPhone ? `${phoneDetails.countryCode}${phoneDetails.phone}` : undefined,
+        email,
+      };
     } catch (error) {
       throw error;
     }
@@ -1000,7 +1080,7 @@ class AuthService {
         phoneKey = `${OTP_PREFIX}:phone:reset_password:${phoneDetails.countryCode}${phoneDetails.phone}`;
         const phoneCached = await redis.get(phoneKey);
         const phoneData = phoneCached ? JSON.parse(phoneCached) : null;
-        
+
         if (!phoneData || new Date(phoneData.otpExpIn) < currentTime) {
           throw createError('Phone OTP has expired. Please request a new one.', 400);
         }
@@ -1076,12 +1156,18 @@ class AuthService {
 
       try {
         const pool = require('../../config/database');
-        const commRes = await pool.query(`SELECT COUNT(*) FROM community_members WHERE user_id = $1`, [userId]);
+        const commRes = await pool.query(
+          `SELECT COUNT(*) FROM community_members WHERE user_id = $1`,
+          [userId]
+        );
         user.communitiesJoinedCount = parseInt(commRes.rows[0].count, 10);
-        
-        const gamesRes = await pool.query(`SELECT games_played FROM game_stats WHERE user_id = $1`, [userId]);
+
+        const gamesRes = await pool.query(
+          `SELECT games_played FROM game_stats WHERE user_id = $1`,
+          [userId]
+        );
         user.gamesPlayedCount = gamesRes.rows[0] ? parseInt(gamesRes.rows[0].games_played, 10) : 0;
-      } catch(err) {
+      } catch (err) {
         user.communitiesJoinedCount = 0;
         user.gamesPlayedCount = 0;
       }
@@ -1106,21 +1192,35 @@ class AuthService {
       if (!process.env.GOOGLE_CLIENT_ID) {
         throw createError('Google login is temporarily unavailable', 503);
       }
-      
+
       // In production, verify using google-auth-library
       // For now, decode JWT directly (mocking verification)
       const payloadBase64 = idToken.split('.')[1];
       const payload = JSON.parse(Buffer.from(payloadBase64, 'base64').toString());
-      
+
       const { sub: googleId, email, name, picture } = payload;
       if (!email) throw createError('Invalid token', 400);
 
       // Check if user exists by googleId or email
       let user = await this.authUserRepo.findByEmailUser({ email });
-      
+
       if (!user) {
-        const socialToken = generateToken({ email, name: name || 'Google User', provider: 'google', providerId: googleId, avatarUrl: picture }, config.SOCIAL_TOKEN_EXPIRES_IN);
-        return { success: false, action: 'REGISTER_SOCIAL', socialToken, data: { name: name || 'Google User', email } };
+        const socialToken = generateToken(
+          {
+            email,
+            name: name || 'Google User',
+            provider: 'google',
+            providerId: googleId,
+            avatarUrl: picture,
+          },
+          config.SOCIAL_TOKEN_EXPIRES_IN
+        );
+        return {
+          success: false,
+          action: 'REGISTER_SOCIAL',
+          socialToken,
+          data: { name: name || 'Google User', email },
+        };
       } else if (!user.googleId) {
         // Link google account to existing user (assuming authUserRepo has a method or we'd just update it, mocked for now)
       }
@@ -1134,12 +1234,12 @@ class AuthService {
   async appleAuth(identityToken, fullName, deviceInfo = {}) {
     try {
       // In production, verify using apple-signin-auth
-      
+
       const payloadBase64 = identityToken.split('.')[1];
       const payload = JSON.parse(Buffer.from(payloadBase64, 'base64').toString());
-      
+
       const { sub: appleId, email } = payload;
-      
+
       let user = null;
       if (email) {
         user = await this.authUserRepo.findByEmailUser({ email });
@@ -1147,8 +1247,21 @@ class AuthService {
 
       if (!user) {
         const generatedEmail = email || `${appleId}@privaterelay.appleid.com`;
-        const socialToken = generateToken({ email: generatedEmail, name: fullName || 'Apple User', provider: 'apple', providerId: appleId }, config.SOCIAL_TOKEN_EXPIRES_IN);
-        return { success: false, action: 'REGISTER_SOCIAL', socialToken, data: { name: fullName || 'Apple User', email: generatedEmail } };
+        const socialToken = generateToken(
+          {
+            email: generatedEmail,
+            name: fullName || 'Apple User',
+            provider: 'apple',
+            providerId: appleId,
+          },
+          config.SOCIAL_TOKEN_EXPIRES_IN
+        );
+        return {
+          success: false,
+          action: 'REGISTER_SOCIAL',
+          socialToken,
+          data: { name: fullName || 'Apple User', email: generatedEmail },
+        };
       }
 
       return await this.#issueTokens(user, deviceInfo);
@@ -1160,7 +1273,6 @@ class AuthService {
   // Private
   // Issues an access + refresh token pair. When deviceInfo is provided,
   // creates/updates a client_registry session row for multi-device support.
-  // Without deviceInfo, falls back to legacy single-session behavior.
   async #issueTokens(user, deviceInfo = {}) {
     try {
       const userId = user.id;
@@ -1176,21 +1288,21 @@ class AuthService {
       const refreshToken = generateToken(payload, config.REFRESH_TOKEN_EXPIRES_IN);
 
       const refreshTokenHash = hashToken(refreshToken);
+      const resolvedDeviceId = deviceId || crypto.randomUUID();
 
-      if (deviceId) {
-        // Multi-session path: store refresh hash in client_registry
-        const { clientRegistryService } = require('../pushNotification/clientRegistry.container');
-        const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000); // 7 days
-        await clientRegistryService.upsertSession({
-          userId, deviceId, sessionId,
-          refreshHash: refreshTokenHash,
-          sessionExpiresAt: expiresAt,
-          pushToken, pushProvider, platform,
-        });
-      } else {
-        // Legacy path: store refresh hash on users table (backward compat)
-        await this.authUserRepo.updateRefreshToken({ userId, tokenHash: refreshTokenHash });
-      }
+      // Store refresh hash in client_registry exclusively
+      const { clientRegistryService } = require('../pushNotification/clientRegistry.container');
+      const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000); // 7 days
+      await clientRegistryService.upsertSession({
+        userId,
+        deviceId: resolvedDeviceId,
+        sessionId,
+        refreshHash: refreshTokenHash,
+        sessionExpiresAt: expiresAt,
+        pushToken,
+        pushProvider,
+        platform,
+      });
 
       await this.authUserRepo.updateLastLogin({ userId });
 

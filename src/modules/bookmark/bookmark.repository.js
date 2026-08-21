@@ -71,6 +71,11 @@ const findPostBookmarks = async ({ userId, limit, offset }) => {
 
           EXISTS(SELECT 1 FROM post_likes pl WHERE pl.post_id = p.id AND pl.user_id = $1) AS is_liked,
           EXISTS(
+            SELECT 1 FROM xp_transactions xt
+            WHERE xt.xp_id = (SELECT id FROM xp WHERE user_id = $1 LIMIT 1)
+            AND xt.source_type = 'view_post_' || p.id
+          ) AS is_xp_claimed,
+          EXISTS(
             SELECT 1 FROM posts rp
             WHERE rp.repost_of_id = p.id AND rp.author_id = $1 AND rp.deleted_at IS NULL
           ) AS is_reposted,
@@ -112,12 +117,15 @@ const findPostBookmarks = async ({ userId, limit, offset }) => {
                   CASE
                       WHEN pm.id IS NULL THEN NULL
                       ELSE json_build_object(
-                          'id', pm.id,
+                          'media_id', pm.id,
                           'media_type', pm.media_type,
-                          'cloudfront_url', pm.cloudfront_url,
-                          'vimeo_uri', pm.vimeo_uri,
-                          'vimeo_thumbnail_url', pm.vimeo_thumbnail_url,
-                          'duration_seconds', pm.duration_seconds
+                          'media_url', pm.cloudfront_url,
+                          'preview_url', COALESCE(pm.vimeo_thumbnail_url, pm.cloudfront_url),
+                          'width', pm.width,
+                          'height', pm.height,
+                          'duration_seconds', pm.duration_seconds,
+                          'file_size_bytes', pm.size_bytes,
+                          'mime_type', pm.mime_type
                       )
                   END
               ) FILTER (WHERE pm.id IS NOT NULL),
@@ -277,8 +285,13 @@ const search = async ({ userId, query = '', communities = [], people = [], tags 
         sql: `
           SELECT p.*, b.created_at AS bookmarked_at,
             EXISTS(SELECT 1 FROM post_likes pl WHERE pl.post_id = p.id AND pl.user_id = $1) AS is_liked,
+          EXISTS(
+            SELECT 1 FROM xp_transactions xt
+            WHERE xt.xp_id = (SELECT id FROM xp WHERE user_id = $1 LIMIT 1)
+            AND xt.source_type = 'view_post_' || p.id
+          ) AS is_xp_claimed,
             EXISTS(SELECT 1 FROM posts rp WHERE rp.repost_of_id = p.id AND rp.author_id = $1 AND rp.deleted_at IS NULL) AS is_reposted,
-            COALESCE(json_agg(json_build_object('id', m.id, 'media_type', m.media_type, 'cloudfront_url', m.cloudfront_url, 'width', m.width, 'height', m.height) ORDER BY m.created_at) FILTER (WHERE m.id IS NOT NULL), '[]'::json) AS media,
+            COALESCE(json_agg(json_build_object('media_id', m.id, 'media_type', m.media_type, 'media_url', m.cloudfront_url, 'preview_url', COALESCE(m.vimeo_thumbnail_url, m.cloudfront_url), 'width', m.width, 'height', m.height, 'duration_seconds', m.duration_seconds, 'file_size_bytes', m.size_bytes, 'mime_type', m.mime_type) ORDER BY m.created_at) FILTER (WHERE m.id IS NOT NULL), '[]'::json) AS media,
             json_build_object('id', u.id, 'name', u.name, 'username', u.username, 'avatar_url', CASE WHEN u.avatar_url IS NULL THEN NULL ELSE json_build_object('cloudfront_url', ua.cloudfront_url) END) AS author,
             CASE WHEN c.id IS NULL THEN NULL ELSE json_build_object('id', c.id, 'name', c.name, 'slug', c.slug, 'privacy', c.privacy, 'avatar_url', CASE WHEN c.avatar_url IS NULL THEN NULL ELSE json_build_object('cloudfront_url', ca.cloudfront_url) END) END AS community,
             COUNT(*) OVER() AS total

@@ -7,7 +7,13 @@ const socketAuthMiddleware = (socket, next) => {
   try {
     let token = null;
 
-    
+    console.log('[SocketAuth] Handshake auth:', socket.handshake.auth);
+
+    // Device sockets authenticate via deviceId, handled in device.socket.js
+    if (socket.handshake.auth?.deviceId && !socket.handshake.auth?.token) {
+      console.log('[SocketAuth] Bypassing JWT auth for device socket');
+      return next();
+    }
     if (socket.handshake.auth?.token) {
       token = socket.handshake.auth.token;
     } else if (socket.handshake.headers?.cookie) {

@@ -33,8 +33,8 @@ const AUTH_FIELDS = [
   'u.is_active',
   'u.is_banned',
   'u.google_id',
+  'u.google_id',
   'u.apple_id',
-  'u.refresh_token_hash',
 ].join(', ');
 
 const APP_LOCK = ['u.id', 'u.global_lock_enabled', 'u.lock_pin', 'u.wallet_lock_enabled'].join(', ');
@@ -111,7 +111,6 @@ const LOGIN = [
   'u.flags',
   'u.country_code',
   'u.phone_number',
-  'u.refresh_token_hash',
   'u.last_login_at',
 ].join(', ');
 

@@ -310,20 +310,6 @@ const removeAppLock = async ({userId}) => {
 }
 
 
-const getRefreshTokenById = async ({userId}) => {
-  try {
-    const {rows} = await pool.query(
-      `SELECT id, role, refresh_token_hash 
-      FROM ${AuthModel.USER_TABLE} 
-      WHERE id = $1`,
-      [userId]
-    );
-    return rows[0] ? AuthModel.format(rows[0]) : null;
-  } catch (error) {
-    throw error;
-  }
-};
-
 const updatePhone = async (userId, countryCode, phoneNumber) => {
   try {
     await pool.query(
@@ -363,19 +349,6 @@ const updateAvatar = async (userId, mediaId) => {
   }
 };
 
-
-const updateRefreshToken = async ({userId, tokenHash}) => {
-  try {
-    await pool.query(
-      `UPDATE ${AuthModel.USER_TABLE} 
-      SET refresh_token_hash = $1, updated_at = NOW() 
-      WHERE id = $2`,
-      [tokenHash, userId]
-    );
-  } catch (error) {
-    throw error;
-  }
-};
 
 const getPasswordByUserId = async ({userId}) => {
   try {
@@ -529,8 +502,8 @@ const findPhoneByUserId = async (userId) => {
 
 module.exports = {
   findByIdPrivate, findByEmail, getFlagByID, verifyEmail, verifyPhone, findByEmailLogin, findByIdentifierLogin, create, setAppLock,
-  removeAppLock, updatePhone, updatePrivacy, updateRefreshToken,
-  getRefreshTokenById, updateEmailVerifyToken, findByEmailVerifyToken,
+  removeAppLock, updatePhone, updatePrivacy,
+  updateEmailVerifyToken, findByEmailVerifyToken,
   updatePasswordResetToken, findByPasswordResetToken, getPasswordByUserId,
   updatePassword, updateLastLogin, softDelete, isEmailExist, isPhoneExist, isUsernameExist,
   findByIdSecure, findByIdAppLock, findByEmailUser, findByIdUser, updateAvatar, updateEmail, findPhoneByEmail,

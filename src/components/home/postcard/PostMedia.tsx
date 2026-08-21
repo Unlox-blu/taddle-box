@@ -197,7 +197,7 @@ function PostMediaInner({
     <View
       style={{
         position: "relative",
-        overflow: isPinching ? "visible" : "hidden",
+        overflow: visualMedia.length === 0 || isPinching ? "visible" : "hidden",
         zIndex: 10,
       }}
     >

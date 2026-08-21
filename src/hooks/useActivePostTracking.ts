@@ -7,6 +7,7 @@ type Options = {
   getPostId?: (item: any) => string | null;
   listHeaderOffset?: number;
   headerHeight?: number;
+  spotlightBoundary?: number;
 };
 
 export function useActivePostTracking(
@@ -39,10 +40,35 @@ export function useActivePostTracking(
       idsToProcess.add(activeIdRef.current);
     }
 
+    // The top of the list content is physically shifted down by the app header height
+    const topOffset = options?.headerHeight || 0;
+    
+    // Use the explicit spotlightBoundary if provided, otherwise fallback to the entire list header
+    const spotlightHeight = options?.spotlightBoundary ?? options?.listHeaderOffset ?? 0;
+
+    // Home Feed: if the spotlight carousel is in the focus window,
+    // the active post engine should NOT start.
+    if (spotlightHeight > 0) {
+      const spotlightTop = topOffset;
+      const spotlightBottom = spotlightTop + spotlightHeight;
+      const intersection = Math.max(
+        0,
+        Math.min(spotlightBottom, focusBottom) - Math.max(spotlightTop, focusTop),
+      );
+      if (intersection > 0) {
+        if (activeIdRef.current !== null) {
+          activeIdRef.current = null;
+          setActivePostId(null);
+        }
+        return;
+      }
+    }
+
     // Accumulate absolute post positions starting from the header offsets.
     // FlashList's contentContainerStyle.paddingTop physically shifts items down,
     // so we must include options.headerHeight in the starting Y offset.
-    let currentY = (options?.listHeaderOffset || 0) + (options?.headerHeight || 0);
+    let currentY =
+      (options?.listHeaderOffset || 0) + (options?.headerHeight || 0);
     const computedLayout = new Map<string, Rect>();
     for (const post of posts) {
       const h = heightMapRef.current.get(post.id) || 500;
@@ -118,13 +144,6 @@ export function useActivePostTracking(
     scrollYRef.current = e.nativeEvent.contentOffset.y;
     recalculateRef.current();
   }, []);
-
-  useEffect(() => {
-    if (posts.length > 0 && !activeIdRef.current) {
-      activeIdRef.current = posts[0].id;
-      setActivePostId(posts[0].id);
-    }
-  }, [posts]);
 
   return {
     activePostId,

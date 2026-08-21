@@ -43,6 +43,8 @@ interface SharedFeedProps {
   ListFooterComponent?: React.ReactElement | null;
   scrollEnabled?: boolean;
   contentContainerStyle?: any;
+  /** Precise height of the spotlight/hero section inside the ListHeaderComponent, used for active post cutoff. */
+  spotlightBoundary?: number;
   /** Pinned section chrome (a screen's title + filter pills) that hides and
       shows IN LOCKSTEP with the main header when scrolling — forwarded to
       PullToRefreshWrapper. See its `sectionHeader` prop. */
@@ -77,6 +79,7 @@ export default function SharedFeed({
   ListFooterComponent,
   scrollEnabled = true,
   contentContainerStyle,
+  spotlightBoundary,
   sectionHeader,
   sectionHeaderH,
   onScroll,
@@ -106,7 +109,7 @@ export default function SharedFeed({
     onViewableItemsChanged,
     trackLayout,
     handleScroll: handleScrollForTracking,
-  } = useActivePostTracking(posts, { listHeaderOffset, headerHeight });
+  } = useActivePostTracking(posts, { listHeaderOffset, headerHeight, spotlightBoundary });
 
   const [commentsVisible, setCommentsVisible] = useState(false);
   const [activeCommentPost, setActiveCommentPost] = useState<Post | null>(null);

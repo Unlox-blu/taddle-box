@@ -19,30 +19,12 @@ const AudioContext = createContext<AudioContextType>({
 });
 
 export function AudioProvider({ children }: { children: React.ReactNode }) {
-  // User preference — starts muted (false), persisted in SecureStore
-  const [mediaSoundEnabled, setMediaSoundEnabledState] = useState(false);
-
-  // Load persisted preference on mount
-  useEffect(() => {
-    (async () => {
-      try {
-        const stored = await SecureStore.getItemAsync(STORAGE_KEY);
-        if (stored !== null) {
-          setMediaSoundEnabledState(stored === 'true');
-        }
-      } catch {}
-    })();
-  }, []);
-
-  // Persist preference when it changes
-  const setMediaSoundEnabled = useCallback((enabled: boolean) => {
-    setMediaSoundEnabledState(enabled);
-    SecureStore.setItemAsync(STORAGE_KEY, String(enabled)).catch(() => {});
-  }, []);
+  // Always start muted on a fresh app launch
+  const [mediaSoundEnabled, setMediaSoundEnabled] = useState(false);
 
   const toggleMediaSound = useCallback(() => {
-    setMediaSoundEnabled(!mediaSoundEnabled);
-  }, [mediaSoundEnabled, setMediaSoundEnabled]);
+    setMediaSoundEnabled((prev) => !prev);
+  }, []);
 
   return (
     <AudioContext.Provider

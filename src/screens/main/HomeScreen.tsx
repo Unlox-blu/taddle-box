@@ -63,6 +63,7 @@ export default function HomeScreen() {
   const scrollYRef = useRef(0);
   const streakBannerYRef = useRef(0);
   const [streakBannerVisible, setStreakBannerVisible] = useState(true);
+  const [spotlightBoundary, setSpotlightBoundary] = useState(0);
 
   const { user: CURRENT_USER, refreshUser } = useAuth();
   const { wallet, fetchWalletSummary } = useWallet();
@@ -436,6 +437,7 @@ export default function HomeScreen() {
           scrollYRef.current = offsetY;
         }}
         posts={filteredPosts}
+        spotlightBoundary={spotlightBoundary}
         // Only the actual pull gesture (or the tab-double-tap refresh) should
         // show the refresh indicator. Feeding isRefetching in here made EVERY
         // background refetch (like/save/repost/focus) flash the spinner and
@@ -480,112 +482,114 @@ export default function HomeScreen() {
         }
         ListHeaderComponent={
           <View>
-            {/* ── Streak & XP mini cards ─────────────────── */}
-            <View style={styles.miniRow}>
-              <TouchableOpacity
-                style={[
-                  styles.miniCard,
-                  streakRestorable
-                    ? {
-                        backgroundColor: "rgba(239,68,68,0.08)",
-                        borderColor: "rgba(239,68,68,0.3)",
-                      }
-                    : {
-                        backgroundColor: "rgba(249,115,22,0.12)",
-                        borderColor: "rgba(249,115,22,0.28)",
-                      },
-                ]}
-                onPress={openStreakModal}
-                activeOpacity={0.8}
-                onLayout={(e) => {
-                  streakBannerYRef.current = e.nativeEvent.layout.y;
-                }}
-              >
-                <View style={styles.miniIconWrap}>
-                  <Ionicons 
-                    name={streakRestorable ? "hourglass" : "flame"} 
-                    size={24} 
-                    color={streakRestorable ? colors.danger : colors.xpOrange} 
-                  />
-                </View>
-                <View style={styles.miniText}>
-                  <Text
-                    style={[
-                      styles.miniVal, 
-                      { color: streakRestorable ? colors.danger : colors.text.primary }
-                    ]}
-                  >
-                    {streakRestorable ? fmtCountdown(remainingMs) : `${realStreak} ${realStreak === 1 ? "Day" : "Days"}`}
-                  </Text>
-                  <Text
-                    style={[
-                      styles.miniLabel, 
-                      { color: streakRestorable ? colors.danger : colors.text.muted }
-                    ]}
-                  >
-                    {streakRestorable ? "Restore Streak!" : "Streak"}
-                  </Text>
-                </View>
-                <Ionicons
-                  name="chevron-forward"
-                  size={13}
-                  color={streakRestorable ? "rgba(239,68,68,0.45)" : "rgba(249,115,22,0.45)"}
-                />
-              </TouchableOpacity>
-
-              <Animated.View
-                ref={xpCardRef}
-                style={[
-                  styles.xpCardWrap,
-                  { transform: [{ scale: xpBounceAnim }] },
-                ]}
-              >
+            <View onLayout={(e) => setSpotlightBoundary(e.nativeEvent.layout.height)}>
+              {/* ✨ Streak & XP mini cards ✨✨✨✨✨✨✨✨✨✨✨✨✨✨✨✨✨✨✨ */}
+              <View style={styles.miniRow}>
                 <TouchableOpacity
                   style={[
                     styles.miniCard,
-                    {
-                      backgroundColor: "rgba(124,58,237,0.08)",
-                      borderColor: "rgba(124,58,237,0.22)",
-                    },
+                    streakRestorable
+                      ? {
+                          backgroundColor: "rgba(239,68,68,0.08)",
+                          borderColor: "rgba(239,68,68,0.3)",
+                        }
+                      : {
+                          backgroundColor: "rgba(249,115,22,0.12)",
+                          borderColor: "rgba(249,115,22,0.28)",
+                        },
                   ]}
-                  onPress={() => {
-                    if (CURRENT_USER?.globalLockEnabled || CURRENT_USER?.appLockEnabled) {
-                      navigation.navigate("LockScreen", {
-                        mode: "app",
-                        returnScreen: "Wallet",
-                      } as never);
-                    } else {
-                      navigation.getParent()?.navigate("Wallet" as never);
-                    }
-                  }}
+                  onPress={openStreakModal}
                   activeOpacity={0.8}
+                  onLayout={(e) => {
+                    streakBannerYRef.current = e.nativeEvent.layout.y;
+                  }}
                 >
                   <View style={styles.miniIconWrap}>
                     <Ionicons 
-                      name="flash" 
+                      name={streakRestorable ? "hourglass" : "flame"} 
                       size={24} 
-                      color={colors.primaryLight} 
+                      color={streakRestorable ? colors.danger : colors.xpOrange} 
                     />
                   </View>
                   <View style={styles.miniText}>
-                    <Text style={[styles.miniVal, { color: colors.text.primary }]}>
-                      {wallet.xpBalance.toLocaleString()}
+                    <Text
+                      style={[
+                        styles.miniVal, 
+                        { color: streakRestorable ? colors.danger : colors.text.primary }
+                      ]}
+                    >
+                      {streakRestorable ? fmtCountdown(remainingMs) : `${realStreak} ${realStreak === 1 ? "Day" : "Days"}`}
                     </Text>
                     <Text
-                      style={[styles.miniLabel, { color: colors.text.muted }]}
+                      style={[
+                        styles.miniLabel, 
+                        { color: streakRestorable ? colors.danger : colors.text.muted }
+                      ]}
                     >
-                      Total XP
+                      {streakRestorable ? "Restore Streak!" : "Streak"}
                     </Text>
                   </View>
                   <Ionicons
                     name="chevron-forward"
                     size={13}
-                    color={colors.primaryLight}
+                    color={streakRestorable ? "rgba(239,68,68,0.45)" : "rgba(249,115,22,0.45)"}
                   />
                 </TouchableOpacity>
-              </Animated.View>
+
+                <Animated.View
+                  ref={xpCardRef}
+                  style={[
+                    styles.xpCardWrap,
+                    { transform: [{ scale: xpBounceAnim }] },
+                  ]}
+                >
+                  <TouchableOpacity
+                    style={[
+                      styles.miniCard,
+                      {
+                        backgroundColor: "rgba(124,58,237,0.08)",
+                        borderColor: "rgba(124,58,237,0.22)",
+                      },
+                    ]}
+                    onPress={() => {
+                      if (CURRENT_USER?.globalLockEnabled || CURRENT_USER?.appLockEnabled) {
+                        navigation.navigate("LockScreen", {
+                          mode: "app",
+                          returnScreen: "Wallet",
+                        } as never);
+                      } else {
+                        navigation.getParent()?.navigate("Wallet" as never);
+                      }
+                    }}
+                    activeOpacity={0.8}
+                  >
+                    <View style={styles.miniIconWrap}>
+                      <Ionicons 
+                        name="flash" 
+                        size={24} 
+                        color={colors.primaryLight} 
+                      />
+                    </View>
+                    <View style={styles.miniText}>
+                      <Text style={[styles.miniVal, { color: colors.text.primary }]}>
+                        {wallet.xpBalance.toLocaleString()}
+                      </Text>
+                      <Text
+                        style={[styles.miniLabel, { color: colors.text.muted }]}
+                      >
+                        Total XP
+                      </Text>
+                    </View>
+                    <Ionicons
+                      name="chevron-forward"
+                      size={13}
+                      color={colors.primaryLight}
+                    />
+                  </TouchableOpacity>
+                </Animated.View>
+              </View>
+              <SpotlightCarousel />
             </View>
-            <SpotlightCarousel />
 
             {/* Daily reward */}
             {hasDailyReward && (

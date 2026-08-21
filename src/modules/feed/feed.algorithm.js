@@ -125,13 +125,16 @@ const FEED_ALGORITHM = `WITH ranked_posts AS (
                                 COALESCE(
                                 json_agg(
                                     json_build_object(
-                                        'id', m.id,
+                                        'media_id', m.id,
                                         'media_type', m.media_type,
-                                        'cloudfront_url', m.cloudfront_url,
+                                        'media_url', m.cloudfront_url,
+                                        'preview_url', m.preview_url,
                                         'width', m.width,
                                         'height', m.height,
-                                        's3_key', m.s3_key,
-                                        'processing_status', m.processing_status
+                                        'duration_seconds', m.duration_seconds,
+                                        'file_size_bytes', m.size_bytes,
+                                        'mime_type', m.mime_type,
+                                        'has_audio', (m.media_type = 'video' AND m.mime_type NOT LIKE '%audio-only%')
                                     ) ORDER BY m.created_at ASC 
                                     ) FILTER (WHERE m.id IS NOT NULL AND m.deleted_at IS NULL), 
                                     '[]'::json
@@ -167,7 +170,7 @@ const FEED_ALGORITHM = `WITH ranked_posts AS (
                                     ON c.avatar_url = ca.id
 
                                 LEFT JOIN media m 
-                                    ON p.id = m.post_id
+                                    ON COALESCE(orig.id, p.id) = m.post_id
 
                                 WHERE
 

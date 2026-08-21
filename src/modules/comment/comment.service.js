@@ -183,7 +183,7 @@ class CommentService {
             throw createError("You are not allowed to get the comment of this community post", 403);
           }
         }
-      } else if (author.privacy !== 'public' && userId !== authorId) {
+      } else if (author && author.privacy !== 'public' && userId !== authorId) {
         const isFollow = await this.followerRepo.findByFollowerIdAndFollowingId(userId, authorId);
         if (!isFollow || isFollow.status !== 'active')
           throw createError("You must follow the post author to access this post comment", 403);

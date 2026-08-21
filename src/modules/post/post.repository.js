@@ -150,7 +150,7 @@ const findById = async (postId, currentUserId = null) => {
   try {
     const { rows } = await pool.query(
       `SELECT 
-        'p.id', 'p.author_id', 'p.community_id', 'p.repost_of_id', 'p.title', 'p.content', 'p.tags', 'p.status', 'p.visibility', 'p.likes_count', 'p.comments_count', 'p.shares_count', 'p.views_count', 'p.is_pinned', 'p.poll_data', 'p.latitude', 'p.longitude', 'p.place', 'p.published_at', 'p.created_at', 'u.name AS author_name', 'u.username AS author_username', 'ua.cloudfront_url AS author_avatar', 'c.name AS community_name', 'c.slug AS community_slug', 'c.privacy AS community_privacy', 'ca.cloudfront_url AS community_avatar',
+        p.id, p.author_id, p.community_id, p.repost_of_id, p.title, p.content, p.tags, p.status, p.visibility, p.likes_count, p.comments_count, p.shares_count, p.views_count, p.is_pinned, p.poll_data, p.latitude, p.longitude, p.place, p.published_at, p.created_at, u.name AS author_name, u.username AS author_username, ua.cloudfront_url AS author_avatar, c.name AS community_name, c.slug AS community_slug, c.privacy AS community_privacy, ca.cloudfront_url AS community_avatar,
         EXISTS(SELECT 1 FROM post_likes pl WHERE pl.post_id = p.id AND pl.user_id = $2) AS is_liked,
         EXISTS(SELECT 1 FROM bookmark bm WHERE bm.source_id = p.id AND bm.source_type = 'post' AND bm.user_id = $2) AS is_bookmarked,
         EXISTS(
@@ -176,12 +176,13 @@ const findById = async (postId, currentUserId = null) => {
                     'media_id', m.id,
                     'media_type', m.media_type,
                     'media_url', m.cloudfront_url,
-                    'preview_url', COALESCE(m.vimeo_thumbnail_url, m.cloudfront_url),
+                    'preview_url', m.preview_url,
                     'width', m.width,
                     'height', m.height,
                     'duration_seconds', m.duration_seconds,
                     'file_size_bytes', m.size_bytes,
-                    'mime_type', m.mime_type
+                    'mime_type', m.mime_type,
+                    'has_audio', (m.media_type = 'video' AND m.mime_type NOT LIKE '%audio-only%')
                 ) ORDER BY m.created_at ASC 
             ) FILTER (WHERE m.deleted_at IS NULL AND m.processing_status = 'ready'), 
             '[]'::json
@@ -197,7 +198,7 @@ const findById = async (postId, currentUserId = null) => {
         LEFT JOIN settings AS s ON s.user_id = u.id
         LEFT JOIN communities AS c ON p.community_id = c.id
         LEFT JOIN media AS ca ON c.avatar_url = ca.id
-        LEFT JOIN media m ON p.id = m.post_id
+        LEFT JOIN media m ON COALESCE(orig.id, p.id) = m.post_id
         WHERE 
             p.id = $1
             AND p.deleted_at IS NULL
@@ -220,7 +221,7 @@ const findManyByUser = async (authorId, limit, offset, currentUserId = null, typ
       : '';
     const { rows } = await pool.query(
       `SELECT 
-        'p.id', 'p.author_id', 'p.community_id', 'p.repost_of_id', 'p.title', 'p.content', 'p.tags', 'p.status', 'p.visibility', 'p.likes_count', 'p.comments_count', 'p.shares_count', 'p.views_count', 'p.is_pinned', 'p.poll_data', 'p.latitude', 'p.longitude', 'p.place', 'p.published_at', 'p.created_at', 'u.name AS author_name', 'u.username AS author_username', 'ua.cloudfront_url AS author_avatar', 'c.name AS community_name', 'c.slug AS community_slug', 'c.privacy AS community_privacy', 'ca.cloudfront_url AS community_avatar',
+        p.id, p.author_id, p.community_id, p.repost_of_id, p.title, p.content, p.tags, p.status, p.visibility, p.likes_count, p.comments_count, p.shares_count, p.views_count, p.is_pinned, p.poll_data, p.latitude, p.longitude, p.place, p.published_at, p.created_at, u.name AS author_name, u.username AS author_username, ua.cloudfront_url AS author_avatar, c.name AS community_name, c.slug AS community_slug, c.privacy AS community_privacy, ca.cloudfront_url AS community_avatar,
         EXISTS(SELECT 1 FROM post_likes pl WHERE pl.post_id = p.id AND pl.user_id = $4) AS is_liked,
         EXISTS(SELECT 1 FROM bookmark bm WHERE bm.source_id = p.id AND bm.source_type = 'post' AND bm.user_id = $4) AS is_bookmarked,
         EXISTS(
@@ -246,12 +247,13 @@ const findManyByUser = async (authorId, limit, offset, currentUserId = null, typ
                     'media_id', m.id,
                     'media_type', m.media_type,
                     'media_url', m.cloudfront_url,
-                    'preview_url', COALESCE(m.vimeo_thumbnail_url, m.cloudfront_url),
+                    'preview_url', m.preview_url,
                     'width', m.width,
                     'height', m.height,
                     'duration_seconds', m.duration_seconds,
                     'file_size_bytes', m.size_bytes,
-                    'mime_type', m.mime_type
+                    'mime_type', m.mime_type,
+                    'has_audio', (m.media_type = 'video' AND m.mime_type NOT LIKE '%audio-only%')
                 ) ORDER BY m.created_at ASC
             ) FILTER (WHERE m.id IS NOT NULL AND m.deleted_at IS NULL), 
             '[]'::json
@@ -267,7 +269,7 @@ const findManyByUser = async (authorId, limit, offset, currentUserId = null, typ
     LEFT JOIN settings AS s ON s.user_id = u.id
     LEFT JOIN communities AS c ON p.community_id = c.id
     LEFT JOIN media AS ca ON c.avatar_url = ca.id
-    LEFT JOIN media m ON p.id = m.post_id
+    LEFT JOIN media m ON COALESCE(orig.id, p.id) = m.post_id
     WHERE 
       p.author_id = $1
       AND p.deleted_at IS NULL
@@ -287,7 +289,7 @@ const findManyByUser = async (authorId, limit, offset, currentUserId = null, typ
 const findManyByCommunity = async (communityId, limit, offset, currentUserId = null) => {
   try {
     const { rows } = await pool.query(
-      `SELECT p.id, p.author_id, 'p.community_id', 'p.repost_of_id', 'p.title', 'p.content', 'p.tags', 'p.status', 'p.visibility', 'p.likes_count', 'p.comments_count', 'p.shares_count', 'p.views_count', 'p.is_pinned', 'p.poll_data', 'p.latitude', 'p.longitude', 'p.place', 'p.published_at', 'p.created_at', 'u.name AS author_name', 'u.username AS author_username', 'ua.cloudfront_url AS author_avatar', 'c.name AS community_name', 'c.slug AS community_slug', 'c.privacy AS community_privacy', 'ca.cloudfront_url AS community_avatar', 
+      `SELECT p.id, p.author_id, p.community_id, p.repost_of_id, p.title, p.content, p.tags, p.status, p.visibility, p.likes_count, p.comments_count, p.shares_count, p.views_count, p.is_pinned, p.poll_data, p.latitude, p.longitude, p.place, p.published_at, p.created_at, u.name AS author_name, u.username AS author_username, ua.cloudfront_url AS author_avatar, c.name AS community_name, c.slug AS community_slug, c.privacy AS community_privacy, ca.cloudfront_url AS community_avatar, 
         EXISTS(SELECT 1 FROM post_likes pl WHERE pl.post_id = p.id AND pl.user_id = $4) AS is_liked,
         EXISTS(SELECT 1 FROM bookmark bm WHERE bm.source_id = p.id AND bm.source_type = 'post' AND bm.user_id = $4) AS is_bookmarked,
         EXISTS(
@@ -313,12 +315,13 @@ const findManyByCommunity = async (communityId, limit, offset, currentUserId = n
                     'media_id', m.id,
                     'media_type', m.media_type,
                     'media_url', m.cloudfront_url,
-                    'preview_url', COALESCE(m.vimeo_thumbnail_url, m.cloudfront_url),
+                    'preview_url', m.preview_url,
                     'width', m.width,
                     'height', m.height,
                     'duration_seconds', m.duration_seconds,
                     'file_size_bytes', m.size_bytes,
-                    'mime_type', m.mime_type
+                    'mime_type', m.mime_type,
+                    'has_audio', (m.media_type = 'video' AND m.mime_type NOT LIKE '%audio-only%')
                 ) ORDER BY m.created_at ASC
             ) FILTER (WHERE m.id IS NOT NULL AND m.deleted_at IS NULL), 
             '[]'::json
@@ -334,7 +337,7 @@ const findManyByCommunity = async (communityId, limit, offset, currentUserId = n
     LEFT JOIN settings AS s ON s.user_id = u.id
     LEFT JOIN communities AS c ON p.community_id = c.id
     LEFT JOIN media AS ca ON c.avatar_url = ca.id
-    LEFT JOIN media m ON p.id = m.post_id
+    LEFT JOIN media m ON COALESCE(orig.id, p.id) = m.post_id
     WHERE 
       p.community_id = $1
       AND p.deleted_at IS NULL
@@ -616,7 +619,7 @@ const search = async (query, limit, offset, currentUserId = null) => {
   try {
     const q = query || '';
     const { rows } = await pool.query(
-      `SELECT p.id, p.author_id, 'p.community_id', 'p.repost_of_id', 'p.title', 'p.content', 'p.tags', 'p.status', 'p.visibility', 'p.likes_count', 'p.comments_count', 'p.shares_count', 'p.views_count', 'p.is_pinned', 'p.poll_data', 'p.latitude', 'p.longitude', 'p.place', 'p.published_at', 'p.created_at', 'u.name AS author_name', 'u.username AS author_username', 'ua.cloudfront_url AS author_avatar', 'c.name AS community_name', 'c.slug AS community_slug', 'c.privacy AS community_privacy', 'ca.cloudfront_url AS community_avatar', COUNT(*) OVER() AS total,
+      `SELECT p.id, p.author_id, p.community_id, p.repost_of_id, p.title, p.content, p.tags, p.status, p.visibility, p.likes_count, p.comments_count, p.shares_count, p.views_count, p.is_pinned, p.poll_data, p.latitude, p.longitude, p.place, p.published_at, p.created_at, u.name AS author_name, u.username AS author_username, ua.cloudfront_url AS author_avatar, c.name AS community_name, c.slug AS community_slug, c.privacy AS community_privacy, ca.cloudfront_url AS community_avatar, COUNT(*) OVER() AS total,
         EXISTS(SELECT 1 FROM post_likes pl WHERE pl.post_id = p.id AND pl.user_id = $4) AS is_liked,
         EXISTS(SELECT 1 FROM bookmark bm WHERE bm.source_id = p.id AND bm.source_type = 'post' AND bm.user_id = $4) AS is_bookmarked,
         EXISTS(
@@ -640,12 +643,13 @@ const search = async (query, limit, offset, currentUserId = null) => {
                     'media_id', m.id,
                     'media_type', m.media_type,
                     'media_url', m.cloudfront_url,
-                    'preview_url', COALESCE(m.vimeo_thumbnail_url, m.cloudfront_url),
+                    'preview_url', m.preview_url,
                     'width', m.width,
                     'height', m.height,
                     'duration_seconds', m.duration_seconds,
                     'file_size_bytes', m.size_bytes,
-                    'mime_type', m.mime_type
+                    'mime_type', m.mime_type,
+                    'has_audio', (m.media_type = 'video' AND m.mime_type NOT LIKE '%audio-only%')
                 ) ORDER BY m.created_at ASC
             ) FILTER (WHERE m.deleted_at IS NULL AND m.processing_status = 'ready'),
             '[]'::json
@@ -664,6 +668,7 @@ const search = async (query, limit, offset, currentUserId = null) => {
          WHERE f.follower_id = $4 AND f.following_id = p.author_id AND f.status = 'active'
        ))
        AND ($1 = '' OR p.title ILIKE $1 OR p.content ILIKE $1)
+     GROUP BY p.id, u.id, ua.id, c.id, ca.id, s.user_id
      ORDER BY p.created_at DESC
      LIMIT $2 OFFSET $3`,
       [`%${q}%`, limit, offset, currentUserId]

@@ -132,7 +132,7 @@ class PostService {
           
           if (wrapper.community_id) {
             const wCommunity = await this.communityRepo.findById(wrapper.community_id);
-            if (wCommunity.privacy === 'private') {
+            if (wCommunity && wCommunity.privacy === 'private') {
               if (!userId) wrapperAuthorized = false;
               else {
                 const wMember = await this.communityRepo.isMember(wrapper.community_id, userId);
@@ -141,7 +141,7 @@ class PostService {
             }
           } else {
             const wAuthor = await this.userRepo.findById(wrapper.author_id);
-            if (wAuthor.privacy !== 'public' && wrapper.author_id !== userId) {
+            if (wAuthor && wAuthor.privacy !== 'public' && wrapper.author_id !== userId) {
               const wFollow = await this.followerRepo.findByFollowerIdAndFollowingId(userId, wrapper.author_id);
               if (!wFollow || wFollow.status !== 'active') wrapperAuthorized = false;
             }
@@ -157,7 +157,7 @@ class PostService {
 
       if (communityId) {
         const community = await this.communityRepo.findById(communityId);
-        if (community.privacy === 'private') {
+        if (community && community.privacy === 'private') {
           if (!userId) throw createError('This is a private community', 403);
 
           const isMember = await this.communityRepo.isMember(communityId, userId);
@@ -165,7 +165,7 @@ class PostService {
             throw createError("You are not a member of this private community", 403);
         }
       }
-      else if(author.privacy !== 'public') {
+      else if(author && author.privacy !== 'public') {
         const isFollow = await this.followerRepo.findByFollowerIdAndFollowingId(userId, authorId)
         if(!isFollow || isFollow.status !== 'active')
           throw createError("You don't have permission to view posts from this private account", 403);

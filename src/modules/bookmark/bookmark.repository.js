@@ -120,12 +120,13 @@ const findPostBookmarks = async ({ userId, limit, offset }) => {
                           'media_id', pm.id,
                           'media_type', pm.media_type,
                           'media_url', pm.cloudfront_url,
-                          'preview_url', COALESCE(pm.vimeo_thumbnail_url, pm.cloudfront_url),
+                          'preview_url', pm.preview_url,
                           'width', pm.width,
                           'height', pm.height,
                           'duration_seconds', pm.duration_seconds,
                           'file_size_bytes', pm.size_bytes,
-                          'mime_type', pm.mime_type
+                          'mime_type', pm.mime_type,
+                          'has_audio', (pm.media_type = 'video' AND pm.mime_type NOT LIKE '%audio-only%')
                       )
                   END
               ) FILTER (WHERE pm.id IS NOT NULL),
@@ -291,7 +292,7 @@ const search = async ({ userId, query = '', communities = [], people = [], tags 
             AND xt.source_type = 'view_post_' || p.id
           ) AS is_xp_claimed,
             EXISTS(SELECT 1 FROM posts rp WHERE rp.repost_of_id = p.id AND rp.author_id = $1 AND rp.deleted_at IS NULL) AS is_reposted,
-            COALESCE(json_agg(json_build_object('media_id', m.id, 'media_type', m.media_type, 'media_url', m.cloudfront_url, 'preview_url', COALESCE(m.vimeo_thumbnail_url, m.cloudfront_url), 'width', m.width, 'height', m.height, 'duration_seconds', m.duration_seconds, 'file_size_bytes', m.size_bytes, 'mime_type', m.mime_type) ORDER BY m.created_at) FILTER (WHERE m.id IS NOT NULL), '[]'::json) AS media,
+            COALESCE(json_agg(json_build_object('media_id', m.id, 'media_type', m.media_type, 'media_url', m.cloudfront_url, 'preview_url', m.preview_url, 'width', m.width, 'height', m.height, 'duration_seconds', m.duration_seconds, 'file_size_bytes', m.size_bytes, 'mime_type', m.mime_type, 'has_audio', (m.media_type = 'video' AND m.mime_type NOT LIKE '%audio-only%')) ORDER BY m.created_at) FILTER (WHERE m.id IS NOT NULL), '[]'::json) AS media,
             json_build_object('id', u.id, 'name', u.name, 'username', u.username, 'avatar_url', CASE WHEN u.avatar_url IS NULL THEN NULL ELSE json_build_object('cloudfront_url', ua.cloudfront_url) END) AS author,
             CASE WHEN c.id IS NULL THEN NULL ELSE json_build_object('id', c.id, 'name', c.name, 'slug', c.slug, 'privacy', c.privacy, 'avatar_url', CASE WHEN c.avatar_url IS NULL THEN NULL ELSE json_build_object('cloudfront_url', ca.cloudfront_url) END) END AS community,
             COUNT(*) OVER() AS total

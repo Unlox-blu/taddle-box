@@ -9,6 +9,8 @@ const UNIVERSAL_TYPES = ['posts', 'people', 'communities', 'events', 'polls', 'c
 
 const BOOKMARKED_TYPES = ['posts'];
 
+const MESSAGES_TYPES = ['messages'];
+
 const DISCOVERY_TYPES = ['posts', 'people', 'communities', 'events', 'polls', 'comments', 'media', 'games', 'text'];
 
 const FILTER_TYPES = ['posts', 'media', 'comments', 'text']
@@ -31,6 +33,7 @@ const TYPE_LABELS = {
   text: 'Hashtags',
   likes: 'Likes',
   follows: 'Follows',
+  messages: 'Messages',
 };
 
 const pill = (type, count) => ({
@@ -123,9 +126,11 @@ class SearchService {
         const requestedType = normalizeUniversalType(type);
         const isBookmarks = scope === 'bookmarks';
         const isNotifications = scope === 'notifications';
+        const isMessages = scope === 'messages';
         const bm = isBookmarks;
         const isDiscovery =
           !isNotifications &&
+          !isMessages &&
           !bm &&
           !query &&
           communities.length === 0 &&
@@ -195,6 +200,23 @@ class SearchService {
                 )
               ),
               results: tagRows(notifications, requestedType),
+              filter: { communities, people, tags },
+            },
+            total,
+            hasNext: total > page * limit,
+          };
+        }
+
+        if(isMessages) {
+          const { rows, total } = await this.searchRepo.searchMessages(
+            query, limit, offset, userId,
+            { people, sortBy, timeCutoff }
+          );
+          return {
+            dataType: 'universal',
+            data: {
+              types: ['all', ...MESSAGES_TYPES].map((t) => pill(t)),
+              results: tagRows(rows, 'messages'),
               filter: { communities, people, tags },
             },
             total,

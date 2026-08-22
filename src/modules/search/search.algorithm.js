@@ -1298,6 +1298,131 @@ const HASHTAGS_ALGORITHM = `SELECT
                                 hashtag ASC
                             LIMIT 15;`;
 
+// ── Message search ─────────────────────────────────────────────────────────
+// Searches chat messages the user has access to (conversations they participate
+// in). Supports text search, person-scoped filtering (@user narrows to
+// conversations with that person), and time-window filtering.
+// Params: $1 = %q% · $2 = limit · $3 = offset · $4 = userId · $5 = q (raw)
+//         $6 = author usernames array (person filter) · $7 = timeCutoff
+const SEARCH_MESSAGES_ALGORITHM = `
+WITH user_conversations AS (
+  -- Get all conversations the current user participates in
+  SELECT cp.conversation_id
+  FROM conversation_participants cp
+  WHERE cp.user_id = $4
+),
+-- When a person filter is given, narrow to conversations involving that person
+filtered_conversations AS (
+  SELECT uc.conversation_id
+  FROM user_conversations uc
+  WHERE (
+    $6::text[] IS NULL
+    OR EXISTS (
+      SELECT 1 FROM conversation_participants cp2
+      JOIN users u2 ON u2.id = cp2.user_id
+      WHERE cp2.conversation_id = uc.conversation_id
+        AND cp2.user_id != $4
+        AND u2.username = ANY($6::text[])
+        AND u2.deleted_at IS NULL
+    )
+  )
+),
+ranked_messages AS (
+  SELECT
+    m.id,
+    m.conversation_id,
+    m.sender_id,
+    m.message_type,
+    m.content,
+    m.post_id,
+    m.game_name,
+    m.reactions,
+    m.created_at,
+    -- Sender info
+    json_build_object(
+      'id', u.id,
+      'name', u.name,
+      'username', u.username,
+      'avatar_url', CASE WHEN u.avatar_url IS NULL THEN NULL
+        ELSE json_build_object('cloudfront_url', ua.cloudfront_url)
+      END
+    ) AS sender,
+    -- Conversation partner (the OTHER person in a 1:1 DM)
+    (
+      SELECT json_build_object(
+        'id', cp3.user_id,
+        'name', u3.name,
+        'username', u3.username,
+        'avatar_url', CASE WHEN u3.avatar_url IS NULL THEN NULL
+          ELSE json_build_object('cloudfront_url', ua3.cloudfront_url)
+        END
+      )
+      FROM conversation_participants cp3
+      JOIN users u3 ON u3.id = cp3.user_id
+      LEFT JOIN media ua3 ON u3.avatar_url = ua3.id
+      WHERE cp3.conversation_id = m.conversation_id
+        AND cp3.user_id != $4
+        AND u3.deleted_at IS NULL
+      LIMIT 1
+    ) AS other_user,
+    -- Shared post preview (if message is a post share)
+    CASE WHEN m.post_id IS NOT NULL THEN (
+      SELECT json_build_object(
+        'id', p.id,
+        'title', p.title,
+        'content', p.content,
+        'author_name', pu.name
+      )
+      FROM posts p
+      JOIN users pu ON pu.id = p.author_id
+      WHERE p.id = m.post_id AND p.deleted_at IS NULL
+    ) ELSE NULL END AS shared_post,
+    -- Highlighted content for search result display
+    CASE WHEN $5 != '' THEN
+      ts_headline('english', COALESCE(m.content, ''), plainto_tsquery('english', $5),
+        'StartSel=<mark>, StopSel=</mark>, HighlightAll=true, MaxFragments=0')
+    ELSE NULL END AS highlight_content,
+    -- Relevance score
+    (
+      CASE
+        WHEN $5 = '' THEN 0
+        WHEN m.content ILIKE $1 THEN 5000
+        WHEN m.content ILIKE '%' || $5 || '%' THEN 3000
+        WHEN m.game_name ILIKE $1 THEN 2000
+        ELSE 0
+      END
+      + GREATEST(
+        100 - EXTRACT(EPOCH FROM (NOW() - m.created_at)) / 86400,
+        0
+      )
+    ) AS score,
+    COUNT(*) OVER() AS total
+  FROM messages m
+  JOIN users u ON u.id = m.sender_id
+  LEFT JOIN media ua ON u.avatar_url = ua.id
+  JOIN filtered_conversations fc ON fc.conversation_id = m.conversation_id
+  WHERE
+    m.deleted_at IS NULL
+    AND u.deleted_at IS NULL
+    -- Only show messages the user can see (they're in the conversation)
+    AND (
+      $5 = ''
+      OR m.content ILIKE $1
+      OR m.game_name ILIKE $1
+    )
+    -- Time-window filter
+    AND (
+      $7::timestamptz IS NULL
+      OR m.created_at >= $7
+    )
+)
+SELECT * FROM ranked_messages
+ORDER BY
+  CASE WHEN $5 != '' THEN score END DESC NULLS LAST,
+  created_at DESC
+LIMIT $2 OFFSET $3;
+`;
+
 module.exports = {
   SEARCH_USER_ALGORITHM,
   SEARCH_COMMUNITY_ALGORITHM,
@@ -1307,6 +1432,7 @@ module.exports = {
   SEARCH_GAMES_ALGORITHM,
   SEARCH_COMMENT_ALGORITHM,
   SEARCH_MEDIA_ALGORITHM,
+  SEARCH_MESSAGES_ALGORITHM,
   DISCOVER_POSTS_ALGORITHM,
   DISCOVER_COMMUNITY_ALGORITHM,
   DISCOVER_PEOPLE_ALGORITHM,

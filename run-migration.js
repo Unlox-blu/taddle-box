@@ -113,10 +113,38 @@ async function runMigrations() {
     const { rows: run } = await client.query('SELECT filename FROM _migrations');
     const runSet = new Set(run.map((r) => r.filename));
 
+    // Tables that each migration is expected to create — if any are
+    // missing the migration is re-run even though _migrations says it
+    // already ran (handles stale tracking after db/reset.js).
+    const TABLE_CHECKS = {
+      create_chat_tables: ['conversations', 'conversation_participants', 'messages'],
+    };
+
     for (const migration of MIGRATIONS) {
       if (runSet.has(migration.name)) {
-        console.log(`⏭  Skipping: ${migration.name} (already run)`);
-        continue;
+        // Verify the tables actually exist — stale _migrations entries
+        // happen after db/reset.js which drops tables but only tracks
+        // its own db/migrations/ files.
+        const expectedTables = TABLE_CHECKS[migration.name];
+        if (expectedTables) {
+          const { rows: check } = await client.query(
+            `SELECT tablename FROM pg_tables WHERE schemaname = 'public' AND tablename = ANY($1)`,
+            [expectedTables]
+          );
+          const found = new Set(check.map(r => r.tablename));
+          const missing = expectedTables.filter(t => !found.has(t));
+          if (missing.length > 0) {
+            console.log(`⚠️  ${migration.name}: missing tables [${missing.join(', ')}] — re-running`);
+            // Remove stale tracking so it gets re-inserted after success
+            await client.query('DELETE FROM _migrations WHERE filename = $1', [migration.name]);
+          } else {
+            console.log(`⏭  Skipping: ${migration.name} (already run)`);
+            continue;
+          }
+        } else {
+          console.log(`⏭  Skipping: ${migration.name} (already run)`);
+          continue;
+        }
       }
 
       console.log(`▶  Running: ${migration.name}`);

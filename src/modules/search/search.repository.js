@@ -244,8 +244,22 @@ const findFollowingCommunity = async (userId, limit, offset) => {
   }
 }
 
+const searchMessages = async (query, limit, offset, userId, { people = null, sortBy = 'relevance', timeCutoff = null } = {}) => {
+  try {
+    const q = query || '';
+    const authorArr = Array.isArray(people) && people.length ? people : null;
+    const { rows } = await pool.query(SearchAlgo.SEARCH_MESSAGES_ALGORITHM, [
+      `%${q}%`, limit, offset, userId, q.trim(), authorArr, timeCutoff || null,
+    ]);
+    const total = rows[0]?.total || 0;
+    return { rows, total: parseInt(total, 10) };
+  } catch (error) {
+    throw error;
+  }
+};
+
 module.exports = {
     searchUser, searchCommunity, searchEvent,  searchPost,
   searchPoll,
-  searchComment, searchMedia, searchGame, getHashtags, discoverPost, getUserInterests, discoverCommunity, discoverPeople, findFollowers, findFollowingCommunity
+  searchComment, searchMedia, searchGame, searchMessages, getHashtags, discoverPost, getUserInterests, discoverCommunity, discoverPeople, findFollowers, findFollowingCommunity
 }

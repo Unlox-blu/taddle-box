@@ -280,7 +280,7 @@ class GameService {
       // A real win changes the weekly Games leaderboard — tell the app to
       // silently refetch it (legacy direct-match path).
       if (calculated.result === 'WIN') {
-        const { emitLeaderboardsChanged } = require('../../sockets/notification.socket');
+        const { emitLeaderboardsChanged } = require('../../sockets/account.socket');
         emitLeaderboardsChanged(userId);
       }
       return match
@@ -803,7 +803,7 @@ class GameService {
         // A real win changes the weekly Games leaderboard (wins this week) —
         // tell the app to silently refetch it.
         if (myResult === 'WIN') {
-          const { emitLeaderboardsChanged } = require('../../sockets/notification.socket');
+          const { emitLeaderboardsChanged } = require('../../sockets/account.socket');
           emitLeaderboardsChanged(userId);
         }
 
@@ -897,7 +897,7 @@ class GameService {
           }).catch(console.error);
         }
 
-        const { emitNotification, emitLeaderboardsChanged } = require('../../sockets/notification.socket');
+        const { emitNotification, emitLeaderboardsChanged } = require('../../sockets/account.socket');
         // A real win changes the weekly Games leaderboard — tell each winner
         // (self and/or opponent) to silently refetch it.
         if (myResult === 'WIN') emitLeaderboardsChanged(userId);

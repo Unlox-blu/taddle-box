@@ -36,10 +36,8 @@ const POST_FIELDS = [
   'COALESCE(orig.longitude, p.longitude) AS longitude',
   'COALESCE(orig.place,     p.place)     AS place',
   'p.published_at', 'p.created_at',
-  'u.name AS author_name', 'u.username AS author_username',
-  'ua.cloudfront_url AS author_avatar',
-  'c.name AS community_name', 'c.slug   AS community_slug', 'c.privacy AS community_privacy',
-  'ca.cloudfront_url AS community_avatar',
+  `json_build_object('id', u.id, 'name', u.name, 'username', u.username, 'avatar_url', CASE WHEN u.avatar_url IS NULL THEN NULL ELSE json_build_object('cloudfront_url', ua.cloudfront_url) END) AS author`,
+  `CASE WHEN c.id IS NULL THEN NULL ELSE json_build_object('id', c.id, 'name', c.name, 'slug', c.slug, 'privacy', c.privacy, 'avatar_url', CASE WHEN c.avatar_url IS NULL THEN NULL ELSE json_build_object('cloudfront_url', ca.cloudfront_url) END) END AS community`,
 ].join(', ');
 
 // Games are returned as-is (matches game module's formatGame shape) so the app

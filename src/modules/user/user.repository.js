@@ -276,11 +276,11 @@ const createWithGoogle = async ({ name, username, email, googleId, googleAvatar 
 
 const updateLockPin = async (userId, pin, enableGlobal = null) => {
   try {
-    // If enableGlobal is true/false, it will set global_lock_enabled to that value.
-    // If enableGlobal is null, it preserves the existing global_lock_enabled state.
+    // If enableGlobal is true/false, it will set global_account_lock_enabled to that value.
+    // If enableGlobal is null, it preserves the existing global_account_lock_enabled state.
     await pool.query(
       `UPDATE ${UserModel.TABLE} 
-      SET lock_pin = $1, global_lock_enabled = COALESCE($3, global_lock_enabled), updated_at = NOW() 
+      SET lock_pin = $1, global_account_lock_enabled = COALESCE($3, global_account_lock_enabled), updated_at = NOW() 
       WHERE id = $2`,
       [pin, userId, enableGlobal]
     )
@@ -291,11 +291,11 @@ const updateLockPin = async (userId, pin, enableGlobal = null) => {
 
 const toggleGlobalLock = async (userId, isEnabled) => {
   try {
-    // When toggling global lock, cascade to wallet lock:
+    // When toggling global account lock, cascade to wallet lock:
     // enable global → also enable wallet lock; disable global → also disable wallet lock.
     await pool.query(
       `UPDATE ${UserModel.TABLE}
-       SET global_lock_enabled = $1, wallet_lock_enabled = $1, updated_at = NOW()
+       SET global_account_lock_enabled = $1, wallet_lock_enabled = $1, updated_at = NOW()
        WHERE id = $2`,
       [isEnabled, userId]
     )
@@ -321,7 +321,7 @@ const removeLockPin = async (userId) => {
   try {
     await pool.query(
       `UPDATE ${UserModel.TABLE} 
-      SET lock_pin = NULL, global_lock_enabled = FALSE, wallet_lock_enabled = FALSE, updated_at = NOW() 
+      SET lock_pin = NULL, global_account_lock_enabled = FALSE, wallet_lock_enabled = FALSE, updated_at = NOW() 
       WHERE id = $1`,
       [userId]
     )

@@ -14,7 +14,7 @@ const {
   resolveNotificationPolicy,
   NOTIFICATION_TYPE_BUCKETS,
 } = require('./notification.constants');
-const { emitNotification, emitWalletUpdate } = require('../../sockets/notification.socket');
+const { emitNotification, emitWalletUpdate } = require('../../sockets/account.socket');
 const { addJob } = require('../../jobs/queues/job.queue');
 const pushNotificationPrefCache = require('./pushNotification.prefcache');
 

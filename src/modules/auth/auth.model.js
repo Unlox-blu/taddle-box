@@ -26,7 +26,7 @@ const AUTH_FIELDS = [
   'u.username',
   'u.password_hash',
   'u.role',
-  'u.global_lock_enabled',
+  'u.global_account_lock_enabled',
   'u.lock_pin',
   'u.wallet_lock_enabled',
   'u.flags',
@@ -37,12 +37,12 @@ const AUTH_FIELDS = [
   'u.apple_id',
 ].join(', ');
 
-const APP_LOCK = ['u.id', 'u.global_lock_enabled', 'u.lock_pin', 'u.wallet_lock_enabled'].join(', ');
+const APP_LOCK = ['u.id', 'u.global_account_lock_enabled', 'u.lock_pin', 'u.wallet_lock_enabled'].join(', ');
 
 const SECURE_FIELDS = [
   'u.id',
   'u.email',
-  'u.global_lock_enabled',
+  'u.global_account_lock_enabled',
   'u.lock_pin',
   'u.wallet_lock_enabled',
   'u.role',
@@ -66,7 +66,7 @@ const PRIVATE_FIELDS = [
   'u.gender',
   'u.country_code',
   'u.phone_number',
-  'u.global_lock_enabled',
+  'u.global_account_lock_enabled',
   'u.wallet_lock_enabled',
   'u.date_of_birth',
   'u.avatar_url',
@@ -227,7 +227,7 @@ const sanitize = (row) => {
     email_verify_token_exp,
     password_reset_token_hash,
     password_reset_token_exp,
-    global_lock_enabled,
+    global_account_lock_enabled,
     lock_pin,
     wallet_lock_enabled,
     ...safe
@@ -281,7 +281,7 @@ const format = (row) => {
     dateOfBirth: row.date_of_birth,
     gender: row.gender,
     lockPin: row.lock_pin,
-    globalLockEnabled: row.global_lock_enabled,
+    globalAccountLockEnabled: row.global_account_lock_enabled,
     walletLockEnabled: row.wallet_lock_enabled,
     referralCode: row.referral_code,
     referredBy: row.referred_by,

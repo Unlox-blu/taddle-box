@@ -28,6 +28,7 @@ router.use('/active-status', require('./activestatus.route'));
 router.use('/app-config',    require('./appconfig.route'));
 router.use('/app-releases',  require('./appreleases.route'));
 router.use('/bookmark',      require('./bookmark.route'));
+router.use('/chat',          require('./chat.route'));
 router.use('/save',          require('./save.route'));
 router.use('/game',          require('./game.route'));
 router.use('/leaderboards',  require('./leaderboard.route'));

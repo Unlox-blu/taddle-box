@@ -3,7 +3,7 @@
 /**
  * device.socket.js
  *
- * Device-level WebSocket namespace (/device).
+ * /device-socket namespace — device-level WebSocket.
  *
  * Authenticates by deviceId (UUID generated at install time, stored in
  * SecureStore). The backend verifies the deviceId exists in client_registry
@@ -12,38 +12,21 @@
  * Purpose: receives auth:session_revoked events when another device calls
  * "Log out from all devices", so the client can clean up the affected
  * account from the switcher.
+ *
+ * Lifecycle: connects on app mount (before any user logs in), stays
+ * connected for the entire app lifetime.
  */
 
-const { getIO } = require('./index');
+const pool = require('../config/database');
 
-let _io = null;
-
-const setupDeviceSocket = (io) => {
-  _io = io;
-
-  // We use the main namespace but with a separate auth path.
-  // Device sockets connect with { deviceId } in handshake auth.
-  // The main socket middleware expects a JWT — device sockets skip that
-  // by connecting before the user-level middleware runs, or we handle
-  // them in the connection handler.
-  //
-  // Approach: listen on the main namespace, check if the handshake has
-  // a deviceId instead of a token. If so, authenticate as a device socket.
-
-  io.on('connection', (socket) => {
-    const deviceId = socket.handshake.auth?.deviceId;
-
-    if (!deviceId) {
-      // Not a device socket — let the normal user-level flow handle it
-      return;
-    }
+const setupDeviceSocket = (deviceNs) => {
+  deviceNs.on('connection', (socket) => {
+    const { deviceId } = socket;
 
     // Verify deviceId exists in client_registry (any user, any session state)
-    const pool = require('../config/database');
-
     pool.query(
       'SELECT DISTINCT device_id FROM client_registry WHERE device_id = $1',
-      [deviceId]
+      [deviceId],
     )
       .then(({ rows }) => {
         if (rows.length === 0) {
@@ -55,7 +38,7 @@ const setupDeviceSocket = (io) => {
         // Join the device room — events like auth:session_revoked are
         // emitted to this room by the backend.
         socket.join(`device:${deviceId}`);
-        console.info(`[DeviceSocket] Connected: device ${deviceId}`);
+        console.info(`[DeviceSocket] Connected: device ${deviceId} on /device-socket`);
 
         socket.on('disconnect', (reason) => {
           console.info(`[DeviceSocket] Disconnected: device ${deviceId} — ${reason}`);
@@ -68,4 +51,25 @@ const setupDeviceSocket = (io) => {
   });
 };
 
-module.exports = { setupDeviceSocket };
+// ── Emit helpers ────────────────────────────────────────────────────────────
+// These are called from auth.service.js (lazily required) to notify devices
+// when their session is revoked.
+
+let _deviceNs = null;
+
+const _ensureNs = () => {
+  if (!_deviceNs) {
+    const { getNamespace } = require('./index');
+    _deviceNs = getNamespace('device');
+  }
+  return _deviceNs;
+};
+
+// Emits a session-revoked event to a specific device room.
+const emitSessionRevoked = (deviceId, { userId }) => {
+  const ns = _ensureNs();
+  if (!ns) return;
+  ns.to(`device:${deviceId}`).emit('auth:session_revoked', { userId });
+};
+
+module.exports = { setupDeviceSocket, emitSessionRevoked };

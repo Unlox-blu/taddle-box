@@ -6,7 +6,7 @@ const WalletModel = require('./wallet.model');
 const crypto = require('crypto');
 const config = require('../../config/app.config');
 const { buildPaymentForm, newTxnId, verifyResponseHash } = require('../../integrations/payment/payu.service');
-const { emitWalletUpdate, emitXPUpdate } = require('../../sockets/notification.socket');
+const { emitWalletUpdate, emitXPUpdate } = require('../../sockets/account.socket');
 
 class WalletService {
   constructor({ walletRepository, xpRepository }) {

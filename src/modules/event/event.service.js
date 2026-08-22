@@ -105,7 +105,7 @@ class EventService {
       // A confirmed registration moves the attendee's Events score (+10);
       // waitlisted entries don't rank until promoted to registered.
       if (status === 'registered') {
-        const { emitLeaderboardsChanged } = require('../../sockets/notification.socket');
+        const { emitLeaderboardsChanged } = require('../../sockets/account.socket');
         emitLeaderboardsChanged(userId, 'event_registration');
       }
 

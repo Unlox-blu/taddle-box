@@ -9,58 +9,40 @@ const MEDIA_TABLE = 'media';
 // Supported bookmark entity types — extend as new types are added.
 const ITEM_TYPES = ['post', 'profile', 'community', 'comment', 'game', 'event'];
 
-// ── Post bookmark formatter (the existing detailed format) ──────────────────
+// ── Post bookmark formatter ──────────────────────────────────────────────
+// Returns the raw row shape directly — nested author/community/media objects
+// pass through untouched so the frontend PostCard reads them consistently
+// with SharedFeed. Only snake_case → camelCase mapping happens here.
 const formatPost = (row) => {
   if (!row) return null;
 
   return {
     id: row.id,
-    title: row.title,
+    title: row.title || null,
     content: row.content,
-    media: (row.media || []).map((item) => ({
-      id: item.id,
-      media_type: item.media_type,
-      cloudfront_url: item.cloudfront_url,
-      vimeo_thumbnail_url: item.vimeo_thumbnail_url,
-      vimeo_uri: item.vimeo_uri,
-      duration_seconds: item.duration_seconds,
-    })),
+    media: row.media || [],
     tags: row.tags || [],
     category: row.category || [],
     status: row.status,
     visibility: row.visibility,
-    repostOfId: row.repost_of_id,
-    repostedByMe: row.is_reposted || false,
-    likesCount: row.likes_count ?? 0,
-    commentsCount: row.comments_count ?? 0,
-    sharesCount: row.shares_count ?? 0,
-    viewsCount: row.views_count ?? 0,
-    isPinned: row.is_pinned || false,
-    isLiked: row.is_liked || false,
-    isSaved: true,
-    pollData: row.poll_data || null,
-    myPollVote: row.my_poll_vote ?? null,
-    location: (row.latitude != null && row.longitude != null) ? {
-      lat: Number(row.latitude),
-      lon: Number(row.longitude),
-      place: row.place || '',
-    } : null,
-    author: row.author && {
-      id: row.author.id,
-      name: row.author.name || row.author.username,
-      username: row.author.username,
-      avatarUrl: row.author.avatar_url?.cloudfront_url,
-      repostsEnabled: row.author.reposts_enabled !== false,
-    },
-    community: row.community ? {
-      id: row.community.id,
-      name: row.community.name,
-      slug: row.community.slug,
-      avatarUrl: row.community.avatar_url?.cloudfront_url,
-      privacy: row.community.privacy,
-      repostsEnabled: row.community.reposts_enabled !== false,
-    } : null,
-    publishedAt: row.published_at,
+    repost_of_id: row.repost_of_id,
+    is_reposted: row.is_reposted || false,
+    likes_count: row.likes_count ?? 0,
+    comments_count: row.comments_count ?? 0,
+    shares_count: row.shares_count ?? 0,
+    views_count: row.views_count ?? 0,
+    is_pinned: row.is_pinned || false,
+    is_liked: row.is_liked || false,
+    is_saved: true,
+    is_xp_claimed: row.is_xp_claimed || false,
+    poll_data: row.poll_data || null,
+    my_poll_vote: row.my_poll_vote ?? null,
+    latitude: row.latitude,
+    longitude: row.longitude,
+    place: row.place || '',
+    author: row.author || null,
+    community: row.community || null,
+    published_at: row.published_at,
   };
 };
 

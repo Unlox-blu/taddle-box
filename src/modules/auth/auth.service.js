@@ -679,7 +679,7 @@ class AuthService {
     try {
       const user = await this.authUserRepo.findByIdAppLock({ userId });
 
-      if (!user.globalLockEnabled) throw createError('Global lock is not enabled', 400);
+      if (!user.globalAccountLockEnabled) throw createError('Global Account Lock is not enabled', 400);
 
       if (user.lockPin !== pin) throw createError('Invalid PIN', 401);
     } catch (error) {
@@ -691,7 +691,7 @@ class AuthService {
     try {
       const user = await this.authUserRepo.findByIdAppLock({ userId });
 
-      if (user.globalLockEnabled) throw createError('Global lock PIN is already set', 400);
+      if (user.globalAccountLockEnabled) throw createError('Global Account Lock PIN is already set', 400);
 
       await this.authUserRepo.setAppLock({ userId, pin });
     } catch (error) {
@@ -703,7 +703,7 @@ class AuthService {
     try {
       const user = await this.authUserRepo.findByIdAppLock({ userId });
 
-      if (!user.globalLockEnabled) throw createError('Global lock is not enabled', 400);
+      if (!user.globalAccountLockEnabled) throw createError('Global Account Lock is not enabled', 400);
 
       if (user.lockPin !== currentPin) throw createError('Current PIN is incorrect', 401);
 
@@ -717,7 +717,7 @@ class AuthService {
     try {
       const user = await this.authUserRepo.findByIdAppLock({ userId });
 
-      if (!user.globalLockEnabled) throw createError('Global lock is not enabled', 400);
+      if (!user.globalAccountLockEnabled) throw createError('Global Account Lock is not enabled', 400);
 
       if (user.lockPin !== currentPin) throw createError('Current PIN is incorrect', 401);
 
@@ -818,7 +818,7 @@ class AuthService {
       } else {
         // Full logout: notify all devices BEFORE revoking so the socket
         // rooms still exist when the emit fires.
-        const { emitSessionRevoked } = require('../../sockets/notification.socket');
+        const { emitSessionRevoked } = require('../../sockets/device.socket');
         const deviceIds = await clientRegistryService.findDeviceIdsByUser(userId);
         for (const deviceId of deviceIds) {
           emitSessionRevoked(deviceId, { userId });
@@ -839,7 +839,7 @@ class AuthService {
   async #revokeAllUserSessions(userId) {
     try {
       const { clientRegistryService } = require('../pushNotification/clientRegistry.container');
-      const { emitSessionRevoked } = require('../../sockets/notification.socket');
+      const { emitSessionRevoked } = require('../../sockets/device.socket');
 
       // Notify all devices BEFORE revoking so socket rooms still exist
       const deviceIds = await clientRegistryService.findDeviceIdsByUser(userId);

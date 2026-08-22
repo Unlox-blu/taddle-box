@@ -107,7 +107,7 @@ async function resolveAbandonedMatches() {
           });
 
           // Optionally emit WebSocket event to the resolved user
-          const { emitNotification } = require('../../sockets/notification.socket');
+          const { emitNotification } = require('../../sockets/account.socket');
           emitNotification(session.user_id, {
             type: 'MATCH_RESOLVED',
             title: 'Match Resolved',
@@ -489,7 +489,7 @@ async function resolveTournaments() {
           ];
           // source_type is VARCHAR(50) — use short UUID prefix to stay within limit
           const shortId = t.id.replace(/-/g, '').slice(0, 12);
-          const { emitNotification } = require('../../sockets/notification.socket');
+          const { emitNotification } = require('../../sockets/account.socket');
           for (const { entry, ratio, place, icon, title } of placements) {
             if (!entry || !entry.user_id || !entry.best_score || entry.best_score <= 0) continue;
             const reward = Math.floor(t.prize_xp * ratio);

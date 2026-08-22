@@ -2,16 +2,56 @@
 
 const { Server } = require('socket.io');
 const config = require('../config/app.config');
-const { socketAuthMiddleware } = require('./middleware/socket.auth');
-const { setupNotificationSocket } = require('./notification.socket');
-const { setupActiveStatus } = require('./status.socket');
-const { setupGameSocket } = require('./game.socket');
+const { decodeToken } = require('../utils/token.util');
 const { setupDeviceSocket } = require('./device.socket');
+const { setupAccountSocket } = require('./account.socket');
+const { setupChatSocket } = require('./chat.socket');
+const { setupGameSocket } = require('./game.socket');
 const { createAdapter } = require('@socket.io/redis-adapter');
 const redisClient = require('../config/redis');
 
 let _io = null;
 
+// ── Namespace registry ─────────────────────────────────────────────────────
+// Cross-namespace emit helpers (e.g. emitSessionRevoked) need a reference
+// to namespaces they don't own. Each setup* function registers its namespace
+// here so any module can look it up at emit time.
+const namespaces = {};
+
+const getNamespace = (name) => namespaces[name] || null;
+
+// ── Auth middlewares ────────────────────────────────────────────────────────
+// Device: deviceId only (no JWT)
+const deviceAuth = (socket, next) => {
+  const deviceId = socket.handshake.auth?.deviceId;
+  if (!deviceId) return next(new Error('deviceId required'));
+  socket.deviceId = deviceId;
+  next();
+};
+
+// Account: JWT only (no deviceId)
+const accountAuth = (socket, next) => {
+  try {
+    const token = socket.handshake.auth?.token
+      || socket.handshake.headers?.cookie?.split(';').reduce((acc, c) => {
+          const [k, v] = c.trim().split('=');
+          if (k === 'access_token') acc = v;
+          return acc;
+        }, null);
+    if (!token) return next(new Error('Authentication required'));
+    const payload = decodeToken(token);
+    socket.userId = payload.userId;
+    socket.userRole = payload.role;
+    next();
+  } catch {
+    next(new Error('Invalid or expired token'));
+  }
+};
+
+// Chat: JWT only (same as account, but separate namespace for lifecycle)
+const chatAuth = accountAuth;
+
+// ── Initialize all namespaces ───────────────────────────────────────────────
 const initializeSockets = (httpServer) => {
   const io = new Server(httpServer, {
     cors: {
@@ -27,79 +67,48 @@ const initializeSockets = (httpServer) => {
   const subClient = redisClient.duplicate();
   io.adapter(createAdapter(pubClient, subClient));
 
-  // Auth middleware — runs before every connection
-  io.use(socketAuthMiddleware);
+  // ── /device-socket ─────────────────────────────────────────────────────
+  // Device-level: authenticated by deviceId (from SecureStore).
+  // Always connected from app mount, before any user logs in.
+  // Receives: auth:session_revoked
+  const deviceNs = io.of('/device-socket');
+  deviceNs.use(deviceAuth);
+  namespaces['device'] = deviceNs;
+  setupDeviceSocket(deviceNs);
 
-  // Best-effort: re-send the user's live matchmaking state so the queue
-  // screen restores instantly after a socket (re)connect — the client treats
-  // matchmaking:lobbyUpdated / matchmaking:matched as the live channel and only
-  // falls back to polling when this event stream is silent. Never blocks the
-  // handshake, and any failure (expired lobby, DB hiccup) is absorbed here.
-  const replayActiveLobby = (socket) => {
-    setTimeout(async () => {
-      try {
-        const gameRepo = require('../modules/game/game.repository');
-        // 1) A match created while offline starts instantly — replay the
-        //    MATCHED payload exactly as the live channel would have emitted it.
-        const matched = await gameRepo.findActiveMatchedMatch({ userId: socket.userId });
-        if (matched) {
-          io.to(`user:${socket.userId}`).emit('matchmaking:matched', matched);
-          return;
-        }
-        // 2) Still queued — replay the lobby state so the player list restores.
-        //    Tournament tickets ride the same WAITING path (long-TTL lobby, real
-        //    players only), so a mid-queue drop in a tournament restores exactly
-        //    like an AUTO queue — with the tournamentId attached so the client
-        //    knows which tournament the restored queue belongs to.
-        const queued = await gameRepo.findActiveQueuedLobby({ userId: socket.userId });
-        if (!queued?.lobbyId) return;
-        const lobby = await gameRepo.getLobby({ userId: socket.userId, lobbyId: queued.lobbyId });
-        if (lobby) {
-          io.to(`user:${socket.userId}`).emit('matchmaking:lobbyUpdated', {
-            ...lobby,
-            mode: queued.mode,
-            tournamentId: queued.tournamentId,
-          });
-        }
-      } catch (e) {
-        // Lobby not found / expired / DB hiccup — the client's backoff poll
-        // covers any gap.
-      }
-    }, 250);
-  };
+  // ── /account-socket ────────────────────────────────────────────────────
+  // Account-level: authenticated by JWT.
+  // Connected while any user is logged in.
+  // Handles: notifications, wallet, XP, leaderboards, follow events,
+  //          active status, heartbeat
+  const accountNs = io.of('/account-socket');
+  accountNs.use(accountAuth);
+  namespaces['account'] = accountNs;
+  setupAccountSocket(accountNs);
 
-  io.on('connection', (socket) => {
-    if (!socket.userId) return; // Ignore device sockets for user-level setup
+  // ── /chat-socket ───────────────────────────────────────────────────────
+  // Account-level: authenticated by JWT.
+  // Connected only when chat is open, disconnected when chat closes.
+  // Handles: messages, reactions, typing indicators
+  const chatNs = io.of('/chat-socket');
+  chatNs.use(chatAuth);
+  namespaces['chat'] = chatNs;
+  setupChatSocket(chatNs);
 
-    // Join personal room for targeted notifications
-    socket.join(`user:${socket.userId}`);
-    console.info(`[Socket] Connected: ${socket.userId} (${socket.id})`);
+  // ── /game-socket (was /game-engine) ────────────────────────────────────
+  // Game-level: JWT + matchId + game session token.
+  // Connected only during active game.
+  // Handles: matchmaking, game state, in-game chat
+  namespaces['game'] = io.of('/game-socket');
+  setupGameSocket(io, namespaces['game']);
 
-    // Re-deliver the active lobby state after any (re)connect.
-    replayActiveLobby(socket);
-
-    socket.on('disconnect', (reason) => {
-      console.info(`[Socket] Disconnected: ${socket.userId} — ${reason}`);
-    });
-
-    socket.on('error', (err) => {
-      console.error(`[Socket] Error from ${socket.userId}:`, err.message);
-    });
-  });
-
-  // Register domain-specific socket handlers
-  setupActiveStatus(io);
-  setupNotificationSocket(io);
-  setupGameSocket(io);
-  setupDeviceSocket(io);
   _io = io;
   return io;
 };
 
-// Returns the Socket.io instance for use in controllers/workers
 const getIO = () => {
   if (!_io) throw new Error('Socket.io not initialized');
   return _io;
 };
 
-module.exports = { initializeSockets, getIO };
+module.exports = { initializeSockets, getIO, getNamespace };

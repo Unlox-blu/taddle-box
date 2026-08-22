@@ -1816,7 +1816,7 @@ const inviteLobbyPlayer = async ({ userId, lobbyId, opponentId }) => {
         resourceId: lobby.game_id,
       });
       // Also push real-time via socket
-      const { emitNotification } = require('../../sockets/notification.socket');
+      const { emitNotification } = require('../../sockets/account.socket');
       emitNotification(opponentId, {
         ...notification,
         type: 'GAME_INVITE',
@@ -1839,6 +1839,20 @@ const inviteLobbyPlayer = async ({ userId, lobbyId, opponentId }) => {
       }
     } catch (notifErr) {
       console.error('Failed to send invite notification:', notifErr.message);
+    }
+
+    // Also send game invite card to chat (background, no navigation)
+    try {
+      const chatService = require('../chat/chat.service');
+      const convId = await chatService.getOrCreateConversation(userId, opponentId);
+      await chatService.sendMessage(convId, userId, {
+        messageType: 'game_invite',
+        gameName,
+        gameInviteCode: inviteCode,
+        gameLobbyId: lobbyId,
+      });
+    } catch (chatErr) {
+      console.error('Failed to send game invite to chat:', chatErr.message);
     }
 
     return await getLobby({ userId, lobbyId });

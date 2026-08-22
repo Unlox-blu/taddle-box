@@ -1,7 +1,7 @@
 'use strict';
 
 const { createError } = require('../../utils/error.util');
-const { emitXPUpdate } = require('../../sockets/notification.socket');
+const { emitXPUpdate } = require('../../sockets/account.socket');
 
 class XpService {
   constructor({ xpRepository }) {

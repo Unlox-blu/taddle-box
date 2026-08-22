@@ -287,7 +287,7 @@ const setAppLock = async ({userId, pin}) => {
   try {
     await pool.query(
       `UPDATE ${AuthModel.USER_TABLE} 
-      SET lock_pin = $1, global_lock_enabled = TRUE, wallet_lock_enabled = TRUE, updated_at = NOW() 
+      SET lock_pin = $1, global_account_lock_enabled = TRUE, wallet_lock_enabled = TRUE, updated_at = NOW() 
       WHERE id = $2`,
       [pin, userId]
     )
@@ -300,7 +300,7 @@ const removeAppLock = async ({userId}) => {
   try {
     await pool.query(
       `UPDATE ${AuthModel.USER_TABLE} 
-      SET lock_pin = NULL, global_lock_enabled = FALSE, wallet_lock_enabled = FALSE, updated_at = NOW() 
+      SET lock_pin = NULL, global_account_lock_enabled = FALSE, wallet_lock_enabled = FALSE, updated_at = NOW() 
       WHERE id = $1`,
       [userId]
     )

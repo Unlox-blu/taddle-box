@@ -69,7 +69,7 @@ class CommentService {
       });
       await this.postRepo.incrementCommentCount(postId);
       // A new comment moves the post author's Feed-impact score (comments*5).
-      const { emitLeaderboardsChanged } = require('../../sockets/notification.socket');
+      const { emitLeaderboardsChanged } = require('../../sockets/account.socket');
       emitLeaderboardsChanged(postAuthorId, 'feed_impact');
 
       const user = await this.userRepo.findById(authorId);

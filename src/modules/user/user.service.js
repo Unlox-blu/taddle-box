@@ -6,7 +6,7 @@ const { addJob } = require('../../jobs/queues/job.queue');
 const { createError } = require('../../utils/error.util');
 const { notificationService } = require('../notification/notification.container');
 const { activeStatusService } = require('../activestatus/activestatus.container');
-const { emitFollowRequestCancelled, emitFollowRequestResolved, emitFollowStateChanged } = require('../../sockets/notification.socket');
+const { emitFollowRequestCancelled, emitFollowRequestResolved, emitFollowStateChanged } = require('../../sockets/account.socket');
 const appleUtil = require('../../utils/apple.util');
 
 const bcrypt = require('bcryptjs');
@@ -626,7 +626,7 @@ class UserService {
     if (!pin || pin.length !== 4) throw createError('PIN must be 4 digits', 400);
     const hash = await bcrypt.hash(pin, 10);
     await this.userRepo.updateLockPin(userId, hash, enableGlobal);
-    return { message: 'Global lock PIN set successfully' };
+    return { message: 'Global Account Lock PIN set successfully' };
   }
 
   async verifyLockPin({ userId, pin }) {
@@ -635,7 +635,7 @@ class UserService {
     if (!lockPin) {
       // Corrupt state: lock is enabled but no PIN hash — auto-heal by disabling the lock
       await this.userRepo.removeLockPin(userId);
-      throw createError('Global lock PIN not set up. Lock has been disabled — please set up a new PIN.', 400);
+      throw createError('Global Account Lock PIN not set up. Lock has been disabled — please set up a new PIN.', 400);
     }
     
     const isValid = await bcrypt.compare(pin, lockPin);
@@ -648,7 +648,7 @@ class UserService {
     // Verify PIN first
     await this.verifyLockPin({ userId, pin });
     await this.userRepo.toggleGlobalLock(userId, isEnabled);
-    return { message: `Global Lock ${isEnabled ? 'enabled' : 'disabled'}` };
+    return { message: `Global Account Lock ${isEnabled ? 'enabled' : 'disabled'}` };
   }
 
   async toggleWalletLock({ userId, pin, isEnabled }) {
@@ -674,7 +674,7 @@ class UserService {
 
     const hash = await bcrypt.hash(newPin, 10);
     await this.userRepo.updateLockPin(userId, hash);
-    return { message: 'Global lock PIN reset successfully' };
+    return { message: 'Global Account Lock PIN reset successfully' };
   }
 
   async removeLockPin({ userId, pin }) {
@@ -684,7 +684,7 @@ class UserService {
     if (!lockPin) {
       // Nothing to remove — just ensure flags are false and return success
       await this.userRepo.removeLockPin(userId);
-      return { message: 'Global lock cleared' };
+      return { message: 'Global Account Lock cleared' };
     }
 
     const isValid = await bcrypt.compare(pin, lockPin);
@@ -692,7 +692,7 @@ class UserService {
 
     // Wipe PIN hash and disable all locks
     await this.userRepo.removeLockPin(userId);
-    return { message: 'Global lock PIN removed successfully' };
+    return { message: 'Global Account Lock PIN removed successfully' };
   }
 
   // ── Remove PIN: send OTPs ──────────────────────────────────────────────────
@@ -767,7 +767,7 @@ class UserService {
 
     // 5. Wipe lock
     await this.userRepo.removeLockPin(userId);
-    return { message: 'Global lock disabled successfully' };
+    return { message: 'Global Account Lock disabled successfully' };
   }
 }
 

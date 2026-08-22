@@ -49,8 +49,16 @@ const SNAKE_LADDER_TURN_TIMEOUT_MS = 12 * 1000;
 // stall a 4-player match. 30s > 29s lets the client's auto-move win the race.
 const LUDO_TURN_TIMEOUT_MS = 30 * 1000;
 
-const setupGameSocket = (io) => {
-  const gameNs = io.of('/game-engine');
+const setupGameSocket = (io, gameNs) => {
+  // gameNs is the /game-socket namespace, passed from index.js
+  // For cross-namespace emits (e.g. SESSION_EXPIRED → /account-socket),
+  // we resolve the account namespace lazily.
+  const getAccountNs = () => {
+    try {
+      const { getNamespace } = require('./index');
+      return getNamespace('account');
+    } catch { return null; }
+  };
   const chatThrottle = new Map(); // userId → lastChatTs
 
   const botHandler = new BotMatchHandler(
@@ -111,7 +119,7 @@ const setupGameSocket = (io) => {
           
           const players = latestState.metadata?.players || [];
           players.forEach(p => {
-            io.to(`user:${p.userId}`).emit('SESSION_EXPIRED', { matchId });
+            getAccountNs()?.to(`user:${p.userId}`).emit('SESSION_EXPIRED', { matchId });
           });
         } else {
           // Snake-ladder / ludo: idle players are AUTO-MOVED server-side rather
@@ -161,7 +169,7 @@ const setupGameSocket = (io) => {
               await _archiveMatch(matchId, latestState);
               const players = latestState.metadata?.players || [];
               players.forEach(p => {
-                io.to(`user:${p.userId}`).emit('SESSION_EXPIRED', { matchId });
+                getAccountNs()?.to(`user:${p.userId}`).emit('SESSION_EXPIRED', { matchId });
               });
               return;
             }
@@ -201,7 +209,7 @@ const setupGameSocket = (io) => {
           
           const players = latestState.metadata?.players || [];
           players.forEach(p => {
-            io.to(`user:${p.userId}`).emit('SESSION_EXPIRED', { matchId });
+            getAccountNs()?.to(`user:${p.userId}`).emit('SESSION_EXPIRED', { matchId });
           });
         } else {
           await EventStore.saveMatchSnapshot(matchId, latestState);
@@ -561,7 +569,7 @@ const setupGameSocket = (io) => {
           const matchPlayers = updatedState.metadata?.players || updatedState.players || [];
           for (const p of matchPlayers) {
             const pid = p?.userId || p?.id;
-            if (pid) io.to(`user:${pid}`).emit('SESSION_EXPIRED', { matchId });
+            if (pid) getAccountNs()?.to(`user:${pid}`).emit('SESSION_EXPIRED', { matchId });
           }
         } else {
           // Send player-specific states (e.g. scribble drawer sees word)
@@ -703,7 +711,7 @@ const setupGameSocket = (io) => {
         await _resolvePlayerSession({ matchId, userId: rid, result: 'DRAW', score: 0 });
       }
       for (const p of realPlayers) {
-        io.to(`user:${p.userId || p.id}`).emit('SESSION_EXPIRED', { matchId });
+        getAccountNs()?.to(`user:${p.userId || p.id}`).emit('SESSION_EXPIRED', { matchId });
       }
       return;
     }
@@ -731,7 +739,7 @@ const setupGameSocket = (io) => {
       await _archiveMatch(matchId, state);
       await _resolvePlayerSession({ matchId, userId, result: 'LOSS', score: 0 });
       for (const p of realPlayers) {
-        io.to(`user:${p.userId || p.id}`).emit('SESSION_EXPIRED', { matchId });
+        getAccountNs()?.to(`user:${p.userId || p.id}`).emit('SESSION_EXPIRED', { matchId });
       }
       return;
     }
@@ -759,7 +767,7 @@ const setupGameSocket = (io) => {
       botHandler.handleMatchEnd(matchId, gameSlug, state);
       await _archiveMatch(matchId, state);
       await _resolvePlayerSession({ matchId, userId, result: 'LOSS', score: 0 });
-      io.to(`user:${userId}`).emit('SESSION_EXPIRED', { matchId });
+      getAccountNs()?.to(`user:${userId}`).emit('SESSION_EXPIRED', { matchId });
       return;
     }
 
@@ -795,7 +803,7 @@ const setupGameSocket = (io) => {
     await EventStore.saveMatchSnapshot(matchId, state);
     await EventStore.appendEvent(matchId, { type: 'PLAYER_REMOVED', userId });
     await _resolvePlayerSession({ matchId, userId, result: 'LOSS', score: 0 });
-    io.to(`user:${userId}`).emit('SESSION_EXPIRED', { matchId });
+    getAccountNs()?.to(`user:${userId}`).emit('SESSION_EXPIRED', { matchId });
 
     // Resume only when every remaining real player is back online
     const remainingReal = (state.players || state.metadata?.players || [])

@@ -4,7 +4,10 @@ const TABLE = 'posts';
 const LIKES_TABLE = 'post_likes';
 const VIEWS_TABLE = 'post_views';
 
-// Full detail view — used in single post fetch with author + community JOINs
+// SSOT: author and community are nested json_build_object, not flat columns.
+const AUTHOR_EXPR = `json_build_object('id', u.id, 'name', u.name, 'username', u.username, 'avatar_url', CASE WHEN u.avatar_url IS NULL THEN NULL ELSE json_build_object('cloudfront_url', ua.cloudfront_url) END) AS author`;
+const COMMUNITY_EXPR = `CASE WHEN c.id IS NULL THEN NULL ELSE json_build_object('id', c.id, 'name', c.name, 'slug', c.slug, 'privacy', c.privacy, 'avatar_url', CASE WHEN c.avatar_url IS NULL THEN NULL ELSE json_build_object('cloudfront_url', ca.cloudfront_url) END) END AS community`;
+
 const DETAIL_FIELDS = [
   'p.id', 'p.author_id', 'p.community_id', 'p.repost_of_id', 'p.title', 'p.content',
   'p.media', 'p.tags', 'p.category', 'p.status',
@@ -12,21 +15,16 @@ const DETAIL_FIELDS = [
   'p.views_count', 'p.is_pinned', 'p.poll_data', 'p.link_data',
   'p.latitude', 'p.longitude', 'p.place',
   'p.published_at', 'p.created_at', 'p.updated_at',
-  'u.name AS author_name', 'u.username AS author_username', 'u.avatar_url AS author_avatar',
-  'c.name AS community_name', 'c.privacy AS community_privacy','c.slug AS community_slug', 'c.avatar_url AS community_avatar',
+  AUTHOR_EXPR, COMMUNITY_EXPR,
 ].join(', ');
 
-// Light list view — used in feed and browse
 const LIST_FIELDS = [
   'p.id', 'p.author_id', 'p.community_id', 'p.repost_of_id', 'p.title', 'p.content',
   'p.media', 'p.tags', 'p.status', 'p.visibility',
   'p.likes_count', 'p.comments_count', 'p.shares_count', 'p.views_count',
   'p.is_pinned', 'p.poll_data', 'p.latitude', 'p.longitude', 'p.place',
   'p.published_at', 'p.created_at',
-  'u.name AS author_name', 'u.username AS author_username',
-  'ua.cloudfront_url AS author_avatar',
-  'c.name AS community_name', 'c.slug   AS community_slug', 'c.privacy AS community_privacy',
-  'ca.cloudfront_url AS community_avatar',
+  AUTHOR_EXPR, COMMUNITY_EXPR,
 ].join(', ');
 
 const POST_STATUSES = ['draft', 'published', 'archived', 'removed'];
@@ -38,6 +36,8 @@ const sanitize = (row) => {
   return safe;
 };
 
+// SSOT: backend returns nested author/community objects + enriched media.
+// format() maps snake_case → camelCase. No rebuilding nested objects.
 const format = (row) => {
   if (!row) return null;
   return {
@@ -50,47 +50,24 @@ const format = (row) => {
     status: row.status,
     visibility: row.visibility,
     repostOfId: row.repost_of_id,
-    repostedByMe: row.is_reposted || false,
-    likesCount: row.likes_count,
-    commentsCount: row.comments_count,
-    sharesCount: row.shares_count,
+    repostedByMe: !!row.is_reposted,
+    likes: row.likes_count ?? 0,
+    comments: row.comments_count ?? 0,
+    shares: row.shares_count ?? 0,
     viewsCount: row.views_count,
     isPinned: row.is_pinned,
-    isLiked: row.is_liked || false,
-    isSaved: row.is_bookmarked || false,
-    isXpClaimed: row.is_xp_claimed || false,
+    isLiked: !!row.is_liked,
+    isSaved: !!row.is_bookmarked,
+    isXpClaimed: !!row.is_xp_claimed,
     pollData: row.poll_data || null,
-    // Which poll option the requesting user voted for (null when they haven't
-    // voted or the query didn't join poll_votes).
     myPollVote: row.my_poll_vote ?? null,
     linkData: row.link_data || null,
-    // Optional place tag (lat / lon / place name) attached at creation time
-    // and shown in the card's rolling text.
-    location: (row.latitude != null && row.longitude != null) ? {
-      lat: Number(row.latitude),
-      lon: Number(row.longitude),
-      place: row.place || '',
-    } : null,
-    author: {
-      id: row.author_id,
-      name: row.author_name,
-      username: row.author_username,
-      avatarUrl: row.author_avatar,
-      isVerified: row.author_is_verified,
-      // False when the author disabled "Allow Reposting" — the UI hides the
-      // repost button, and repostPost enforces it server-side regardless.
-      repostsEnabled: row.author_reposts_enabled !== false,
-    },
-    community: row.community_id ? {
-      id: row.community_id,
-      name: row.community_name,
-      slug: row.community_slug,
-      avatarUrl: row.community_avatar,
-      privacy: row.community_privacy,
-      // False when the community owner turned "Allow Reposting" off — the UI
-      // hides the repost button, and repostPost enforces it server-side.
-      repostsEnabled: row.community_reposts_enabled !== false,
-    } : null,
+    location: (row.latitude != null && row.longitude != null)
+      ? { lat: Number(row.latitude), lon: Number(row.longitude), place: row.place || '' }
+      : row.location || null,
+    author: row.author || {},
+    community: row.community || undefined,
+    author_reposts_enabled: row.author_reposts_enabled,
     publishedAt: row.published_at,
     createdAt: row.created_at,
     updatedAt: row.updated_at,

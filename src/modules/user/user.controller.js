@@ -278,7 +278,7 @@ class UserController {
       const userId = req.userId;
       const { pin, isEnabled } = req.body;
       const result = await this.userSvc.toggleGlobalLock({ userId, pin, isEnabled });
-      res.json(apiResponse(result, `Global Lock ${isEnabled ? 'enabled' : 'disabled'}`));
+      res.json(apiResponse(result, `Global Account Lock ${isEnabled ? 'enabled' : 'disabled'}`));
     } catch (error) {
       next(error);
     }
@@ -321,7 +321,7 @@ class UserController {
       const userId = req.userId;
       const { password, emailOtp, phoneOtp } = req.body;
       const result = await this.userSvc.removePinVerify({ userId, password, emailOtp, phoneOtp });
-      res.json(apiResponse(result, 'Global lock disabled'));
+      res.json(apiResponse(result, 'Global Account Lock disabled'));
     } catch (error) {
       next(error);
     }

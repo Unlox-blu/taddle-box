@@ -2,7 +2,7 @@
 
 
 const {notificationRepository} = require('../../../modules/notification/notification.container');
-const { emitNotification } = require('../../../sockets/notification.socket');
+const { emitNotification } = require('../../../sockets/account.socket');
 const NotificationModel = require('../../../modules/notification/notification.model');
 const { logger } = require('../../../middlewares/logger.middleware');
 const { getPromotionalNotificationByUserId } = require('../../../modules/settings/settings.repository');

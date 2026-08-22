@@ -2,7 +2,7 @@
 
 const Redis = require('ioredis');
 const config = require('../config/app.config');
-const { emitWalletUpdate } = require('../sockets/notification.socket');
+const { emitWalletUpdate } = require('../sockets/account.socket');
 const { walletRepo } = require('../modules/wallet/wallet.container');
 
 // We need a dedicated Redis client for subscribing (ioredis requires it)

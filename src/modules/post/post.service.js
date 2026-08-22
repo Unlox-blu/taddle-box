@@ -48,7 +48,7 @@ class PostService {
       if (communityId) {
         this.communityRepo.incrementPostCount(communityId).catch(err => console.error('Community post increment failed:', err));
         // A community post moves the author's Community-activity score (+8).
-        const { emitLeaderboardsChanged } = require('../../sockets/notification.socket');
+        const { emitLeaderboardsChanged } = require('../../sockets/account.socket');
         emitLeaderboardsChanged(authorId, 'community_activity');
       }
 
@@ -287,7 +287,7 @@ class PostService {
       // A fresh unique view moves the author's Feed-impact score — trigger a
       // silent leaderboard refresh so the Feed tab stays live.
       if (isNewView) {
-        const { emitLeaderboardsChanged } = require('../../sockets/notification.socket');
+        const { emitLeaderboardsChanged } = require('../../sockets/account.socket');
         emitLeaderboardsChanged(post.author_id, 'feed_impact');
       }
     } catch (error) {
@@ -314,7 +314,7 @@ class PostService {
       await this.postRepo.addLike(postId, userId);
       await this.postRepo.incrementLikeCount(postId);
       // A like moves the author's Feed-impact score (likes*3).
-      const { emitLeaderboardsChanged } = require('../../sockets/notification.socket');
+      const { emitLeaderboardsChanged } = require('../../sockets/account.socket');
       emitLeaderboardsChanged(post.author_id, 'feed_impact');
       const user = await this.userRepo.findById(userId)
       const jobdata = { 

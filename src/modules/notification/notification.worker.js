@@ -2,7 +2,7 @@
 
 const redis = require('../../config/redis');
 const pool = require('../../config/database');
-const { emitNotification } = require('../../sockets/notification.socket');
+const { emitNotification } = require('../../sockets/account.socket');
 const notificationRepository = require('./notification.repository');
 const { addJob } = require('../../jobs/queues/job.queue');
 const pushNotificationPrefCache = require('./pushNotification.prefcache');

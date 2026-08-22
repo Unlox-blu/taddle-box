@@ -144,7 +144,7 @@ class CommunityService {
       // An active join moves the member's Community-activity score (+5);
       // pending private-community requests don't rank until approved.
       if (status === 'active') {
-        const { emitLeaderboardsChanged } = require('../../sockets/notification.socket');
+        const { emitLeaderboardsChanged } = require('../../sockets/account.socket');
         emitLeaderboardsChanged(userId, 'community_activity');
       }
       

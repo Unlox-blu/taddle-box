@@ -1,6 +1,7 @@
 import * as Location from 'expo-location';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { userService } from './user.service';
+import { warn } from '../utils/logger';
 
 const LAST_LOC_KEY = '@taddle_last_location_capture';
 // Don't hammer the API — capture at most once per 5 minutes on foreground.
@@ -50,7 +51,7 @@ export const locationService = {
       await AsyncStorage.setItem(LAST_LOC_KEY, String(Date.now()));
     } catch (e) {
       // Offline / permission revoked mid-flight — never block the app.
-      console.warn('Location capture skipped', e);
+      warn('Location capture skipped', e);
     }
   },
 };

@@ -1,5 +1,5 @@
 import React, { useMemo, useState, useCallback, useRef } from "react";
-import { View, Text, StyleSheet, FlatList } from "react-native";
+import { View, Text, StyleSheet, FlatList, ScrollView } from "react-native";
 import { FlashList } from "@shopify/flash-list";
 import {
   useNavigation,
@@ -16,6 +16,8 @@ import { bookmarkService } from "../../services/bookmark.service";
 import type { HomeStackParamList } from "../../types";
 import PullToRefreshWrapper from "../../components/common/PullToRefreshWrapper";
 import StateBlock from "../../components/common/StateBlock";
+import CommentsModal from "../../components/home/CommentsModal";
+import ShareSheet from "../../components/common/ShareSheet";
 import { useGlobalScroll } from "../../context/ScrollContext";
 import {
   ROW_RENDERERS,
@@ -25,6 +27,7 @@ import {
 import { makeStyles as makeSearchStyles } from "../../components/search/searchStyles";
 import { useToggleLike, useToggleSave } from "../../mutations/posts";
 import { useActivePostTracking } from "../../hooks/useActivePostTracking";
+import { warn } from '../../utils/logger';
 
 type NavProp = NativeStackNavigationProp<HomeStackParamList, "Bookmarks">;
 
@@ -90,32 +93,42 @@ export default function BookmarksScreen() {
   const [hasMore, setHasMore] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
-  const [isReady, setIsReady] = useState(false);
-
-  React.useEffect(() => {
-    const timer = setTimeout(() => {
-      setIsReady(true);
-    }, 400);
-    return () => clearTimeout(timer);
-  }, []);
 
   const searchReqRef = useRef(0);
 
   const [serverTypes, setServerTypes] = useState<string[]>([]);
-  // Gaze-zone active-post tracking — same algorithm as SharedFeed.
-  // Only posts rows participate; other bookmark types (profiles, communities…)
-  // don’t call trackItemLayout and are skipped by the gaze math.
+  // Pass ALL rows so accumulated heights account for non-post rows
+  // (headers, people, communities) that take up scroll space.
+  const hookRows = rows.map((r: any, i: number) => ({
+    id: r.isHeader ? `__header_${r.type}_${i}` : (r.item?.id ?? `__row_${i}`),
+    _row: r,
+  }));
   const { activePostId, viewabilityConfig, onViewableItemsChanged,
-          trackLayout, handleScroll: handleScrollForTracking } =
-    useActivePostTracking([], {
-      getPostId: (row: any) =>
-        !row.isHeader && (row.type === 'posts' || row.type === 'post')
-          ? (row.item?.id ?? null)
-          : null,
+          trackLayout: rawTrackLayout, handleScroll: handleScrollForTracking } =
+    useActivePostTracking(hookRows, {
+      getPostId: (row: any) => {
+        // FlashList passes raw Row objects; hook may also pass wrapped hookRows
+        const r = row._row ?? row;
+        return !r.isHeader && (r.type === 'posts' || r.type === 'post')
+          ? (r.item?.id ?? null)
+          : null;
+      },
     });
+  // Wrap trackLayout: SearchRows calls it with post.id, but the hook
+  // accumulates heights by hookRow.id. Map one to the other.
+  const trackLayout = useCallback((id: string, rect: { top: number; bottom: number }) => {
+    const hookRow = hookRows.find((hr: any) => hr.id === id || hr._row?.item?.id === id);
+    if (hookRow) rawTrackLayout(hookRow.id, rect);
+    else rawTrackLayout(id, rect);
+  }, [hookRows, rawTrackLayout]);
 
   const { mutate: toggleLike } = useToggleLike();
   const { mutate: toggleSave } = useToggleSave();
+
+  const [commentsVisible, setCommentsVisible] = useState(false);
+  const [activeCommentPost, setActiveCommentPost] = useState<any>(null);
+  const [shareVisible, setShareVisible] = useState(false);
+  const [sharePost, setSharePost] = useState<any>(null);
 
   const fetchBookmarks = useCallback(async (pageToLoad = 1, append = false) => {
     const reqId = ++searchReqRef.current;
@@ -135,7 +148,7 @@ export default function BookmarksScreen() {
       const newRows: Row[] = (res.results || []).map((item: any) => ({
         isHeader: false,
         item,
-        type: (item.itemType || "unknown") as ResultType,
+        type: (item.type || item.itemType || item.item_type || "unknown") as ResultType,
       }));
 
       setRows((prev) => {
@@ -153,7 +166,7 @@ export default function BookmarksScreen() {
       setHasMore(res.hasNext);
       setPage(res.page);
     } catch (e) {
-      console.warn("Failed to load bookmarks", e);
+      warn("Failed to load bookmarks", e);
     } finally {
       if (searchReqRef.current === reqId) {
         setIsLoading(false);
@@ -167,6 +180,36 @@ export default function BookmarksScreen() {
     fetchBookmarks(1, false);
   }, [fetchBookmarks]);
 
+  // ── Video preload: direction-aware ────────────────────────────────
+  const lastScrollYRef = useRef(0);
+  const scrollDirRef = useRef<1 | -1>(1);
+
+  const preloadPostId = useMemo(() => {
+    if (!activePostId) return null;
+    const activeIdx = rows.findIndex(
+      (r) => !r.isHeader && (r.item as any)?.id === activePostId,
+    );
+    if (activeIdx < 0) return null;
+
+    const dir = scrollDirRef.current;
+    const scan = (start: number, step: number) => {
+      for (let i = start; i >= 0 && i < rows.length; i += step) {
+        const r = rows[i] as any;
+        if (r.isHeader) continue;
+        if (r.type !== "posts" && r.type !== "post") continue;
+        const hasVid = r.item?.media?.some?.((m: any) => m.media_type === "video");
+        if (hasVid) return r.item.id as string;
+      }
+      return null;
+    };
+
+    const found = dir === 1
+      ? scan(activeIdx + 1, 1)
+      : scan(activeIdx - 1, -1);
+    if (found) return found;
+    return dir === 1 ? scan(activeIdx - 1, -1) : scan(activeIdx + 1, 1);
+  }, [rows, activePostId]);
+
   const rowCtx = useMemo<RowCtx>(
     () => ({
       styles: searchStyles,
@@ -178,10 +221,21 @@ export default function BookmarksScreen() {
       toggleLike: (id, liked) => toggleLike({ id, isCurrentlyLiked: liked }),
       toggleSave: (id, saved) => toggleSave({ id, isCurrentlySaved: saved }),
       patchPost: () => {},
-      sharePost: () => {},
+      sharePost: (post: any) => { setSharePost(post); setShareVisible(true); },
       reportPost: () => {},
       refresh: handleRefresh,
-      openPost: (p) => navigation.push("PostDetail", { post: p }),
+      openPost: (p) => {
+        // Extract post-type bookmarks to seed the reel with the saved posts in order.
+        const bookmarkPosts = rows
+          .filter((r) => !r.isHeader && (r.type === 'posts' || r.type === 'post'))
+          .map((r) => r.item as any);
+        navigation.push("PostDetail", {
+          post: p,
+          feedPosts: bookmarkPosts.length > 0 ? bookmarkPosts : undefined,
+          feedContext: 'bookmarks',
+        });
+      },
+      openComments: (p: any) => { setActiveCommentPost(p); setCommentsVisible(true); },
       openUser: (u) => navigation.push("UserProfile", { user: u }),
       openCommunity: (slug) =>
         (navigation as any).navigate("Community", {
@@ -194,6 +248,9 @@ export default function BookmarksScreen() {
       openNotifications: () => (navigation as any).navigate("Notifications"),
       addHashtag: () => {},
       trackLayout,
+      preloadPostId,
+      feedPosts: rows.filter((r) => !r.isHeader && (r.type === 'posts' || r.type === 'post')).map((r) => r.item),
+      feedContext: 'bookmarks' as const,
     }),
     [
       searchStyles,
@@ -206,6 +263,8 @@ export default function BookmarksScreen() {
       toggleSave,
       handleRefresh,
       trackLayout,
+      preloadPostId,
+      rows,
     ],
   );
 
@@ -230,73 +289,73 @@ export default function BookmarksScreen() {
     if (row.isHeader) return null;
     const Renderer =
       ROW_RENDERERS[row.type] || ROW_RENDERERS[row.type + "s"] || GenericRow;
-    return (
-      <View
-        style={{ paddingHorizontal: spacing.md, marginVertical: spacing.xs }}
-      >
-        <Renderer data={row.item} ctx={rowCtx} />
-      </View>
-    );
+    return <Renderer data={row.item} ctx={rowCtx} />;
   };
 
   return (
     <View style={styles.container}>
       <MainHeader showBack />
 
-      {!isReady ? (
-        <View
-          style={{ flex: 1, justifyContent: "center", alignItems: "center" }}
-        >
-          <StateBlock loading />
-        </View>
-      ) : (
-        <PullToRefreshWrapper
+      <PullToRefreshWrapper
           refreshing={refreshing}
           onRefresh={handleRefresh}
           sectionHeaderH={SECTION_HEADER_H}
           sectionHeader={sectionHeader}
         >
           {isLoading && rows.length === 0 ? (
-            <View style={styles.empty}>
-              <StateBlock loading />
-              <Text
-                style={[
-                  styles.emptyTitle,
-                  { fontSize: fontSizes.md, marginTop: spacing.md },
-                ]}
-              >
-                Loading...
-              </Text>
-            </View>
+            <ScrollView style={{ flex: 1 }} contentContainerStyle={{ flexGrow: 1 }}>
+              <StateBlock loading style={{ flex: 1, paddingTop: 100 }} />
+            </ScrollView>
           ) : rows.length === 0 ? (
-            <View style={styles.empty}>
-              <Text style={styles.emptyEmoji}>🔖</Text>
-              <Text style={styles.emptyTitle}>No bookmarks yet</Text>
-              <Text style={styles.emptyDesc}>
-                Tap the bookmark icon on any post, profile, or community to save
-                it here for later.
-              </Text>
-            </View>
+            <ScrollView style={{ flex: 1 }} contentContainerStyle={{ flexGrow: 1 }}>
+              <View style={styles.empty}>
+                <Text style={styles.emptyEmoji}>🔖</Text>
+                <Text style={styles.emptyTitle}>No bookmarks yet</Text>
+                <Text style={styles.emptyDesc}>
+                  Tap the bookmark icon on any post, profile, or community to save
+                  it here for later.
+                </Text>
+              </View>
+            </ScrollView>
           ) : (
             <FlashList
               data={rows}
               keyExtractor={(row, idx) => rowKey(row) || idx.toString()}
               showsVerticalScrollIndicator={false}
+              keyboardDismissMode="on-drag"
+              alwaysBounceVertical
               contentContainerStyle={{ paddingBottom: footerHeight + 20 }}
               onEndReached={() => {
                 if (hasMore) fetchBookmarks(page + 1, true);
               }}
               onEndReachedThreshold={0.4}
               renderItem={renderItem}
-              ItemSeparatorComponent={() => <View style={{ height: 10 }} />}
               viewabilityConfig={viewabilityConfig}
               onViewableItemsChanged={onViewableItemsChanged}
-              onScroll={handleScrollForTracking}
+              onScroll={(e) => {
+                const y = e.nativeEvent.contentOffset.y;
+                if (y > lastScrollYRef.current + 2) scrollDirRef.current = 1;
+                else if (y < lastScrollYRef.current - 2) scrollDirRef.current = -1;
+                lastScrollYRef.current = y;
+                handleScrollForTracking(e);
+              }}
               scrollEventThrottle={16}
             />
           )}
         </PullToRefreshWrapper>
-      )}
+
+      <CommentsModal
+        visible={commentsVisible}
+        onClose={() => setCommentsVisible(false)}
+        post={activeCommentPost}
+      />
+
+      <ShareSheet
+        visible={shareVisible}
+        onClose={() => setShareVisible(false)}
+        postId={sharePost?.id}
+        postTitle={sharePost?.title || ''}
+      />
     </View>
   );
 }

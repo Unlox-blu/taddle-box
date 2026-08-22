@@ -10,6 +10,7 @@ import { useThemeColors } from '../../context/ThemeContext';
 import { fontSizes, spacing, radii } from '../../theme';
 import { communityService } from '../../services/community.service';
 import type { CommunityStackParamList } from '../../types';
+import { log } from '../../utils/logger';
 
 type Route = RouteProp<CommunityStackParamList, 'ModerationLog'>;
 
@@ -59,7 +60,7 @@ export default function CommunityModerationLogScreen() {
       setEntries(prev => refresh ? rows : [...prev, ...rows.filter((r: any) => !prev.some((e: any) => e.id === r.id))]);
       setPage(nextPage);
     } catch (e: any) {
-      console.log('Failed to load moderation log', e);
+      log('Failed to load moderation log', e);
     } finally {
       setLoading(false);
       setRefreshing(false);

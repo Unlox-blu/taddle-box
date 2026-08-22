@@ -1,4 +1,5 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useCallback } from "react";
+import { useFocusEffect } from "@react-navigation/native";
 import {
   View,
   Text,
@@ -21,6 +22,7 @@ import type { AuthStackParamList } from "../../types";
 import { useAuth } from "../../context/AuthContext";
 import { authService } from "../../services/auth.service";
 import { getDeviceId } from "../../services/apiClient";
+import * as Crypto from "expo-crypto";
 import * as WebBrowser from "expo-web-browser";
 import * as Google from "expo-auth-session/providers/google";
 import * as AppleAuthentication from "expo-apple-authentication";
@@ -47,11 +49,35 @@ export default function LoginScreen({ navigation }: Props) {
     () => getStyles(themeColors, isDark),
     [themeColors, isDark],
   );
-  const { signIn, isAuthenticating, setIsAuthenticating, accounts, user, expiredAccountUsername } =
-    useAuth();
+  const {
+    signIn,
+    isAuthenticating,
+    setIsAuthenticating,
+    accounts,
+    user,
+    expiredAccountUsername,
+    clearExpiredAccount,
+  } = useAuth();
   const hasAccounts = accounts.length > 0 || !!user?.id;
   const [identifier, setIdentifier] = useState(expiredAccountUsername ?? "");
   const [password, setPassword] = useState("");
+
+  useEffect(() => {
+    if (expiredAccountUsername) {
+      clearExpiredAccount();
+    }
+  }, [expiredAccountUsername, clearExpiredAccount]);
+
+  useFocusEffect(
+    useCallback(() => {
+      return () => {
+        if (!expiredAccountUsername) {
+          setIdentifier("");
+          setPassword("");
+        }
+      };
+    }, [expiredAccountUsername]),
+  );
 
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [appleAuthAvailable, setAppleAuthAvailable] = useState(false);
@@ -69,6 +95,22 @@ export default function LoginScreen({ navigation }: Props) {
     AppleAuthentication.isAvailableAsync().then(setAppleAuthAvailable);
   }, []);
 
+  // ── Client-side login throttling (exponential backoff) ─────────────────
+  const loginAttemptsRef = React.useRef(0);
+  const cooldownUntilRef = React.useRef(0);
+  const [cooldownRemaining, setCooldownRemaining] = useState(0);
+
+  // Tick cooldown timer every second
+  useEffect(() => {
+    if (cooldownUntilRef.current <= Date.now()) return;
+    const t = setInterval(() => {
+      const remaining = Math.max(0, Math.ceil((cooldownUntilRef.current - Date.now()) / 1000));
+      setCooldownRemaining(remaining);
+      if (remaining <= 0) clearInterval(t);
+    }, 1000);
+    return () => clearInterval(t);
+  }, [cooldownRemaining > 0]);
+
   const validate = () => {
     const e: Record<string, string> = {};
     if (!identifier.trim())
@@ -80,6 +122,12 @@ export default function LoginScreen({ navigation }: Props) {
 
   const handleLogin = async () => {
     if (!validate()) return;
+    // Enforce client-side cooldown after repeated failures
+    if (cooldownUntilRef.current > Date.now()) {
+      const secs = Math.ceil((cooldownUntilRef.current - Date.now()) / 1000);
+      themedAlert("Too many attempts", `Please wait ${secs} second${secs > 1 ? 's' : ''} before trying again.`);
+      return;
+    }
     setIsAuthenticating(true);
     try {
       const res = await authService.login(identifier.trim(), password);
@@ -98,9 +146,23 @@ export default function LoginScreen({ navigation }: Props) {
         res.data?.sessionData?.sessionId ||
         res.sessionData?.sessionId ||
         res.data?.sessionId;
-      await signIn(accessToken, refreshToken, sessionId);
+      const tokenExpiresAt =
+        res.data?.sessionData?.tokenExpiresAt ||
+        res.sessionData?.tokenExpiresAt ||
+        res.data?.tokenExpiresAt ||
+        res.data?.data?.sessionData?.tokenExpiresAt;
+      // Success — reset attempt counter
+      loginAttemptsRef.current = 0;
+      cooldownUntilRef.current = 0;
+      setCooldownRemaining(0);
+      await signIn(accessToken, refreshToken, sessionId, tokenExpiresAt ? Number(tokenExpiresAt) : undefined);
     } catch (e: any) {
       const msg = e?.response?.data?.message || e?.message || "Login failed";
+      // Exponential backoff: 2s, 4s, 8s, 16s, 30s max
+      loginAttemptsRef.current += 1;
+      const delay = Math.min(30, Math.pow(2, loginAttemptsRef.current)) * 1000;
+      cooldownUntilRef.current = Date.now() + delay;
+      setCooldownRemaining(Math.ceil(delay / 1000));
       themedAlert("Login Failed", msg);
     } finally {
       setIsAuthenticating(false);
@@ -128,7 +190,7 @@ export default function LoginScreen({ navigation }: Props) {
       const deviceId = await getDeviceId();
       const returnUrl = Linking.createURL("google-auth");
       const state = encodeURIComponent(JSON.stringify({ returnUrl, deviceId }));
-      const nonce = Math.random().toString(36).substring(2);
+      const nonce = Crypto.randomUUID();
 
       const authUrl = `https://accounts.google.com/o/oauth2/v2/auth?client_id=${webId}&redirect_uri=${encodeURIComponent(redirectUri)}&response_type=id_token&response_mode=form_post&scope=openid%20profile%20email&state=${state}&nonce=${nonce}`;
 
@@ -390,10 +452,24 @@ export default function LoginScreen({ navigation }: Props) {
 
           {/* Session expired banner */}
           {expiredAccountUsername && identifier === expiredAccountUsername && (
-            <View style={[styles.sessionExpiredBanner, { backgroundColor: 'rgba(239,68,68,0.12)', borderColor: 'rgba(239,68,68,0.3)' }]}>
-              <Ionicons name="time-outline" size={16} color="#EF4444" style={{ marginRight: 8 }} />
-              <Text style={[styles.sessionExpiredText, { color: '#EF4444' }]}>
-                Session expired for @{expiredAccountUsername}. Enter your password to continue.
+            <View
+              style={[
+                styles.sessionExpiredBanner,
+                {
+                  backgroundColor: "rgba(239,68,68,0.12)",
+                  borderColor: "rgba(239,68,68,0.3)",
+                },
+              ]}
+            >
+              <Ionicons
+                name="time-outline"
+                size={16}
+                color="#EF4444"
+                style={{ marginRight: 8 }}
+              />
+              <Text style={[styles.sessionExpiredText, { color: "#EF4444" }]}>
+                Session expired for @{expiredAccountUsername}. Enter your
+                password to continue.
               </Text>
             </View>
           )}
@@ -433,10 +509,16 @@ export default function LoginScreen({ navigation }: Props) {
               <Text style={styles.forgotText}>Forgot password?</Text>
             </TouchableOpacity>
 
+            {cooldownRemaining > 0 && (
+              <Text style={{ textAlign: 'center', color: themeColors.danger, fontSize: fontSizes.xs, fontWeight: '600', marginBottom: 8 }}>
+                Too many failed attempts. Try again in {cooldownRemaining}s
+              </Text>
+            )}
             <Button
               label="Log In"
               onPress={handleLogin}
               loading={isAuthenticating}
+              disabled={cooldownRemaining > 0}
               variant="primary"
               fullWidth
               style={{ marginTop: 8 }}
@@ -539,8 +621,8 @@ const getStyles = (themeColors: any, isDark: boolean) =>
     },
     subtitle: { fontSize: fontSizes.md, color: themeColors.text.muted },
     sessionExpiredBanner: {
-      flexDirection: 'row',
-      alignItems: 'center',
+      flexDirection: "row",
+      alignItems: "center",
       padding: 12,
       borderRadius: radii.md,
       borderWidth: 1,
@@ -549,7 +631,7 @@ const getStyles = (themeColors: any, isDark: boolean) =>
     },
     sessionExpiredText: {
       fontSize: fontSizes.sm,
-      fontWeight: '600',
+      fontWeight: "600",
       flex: 1,
     },
     form: { gap: 2 },

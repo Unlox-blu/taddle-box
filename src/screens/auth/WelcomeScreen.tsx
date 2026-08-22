@@ -31,6 +31,7 @@ import {
 import { authService } from "../../services/auth.service";
 import * as AuthSession from "expo-auth-session";
 import * as Linking from "expo-linking";
+import * as Crypto from "expo-crypto";
 
 WebBrowser.maybeCompleteAuthSession();
 
@@ -133,7 +134,7 @@ export default function WelcomeScreen({ navigation }: Props) {
       const redirectUri = `${webUrl}/api/v1/auth/google/callback`;
       const returnUrl = Linking.createURL("google-auth");
       const state = encodeURIComponent(JSON.stringify({ returnUrl }));
-      const nonce = Math.random().toString(36).substring(2);
+      const nonce = Crypto.randomUUID();
 
       const authUrl = `https://accounts.google.com/o/oauth2/v2/auth?client_id=${webId}&redirect_uri=${encodeURIComponent(redirectUri)}&response_type=id_token&response_mode=form_post&scope=openid%20profile%20email&state=${state}&nonce=${nonce}`;
 

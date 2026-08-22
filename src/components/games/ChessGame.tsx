@@ -12,9 +12,10 @@ import { Chessboard, ChessboardRef } from "@crewbeat/expo-chessboard";
 import { GestureHandlerRootView } from "react-native-gesture-handler";
 import { Chess } from "chess.js";
 import { LinearGradient } from "expo-linear-gradient";
-import { createGameEngineSocket } from "../../services/socketClient";
+import { createGameEngineSocket } from "../../services/accountSocketClient";
 import { gameSound, useTurnSound } from "../../services/gameSound";
 import type { HtmlGameResult } from "../../games/types";
+import { warn } from '../../utils/logger';
 
 const { width: SCREEN_W, height: SCREEN_H } = Dimensions.get("window");
 // Board fits between the two player rows + safe-area, with a max cap
@@ -318,7 +319,7 @@ export default function ChessGame({
     });
 
     s.on(EVENTS.ERROR, (error: any) => {
-      console.warn("Chess socket error:", error);
+      warn("Chess socket error:", error);
     });
 
     return () => {

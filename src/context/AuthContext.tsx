@@ -1,11 +1,11 @@
-import React, { createContext, useContext, useState, useEffect, useCallback, useMemo } from 'react';
+import React, { createContext, useContext, useState, useEffect, useCallback, useMemo, useRef } from 'react';
 
 import * as SecureStore from 'expo-secure-store';
 import Constants from 'expo-constants';
 import NetInfo from '@react-native-community/netinfo';
 import { authService } from '../services/auth.service';
 import { apiClient } from '../services/apiClient';
-import { socketClient } from '../services/socketClient';
+import { accountSocket } from '../services/accountSocketClient';
 import { ensureGameLogos } from '../games/gameAssets';
 import { getAccounts, addAccount as storeAddAccount, removeAccount as storeRemoveAccount, storeCurrentAccountTokens, restoreAccountTokens, clearAccountTokens, clearAllAccounts, type AccountProfile } from '../utils/accountStore';
 import type { XPUpdatedPayload } from '../types';
@@ -20,7 +20,7 @@ type AuthContextType = {
   isSplashVisible: boolean;
   setLottieFinished: (val: boolean) => void;
   user:        any;
-  signIn:      (token: string, refreshToken?: string, sessionId?: string) => Promise<void>;
+  signIn:      (token: string, refreshToken?: string, sessionId?: string, tokenExpiresAt?: number) => Promise<void>;
   signOut:     (opts?: { allDevices?: boolean, keepAccount?: boolean }) => Promise<void>;
   refreshUser: () => Promise<void>;
   updateUser:  (partial: Partial<any>) => void;
@@ -73,7 +73,8 @@ const AuthContext = createContext<AuthContextType>({
 
 import { AppState, AppStateStatus } from 'react-native';
 import { appConfigService } from '../services/appConfig.service';
-import { setForcedLogoutHandler, clearForcedLogoutHandler } from '../services/apiClient';
+import { setForcedLogoutHandler, clearForcedLogoutHandler, doRefreshToken } from '../services/apiClient';
+import { log, warn, error } from '../utils/logger';
 import { deviceSocketClient } from '../services/deviceSocketClient';
 import { destroyGameSound } from '../services/gameSound';
 import { clearSessionAvatars } from '../services/sessionAvatarCache';
@@ -111,6 +112,104 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const clearExpiredAccount = useCallback(() => setExpiredAccountUsername(null), []);
 
+  // ── Proactive token refresh ──────────────────────────────────────────────
+  // Instead of waiting for a 401 to trigger a refresh (which causes visible
+  // request failures and the old app-remount bug), we proactively refresh the
+  // access token before it expires. The backend returns a `tokenExpiresAt`
+  // timestamp alongside the access token — we store it in SecureStore and
+  // schedule a timer that fires 5 minutes before expiry.
+  const proactiveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const isRefreshingRef = useRef(false);
+
+  const TOKEN_EXPIRY_KEY = 'tokenExpiresAt';
+  // Refresh 5 minutes before expiry to avoid any edge-case 401s.
+  const REFRESH_BUFFER_MS = 5 * 60 * 1000;
+
+  /**
+   * Schedule (or re-schedule) the proactive refresh timer.
+   * Called after every successful login, account switch, and token refresh.
+   */
+  const scheduleProactiveRefresh = useCallback(async () => {
+    // Clear any existing timer
+    if (proactiveTimerRef.current) {
+      clearTimeout(proactiveTimerRef.current);
+      proactiveTimerRef.current = null;
+    }
+
+    try {
+      const expiresAtRaw = await SecureStore.getItemAsync(TOKEN_EXPIRY_KEY);
+      const expiresAt = expiresAtRaw ? Number(expiresAtRaw) : 0;
+      if (!expiresAt) return; // No expiry stored — fall back to reactive refresh
+
+      const now = Date.now();
+      const msUntilRefresh = Math.max(0, expiresAt - REFRESH_BUFFER_MS - now);
+
+      // Already past the refresh window — do it now
+      if (msUntilRefresh <= 0) {
+        log('[Auth] Token already past refresh window — refreshing now');
+        if (!isRefreshingRef.current) {
+          isRefreshingRef.current = true;
+          try {
+            await doRefreshToken();
+            // Re-schedule for the new token
+            scheduleProactiveRefresh();
+          } catch (e) {
+            warn('[Auth] Proactive refresh failed:', e);
+          } finally {
+            isRefreshingRef.current = false;
+          }
+        }
+        return;
+      }
+
+      log(`[Auth] Proactive refresh scheduled in ${Math.round(msUntilRefresh / 1000)}s`);
+      proactiveTimerRef.current = setTimeout(async () => {
+        proactiveTimerRef.current = null;
+        if (isRefreshingRef.current) return; // Already refreshing
+        isRefreshingRef.current = true;
+        try {
+          const result = await doRefreshToken();
+          if (result) {
+            log('[Auth] Proactive refresh succeeded');
+          } else {
+            warn('[Auth] Proactive refresh returned no token');
+          }
+        } catch (e) {
+          warn('[Auth] Proactive refresh failed:', e);
+        } finally {
+          isRefreshingRef.current = false;
+          // Re-schedule for the next cycle (the interceptor will handle
+          // any 401s in the meantime if we're still off).
+          scheduleProactiveRefresh();
+        }
+      }, msUntilRefresh);
+    } catch (e) {
+      warn('[Auth] Failed to schedule proactive refresh:', e);
+    }
+  }, []);
+
+  /**
+   * Store the token expiry timestamp. The backend includes `tokenExpiresAt`
+   * (epoch ms) in the login / refresh response. If the backend doesn't
+   * include it, we log a warning and fall back to reactive-only refresh.
+   */
+  const persistTokenExpiry = useCallback(async (expiresAt?: number) => {
+    if (!expiresAt) {
+      warn('[Auth] Backend did not provide tokenExpiresAt — proactive refresh disabled for this token. The backend MUST include tokenExpiresAt in login and refresh responses.');
+      return;
+    }
+    await SecureStore.setItemAsync(TOKEN_EXPIRY_KEY, String(expiresAt));
+  }, []);
+
+  /** Cancel the proactive timer (called on logout / account switch). */
+  const cancelProactiveRefresh = useCallback(() => {
+    if (proactiveTimerRef.current) {
+      clearTimeout(proactiveTimerRef.current);
+      proactiveTimerRef.current = null;
+    }
+    isRefreshingRef.current = false;
+  }, []);
+
   /** Refresh the accounts list from SecureStore. */
   const refreshAccounts = useCallback(async () => {
     const list = await getAccounts();
@@ -138,7 +237,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       await SecureStore.deleteItemAsync('activeUserId');
 
       // Disconnect socket
-      socketClient.disconnect();
+      accountSocket.disconnect();
 
       // Update React state — user will see auth screens
       setIsLoggedIn(false);
@@ -154,7 +253,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         );
       }, 500);
     } catch (e) {
-      console.error('Forced logout cleanup failed', e);
+      error('Forced logout cleanup failed', e);
       // Last-resort: clear everything and hope for the best
       setIsLoggedIn(false);
       setUser(undefined);
@@ -172,16 +271,23 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   // Connects once on mount (regardless of which account is active).
   // Receives auth:session_revoked events when another device calls
   // "Log out from all devices" — instantly cleans up the affected account.
+  //
+  // IMPORTANT: no user?.id in deps — this is a device-level socket that
+  // must not disconnect/reconnect when the user object changes (e.g. after
+  // checkToken loads the user). Use a ref to read the current user ID.
+  const userIdRef = useRef(user?.id);
+  userIdRef.current = user?.id;
+
   useEffect(() => {
     deviceSocketClient.connect();
 
     const handleSessionRevoked = async (data: { userId: number | string }) => {
-      console.log('[Auth] Session revoked via device socket for userId:', data.userId);
+      log('[Auth] Session revoked via device socket for userId:', data.userId);
       // Remove the revoked account from the store
       await storeRemoveAccount(data.userId);
       await refreshAccounts();
       // If the revoked account is the currently active one, force logout
-      if (user?.id && String(user.id) === String(data.userId)) {
+      if (userIdRef.current && String(userIdRef.current) === String(data.userId)) {
         await handleForcedLogout();
       }
     };
@@ -192,7 +298,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       deviceSocketClient.events.off('auth:session_revoked', handleSessionRevoked);
       deviceSocketClient.disconnect();
     };
-  }, [handleForcedLogout, refreshAccounts, user?.id]);
+  }, [handleForcedLogout, refreshAccounts]);
 
   // The global splash screen is visible until BOTH the auth check completes AND the Lottie finishes its first loop,
   // OR when a manual login process is actively authenticating.
@@ -227,7 +333,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         setStoreUrl(config.storeUrl || 'https://play.google.com/store');
       }
     } catch (err) {
-      console.warn('Failed to fetch app config', err);
+      warn('Failed to fetch app config', err);
     }
   }, []);
 
@@ -241,10 +347,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       setUser((prev: any) => prev ? { ...prev, xp: data.xp } : prev);
     };
 
-    socketClient.events.on('xp:updated', handleXPUpdate);
+    accountSocket.events.on('xp:updated', handleXPUpdate);
 
     return () => {
-      socketClient.events.off('xp:updated', handleXPUpdate);
+      accountSocket.events.off('xp:updated', handleXPUpdate);
     };
   }, []);
 
@@ -258,7 +364,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     const handleAppStateChange = async (nextState: AppStateStatus) => {
       // Only run when transitioning TO active from background/inactive
       if (previousState.match(/background|inactive/) && nextState === 'active') {
-        console.log('[Auth] App foregrounded — validating stored sessions');
+        log('[Auth] App foregrounded — validating stored sessions');
+        // Re-schedule proactive refresh in case the timer expired while backgrounded
+        if (isLoggedIn) {
+          scheduleProactiveRefresh();
+        }
         const result = await validateStoredAccounts();
         await refreshAccounts();
         if (result.activeAccountRevoked) {
@@ -281,7 +391,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       if (cancelled) return;
       // Game assets download per-game on PLAY tap (ensureGameAssets(slug)).
       // No cold-start warm needed — logos download on Games tab focus.
-      console.log('[Auth] Cold-start session validation');
+      log('[Auth] Cold-start session validation');
       const result = await validateStoredAccounts();
       if (cancelled) return;
       await refreshAccounts();
@@ -336,12 +446,14 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         const res = await authService.getMe();
         setUser(res.data.user);
         setIsLoggedIn(true);
-        await socketClient.connect();
+        await accountSocket.connect();
+        // Schedule proactive refresh for the existing session
+        scheduleProactiveRefresh();
       } else {
         setIsLoggedIn(false);
       }
     } catch (e) {
-      console.error('Error checking token, user might be invalid or offline', e);
+      error('Error checking token, user might be invalid or offline', e);
       await SecureStore.deleteItemAsync('accessToken');
       await SecureStore.deleteItemAsync('refreshToken');
       setIsLoggedIn(false);
@@ -356,7 +468,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       const res = await authService.getMe();
       setUser(res.data.user);
     } catch (e) {
-      console.error('Error refreshing user', e);
+      error('Error refreshing user', e);
     }
   };
 
@@ -364,7 +476,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     setUser((prev: any) => prev ? { ...prev, ...partial } : prev);
   };
 
-  const signIn = async (token: string, refreshToken?: string, sessionId?: string) => {
+  const signIn = async (token: string, refreshToken?: string, sessionId?: string, tokenExpiresAt?: number) => {
     // Clear any expired-account hint — successful login means we're past it.
     setExpiredAccountUsername(null);
     // If switching accounts, save current account's tokens first
@@ -386,6 +498,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     if (sessionId) {
       await SecureStore.setItemAsync('sessionId', sessionId);
     }
+    // Persist token expiry for proactive refresh
+    await persistTokenExpiry(tokenExpiresAt);
     // Fetch user after signing in
     try {
       // Also check app config on fresh login
@@ -410,9 +524,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       }
 
       setIsLoggedIn(true);
-      await socketClient.connect();
+      await accountSocket.connect();
+      // Start proactive refresh for the new session
+      scheduleProactiveRefresh();
     } catch (e) {
-      console.error('Error fetching user after sign in', e);
+      error('Error fetching user after sign in', e);
       // Clean up the invalid tokens we just saved
       await SecureStore.deleteItemAsync('accessToken');
       await SecureStore.deleteItemAsync('refreshToken');
@@ -440,7 +556,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         }
       }
     } catch (e) {
-      console.warn('Backend logout failed, continuing local logout');
+      warn('Backend logout failed, continuing local logout');
     }
     await SecureStore.deleteItemAsync('accessToken');
     await SecureStore.deleteItemAsync('refreshToken');
@@ -452,10 +568,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       // Clear the saved tokens for this account so it can't be auto-restored
       await clearAccountTokens(userId);
     }
-    socketClient.disconnect();
+    accountSocket.disconnect();
     // Release native audio players on logout
     destroyGameSound().catch(() => {});
     clearSessionAvatars();
+    cancelProactiveRefresh();
     setIsLoggedIn(false);
     setUser(undefined);
     await refreshAccounts();
@@ -468,7 +585,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     // 1. Save current account tokens and disconnect if currently logged in
     if (isLoggedIn && user?.id) {
       await storeCurrentAccountTokens(user.id);
-      socketClient.disconnect();
+      accountSocket.disconnect();
     }
 
     // Force unmount the MainNavigator so all screens remount fresh
@@ -488,9 +605,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       const res = await authService.getMe();
       setUser(res.data.user);
       setIsLoggedIn(true);
-      await socketClient.connect();
+      await accountSocket.connect();
+      // Start proactive refresh for the switched account
+      scheduleProactiveRefresh();
     } catch (e) {
-      console.warn('Failed to login to saved account', e);
+      warn('Failed to login to saved account', e);
       const targetProfile = accounts.find((a) => String(a.userId) === String(targetUserId));
       setExpiredAccountUsername(targetProfile?.username || null);
       
@@ -519,7 +638,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       await signOut();
     } else if (targetAccessToken) {
       // Fire-and-forget background logout to the backend for this inactive account
-      authService.logout(targetAccessToken).catch((e) => console.log("[Auth] Background logout for inactive account failed", e));
+      authService.logout(targetAccessToken).catch((e) => log("[Auth] Background logout for inactive account failed", e));
     }
   };
 
@@ -527,7 +646,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const goToAddAccount = async () => {
     if (user?.id) {
       await storeCurrentAccountTokens(user.id);
-      socketClient.disconnect();
+      accountSocket.disconnect();
     }
     await SecureStore.deleteItemAsync('accessToken');
     await SecureStore.deleteItemAsync('refreshToken');

@@ -15,6 +15,7 @@ import { colors, fontSizes, radii, spacing } from "../../theme";
 import { hashtagService } from "../../services/hashtag.service";
 import { userService } from "../../services/user.service";
 import { communityService } from "../../services/community.service";
+import { error } from '../../utils/logger';
 
 interface SmartInputProps {
   value: string;
@@ -103,21 +104,21 @@ const SmartInput = React.forwardRef<any, SmartInputProps>(function SmartInput(
           .then((res) => {
             if (res?.data) setDynamicTags(res.data);
           })
-          .catch((e) => console.error("Failed to fetch hashtags", e));
+          .catch((e) => error("Failed to fetch hashtags", e));
       } else if (activeTrigger === "@") {
         userService
           .searchUsers(activeMentionQuery)
           .then((res) => {
             if (res?.data) setDynamicUsers(res.data);
           })
-          .catch((e) => console.error("Failed to fetch users", e));
+          .catch((e) => error("Failed to fetch users", e));
       } else if (activeTrigger === "c/") {
         communityService
           .getCommunities(1, 10, activeCommunityQuery)
           .then((res) => {
             if (res?.data) setDynamicCommunities(res.data);
           })
-          .catch((e) => console.error("Failed to fetch communities", e));
+          .catch((e) => error("Failed to fetch communities", e));
       }
     }, 200);
 

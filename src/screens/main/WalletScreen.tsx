@@ -35,11 +35,13 @@ import { authService } from "../../services/auth.service";
 import * as LocalAuthentication from "../../utils/localAuth";
 import { getReferralRewards } from "../../services/appConfig.service";
 import * as Clipboard from "expo-clipboard";
+import * as ScreenCapture from 'expo-screen-capture';
 import * as SecureStore from "expo-secure-store";
 import { themedAlert } from "../../components/common/ThemedAlert";
 import RemovePinModal from "../../components/common/RemovePinModal";
 import { nativeBypass } from "../../utils/nativeBypass";
 import type { Transaction } from "../../types";
+import { log, warn } from '../../utils/logger';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -116,6 +118,15 @@ export default function WalletScreen() {
   const styles = useMemo(() => makeStyles(colors), [colors]);
   const [refreshing, setRefreshing] = useState(false);
 
+  // ── Screenshot protection ────────────────────────────────────────────
+  // Prevent screen capture on the Wallet screen to protect financial data.
+  useEffect(() => {
+    ScreenCapture.preventScreenCaptureAsync();
+    return () => {
+      ScreenCapture.allowScreenCaptureAsync();
+    };
+  }, []);
+
   const [txnFilter, setTxnFilter] = useState<TxnFilter>("All");
   const [activeModal, setActiveModal] = useState<ActiveModal>("none");
   const [handoffUrl, setHandoffUrl] = useState<string | null>(null);
@@ -160,14 +171,14 @@ export default function WalletScreen() {
     React.useCallback(() => {
       fetchWalletData();
       const walletLockOn = user?.walletLockEnabled ?? false;
-      if (walletLockOn && !(user?.globalLockEnabled || user?.appLockEnabled)) {
+      if (walletLockOn && !(user?.globalAccountLockEnabled)) {
         setWalletUnlocked(false);
         setUnlockError("");
       }
     }, [
       user?.walletLockEnabled,
-      user?.globalLockEnabled,
-      user?.appLockEnabled,
+      user?.globalAccountLockEnabled,
+      user?.globalAccountLockEnabled,
       fetchWalletData,
     ]),
   );
@@ -276,7 +287,7 @@ export default function WalletScreen() {
   // ── Wallet Lock Check ──
   // Wallet lock is now DB-backed (users.wallet_lock_enabled). Falls back to SecureStore for legacy installs.
   const walletLockOn = user?.walletLockEnabled ?? false;
-  const isWalletLocked = walletLockOn && !(user?.globalLockEnabled || user?.appLockEnabled) && !walletUnlocked;
+  const isWalletLocked = walletLockOn && !(user?.globalAccountLockEnabled) && !walletUnlocked;
 
   const handleWalletUnlock = async (pin: string) => {
     try {
@@ -326,7 +337,7 @@ export default function WalletScreen() {
         }
       }
     } catch (e) {
-      console.log("Biometric error", e);
+      log("Biometric error", e);
     } finally {
       setIsUnlocking(false);
     }
@@ -793,13 +804,13 @@ export default function WalletScreen() {
             const url = await withdraw(amount);
             if (url) setHandoffUrl(url);
           } catch (e) {
-            console.log(e);
+            log(e);
           }
         }}
         onLinkUPI={() => openModal("linkUPI")}
         onClose={closeModal}
         pinEnabled={user?.walletLockEnabled ?? false}
-        globalLock={user?.globalLockEnabled || user?.appLockEnabled || false}
+        globalAccountLock={user?.globalAccountLockEnabled }
       />
       <LinkUPIModal
         visible={activeModal === "linkUPI"}
@@ -899,6 +910,8 @@ export default function WalletScreen() {
             <WebView
               source={{ uri: handoffUrl }}
               style={{ flex: 1 }}
+              allowUniversalAccessFromFileURLs={false}
+              allowFileAccess={false}
               onNavigationStateChange={(state) => {
                 // If it hits a success/failure URL, close it
                 if (
@@ -950,7 +963,9 @@ export default function WalletScreen() {
             <WebView
               source={{ html: payuHtml }}
               style={{ flex: 1 }}
-              originWhitelist={["*"]}
+              originWhitelist={["https://payu.in", "https://secure.payu.in", "https://taddlebox.com"]}
+              allowUniversalAccessFromFileURLs={false}
+              allowFileAccess={false}
               // PayU's checkout needs DOM storage + third-party cookies (OTP
               // screens, saved cards). Without these the page can render blank.
               javaScriptEnabled
@@ -970,7 +985,7 @@ export default function WalletScreen() {
                 />
               )}
               onError={(syntheticEvent) => {
-                console.warn("PayU WebView error", syntheticEvent.nativeEvent);
+                warn("PayU WebView error", syntheticEvent.nativeEvent);
                 Alert.alert(
                   "Checkout Error",
                   "Could not load the payment page. Please try again.",
@@ -1002,7 +1017,7 @@ export default function WalletScreen() {
                     );
                   }
                 } catch (e) {
-                  console.warn("PayU bridge message parse failed", e);
+                  warn("PayU bridge message parse failed", e);
                 }
               }}
             />
@@ -1080,7 +1095,7 @@ const WithdrawModal = React.memo(function WithdrawModal({
   onLinkUPI,
   onClose,
   pinEnabled,
-  globalLock,
+  globalAccountLock,
 }: {
   visible: boolean;
   cashBalance: number;
@@ -1089,7 +1104,7 @@ const WithdrawModal = React.memo(function WithdrawModal({
   onLinkUPI: () => void;
   onClose: () => void;
   pinEnabled?: boolean;
-  globalLock?: boolean;
+  globalAccountLock?: boolean;
 }) {
   const insets = useSafeAreaInsets();
   const colors = useThemeColors();
@@ -1126,7 +1141,7 @@ const WithdrawModal = React.memo(function WithdrawModal({
       return;
     }
 
-    if (pinEnabled || globalLock) {
+    if (pinEnabled || globalAccountLock) {
       setVerifyingPin(true);
       checkBiometric();
     } else {
@@ -1141,7 +1156,7 @@ const WithdrawModal = React.memo(function WithdrawModal({
   };
 
   const checkBiometric = async () => {
-    const key = globalLock ? "app_biometricEnabled" : "wallet_biometricEnabled";
+    const key = globalAccountLock ? "app_biometricEnabled" : "wallet_biometricEnabled";
     const enabled = await SecureStore.getItemAsync(key);
     if (enabled === "true") {
       const hasHardware = await LocalAuthentication.hasHardwareAsync();
@@ -1165,7 +1180,7 @@ const WithdrawModal = React.memo(function WithdrawModal({
         executeWithdraw();
       }
     } catch (e) {
-      console.log("Biometric error", e);
+      log("Biometric error", e);
     } finally {
       setIsVerifying(false);
     }
@@ -2428,7 +2443,7 @@ function SettingsModal({
   const colors = useThemeColors();
   const styles = useMemo(() => makeStyles(colors), [colors]);
   const { user, refreshUser } = useAuth();
-  const globalLock = user?.globalLockEnabled || user?.appLockEnabled;
+  const globalAccountLock = user?.globalAccountLockEnabled;
 
   const [setupPinVisible, setSetupPinVisible] = useState(false);
   const [setupPinStep, setSetupPinStep] = useState<"enter" | "confirm">("enter");
@@ -2456,18 +2471,18 @@ function SettingsModal({
     }
   }, [visible]);
 
-  const isGlobalBiometricLock = globalLock && appBiometric;
+  const isGlobalAccountBiometricLock = globalAccountLock && appBiometric;
 
   const handleToggle = async (key: any) => {
-    if (key === "pinEnabled" && !wallet.pinEnabled && !globalLock) {
-      // Trying to enable PIN when it's off and global lock isn't on.
+    if (key === "pinEnabled" && !wallet.pinEnabled && !globalAccountLock) {
+      // Trying to enable PIN when it is off and global account lock is not on.
       // We should prompt them to setup a PIN if they don't have one globally!
       setSetupPinVisible(true);
     } else if (
       key === "biometricEnabled" &&
       !wallet.biometricEnabled &&
       !wallet.pinEnabled &&
-      !globalLock
+      !globalAccountLock
     ) {
       // Biometric can only be enabled if PIN is set first.
       // Bypass iOS Modal freezes by skipping the alert and going straight to setup!
@@ -2733,17 +2748,17 @@ function SettingsModal({
                 icon="shield-checkmark-outline"
                 label="PIN Protection"
                 desc={
-                  globalLock
-                    ? "Enabled by Global App Lock"
+                  globalAccountLock
+                    ? "Enabled by Global Account Lock"
                     : "Require PIN for withdrawals"
                 }
                 settingKey="pinEnabled"
-                value={globalLock ? true : wallet.pinEnabled}
-                disabled={globalLock}
+                value={globalAccountLock ? true : wallet.pinEnabled}
+                disabled={globalAccountLock}
                 onDisabledPress={() =>
                   Alert.alert(
-                    "Global Lock Active",
-                    "Wallet PIN is automatically enabled because you have Global App Lock turned on in your main Settings.",
+                    "Global Account Lock Active",
+                    "Wallet PIN is automatically enabled because you have Global Account Lock turned on in your main Settings.",
                   )
                 }
                 onToggle={handleToggle}
@@ -2757,17 +2772,17 @@ function SettingsModal({
                   icon="finger-print-outline"
                   label="Biometric Auth"
                   desc={
-                    isGlobalBiometricLock
-                      ? "Enabled by Global App Lock"
+                    isGlobalAccountBiometricLock
+                      ? "Enabled by Global Account Lock"
                       : "Use fingerprint or face ID"
                   }
                   settingKey="biometricEnabled"
-                  value={isGlobalBiometricLock ? true : wallet.biometricEnabled}
-                  disabled={isGlobalBiometricLock}
+                  value={isGlobalAccountBiometricLock ? true : wallet.biometricEnabled}
+                  disabled={isGlobalAccountBiometricLock}
                   onDisabledPress={() =>
                     Alert.alert(
-                      "Global Lock Active",
-                      "Wallet Biometrics are automatically enabled because you have Biometric App Lock turned on in your main Settings.",
+                      "Global Account Lock Active",
+                      "Wallet Biometrics are automatically enabled because you have Biometric Global Account Lock turned on in your main Settings.",
                     )
                   }
                   onToggle={handleToggle}
@@ -2778,7 +2793,7 @@ function SettingsModal({
             </View>
             
             <Text style={{ fontSize: 12, color: colors.text.muted, marginHorizontal: 24, marginTop: 12, marginBottom: 16, lineHeight: 18 }}>
-              Note: Both PIN and Biometric wallet settings are overridden and controlled by the Global App Lock when it is enabled.
+              Note: Both PIN and Biometric wallet settings are overridden and controlled by the Global Account Lock when it is enabled.
             </Text>
 
             {/* Notifications */}

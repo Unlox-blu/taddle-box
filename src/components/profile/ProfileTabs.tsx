@@ -6,6 +6,7 @@ import { fontSizes, spacing } from '../../theme';
 import { postsService } from '../../services/posts.service';
 import SharedFeed from '../common/SharedFeed';
 import type { Post } from '../../types';
+import { warn } from '../../utils/logger';
 
 type Tab = 'posts' | 'media' | 'saved' | 'games';
 
@@ -32,7 +33,7 @@ export default function ProfileTabs({ userId }: ProfileTabsProps) {
           setPosts(postsRes.data);
         }
       } catch (e) {
-        console.warn('Failed to load user posts', e);
+        warn('Failed to load user posts', e);
       } finally {
         if (active) setLoading(false);
       }
@@ -73,6 +74,9 @@ export default function ProfileTabs({ userId }: ProfileTabsProps) {
             setPosts={setPosts}
             scrollEnabled={false}
             contentContainerStyle={{ gap: 12, paddingHorizontal: spacing.lg }}
+            feedPosts={posts}
+            feedContext="profile"
+            feedContextId={userId}
           />
         )
       ) : tab === 'media' ? (
@@ -84,7 +88,12 @@ export default function ProfileTabs({ userId }: ProfileTabsProps) {
           ) : (
             posts.filter(p => !!p.mediaUri).map(post => {
               return (
-                <TouchableOpacity key={post.id} style={{ width: '33.33%', padding: 2, aspectRatio: 1 }} onPress={() => navigation.push('PostDetail', { post })}>
+                <TouchableOpacity key={post.id} style={{ width: '33.33%', padding: 2, aspectRatio: 1 }} onPress={() => navigation.push('PostDetail', {
+                  post,
+                  feedPosts: posts.filter(p => !!p.mediaUri),
+                  feedContext: 'profile',
+                  feedContextId: userId,
+                })}>
                   <Image source={{ uri: post.mediaUri }} style={{ width: '100%', height: '100%', borderRadius: 4, backgroundColor: colors.bg.elevated }} />
                 </TouchableOpacity>
               );

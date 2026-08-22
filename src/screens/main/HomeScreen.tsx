@@ -46,6 +46,7 @@ import { walletService } from "../../services/wallet.service";
 
 import { cycleInfo, isSameDay } from "../../utils/streak";
 import { themedAlert } from "../../components/common/ThemedAlert";
+import { error } from '../../utils/logger';
 
 type HomeNavProp = NativeStackNavigationProp<HomeStackParamList, "HomeMain">;
 
@@ -154,7 +155,7 @@ export default function HomeScreen() {
       await postsService.deletePost(post.id);
       refetchFeed();
     } catch (e) {
-      console.error("Failed to delete post:", e);
+      error("Failed to delete post:", e);
     }
   };
 
@@ -275,9 +276,9 @@ export default function HomeScreen() {
             setTrendChips(["All", ...tags]);
           }
         })
-        .catch((e) => console.error("Failed to fetch hashtags for feed", e));
+        .catch((e) => error("Failed to fetch hashtags for feed", e));
     } catch (e) {
-      console.error("Failed to init home data:", e);
+      error("Failed to init home data:", e);
     }
   };
 
@@ -395,7 +396,7 @@ export default function HomeScreen() {
           });
         });
       } catch (e) {
-        console.error("Failed to claim daily reward", e);
+        error("Failed to claim daily reward", e);
         setHasDailyReward(false);
       }
     },
@@ -449,14 +450,14 @@ export default function HomeScreen() {
           toggleLike({
             id,
             isCurrentlyLiked:
-              posts.find((p: any) => p.id === id)?.isLiked || false,
+              posts.find((p: any) => p.id === id)?.isLiked ,
           })
         }
         onSave={(id) =>
           toggleSave({
             id,
             isCurrentlySaved:
-              posts.find((p: any) => p.id === id)?.isSaved || false,
+              posts.find((p: any) => p.id === id)?.isSaved ,
           })
         }
         onDelete={handleDeletePost}
@@ -552,7 +553,7 @@ export default function HomeScreen() {
                       },
                     ]}
                     onPress={() => {
-                      if (CURRENT_USER?.globalLockEnabled || CURRENT_USER?.appLockEnabled) {
+                      if (CURRENT_USER?.globalAccountLockEnabled) {
                         navigation.navigate("LockScreen", {
                           mode: "app",
                           returnScreen: "Wallet",

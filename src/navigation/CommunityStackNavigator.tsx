@@ -7,6 +7,8 @@ import CommunitySettingsScreen from '../screens/main/CommunitySettingsScreen';
 import ManageRequestsScreen from '../screens/main/ManageRequestsScreen';
 import CommunityModerationLogScreen from '../screens/main/CommunityModerationLogScreen';
 
+const ChatScreen = React.lazy(() => import('../screens/main/ChatScreen'));
+
 const Stack = createNativeStackNavigator<CommunityStackParamList>();
 
 export default function CommunityStackNavigator() {
@@ -17,6 +19,11 @@ export default function CommunityStackNavigator() {
       <Stack.Screen name="CommunitySettings" component={CommunitySettingsScreen} />
       <Stack.Screen name="ManageRequests" component={ManageRequestsScreen} />
       <Stack.Screen name="ModerationLog" component={CommunityModerationLogScreen} />
+      <Stack.Screen 
+        name="Chat" 
+        component={ChatScreen} 
+        options={{ animation: 'slide_from_right' }} 
+      />
     </Stack.Navigator>
   );
 }

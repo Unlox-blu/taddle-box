@@ -13,6 +13,7 @@ import { useEvent } from "expo";
 import { Ionicons } from "@expo/vector-icons";
 import { Image } from "expo-image";
 import { fontSizes, spacing, type ColorPalette } from "../../../theme";
+import { log } from '../../../utils/logger';
 
 // ── Video player count tracker (debug instrumentation) ─────────────────────
 // Temporary: logs active/preloaded player count to help verify ≤2 players.
@@ -20,7 +21,7 @@ let _activePlayerCount = 0;
 let _preloadPlayerCount = 0;
 const _playerLog = (label: string, url: string) => {
   if (__DEV__) {
-    console.log(
+    log(
       `[VideoPlayer] ${label} | active=${_activePlayerCount} preload=${_preloadPlayerCount} total=${_activePlayerCount + _preloadPlayerCount} | ${url?.slice(0, 60) ?? "(no url)"}`,
     );
   }

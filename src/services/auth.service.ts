@@ -64,7 +64,7 @@ export const authService = {
     return response.data;
   },
 
-  toggleGlobalLock: async (pin: string, isEnabled: boolean) => {
+  toggleGlobalAccountLock: async (pin: string, isEnabled: boolean) => {
     const response = await apiClient.post('/users/pin/toggle-global', { pin, isEnabled });
     return response.data;
   },

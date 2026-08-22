@@ -39,10 +39,11 @@ import { activeStatusIndicator } from "../../context/ActiveStatusContext";
 import CommentsModal from "../home/CommentsModal";
 import ActiveStatusDot from "../common/ActiveStatusDot";
 import { notificationService } from "../../services/notification.service";
-import { socketClient } from "../../services/socketClient";
+import { accountSocket } from "../../services/accountSocketClient";
 import type { XPUpdatedPayload } from "../../types";
 import { themedAlert } from "../common/ThemedAlert";
 import BioText, { normalizeUrl } from "../common/BioText";
+import { log, warn } from '../../utils/logger';
 
 const { width } = Dimensions.get("window");
 
@@ -588,7 +589,7 @@ export default function SharedProfile({
             await postsService.deletePost(post.id);
             setPosts((prev) => prev.filter((p: any) => p.id !== post.id));
           } catch (e) {
-            console.warn("Failed to delete post", e);
+            warn("Failed to delete post", e);
           }
         },
       },
@@ -692,7 +693,7 @@ export default function SharedProfile({
         }
       }
     } catch (e) {
-      console.warn("Failed to load profile", e);
+      warn("Failed to load profile", e);
     } finally {
       setLoadingProfile(false);
     }
@@ -727,7 +728,7 @@ export default function SharedProfile({
         setPosts(postsRes.data);
       }
     } catch (e) {
-      console.warn("Failed to load user posts", e);
+      warn("Failed to load user posts", e);
     } finally {
       if (postsReqRef.current === reqId) setLoadingPosts(false);
     }
@@ -763,7 +764,7 @@ export default function SharedProfile({
         );
         setMentionPage(page);
       } catch (e) {
-        console.warn("Failed to load mentions", e);
+        warn("Failed to load mentions", e);
       } finally {
         if (mentionsReqRef.current === reqId) setLoadingMentions(false);
       }
@@ -825,8 +826,8 @@ export default function SharedProfile({
         };
       });
     };
-    socketClient.events.on("xp:updated", handleXPUpdated);
-    return () => socketClient.events.off("xp:updated", handleXPUpdated);
+    accountSocket.events.on("xp:updated", handleXPUpdated);
+    return () => accountSocket.events.off("xp:updated", handleXPUpdated);
   }, [isOwnProfile]);
 
   // Re-entering the Mentions tab remounts its FlatList — restore the offset
@@ -918,7 +919,7 @@ export default function SharedProfile({
         }
       }
     } catch (e) {
-      console.warn("Failed to toggle follow", e);
+      warn("Failed to toggle follow", e);
     }
   };
 
@@ -930,7 +931,7 @@ export default function SharedProfile({
       await postsService.toggleBookmark('profile', user.id);
     } catch (e) {
       setIsBookmarked(previous);
-      console.warn("Failed to toggle bookmark", e);
+      warn("Failed to toggle bookmark", e);
     }
   };
 
@@ -951,7 +952,7 @@ export default function SharedProfile({
         if (postsRes?.data) setPosts(postsRes.data);
       }
     } catch (e) {
-      console.warn("Failed to refresh profile", e);
+      warn("Failed to refresh profile", e);
     } finally {
       setRefreshing(false);
     }
@@ -1417,12 +1418,22 @@ export default function SharedProfile({
         )}
 
         {!isOwnProfile && (
-          <TouchableOpacity
-            style={styles.shareBtn}
-            onPress={handleBookmarkToggle}
-          >
-            <Ionicons name={isBookmarked ? "bookmark" : "bookmark-outline"} size={18} color={isBookmarked ? colors.primary : colors.text.secondary} />
-          </TouchableOpacity>
+          <>
+            {followed && (
+              <TouchableOpacity
+                style={styles.shareBtn}
+                onPress={() => navigation.push("Chat", { conversationId: user?.id, otherUserId: user?.id, otherUser: user } as never)}
+              >
+                <Ionicons name="chatbubbles-outline" size={18} color={colors.text.primary} />
+              </TouchableOpacity>
+            )}
+            <TouchableOpacity
+              style={styles.shareBtn}
+              onPress={handleBookmarkToggle}
+            >
+              <Ionicons name={isBookmarked ? "bookmark" : "bookmark-outline"} size={18} color={isBookmarked ? colors.primary : colors.text.secondary} />
+            </TouchableOpacity>
+          </>
         )}
 
         <TouchableOpacity
@@ -1927,7 +1938,7 @@ function FollowListModal({
         );
         setPage(nextPage);
       } catch (e) {
-        console.warn("Failed to load user list", e);
+        warn("Failed to load user list", e);
       } finally {
         setLoading(false);
         setRefreshing(false);
@@ -1952,7 +1963,7 @@ function FollowListModal({
       await userService.unfollowUser(targetUsername);
       setUsers((prev) => prev.filter((u) => u.username !== targetUsername));
     } catch (e) {
-      console.log("Failed to unfollow", e);
+      log("Failed to unfollow", e);
     }
   };
 
@@ -1964,7 +1975,7 @@ function FollowListModal({
       setUsers((prev) => prev.filter((u) => u.username !== targetUsername));
       onFollowerRemoved?.();
     } catch (e) {
-      console.warn("Failed to remove follower", e);
+      warn("Failed to remove follower", e);
       themedAlert("Error", "Failed to remove follower. Please try again.");
     }
   };

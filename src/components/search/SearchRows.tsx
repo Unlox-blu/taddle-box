@@ -31,6 +31,7 @@ export type RowCtx = {
   reportPost: () => void;
   refresh: () => void;
   openPost: (post: any) => void;
+  openComments: (post: any) => void;
   openUser: (user: any) => void;
   openCommunity: (slug: string) => void;
   openGames: () => void;
@@ -41,86 +42,46 @@ export type RowCtx = {
   /** Reports this candidate's position in scroll-content space so the
    *  gaze-zone tracker can compute the closest-to-centre post. */
   trackLayout?: (id: string, rect: { top: number; bottom: number }) => void;
+  /** The next video post that should have its player preloaded. */
+  preloadPostId?: string | null;
+  /** Adjacent posts for swipe-next in detail view. */
+  feedPosts?: any[];
+  feedContext?: 'feed' | 'profile' | 'bookmarks' | 'community' | 'search';
+  feedContextId?: string;
 };
 
-// Search returns raw snake_case columns — normalize them into the camelCase
-// Post shape the PostCard renderer expects.
+// Maps backend snake_case columns to the Post type PostCard expects.
+// Backend returns nested author/community objects and enriched media —
+// no aliases, no fallbacks, no rebuilding nested objects here.
 const normalizePostResult = (item: any): Post => {
-  const author = item.author || {
-    id: item.authorId || item.author_id || "",
-    name: item.authorName || item.author_name || "Unknown User",
-    username: item.authorUsername || item.author_username || "unknown",
-    handle: item.authorUsername || item.author_username || "unknown",
-    avatarUrl:
-      item.user_avatar ||
-      item.author_avatar ||
-      item.authorAvatar ||
-      item.avatar ||
-      item.avatarUrl ||
-      item.avatar_url,
-    avatar:
-      item.user_avatar ||
-      item.author_avatar ||
-      item.authorAvatar ||
-      item.avatar ||
-      item.avatarUrl ||
-      item.avatar_url ||
-      "",
-    level: 1,
-    xp: 0,
-    xpToNext: 100,
-  };
-
   return {
     ...item,
-    author,
-    // Search returns the raw snake_case column — carry it as the camelCase
-    // key PostCard checks so the embedded original preview renders for reposts.
-    repostOfId: item.repostOfId ?? item.repost_of_id ?? null,
-    // Search returns the community as flat columns (community_name, slug, …) —
-    // rebuild the nested object PostCard renders as the "• c/name" badge on
-    // community posts.
-    community:
-      item.community ||
-      (item.community_id
-        ? {
-            id: item.community_id,
-            name: item.community_name || item.communityName,
-            slug: item.community_slug || item.communitySlug,
-            privacy: item.community_privacy,
-            avatarUrl: item.community_avatar,
-          }
-        : undefined),
-    // Search returns raw latitude/longitude/place columns — rebuild the
-    // nested location object PostCard's rolling text reads.
+    content: item.content || item.text || item.body || "",
+    author: item.author || {},
+    community: item.community || undefined,
+    repostOfId: item.repost_of_id ?? item.repostOfId ?? null,
     location:
       item.location ||
       (item.latitude != null && item.longitude != null
-        ? {
-            lat: Number(item.latitude),
-            lon: Number(item.longitude),
-            place: item.place || "",
-          }
+        ? { lat: Number(item.latitude), lon: Number(item.longitude), place: item.place || "" }
         : null),
     media: item.media || [],
     hashtags: item.hashtags || item.tags || [],
-    likes: item.likes ?? item.likesCount ?? item.likes_count ?? 0,
-    comments: item.comments ?? item.commentsCount ?? item.comments_count ?? 0,
-    shares: item.shares ?? item.sharesCount ?? item.shares_count ?? 0,
-    // Backend returns is_liked / is_bookmarked / is_reposted (snake_case) —
-    // accept all spellings so search results render the heart + bookmark +
-    // filled repeat icon (with the tick) correctly.
-    isLiked: !!(item.isLiked ?? item.is_liked),
-    isSaved: !!(
-      item.isSaved ??
-      item.is_saved ??
-      item.isBookmarked ??
-      item.is_bookmarked
-    ),
-    repostedByMe: !!(item.repostedByMe ?? item.is_reposted),
-    createdAt: item.createdAt || item.created_at,
-    publishedAt: item.publishedAt || item.published_at,
-    type: item.type || (item.media?.length ? "image" : "text"),
+    likes: item.likes_count ?? item.likesCount ?? item.likes ?? 0,
+    comments: item.comments_count ?? item.commentsCount ?? item.comments ?? 0,
+    shares: item.shares_count ?? item.sharesCount ?? item.shares ?? 0,
+    views: item.views_count ?? item.viewsCount ?? item.views ?? 0,
+    isLiked: !!item.is_liked || !!item.isLiked,
+    isSaved: !!item.is_bookmarked || !!item.isSaved || !!item.is_saved,
+    isXpClaimed: !!item.is_xp_claimed || !!(item as any).isXpClaimed,
+    isPinned: !!item.is_pinned || !!(item as any).isPinned,
+    repostedByMe: !!item.is_reposted || !!item.repostedByMe,
+    createdAt: item.created_at || item.createdAt || item.published_at || item.publishedAt,
+    publishedAt: item.published_at || item.publishedAt,
+    pollData: item.poll_data || item.pollData || null,
+    linkData: item.link_data || item.linkData || null,
+    myPollVote: item.my_poll_vote ?? item.myPollVote ?? null,
+    type: item.type || item.itemType || item.item_type || (item.media?.length ? "image" : "text"),
   } as Post;
 };
 
@@ -143,9 +104,6 @@ const timeAgo = (input?: string | number | null): string => {
 
 const PostRow = ({ data, ctx }: RowProps) => {
   const post = normalizePostResult(data);
-  // Patch the row in local state so the icon flips instantly and stays
-  // consistent across re-renders (search results aren't react-query cached,
-  // so the useToggleSave/useToggleLike cache updates miss them).
   const { styles } = ctx;
   return (
     <View
@@ -158,15 +116,15 @@ const PostRow = ({ data, ctx }: RowProps) => {
         post={post}
         isActive={ctx.isFocused && post.id === ctx.activePostId}
         onLike={() => {
-          ctx.toggleLike(post.id, post.isLiked || false);
+          ctx.toggleLike(post.id, post.isLiked );
           ctx.patchPost(post.id, { isLiked: !post.isLiked });
         }}
         onSave={() => {
-          ctx.toggleSave(post.id, post.isSaved || false);
+          ctx.toggleSave(post.id, post.isSaved ?? false);
           ctx.patchPost(post.id, { isSaved: !post.isSaved });
         }}
-        onComment={(p: any) => ctx.openPost(p ?? post)}
-        onShare={() => ctx.sharePost(post)}
+        onComment={(p: any) => ctx.openComments(p ?? post)}
+        onShare={(p: any) => ctx.sharePost(p ?? post)}
         onAuthorPress={() => ctx.openUser(post.author)}
         onReport={() => ctx.reportPost()}
         showDelete={
@@ -174,6 +132,10 @@ const PostRow = ({ data, ctx }: RowProps) => {
           ctx.currentUserId === (post as any)?.author?.id
         }
         onReposted={() => ctx.refresh()}
+        preloadVideo={post.id === ctx.preloadPostId}
+        feedPosts={ctx.feedPosts}
+        feedContext={ctx.feedContext}
+        feedContextId={ctx.feedContextId}
       />
     </View>
   );

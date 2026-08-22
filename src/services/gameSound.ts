@@ -17,6 +17,7 @@ import * as Haptics from "expo-haptics";
 import * as SecureStore from "expo-secure-store";
 import { useEffect, useRef, useState } from "react";
 import { GAME_SOUND_NAMES } from "../games/assets";
+import { warn } from '../utils/logger';
 import { getCachedSoundUri } from "../games/gameAssets";
 
 export type SoundName = (typeof GAME_SOUND_NAMES)[number];
@@ -76,7 +77,7 @@ export async function initGameSound(): Promise<void> {
       }),
     );
   } catch (e) {
-    console.warn("[gameSound] init failed", e);
+    warn("[gameSound] init failed", e);
   } finally {
     building = false;
   }

@@ -31,7 +31,7 @@ import Svg, {
   Path,
 } from "react-native-svg";
 import type { HtmlGameResult } from "../../games/types";
-import { createGameEngineSocket } from "../../services/socketClient";
+import { createGameEngineSocket } from "../../services/accountSocketClient";
 import { gameSound, useTurnSound } from "../../services/gameSound";
 
 // Backstop hold for remote rolls: the tumble (~1.2s) clears the rolling state

@@ -1,6 +1,7 @@
 import React, { createContext, useContext, useReducer, useCallback, useMemo } from 'react';
 import type { Community } from '../types';
 import { communityService } from '../services/community.service';
+import { error } from '../utils/logger';
 
 // ─── State & Actions ─────────────────────────────────────────────
 
@@ -105,7 +106,7 @@ export function CommunityProvider({ children }: { children: React.ReactNode }) {
         dispatch({ type: 'APPEND_COMMUNITIES', communities: newCommunities, page: nextPage, hasMore });
       }
     } catch (e) {
-      console.error('Failed to fetch communities:', e);
+      error('Failed to fetch communities:', e);
       dispatch({ type: 'SET_LOADING', isLoading: false });
     }
   }, [state.isLoading, state.hasMore, state.page]);
@@ -129,7 +130,7 @@ export function CommunityProvider({ children }: { children: React.ReactNode }) {
         await communityService.leaveCommunity(id);
       } catch (e) {
         dispatch({ type: 'SET_PENDING', id });
-        console.error('Failed to cancel join request:', e);
+        error('Failed to cancel join request:', e);
       }
     } else if (community.isJoined) {
       dispatch({ type: 'TOGGLE_JOIN', id });
@@ -137,7 +138,7 @@ export function CommunityProvider({ children }: { children: React.ReactNode }) {
         await communityService.leaveCommunity(id);
       } catch (e) {
         dispatch({ type: 'TOGGLE_JOIN', id });
-        console.error('Failed to leave community:', e);
+        error('Failed to leave community:', e);
       }
     } else if (isPrivate) {
       dispatch({ type: 'SET_PENDING', id });
@@ -145,7 +146,7 @@ export function CommunityProvider({ children }: { children: React.ReactNode }) {
         await communityService.joinCommunity(id);
       } catch (e) {
         dispatch({ type: 'CLEAR_PENDING', id });
-        console.error('Failed to request community join:', e);
+        error('Failed to request community join:', e);
       }
     } else {
       dispatch({ type: 'TOGGLE_JOIN', id });
@@ -153,7 +154,7 @@ export function CommunityProvider({ children }: { children: React.ReactNode }) {
         await communityService.joinCommunity(id);
       } catch (e) {
         dispatch({ type: 'TOGGLE_JOIN', id });
-        console.error('Failed to join community:', e);
+        error('Failed to join community:', e);
       }
     }
   };
@@ -171,7 +172,7 @@ export function CommunityProvider({ children }: { children: React.ReactNode }) {
           dispatch({ type: 'ADD_COMMUNITY', community: res.data });
         }
       } catch (e) {
-        console.error('Failed to create community:', e);
+        error('Failed to create community:', e);
         throw e;
       }
     },

@@ -104,7 +104,7 @@ function UsersModal({
       setUsers((prev) => (refresh ? rows : [...prev, ...rows]));
       setPage(nextPage);
     } catch (e) {
-      console.warn("Failed to load users", e);
+      warn("Failed to load users", e);
     } finally {
       setLoading(false);
       setRefreshing(false);
@@ -228,7 +228,7 @@ function UsersModal({
                               ),
                             );
                           } catch (e) {
-                            console.warn("Follow toggle failed", e);
+                            warn("Follow toggle failed", e);
                           }
                         }}
                       >
@@ -255,6 +255,7 @@ function UsersModal({
 
 import { Image } from "expo-image";
 import { useThemeColors } from "../../../context/ThemeContext";
+import { warn } from '../../../utils/logger';
 
 function PostActionsInner({
   post,
@@ -304,6 +305,9 @@ function PostActionsInner({
   const repostAudienceAnim = useRef(new Animated.Value(0)).current;
   const repostAudienceOpacity = useRef(new Animated.Value(0)).current;
   const repostAudienceTimer = useRef<any>(null);
+  // Long-press lit animation for the repost icon
+  const repostLitAnim = useRef(new Animated.Value(0)).current;
+  const repostLitScale = useRef(new Animated.Value(1)).current;
 
   const myCommunities = useMyCommunities(repostSheetVisible);
   const repostCommunities = myCommunities.filter(
@@ -390,7 +394,7 @@ function PostActionsInner({
       const msg =
         (e as any)?.response?.data?.message || "Failed to repost. Please try again.";
       themedAlert("Error", msg);
-      console.warn("Repost failed", e);
+      warn("Repost failed", e);
     } finally {
       setRepostBusy(false);
     }
@@ -402,6 +406,22 @@ function PostActionsInner({
     setAudienceExpanded(false);
     setRepostAudienceError(null);
     setRepostSheetVisible(true);
+  };
+
+  const handleRepostLongPress = () => {
+    // Brief "lit" flash animation then open the reposters list
+    Animated.sequence([
+      Animated.parallel([
+        Animated.timing(repostLitAnim, { toValue: 1, duration: 120, useNativeDriver: true }),
+        Animated.spring(repostLitScale, { toValue: 1.3, speed: 20, bounciness: 8, useNativeDriver: true }),
+      ]),
+      Animated.parallel([
+        Animated.timing(repostLitAnim, { toValue: 0, duration: 200, useNativeDriver: true }),
+        Animated.spring(repostLitScale, { toValue: 1, speed: 12, bounciness: 6, useNativeDriver: true }),
+      ]),
+    ]).start(() => {
+      setRepostersVisible(true);
+    });
   };
 
   const handleViewMyReposts = () => {
@@ -608,15 +628,19 @@ function PostActionsInner({
                 <TouchableOpacity
                   style={s.action}
                   onPress={handleRepostToggle}
+                  onLongPress={handleRepostLongPress}
+                  delayLongPress={300}
                   disabled={repostBusy}
                 >
                   {post.repostedByMe ? (
-                    <View style={{ flexDirection: "row", alignItems: "center", gap: 2 }}>
+                    <Animated.View style={{ flexDirection: "row", alignItems: "center", gap: 2, transform: [{ scale: repostLitScale }], opacity: Animated.add(1, repostLitAnim.interpolate({ inputRange: [0, 1], outputRange: [0, 0.5] })) }}>
                       <Ionicons name="repeat" size={19} color={colors.primaryLight} />
                       <Ionicons name="checkmark-circle" size={10} color={colors.success} style={{ marginLeft: -6, marginTop: -8 }} />
-                    </View>
+                    </Animated.View>
                   ) : (
-                    <Ionicons name="repeat-outline" size={19} color={colors.text.muted} />
+                    <Animated.View style={{ flexDirection: "row", alignItems: "center", transform: [{ scale: repostLitScale }], opacity: repostLitAnim.interpolate({ inputRange: [0, 1], outputRange: [1, 0.3] }) }}>
+                      <Ionicons name="repeat" size={19} color={colors.text.muted} />
+                    </Animated.View>
                   )}
                 </TouchableOpacity>
                 <TouchableOpacity style={s.action} onPress={() => setRepostersVisible(true)}>

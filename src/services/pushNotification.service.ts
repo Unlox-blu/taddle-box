@@ -4,6 +4,7 @@ import * as Notifications from "expo-notifications";
 import * as SecureStore from "expo-secure-store";
 import Constants from "expo-constants";
 import { apiClient } from "./apiClient";
+import { log, warn, info } from '../utils/logger';
 import * as Crypto from "expo-crypto";
 // Foreground notifications: we render our own in-app banner, so don't double up
 // with the OS alert. Background/killed deliveries still use the system tray.
@@ -59,8 +60,7 @@ async function ensureAndroidChannel() {
       vibrationPattern: [0, 250, 250, 250],
       lightColor: "#7C3AED",
     });
-  } catch (e) {
-    console.warn("Failed to create notification channel", e);
+  } catch (e) {      warn("Failed to create notification channel", e);
   }
 }
 
@@ -72,7 +72,7 @@ async function ensureAndroidChannel() {
 export async function registerForPushNotificationsAsync(): Promise<string | null> {
   try {
     if (!Device.isDevice) {
-      console.warn("Push tokens only work on physical devices");
+      warn("Push tokens only work on physical devices");
       return null;
     }
 
@@ -85,7 +85,7 @@ export async function registerForPushNotificationsAsync(): Promise<string | null
       finalStatus = status;
     }
     if (finalStatus !== "granted") {
-      console.warn("Push notification permission not granted:", finalStatus);
+      warn("Push notification permission not granted:", finalStatus);
       return null;
     }
 
@@ -110,12 +110,12 @@ export async function registerForPushNotificationsAsync(): Promise<string | null
           sessionId,
           platform: isAndroid ? "android" : "ios",
         })
-        .catch((e) => console.warn("Failed to register push token with backend", e));
+        .catch((e) => warn("Failed to register push token with backend", e));
     }
 
     return pushToken;
   } catch (e) {
-    console.warn("Push registration failed", e);
+    warn("Push registration failed", e);
     return null;
   }
 }
@@ -131,7 +131,7 @@ export function startTokenRefreshListener() {
   tokenRefreshSubscription = Notifications.addPushTokenListener(
     async (newToken) => {
       try {
-        console.info("[PushNotification] Token refreshed, re-registering with backend");
+        info("[PushNotification] Token refreshed, re-registering with backend");
         const deviceId = await getOrCreateDeviceId();
         const sessionId = await getOrCreateSessionId();
         await apiClient.post("/push-notification/register", {
@@ -142,7 +142,7 @@ export function startTokenRefreshListener() {
           platform: isAndroid ? "android" : "ios",
         });
       } catch (e) {
-        console.warn("Failed to re-register refreshed push token", e);
+        warn("Failed to re-register refreshed push token", e);
       }
     },
   );

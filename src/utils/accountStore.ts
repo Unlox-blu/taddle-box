@@ -114,8 +114,13 @@ export async function restoreAccountTokens(
   const sessionId = await SecureStore.getItemAsync(`${prefix}sessionId`);
 
   if (accessToken) await SecureStore.setItemAsync("accessToken", accessToken);
+  else await SecureStore.deleteItemAsync("accessToken");
+  
   if (refreshToken) await SecureStore.setItemAsync("refreshToken", refreshToken);
+  else await SecureStore.deleteItemAsync("refreshToken");
+  
   if (sessionId) await SecureStore.setItemAsync("sessionId", sessionId);
+  else await SecureStore.deleteItemAsync("sessionId");
 }
 
 /**

@@ -1,4 +1,5 @@
 import { apiClient } from './apiClient';
+import { warn } from '../utils/logger';
 
 export interface ReferralRewards {
   joinerXp: number;
@@ -40,7 +41,7 @@ export const getReferralRewards = (): Promise<ReferralRewards | null> => {
         return cachedRewards;
       })
       .catch((err) => {
-        console.warn('Failed to fetch referral rewards', err);
+        warn('Failed to fetch referral rewards', err);
         return null;
       })
       .finally(() => {

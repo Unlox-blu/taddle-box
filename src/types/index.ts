@@ -8,6 +8,14 @@ export type PostDetailParams = {
   post: Post;
   /** Deep-link straight to this comment (mention/reply notifications). */
   commentId?: string;
+  /** Reel mode: flat list of posts seeded by the caller to enable swipe-next.
+   *  The reel starts at the index of `post` within this array. */
+  feedPosts?: Post[];
+  /** Which context opened the reel — used to fetch more posts when feedPosts
+   *  runs out or was not provided by the caller. */
+  feedContext?: 'feed' | 'profile' | 'bookmarks' | 'community' | 'search';
+  /** Scoped id for profile / community contexts (userId or communitySlug). */
+  feedContextId?: string;
 };
 
 export type UserProfileParams = {
@@ -37,6 +45,8 @@ export type HomeStackParamList = {
   ChangeEmail:    undefined;
   FollowRequests: undefined;
   Search:         { query?: string; tab?: 'all' | 'posts' | 'people' | 'communities' | 'events' | 'games' | 'hashtags'; scopeCommunity?: string; authorFilter?: string; source?: 'bookmarks' | 'settings' | 'notifications' | 'wallet'; type?: string } | undefined;
+  ChatInbox:      undefined;
+  Chat:           { conversationId: string; otherUserId?: string; otherUser?: any; isCommunityChat?: boolean; communityName?: string; communityAvatar?: string };
 };
 
 export type CommunityStackParamList = {
@@ -45,6 +55,7 @@ export type CommunityStackParamList = {
   CommunitySettings: { communitySlug: string };
   ManageRequests: { communityId: string };
   ModerationLog: { communityId: string };
+  Chat: { conversationId: string; otherUserId?: string; otherUser?: any; isCommunityChat?: boolean; communityName?: string; communityAvatar?: string };
 };
 
 export type AuthStackParamList = {
@@ -115,13 +126,11 @@ export interface User {
   /** Profile lock PIN hash (bcrypt) — only present for own profile */
   lockPin?: string;
   /** Whether the global profile lock is enabled */
-  globalLockEnabled?: boolean;
+  globalAccountLockEnabled?: boolean;
   /** Whether the wallet-specific lock is enabled */
   walletLockEnabled?: boolean;
   /** @deprecated use lockPin */
   appLock?: string;
-  /** @deprecated use globalLockEnabled */
-  appLockEnabled?: boolean;
 }
 
 export interface Post {
@@ -129,9 +138,23 @@ export interface Post {
   author: User;
   community: string;
   content: string;
-  image?: string;                          // emoji placeholder (mock posts only)
-  mediaUri?: string;                       // real URI from device picker
-  mediaAspectRatio?: '1:1' | '16:9';      // chosen crop ratio
+  title?: string;
+  image?: string;
+  mediaUri?: string;
+  mediaAspectRatio?: '1:1' | '16:9';
+  /** Backend-enriched media array. */
+  media?: Array<{
+    media_id: string;
+    media_type: 'image' | 'video' | 'audio';
+    media_url: string;
+    preview_url?: string | null;
+    width?: number;
+    height?: number;
+    duration_seconds?: number;
+    file_size_bytes?: number;
+    mime_type?: string;
+    has_audio?: boolean;
+  }>;
   hashtags: string[];
   likes: number;
   comments: number;
@@ -423,7 +446,7 @@ export interface MatchmakingEventPayload {
 }
 
 /**
- * Registry of every event bridged through `socketClient.events`. Each key is a
+ * Registry of every event bridged through `accountSocket.events`. Each key is a
  * socket event name; each value is its listener signature. Feeding this to
  * `SimpleEventEmitter` types `.on/.off/.emit` per event name — no more
  * string-keyed `Function` maps with untyped payloads.

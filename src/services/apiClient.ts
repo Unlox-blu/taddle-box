@@ -2,6 +2,7 @@ import axios from "axios";
 import * as SecureStore from "expo-secure-store";
 import * as Crypto from 'expo-crypto';
 import { getBackendOrigin } from "./backendUrl";
+import { log, warn, error as logError } from "../utils/logger";
 
 // Origin comes from EXPO_PUBLIC_BACKEND_URL (.env / build profile) via the
 // shared resolver — dev falls back to the Metro host, production warns loudly
@@ -53,13 +54,58 @@ apiClient.interceptors.request.use(
       if (token && config.headers && !config.headers.Authorization) {
         config.headers.Authorization = `Bearer ${token}`;
       }
-    } catch (error) {
-      console.error("Error fetching token from SecureStore", error);
+    } catch (err) {
+      logError("Error fetching token from SecureStore", err);
     }
     return config;
   },
   (error) => Promise.reject(error),
 );
+
+// ── Refresh-token mutex ─────────────────────────────────────────────────────
+// When the access token expires, multiple concurrent requests may all get a
+// 401 simultaneously. Without a mutex, each would independently hit the
+// refresh endpoint — the server rotates the refresh token on the first call,
+// so subsequent calls fail with 401 (the old token is now invalid) and
+// trigger a forced logout. A simple promise-based mutex ensures only ONE
+// refresh runs at a time; other requests await the same result.
+let _refreshPromise: Promise<string | null> | null = null;
+
+/** Publicly exposed so AuthContext can proactively refresh before expiry. */
+export async function doRefreshToken(): Promise<string | null> {
+  const refreshToken = await SecureStore.getItemAsync("refreshToken");
+  const sessionId = await SecureStore.getItemAsync("sessionId");
+  if (!refreshToken) return null;
+
+  const res = await axios.post(`${API_URL}/auth/refresh-token`, {
+    refreshToken,
+    sessionId,
+  });
+  const newAccessToken = res.data?.data?.accessToken || res.data?.accessToken;
+  if (!newAccessToken) return null;
+
+  await SecureStore.setItemAsync("accessToken", newAccessToken);
+  const newRefreshToken = res.data?.data?.refreshToken || res.data?.refreshToken;
+  if (newRefreshToken) {
+    await SecureStore.setItemAsync("refreshToken", newRefreshToken);
+  }
+  const newSessionId = res.data?.data?.sessionId || res.data?.sessionId;
+  if (newSessionId) {
+    await SecureStore.setItemAsync("sessionId", newSessionId);
+  }
+  // Persist the new token expiry so AuthContext's proactive timer can
+  // schedule the next refresh. If the backend doesn't include tokenExpiresAt,
+  // log a warning — proactive refresh will be disabled until it does.
+  const expiresAt = res.data?.data?.tokenExpiresAt || res.data?.tokenExpiresAt;
+  if (expiresAt) {
+    await SecureStore.setItemAsync('tokenExpiresAt', String(Number(expiresAt)));
+  } else {
+    warn('[apiClient] Backend refresh response missing tokenExpiresAt — proactive refresh will not schedule until the backend provides it.');
+    // Clear any stale expiry so the proactive timer falls back to reactive
+    await SecureStore.deleteItemAsync('tokenExpiresAt');
+  }
+  return newAccessToken;
+}
 
 // Interceptor to handle 401 Unauthorized (Token Refresh)
 apiClient.interceptors.response.use(
@@ -69,59 +115,40 @@ apiClient.interceptors.response.use(
     if (error.response?.status === 401 && !originalRequest._retry) {
       originalRequest._retry = true;
       try {
-        const refreshToken = await SecureStore.getItemAsync("refreshToken");
-        const sessionId = await SecureStore.getItemAsync("sessionId");
-        if (refreshToken) {
-          const res = await axios.post(`${API_URL}/auth/refresh-token`, {
-            refreshToken,
-            sessionId,  // Backend uses this to look up the session in client_registry
-          });
-          const newAccessToken =
-            res.data?.data?.accessToken || res.data?.accessToken;
-          if (newAccessToken) {
-            await SecureStore.setItemAsync("accessToken", newAccessToken);
-            // The backend ROTATES the refresh token on every refresh — persist
-            // the new one too, or the next refresh fails against the DB hash.
-            const newRefreshToken =
-              res.data?.data?.refreshToken || res.data?.refreshToken;
-            if (newRefreshToken) {
-              await SecureStore.setItemAsync("refreshToken", newRefreshToken);
-            }
-            // Also persist the new sessionId if the backend issued one
-            const newSessionId =
-              res.data?.data?.sessionId || res.data?.sessionId;
-            if (newSessionId) {
-              await SecureStore.setItemAsync("sessionId", newSessionId);
-            }
-            originalRequest.headers.Authorization = `Bearer ${newAccessToken}`;
-            return apiClient(originalRequest);
-          }
+        // If a refresh is already in flight, wait for it instead of starting
+        // a second one (which would fail against the rotated token).
+        if (!_refreshPromise) {
+          _refreshPromise = doRefreshToken().catch(() => null);
         }
+        const newAccessToken = await _refreshPromise;
+        if (newAccessToken) {
+          originalRequest.headers.Authorization = `Bearer ${newAccessToken}`;
+          return apiClient(originalRequest);
+        }
+        // Refresh returned no token — fall through to reject below
       } catch (refreshError: any) {
-        // ── Distinguish revoked session from transient network failure ──
-        // A 401 from the refresh endpoint means the session was revoked
-        // (e.g. "Log out from all devices" from another device) or the
-        // refresh token itself expired. Either way, the user must re-login.
-        //
-        // Network errors (ECONNREFUSED, timeout, no response) are transient
-        // and should NOT trigger a forced logout — the user might just have
-        // a temporarily flaky connection.
-        const refreshFailedWithAuth =
-          refreshError?.response?.status === 401 ||
-          refreshError?.response?.status === 403;
+        // This path is now unlikely since doRefreshToken is catch-guarded
+        // above, but kept as a safety net.
+        logError("Refresh token failed:", refreshError?.message || refreshError);
+      } finally {
+        // Clear the mutex so the next 401 cycle starts a fresh refresh.
+        _refreshPromise = null;
+      }
 
-        if (refreshFailedWithAuth) {
-          console.warn("Session revoked or refresh token expired — forcing logout");
-          // Fire-and-forget: the handler cleans up tokens, account store, socket.
-          // Use setTimeout(0) to avoid blocking the interceptor return path.
-          setTimeout(() => {
-            _forcedLogoutHandler?.();
-          }, 0);
-        } else {
-          console.error("Refresh token failed (transient):", refreshError?.message || refreshError);
-          // Transient network error — do NOT force logout. The next API call
-          // will retry the normal 401 → refresh flow.
-        }
+      // If we get here, refresh failed. Distinguish revoked session from
+      // transient network failure. A 401 from the refresh endpoint means the
+      // session was revoked or the refresh token itself expired.
+      const refreshFailedWithAuth =
+        error?.response?.status === 401 ||
+        error?.response?.status === 403;
+
+      if (refreshFailedWithAuth) {
+        warn("Session revoked or refresh token expired — forcing logout");
+        setTimeout(() => {
+          _forcedLogoutHandler?.();
+        }, 0);
+      } else {
+        logError("Refresh token failed (transient):", error?.message || error);
       }
     }
     return Promise.reject(error);

@@ -34,6 +34,7 @@ import type { HomeStackParamList } from "../../types";
 import { themedAlert, themedPrompt } from '../../components/common/ThemedAlert';
 import PinPad from "../../components/common/PinPad";
 import { nativeBypass } from "../../utils/nativeBypass";
+import { log, error } from '../../utils/logger';
 
 type NavProp = NativeStackNavigationProp<HomeStackParamList, "Settings">;
 
@@ -111,16 +112,16 @@ const maskPhone = (phone?: string, countryCode?: string) => {
             setShowOnLeaderboard(res.data.showOnLeaderboard ?? true);
           }
         })
-        .catch(console.error);
+        .catch(error);
     }, []),
   );
 
   const toggleBiometric = async () => {
-    // Biometric can only be enabled if PIN (App Lock) is set first
-    if (!CURRENT_USER?.globalLockEnabled) {
+    // Biometric can only be enabled if PIN (Global Account Lock) is set first
+    if (!CURRENT_USER?.globalAccountLockEnabled) {
       themedAlert(
         "PIN Required",
-        "Please enable Global Lock (PIN) before turning on biometric authentication.",
+        "Please enable Global Account Lock (PIN) before turning on biometric authentication.",
         [
           { text: "Cancel", style: "cancel" },              { text: "Set Up PIN",
                 onPress: () =>
@@ -151,7 +152,7 @@ const maskPhone = (phone?: string, countryCode?: string) => {
       setPendingBiometricAction(newValue ? "enable" : "disable");
       setVerifyPinVisible(true);
     } catch (e) {
-      console.log("Biometric error", e);
+      log("Biometric error", e);
     }
   };
 
@@ -164,7 +165,7 @@ const maskPhone = (phone?: string, countryCode?: string) => {
       if (pendingBiometricAction === "enable") {
         nativeBypass.beginNativeFlow();
         const result = await LocalAuthentication.authenticateAsync({
-          promptMessage: "Authenticate to enable biometric global lock",
+          promptMessage: "Authenticate to enable biometric global account lock",
           cancelLabel: "Cancel",
         });
         nativeBypass.endNativeFlow();
@@ -418,11 +419,11 @@ const maskPhone = (phone?: string, countryCode?: string) => {
         <SettingsGroup>
           <SettingsToggle
             icon="shield-checkmark-outline"
-            label="Global Lock"
-            description="Require PIN to open app"
-            value={CURRENT_USER?.globalLockEnabled || false}
+            label="Global Account Lock"
+            description="Require PIN to access your account"
+            value={CURRENT_USER?.globalAccountLockEnabled }
             onToggle={() => {
-              if (CURRENT_USER?.globalLockEnabled) {
+              if (CURRENT_USER?.globalAccountLockEnabled) {
                 navigation.navigate("LockScreen", {
                   mode: "app",
                   isSetup: false,
@@ -446,13 +447,13 @@ const maskPhone = (phone?: string, countryCode?: string) => {
           />
           <SettingsToggle
             icon="finger-print-outline"
-            label="Biometric Global Lock"
+            label="Biometric Global Account Lock"
             description={
-              CURRENT_USER?.globalLockEnabled
-                ? "Use Face ID / Touch ID for Global Lock"
-                : "Requires Global Lock PIN to be set first"
+              CURRENT_USER?.globalAccountLockEnabled
+                ? "Use Face ID / Touch ID for Global Account Lock"
+                : "Requires Global Account Lock PIN to be set first"
             }
-            value={appBiometric && !!CURRENT_USER?.globalLockEnabled}
+            value={appBiometric && !!CURRENT_USER?.globalAccountLockEnabled}
             onToggle={toggleBiometric}
           />
           <SettingsRow

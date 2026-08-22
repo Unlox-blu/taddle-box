@@ -160,8 +160,6 @@ function makeStyles(c: ColorPalette) {
       width: 72,
       height: 72,
       borderRadius: radii.xl || 20,
-      borderWidth: 4,
-      borderColor: c.bg.card,
       marginTop: -36,
       marginBottom: 12,
       overflow: "hidden",
@@ -231,8 +229,6 @@ function makeStyles(c: ColorPalette) {
       alignItems: "center",
       justifyContent: "center",
       marginRight: 16,
-      borderWidth: 1,
-      borderColor: c.border,
     },
     compInfo: { flex: 1, justifyContent: "center" },
     compName: {
@@ -326,7 +322,6 @@ function makeStyles(c: ColorPalette) {
       width: 72,
       height: 72,
       borderRadius: radii.xl,
-      borderWidth: 4,
       alignItems: "center",
       justifyContent: "center",
       overflow: "hidden",
@@ -800,6 +795,7 @@ const FeaturedCommunityCard = React.memo(function FeaturedCommunityCard({
           <Image
             source={{ uri: c.bannerUrl }}
             style={StyleSheet.absoluteFillObject}
+            resizeMode="cover"
           />
         ) : null}
         <View style={styles.featOverlay}>
@@ -818,6 +814,7 @@ const FeaturedCommunityCard = React.memo(function FeaturedCommunityCard({
             <Image
               source={{ uri: c.avatarUrl }}
               style={{ width: "100%", height: "100%" }}
+              resizeMode="cover"
             />
           ) : (
             <Ionicons
@@ -852,7 +849,7 @@ const FeaturedCommunityCard = React.memo(function FeaturedCommunityCard({
               styles.joinBtn,
               (isJoined || c.isPending) && styles.joinBtnJoined,
             ]}
-            onPress={() => onToggleJoin(c.id, isJoined || false, c.isPending)}
+            onPress={() => onToggleJoin(c.id, isJoined ?? false, c.isPending)}
           >
             <Text
               style={[
@@ -910,6 +907,7 @@ const CompactCommunityCard = React.memo(function CompactCommunityCard({
           <Image
             source={{ uri: c.avatarUrl }}
             style={{ width: "100%", height: "100%" }}
+            resizeMode="cover"
           />
         ) : (
           <Ionicons
@@ -952,7 +950,7 @@ const CompactCommunityCard = React.memo(function CompactCommunityCard({
           ]}
           onPress={(e) => {
             e.stopPropagation();
-            onToggleJoin(c.id, isJoined || false, c.isPending);
+            onToggleJoin(c.id, isJoined ?? false, c.isPending);
           }}
         >
           <Text
@@ -1200,6 +1198,7 @@ const CreateCommunityModal = React.memo(function CreateCommunityModal({
                 <Image
                   source={{ uri: bannerAsset.uri }}
                   style={StyleSheet.absoluteFillObject}
+                  resizeMode="cover"
                 />
               ) : (
                 <View style={{ alignItems: "center", gap: 6 }}>
@@ -1234,6 +1233,7 @@ const CreateCommunityModal = React.memo(function CreateCommunityModal({
                 <Image
                   source={{ uri: avatarAsset.uri }}
                   style={{ width: "100%", height: "100%" }}
+                  resizeMode="cover"
                 />
               ) : (
                 <Ionicons

@@ -5,9 +5,10 @@ import { xpService } from '../services/xp.service';
 import { settingsService } from '../services/settings.service';
 import { authService } from '../services/auth.service';
 import { useAuth } from './AuthContext';
-import { socketClient } from '../services/socketClient';
+import { accountSocket } from '../services/accountSocketClient';
 import * as SecureStore from 'expo-secure-store';
 import { Alert } from 'react-native';
+import { error } from '../utils/logger';
 
 // ─── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -246,7 +247,7 @@ type WalletContextType = {
   toggleSetting:   (key: 'pinEnabled' | 'biometricEnabled' | 'notifXP' | 'notifWithdraw' | 'notifPromos') => void;
   toggleWalletLock: (pin: string, isEnabled: boolean) => Promise<void>;
   unlockWallet:    () => void;
-  lockWallet:      () => void; // Used when App Lock re-locks or session ends
+  lockWallet:      () => void; // Used when Global Account Lock re-locks or session ends
 };
 
 const WalletContext = createContext<WalletContextType>({
@@ -288,16 +289,16 @@ export function WalletProvider({ children }: { children: React.ReactNode }) {
       } });
       
       // Auto-refresh transaction history so "Pending" updates to "Completed"
-      fetchWalletData().catch(console.error);
+      fetchWalletData().catch(error);
     };
     const handleXPUpdated = (data: XPUpdatedPayload) => {
       dispatch({ type: 'SET_DATA', payload: { xpBalance: data.xp } });
     };
-    socketClient.events.on('wallet:updated', handleWalletUpdated);
-    socketClient.events.on('xp:updated', handleXPUpdated);
+    accountSocket.events.on('wallet:updated', handleWalletUpdated);
+    accountSocket.events.on('xp:updated', handleXPUpdated);
     return () => {
-      socketClient.events.off('wallet:updated', handleWalletUpdated);
-      socketClient.events.off('xp:updated', handleXPUpdated);
+      accountSocket.events.off('wallet:updated', handleWalletUpdated);
+      accountSocket.events.off('xp:updated', handleXPUpdated);
     };
   }, []);
 
@@ -308,7 +309,7 @@ export function WalletProvider({ children }: { children: React.ReactNode }) {
         const pin = await SecureStore.getItemAsync('wallet_pinEnabled');
         if (biometric === 'true' && !wallet.biometricEnabled) dispatch({ type: 'TOGGLE_SETTING', key: 'biometricEnabled' });
         if (pin === 'true' && !wallet.pinEnabled) dispatch({ type: 'TOGGLE_SETTING', key: 'pinEnabled' });
-      } catch (e) { console.error(e); }
+      } catch (e) { error(e); }
     };
     loadSecureSettings();
   }, []);
@@ -384,7 +385,7 @@ export function WalletProvider({ children }: { children: React.ReactNode }) {
       }});
       dispatch({ type: 'SET_TRANSACTIONS', transactions: combinedTxns });
     } catch (e) {
-      console.error('Failed to fetch wallet data:', e);
+      error('Failed to fetch wallet data:', e);
       dispatch({ type: 'SET_LOADING', isLoading: false });
     }
   }, [mapCashTxn, mapXpTxn]);
@@ -402,7 +403,7 @@ export function WalletProvider({ children }: { children: React.ReactNode }) {
         xpBalance: d.xpBalance ?? 0,
       }});
     } catch (e) {
-      console.error('Failed to fetch wallet summary:', e);
+      error('Failed to fetch wallet summary:', e);
     }
   }, []);
 
@@ -435,7 +436,7 @@ export function WalletProvider({ children }: { children: React.ReactNode }) {
       dispatch({ type: 'APPEND_TRANSACTIONS', transactions: [...cashTxns, ...xpTxns] });
       dispatch({ type: 'SET_DATA', payload: { hasMoreTxns: hasMoreRef.current } });
     } catch (e) {
-      console.error('Failed to load more transactions:', e);
+      error('Failed to load more transactions:', e);
     }
   }, [mapCashTxn, mapXpTxn]);
 
@@ -453,7 +454,7 @@ export function WalletProvider({ children }: { children: React.ReactNode }) {
         await fetchWalletData();
         return res.data?.handoffUrl;
       } catch (e) {
-        console.error('Withdraw failed', e);
+        error('Withdraw failed', e);
         throw e;
       }
     },
@@ -462,7 +463,7 @@ export function WalletProvider({ children }: { children: React.ReactNode }) {
         await walletService.convertXpToCash(xpAmount);
         await fetchWalletData();
       } catch (e) {
-        console.error('Convert XP failed', e);
+        error('Convert XP failed', e);
         throw e;
       }
     },
@@ -475,7 +476,7 @@ export function WalletProvider({ children }: { children: React.ReactNode }) {
         await walletService.convertCashToXp(amountRupees * 100);
         await fetchWalletData();
       } catch (e) {
-        console.error('Buy XP failed', e);
+        error('Buy XP failed', e);
         throw e;
       }
     },
@@ -485,7 +486,7 @@ export function WalletProvider({ children }: { children: React.ReactNode }) {
         await walletService.linkUPI(upi);
         dispatch({ type: 'SET_DATA', payload: { linkedUPI: upi } });
       } catch (e) {
-        console.error('Link UPI failed', e);
+        error('Link UPI failed', e);
       }
     },
     linkBank:      (bank) => { /* Mock or api call */ },
@@ -507,7 +508,7 @@ export function WalletProvider({ children }: { children: React.ReactNode }) {
           await SecureStore.setItemAsync(`wallet_${key}`, newValue ? 'true' : 'false');
           dispatch({ type: 'TOGGLE_SETTING', key });
         } catch (e) {
-          console.error('Toggle failed', e);
+          error('Toggle failed', e);
         }
       } else {
         dispatch({ type: 'TOGGLE_SETTING', key });
@@ -516,7 +517,7 @@ export function WalletProvider({ children }: { children: React.ReactNode }) {
           if (key === 'notifWithdraw') await settingsService.toggleNotifWithdraw();
           if (key === 'notifPromos') await settingsService.toggleNotifPromos();
         } catch (e) {
-          console.error('Toggle setting failed', e);
+          error('Toggle setting failed', e);
           // Revert on failure
           dispatch({ type: 'TOGGLE_SETTING', key });
         }
@@ -533,7 +534,7 @@ export function WalletProvider({ children }: { children: React.ReactNode }) {
           dispatch({ type: 'TOGGLE_SETTING', key: 'biometricEnabled' });
         }
       } catch (e) {
-        console.error('Wallet lock toggle failed', e);
+        error('Wallet lock toggle failed', e);
         throw e;
       }
     }, [wallet.biometricEnabled]),

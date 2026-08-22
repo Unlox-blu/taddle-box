@@ -2,6 +2,7 @@ import { io, Socket } from "socket.io-client";
 import * as SecureStore from "expo-secure-store";
 import { Platform, DeviceEventEmitter } from "react-native";
 import Constants from "expo-constants";
+import { log, warn, error as logError } from '../utils/logger';
 import type {
   XPUpdatedPayload,
   WalletUpdatedPayload,
@@ -30,8 +31,8 @@ const SOCKET_URL = process.env.EXPO_PUBLIC_BACKEND_URL
   : __DEV__
     ? `http://${currentIp}:1999`
     : (() => {
-        console.warn(
-          "[socketClient] EXPO_PUBLIC_BACKEND_URL is not set in this production build — sockets will connect to https://taddlebox.com. Set it in eas.json before publishing.",
+        warn(
+          "[accountSocket] EXPO_PUBLIC_BACKEND_URL is not set in this production build — sockets will connect to https://taddlebox.com. Set it in eas.json before publishing.",
         );
         return "https://taddlebox.com";
       })();
@@ -65,7 +66,7 @@ class SimpleEventEmitter<Events extends Record<string, AnyListener>> {
   }
 }
 
-class SocketService {
+class AccountSocketService {
   public socket: Socket | null = null;
   public events = new SimpleEventEmitter<SocketEventMap>();
   private isConnecting = false;
@@ -79,7 +80,7 @@ class SocketService {
       const token = await SecureStore.getItemAsync("accessToken");
       if (!token) return;
 
-      this.socket = io(SOCKET_URL, {
+      this.socket = io(`${SOCKET_URL}/account-socket`, {
         auth: { token },
         transports: ["websocket"],
         extraHeaders: {
@@ -89,7 +90,7 @@ class SocketService {
 
       this.socket.on("connect", () => {
         this.isConnecting = false;
-        console.log("WebSocket Connected:", this.socket?.id);
+        log("WebSocket Connected:", this.socket?.id);
         // Keep the server-side active-status key alive (30s TTL, beat every 20s).
         if (this.heartbeatTimer) clearInterval(this.heartbeatTimer);
         this.heartbeatTimer = setInterval(() => {
@@ -98,7 +99,7 @@ class SocketService {
       });
 
       this.socket.on("disconnect", () => {
-        console.log("WebSocket Disconnected");
+        log("WebSocket Disconnected");
         if (this.heartbeatTimer) {
           clearInterval(this.heartbeatTimer);
           this.heartbeatTimer = null;
@@ -130,6 +131,11 @@ class SocketService {
       this.socket.on("notification:new", (data: NotificationNewPayload) =>
         this.events.emit("notification:new", data),
       );
+      // chat:message listener kept on account socket for badge count
+      // (always connected while logged in, even when chat screen is closed)
+      this.socket.on("chat:message", (data: any) =>
+        this.events.emit("chat:message" as any, data),
+      );
       this.socket.on(
         "follow:requestCancelled",
         (data: FollowRequestCancelledPayload) =>
@@ -159,10 +165,10 @@ class SocketService {
 
       this.socket.on("connect_error", (error) => {
         this.isConnecting = false;
-        console.error("WebSocket Connection Error:", error);
+        logError("WebSocket Connection Error:", error);
       });
-    } catch (error) {
-      console.error("Error connecting to socket:", error);
+    } catch (err) {
+      logError("Error connecting to socket:", err);
     }
   }
 
@@ -179,14 +185,14 @@ class SocketService {
   }
 }
 
-export const socketClient = new SocketService();
+export const accountSocket = new AccountSocketService();
 
 export const createGameEngineSocket = (
   matchId: string,
   userId: string,
   token: string,
 ) => {
-  const s = io(`${SOCKET_URL}/game-engine`, {
+  const s = io(`${SOCKET_URL}/game-socket`, {
     auth: { matchId, userId, token },
     extraHeaders: { "ngrok-skip-browser-warning": "true" },
     transports: ["websocket", "polling"],

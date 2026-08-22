@@ -1,8 +1,9 @@
 import React from "react";
-import { Linking, Text } from "react-native";
+import { Text } from "react-native";
 import { useNavigation } from "@react-navigation/native";
 import { useThemeColors } from "../../context/ThemeContext";
 import { userService } from "../../services/user.service";
+import { safeOpenURL } from "../../utils/urlAllowlist";
 
 export const normalizeUrl = (url: string) => {
   const trimmed = (url || "").trim();
@@ -68,7 +69,7 @@ export default function BioText({ text, style, colors, onLinkPress }: BioTextPro
             <Text
               key={i}
               style={{ color: c.primaryLight, fontWeight: "600" }}
-              onPress={() => (onLinkPress || Linking.openURL)(normalizeUrl(part))}
+              onPress={() => (onLinkPress || safeOpenURL)(normalizeUrl(part))}
             >
               {part}
             </Text>

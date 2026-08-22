@@ -4,7 +4,7 @@ import {
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import type { HtmlGameResult } from '../../games/types';
-import { createGameEngineSocket } from '../../services/socketClient';
+import { createGameEngineSocket } from '../../services/accountSocketClient';
 import { gameSound } from '../../services/gameSound';
 import { themedAlert } from '../common/ThemedAlert';
 

@@ -19,6 +19,7 @@ import { postsService } from '../../services/posts.service';
 import { usePosts } from '../../context/PostsContext';
 import { themedAlert } from '../common/ThemedAlert';
 import StateBlock from '../common/StateBlock';
+import { error } from '../../utils/logger';
 
 const { height: SCREEN_H } = Dimensions.get('window');
 
@@ -53,12 +54,13 @@ function makeStyles(c: ColorPalette) {
       marginBottom: 8,
     },
     header: {
-      flexDirection: 'row', alignItems: 'center',
-      paddingHorizontal: spacing.lg, paddingBottom: 12,
+      flexDirection: 'row', alignItems: 'center', justifyContent: 'center',
+      paddingBottom: 12,
       borderBottomWidth: 1, borderBottomColor: c.border,
+      position: 'relative',
     },
-    closeBtn: { padding: 8, marginLeft: 8 },
-    title: { flex: 1, textAlign: 'center', fontSize: fontSizes.md, fontWeight: '800', color: c.text.primary },
+    closeBtn: { position: 'absolute', right: spacing.lg - 8, bottom: 12 - 8, padding: 8 },
+    title: { textAlign: 'center', fontSize: fontSizes.md, fontWeight: '800', color: c.text.primary },
     listContent: { paddingHorizontal: spacing.lg, paddingVertical: spacing.md, flexGrow: 1 },
     sortBar: {
       flexDirection: 'row', alignItems: 'center', justifyContent: 'flex-end',
@@ -212,7 +214,7 @@ export default function CommentsModal({ visible, onClose, post }: Props) {
       );
       setPage(nextPage);
     } catch (e) {
-      console.error(e);
+      error(e);
     } finally {
       if (append) setLoadingMore(false);
       else setLoading(false);
@@ -272,7 +274,7 @@ export default function CommentsModal({ visible, onClose, post }: Props) {
       await commentService.createComment(post.id, trimmed, parentId);
       if (!parentId) fetchTopLevelComments();
     } catch (e) {
-      console.error(e);
+      error(e);
       // Roll back the optimistic feed count if the comment failed to post.
       if (!parentId && post) updateCommentCount(post.id, -1);
     }
@@ -293,7 +295,7 @@ export default function CommentsModal({ visible, onClose, post }: Props) {
               // Keep the feed card's comment count in sync (top-level only).
               if (!comment.parentId && post) updateCommentCount(post.id, -1);
             } catch (e) {
-              console.error(e);
+              error(e);
             }
             // Remove from list (top-level or nested)
             const removeFromList = (list: Comment[]): Comment[] =>
@@ -338,7 +340,7 @@ export default function CommentsModal({ visible, onClose, post }: Props) {
       if (isCurrentlyLiked) await commentService.unlikeComment(commentId);
       else await commentService.likeComment(commentId);
     } catch (e) {
-      console.error(e);
+      error(e);
     }
   };
 
@@ -350,7 +352,7 @@ export default function CommentsModal({ visible, onClose, post }: Props) {
         c.id === parentComment.id ? { ...c, hasFetchedReplies: true, subComments: res.data } : c
       ));
     } catch (e) {
-      console.error(e);
+      error(e);
     }
   };
 

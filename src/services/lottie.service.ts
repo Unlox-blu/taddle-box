@@ -1,4 +1,5 @@
 import * as FileSystem from "expo-file-system/legacy";
+import { log, warn } from '../utils/logger';
 import { getBackendOrigin } from "./backendUrl";
 
 const CACHE_DIR = FileSystem.documentDirectory + "lottie_cache/";
@@ -60,7 +61,7 @@ export const getCachedLottie = async (url: string): Promise<any | null> => {
           memoryCache[url] = JSON.parse(jsonStr);
           return JSON.parse(JSON.stringify(memoryCache[url]));
         } catch (parseError) {
-          console.warn(
+          warn(
             `Corrupted cache for ${filename}, deleting and re-downloading...`,
           );
           await FileSystem.deleteAsync(localUri, { idempotent: true });
@@ -69,7 +70,7 @@ export const getCachedLottie = async (url: string): Promise<any | null> => {
     }
 
     // File not found locally (or was corrupted), download it
-    console.log(`Downloading Lottie to cache: ${filename}`);
+    log(`Downloading Lottie to cache: ${filename}`);
     const downloadRes = await FileSystem.downloadAsync(url, localUri);
 
     if (downloadRes.status === 200) {
@@ -82,18 +83,18 @@ export const getCachedLottie = async (url: string): Promise<any | null> => {
           memoryCache[url] = JSON.parse(jsonStr);
           return JSON.parse(JSON.stringify(memoryCache[url]));
         } catch (parseError) {
-          console.warn(`Downloaded file ${filename} is not valid JSON.`);
+          warn(`Downloaded file ${filename} is not valid JSON.`);
           await FileSystem.deleteAsync(localUri, { idempotent: true });
           return null;
         }
       }
     } else {
-      console.warn(`Failed to download Lottie. Status: ${downloadRes.status}`);
+      warn(`Failed to download Lottie. Status: ${downloadRes.status}`);
       await FileSystem.deleteAsync(localUri, { idempotent: true });
       return null;
     }
   } catch (e) {
-    console.warn("Lottie cache error:", e);
+    warn("Lottie cache error:", e);
     return null;
   }
 };

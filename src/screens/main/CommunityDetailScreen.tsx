@@ -1,194 +1,344 @@
-import React, { useMemo, useState, useEffect, useRef, useCallback } from 'react';
+import React, {
+  useMemo,
+  useState,
+  useEffect,
+  useRef,
+  useCallback,
+} from "react";
 import {
-  View, Text, ScrollView, TouchableOpacity, TouchableWithoutFeedback,
-  StyleSheet, Share, FlatList, Image, TextInput, Modal, KeyboardAvoidingView, Platform
-} from 'react-native';
-import { FlashList } from '@shopify/flash-list';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { useNavigation, useRoute, useFocusEffect, type RouteProp } from '@react-navigation/native';
-import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
-import { Ionicons } from '@expo/vector-icons';
-import { LinearGradient } from 'expo-linear-gradient';
-import StateBlock from '../../components/common/StateBlock';
-import { StatusBar } from 'expo-status-bar';
-import { fontSizes, spacing, radii, type ColorPalette } from '../../theme';
-import { useTheme, useThemeColors } from '../../context/ThemeContext';
-import { usePosts }        from '../../context/PostsContext';
-import { useJoinCommunity } from '../../mutations/communities';
-import { communityService } from '../../services/community.service';
-import { postsService }     from '../../services/posts.service';
-import PostCard             from '../../components/home/PostCard';
-import MainHeader           from '../../components/common/MainHeader';
-import CreatePostModal      from '../../components/common/CreatePostModal';
-import SharedFeed           from '../../components/common/SharedFeed';
-import { useAuth }          from '../../context/AuthContext';
-import { useQueryClient }   from '@tanstack/react-query';
-import { queryKeys }        from '../../lib/queryKeys';
-import type { CommunityStackParamList, Post, Community } from '../../types';
-import { themedAlert } from '../../components/common/ThemedAlert';
-import BioText from '../../components/common/BioText';
-
-
+  View,
+  Text,
+  ScrollView,
+  TouchableOpacity,
+  TouchableWithoutFeedback,
+  StyleSheet,
+  Share,
+  FlatList,
+  Image,
+  TextInput,
+  Modal,
+  KeyboardAvoidingView,
+  Platform,
+} from "react-native";
+import { FlashList } from "@shopify/flash-list";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
+import {
+  useNavigation,
+  useRoute,
+  useFocusEffect,
+  type RouteProp,
+} from "@react-navigation/native";
+import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
+import { Ionicons } from "@expo/vector-icons";
+import { LinearGradient } from "expo-linear-gradient";
+import StateBlock from "../../components/common/StateBlock";
+import { StatusBar } from "expo-status-bar";
+import { fontSizes, spacing, radii, type ColorPalette } from "../../theme";
+import { useTheme, useThemeColors } from "../../context/ThemeContext";
+import { usePosts } from "../../context/PostsContext";
+import { useJoinCommunity } from "../../mutations/communities";
+import { communityService } from "../../services/community.service";
+import { postsService } from "../../services/posts.service";
+import PostCard from "../../components/home/PostCard";
+import MainHeader from "../../components/common/MainHeader";
+import CreatePostModal from "../../components/common/CreatePostModal";
+import SharedFeed from "../../components/common/SharedFeed";
+import { useAuth } from "../../context/AuthContext";
+import { useQueryClient } from "@tanstack/react-query";
+import { queryKeys } from "../../lib/queryKeys";
+import type { CommunityStackParamList, Post, Community } from "../../types";
+import { themedAlert } from "../../components/common/ThemedAlert";
+import BioText from "../../components/common/BioText";
+import { log, warn, error } from '../../utils/logger';
 
 const BANNER_COLORS: Record<string, [string, string]> = {
-  Tech:      ['#2a0a5e', '#0a1f5e'],
-  Lifestyle: ['#0a3e1a', '#0a5e2f'],
-  Gaming:    ['#3e1a0a', '#5e1a0a'],
-  Startup:   ['#2e2e0a', '#4e3a0a'],
-  Creative:  ['#2a0a4e', '#4e0a3e'],
-  Study:     ['#0a2e3e', '#0a3e5e'],
+  Tech: ["#2a0a5e", "#0a1f5e"],
+  Lifestyle: ["#0a3e1a", "#0a5e2f"],
+  Gaming: ["#3e1a0a", "#5e1a0a"],
+  Startup: ["#2e2e0a", "#4e3a0a"],
+  Creative: ["#2a0a4e", "#4e0a3e"],
+  Study: ["#0a2e3e", "#0a3e5e"],
 };
 
 const AVATAR_COLORS_MAP: Record<string, [string, string]> = {
-  Tech:      ['#7C3AED', '#0891B2'],
-  Lifestyle: ['#10B981', '#065F46'],
-  Gaming:    ['#F97316', '#B45309'],
-  Startup:   ['#FBBF24', '#B45309'],
-  Creative:  ['#EC4899', '#9D174D'],
-  Study:     ['#06B6D4', '#0891B2'],
+  Tech: ["#7C3AED", "#0891B2"],
+  Lifestyle: ["#10B981", "#065F46"],
+  Gaming: ["#F97316", "#B45309"],
+  Startup: ["#FBBF24", "#B45309"],
+  Creative: ["#EC4899", "#9D174D"],
+  Study: ["#06B6D4", "#0891B2"],
 };
 
-type Nav   = NativeStackNavigationProp<CommunityStackParamList, 'CommunityDetail'>;
-type Route = RouteProp<CommunityStackParamList, 'CommunityDetail'>;
+type Nav = NativeStackNavigationProp<
+  CommunityStackParamList,
+  "CommunityDetail"
+>;
+type Route = RouteProp<CommunityStackParamList, "CommunityDetail">;
 
 function makeStyles(c: ColorPalette) {
   return StyleSheet.create({
     container: { flex: 1, backgroundColor: c.bg.base },
 
     backBtn: {
-      width: 36, height: 36, borderRadius: 18,
-      backgroundColor: 'rgba(7,7,20,0.6)',
-      alignItems: 'center', justifyContent: 'center',
+      width: 36,
+      height: 36,
+      borderRadius: 18,
+      backgroundColor: "rgba(7,7,20,0.6)",
+      alignItems: "center",
+      justifyContent: "center",
     },
     shareBtn: {
-      width: 36, height: 36, borderRadius: 18,
-      backgroundColor: 'rgba(7,7,20,0.6)',
-      alignItems: 'center', justifyContent: 'center',
+      width: 36,
+      height: 36,
+      borderRadius: 18,
+      backgroundColor: "rgba(7,7,20,0.6)",
+      alignItems: "center",
+      justifyContent: "center",
     },
 
     banner: {
       height: 160,
-      alignItems: 'center', justifyContent: 'center',
+      alignItems: "center",
+      justifyContent: "center",
     },
     bannerImage: { ...StyleSheet.absoluteFillObject },
     privateBadge: {
-      position: 'absolute', bottom: 28, right: 14,
-      flexDirection: 'row', alignItems: 'center', gap: 4,
-      backgroundColor: 'rgba(0,0,0,0.45)',
-      paddingHorizontal: 8, paddingVertical: 3, borderRadius: radii.full,
+      position: "absolute",
+      bottom: 28,
+      right: 14,
+      flexDirection: "row",
+      alignItems: "center",
+      gap: 4,
+      backgroundColor: "rgba(0,0,0,0.45)",
+      paddingHorizontal: 8,
+      paddingVertical: 3,
+      borderRadius: radii.full,
     },
-    privateBadgeText: { fontSize: fontSizes.xs, color: '#fff', fontWeight: '700' },
+    privateBadgeText: {
+      fontSize: fontSizes.xs,
+      color: "#fff",
+      fontWeight: "700",
+    },
 
     infoCard: {
       backgroundColor: c.bg.card,
       marginTop: -20,
-      borderTopLeftRadius: radii.xl, borderTopRightRadius: radii.xl,
-      paddingHorizontal: spacing.lg, paddingBottom: spacing.md,
+      borderTopLeftRadius: radii.xl,
+      borderTopRightRadius: radii.xl,
+      paddingHorizontal: spacing.lg,
+      paddingBottom: spacing.md,
       paddingTop: 0,
     },
     avatarRow: {
-      flexDirection: 'row', alignItems: 'flex-end', justifyContent: 'space-between',
-      marginTop: -28, marginBottom: spacing.sm,
+      flexDirection: "row",
+      alignItems: "flex-end",
+      justifyContent: "space-between",
+      marginTop: -28,
+      marginBottom: spacing.sm,
     },
     avatar: {
-      width: 68, height: 68, borderRadius: radii.md,
-      alignItems: 'center', justifyContent: 'center',
-      borderWidth: 3, borderColor: c.bg.card,
+      width: 68,
+      height: 68,
+      borderRadius: radii.md,
+      alignItems: "center",
+      justifyContent: "center",
+      borderWidth: 3,
+      borderColor: c.bg.card,
     },
-    avatarImage: { width: '100%', height: '100%', borderRadius: radii.md - 3 },
+    avatarImage: { width: "100%", height: "100%", borderRadius: radii.md - 3 },
     avatarEmoji: { fontSize: 32 },
     joinBtn: {
-      borderRadius: radii.full, overflow: 'hidden',
-      borderWidth: 1, borderColor: 'rgba(124,58,237,0.35)',
+      borderRadius: radii.full,
+      overflow: "hidden",
+      borderWidth: 1,
+      borderColor: "rgba(124,58,237,0.35)",
     },
-    joinBtnJoined: { borderColor: 'rgba(124,58,237,0.35)' },
+    joinBtnJoined: { borderColor: "rgba(124,58,237,0.35)" },
     joinBtnInner: {
-      flexDirection: 'row', alignItems: 'center', gap: 5,
-      paddingHorizontal: 18, paddingVertical: 9,
+      flexDirection: "row",
+      alignItems: "center",
+      gap: 5,
+      paddingHorizontal: 18,
+      paddingVertical: 9,
     },
-    joinBtnText:       { fontSize: fontSizes.sm, fontWeight: '700', color: '#fff' },
-    joinBtnTextJoined: { fontSize: fontSizes.sm, fontWeight: '700', color: c.primaryLight },
+    joinBtnText: { fontSize: fontSizes.sm, fontWeight: "700", color: "#fff" },
+    joinBtnTextJoined: {
+      fontSize: fontSizes.sm,
+      fontWeight: "700",
+      color: c.primaryLight,
+    },
 
-    commName: { fontSize: fontSizes.xl, fontWeight: '800', color: c.text.primary, marginBottom: 5 },
-    commDesc: { fontSize: fontSizes.sm, color: c.text.secondary, lineHeight: 19, marginBottom: spacing.md },
-
-    statsRow: {
-      flexDirection: 'row', alignItems: 'center',
-      backgroundColor: c.bg.elevated,
-      borderRadius: radii.md, padding: spacing.md,
+    commName: {
+      fontSize: fontSizes.xl,
+      fontWeight: "800",
+      color: c.text.primary,
+      marginBottom: 5,
+    },
+    commDesc: {
+      fontSize: fontSizes.sm,
+      color: c.text.secondary,
+      lineHeight: 19,
       marginBottom: spacing.md,
     },
-    statItem:    { flex: 1, alignItems: 'center' },
-    statValue:   { fontSize: fontSizes.md, fontWeight: '800', color: c.text.primary },
-    statLabel:   { fontSize: fontSizes.xs, color: c.text.muted, marginTop: 2 },
+
+    statsRow: {
+      flexDirection: "row",
+      alignItems: "center",
+      backgroundColor: c.bg.elevated,
+      borderRadius: radii.md,
+      padding: spacing.md,
+      marginBottom: spacing.md,
+    },
+    statItem: { flex: 1, alignItems: "center" },
+    statValue: {
+      fontSize: fontSizes.md,
+      fontWeight: "800",
+      color: c.text.primary,
+    },
+    statLabel: { fontSize: fontSizes.xs, color: c.text.muted, marginTop: 2 },
     statDivider: { width: 1, height: 30, backgroundColor: c.border },
 
     writePostBtn: {
-      flexDirection: 'row', alignItems: 'center', gap: 10,
+      flexDirection: "row",
+      alignItems: "center",
+      gap: 10,
       backgroundColor: c.bg.elevated,
-      borderWidth: 1, borderColor: c.border,
-      borderRadius: radii.md, paddingHorizontal: 12, paddingVertical: 11,
+      borderWidth: 1,
+      borderColor: c.border,
+      borderRadius: radii.md,
+      paddingHorizontal: 12,
+      paddingVertical: 11,
     },
     writePostAvatar: {
-      width: 28, height: 28, borderRadius: 14,
+      width: 28,
+      height: 28,
+      borderRadius: 14,
       backgroundColor: c.bg.base,
-      alignItems: 'center', justifyContent: 'center',
+      alignItems: "center",
+      justifyContent: "center",
     },
-    writePostPlaceholder: { flex: 1, fontSize: fontSizes.sm, color: c.text.muted },
+    writePostPlaceholder: {
+      flex: 1,
+      fontSize: fontSizes.sm,
+      color: c.text.muted,
+    },
 
-    emptyState: { alignItems: 'center', paddingVertical: 50 },
+    emptyState: { alignItems: "center", paddingVertical: 50 },
     emptyEmoji: { fontSize: 40, marginBottom: 12 },
-    emptyTitle: { fontSize: fontSizes.lg, fontWeight: '700', color: c.text.primary, marginBottom: 6 },
-    emptyDesc:  { fontSize: fontSizes.sm, color: c.text.muted, textAlign: 'center', paddingHorizontal: 32, lineHeight: 20 },
-    emptyBtn: {
-      marginTop: 20, backgroundColor: c.primary,
-      paddingHorizontal: 24, paddingVertical: 11, borderRadius: radii.full,
+    emptyTitle: {
+      fontSize: fontSizes.lg,
+      fontWeight: "700",
+      color: c.text.primary,
+      marginBottom: 6,
     },
-    emptyBtnText: { fontSize: fontSizes.sm, fontWeight: '700', color: '#fff' },
+    emptyDesc: {
+      fontSize: fontSizes.sm,
+      color: c.text.muted,
+      textAlign: "center",
+      paddingHorizontal: 32,
+      lineHeight: 20,
+    },
+    emptyBtn: {
+      marginTop: 20,
+      backgroundColor: c.primary,
+      paddingHorizontal: 24,
+      paddingVertical: 11,
+      borderRadius: radii.full,
+    },
+    emptyBtnText: { fontSize: fontSizes.sm, fontWeight: "700", color: "#fff" },
 
     manageRequestsBtn: {
-      backgroundColor: 'rgba(234, 179, 8, 0.15)',
-      paddingVertical: 12, paddingHorizontal: 16,
+      backgroundColor: "rgba(234, 179, 8, 0.15)",
+      paddingVertical: 12,
+      paddingHorizontal: 16,
       borderRadius: radii.md,
-      flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8,
+      flexDirection: "row",
+      alignItems: "center",
+      justifyContent: "center",
+      gap: 8,
       marginBottom: spacing.md,
-      borderWidth: 1, borderColor: 'rgba(234, 179, 8, 0.5)',
+      borderWidth: 1,
+      borderColor: "rgba(234, 179, 8, 0.5)",
     },
-    manageRequestsText: { color: '#eab308', fontSize: fontSizes.sm, fontWeight: '700' },
-    
-    modalContainer: { flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'flex-end' },
+    manageRequestsText: {
+      color: "#eab308",
+      fontSize: fontSizes.sm,
+      fontWeight: "700",
+    },
+
+    modalContainer: {
+      flex: 1,
+      backgroundColor: "rgba(0,0,0,0.5)",
+      justifyContent: "flex-end",
+    },
     modalContent: {
       backgroundColor: c.bg.card,
-      borderTopLeftRadius: radii.xl, borderTopRightRadius: radii.xl,
+      borderTopLeftRadius: radii.xl,
+      borderTopRightRadius: radii.xl,
       padding: spacing.lg,
-      maxHeight: '85%',
-      minHeight: '50%',
+      maxHeight: "85%",
+      minHeight: "50%",
     },
-    modalHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: spacing.lg },
-    modalTitle: { fontSize: fontSizes.lg, fontWeight: '800', color: c.text.primary },
+    modalHeader: {
+      flexDirection: "row",
+      justifyContent: "space-between",
+      alignItems: "center",
+      marginBottom: spacing.lg,
+    },
+    modalTitle: {
+      fontSize: fontSizes.lg,
+      fontWeight: "800",
+      color: c.text.primary,
+    },
     requestRow: {
-      flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
-      paddingVertical: 12, borderBottomWidth: 1, borderBottomColor: c.border
+      flexDirection: "row",
+      alignItems: "center",
+      justifyContent: "space-between",
+      paddingVertical: 12,
+      borderBottomWidth: 1,
+      borderBottomColor: c.border,
     },
-    requestUser: { flexDirection: 'row', alignItems: 'center', gap: 12, flex: 1 },
-    requestAvatar: { width: 40, height: 40, borderRadius: 20, backgroundColor: c.bg.elevated, alignItems: 'center', justifyContent: 'center' },
-    requestName: { fontSize: fontSizes.md, fontWeight: '700', color: c.text.primary },
+    requestUser: {
+      flexDirection: "row",
+      alignItems: "center",
+      gap: 12,
+      flex: 1,
+    },
+    requestAvatar: {
+      width: 40,
+      height: 40,
+      borderRadius: 20,
+      backgroundColor: c.bg.elevated,
+      alignItems: "center",
+      justifyContent: "center",
+    },
+    requestName: {
+      fontSize: fontSizes.md,
+      fontWeight: "700",
+      color: c.text.primary,
+    },
     requestUsername: { fontSize: fontSizes.xs, color: c.text.secondary },
-    requestActions: { flexDirection: 'row', gap: 8 },
-    actionBtn: { width: 36, height: 36, borderRadius: 18, alignItems: 'center', justifyContent: 'center' },
-    approveBtn: { backgroundColor: 'rgba(16, 185, 129, 0.15)' },
-    rejectBtn: { backgroundColor: 'rgba(239, 68, 68, 0.15)' },
+    requestActions: { flexDirection: "row", gap: 8 },
+    actionBtn: {
+      width: 36,
+      height: 36,
+      borderRadius: 18,
+      alignItems: "center",
+      justifyContent: "center",
+    },
+    approveBtn: { backgroundColor: "rgba(16, 185, 129, 0.15)" },
+    rejectBtn: { backgroundColor: "rgba(239, 68, 68, 0.15)" },
   });
 }
 
 export default function CommunityDetailScreen() {
-  const insets     = useSafeAreaInsets();
+  const insets = useSafeAreaInsets();
   const navigation = useNavigation<Nav>();
-  const route      = useRoute<Route>();
+  const route = useRoute<Route>();
   const { communitySlug } = route.params as any; // fallback if types aren't synced perfectly in IDE yet
   const { isDark } = useTheme();
-  const colors     = useThemeColors();
-  const styles     = useMemo(() => makeStyles(colors), [colors]);
+  const colors = useThemeColors();
+  const styles = useMemo(() => makeStyles(colors), [colors]);
 
   // Join/leave/request is driven by the react-query mutation (the same one the
   // community LIST screen uses). The old CommunityContext is never mounted, so
@@ -213,16 +363,17 @@ export default function CommunityDetailScreen() {
   const [refreshingPosts, setRefreshingPosts] = useState(false);
   const postsReqRef = useRef(0);
 
-  const [showCreate, setShowCreate]  = useState(false);
+  const [showCreate, setShowCreate] = useState(false);
   const [showRequests, setShowRequests] = useState(false);
   const [showMembers, setShowMembers] = useState(false);
   // Guards against double-tapping Join/Leave — two rapid taps would fire two
   // mutations and the second would 409 on the server, flipping the UI back.
   const [joinBusy, setJoinBusy] = useState(false);
-  
+
   const { user: authUser } = useAuth();
   const queryClient = useQueryClient();
-  const isAdmin = community?.memberRole === 'admin' || community?.memberRole === 'moderator';
+  const isAdmin =
+    community?.memberRole === "admin" || community?.memberRole === "moderator";
   const isOwner = community?.ownerId === authUser?.id;
 
   // Join/Leave on this screen. Updates local state instantly for a responsive
@@ -232,29 +383,45 @@ export default function CommunityDetailScreen() {
   const handleToggleJoin = async () => {
     if (!community || joinBusy) return;
     const target = community;
-    const wasJoined = target.isJoined || false;
-    const wasPending = target.isPending || false;
-    const isPrivate = target.privacy === 'private';
+    const wasJoined = target.isJoined ;
+    const wasPending = target.isPending ;
+    const isPrivate = target.privacy === "private";
     const delta = wasJoined ? -1 : 1;
     // Local optimistic flip — instant UI.
     setJoinBusy(true);
-    setCommunity(prev => prev ? {
-      ...prev,
-      isJoined: wasPending ? false : (isPrivate ? prev.isJoined : !prev.isJoined),
-      isPending: wasPending ? false : isPrivate,
-      memberCount: wasPending ? prev.memberCount : Math.max(0, (prev.memberCount || 0) + delta),
-    } : prev);
+    setCommunity((prev) =>
+      prev
+        ? {
+            ...prev,
+            isJoined: wasPending
+              ? false
+              : isPrivate
+                ? prev.isJoined
+                : !prev.isJoined,
+            isPending: wasPending ? false : isPrivate,
+            memberCount: wasPending
+              ? prev.memberCount
+              : Math.max(0, (prev.memberCount || 0) + delta),
+          }
+        : prev,
+    );
     const rollback = () =>
-      setCommunity(prev => prev ? {
-        ...prev,
-        isJoined: wasJoined,
-        isPending: wasPending,
-        memberCount: wasPending ? prev.memberCount : Math.max(0, (prev.memberCount || 0) - delta),
-      } : prev);
+      setCommunity((prev) =>
+        prev
+          ? {
+              ...prev,
+              isJoined: wasJoined,
+              isPending: wasPending,
+              memberCount: wasPending
+                ? prev.memberCount
+                : Math.max(0, (prev.memberCount || 0) - delta),
+            }
+          : prev,
+      );
     try {
       await toggleJoinMutate({
         communityId: target.id,
-        isCurrentlyMember: wasJoined,
+        isCurrentlyMember: wasJoined ?? false,
         isPending: wasPending,
       });
       // Re-fetch detail + posts so the page reflects server truth (member
@@ -270,7 +437,7 @@ export default function CommunityDetailScreen() {
     } catch (e) {
       // Roll back on failure.
       rollback();
-      console.error('Failed to toggle community membership:', e);
+      error("Failed to toggle community membership:", e);
     } finally {
       setJoinBusy(false);
     }
@@ -284,7 +451,11 @@ export default function CommunityDetailScreen() {
       const reqId = ++postsReqRef.current;
       if (!refresh) setLoadingPosts(true);
       try {
-        const postsRes = await communityService.getCommunityPosts(communityId, nextPage, 20);
+        const postsRes = await communityService.getCommunityPosts(
+          communityId,
+          nextPage,
+          20,
+        );
         if (postsReqRef.current !== reqId) return;
         const rows = postsRes.data || [];
         const meta = postsRes.meta as any;
@@ -292,7 +463,12 @@ export default function CommunityDetailScreen() {
         setCommunityPosts((prev) =>
           refresh
             ? rows
-            : [...prev, ...rows.filter((r: any) => !prev.some((p: any) => p.id === r.id))],
+            : [
+                ...prev,
+                ...rows.filter(
+                  (r: any) => !prev.some((p: any) => p.id === r.id),
+                ),
+              ],
         );
         setPostPage(nextPage);
       } catch (e) {
@@ -317,7 +493,8 @@ export default function CommunityDetailScreen() {
       setLoadingDetail(true);
       setDetailError(null);
       try {
-        const detailRes = await communityService.getCommunityDetail(communitySlug);
+        const detailRes =
+          await communityService.getCommunityDetail(communitySlug);
         if (detailRes.data) {
           setCommunity(detailRes.data);
           setLoadingPosts(true);
@@ -327,7 +504,7 @@ export default function CommunityDetailScreen() {
         setDetailError("Community not found.");
         return false;
       } catch (e: any) {
-        console.log("Failed to load community details", e);
+        log("Failed to load community details", e);
         setDetailError(
           e?.response?.data?.message || "Could not load this community.",
         );
@@ -352,7 +529,7 @@ export default function CommunityDetailScreen() {
   // endpoint so the moment an admin approves, posts appear immediately
   // instead of waiting for a manual refresh. Stops once membership is active.
   useEffect(() => {
-    if (!community || community.privacy !== 'private' || !community.isPending) {
+    if (!community || community.privacy !== "private" || !community.isPending) {
       return;
     }
     const timer = setInterval(async () => {
@@ -383,19 +560,22 @@ export default function CommunityDetailScreen() {
   const handleDeletePost = async (post: Post) => {
     try {
       await postsService.deletePost(post.id);
-      setCommunityPosts(prev => prev.filter(p => p.id !== post.id));
+      setCommunityPosts((prev) => prev.filter((p) => p.id !== post.id));
     } catch (e) {
-      console.error('Failed to delete post:', e);
+      error("Failed to delete post:", e);
     }
   };
-
 
   // Loading / error states — never render a silent blank screen.
   if (loadingDetail && !community) {
     return (
       <View style={styles.container}>
-        <StatusBar style={isDark ? 'light' : 'dark'} />
-        <StateBlock loading label="Hang tight!" style={{ flex: 1, justifyContent: "center" }} />
+        <StatusBar style={isDark ? "light" : "dark"} />
+        <StateBlock
+          loading
+          label="Hang tight!"
+          style={{ flex: 1, justifyContent: "center" }}
+        />
       </View>
     );
   }
@@ -403,14 +583,32 @@ export default function CommunityDetailScreen() {
   if (!community) {
     return (
       <View style={styles.container}>
-        <StatusBar style={isDark ? 'light' : 'dark'} />
-        <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 32, gap: 10 }}>
-          <Ionicons name="alert-circle-outline" size={48} color={colors.text.muted} />
-          <Text style={{ color: colors.text.primary, fontSize: fontSizes.lg, fontWeight: '800' }}>
+        <StatusBar style={isDark ? "light" : "dark"} />
+        <View
+          style={{
+            flex: 1,
+            alignItems: "center",
+            justifyContent: "center",
+            paddingHorizontal: 32,
+            gap: 10,
+          }}
+        >
+          <Ionicons
+            name="alert-circle-outline"
+            size={48}
+            color={colors.text.muted}
+          />
+          <Text
+            style={{
+              color: colors.text.primary,
+              fontSize: fontSizes.lg,
+              fontWeight: "800",
+            }}
+          >
             Couldn't load community
           </Text>
-          <Text style={{ color: colors.text.muted, textAlign: 'center' }}>
-            {detailError || 'Something went wrong.'}
+          <Text style={{ color: colors.text.muted, textAlign: "center" }}>
+            {detailError || "Something went wrong."}
           </Text>
           <TouchableOpacity
             style={[styles.emptyBtn, { marginTop: 12 }]}
@@ -418,56 +616,104 @@ export default function CommunityDetailScreen() {
           >
             <Text style={styles.emptyBtnText}>Retry</Text>
           </TouchableOpacity>
-          <TouchableOpacity style={{ marginTop: 12 }} onPress={() => navigation.goBack()}>
-            <Text style={{ color: colors.text.secondary, fontWeight: '600' }}>Go Back</Text>
+          <TouchableOpacity
+            style={{ marginTop: 12 }}
+            onPress={() => navigation.goBack()}
+          >
+            <Text style={{ color: colors.text.secondary, fontWeight: "600" }}>
+              Go Back
+            </Text>
           </TouchableOpacity>
         </View>
       </View>
     );
   }
 
-  const bannerGradient = BANNER_COLORS[community.category?.[0]] ?? ['#1a0a3e', '#0a1a3e'];
-  const avatarGradient = AVATAR_COLORS_MAP[community.category?.[0]] ?? ['#7C3AED', '#4C1D95'];
+  const bannerGradient = BANNER_COLORS[community.category?.[0]] ?? [
+    "#1a0a3e",
+    "#0a1a3e",
+  ];
+  const avatarGradient = AVATAR_COLORS_MAP[community.category?.[0]] ?? [
+    "#7C3AED",
+    "#4C1D95",
+  ];
 
   const renderHeader = () => (
     <>
       <LinearGradient colors={bannerGradient} style={styles.banner}>
         {community.bannerUrl ? (
-          <Image source={{ uri: community.bannerUrl }} style={styles.bannerImage} />
+          <Image
+            source={{ uri: community.bannerUrl }}
+            style={styles.bannerImage}
+          />
         ) : null}
         {/* Owner settings + share — anchored INSIDE the banner (top-right) so
             they stick to it and scroll away with it, instead of floating over
             the feed below. */}
-        <View style={{ position: 'absolute', top: 10, right: 12, flexDirection: 'row', gap: 10, zIndex: 2 }}>
+        <View
+          style={{
+            position: "absolute",
+            top: 10,
+            right: 12,
+            flexDirection: "row",
+            gap: 10,
+            zIndex: 2,
+          }}
+        >
           {/* Only the OWNER can edit the community / manage admins — admins get
               their powers (kick, delete posts, requests) from the member menu. */}
           {isOwner && (
-            <TouchableOpacity style={styles.shareBtn} onPress={() => {
-              (navigation as any).navigate('CommunitySettings', { communitySlug: community.slug });
-            }}>
+            <TouchableOpacity
+              style={styles.shareBtn}
+              onPress={() => {
+                (navigation as any).navigate("CommunitySettings", {
+                  communitySlug: community.slug,
+                });
+              }}
+            >
               <Ionicons name="settings-outline" size={20} color="#fff" />
             </TouchableOpacity>
           )}
-          <TouchableOpacity style={styles.shareBtn} onPress={async () => {
-            try {
-              const res = await postsService.toggleBookmark('community', community.id);
-              setCommunity((prev: any) => prev ? {
-                ...prev,
-                isBookmarked: res?.data?.bookmarked ?? !prev?.isBookmarked,
-              } : prev);
-            } catch (e) {
-              console.warn('Failed to toggle community bookmark', e);
-            }
-          }}>
-            <Ionicons name={community?.isBookmarked ? 'bookmark' : 'bookmark-outline'} size={20} color="#fff" />
+          <TouchableOpacity
+            style={styles.shareBtn}
+            onPress={async () => {
+              try {
+                const res = await postsService.toggleBookmark(
+                  "community",
+                  community.id,
+                );
+                setCommunity((prev: any) =>
+                  prev
+                    ? {
+                        ...prev,
+                        isBookmarked:
+                          res?.data?.bookmarked ?? !prev?.isBookmarked,
+                      }
+                    : prev,
+                );
+              } catch (e) {
+                warn("Failed to toggle community bookmark", e);
+              }
+            }}
+          >
+            <Ionicons
+              name={community?.isBookmarked ? "bookmark" : "bookmark-outline"}
+              size={20}
+              color="#fff"
+            />
           </TouchableOpacity>
-          <TouchableOpacity style={styles.shareBtn} onPress={() =>
-            Share.share({ message: `Check out ${community.name} on TADDLEBOX!` })
-          }>
+          <TouchableOpacity
+            style={styles.shareBtn}
+            onPress={() =>
+              Share.share({
+                message: `Check out ${community.name} on TADDLEBOX!`,
+              })
+            }
+          >
             <Ionicons name="share-outline" size={20} color="#fff" />
           </TouchableOpacity>
         </View>
-        {community.privacy === 'private' && (
+        {community.privacy === "private" && (
           <View style={styles.privateBadge}>
             <Ionicons name="lock-closed" size={11} color="#fff" />
             <Text style={styles.privateBadgeText}>Private</Text>
@@ -479,15 +725,34 @@ export default function CommunityDetailScreen() {
         <View style={styles.avatarRow}>
           <LinearGradient colors={avatarGradient} style={styles.avatar}>
             {community.avatarUrl ? (
-              <Image source={{ uri: community.avatarUrl }} style={styles.avatarImage} />
+              <Image
+                source={{ uri: community.avatarUrl }}
+                style={styles.avatarImage}
+              />
             ) : (
-              <Ionicons name="people-outline" size={36} color={colors.text.muted} />
+              <Ionicons
+                name="people-outline"
+                size={36}
+                color={colors.text.muted}
+              />
             )}
           </LinearGradient>
           {isOwner ? (
-            <View style={[styles.joinBtn, { backgroundColor: 'rgba(255,255,255,0.1)', borderColor: 'rgba(255,255,255,0.2)' }]}>
+            <View
+              style={[
+                styles.joinBtn,
+                {
+                  backgroundColor: "rgba(255,255,255,0.1)",
+                  borderColor: "rgba(255,255,255,0.2)",
+                },
+              ]}
+            >
               <View style={styles.joinBtnInner}>
-                <Ionicons name="shield-checkmark" size={14} color={colors.primaryLight} />
+                <Ionicons
+                  name="shield-checkmark"
+                  size={14}
+                  color={colors.primaryLight}
+                />
                 <Text style={styles.joinBtnTextJoined}>Owner</Text>
               </View>
             </View>
@@ -499,37 +764,49 @@ export default function CommunityDetailScreen() {
               activeOpacity={0.8}
             >
               <LinearGradient
-                colors={['rgba(251,191,36,0.12)', 'rgba(251,191,36,0.12)']}
+                colors={["rgba(251,191,36,0.12)", "rgba(251,191,36,0.12)"]}
                 style={styles.joinBtnInner}
               >
                 <Ionicons name="time" size={14} color="#FBBF24" />
-                <Text style={[styles.joinBtnTextJoined, { color: '#FBBF24' }]}>
+                <Text style={[styles.joinBtnTextJoined, { color: "#FBBF24" }]}>
                   Requested ✓
                 </Text>
               </LinearGradient>
             </TouchableOpacity>
           ) : (
             <TouchableOpacity
-              style={[styles.joinBtn, community.isJoined && styles.joinBtnJoined]}
+              style={[
+                styles.joinBtn,
+                community.isJoined && styles.joinBtnJoined,
+              ]}
               onPress={handleToggleJoin}
               activeOpacity={0.8}
             >
               {community.isJoined ? (
                 <LinearGradient
-                  colors={['rgba(124,58,237,0.1)', 'rgba(124,58,237,0.1)']}
+                  colors={["rgba(124,58,237,0.1)", "rgba(124,58,237,0.1)"]}
                   style={styles.joinBtnInner}
                 >
-                  <Ionicons name="exit-outline" size={14} color={colors.primaryLight} />
+                  <Ionicons
+                    name="exit-outline"
+                    size={14}
+                    color={colors.primaryLight}
+                  />
                   <Text style={styles.joinBtnTextJoined}>Leave</Text>
                 </LinearGradient>
               ) : (
                 <LinearGradient
                   colors={[colors.primary, colors.cyanDark]}
-                  start={{ x: 0, y: 0 }} end={{ x: 1, y: 0 }}
+                  start={{ x: 0, y: 0 }}
+                  end={{ x: 1, y: 0 }}
                   style={styles.joinBtnInner}
                 >
                   <Ionicons name="add" size={14} color="#fff" />
-                  <Text style={styles.joinBtnText}>{community.privacy === 'private' ? 'Request to Join' : 'Join'}</Text>
+                  <Text style={styles.joinBtnText}>
+                    {community.privacy === "private"
+                      ? "Request to Join"
+                      : "Join"}
+                  </Text>
                 </LinearGradient>
               )}
             </TouchableOpacity>
@@ -540,11 +817,22 @@ export default function CommunityDetailScreen() {
         {/* Tappable description — @mentions, #hashtags, c/communities and
             URLs resolve like the profile bio. */}
         {community.description ? (
-          <BioText text={community.description} style={styles.commDesc} colors={colors} />
+          <BioText
+            text={community.description}
+            style={styles.commDesc}
+            colors={colors}
+          />
         ) : null}
 
         {community.isPending && (
-          <Text style={{ fontSize: fontSizes.xs, color: '#FBBF24', fontWeight: '600', marginBottom: spacing.sm }}>
+          <Text
+            style={{
+              fontSize: fontSizes.xs,
+              color: "#FBBF24",
+              fontWeight: "600",
+              marginBottom: spacing.sm,
+            }}
+          >
             Request sent — an admin will review it. Tap "Requested ✓" to cancel.
           </Text>
         )}
@@ -561,30 +849,74 @@ export default function CommunityDetailScreen() {
           </View>
           <View style={styles.statDivider} />
           <View style={styles.statItem}>
-            <Text style={styles.statValue}>{community.category?.[0] || 'General'}</Text>
+            <Text style={styles.statValue}>
+              {community.category?.[0] || "General"}
+            </Text>
             <Text style={styles.statLabel}>Category</Text>
           </View>
         </View>
 
-        {isAdmin && community.privacy === 'private' && (
-          <TouchableOpacity style={styles.manageRequestsBtn} onPress={() => setShowRequests(true)}>
+        {isAdmin && community.privacy === "private" && (
+          <TouchableOpacity
+            style={styles.manageRequestsBtn}
+            onPress={() => setShowRequests(true)}
+          >
             <Ionicons name="people" size={18} color="#eab308" />
             <Text style={styles.manageRequestsText}>Manage Join Requests</Text>
           </TouchableOpacity>
         )}
 
-        <TouchableOpacity style={[styles.manageRequestsBtn, { borderColor: 'rgba(124,58,237,0.5)', backgroundColor: 'rgba(124,58,237,0.1)' }]} onPress={() => setShowMembers(true)}>
+        <TouchableOpacity
+          style={[
+            styles.manageRequestsBtn,
+            {
+              borderColor: "rgba(124,58,237,0.5)",
+              backgroundColor: "rgba(124,58,237,0.1)",
+            },
+          ]}
+          onPress={() => setShowMembers(true)}
+        >
           <Ionicons name="list" size={18} color={colors.primary} />
-          <Text style={[styles.manageRequestsText, { color: colors.primary }]}>View Members</Text>
+          <Text style={[styles.manageRequestsText, { color: colors.primary }]}>
+            View Members
+          </Text>
         </TouchableOpacity>
 
         {community.isJoined && (
-          <TouchableOpacity style={styles.writePostBtn} onPress={() => setShowCreate(true)}>
-            <View style={styles.writePostAvatar}>
-              <Text style={{ fontSize: 14 }}>🧑‍💻</Text>
+          <TouchableOpacity
+            style={[
+              styles.writePostBtn,
+              {
+                backgroundColor: colors.primaryLight + "22",
+                borderColor: colors.primaryLight,
+              },
+            ]}
+            onPress={() =>
+              navigation.push("Chat", {
+                conversationId: community.id,
+                isCommunityChat: true,
+                communityName: community.name,
+                communityAvatar: community.avatarUrl,
+              } as never)
+            }
+          >
+            <View
+              style={[
+                styles.writePostAvatar,
+                { backgroundColor: colors.primaryLight + "44" },
+              ]}
+            >
+              <Ionicons name="chatbubbles" size={18} color={colors.primary} />
             </View>
-            <Text style={styles.writePostPlaceholder}>Write something in {community.name}…</Text>
-            <Ionicons name="image-outline" size={18} color={colors.text.muted} />
+            <Text
+              style={[
+                styles.writePostPlaceholder,
+                { color: colors.primary, fontWeight: "700" },
+              ]}
+            >
+              Taddle with Community Members
+            </Text>
+            <Ionicons name="chevron-forward" size={18} color={colors.primary} />
           </TouchableOpacity>
         )}
       </View>
@@ -598,7 +930,7 @@ export default function CommunityDetailScreen() {
 
   return (
     <View style={styles.container}>
-      <StatusBar style={isDark ? 'light' : 'dark'} />
+      <StatusBar style={isDark ? "light" : "dark"} />
 
       {/* Main header — logo, global search (scoped to THIS community, so the
           search box opens pre-scoped to c/slug), notifications. Back arrow
@@ -640,17 +972,22 @@ export default function CommunityDetailScreen() {
         ListHeaderComponent={renderHeader()}
         ListEmptyComponent={
           !loadingPosts ? (
-            community.privacy === 'private' && !community.isJoined ? (
+            community.privacy === "private" && !community.isJoined ? (
               /* Locked — private community and the user isn't an approved
                  member yet. The 403 on posts lands here; explain + join CTA
                  instead of a misleading "No posts yet". */
               <View style={styles.emptyState}>
-                <Ionicons name="lock-closed" size={48} color={colors.text.muted} style={{ marginBottom: 8 }} />
+                <Ionicons
+                  name="lock-closed"
+                  size={48}
+                  color={colors.text.muted}
+                  style={{ marginBottom: 8 }}
+                />
                 <Text style={styles.emptyTitle}>Join to view posts</Text>
                 <Text style={styles.emptyDesc}>
                   {community.isPending
                     ? "Your request is pending — an admin will review it. Posts appear here once you're approved."
-                    : 'This is a private community. Request to join to see its posts.'}
+                    : "This is a private community. Request to join to see its posts."}
                 </Text>
                 {!community.isPending && (
                   <TouchableOpacity
@@ -659,22 +996,30 @@ export default function CommunityDetailScreen() {
                     disabled={joinBusy}
                   >
                     <Text style={styles.emptyBtnText}>
-                      {joinBusy ? 'Please wait…' : 'Request to Join'}
+                      {joinBusy ? "Please wait…" : "Request to Join"}
                     </Text>
                   </TouchableOpacity>
                 )}
               </View>
             ) : (
               <View style={styles.emptyState}>
-                <Ionicons name="chatbubbles-outline" size={48} color={colors.text.muted} style={{ marginBottom: 8 }} />
+                <Ionicons
+                  name="chatbubbles-outline"
+                  size={48}
+                  color={colors.text.muted}
+                  style={{ marginBottom: 8 }}
+                />
                 <Text style={styles.emptyTitle}>No posts yet</Text>
                 <Text style={styles.emptyDesc}>
                   {community.isJoined
-                    ? 'Be the first to post in this community!'
-                    : 'This community has no posts yet.'}
+                    ? "Be the first to post in this community!"
+                    : "This community has no posts yet."}
                 </Text>
                 {community.isJoined && (
-                  <TouchableOpacity style={styles.emptyBtn} onPress={() => setShowCreate(true)}>
+                  <TouchableOpacity
+                    style={styles.emptyBtn}
+                    onPress={() => setShowCreate(true)}
+                  >
                     <Text style={styles.emptyBtnText}>Create First Post</Text>
                   </TouchableOpacity>
                 )}
@@ -682,7 +1027,9 @@ export default function CommunityDetailScreen() {
             )
           ) : (
             <View style={[styles.emptyState, { marginTop: 40 }]}>
-               <Text style={[styles.emptyTitle, { color: colors.text.muted }]}>Loading posts...</Text>
+              <Text style={[styles.emptyTitle, { color: colors.text.muted }]}>
+                Loading posts...
+              </Text>
             </View>
           )
         }
@@ -719,7 +1066,13 @@ export default function CommunityDetailScreen() {
   );
 }
 
-const ManageRequestsModal = React.memo(function ManageRequestsModal({ visible, onClose, communityId, styles, colors }: any) {
+const ManageRequestsModal = React.memo(function ManageRequestsModal({
+  visible,
+  onClose,
+  communityId,
+  styles,
+  colors,
+}: any) {
   const navigation = useNavigation<any>();
   const [requests, setRequests] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
@@ -736,7 +1089,7 @@ const ManageRequestsModal = React.memo(function ManageRequestsModal({ visible, o
       const res = await communityService.getRequests(communityId);
       setRequests(res.data || []);
     } catch (e) {
-      console.log('Failed to load requests', e);
+      log("Failed to load requests", e);
     } finally {
       setLoading(false);
     }
@@ -745,18 +1098,18 @@ const ManageRequestsModal = React.memo(function ManageRequestsModal({ visible, o
   const handleApprove = async (userId: string) => {
     try {
       await communityService.approveRequest(communityId, userId);
-      setRequests(prev => prev.filter(r => r.user_id !== userId));
+      setRequests((prev) => prev.filter((r) => r.user_id !== userId));
     } catch (e) {
-      console.log('Approve failed', e);
+      log("Approve failed", e);
     }
   };
 
   const handleReject = async (userId: string) => {
     try {
       await communityService.rejectRequest(communityId, userId);
-      setRequests(prev => prev.filter(r => r.user_id !== userId));
+      setRequests((prev) => prev.filter((r) => r.user_id !== userId));
     } catch (e) {
-      console.log('Reject failed', e);
+      log("Reject failed", e);
     }
   };
 
@@ -772,42 +1125,83 @@ const ManageRequestsModal = React.memo(function ManageRequestsModal({ visible, o
               <Ionicons name="close" size={24} color={colors.text.secondary} />
             </TouchableOpacity>
           </View>
-          
+
           {loading ? (
-            <Text style={{ color: colors.text.muted, textAlign: 'center', padding: 20 }}>Loading...</Text>
+            <Text
+              style={{
+                color: colors.text.muted,
+                textAlign: "center",
+                padding: 20,
+              }}
+            >
+              Loading...
+            </Text>
           ) : requests.length === 0 ? (
-            <Text style={{ color: colors.text.muted, textAlign: 'center', padding: 20 }}>No pending requests.</Text>
+            <Text
+              style={{
+                color: colors.text.muted,
+                textAlign: "center",
+                padding: 20,
+              }}
+            >
+              No pending requests.
+            </Text>
           ) : (
             <FlashList
               data={requests}
-              keyExtractor={item => item.user_id}
+              keyExtractor={(item) => item.user_id}
               renderItem={({ item }) => (
                 <View style={styles.requestRow}>
-                  <TouchableOpacity 
+                  <TouchableOpacity
                     style={styles.requestUser}
                     onPress={() => {
                       onClose();
-                      navigation.push('UserProfile' as any, { user: { id: item.user_id, name: item.name, username: item.username, avatarUrl: item.avatar_url } } as any);
+                      navigation.push(
+                        "UserProfile" as any,
+                        {
+                          user: {
+                            id: item.user_id,
+                            name: item.name,
+                            username: item.username,
+                            avatarUrl: item.avatar_url,
+                          },
+                        } as any,
+                      );
                     }}
                     activeOpacity={0.7}
                   >
                     <View style={styles.requestAvatar}>
                       {item.avatar_url ? (
-                        <Image source={{ uri: item.avatar_url }} style={{ width: '100%', height: '100%', borderRadius: 20 }} />
+                        <Image
+                          source={{ uri: item.avatar_url }}
+                          style={{
+                            width: "100%",
+                            height: "100%",
+                            borderRadius: 20,
+                          }}
+                        />
                       ) : (
                         <Text style={{ fontSize: 20 }}>👾</Text>
                       )}
                     </View>
                     <View>
                       <Text style={styles.requestName}>{item.name}</Text>
-                      <Text style={styles.requestUsername}>@{item.username}</Text>
+                      <Text style={styles.requestUsername}>
+                        @{item.username}
+                      </Text>
                     </View>
                   </TouchableOpacity>
                   <View style={styles.requestActions}>
-                    <TouchableOpacity style={[styles.actionBtn, styles.approveBtn]} onPress={() => handleApprove(item.user_id)}>
+                    <TouchableOpacity
+                      style={[styles.actionBtn, styles.approveBtn]}
+                      onPress={() => handleApprove(item.user_id)}
+                    >
                       <Ionicons name="checkmark" size={20} color="#10B981" />
                     </TouchableOpacity>
-                    <TouchableOpacity style={[styles.actionBtn, styles.rejectBtn]} onPress={() => handleReject(item.user_id)}>
+                    <TouchableOpacity
+                      style={[styles.actionBtn, styles.rejectBtn]}
+                      onPress={() => handleReject(item.user_id)}
+                    >
                       <Ionicons name="close" size={20} color="#EF4444" />
                     </TouchableOpacity>
                   </View>
@@ -821,23 +1215,35 @@ const ManageRequestsModal = React.memo(function ManageRequestsModal({ visible, o
   );
 });
 
-const ManageMembersModal = React.memo(function ManageMembersModal({ visible, onClose, communityId, isAdmin, isOwner, currentUserId, onChanged, styles, colors }: any) {
+const ManageMembersModal = React.memo(function ManageMembersModal({
+  visible,
+  onClose,
+  communityId,
+  isAdmin,
+  isOwner,
+  currentUserId,
+  onChanged,
+  styles,
+  colors,
+}: any) {
   const navigation = useNavigation<any>();
   const [members, setMembers] = useState<any[]>([]);
   const [page, setPage] = useState(1);
   const [hasMore, setHasMore] = useState(false);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
-  const [searchQuery, setSearchQuery] = useState('');
+  const [searchQuery, setSearchQuery] = useState("");
   // Viewer's role in this community (owner/admin/moderator/member/visitor) —
   // drives which actions the ⋯ menu offers. Seeded from the screen's props,
   // refreshed from the members fetch so a just-transferred owner immediately
   // sees owner controls.
-  const [viewerRole, setViewerRole] = useState<string>(isOwner ? 'owner' : isAdmin ? 'admin' : 'visitor');
+  const [viewerRole, setViewerRole] = useState<string>(
+    isOwner ? "owner" : isAdmin ? "admin" : "visitor",
+  );
   // Member whose ⋯ menu is open — renders the action sheet overlay.
   const [actionMember, setActionMember] = useState<any | null>(null);
 
-  const [debouncedSearch, setDebouncedSearch] = useState('');
+  const [debouncedSearch, setDebouncedSearch] = useState("");
 
   // Debounce search query so we don't spam the backend
   useEffect(() => {
@@ -855,10 +1261,19 @@ const ManageMembersModal = React.memo(function ManageMembersModal({ visible, onC
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [visible, communityId, debouncedSearch]);
 
-  const loadMembers = async (nextPage: number, refresh = false, searchStr = debouncedSearch) => {
+  const loadMembers = async (
+    nextPage: number,
+    refresh = false,
+    searchStr = debouncedSearch,
+  ) => {
     if (!refresh) setLoading(true);
     try {
-      const res = await communityService.getMembers(communityId, nextPage, 20, searchStr);
+      const res = await communityService.getMembers(
+        communityId,
+        nextPage,
+        20,
+        searchStr,
+      );
       const rows = res.data || [];
       const meta = res.meta as any;
       // Server reports the true viewer role + owner mapping — trust it over the
@@ -866,11 +1281,18 @@ const ManageMembersModal = React.memo(function ManageMembersModal({ visible, onC
       if (res.viewerRole) setViewerRole(res.viewerRole);
       setHasMore(meta ? !!meta.hasNext : rows.length === 20);
       setMembers((prev) =>
-        refresh ? rows : [...prev, ...rows.filter((r: any) => !prev.some((m: any) => m.user_id === r.user_id))],
+        refresh
+          ? rows
+          : [
+              ...prev,
+              ...rows.filter(
+                (r: any) => !prev.some((m: any) => m.user_id === r.user_id),
+              ),
+            ],
       );
       setPage(nextPage);
     } catch (e) {
-      console.log('Failed to load members', e);
+      log("Failed to load members", e);
     } finally {
       setLoading(false);
       setRefreshing(false);
@@ -878,43 +1300,65 @@ const ManageMembersModal = React.memo(function ManageMembersModal({ visible, onC
   };
 
   const handleKick = (userId: string, name: string) => {
-    themedAlert('Kick Member', `Are you sure you want to remove ${name} from the community?`, [
-      { text: 'Cancel', style: 'cancel' },
-      { text: 'Kick', style: 'destructive', onPress: async () => {
-        try {
-          await communityService.removeMember(communityId, userId);
-          setMembers(prev => prev.filter(m => m.user_id !== userId));
-          setActionMember(null);
-          onChanged?.();
-        } catch (e: any) {
-          themedAlert('Error', e?.response?.data?.message || 'Failed to remove member');
-        }
-      }}
-    ]);
+    themedAlert(
+      "Kick Member",
+      `Are you sure you want to remove ${name} from the community?`,
+      [
+        { text: "Cancel", style: "cancel" },
+        {
+          text: "Kick",
+          style: "destructive",
+          onPress: async () => {
+            try {
+              await communityService.removeMember(communityId, userId);
+              setMembers((prev) => prev.filter((m) => m.user_id !== userId));
+              setActionMember(null);
+              onChanged?.();
+            } catch (e: any) {
+              themedAlert(
+                "Error",
+                e?.response?.data?.message || "Failed to remove member",
+              );
+            }
+          },
+        },
+      ],
+    );
   };
 
   // Owner-only: promote to admin / demote to member.
-  const handleRoleChange = (item: any, role: 'admin' | 'member') => {
-    const isPromote = role === 'admin';
+  const handleRoleChange = (item: any, role: "admin" | "member") => {
+    const isPromote = role === "admin";
     themedAlert(
-      isPromote ? 'Make Admin' : 'Remove Admin',
+      isPromote ? "Make Admin" : "Remove Admin",
       isPromote
         ? `${item.name} will be able to kick members, manage join requests and delete posts.`
         : `${item.name} will lose admin powers and become a regular member.`,
       [
-        { text: 'Cancel', style: 'cancel' },
+        { text: "Cancel", style: "cancel" },
         {
-          text: isPromote ? 'Make Admin' : 'Remove Admin',
-          style: isPromote ? 'default' : 'destructive',
+          text: isPromote ? "Make Admin" : "Remove Admin",
+          style: isPromote ? "default" : "destructive",
           onPress: async () => {
             try {
-              await communityService.updateMemberRole(communityId, item.user_id, role);
+              await communityService.updateMemberRole(
+                communityId,
+                item.user_id,
+                role,
+              );
               // Flip the row locally so the badge updates instantly.
-              setMembers(prev => prev.map(m => m.user_id === item.user_id ? { ...m, role } : m));
+              setMembers((prev) =>
+                prev.map((m) =>
+                  m.user_id === item.user_id ? { ...m, role } : m,
+                ),
+              );
               setActionMember(null);
               onChanged?.();
             } catch (e: any) {
-              themedAlert('Error', e?.response?.data?.message || 'Failed to update role');
+              themedAlert(
+                "Error",
+                e?.response?.data?.message || "Failed to update role",
+              );
             }
           },
         },
@@ -925,23 +1369,29 @@ const ManageMembersModal = React.memo(function ManageMembersModal({ visible, onC
   // Owner-only: hand over the whole community. Old owner auto-becomes admin.
   const handleTransfer = (item: any) => {
     themedAlert(
-      'Transfer Ownership',
+      "Transfer Ownership",
       `Transfer this community to ${item.name}? You will become an admin, and the transfer cannot be undone.`,
       [
-        { text: 'Cancel', style: 'cancel' },
+        { text: "Cancel", style: "cancel" },
         {
-          text: 'Transfer',
-          style: 'destructive',
+          text: "Transfer",
+          style: "destructive",
           onPress: async () => {
             try {
-              await communityService.transferOwnership(communityId, item.user_id);
+              await communityService.transferOwnership(
+                communityId,
+                item.user_id,
+              );
               setActionMember(null);
               // Membership + community detail both changed (owner badge, role,
               // settings access) — refresh both.
               loadMembers(1, true);
               onChanged?.();
             } catch (e: any) {
-              themedAlert('Error', e?.response?.data?.message || 'Failed to transfer ownership');
+              themedAlert(
+                "Error",
+                e?.response?.data?.message || "Failed to transfer ownership",
+              );
             }
           },
         },
@@ -951,35 +1401,65 @@ const ManageMembersModal = React.memo(function ManageMembersModal({ visible, onC
 
   // Which actions appear for this member, given who's viewing.
   const buildActions = (item: any) => {
-    const actions: { label: string; icon: string; danger?: boolean; onPress: () => void }[] = [];
-    const targetRole = item.role || 'member'; // owner | admin | moderator | member
-    const isTargetOwner = targetRole === 'owner';
+    const actions: {
+      label: string;
+      icon: string;
+      danger?: boolean;
+      onPress: () => void;
+    }[] = [];
+    const targetRole = item.role || "member"; // owner | admin | moderator | member
+    const isTargetOwner = targetRole === "owner";
     const isTargetSelf = item.user_id === currentUserId;
-    const isViewerOwner = viewerRole === 'owner' || isOwner;
-    const isViewerAdmin = viewerRole === 'admin' || viewerRole === 'moderator' || isAdmin;
+    const isViewerOwner = viewerRole === "owner" || isOwner;
+    const isViewerAdmin =
+      viewerRole === "admin" || viewerRole === "moderator" || isAdmin;
 
     actions.push({
-      label: 'View Profile',
-      icon: 'person-outline',
+      label: "View Profile",
+      icon: "person-outline",
       onPress: () => {
         setActionMember(null);
         onClose();
-        navigation.push('UserProfile' as any, { user: { id: item.user_id, name: item.name, username: item.username, avatarUrl: item.avatar_url } } as any);
+        navigation.push(
+          "UserProfile" as any,
+          {
+            user: {
+              id: item.user_id,
+              name: item.name,
+              username: item.username,
+              avatarUrl: item.avatar_url,
+            },
+          } as any,
+        );
       },
     });
 
     // Owner-only admin management.
     if (isViewerOwner && !isTargetOwner) {
-      if (targetRole === 'admin' || targetRole === 'moderator') {
-        actions.push({ label: 'Remove Admin', icon: 'shield-outline', danger: true, onPress: () => handleRoleChange(item, 'member') });
+      if (targetRole === "admin" || targetRole === "moderator") {
+        actions.push({
+          label: "Remove Admin",
+          icon: "shield-outline",
+          danger: true,
+          onPress: () => handleRoleChange(item, "member"),
+        });
       } else {
-        actions.push({ label: 'Make Admin', icon: 'shield-checkmark-outline', onPress: () => handleRoleChange(item, 'admin') });
+        actions.push({
+          label: "Make Admin",
+          icon: "shield-checkmark-outline",
+          onPress: () => handleRoleChange(item, "admin"),
+        });
       }
     }
 
     // Owner-only transfer (never to yourself).
     if (isViewerOwner && !isTargetOwner && !isTargetSelf) {
-      actions.push({ label: 'Transfer Ownership', icon: 'swap-horizontal', danger: true, onPress: () => handleTransfer(item) });
+      actions.push({
+        label: "Transfer Ownership",
+        icon: "swap-horizontal",
+        danger: true,
+        onPress: () => handleTransfer(item),
+      });
     }
 
     // Kick: owner may remove anyone but the owner/self; admins remove members
@@ -987,9 +1467,17 @@ const ManageMembersModal = React.memo(function ManageMembersModal({ visible, onC
     const canKick =
       !isTargetOwner &&
       !isTargetSelf &&
-      (isViewerOwner || (isViewerAdmin && targetRole !== 'admin' && targetRole !== 'moderator'));
+      (isViewerOwner ||
+        (isViewerAdmin &&
+          targetRole !== "admin" &&
+          targetRole !== "moderator"));
     if (canKick) {
-      actions.push({ label: 'Kick Member', icon: 'trash-outline', danger: true, onPress: () => handleKick(item.user_id, item.name) });
+      actions.push({
+        label: "Kick Member",
+        icon: "trash-outline",
+        danger: true,
+        onPress: () => handleKick(item.user_id, item.name),
+      });
     }
 
     return actions;
@@ -998,147 +1486,349 @@ const ManageMembersModal = React.memo(function ManageMembersModal({ visible, onC
   if (!visible) return null;
 
   return (
-    <Modal visible={visible} transparent animationType="fade" onRequestClose={onClose}>
-      <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'height' : undefined} style={{ flex: 1 }}>
+    <Modal
+      visible={visible}
+      transparent
+      animationType="fade"
+      onRequestClose={onClose}
+    >
+      <KeyboardAvoidingView
+        behavior={Platform.OS === "ios" ? "height" : undefined}
+        style={{ flex: 1 }}
+      >
         <View style={styles.modalContainer}>
-        <View style={styles.modalContent}>
-          <View style={styles.modalHeader}>
-            <Text style={styles.modalTitle}>Members</Text>
-            <TouchableOpacity onPress={onClose}>
-              <Ionicons name="close" size={24} color={colors.text.secondary} />
-            </TouchableOpacity>
-          </View>
-
-          {/* Search bar */}
-          <View style={{ flexDirection: 'row', alignItems: 'center', backgroundColor: colors.bg.elevated, borderRadius: 12, paddingHorizontal: 12, marginBottom: 12 }}>
-            <Ionicons name="search" size={18} color={colors.text.muted} />
-            <TextInput
-              style={{ flex: 1, paddingVertical: 10, paddingHorizontal: 8, color: colors.text.primary, fontSize: 14 }}
-              placeholder="Search members..."
-              placeholderTextColor={colors.text.muted}
-              value={searchQuery}
-              onChangeText={setSearchQuery}
-              autoCorrect={false}
-            />
-            {searchQuery.length > 0 && (
-              <TouchableOpacity onPress={() => setSearchQuery('')}>
-                <Ionicons name="close-circle" size={18} color={colors.text.muted} />
+          <View style={styles.modalContent}>
+            <View style={styles.modalHeader}>
+              <Text style={styles.modalTitle}>Members</Text>
+              <TouchableOpacity onPress={onClose}>
+                <Ionicons
+                  name="close"
+                  size={24}
+                  color={colors.text.secondary}
+                />
               </TouchableOpacity>
-            )}
-          </View>
+            </View>
 
-          <View style={{ flex: 1, minHeight: 200 }}>
-          {loading ? (
-            <Text style={{ color: colors.text.muted, textAlign: 'center', padding: 20 }}>Loading...</Text>
-          ) : members.length === 0 ? (
-            <Text style={{ color: colors.text.muted, textAlign: 'center', padding: 20 }}>No members found.</Text>
-          ) : (
-            <FlashList
-              data={members}
-              keyExtractor={item => item.user_id}
-              onEndReached={() => {
-                if (hasMore && !loading) loadMembers(page + 1);
+            {/* Search bar */}
+            <View
+              style={{
+                flexDirection: "row",
+                alignItems: "center",
+                backgroundColor: colors.bg.elevated,
+                borderRadius: 12,
+                paddingHorizontal: 12,
+                marginBottom: 12,
               }}
-              onEndReachedThreshold={0.4}
-              refreshing={refreshing}
-              onRefresh={() => {
-                setRefreshing(true);
-                loadMembers(1, true, debouncedSearch);
-              }}
-              contentContainerStyle={{ paddingBottom: 20 }}
-              ListFooterComponent={
-                loading && members.length > 0 ? (
-                  <StateBlock inline loading style={{ paddingVertical: 14 }} />
-                ) : null
-              }
-              renderItem={({ item }) => (
-                <View style={styles.requestRow}>
-                  <TouchableOpacity 
-                    style={styles.requestUser}
-                    onPress={() => {
-                      onClose();
-                      navigation.push('UserProfile' as any, { user: { id: item.user_id, name: item.name, username: item.username, avatarUrl: item.avatar_url } } as any);
-                    }}
-                    activeOpacity={0.7}
-                  >
-                    <View style={styles.requestAvatar}>
-                      {item.avatar_url ? (
-                        <Image source={{ uri: item.avatar_url }} style={{ width: '100%', height: '100%', borderRadius: 20 }} />
-                      ) : (
-                        <Text style={{ fontSize: 20 }}>👾</Text>
-                      )}
-                    </View>
-                    <View style={{ flex: 1 }}>
-                      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-                        <Text style={styles.requestName} numberOfLines={1}>{item.name}</Text>
-                        {item.role === 'owner' ? (
-                          <View style={{ backgroundColor: 'rgba(251,191,36,0.14)', borderRadius: 6, paddingHorizontal: 6, paddingVertical: 1, borderWidth: 1, borderColor: 'rgba(251,191,36,0.35)' }}>
-                            <Text style={{ fontSize: 10, fontWeight: '800', color: '#FBBF24' }}>OWNER</Text>
+            >
+              <Ionicons name="search" size={18} color={colors.text.muted} />
+              <TextInput
+                style={{
+                  flex: 1,
+                  paddingVertical: 10,
+                  paddingHorizontal: 8,
+                  color: colors.text.primary,
+                  fontSize: 14,
+                }}
+                placeholder="Search members..."
+                placeholderTextColor={colors.text.muted}
+                value={searchQuery}
+                onChangeText={setSearchQuery}
+                autoCorrect={false}
+              />
+              {searchQuery.length > 0 && (
+                <TouchableOpacity onPress={() => setSearchQuery("")}>
+                  <Ionicons
+                    name="close-circle"
+                    size={18}
+                    color={colors.text.muted}
+                  />
+                </TouchableOpacity>
+              )}
+            </View>
+
+            <View style={{ flex: 1, minHeight: 200 }}>
+              {loading ? (
+                <Text
+                  style={{
+                    color: colors.text.muted,
+                    textAlign: "center",
+                    padding: 20,
+                  }}
+                >
+                  Loading...
+                </Text>
+              ) : members.length === 0 ? (
+                <Text
+                  style={{
+                    color: colors.text.muted,
+                    textAlign: "center",
+                    padding: 20,
+                  }}
+                >
+                  No members found.
+                </Text>
+              ) : (
+                <FlashList
+                  data={members}
+                  keyExtractor={(item) => item.user_id}
+                  onEndReached={() => {
+                    if (hasMore && !loading) loadMembers(page + 1);
+                  }}
+                  onEndReachedThreshold={0.4}
+                  refreshing={refreshing}
+                  onRefresh={() => {
+                    setRefreshing(true);
+                    loadMembers(1, true, debouncedSearch);
+                  }}
+                  contentContainerStyle={{ paddingBottom: 20 }}
+                  ListFooterComponent={
+                    loading && members.length > 0 ? (
+                      <StateBlock
+                        inline
+                        loading
+                        style={{ paddingVertical: 14 }}
+                      />
+                    ) : null
+                  }
+                  renderItem={({ item }) => (
+                    <View style={styles.requestRow}>
+                      <TouchableOpacity
+                        style={styles.requestUser}
+                        onPress={() => {
+                          onClose();
+                          navigation.push(
+                            "UserProfile" as any,
+                            {
+                              user: {
+                                id: item.user_id,
+                                name: item.name,
+                                username: item.username,
+                                avatarUrl: item.avatar_url,
+                              },
+                            } as any,
+                          );
+                        }}
+                        activeOpacity={0.7}
+                      >
+                        <View style={styles.requestAvatar}>
+                          {item.avatar_url ? (
+                            <Image
+                              source={{ uri: item.avatar_url }}
+                              style={{
+                                width: "100%",
+                                height: "100%",
+                                borderRadius: 20,
+                              }}
+                            />
+                          ) : (
+                            <Text style={{ fontSize: 20 }}>👾</Text>
+                          )}
+                        </View>
+                        <View style={{ flex: 1 }}>
+                          <View
+                            style={{
+                              flexDirection: "row",
+                              alignItems: "center",
+                              gap: 6,
+                            }}
+                          >
+                            <Text style={styles.requestName} numberOfLines={1}>
+                              {item.name}
+                            </Text>
+                            {item.role === "owner" ? (
+                              <View
+                                style={{
+                                  backgroundColor: "rgba(251,191,36,0.14)",
+                                  borderRadius: 6,
+                                  paddingHorizontal: 6,
+                                  paddingVertical: 1,
+                                  borderWidth: 1,
+                                  borderColor: "rgba(251,191,36,0.35)",
+                                }}
+                              >
+                                <Text
+                                  style={{
+                                    fontSize: 10,
+                                    fontWeight: "800",
+                                    color: "#FBBF24",
+                                  }}
+                                >
+                                  OWNER
+                                </Text>
+                              </View>
+                            ) : item.role === "admin" ||
+                              item.role === "moderator" ? (
+                              <View
+                                style={{
+                                  backgroundColor: "rgba(124,58,237,0.14)",
+                                  borderRadius: 6,
+                                  paddingHorizontal: 6,
+                                  paddingVertical: 1,
+                                  borderWidth: 1,
+                                  borderColor: "rgba(124,58,237,0.35)",
+                                }}
+                              >
+                                <Text
+                                  style={{
+                                    fontSize: 10,
+                                    fontWeight: "800",
+                                    color: "#A78BFA",
+                                  }}
+                                >
+                                  ADMIN
+                                </Text>
+                              </View>
+                            ) : null}
+                            {item.user_id === currentUserId && (
+                              <Text
+                                style={{
+                                  fontSize: 10,
+                                  fontWeight: "700",
+                                  color: colors.text.muted,
+                                }}
+                              >
+                                You
+                              </Text>
+                            )}
                           </View>
-                        ) : (item.role === 'admin' || item.role === 'moderator') ? (
-                          <View style={{ backgroundColor: 'rgba(124,58,237,0.14)', borderRadius: 6, paddingHorizontal: 6, paddingVertical: 1, borderWidth: 1, borderColor: 'rgba(124,58,237,0.35)' }}>
-                            <Text style={{ fontSize: 10, fontWeight: '800', color: '#A78BFA' }}>ADMIN</Text>
-                          </View>
-                        ) : null}
-                        {item.user_id === currentUserId && (
-                          <Text style={{ fontSize: 10, fontWeight: '700', color: colors.text.muted }}>You</Text>
-                        )}
-                      </View>
-                      <Text style={styles.requestUsername}>@{item.username}</Text>
+                          <Text style={styles.requestUsername}>
+                            @{item.username}
+                          </Text>
+                        </View>
+                      </TouchableOpacity>
+                      {/* Vertical-dots action button — contextual options for this member. */}
+                      <TouchableOpacity
+                        style={[
+                          styles.actionBtn,
+                          { borderColor: colors.border },
+                        ]}
+                        onPress={() => setActionMember(item)}
+                        hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                      >
+                        <Ionicons
+                          name="ellipsis-vertical"
+                          size={18}
+                          color={colors.text.secondary}
+                        />
+                      </TouchableOpacity>
                     </View>
-                  </TouchableOpacity>
-                  {/* Vertical-dots action button — contextual options for this member. */}
-                  <TouchableOpacity
-                    style={[styles.actionBtn, { borderColor: colors.border }]}
-                    onPress={() => setActionMember(item)}
-                    hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-                  >
-                    <Ionicons name="ellipsis-vertical" size={18} color={colors.text.secondary} />
-                  </TouchableOpacity>
-                </View>              )}
-            />
-          )}
+                  )}
+                />
+              )}
+            </View>
           </View>
         </View>
-      </View>
 
-
-      {/* Member action sheet — options depend on viewer role + target role. */}
-      {actionMember && (
-        <View style={[StyleSheet.absoluteFill, { zIndex: 1000, backgroundColor: 'rgba(0,0,0,0.45)', justifyContent: 'flex-end' }]}>
-          <TouchableWithoutFeedback onPress={() => setActionMember(null)}>
-            <View style={{ flex: 1 }} />
-          </TouchableWithoutFeedback>
-          <View style={{ backgroundColor: colors.bg.surface, borderTopLeftRadius: 20, borderTopRightRadius: 20, paddingBottom: 28, paddingTop: 10 }}>
-            <View style={{ alignSelf: 'center', width: 36, height: 4, borderRadius: 2, backgroundColor: colors.border, marginBottom: 14 }} />
-            <Text style={{ fontSize: 15, fontWeight: '800', color: colors.text.primary, textAlign: 'center' }} numberOfLines={1}>
-              {actionMember.name}
-            </Text>
-            <Text style={{ fontSize: 12, color: colors.text.muted, textAlign: 'center', marginBottom: 10 }}>
-              @{actionMember.username}
-            </Text>
-            {buildActions(actionMember).map((a, i) => (
-              <TouchableOpacity
-                key={a.label}
-                style={{ flexDirection: 'row', alignItems: 'center', gap: 12, paddingVertical: 13, paddingHorizontal: 20, borderTopWidth: i === 0 ? 0 : 1, borderTopColor: colors.border }}
-                onPress={a.onPress}
+        {/* Member action sheet — options depend on viewer role + target role. */}
+        {actionMember && (
+          <View
+            style={[
+              StyleSheet.absoluteFill,
+              {
+                zIndex: 1000,
+                backgroundColor: "rgba(0,0,0,0.45)",
+                justifyContent: "flex-end",
+              },
+            ]}
+          >
+            <TouchableWithoutFeedback onPress={() => setActionMember(null)}>
+              <View style={{ flex: 1 }} />
+            </TouchableWithoutFeedback>
+            <View
+              style={{
+                backgroundColor: colors.bg.surface,
+                borderTopLeftRadius: 20,
+                borderTopRightRadius: 20,
+                paddingBottom: 28,
+                paddingTop: 10,
+              }}
+            >
+              <View
+                style={{
+                  alignSelf: "center",
+                  width: 36,
+                  height: 4,
+                  borderRadius: 2,
+                  backgroundColor: colors.border,
+                  marginBottom: 14,
+                }}
+              />
+              <Text
+                style={{
+                  fontSize: 15,
+                  fontWeight: "800",
+                  color: colors.text.primary,
+                  textAlign: "center",
+                }}
+                numberOfLines={1}
               >
-                <Ionicons name={a.icon as any} size={18} color={a.danger ? '#EF4444' : colors.text.primary} />
-                <Text style={{ fontSize: 15, fontWeight: '600', color: a.danger ? '#EF4444' : colors.text.primary }}>
-                  {a.label}
+                {actionMember.name}
+              </Text>
+              <Text
+                style={{
+                  fontSize: 12,
+                  color: colors.text.muted,
+                  textAlign: "center",
+                  marginBottom: 10,
+                }}
+              >
+                @{actionMember.username}
+              </Text>
+              {buildActions(actionMember).map((a, i) => (
+                <TouchableOpacity
+                  key={a.label}
+                  style={{
+                    flexDirection: "row",
+                    alignItems: "center",
+                    gap: 12,
+                    paddingVertical: 13,
+                    paddingHorizontal: 20,
+                    borderTopWidth: i === 0 ? 0 : 1,
+                    borderTopColor: colors.border,
+                  }}
+                  onPress={a.onPress}
+                >
+                  <Ionicons
+                    name={a.icon as any}
+                    size={18}
+                    color={a.danger ? "#EF4444" : colors.text.primary}
+                  />
+                  <Text
+                    style={{
+                      fontSize: 15,
+                      fontWeight: "600",
+                      color: a.danger ? "#EF4444" : colors.text.primary,
+                    }}
+                  >
+                    {a.label}
+                  </Text>
+                </TouchableOpacity>
+              ))}
+              <TouchableOpacity
+                style={{
+                  marginTop: 10,
+                  marginHorizontal: 20,
+                  paddingVertical: 12,
+                  borderRadius: 12,
+                  backgroundColor: colors.bg.elevated,
+                  alignItems: "center",
+                }}
+                onPress={() => setActionMember(null)}
+              >
+                <Text
+                  style={{
+                    fontSize: 15,
+                    fontWeight: "700",
+                    color: colors.text.muted,
+                  }}
+                >
+                  Cancel
                 </Text>
               </TouchableOpacity>
-            ))}
-            <TouchableOpacity
-              style={{ marginTop: 10, marginHorizontal: 20, paddingVertical: 12, borderRadius: 12, backgroundColor: colors.bg.elevated, alignItems: 'center' }}
-              onPress={() => setActionMember(null)}
-            >
-              <Text style={{ fontSize: 15, fontWeight: '700', color: colors.text.muted }}>Cancel</Text>
-            </TouchableOpacity>
+            </View>
           </View>
-        </View>
-      )}
-    </KeyboardAvoidingView>
-  </Modal>
+        )}
+      </KeyboardAvoidingView>
+    </Modal>
   );
 });

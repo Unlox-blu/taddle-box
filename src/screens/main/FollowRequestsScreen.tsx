@@ -17,10 +17,11 @@ import PullToRefreshWrapper from '../../components/common/PullToRefreshWrapper';
 import { StatusBar } from "expo-status-bar";
 import { fontSizes, spacing, radii, type ColorPalette } from "../../theme";
 import { userService } from "../../services/user.service";
-import { socketClient } from "../../services/socketClient";
+import { accountSocket } from "../../services/accountSocketClient";
 import type { FollowRequestCancelledPayload } from "../../types";
 import { useAuth } from "../../context/AuthContext";
 import { themedAlert } from '../../components/common/ThemedAlert';
+import { warn } from '../../utils/logger';
 
 function makeStyles(c: ColorPalette) {
   return StyleSheet.create({
@@ -110,7 +111,7 @@ export default function FollowRequestsScreen() {
       const res = await userService.getFollowRequests();
       setRequests(res.data || []);
     } catch (e) {
-      console.warn("Failed to load follow requests", e);
+      warn("Failed to load follow requests", e);
     } finally {
       setLoading(false);
     }
@@ -128,9 +129,9 @@ export default function FollowRequestsScreen() {
       if (!followerId) return;
       setRequests((prev) => prev.filter((r) => r.id !== followerId));
     };
-    socketClient.events.on("follow:requestCancelled", onReqCancelled);
+    accountSocket.events.on("follow:requestCancelled", onReqCancelled);
     return () => {
-      socketClient.events.off("follow:requestCancelled", onReqCancelled);
+      accountSocket.events.off("follow:requestCancelled", onReqCancelled);
     };
   }, []);
 

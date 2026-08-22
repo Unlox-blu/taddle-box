@@ -28,9 +28,10 @@ import StateBlock from '../../components/common/StateBlock';
 import { useGlobalScroll } from "../../context/ScrollContext";
 import PullToRefreshWrapper from '../../components/common/PullToRefreshWrapper';
 import { notificationBus, NOTIF_EVENTS } from '../../lib/notificationBus';
-import { socketClient } from '../../services/socketClient';
+import { accountSocket } from '../../services/accountSocketClient';
 import ActiveStatusDot from '../../components/common/ActiveStatusDot';
 import { themedAlert } from '../../components/common/ThemedAlert';
+import { warn, error } from '../../utils/logger';
 
 const FOLLOWED_BACK_KEY = '@taddle_followed_back_usernames';
 // CUSTOM private lobbies stay open for 30 minutes before the invite expires.
@@ -287,7 +288,7 @@ export default function NotificationsScreen({ navigation }: Props) {
         try {
           setFollowedUsernames(new Set(JSON.parse(raw)));
         } catch (e) {
-          console.warn('Failed to parse followed-back usernames', e);
+          warn('Failed to parse followed-back usernames', e);
         }
       })
       .catch(() => {});
@@ -323,7 +324,7 @@ export default function NotificationsScreen({ navigation }: Props) {
       );
       setNotifPage(pageToLoad);
     } catch (e) {
-      console.error('Failed to fetch notifications:', e);
+      error('Failed to fetch notifications:', e);
     }
   }, []);
 
@@ -383,13 +384,13 @@ export default function NotificationsScreen({ navigation }: Props) {
       }
       fetchNotifs();
     };
-    socketClient.events.on('follow:requestCancelled', onReqCancelled);
-    socketClient.events.on('follow:requestResolved', onReqResolved);
-    socketClient.events.on('follow:stateChanged', onStateChanged);
+    accountSocket.events.on('follow:requestCancelled', onReqCancelled);
+    accountSocket.events.on('follow:requestResolved', onReqResolved);
+    accountSocket.events.on('follow:stateChanged', onStateChanged);
     return () => {
-      socketClient.events.off('follow:requestCancelled', onReqCancelled);
-      socketClient.events.off('follow:requestResolved', onReqResolved);
-      socketClient.events.off('follow:stateChanged', onStateChanged);
+      accountSocket.events.off('follow:requestCancelled', onReqCancelled);
+      accountSocket.events.off('follow:requestResolved', onReqResolved);
+      accountSocket.events.off('follow:stateChanged', onStateChanged);
     };
   }, [fetchNotifs]);
 
@@ -527,7 +528,7 @@ export default function NotificationsScreen({ navigation }: Props) {
         }
       }
     } catch (e) {
-      console.warn('Failed to open notification content', e);
+      warn('Failed to open notification content', e);
     }
   };
 
@@ -549,7 +550,7 @@ export default function NotificationsScreen({ navigation }: Props) {
     try {
       await notificationService.markAllRead();
     } catch (e) {
-      console.error('Failed to mark all read:', e);
+      error('Failed to mark all read:', e);
     }
   };
 
@@ -558,7 +559,7 @@ export default function NotificationsScreen({ navigation }: Props) {
     try {
       await notificationService.markOneRead(id);
     } catch (e) {
-      console.error('Failed to mark one read:', e);
+      error('Failed to mark one read:', e);
     }
   };
 

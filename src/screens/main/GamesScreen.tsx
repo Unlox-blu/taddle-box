@@ -74,7 +74,7 @@ import type { Game } from "../../types";
 import type { HtmlGameResult } from "../../games/types";
 const MatchModeModal = React.lazy(() => import("../../components/games/MatchModeModal"));
 const GameResultOverlay = React.lazy(() => import("../../components/games/GameResultOverlay"));
-import { socketClient } from "../../services/socketClient";
+import { accountSocket } from "../../services/accountSocketClient";
 import type { User } from "../../types";
 import { useAuth } from "../../context/AuthContext";
 import TournamentLeaderboardModal from "../../components/games/TournamentLeaderboardModal";
@@ -86,6 +86,7 @@ import {
 } from "../../services/gameSound";
 import { themedAlert } from "../../components/common/ThemedAlert";
 import GamesMatchmakingModal from "../../components/games/GamesMatchmakingModal";
+import { warn } from '../../utils/logger';
 
 type ActiveTab = "games" | "tournaments" | "history";
 type ScreenModal = "none" | "history";
@@ -318,13 +319,13 @@ export default function GamesScreen() {
     try {
       await fetchGamesData();
     } catch (e) {
-      console.warn("Failed to fetch games history", e);
+      warn("Failed to fetch games history", e);
     }
     try {
       const tournamentsRes = await gamesService.getTournaments(1, 20);
       setTournaments(tournamentsRes?.data || []);
     } catch (error) {
-      console.warn("Failed to load tournaments", error);
+      warn("Failed to load tournaments", error);
       setTournaments([]);
     }
     try {
@@ -345,7 +346,7 @@ export default function GamesScreen() {
         const res = await gamesService.getTournaments(1, 20);
         setTournaments(res?.data || []);
       } catch (error) {
-        console.warn("Failed to load tournaments", error);
+        warn("Failed to load tournaments", error);
         setTournaments([]);
       }
       return;
@@ -450,14 +451,14 @@ export default function GamesScreen() {
       setGlobalMatchModalVisible(true);
     });
 
-    socketClient.events.on("notification:new", handleNewNotif);
-    socketClient.events.on("SESSION_EXPIRED", handleSessionExpired);
+    accountSocket.events.on("notification:new", handleNewNotif);
+    accountSocket.events.on("SESSION_EXPIRED", handleSessionExpired);
 
     return () => {
       sub.remove();
       subGamesModal.remove();
-      socketClient.events.off("notification:new", handleNewNotif);
-      socketClient.events.off("SESSION_EXPIRED", handleSessionExpired);
+      accountSocket.events.off("notification:new", handleNewNotif);
+      accountSocket.events.off("SESSION_EXPIRED", handleSessionExpired);
     };
   }, []);
 
@@ -746,10 +747,13 @@ export default function GamesScreen() {
         {activeTab === "games" && (
           <>
             <ContentSectionHeader title="Available Games" />
-            <View style={{ flexDirection: 'row', flexWrap: 'wrap', paddingHorizontal: spacing.lg, marginHorizontal: -spacing.sm }}>
-              {realGames.map(game => {
-                const isRejoin = !!reconnectSession && reconnectSession.gameId === game.id;
-                const rejoinWindowMs = isRejoin ? reconnectSession.reconnectWindowMs : null;
+            {loading && realGames.length === 0 ? (
+              <StateBlock card loading label="Loading games" style={{ paddingTop: 40 }} />
+            ) : (
+              <View style={{ flexDirection: 'row', flexWrap: 'wrap', paddingHorizontal: spacing.lg, marginHorizontal: -spacing.sm }}>
+                {realGames.map(game => {
+                  const isRejoin = !!reconnectSession && reconnectSession.gameId === game.id;
+                  const rejoinWindowMs = isRejoin ? reconnectSession.reconnectWindowMs : null;
                 return (
                   <View key={game.id} style={{ width: '50%', paddingHorizontal: spacing.sm, marginBottom: spacing.md }}>
                     <GameCard
@@ -757,8 +761,7 @@ export default function GamesScreen() {
                         ...game,
                         isHot:
                           backendTrending?.includes(game.id) ||
-                          backendTrending?.includes(game.slug || "") ||
-                          false,
+                          backendTrending?.includes(game.slug || "") ,
                       }}
                       isRejoin={isRejoin}
                       rejoinWindowMs={rejoinWindowMs}
@@ -772,7 +775,8 @@ export default function GamesScreen() {
                   </View>
                 );
               })}
-            </View>
+              </View>
+            )}
           </>
         )}
 
@@ -1421,8 +1425,8 @@ function GamePlayModal({
       }
     };
 
-    socketClient.events.on("notification:new", onNotif);
-    return () => socketClient.events.off("notification:new", onNotif);
+    accountSocket.events.on("notification:new", onNotif);
+    return () => accountSocket.events.off("notification:new", onNotif);
   }, [phase, result]);
 
   const handleComplete = async (gameResult: HtmlGameResult) => {

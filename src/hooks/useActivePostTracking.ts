@@ -4,6 +4,11 @@ import { Dimensions } from "react-native";
 type Rect = { top: number; bottom: number };
 
 type Options = {
+  /** Maps any list item to a post ID. When provided, the hook uses this
+   *  to resolve IDs from items that may not have a top-level `id` field
+   *  (e.g. mixed-type search/bookmark rows). Returns null for non-post
+   *  items (headers, people, etc.) — those still get heights tracked but
+   *  are never candidates for the active post. */
   getPostId?: (item: any) => string | null;
   listHeaderOffset?: number;
   headerHeight?: number;

@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import { View, Text, TouchableOpacity, StyleSheet, Image } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { useNavigation, useRoute, useFocusEffect } from "@react-navigation/native";
@@ -11,6 +11,8 @@ import { useGlobalScroll } from "../../context/ScrollContext";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import SideDrawer from "../home/SideDrawer";
 import Animated, { useAnimatedStyle } from "react-native-reanimated";
+import { accountSocket } from "../../services/accountSocketClient";
+import { chatService } from "../../services/chat.service";
 
 export default function MainHeader({
   showBack = false,
@@ -23,7 +25,7 @@ export default function MainHeader({
   const route = useRoute();
   const insets = useSafeAreaInsets();
   const [isDrawerOpen, setDrawerOpen] = useState(false);
-  const { user: currentUser } = useAuth();
+  const { user: currentUser, accounts, switchAccount } = useAuth();
   const { headerTranslateY, footerTranslateY } = useGlobalScroll();
 
   const animatedStyle = useAnimatedStyle(() => {
@@ -53,6 +55,49 @@ export default function MainHeader({
   // API on EVERY tab click (Community/Events/…), spamming the backend.
   const { unreadCount } = useNotifications();
 
+  // ── Chat Unread Logic ──
+  const [unreadChatCount, setUnreadChatCount] = useState(0);
+  useEffect(() => {
+    // Fetch initial chat unread count
+    chatService.getInbox(1, 10).then((res) => {
+      const count = res.conversations?.reduce((acc: number, c: any) => acc + (c.unread_count || 0), 0) || 0;
+      setUnreadChatCount(count);
+    }).catch(() => {});
+
+    // Listen to real-time chat messages
+    const handleChatMessage = (data: any) => {
+      if (data.sender_id && data.sender_id !== currentUser?.id) {
+        setUnreadChatCount((prev) => prev + 1);
+      }
+    };
+    accountSocket.events.on("chat:message" as any, handleChatMessage);
+    return () => {
+      accountSocket.events.off("chat:message" as any, handleChatMessage);
+    };
+  }, [currentUser?.id]);
+
+  const lastTapRef = useRef<number>(0);
+  const singleTapTimerRef = useRef<NodeJS.Timeout | null>(null);
+
+  const handleAvatarPress = () => {
+    const now = Date.now();
+    if (now - lastTapRef.current < 300) {
+      // Double tap detected
+      if (singleTapTimerRef.current) clearTimeout(singleTapTimerRef.current);
+      
+      const nextAcc = accounts.find((a) => a.userId !== currentUser?.id);
+      if (nextAcc) {
+        switchAccount(nextAcc.userId);
+      }
+    } else {
+      // Wait to see if it's a double tap before opening the drawer
+      singleTapTimerRef.current = setTimeout(() => {
+        setDrawerOpen(true);
+      }, 250);
+    }
+    lastTapRef.current = now;
+  };
+
   return (
     <Animated.View style={[styles.header, { borderBottomColor: colors.border, backgroundColor: colors.bg.base, paddingTop: insets.top + 4 }, animatedStyle]}>
       {showBack ? (
@@ -68,11 +113,22 @@ export default function MainHeader({
         </TouchableOpacity>
       ) : (
         <TouchableOpacity
-          style={styles.iconBtn}
-          onPress={() => setDrawerOpen(true)}
+          style={[styles.iconBtn, { overflow: 'hidden', padding: 0, justifyContent: 'center', alignItems: 'center' }]}
+          onPress={handleAvatarPress}
           activeOpacity={0.7}
         >
-          <Ionicons name="menu-outline" size={26} color={colors.text.primary} />
+          {currentUser?.avatarUrl ? (
+            <Image source={{ uri: currentUser.avatarUrl }} style={{ width: 30, height: 30, borderRadius: 15 }} />
+          ) : (
+            <View style={{ width: 30, height: 30, borderRadius: 15, backgroundColor: colors.bg.card, alignItems: 'center', justifyContent: 'center' }}>
+              <Text style={{ color: colors.text.primary, fontSize: 14, fontWeight: 'bold' }}>
+                {(currentUser?.name || "U").charAt(0).toUpperCase()}
+              </Text>
+            </View>
+          )}
+          {unreadChatCount > 0 && (
+            <View style={{ position: 'absolute', top: 0, right: 0, width: 10, height: 10, borderRadius: 5, backgroundColor: colors.danger, borderWidth: 1.5, borderColor: colors.bg.base }} />
+          )}
         </TouchableOpacity>
       )}
 

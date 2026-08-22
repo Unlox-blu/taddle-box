@@ -25,6 +25,9 @@ import { getReferralRewards } from "../../services/appConfig.service";
 import XPProgressBar from "./XPProgressBar";
 import { themedAlert } from "../common/ThemedAlert";
 import { useTheme } from "../../context/ThemeContext";
+import { chatService } from "../../services/chat.service";
+import { accountSocket } from "../../services/accountSocketClient";
+import { error } from '../../utils/logger';
 
 const { width: SW } = Dimensions.get("window");
 const DRAWER_W = Math.min(Math.round(SW * 0.82), 320);
@@ -76,6 +79,9 @@ export default function SideDrawer({
   // Backend-controlled referral reward (joiner side) — never hardcoded.
   const [referralXp, setReferralXp] = useState<number | null>(null);
 
+  // ── Chat Unread Logic ──
+  const [unreadChatCount, setUnreadChatCount] = useState(0);
+
   const slideX = useRef(new Animated.Value(-DRAWER_W)).current;
   const backdrop = useRef(new Animated.Value(0)).current;
 
@@ -107,14 +113,32 @@ export default function SideDrawer({
             setTotalXP(res.data.totalXpEarned || res.data.Xp);
           }
         })
-        .catch((err) => console.error("Failed to fetch XP for drawer", err));
+        .catch((err) => error("Failed to fetch XP for drawer", err));
 
       // Referral reward amount lives in the backend — pull it for display.
       getReferralRewards()
         .then((rewards) => setReferralXp(rewards?.joinerXp ?? null))
         .catch(() => setReferralXp(null));
+        
+      // Fetch chat unread count when drawer opens
+      chatService.getInbox(1, 10).then((res) => {
+        const count = res.conversations?.reduce((acc: number, c: any) => acc + (c.unread_count || 0), 0) || 0;
+        setUnreadChatCount(count);
+      }).catch(() => {});
     }
   }, [visible]);
+
+  useEffect(() => {
+    const handleChatMessage = (data: any) => {
+      if (data.sender_id && data.sender_id !== user?.id) {
+        setUnreadChatCount((prev) => prev + 1);
+      }
+    };
+    accountSocket.events.on("chat:message" as any, handleChatMessage);
+    return () => {
+      accountSocket.events.off("chat:message" as any, handleChatMessage);
+    };
+  }, [user?.id]);
 
   // Delay navigation until after the close animation finishes — prevents flicker
   const closeAndNavigateTab = (tab: string) => {
@@ -168,7 +192,7 @@ export default function SideDrawer({
       label: "Wallet",
       purple: true,
       onPress: () => {
-        if (user?.globalLockEnabled || user?.appLockEnabled) {
+        if (user?.globalAccountLockEnabled) {
           onClose();
           setTimeout(() => {
             navigation.navigate("LockScreen", {
@@ -421,6 +445,91 @@ export default function SideDrawer({
               targetXP={Math.floor(totalXP / 1000 + 1) * 1000}
             />
           </View>
+
+          {/* ── Messages Button ── */}
+          <TouchableOpacity
+            activeOpacity={0.85}
+            onPress={() => closeAndNavigateStack("ChatInbox")}
+            style={{ marginHorizontal: spacing.lg, marginBottom: spacing.sm }}
+          >
+            <View
+              style={{
+                borderRadius: radii.md,
+                borderWidth: 1,
+                borderColor: isDark ? "rgba(124,58,237,0.3)" : "rgba(124,58,237,0.4)",
+                backgroundColor: isDark ? "rgba(124,58,237,0.1)" : "rgba(124,58,237,0.08)",
+                paddingVertical: 12,
+                paddingHorizontal: 12,
+                flexDirection: "row",
+                alignItems: "center",
+              }}
+            >
+              <View
+                style={{
+                  width: 32,
+                  height: 32,
+                  borderRadius: 16,
+                  backgroundColor: colors.primary,
+                  alignItems: "center",
+                  justifyContent: "center",
+                  marginRight: 12,
+                }}
+              >
+                <Ionicons name="chatbubbles" size={16} color="#fff" />
+              </View>
+              <View style={{ flex: 1 }}>
+                <Text
+                  style={{
+                    fontSize: fontSizes.sm,
+                    fontWeight: "700",
+                    color: colors.primaryLight,
+                  }}
+                >
+                  Messages
+                </Text>
+                <Text
+                  style={{
+                    fontSize: fontSizes.xs - 1,
+                    color: colors.text.secondary,
+                    marginTop: 2,
+                  }}
+                >
+                  Taddle with mutuals & communities
+                </Text>
+              </View>
+              {unreadChatCount > 0 && (
+                <View
+                  style={{
+                    backgroundColor: colors.danger,
+                    borderRadius: 12,
+                    paddingHorizontal: 8,
+                    paddingVertical: 4,
+                    marginRight: 10,
+                  }}
+                >
+                  <Text style={{ color: "#fff", fontSize: 11, fontWeight: "bold" }}>
+                    {unreadChatCount > 99 ? "99+" : unreadChatCount}
+                  </Text>
+                </View>
+              )}
+              <View
+                style={{
+                  width: 24,
+                  height: 24,
+                  borderRadius: 12,
+                  backgroundColor: isDark ? "rgba(124,58,237,0.15)" : "rgba(124,58,237,0.2)",
+                  alignItems: "center",
+                  justifyContent: "center",
+                }}
+              >
+                <Ionicons
+                  name="chevron-forward"
+                  size={14}
+                  color={colors.primaryLight}
+                />
+              </View>
+            </View>
+          </TouchableOpacity>
 
           <TouchableOpacity
             activeOpacity={0.85}

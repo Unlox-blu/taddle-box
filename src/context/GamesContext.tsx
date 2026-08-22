@@ -1,5 +1,6 @@
 import React, { createContext, useContext, useReducer, useCallback, useMemo } from 'react';
 import { gamesService } from '../services/games.service';
+import { error } from '../utils/logger';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -147,7 +148,7 @@ export function GamesProvider({ children }: { children: React.ReactNode }) {
         trendingSlugs,
       });
     } catch (e) {
-      console.error('Failed to fetch games data', e);
+      error('Failed to fetch games data', e);
       dispatch({ type: 'SET_LOADING', isLoading: false });
     }
   }, []);
@@ -160,7 +161,7 @@ export function GamesProvider({ children }: { children: React.ReactNode }) {
       const history = Array.isArray(res?.data) ? res.data.map(formatMatch) : [];
       dispatch({ type: 'SET_MATCHES', matches: history });
     } catch (e) {
-      console.error('Failed to refresh match history', e);
+      error('Failed to refresh match history', e);
     }
   }, []);
 
@@ -172,7 +173,7 @@ export function GamesProvider({ children }: { children: React.ReactNode }) {
       const games = Array.isArray(gamesRes?.data) ? gamesRes.data : [];
       dispatch({ type: 'SET_GAMES', games });
     } catch (e) {
-      console.error('Failed to refresh games', e);
+      error('Failed to refresh games', e);
     }
   }, []);
 

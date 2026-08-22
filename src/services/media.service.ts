@@ -1,5 +1,6 @@
 import { apiClient } from './apiClient';
 import * as FileSystem from 'expo-file-system/legacy';
+import { error as logError } from '../utils/logger';
 
 export interface MediaUploadResponse {
   mediaId: string;
@@ -73,9 +74,9 @@ export const mediaService = {
       if (result.status < 200 || result.status >= 300) {
         throw new Error(`Upload failed with status ${result.status}`);
       }
-    } catch (error) {
-      console.error('Error in uploadFileDirect:', error);
-      throw error;
+    } catch (err) {
+      logError('Error in uploadFileDirect:', err);
+      throw err;
     }
   }
 };

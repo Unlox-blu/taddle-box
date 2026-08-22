@@ -10,6 +10,7 @@ import {
   Platform
 } from 'react-native';
 import { useRoute, useNavigation } from '@react-navigation/native';
+import { safeOpenURL } from '../../utils/urlAllowlist';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
@@ -84,7 +85,7 @@ export default function EventDetailScreen() {
     
     // Google Calendar template works great on both platforms and opens the browser/app
     const url = `https://calendar.google.com/calendar/render?action=TEMPLATE&text=${title}&details=${details}&location=${location}`;
-    Linking.openURL(url).catch(() => {
+    safeOpenURL(url).catch(() => {
       themedAlert("Error", "Could not open calendar.", [{ text: "OK" }]);
     });
   };

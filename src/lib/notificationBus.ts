@@ -1,6 +1,8 @@
 // Lightweight in-app event bus for notification events. Used to broadcast
 // real-time (socket) notifications to every subscribed screen/component
 // (badges, banners, notification list) without prop drilling.
+import { warn } from '../utils/logger';
+
 type Listener<T = any> = (payload: T) => void;
 
 class NotificationBus {
@@ -21,7 +23,7 @@ class NotificationBus {
       try {
         listener(payload);
       } catch (e) {
-        console.warn(`[notificationBus] listener error on ${event}`, e);
+        warn(`[notificationBus] listener error on ${event}`, e);
       }
     });
   }

@@ -21,6 +21,7 @@ import { useNavigation } from "@react-navigation/native";
 import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
 import type { HomeStackParamList } from "../../types";
 import { useAuth } from "../../context/AuthContext";
+import { error } from '../../utils/logger';
 
 type Props = {
   visible: boolean;
@@ -57,7 +58,7 @@ export default function TournamentLeaderboardModal({ visible, tournament, onClos
       setLoading(true);
       apiClient.get(`/game/tournaments/${tournament.id}/leaderboard?limit=10`)
         .then(res => setLeaderboard(res.data.data))
-        .catch(err => console.error("Failed to load tournament leaderboard", err))
+        .catch(err => error("Failed to load tournament leaderboard", err))
         .finally(() => setLoading(false));
     }
   }, [visible, tournament]);

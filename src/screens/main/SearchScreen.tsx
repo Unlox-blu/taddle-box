@@ -36,6 +36,7 @@ import { xpService } from "../../services/xp.service";
 import type { HomeStackParamList, Post, Transaction } from "../../types";
 import PullToRefreshWrapper from "../../components/common/PullToRefreshWrapper";
 import StateBlock from "../../components/common/StateBlock";
+import CommentsModal from "../../components/home/CommentsModal";
 import Animated, { useSharedValue, useAnimatedStyle } from "react-native-reanimated";
 import {
   useGlobalScroll,
@@ -43,6 +44,7 @@ import {
 } from "../../context/ScrollContext";
 import { useToggleLike, useToggleSave } from "../../mutations/posts";
 import { themedAlert } from "../../components/common/ThemedAlert";
+import ShareSheet from "../../components/common/ShareSheet";
 import { makeStyles } from "../../components/search/searchStyles";
 import {
   ROW_RENDERERS,
@@ -51,6 +53,7 @@ import {
 } from "../../components/search/SearchRows";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { useActivePostTracking } from "../../hooks/useActivePostTracking";
+import { warn } from '../../utils/logger';
 
 type Props = NativeStackScreenProps<HomeStackParamList, "Search">;
 
@@ -62,7 +65,7 @@ const TOKEN_FILTER_RE = /^(@[^\s@]+|c\/[^\s/]+|#[^\s#]+|\.\/[a-z]+)$/i;
 
 const SETTINGS_ITEMS = [
   { id: "edit_profile", title: "Edit Profile", icon: "person-outline", route: "EditProfile", keywords: ["name", "avatar", "bio", "profile"] },
-  { id: "app_lock", title: "Global Lock & PIN", icon: "lock-closed-outline", route: "Settings", keywords: ["security", "passcode", "fingerprint", "face id", "lock"] },
+  { id: "global_account_lock", title: "Global Account Lock & PIN", icon: "lock-closed-outline", route: "Settings", keywords: ["security", "passcode", "fingerprint", "face id", "lock"] },
   { id: "change_password", title: "Change Password", icon: "key-outline", route: "ChangePassword", keywords: ["security", "password"] },
   { id: "phone", title: "Phone Number", icon: "call-outline", route: "ChangePhone", keywords: ["mobile", "phone"] },
   { id: "email", title: "Email Address", icon: "mail-outline", route: "ChangeEmail", keywords: ["contact", "email"] },
@@ -510,18 +513,80 @@ export default function SearchScreen({ navigation, route }: Props) {
   // FlashList viewability tells us which items are visible; the hook picks
   // the most-visible post row. isFocused guards playback when navigating away.
   const isFocused = useIsFocused();
-  // For mixed-type rows, extract the post ID only from post-type rows.
-  const { activePostId, viewabilityConfig, onViewableItemsChanged,
-          trackLayout, handleScroll: handleScrollForTracking } =
-    useActivePostTracking([], {
-      getPostId: (row: any) =>
-        !row.isHeader && (row.type === 'posts' || row.type === 'post')
-          ? (row.item?.id ?? null)
-          : null,
-    });
+
+  // ── CommentsModal ──────────────────────────────────────────────────
+  const [commentsVisible, setCommentsVisible] = useState(false);
+  const [activeCommentPost, setActiveCommentPost] = useState<any>(null);
+  const [shareVisible, setShareVisible] = useState(false);
+  const [sharePost, setSharePost] = useState<any>(null);
 
   // Active tab's rows — derived from the cache so switching tabs is instant.
   const rows = rowsByTab[activeTab] || [];
+
+  // Pass ALL rows so accumulated heights account for non-post rows
+  // (headers, people, communities) that take up scroll space.
+  const hookRows = rows.map((r: any, i: number) => ({
+    id: r.isHeader ? `__header_${r.type}_${i}` : (r.item?.id ?? `__row_${i}`),
+    _row: r,
+  }));
+  // Map from item.id → hookRow.id so trackLayout can resolve correctly
+  const hookRowIdMap = useRef(new Map<string, string>());
+  useEffect(() => {
+    const m = new Map<string, string>();
+    for (const hr of hookRows) m.set(hr.id, hr.id);
+    hookRowIdMap.current = m;
+  }, [hookRows]);
+  const { activePostId, viewabilityConfig, onViewableItemsChanged,
+          trackLayout: rawTrackLayout, handleScroll: handleScrollForTracking } =
+    useActivePostTracking(hookRows, {
+      getPostId: (row: any) => {
+        // FlashList passes raw Row objects; hook may also pass wrapped hookRows
+        const r = row._row ?? row;
+        return !r.isHeader && (r.type === 'posts' || r.type === 'post')
+          ? (r.item?.id ?? null)
+          : null;
+      },
+    });
+  // Wrap trackLayout: SearchRows calls it with post.id, but the hook
+  // accumulates heights by hookRow.id. Map one to the other.
+  const trackLayout = useCallback((id: string, rect: { top: number; bottom: number }) => {
+    // Find the hookRow that wraps this item.id
+    const hookRow = hookRows.find((hr: any) => hr.id === id || hr._row?.item?.id === id);
+    if (hookRow) rawTrackLayout(hookRow.id, rect);
+    else rawTrackLayout(id, rect);
+  }, [hookRows, rawTrackLayout]);
+
+  // ── Video preload: direction-aware ────────────────────────────────
+  const lastScrollYRef = useRef(0);
+  const scrollDirRef = useRef<1 | -1>(1);
+
+  const preloadPostId = useMemo(() => {
+    if (!activePostId) return null;
+    const activeIdx = rows.findIndex(
+      (r) => !r.isHeader && (r.item as any)?.id === activePostId,
+    );
+    if (activeIdx < 0) return null;
+
+    const dir = scrollDirRef.current;
+    const scan = (start: number, step: number) => {
+      for (let i = start; i >= 0 && i < rows.length; i += step) {
+        const r = rows[i] as any;
+        if (r.isHeader) continue;
+        if (r.type !== "posts" && r.type !== "post") continue;
+        const hasVid = r.item?.media?.some?.((m: any) => m.media_type === "video");
+        if (hasVid) return r.item.id as string;
+      }
+      return null;
+    };
+
+    const found = dir === 1
+      ? scan(activeIdx + 1, 1)
+      : scan(activeIdx - 1, -1);
+    if (found) return found;
+    // Fallback: try the other direction
+    return dir === 1 ? scan(activeIdx - 1, -1) : scan(activeIdx + 1, 1);
+    return null;
+  }, [rows, activePostId]);
 
   const { user: currentUser } = useAuth();
   const { mutate: toggleLike } = useToggleLike();
@@ -762,7 +827,7 @@ export default function SearchScreen({ navigation, route }: Props) {
         if (!q.trim() && !buildFilterString() && newRows.length > 0)
           setDiscoveryLoaded(true);
       } catch (e) {
-        console.warn("Search failed", e);
+        warn("Search failed", e);
         if (!append) setRowsByTab((prev) => ({ ...prev, [tab]: [] }));
       } finally {
         if (searchReqRef.current === reqId) {
@@ -896,16 +961,7 @@ export default function SearchScreen({ navigation, route }: Props) {
       toggleLike: (id, isCurrentlyLiked) => toggleLike({ id, isCurrentlyLiked }),
       toggleSave: (id, isCurrentlySaved) => toggleSave({ id, isCurrentlySaved }),
       patchPost,
-      sharePost: (post) => {
-        const shareTitle =
-          (post as any)?.title || `${post.author?.name || "User"}'s Post`;
-        const appUrl = `https://taddlebox.com/post/${post.id}`;
-        Share.share({
-          message: `${shareTitle}\n\n${appUrl}`,
-          url: appUrl,
-          title: shareTitle,
-        }).catch(() => {});
-      },
+      sharePost: (post: any) => { setSharePost(post); setShareVisible(true); },
       reportPost: () =>
         themedAlert(
           "Reported",
@@ -913,6 +969,7 @@ export default function SearchScreen({ navigation, route }: Props) {
         ),
       refresh: () => fetchResults(query, activeTab),
       openPost: (post) => navigation.push("PostDetail", { post }),
+      openComments: (post: any) => { setActiveCommentPost(post); setCommentsVisible(true); },
       openUser: (user) => navigation.push("UserProfile", { user }),
       openCommunity: (slug) =>
         (navigation as any).navigate("Community", {
@@ -928,6 +985,9 @@ export default function SearchScreen({ navigation, route }: Props) {
         setResultType("all");
       },
       trackLayout,
+      preloadPostId,
+      feedPosts: rows.filter((r: any) => !r.isHeader && (r.type === 'posts' || r.type === 'post')).map((r: any) => r.item),
+      feedContext: 'search' as const,
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [
@@ -944,6 +1004,8 @@ export default function SearchScreen({ navigation, route }: Props) {
     query,
     activeTab,
     trackLayout,
+    preloadPostId,
+    rows,
   ]);
 
   const renderItem = ({ item }: { item: Row }) => {
@@ -1642,12 +1704,16 @@ export default function SearchScreen({ navigation, route }: Props) {
               // chrome, but stays visible on short result lists).
               { paddingTop: searchOverlayH, paddingBottom: footerHeight + 20 },
             ]}
-            ItemSeparatorComponent={() => <View style={{ height: 10 }} />}
             keyboardDismissMode="on-drag"
             keyboardShouldPersistTaps="handled"
+            alwaysBounceVertical
             // Track the live offset so switching tabs can save/restore it.
             onScroll={(e) => {
-              scrollOffsetCurrentRef.current = e.nativeEvent.contentOffset.y;
+              const y = e.nativeEvent.contentOffset.y;
+              if (y > lastScrollYRef.current + 2) scrollDirRef.current = 1;
+              else if (y < lastScrollYRef.current - 2) scrollDirRef.current = -1;
+              lastScrollYRef.current = y;
+              scrollOffsetCurrentRef.current = y;
               handleScrollForTracking(e);
               // Instagram-style hide — the search bar + pill row ride up
               // WITH the finger (the same finger-tracking as the global
@@ -1655,7 +1721,6 @@ export default function SearchScreen({ navigation, route }: Props) {
               // scrolling up snaps them back immediately, and reaching the
               // top always restores them. Scrolling also dismisses the
               // keyboard.
-              const y = e.nativeEvent.contentOffset.y;
               const dy = y - searchPrevY.current;
               applySectionScrollOffset(
                 y,
@@ -1820,6 +1885,19 @@ export default function SearchScreen({ navigation, route }: Props) {
           </View>
         </TouchableOpacity>
       </Modal>
+
+      <CommentsModal
+        visible={commentsVisible}
+        onClose={() => setCommentsVisible(false)}
+        post={activeCommentPost}
+      />
+
+      <ShareSheet
+        visible={shareVisible}
+        onClose={() => setShareVisible(false)}
+        postId={sharePost?.id}
+        postTitle={sharePost?.title || ''}
+      />
     </View>
   );
 }

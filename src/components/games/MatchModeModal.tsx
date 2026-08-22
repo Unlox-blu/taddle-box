@@ -36,7 +36,7 @@ import { useAuth } from "../../context/AuthContext";
 import { useThemeColors } from "../../context/ThemeContext";
 import { apiClient } from "../../services/apiClient";
 import { gamesService, type MatchmakingResponse } from "../../services/games.service";
-import { socketClient } from "../../services/socketClient";
+import { accountSocket } from "../../services/accountSocketClient";
 import { userService } from "../../services/user.service";
 import { fontSizes, radii, spacing, type ColorPalette } from "../../theme";
 import type { Game, MatchmakingEventPayload } from "../../types";
@@ -284,13 +284,13 @@ export default function MatchModeModal({
       setTimeout(() => onClose(), 600);
     };
 
-    socketClient.events.on("matchmaking:lobbyUpdated", onLobbyUpdated);
-    socketClient.events.on("matchmaking:matched", onMatched);
-    socketClient.events.on("matchmaking:timedOut", onTimedOut);
+    accountSocket.events.on("matchmaking:lobbyUpdated", onLobbyUpdated);
+    accountSocket.events.on("matchmaking:matched", onMatched);
+    accountSocket.events.on("matchmaking:timedOut", onTimedOut);
     return () => {
-      socketClient.events.off("matchmaking:lobbyUpdated", onLobbyUpdated);
-      socketClient.events.off("matchmaking:matched", onMatched);
-      socketClient.events.off("matchmaking:timedOut", onTimedOut);
+      accountSocket.events.off("matchmaking:lobbyUpdated", onLobbyUpdated);
+      accountSocket.events.off("matchmaking:matched", onMatched);
+      accountSocket.events.off("matchmaking:timedOut", onTimedOut);
     };
   }, [step]);
 
@@ -322,15 +322,15 @@ export default function MatchModeModal({
       backoffMs = 2000;
       nextPollAt = Date.now();
     };
-    socketClient.events.on("matchmaking:lobbyUpdated", onSocketActivity);
-    socketClient.events.on("matchmaking:matched", onSocketActivity);
-    socketClient.events.on("matchmaking:timedOut", onSocketActivity);
+    accountSocket.events.on("matchmaking:lobbyUpdated", onSocketActivity);
+    accountSocket.events.on("matchmaking:matched", onSocketActivity);
+    accountSocket.events.on("matchmaking:timedOut", onSocketActivity);
 
     const stop = () => {
       if (lobbyPollRef.current) { clearInterval(lobbyPollRef.current); lobbyPollRef.current = null; }
-      socketClient.events.off("matchmaking:lobbyUpdated", onSocketActivity);
-      socketClient.events.off("matchmaking:matched", onSocketActivity);
-      socketClient.events.off("matchmaking:timedOut", onSocketActivity);
+      accountSocket.events.off("matchmaking:lobbyUpdated", onSocketActivity);
+      accountSocket.events.off("matchmaking:matched", onSocketActivity);
+      accountSocket.events.off("matchmaking:timedOut", onSocketActivity);
       stopLobbyPollRef.current = null;
     };
     stopLobbyPollRef.current = stop;
@@ -342,7 +342,7 @@ export default function MatchModeModal({
 
       const now = Date.now();
       const socketHealthy =
-        !!socketClient.socket?.connected && now - lastSocketEvent < SOCKET_STALE_MS;
+        !!accountSocket.socket?.connected && now - lastSocketEvent < SOCKET_STALE_MS;
       if (socketHealthy || now < nextPollAt || inFlight) return;
 
       inFlight = true;

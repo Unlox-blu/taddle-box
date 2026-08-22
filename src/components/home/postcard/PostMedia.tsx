@@ -100,7 +100,7 @@ function PostMediaInner({
   const hasAudioTrack = audioMedia.length > 0;
   // Check if current carousel item has audio
   const currentMedia = visualMedia[currentMediaPage] as any;
-  const currentHasAudio = currentMedia?.has_audio ?? (hasAudioTrack || false);
+  const currentHasAudio = currentMedia?.has_audio ?? (hasAudioTrack );
 
   const renderMediaItem = (m: any, idx: number) => {
     const url = m.media_url;

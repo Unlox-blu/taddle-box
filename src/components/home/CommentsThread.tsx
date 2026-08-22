@@ -19,6 +19,7 @@ import { useQueryClient } from '@tanstack/react-query';
 import type { Post, HomeStackParamList } from '../../types';
 import { themedAlert } from '../common/ThemedAlert';
 import StateBlock from '../common/StateBlock';
+import { warn, error } from '../../utils/logger';
 
 interface Props {
   post: Post;
@@ -255,7 +256,7 @@ export default function CommentsThread({
       );
       setPage(nextPage);
     } catch (e) {
-      console.error('Failed to fetch comments', e);
+      error('Failed to fetch comments', e);
     } finally {
       setLoading(false);
       setLoadingMore(false);
@@ -286,7 +287,7 @@ export default function CommentsThread({
         ),
       );
     } catch (e) {
-      console.error('Failed to fetch replies', e);
+      error('Failed to fetch replies', e);
     }
   }, [post.id, sort]);
 
@@ -344,7 +345,7 @@ export default function CommentsThread({
           }
         }
       } catch (e) {
-        console.warn('Failed to resolve focused comment', e);
+        warn('Failed to resolve focused comment', e);
       }
     })();
     return () => {
@@ -428,7 +429,7 @@ export default function CommentsThread({
         });
       }
     } catch (e) {
-      console.error('Failed to post comment', e);
+      error('Failed to post comment', e);
       bumpCount(-1);
       // Roll back the optimistic row.
       setComments((prev) => {
@@ -462,7 +463,7 @@ export default function CommentsThread({
       if (isLiked) await commentService.unlikeComment(comment.id);
       else await commentService.likeComment(comment.id);
     } catch (e) {
-      console.error('Failed to toggle comment like', e);
+      error('Failed to toggle comment like', e);
     }
   };
 
@@ -492,7 +493,7 @@ export default function CommentsThread({
             try {
               await commentService.deleteComment(comment.id);
             } catch (e) {
-              console.error('Failed to delete comment', e);
+              error('Failed to delete comment', e);
               bumpCount(1);
               fetchTopLevelComments();
             }

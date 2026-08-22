@@ -40,6 +40,7 @@ import SmartInput from "./SmartInput";
 import AudiencePicker from "./AudiencePicker";
 import { nativeBypass } from "../../utils/nativeBypass";
 import { themedAlert } from './ThemedAlert';
+import { log, warn, error } from '../../utils/logger';
 
 const SCREEN_W = Dimensions.get("window").width;
 
@@ -322,7 +323,7 @@ export default function CreatePostModal({
           .then((res) => {
             if (res?.data) setDynamicTags(res.data);
           })
-          .catch((e) => console.error("Failed to fetch hashtags", e));
+          .catch((e) => error("Failed to fetch hashtags", e));
       }
     }, 200);
     return () => clearTimeout(handler);
@@ -431,7 +432,7 @@ export default function CreatePostModal({
           soundRef.current = newSound;
           currentSound = newSound;
         } catch (e) {
-          console.warn("Failed to load audio preview", e);
+          warn("Failed to load audio preview", e);
         }
       }
     };
@@ -663,7 +664,7 @@ export default function CreatePostModal({
         keepPanelOpen,
       );
     } catch (e) {
-      console.warn("Failed to capture location", e);
+      warn("Failed to capture location", e);
       themedAlert("Error", "Could not fetch your location. Try again.");
     } finally {
       nativeBypass.endNativeFlow();
@@ -704,7 +705,7 @@ export default function CreatePostModal({
         setLocationResults(uniqueItems);
         setLocationDropdownVisible(true);
       } catch (e) {
-        console.log("Location search error", e);
+        log("Location search error", e);
       } finally {
         setLocationSearching(false);
       }
@@ -728,7 +729,7 @@ export default function CreatePostModal({
       const json = await res.json();
       setGifs(json.data?.data || []);
     } catch (e) {
-      console.warn("Failed to fetch GIFs", e);
+      warn("Failed to fetch GIFs", e);
     }
     setGifLoading(false);
   };
@@ -1021,7 +1022,7 @@ export default function CreatePostModal({
         });
       }
       themedAlert("Error", "Failed to upload media or create post. Try again.");
-      console.error(err);
+      error(err);
     } finally {
       setUploading(false);
       DeviceEventEmitter.emit('postCompleted');

@@ -2,9 +2,7 @@ import React, { useState, useRef, useCallback, useMemo } from "react";
 import {
   View,
   Text,
-  Share,
   DeviceEventEmitter,
-  Dimensions,
 } from "react-native";
 import { FlashList } from "@shopify/flash-list";
 import {
@@ -19,8 +17,10 @@ import { useAuth } from "../../context/AuthContext";
 import type { Post } from "../../types";
 import { themedAlert } from "./ThemedAlert";
 import PullToRefreshWrapper from "./PullToRefreshWrapper";
+import ShareSheet from "./ShareSheet";
 import { useGlobalScroll } from "../../context/ScrollContext";
 import { useActivePostTracking } from "../../hooks/useActivePostTracking";
+import { error } from '../../utils/logger';
 
 interface SharedFeedProps {
   posts: Post[];
@@ -58,6 +58,11 @@ interface SharedFeedProps {
       freshly remounted list starts at 0, and this puts it back where the user
       was (e.g. switching back to the Posts tab from Mentions). */
   initialScrollOffset?: number;
+  /** Adjacent posts to seed the reel when a card is tapped. Pass the full
+   *  current post list so the reel can continue from the tapped position. */
+  feedPosts?: Post[];
+  feedContext?: 'feed' | 'profile' | 'bookmarks' | 'community' | 'search';
+  feedContextId?: string;
 }
 
 export default function SharedFeed({
@@ -84,6 +89,9 @@ export default function SharedFeed({
   sectionHeaderH,
   onScroll,
   initialScrollOffset,
+  feedPosts,
+  feedContext,
+  feedContextId,
 }: SharedFeedProps) {
   // A string slipped into a List*Component (a caller passing "No posts" as a
   // literal instead of a <View>) would be rendered directly inside a host View
@@ -113,6 +121,8 @@ export default function SharedFeed({
 
   const [commentsVisible, setCommentsVisible] = useState(false);
   const [activeCommentPost, setActiveCommentPost] = useState<Post | null>(null);
+  const [shareVisible, setShareVisible] = useState(false);
+  const [sharePost, setSharePost] = useState<Post | null>(null);
 
   const flatListRef = useRef<any>(null);
   useScrollToTop(flatListRef);
@@ -148,19 +158,38 @@ export default function SharedFeed({
   // ── Video preload: find the next video post after active ────────────────
   // Only 1 video ahead gets preloaded. When the user scrolls to it,
   // it plays immediately. This keeps 1 active + 1 preloaded = ~2 players max.
+  // ── Video preload: direction-aware ─────────────────────────────────
+  // Tracks scroll direction so we preload the NEXT video when scrolling
+  // down and the PREVIOUS video when scrolling up.
+  const lastScrollYRef = useRef(0);
+  const scrollDirRef = useRef<1 | -1>(1); // 1=down, -1=up
+
   const preloadPostId = useMemo(() => {
     if (!activePostId) return null;
     const activeIdx = posts.findIndex((p) => p.id === activePostId);
     if (activeIdx < 0) return null;
 
-    // Look ahead from active+1 for the next video post
+    const dir = scrollDirRef.current;
+    if (dir === 1) {
+      // Scrolling down → look ahead
+      for (let i = activeIdx + 1; i < posts.length; i++) {
+        const p = posts[i] as any;
+        const media = p.media || [];
+        if (media.some((m: any) => m.media_type === "video")) return p.id;
+      }
+    } else {
+      // Scrolling up → look behind
+      for (let i = activeIdx - 1; i >= 0; i--) {
+        const p = posts[i] as any;
+        const media = p.media || [];
+        if (media.some((m: any) => m.media_type === "video")) return p.id;
+      }
+    }
+    // Fallback: try the other direction
     for (let i = activeIdx + 1; i < posts.length; i++) {
       const p = posts[i] as any;
       const media = p.media || [];
-      const hasVideo = media.some(
-        (m: any) => m.media_type === "video" || m.type === "video",
-      );
-      if (hasVideo) return p.id;
+      if (media.some((m: any) => m.media_type === "video")) return p.id;
     }
     return null;
   }, [posts, activePostId]);
@@ -170,29 +199,9 @@ export default function SharedFeed({
     setCommentsVisible(true);
   }, []);
 
-  const handleShare = useCallback(async (post: Post) => {
-    try {
-      const shareTitle = (post as any).title || `${post.author.name}'s Post`;
-      const appUrl = `https://taddlebox.com/post/${post.id}`;
-      const firstMedia = (post as any).media?.[0]?.media_url || post.mediaUri;
-
-      const message = firstMedia
-        ? `${shareTitle}\n\n${appUrl}\n\nMedia: ${firstMedia}`
-        : `${shareTitle}\n\n${appUrl}`;
-
-      await Share.share(
-        {
-          message,
-          url: appUrl, // iOS uses this directly
-          title: shareTitle, // Android uses this in the intent
-        },
-        {
-          dialogTitle: "Share Post",
-        },
-      );
-    } catch (e) {
-      console.warn("Failed to share", e);
-    }
+  const handleShare = useCallback((post: Post) => {
+    setSharePost(post);
+    setShareVisible(true);
   }, []);
 
   const handleAuthorPress = useCallback(
@@ -235,7 +244,7 @@ export default function SharedFeed({
         if (post) {
           await postsService
             .toggleLike(id, !!post.isLiked)
-            .catch(console.error);
+            .catch(error);
         }
       }
     },
@@ -254,7 +263,7 @@ export default function SharedFeed({
         if (post) {
           await postsService
             .toggleSave(id, !!post.isSaved)
-            .catch(console.error);
+            .catch(error);
         }
       }
     },
@@ -300,6 +309,9 @@ export default function SharedFeed({
                   currentUser?.id === (item as any)?.authorId ||
                   isAdmin
                 }
+                feedPosts={feedPosts ?? posts}
+                feedContext={feedContext}
+                feedContextId={feedContextId}
               />
             ))}
         {safeNode(ListFooterComponent)}
@@ -320,7 +332,7 @@ export default function SharedFeed({
   return (
     <>
       <PullToRefreshWrapper
-        refreshing={refreshing || false}
+        refreshing={refreshing ?? false}
         onRefresh={onRefresh || (() => {})}
         sectionHeader={sectionHeader}
         sectionHeaderH={sectionHeaderH}
@@ -341,7 +353,11 @@ export default function SharedFeed({
             initialScrollOffset ? { x: 0, y: initialScrollOffset } : undefined
           }
           onScroll={(e) => {
-            onScroll?.(e.nativeEvent.contentOffset.y);
+            const y = e.nativeEvent.contentOffset.y;
+            if (y > lastScrollYRef.current + 2) scrollDirRef.current = 1;
+            else if (y < lastScrollYRef.current - 2) scrollDirRef.current = -1;
+            lastScrollYRef.current = y;
+            onScroll?.(y);
             handleScrollForTracking(e);
           }}
           scrollEventThrottle={16}
@@ -400,33 +416,26 @@ export default function SharedFeed({
                   isAdmin
                 }
                 preloadVideo={item.id === preloadPostId}
+                feedPosts={feedPosts ?? posts}
+                feedContext={feedContext}
+                feedContextId={feedContextId}
               />
             </View>
           )}
         />
       </PullToRefreshWrapper>
 
-      {/* Debug Overlay: 35% Focus Zone */}
-      <View
-        pointerEvents="none"
-        style={{
-          position: "absolute",
-          top: Dimensions.get("window").height * ((1 - 0.35) / 2),
-          height: Dimensions.get("window").height * 0.35,
-          left: 0,
-          right: 0,
-          backgroundColor: "rgba(0, 0, 0, 0.2)",
-          borderTopWidth: 1,
-          borderBottomWidth: 1,
-          borderColor: "rgba(255, 255, 255, 0.5)",
-          zIndex: 9999,
-        }}
-      />
-
       <CommentsModal
         visible={commentsVisible}
         onClose={() => setCommentsVisible(false)}
         post={activeCommentPost}
+      />
+
+      <ShareSheet
+        visible={shareVisible}
+        onClose={() => setShareVisible(false)}
+        postId={sharePost?.id || ""}
+        postTitle={(sharePost as any)?.title || sharePost?.content?.slice(0, 80)}
       />
     </>
   );

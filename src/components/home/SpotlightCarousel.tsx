@@ -17,6 +17,7 @@ import { fontSizes, spacing, radii, type ColorPalette } from "../../theme";
 import { useThemeColors } from "../../context/ThemeContext";
 import { highlightService, Highlight } from "../../services/highlight.service";
 import { GAME_ASSETS } from "../../games/assets";
+import { error } from '../../utils/logger';
 
 const { width: SW } = Dimensions.get("window");
 const CARD_W = SW - spacing.lg * 2;
@@ -221,7 +222,7 @@ export default function SpotlightCarousel() {
 
       setSpotlights([...nativeHighlights, ...eventHighlights, ...gameHighlights]);
     } catch (e) {
-      console.error("Failed to fetch highlights", e);
+      error("Failed to fetch highlights", e);
     } finally {
       setLoading(false);
     }

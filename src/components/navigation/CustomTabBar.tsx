@@ -9,6 +9,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { radii, fontSizes } from '../../theme';
 import { useTheme } from '../../context/ThemeContext';
 import { useGlobalScroll } from '../../context/ScrollContext';
+import { useAuth } from '../../context/AuthContext';
 const CreatePostModal = React.lazy(() => import('../common/CreatePostModal'));
 import Animated, { useAnimatedStyle } from 'react-native-reanimated';
 
@@ -42,6 +43,7 @@ export default function CustomTabBar({ state, navigation }: BottomTabBarProps) {
   const insets = useSafeAreaInsets();
   const { colors, isDark } = useTheme();
   const { footerTranslateY } = useGlobalScroll();
+  const { accounts, user, switchAccount } = useAuth();
   const [createVisible, setCreateVisible] = useState(false);
   const [isPosting, setIsPosting] = useState(false);
   useEffect(() => {
@@ -72,27 +74,36 @@ export default function CustomTabBar({ state, navigation }: BottomTabBarProps) {
         key={routeName}
         style={styles.tab}
         onPress={() => {
+          const now = Date.now();
+          const lastPress = lastPressRef.current[routeName] || 0;
+          const isDoubleTap = now - lastPress < 300;
+          lastPressRef.current[routeName] = now;
+
           const event = navigation.emit({
             type: 'tabPress',
             target: route.key,
             canPreventDefault: true,
           });
 
+          // Special case: Double tap on Profile from anywhere switches accounts
+          if (isDoubleTap && routeName === 'Profile' && accounts && accounts.length > 1) {
+            const currentIdx = accounts.findIndex(a => String(a.userId) === String(user?.id));
+            const nextAccount = accounts[(currentIdx + 1) % accounts.length];
+            if (nextAccount && String(nextAccount.userId) !== String(user?.id)) {
+              switchAccount(nextAccount.userId);
+              return;
+            }
+          }
+
           if (!active && !event.defaultPrevented) {
             navigation.navigate(routeName);
           } else if (active) {
-            // Every tab behaves like Home: single-tap scrolls the feed to the
-            // top, double-tap scrolls to top AND refreshes. Screens listen
-            // for `${name}SingleTap` / `${name}DoubleTap`.
-            const now = Date.now();
-            const lastPress = lastPressRef.current[routeName] || 0;
             const eventKey = routeName.toLowerCase();
-            if (now - lastPress < 300) {
+            if (isDoubleTap) {
               DeviceEventEmitter.emit(eventKey + 'DoubleTap');
             } else {
               DeviceEventEmitter.emit(eventKey + 'SingleTap');
             }
-            lastPressRef.current[routeName] = now;
           }
         }}
         activeOpacity={0.7}
@@ -128,6 +139,9 @@ export default function CustomTabBar({ state, navigation }: BottomTabBarProps) {
     }
   };
 
+  const activeRoute = getActiveRouteState(navigation.getState());
+  const isTabBarHidden = ['Chat', 'ChatInbox'].includes(activeRoute?.name || '');
+
   return (
     <>
       <React.Suspense fallback={null}>
@@ -137,33 +151,35 @@ export default function CustomTabBar({ state, navigation }: BottomTabBarProps) {
         preselectedCommunityId={preselectedCommunityId}
       />
       </React.Suspense>
-      <Animated.View style={[styles.container, { paddingBottom: insets.bottom || 10, backgroundColor: tabBarBg, borderTopColor: colors.border }, animatedStyle]}>
-        <View style={styles.inner}>
-          {/* Left tabs */}
-          <View style={styles.side}>
-            {LEFT_TABS.map(renderTab)}
-          </View>
+      {!isTabBarHidden && (
+        <Animated.View style={[styles.container, { paddingBottom: insets.bottom || 10, backgroundColor: tabBarBg, borderTopColor: colors.border }, animatedStyle]}>
+          <View style={styles.inner}>
+            {/* Left tabs */}
+            <View style={styles.side}>
+              {LEFT_TABS.map(renderTab)}
+            </View>
 
-          {/* Center FAB */}
-          <View style={styles.fabWrapper}>
-            <TouchableOpacity activeOpacity={0.85} onPress={handleFabPress}>
-              <LinearGradient
-                colors={[colors.primary, colors.cyanDark]}
-                start={{ x: 0, y: 0 }}
-                end={{ x: 1, y: 1 }}
-                style={styles.fab}
-              >
-                {isPosting ? <ActivityIndicator size="small" color="#fff" /> : <Ionicons name="add" size={28} color="#fff" />}
-              </LinearGradient>
-            </TouchableOpacity>
-          </View>
+            {/* Center FAB */}
+            <View style={styles.fabWrapper}>
+              <TouchableOpacity activeOpacity={0.85} onPress={handleFabPress}>
+                <LinearGradient
+                  colors={[colors.primary, colors.cyanDark]}
+                  start={{ x: 0, y: 0 }}
+                  end={{ x: 1, y: 1 }}
+                  style={styles.fab}
+                >
+                  {isPosting ? <ActivityIndicator size="small" color="#fff" /> : <Ionicons name="add" size={28} color="#fff" />}
+                </LinearGradient>
+              </TouchableOpacity>
+            </View>
 
-          {/* Right tabs */}
-          <View style={styles.side}>
-            {RIGHT_TABS.map(renderTab)}
+            {/* Right tabs */}
+            <View style={styles.side}>
+              {RIGHT_TABS.map(renderTab)}
+            </View>
           </View>
-        </View>
-      </Animated.View>
+        </Animated.View>
+      )}
     </>
   );
 }

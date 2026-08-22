@@ -24,6 +24,8 @@ const ChangePasswordScreen = React.lazy(() => import('../screens/main/ChangePass
 const FollowRequestsScreen = React.lazy(() => import('../screens/main/FollowRequestsScreen'));
 const ChangePhoneScreen    = React.lazy(() => import('../screens/main/ChangePhoneScreen'));
 const ChangeEmailScreen    = React.lazy(() => import('../screens/main/ChangeEmailScreen'));
+const ChatInboxScreen      = React.lazy(() => import('../screens/main/ChatInboxScreen'));
+const ChatScreen            = React.lazy(() => import('../screens/main/ChatScreen'));
 
 const LazyFallback = () => (
   <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center' }}>
@@ -58,6 +60,8 @@ export default function HomeStackNavigator() {
       <Stack.Screen name="ChangeEmail"    component={ChangeEmailScreen}    options={{ animation: 'slide_from_right' }} />
       <Stack.Screen name="FollowRequests" component={FollowRequestsScreen} options={{ animation: 'slide_from_right' }} />
       <Stack.Screen name="Search"         component={SearchScreen}         options={{ animation: 'fade' }} />
+      <Stack.Screen name="ChatInbox"      component={ChatInboxScreen}      options={{ animation: 'slide_from_right' }} />
+      <Stack.Screen name="Chat"           component={ChatScreen}           options={{ animation: 'slide_from_right' }} />
     </Stack.Navigator>
     </React.Suspense>
   );

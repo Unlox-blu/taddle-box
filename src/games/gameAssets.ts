@@ -18,6 +18,7 @@
 import * as FileSystem from "expo-file-system/legacy";
 import { useEffect, useState } from "react";
 import { GAME_ASSETS, GAME_SOUND_NAMES, gameSoundUrl } from "./assets";
+import { warn } from '../utils/logger';
 
 export const GAME_ASSET_VERSION = 1;
 
@@ -107,7 +108,7 @@ async function downloadIfMissing(
     downloaded.add(localUri);
     return localUri;
   } catch (e) {
-    console.warn(`[gameAssets] download failed: ${url}`, e);
+    warn(`[gameAssets] download failed: ${url}`, e);
     return null;
   }
 }

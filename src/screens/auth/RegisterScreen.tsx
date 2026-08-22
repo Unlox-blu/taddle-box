@@ -27,6 +27,7 @@ import { getReferralRewards } from "../../services/appConfig.service";
 import * as Location from "expo-location";
 import DateTimePicker from "@react-native-community/datetimepicker";
 import axios from "axios";
+import { log } from '../../utils/logger';
 
 type Props = NativeStackScreenProps<AuthStackParamList, "Register">;
 
@@ -263,7 +264,7 @@ export default function RegisterScreen({ navigation, route }: Props) {
         setLocationResults(uniqueItems);
         setShowLocationDropdown(true);
       } catch (e) {
-        console.log("Location search error");
+        log("Location search error");
       } finally {
         setIsLocationSearching(false);
       }
@@ -347,7 +348,7 @@ export default function RegisterScreen({ navigation, route }: Props) {
           setShowCollegeDropdown(true);
         }
       } catch (e) {
-        console.log("College search error");
+        log("College search error");
       }
     }, 500);
     return () => clearTimeout(timer);
@@ -459,7 +460,7 @@ export default function RegisterScreen({ navigation, route }: Props) {
       // @ts-ignore
       navigation.navigate("OTP", { signupData, verificationToken });
     } catch (e: any) {
-      console.log(
+      log(
         "OTP Error response:",
         JSON.stringify(e.response?.data, null, 2),
       );

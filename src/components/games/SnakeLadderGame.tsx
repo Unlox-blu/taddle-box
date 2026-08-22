@@ -10,7 +10,7 @@ import Svg, {
   Line, Circle, Path, Defs, LinearGradient as SvgGrad, Stop, G, Ellipse, Polygon, Text as SvgText,
 } from 'react-native-svg';
 import type { HtmlGameResult } from '../../games/types';
-import { createGameEngineSocket } from '../../services/socketClient';
+import { createGameEngineSocket } from '../../services/accountSocketClient';
 import { gameSound, useTurnSound } from '../../services/gameSound';
 
 const { width: SCREEN_W, height: SCREEN_H } = Dimensions.get('window');

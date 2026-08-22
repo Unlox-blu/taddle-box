@@ -25,7 +25,8 @@ import type { HomeStackParamList, LeaderboardsChangedPayload } from '../../types
 import PullToRefreshWrapper from '../../components/common/PullToRefreshWrapper';
 import StateBlock from '../../components/common/StateBlock';
 import { useGlobalScroll } from '../../context/ScrollContext';
-import { socketClient } from '../../services/socketClient';
+import { accountSocket } from '../../services/accountSocketClient';
+import { warn } from '../../utils/logger';
 
 const TABS: { key: LeaderboardType; label: string; icon: keyof typeof Ionicons.glyphMap }[] = [
   { key: 'feed', label: 'Feed', icon: 'newspaper-outline' },
@@ -76,7 +77,7 @@ export default function LeaderboardsScreen() {
       const res = await leaderboardService.getWeekly(20);
       setData(res.data || DEFAULT_DATA);
     } catch (error) {
-      console.warn('Failed to refresh weekly leaderboards', error);
+      warn('Failed to refresh weekly leaderboards', error);
     } finally {
       setLoading(false);
       setRefreshing(false);
@@ -114,7 +115,7 @@ export default function LeaderboardsScreen() {
         currentUser: { ...prev.currentUser, ...partial.currentUser },
       }));
     } catch (error) {
-      console.warn('Failed to refresh weekly leaderboard', error);
+      warn('Failed to refresh weekly leaderboard', error);
     }
   }, [activeTab]);
   useEffect(() => {
@@ -122,9 +123,9 @@ export default function LeaderboardsScreen() {
       if (leaderboardsRefreshTimer.current) clearTimeout(leaderboardsRefreshTimer.current);
       leaderboardsRefreshTimer.current = setTimeout(() => refetchActiveTab(), 1000);
     };
-    socketClient.events.on('leaderboards:changed', handleLeaderboardsChanged);
+    accountSocket.events.on('leaderboards:changed', handleLeaderboardsChanged);
     return () => {
-      socketClient.events.off('leaderboards:changed', handleLeaderboardsChanged);
+      accountSocket.events.off('leaderboards:changed', handleLeaderboardsChanged);
       if (leaderboardsRefreshTimer.current) clearTimeout(leaderboardsRefreshTimer.current);
     };
   }, [refetchActiveTab]);

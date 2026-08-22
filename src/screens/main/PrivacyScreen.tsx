@@ -25,7 +25,7 @@ const SECTIONS = [
   },
   {
     title: '5. Data Security',
-    body: `We implement industry-standard security measures including bcrypt password hashing, encrypted token storage, and TLS in transit. App Lock (PIN + Biometric) is available for additional local device security.`,
+    body: `We implement industry-standard security measures including bcrypt password hashing, encrypted token storage, and TLS in transit. Global Account Lock (PIN + Biometric) is available for additional local device security.`,
   },
   {
     title: '6. Data Retention',

@@ -1,9 +1,22 @@
-import React, { createContext, useContext, useEffect, useRef, useState, useCallback, useMemo } from "react";
+import React, {
+  createContext,
+  useContext,
+  useEffect,
+  useRef,
+  useState,
+  useCallback,
+  useMemo,
+} from "react";
 import * as Notifications from "expo-notifications";
 import { useAuth } from "./AuthContext";
-import { socketClient } from "../services/socketClient";
+import { accountSocket } from "../services/accountSocketClient";
 import { notificationService } from "../services/notification.service";
-import { registerForPushNotificationsAsync, clearPushBadge, startTokenRefreshListener, stopTokenRefreshListener } from "../services/pushNotification.service";
+import {
+  registerForPushNotificationsAsync,
+  clearPushBadge,
+  startTokenRefreshListener,
+  stopTokenRefreshListener,
+} from "../services/pushNotification.service";
 import { notificationBus, NOTIF_EVENTS } from "../lib/notificationBus";
 import type { NotificationNewPayload } from "../types";
 
@@ -40,7 +53,9 @@ const NotificationContext = createContext<NotificationContextType>({
 export const useNotifications = () => useContext(NotificationContext);
 
 // Maps a backend notification payload (from socket or DB) into banner fields.
-const toBanner = (notif: NotificationNewPayload): Exclude<InAppBanner, null> => {
+const toBanner = (
+  notif: NotificationNewPayload,
+): Exclude<InAppBanner, null> => {
   const title = notif?.title || "Taddlebox";
   const body =
     typeof notif?.message === "string"
@@ -55,7 +70,11 @@ const toBanner = (notif: NotificationNewPayload): Exclude<InAppBanner, null> => 
   };
 };
 
-export function NotificationProvider({ children }: { children: React.ReactNode }) {
+export function NotificationProvider({
+  children,
+}: {
+  children: React.ReactNode;
+}) {
   const { isLoggedIn } = useAuth();
   const [unreadCount, setUnreadCount] = useState(0);
   const [banner, setBanner] = useState<InAppBanner>(null);
@@ -166,14 +185,18 @@ export function NotificationProvider({ children }: { children: React.ReactNode }
     );
 
     // Foreground system notifications → render as an in-app banner.
-    const notifSub = Notifications.addNotificationReceivedListener((notification) => {
-      handleIncoming((notification.request.content.data || {
-        id: String(Date.now()),
-        title: notification.request.content.title,
-        message: notification.request.content.body,
-        type: "system",
-      }) as NotificationNewPayload);
-    });
+    const notifSub = Notifications.addNotificationReceivedListener(
+      (notification) => {
+        handleIncoming(
+          (notification.request.content.data || {
+            id: String(Date.now()),
+            title: notification.request.content.title,
+            message: notification.request.content.body,
+            type: "system",
+          }) as NotificationNewPayload,
+        );
+      },
+    );
 
     return () => {
       responseSub.remove();
@@ -186,15 +209,32 @@ export function NotificationProvider({ children }: { children: React.ReactNode }
   useEffect(() => {
     if (!isLoggedIn) return;
     refreshUnread();
-    socketClient.events.on("notification:new", handleIncoming);
+    accountSocket.events.on("notification:new", handleIncoming);
     return () => {
-      socketClient.events.off("notification:new", handleIncoming);
+      accountSocket.events.off("notification:new", handleIncoming);
     };
   }, [isLoggedIn, handleIncoming, refreshUnread]);
 
   return (
     <NotificationContext.Provider
-      value={useMemo(() => ({ unreadCount, banner, showBanner, hideBanner, refreshUnread, clearUnread }), [unreadCount, banner, showBanner, hideBanner, refreshUnread, clearUnread])}
+      value={useMemo(
+        () => ({
+          unreadCount,
+          banner,
+          showBanner,
+          hideBanner,
+          refreshUnread,
+          clearUnread,
+        }),
+        [
+          unreadCount,
+          banner,
+          showBanner,
+          hideBanner,
+          refreshUnread,
+          clearUnread,
+        ],
+      )}
     >
       {children}
     </NotificationContext.Provider>

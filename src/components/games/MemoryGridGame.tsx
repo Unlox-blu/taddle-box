@@ -2,7 +2,7 @@ import React, { useEffect, useState, useRef } from "react";
 import { View, StyleSheet, Text, TouchableOpacity, Dimensions, Animated } from "react-native";
 import { Image } from "expo-image";
 import { LinearGradient } from "expo-linear-gradient";
-import { createGameEngineSocket } from "../../services/socketClient";
+import { createGameEngineSocket } from "../../services/accountSocketClient";
 import { gameSound } from "../../services/gameSound";
 import type { HtmlGameResult } from "../../games/types";
 import { getSessionAvatar } from "../../services/sessionAvatarCache";

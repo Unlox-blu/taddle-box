@@ -24,6 +24,7 @@ import { useAuth } from "../../context/AuthContext";
 import { useWallet } from "../../context/WalletContext";
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 import { themedAlert } from '../../components/common/ThemedAlert';
+import { log } from '../../utils/logger';
 
 export default function LockScreen() {
   const colors = useThemeColors();
@@ -38,9 +39,9 @@ export default function LockScreen() {
   // isVerifyToEnable: if true, we are verifying before enabling
   // returnScreen: screen to navigate back to upon success
   const { mode = "wallet" } = route.params || {};
-  const isSetup = route.params?.isSetup || false;
-  const isDisable = route.params?.isDisable || false;
-  const isVerifyToEnable = route.params?.isVerifyToEnable || false;
+  const isSetup = route.params?.isSetup ;
+  const isDisable = route.params?.isDisable ;
+  const isVerifyToEnable = route.params?.isVerifyToEnable ;
   const returnScreen = route.params?.returnScreen || null;
 
   const [error, setError] = useState("");
@@ -90,7 +91,7 @@ export default function LockScreen() {
         handleSuccess();
       }
     } catch (e) {
-      console.log("Biometric error", e);
+      log("Biometric error", e);
     } finally {
       setIsVerifying(false);
     }
@@ -116,7 +117,7 @@ export default function LockScreen() {
             return;
           }
           await authService.setupPin(pin);
-          await refreshUser(); // refresh so globalLockEnabled toggle updates
+          await refreshUser(); // refresh so globalAccountLockEnabled toggle updates
           themedAlert("Success", "PIN setup complete.");
           handleSuccess();
           return;
@@ -131,15 +132,15 @@ export default function LockScreen() {
         await SecureStore.deleteItemAsync('wallet_pinEnabled');
         await SecureStore.deleteItemAsync('wallet_biometricEnabled');
         await SecureStore.deleteItemAsync('app_biometricEnabled');
-        await refreshUser(); // refresh so globalLockEnabled toggle updates
+        await refreshUser(); // refresh so globalAccountLockEnabled toggle updates
         if (fetchWalletData) {
           await fetchWalletData(); // refresh wallet context to sync local locks instantly
         }
-        themedAlert("Success", "Global Lock disabled.");
+        themedAlert("Success", "Global Account Lock disabled.");
       } else if (isVerifyToEnable) {
-        await authService.toggleGlobalLock(pin, true);
+        await authService.toggleGlobalAccountLock(pin, true);
         await refreshUser();
-        themedAlert("Success", "Global Lock enabled.");
+        themedAlert("Success", "Global Account Lock enabled.");
       }
 
       handleSuccess();
@@ -186,11 +187,11 @@ export default function LockScreen() {
       ? "Create a 4-digit PIN"
       : "Confirm your PIN"
     : isDisable
-      ? "Enter PIN to Disable Global Lock"
+      ? "Enter PIN to Disable Global Account Lock"
       : isVerifyToEnable
-        ? "Enter PIN to Enable Global Lock"
+        ? "Enter PIN to Enable Global Account Lock"
         : mode === "app" 
-          ? "Enter Global Lock PIN" 
+          ? "Enter Account PIN" 
           : "Enter Wallet PIN";
 
   const subtitle = "Please enter your 4-digit PIN to continue";

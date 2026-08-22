@@ -1,6 +1,6 @@
 import React, { createContext, useContext, useCallback, useEffect, useRef, useState, useMemo } from 'react';
 import { activeStatusService } from '../services/activeStatus.service';
-import { socketClient } from '../services/socketClient';
+import { accountSocket } from '../services/accountSocketClient';
 import type {
   ActiveStatusChangedPayload,
   ActiveStatusSnapshotPayload,
@@ -147,11 +147,11 @@ export function ActiveStatusProvider({ children }: { children: React.ReactNode }
         return evictOldEntries(next);
       });
     };
-    socketClient.events.on('activeStatus:changed', onActiveStatusChanged);
-    socketClient.events.on('activeStatus:snapshot', onSnapshot);
+    accountSocket.events.on('activeStatus:changed', onActiveStatusChanged);
+    accountSocket.events.on('activeStatus:snapshot', onSnapshot);
     return () => {
-      socketClient.events.off('activeStatus:changed', onActiveStatusChanged);
-      socketClient.events.off('activeStatus:snapshot', onSnapshot);
+      accountSocket.events.off('activeStatus:changed', onActiveStatusChanged);
+      accountSocket.events.off('activeStatus:snapshot', onSnapshot);
     };
   }, []);
 

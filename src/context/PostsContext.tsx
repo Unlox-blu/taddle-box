@@ -1,6 +1,7 @@
 import React, { createContext, useContext, useReducer, useCallback, useMemo } from 'react';
 import type { Post } from '../types';
 import { postsService } from '../services/posts.service';
+import { error } from '../utils/logger';
 
 // ─── State & Actions ────────────────────────────────────────────────────────
 
@@ -126,7 +127,7 @@ export function PostsProvider({ children }: { children: React.ReactNode }) {
         dispatch({ type: 'APPEND_POSTS', posts: newPosts, page: nextPage, hasMore });
       }
     } catch (e) {
-      console.error('Failed to fetch feed:', e);
+      error('Failed to fetch feed:', e);
       dispatch({ type: 'SET_LOADING', isLoading: false });
     }
   }, [state.isLoading, state.hasMore, state.page]);
@@ -144,7 +145,7 @@ export function PostsProvider({ children }: { children: React.ReactNode }) {
           dispatch({ type: 'ADD_POST', post: res.data });
         }
       } catch (e) {
-        console.error('Failed to create post:', e);
+        error('Failed to create post:', e);
         throw e;
       }
     },
@@ -162,7 +163,7 @@ export function PostsProvider({ children }: { children: React.ReactNode }) {
       } catch (e) {
         // Revert on failure
         dispatch({ type: 'TOGGLE_LIKE', id });
-        console.error('Failed to toggle like:', e);
+        error('Failed to toggle like:', e);
       }
     },
 
@@ -179,7 +180,7 @@ export function PostsProvider({ children }: { children: React.ReactNode }) {
       } catch (e) {
         // Revert on failure
         dispatch({ type: 'TOGGLE_SAVE', id });
-        console.error('Failed to toggle save:', e);
+        error('Failed to toggle save:', e);
       }
     },
 
@@ -194,7 +195,7 @@ export function PostsProvider({ children }: { children: React.ReactNode }) {
         if (backup) {
           dispatch({ type: 'ADD_POST', post: backup });
         }
-        console.error('Failed to delete post:', e);
+        error('Failed to delete post:', e);
       }
     },
 

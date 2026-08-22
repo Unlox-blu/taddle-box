@@ -63,6 +63,12 @@ interface PostCardProps {
   onReport?: (post: Post) => void;
   showDelete?: boolean;
   preloadVideo?: boolean;
+  /** Adjacent posts from the parent feed — passed through to the reel so the
+   *  user can swipe-next from within the detail view. Optional: existing
+   *  callers that don't provide this fall back to server-fetch. */
+  feedPosts?: Post[];
+  feedContext?: 'feed' | 'profile' | 'bookmarks' | 'community' | 'search';
+  feedContextId?: string;
 }
 
 export default React.memo(PostCardInner);
@@ -84,6 +90,9 @@ function PostCardInner({
   disableTapNavigation,
   fullBleed,
   preloadVideo,
+  feedPosts,
+  feedContext,
+  feedContextId,
 }: PostCardProps) {
   const colors = useThemeColors();
   const styles = useMemo(() => makePostCardStyles(colors), [colors]);
@@ -130,27 +139,13 @@ function PostCardInner({
   const author = useMemo<PostHeaderAuthor>(() => {
     const raw = (post as any)?.author || {};
     return {
-      id: raw.id || (post as any)?.authorId || (post as any)?.author_id || "",
-      name:
-        raw.name ||
-        (post as any)?.authorName ||
-        (post as any)?.author_name ||
-        "Unknown User",
-      username:
-        raw.username ||
-        (post as any)?.authorUsername ||
-        (post as any)?.author_username ||
-        "unknown",
-      avatarUrl:
-        raw.avatarUrl ||
-        raw.avatar_url ||
-        (post as any)?.authorAvatar ||
-        (post as any)?.author_avatar,
+      id: raw.id || "",
+      name: raw.name || "Unknown User",
+      username: raw.username || "unknown",
+      avatarUrl: raw.avatar_url?.cloudfront_url || raw.avatar_url || undefined,
       avatar: raw.avatar || "👾",
       repostsEnabled:
-        (raw.repostsEnabled ??
-          (post as any)?.authorRepostsEnabled ??
-          (post as any)?.author_reposts_enabled) !== false,
+        (raw.repostsEnabled ?? (post as any)?.author_reposts_enabled) !== false,
     };
   }, [post]);
 
@@ -251,8 +246,13 @@ function PostCardInner({
   );
 
   const openPostDetail = React.useCallback(() => {
-    navigation.push("PostDetail", { post } as any);
-  }, [navigation, post]);
+    navigation.push("PostDetail", {
+      post,
+      feedPosts,
+      feedContext,
+      feedContextId,
+    } as any);
+  }, [navigation, post, feedPosts, feedContext, feedContextId]);
 
   const handleBodyTap = () => {
     registerTap(() => {
@@ -773,26 +773,11 @@ function RepostedPostCard({
   }
 
   const rawAuthor = orig.author || {};
-  const extractedUsername =
-    rawAuthor.username ||
-    (orig as any)?.authorUsername ||
-    (orig as any)?.author_username ||
-    "unknown";
   const author = {
-    id:
-      rawAuthor.id || (orig as any)?.authorId || (orig as any)?.author_id || "",
-    name:
-      rawAuthor.name ||
-      (orig as any)?.authorName ||
-      (orig as any)?.author_name ||
-      extractedUsername ||
-      "Unknown User",
-    username: extractedUsername,
-    avatarUrl:
-      rawAuthor.avatarUrl ||
-      rawAuthor.avatar_url ||
-      (orig as any)?.authorAvatar ||
-      (orig as any)?.author_avatar,
+    id: rawAuthor.id || "",
+    name: rawAuthor.name || "Unknown User",
+    username: rawAuthor.username || "unknown",
+    avatarUrl: rawAuthor.avatar_url?.cloudfront_url || rawAuthor.avatar_url || undefined,
     avatar: rawAuthor.avatar || "dY`_",
   };
   const comm = (orig as any).community;
@@ -1003,7 +988,7 @@ function RepostedPostCard({
       {origAudioMedia.length > 0 && (
         <View style={{ position: "absolute", opacity: 0, width: 0, height: 0 }}>
           {origAudioMedia.map((m: any, idx: number) => {
-            const url = m.cloudfront_url || m.url || m.uri || m.media_url;
+            const url = m.media_url;
             return url ? (
               <FeedVideo
                 key={`emb-audio-${idx}`}
@@ -1040,7 +1025,7 @@ function RepostedPostCard({
             scrollEventThrottle={16}
           >
             {visual.map((m: any, idx: number) => {
-              const url = m.cloudfront_url || m.url || m.uri || m.media_url;
+              const url = m.media_url;
               const isVid = m.media_type === "video" || m.type === "video";
               if (!url) return null;
               return (

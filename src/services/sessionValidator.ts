@@ -10,6 +10,7 @@
 import * as SecureStore from "expo-secure-store";
 import axios from "axios";
 import { getBackendOrigin } from "./backendUrl";
+import { log, warn } from '../utils/logger';
 import {
   getAccounts,
   removeAccount as storeRemoveAccount,
@@ -40,29 +41,29 @@ interface ValidationResult {
  * Reads stored refreshToken + sessionId for a given account from SecureStore.
  */
 async function readStoredSession(
-  userId: number | string
+  userId: number | string,
 ): Promise<SessionInput | null> {
+  const activeUserIdRaw = await SecureStore.getItemAsync("activeUserId");
+  const parsedActiveId = activeUserIdRaw ? JSON.parse(activeUserIdRaw) : null;
+  const isActive =
+    parsedActiveId != null && String(parsedActiveId) === String(userId);
+
+  // If this is the currently active account, ALWAYS use the root keys first,
+  // since they are the most up-to-date (e.g. after a token refresh).
+  if (isActive) {
+    const rootRefresh = await SecureStore.getItemAsync("refreshToken");
+    const rootSession = await SecureStore.getItemAsync("sessionId");
+    if (rootRefresh && rootSession) {
+      return { userId, refreshToken: rootRefresh, sessionId: rootSession };
+    }
+  }
+
+  // Otherwise, use the prefixed keys for inactive accounts.
   const prefix = `user_${userId}_`;
   const refreshToken = await SecureStore.getItemAsync(`${prefix}refreshToken`);
   const sessionId = await SecureStore.getItemAsync(`${prefix}sessionId`);
 
-  // If there are no stored tokens (first account, tokens are at root keys),
-  // try the root keys directly.
   if (!refreshToken || !sessionId) {
-    const rootRefresh = await SecureStore.getItemAsync("refreshToken");
-    const rootSession = await SecureStore.getItemAsync("sessionId");
-    const activeUserId = await SecureStore.getItemAsync("activeUserId");
-    const parsedActiveId = activeUserId ? JSON.parse(activeUserId) : null;
-
-    // Only use root keys if this is the active account
-    if (
-      parsedActiveId != null &&
-      String(parsedActiveId) === String(userId) &&
-      rootRefresh &&
-      rootSession
-    ) {
-      return { userId, refreshToken: rootRefresh, sessionId: rootSession };
-    }
     return null;
   }
 
@@ -78,7 +79,11 @@ async function readStoredSession(
  */
 export async function validateStoredAccounts(): Promise<ValidationResult> {
   if (_validating) {
-    return { validUserIds: [], removedUserIds: [], activeAccountRevoked: false };
+    return {
+      validUserIds: [],
+      removedUserIds: [],
+      activeAccountRevoked: false,
+    };
   }
   _validating = true;
 
@@ -104,6 +109,16 @@ export async function validateStoredAccounts(): Promise<ValidationResult> {
       if (session) {
         sessions.push(session);
         accountMap.set(String(account.userId), account);
+      } else {
+        // Account has no session in SecureStore -> remove it immediately
+        await storeRemoveAccount(account.userId);
+        result.removedUserIds.push(account.userId);
+        if (
+          activeUserId != null &&
+          String(activeUserId) === String(account.userId)
+        ) {
+          result.activeAccountRevoked = true;
+        }
       }
     }
 
@@ -113,7 +128,7 @@ export async function validateStoredAccounts(): Promise<ValidationResult> {
     const res = await axios.post(
       `${API_URL}/auth/validate-sessions`,
       { sessions },
-      { timeout: 10000 }
+      { timeout: 10000 },
     );
 
     const results: { userId: number | string; valid: boolean }[] =
@@ -128,25 +143,18 @@ export async function validateStoredAccounts(): Promise<ValidationResult> {
         await storeRemoveAccount(r.userId);
         result.removedUserIds.push(r.userId);
 
-        if (
-          activeUserId != null &&
-          String(activeUserId) === String(r.userId)
-        ) {
+        if (activeUserId != null && String(activeUserId) === String(r.userId)) {
           result.activeAccountRevoked = true;
         }
 
-        console.log(
-          `[SessionValidator] Removed revoked account ${r.userId} from store`
+        log(
+          `[SessionValidator] Removed revoked account ${r.userId} from store`,
         );
       }
     }
   } catch (err: any) {
     // Network error or server failure — don't remove anything, just skip.
-    // The device socket or forced-logout handler will catch these cases later.
-    console.warn(
-      "[SessionValidator] Validation skipped:",
-      err?.message || err
-    );
+    // The device socket or forced-logout handler will catch these cases later.      warn("[SessionValidator] Validation skipped:", err?.message || err);
   } finally {
     _validating = false;
   }

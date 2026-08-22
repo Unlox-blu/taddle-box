@@ -3,7 +3,7 @@ import { View, StyleSheet, Text, TouchableOpacity, Dimensions } from "react-nati
 import { Image } from "expo-image";
 import { LinearGradient } from "expo-linear-gradient";
 import { Ionicons } from "@expo/vector-icons";
-import { createGameEngineSocket } from "../../services/socketClient";
+import { createGameEngineSocket } from "../../services/accountSocketClient";
 import { gameSound } from "../../services/gameSound";
 import type { HtmlGameResult } from "../../games/types";
 import { getSessionAvatar } from "../../services/sessionAvatarCache";

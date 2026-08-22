@@ -14,6 +14,7 @@ import type { AuthStackParamList } from '../../types';
 import { useAuth } from '../../context/AuthContext';
 import { authService } from '../../services/auth.service';
 import { getReferralRewards } from '../../services/appConfig.service';
+import { log } from '../../utils/logger';
 
 interface ReferrerInfo {
   id?: string;
@@ -179,7 +180,7 @@ export default function OTPScreen({ navigation, route }: Props) {
       }, 1200);
 
     } catch (e: any) {
-      console.log('OTP Verify Error:', JSON.stringify(e.response?.data, null, 2));
+      log('OTP Verify Error:', JSON.stringify(e.response?.data, null, 2));
       const errors = e.response?.data?.errors;
       const errMsg = errors ? JSON.stringify(errors) : (e.response?.data?.message || e.message);
       

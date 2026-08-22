@@ -12,7 +12,7 @@ import ForceUpdateScreen from '../screens/main/ForceUpdateScreen';
 // PostDetailScreen and UserProfileScreen are eagerly imported because PostCard
 // navigates to them frequently and they're registered in HomeStackNavigator too.
 // Lazy-loading caused Metro module resolution failures (module 2063).
-import PostDetailScreen from '../screens/main/PostDetailScreen';
+import ReelScreen from '../screens/main/ReelScreen';
 import UserProfileScreen from '../screens/main/UserProfileScreen';
 const SearchScreen = React.lazy(() => import('../screens/main/SearchScreen'));
 const EventDetailScreen = React.lazy(() => import('../screens/events/EventDetailScreen'));
@@ -74,8 +74,8 @@ export default function AppNavigator() {
             <Stack.Group>
             <Stack.Screen
               name="PostDetail"
-              component={PostDetailScreen}
-              options={{ animation: 'slide_from_right' }}
+              component={ReelScreen}
+              options={{ animation: 'slide_from_bottom' }}
             />
             <Stack.Screen
               name="UserProfile"

@@ -14,8 +14,9 @@ import { Platform } from "react-native";
 import Constants from "expo-constants";
 import { EventEmitter } from "events";
 import * as SecureStore from "expo-secure-store";
+import { log, warn, error as logError } from '../utils/logger';
 
-// ── URL resolution (same logic as socketClient.ts) ────────────────────────
+// ── URL resolution (same logic as accountSocket.ts) ────────────────────────
 const debuggerHost = Constants.expoConfig?.hostUri;
 const localhost = debuggerHost?.split(":")[0];
 const fallbackIp = Platform.OS === "android" ? "10.0.2.2" : "localhost";
@@ -44,14 +45,14 @@ class DeviceSocketClient {
 
     const deviceId = await SecureStore.getItemAsync("deviceId");
     if (!deviceId) {
-      console.log("[deviceSocket] No deviceId found — skipping device socket");
+      log("[deviceSocket] No deviceId found — skipping device socket");
       return;
     }
 
     this.isConnecting = true;
 
     try {
-      this.socket = io(SOCKET_URL, {
+      this.socket = io(`${SOCKET_URL}/device-socket`, {
         // Authenticate by deviceId, not JWT
         auth: { deviceId },
         transports: ["websocket"],
@@ -67,29 +68,29 @@ class DeviceSocketClient {
 
       this.socket.on("connect", () => {
         this.isConnecting = false;
-        console.log("[deviceSocket] Connected:", this.socket?.id);
+        log("[deviceSocket] Connected:", this.socket?.id);
       });
 
       this.socket.on("disconnect", (reason) => {
         this.isConnecting = false;
-        console.log("[deviceSocket] Disconnected:", reason);
+        log("[deviceSocket] Disconnected:", reason);
       });
 
       this.socket.on("connect_error", (err) => {
         this.isConnecting = false;
-        console.error("[deviceSocket] Connection error:", err.message);
+        logError("[deviceSocket] Connection error:", err.message);
       });
 
       // ── Session revoked event ──────────────────────────────────────────
       // Another device called "Log out from all devices" for one of our
       // stored accounts. Clean up that account immediately.
       this.socket.on("auth:session_revoked", (data: SessionRevokedPayload) => {
-        console.log("[deviceSocket] Session revoked for userId:", data.userId);
+        log("[deviceSocket] Session revoked for userId:", data.userId);
         this.events.emit("auth:session_revoked", data);
       });
-    } catch (error) {
+    } catch (err) {
       this.isConnecting = false;
-      console.error("[deviceSocket] Failed to connect:", error);
+      logError("[deviceSocket] Failed to connect:", err);
     }
   }
 

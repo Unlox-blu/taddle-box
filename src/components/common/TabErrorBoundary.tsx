@@ -1,5 +1,6 @@
 import React from 'react';
 import { View, Text, TouchableOpacity, StyleSheet } from 'react-native';
+import { error as logError } from '../../utils/logger';
 
 /**
  * Per-tab error boundary — catches render errors inside a single tab
@@ -17,7 +18,7 @@ export default class TabErrorBoundary extends React.Component<
   }
 
   componentDidCatch(error: Error, info: React.ErrorInfo) {
-    console.error(`[TabErrorBoundary:${this.props.tabName ?? '?'}] caught:`, error, info?.componentStack);
+    logError(`[TabErrorBoundary:${this.props.tabName ?? '?'}] caught:`, error, info?.componentStack);
   }
 
   retry = () => {

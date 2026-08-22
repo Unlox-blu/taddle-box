@@ -19,6 +19,7 @@ import {
   Modal,
   KeyboardAvoidingView,
   Platform,
+  Share,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
@@ -43,6 +44,7 @@ import { accountSocket } from "../../services/accountSocketClient";
 import type { XPUpdatedPayload } from "../../types";
 import { themedAlert } from "../common/ThemedAlert";
 import BioText, { normalizeUrl } from "../common/BioText";
+import BrandedLottieLoader from "../common/BrandedLoader";
 import { log, warn } from '../../utils/logger';
 
 const { width } = Dimensions.get("window");
@@ -1762,29 +1764,59 @@ export default function SharedProfile({
                 justifyContent: "center",
                 marginBottom: 24,
                 overflow: "hidden",
+                position: "relative",
               }}
             >
               <Image
                 source={{
-                  uri: `https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=taddlebox://user/${user?.username}`,
+                  uri: `https://api.qrserver.com/v1/create-qr-code/?size=200x200&ecc=H&data=taddlebox://user/${user?.username}`,
                 }}
                 style={{ width: 180, height: 180 }}
               />
+              <View style={{ position: "absolute" }}>
+                <BrandedLottieLoader size={48} />
+              </View>
             </View>
 
-            <TouchableOpacity
-              style={{
-                backgroundColor: colors.primary,
-                paddingVertical: 12,
-                paddingHorizontal: 32,
-                borderRadius: 100,
-              }}
-              onPress={() => setQrModalVisible(false)}
-            >
-              <Text style={{ color: "#fff", fontWeight: "700", fontSize: 16 }}>
-                Close
-              </Text>
-            </TouchableOpacity>
+            <View style={{ flexDirection: "row", gap: 16 }}>
+              <TouchableOpacity
+                style={{
+                  backgroundColor: colors.bg.base,
+                  paddingVertical: 12,
+                  paddingHorizontal: 32,
+                  borderRadius: 100,
+                  borderWidth: 1,
+                  borderColor: colors.border
+                }}
+                onPress={() => setQrModalVisible(false)}
+              >
+                <Text style={{ color: colors.text.primary, fontWeight: "600", fontSize: 16 }}>
+                  Close
+                </Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                style={{
+                  backgroundColor: colors.primary,
+                  paddingVertical: 12,
+                  paddingHorizontal: 32,
+                  borderRadius: 100,
+                  flexDirection: "row",
+                  alignItems: "center",
+                  gap: 8
+                }}
+                onPress={() => {
+                  Share.share({
+                    message: `Follow @${user?.username} on TADDLEBOX!\n\ntaddlebox://user/${user?.username}`
+                  });
+                }}
+              >
+                <Ionicons name="share-outline" size={20} color="#fff" />
+                <Text style={{ color: "#fff", fontWeight: "600", fontSize: 16 }}>
+                  Share
+                </Text>
+              </TouchableOpacity>
+            </View>
           </View>
         </View>
       )}

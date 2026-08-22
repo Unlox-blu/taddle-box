@@ -192,6 +192,7 @@ export default function MainHeader({
               | "settings"
               | "notifications"
               | "wallet"
+              | "messages"
               | undefined;
             let type: string | undefined;
             if (route.name === "HomeMain") tab = "all";
@@ -214,6 +215,11 @@ export default function MainHeader({
             else if (route.name === "Games") type = "games";
             // Search from Wallet is scoped to the user's transactions.
             else if (route.name === "Wallet") source = "wallet";
+            else if (route.name === "ChatInbox") source = "messages";
+            else if (route.name === "Chat") {
+              source = "messages";
+              authorFilter = (route.params as any)?.otherUser?.username || (route.params as any)?.otherUserId || '';
+            }
             // Search from Bookmarks is scoped to saved posts; from Settings it
             // scopes to the viewer's own posts.
             else if (route.name === "Bookmarks") {
@@ -268,7 +274,12 @@ export default function MainHeader({
         onClose={() => setDrawerOpen(false)}
         onNavigateTab={(tab) => navigation.getParent()?.navigate(tab as never)}
         onNavigateStack={(screen) => {
-          navigation.navigate(screen as never);
+          // All SideDrawer stack screens are at root level so they don't
+          // activate any tab (Home, Community, etc.).
+          const rootNav = navigation.getParent()?.getParent();
+          if (rootNav) {
+            rootNav.navigate(screen as never);
+          }
         }}
         onProfile={() => navigation.getParent()?.navigate("Profile" as never)}
       />

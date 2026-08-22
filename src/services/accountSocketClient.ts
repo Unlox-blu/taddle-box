@@ -81,11 +81,23 @@ class AccountSocketService {
       if (!token) return;
 
       this.socket = io(`${SOCKET_URL}/account-socket`, {
-        auth: { token },
+        // Dynamic auth: socket.io calls this function on EVERY connection
+        // attempt (including reconnections). This ensures that if the token
+        // was refreshed by the apiClient interceptor while we were
+        // disconnected, the fresh token is used instead of the stale one.
+        auth: async (cb) => {
+          const freshToken = await SecureStore.getItemAsync("accessToken");
+          cb({ token: freshToken });
+        },
         transports: ["websocket"],
         extraHeaders: {
           "ngrok-skip-browser-warning": "true",
         },
+        // Reconnect with backoff — up to 10 minutes of retries
+        reconnection: true,
+        reconnectionAttempts: Infinity,
+        reconnectionDelay: 1000,
+        reconnectionDelayMax: 60000,
       });
 
       this.socket.on("connect", () => {
@@ -165,7 +177,10 @@ class AccountSocketService {
 
       this.socket.on("connect_error", (error) => {
         this.isConnecting = false;
-        logError("WebSocket Connection Error:", error);
+        // Log a concise message — the full Error object is noisy and
+        // doesn't add useful info beyond the message string.
+        const msg = error?.message || String(error);
+        warn("[accountSocket] Connection error:", msg);
       });
     } catch (err) {
       logError("Error connecting to socket:", err);

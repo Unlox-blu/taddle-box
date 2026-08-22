@@ -136,14 +136,40 @@ export function useActivePostTracking(
     recalculateRef.current();
   }).current;
 
+  // Debounce trackLayout-triggered recalculations. During initial render,
+  // onLayout fires for every visible item in rapid succession. Each fires
+  // recalculate(), changing the sequential layout and flipping activePostId
+  // before all items are measured — causing the video to mount then unmount
+  // repeatedly. Batching via requestAnimationFrame ensures one recalculate
+  // per frame after all measurements settle.
+  const layoutDirtyRef = useRef(false);
+  const layoutRafRef = useRef<number | null>(null);
+
+  const scheduleRecalc = useCallback(() => {
+    if (layoutDirtyRef.current) return; // already scheduled this frame
+    layoutDirtyRef.current = true;
+    layoutRafRef.current = requestAnimationFrame(() => {
+      layoutDirtyRef.current = false;
+      layoutRafRef.current = null;
+      recalculateRef.current();
+    });
+  }, []);
+
+  // Cleanup RAF on unmount
+  useEffect(() => {
+    return () => {
+      if (layoutRafRef.current != null) cancelAnimationFrame(layoutRafRef.current);
+    };
+  }, []);
+
   const trackLayout = useCallback((id: string, rect: Rect) => {
     const height = rect.bottom - rect.top;
     if (heightMapRef.current.get(id) === height) {
       return;
     }
     heightMapRef.current.set(id, height);
-    recalculateRef.current();
-  }, []);
+    scheduleRecalc();
+  }, [scheduleRecalc]);
 
   const handleScroll = useCallback((e: any) => {
     scrollYRef.current = e.nativeEvent.contentOffset.y;

@@ -838,7 +838,7 @@ export default function EventsScreen() {
             )}
 
             {isPending && events.length === 0 ? (
-              <StateBlock card loading style={{ paddingTop: 40 }} />
+              <View style={{ minHeight: 300, justifyContent: 'center' }}><StateBlock card loading /></View>
             ) : (activeTab === "all" && displayEvents.length === 0 && selectedDate) || (activeTab !== "all" && displayEvents.length === 0) ? (
               <StateBlock
                 card

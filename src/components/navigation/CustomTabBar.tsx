@@ -46,10 +46,13 @@ export default function CustomTabBar({ state, navigation }: BottomTabBarProps) {
   const { accounts, user, switchAccount } = useAuth();
   const [createVisible, setCreateVisible] = useState(false);
   const [isPosting, setIsPosting] = useState(false);
+  const [chatOpen, setChatOpen] = useState(false);
   useEffect(() => {
     const sub = DeviceEventEmitter.addListener('postSubmitting', () => setIsPosting(true));
     const sub2 = DeviceEventEmitter.addListener('postCompleted', () => setIsPosting(false));
-    return () => { sub.remove(); sub2.remove(); };
+    const sub3 = DeviceEventEmitter.addListener('chatScreenOpen', () => setChatOpen(true));
+    const sub4 = DeviceEventEmitter.addListener('chatScreenClose', () => setChatOpen(false));
+    return () => { sub.remove(); sub2.remove(); sub3.remove(); sub4.remove(); };
   }, []);
   const [preselectedCommunityId, setPreselectedCommunityId] = useState<string | undefined>(undefined);
   const lastPressRef = React.useRef<Record<string, number>>({});
@@ -140,7 +143,7 @@ export default function CustomTabBar({ state, navigation }: BottomTabBarProps) {
   };
 
   const activeRoute = getActiveRouteState(navigation.getState());
-  const isTabBarHidden = ['Chat', 'ChatInbox'].includes(activeRoute?.name || '');
+  const isTabBarHidden = chatOpen || ['Chat'].includes(activeRoute?.name || '');
 
   return (
     <>

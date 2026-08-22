@@ -16,6 +16,7 @@ import { postsService } from '../../services/posts.service';
 import type { HomeStackParamList, User, Post } from '../../types';
 import SharedProfile from '../../components/profile/SharedProfile';
 import MainHeader from '../../components/common/MainHeader';
+import StateBlock from '../../components/common/StateBlock';
 
 type Props = NativeStackScreenProps<HomeStackParamList, 'UserProfile'>;
 
@@ -137,24 +138,57 @@ function makeStyles(c: ColorPalette) {
 }
 
 export default function UserProfileScreen({ navigation, route }: Props) {
-  const { user: initialUser, openPostId, openPost } = route.params;
+  const { user: initialUser, username, openPostId, openPost } = route.params;
   const insets     = useSafeAreaInsets();
   const { isDark } = useTheme();
   const colors     = useThemeColors();
   const { user: authUser } = useAuth();
-  
+  const [fetchedUser, setFetchedUser] = useState<User | null>(initialUser || null);
+  const [loading, setLoading] = useState(!initialUser);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!initialUser && username) {
+      setLoading(true);
+      userService.getProfile(username)
+        .then((u) => setFetchedUser(u))
+        .catch(() => setError("User not found"))
+        .finally(() => setLoading(false));
+    }
+  }, [initialUser, username]);
+
   // Main header everywhere: logo + global search + notifications, with a back
   // arrow in place of the drawer menu on this pushed profile screen.
   const headerComponent = (
     <MainHeader showBack />
   );
 
+  if (loading) {
+    return (
+      <View style={{ flex: 1, backgroundColor: colors.bg.base }}>
+        <MainHeader showBack />
+        <StateBlock inline loading loaderSize={32} style={{ flex: 1, justifyContent: 'center' }} />
+      </View>
+    );
+  }
+
+  if (error || !fetchedUser) {
+    return (
+      <View style={{ flex: 1, backgroundColor: colors.bg.base }}>
+        <MainHeader showBack />
+        <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center' }}>
+          <Text style={{ color: colors.text.secondary }}>{error || "User not found"}</Text>
+        </View>
+      </View>
+    );
+  }
+
   return (
     <View style={{ flex: 1, backgroundColor: colors.bg.base }}>
       <StatusBar style={isDark ? 'light' : 'dark'} />
       <SharedProfile 
-        initialUser={initialUser} 
-        isOwnProfile={authUser?.username === initialUser.username}
+        initialUser={fetchedUser} 
+        isOwnProfile={authUser?.username === fetchedUser.username}
         headerComponent={headerComponent}
         openPostId={openPostId}
         openPost={openPost}

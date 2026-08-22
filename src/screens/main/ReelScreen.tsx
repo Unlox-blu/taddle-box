@@ -1,11 +1,7 @@
 /**
  * ReelScreen — Full-screen, paginated, snap-scroll post viewer.
  *
- * Replaces PostDetailScreen. Route name stays "PostDetail" so all existing
- * callers (PostCard, ProfileTabs, NotificationsScreen, etc.) work with zero
- * changes. Callers that have a feed list in scope can pass `feedPosts` to
- * seed the reel with adjacent posts; callers that don't (notifications, deep
- * links) fall back to fetching the global feed in the background.
+ * No back button — swipe down to dismiss. Route name stays "PostDetail".
  */
 import React, {
   useCallback,
@@ -15,25 +11,21 @@ import React, {
   useState,
 } from 'react';
 import {
-  BackHandler,
   Dimensions,
-  FlatList,
+  RefreshControl,
   StatusBar,
   StyleSheet,
-  TouchableOpacity,
   View,
-  Text,
-  Animated,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { useQueryClient } from '@tanstack/react-query';
-import { Ionicons } from '@expo/vector-icons';
-import { GestureHandlerRootView } from 'react-native-gesture-handler';
+import { GestureHandlerRootView, GestureDetector, Gesture } from 'react-native-gesture-handler';
+import Animated, { useSharedValue, useAnimatedStyle, withTiming, withSpring, runOnJS, interpolate, Extrapolation } from 'react-native-reanimated';
+import { FlashList } from '@shopify/flash-list';
 import { useAuth } from '../../context/AuthContext';
 import { postsService } from '../../services/posts.service';
 import { useReelFeed } from '../../hooks/useReelFeed';
-import { fontSizes } from '../../theme';
 import type { RootStackParamList, Post } from '../../types';
 import ReelItem from './ReelItem';
 import CommentsBottomSheet from '../../components/home/CommentsBottomSheet';
@@ -49,17 +41,17 @@ export default function ReelScreen({ navigation, route }: Props) {
     feedPosts = [],
     feedContext = 'feed',
     feedContextId,
-  } = route.params;
+    isSinglePost = false,
+  } = route.params as any;
 
   const { user: currentUser } = useAuth();
   const insets = useSafeAreaInsets();
   const queryClient = useQueryClient();
 
   // ── Feed list ──────────────────────────────────────────────────────────────
-  // Ensure initialPost is always in the list (deep-link entry with no feedPosts)
   const seedPosts = useMemo<Post[]>(() => {
     if (feedPosts.length === 0) return [initialPost];
-    const has = feedPosts.some((p) => p.id === initialPost.id);
+    const has = feedPosts.some((p: Post) => p.id === initialPost.id);
     return has ? feedPosts : [initialPost, ...feedPosts];
   }, [feedPosts, initialPost]);
 
@@ -70,65 +62,86 @@ export default function ReelScreen({ navigation, route }: Props) {
     feedContextId,
   });
 
+  // ── Pull-to-refresh ────────────────────────────────────────────────────────
+  const [refreshing, setRefreshing] = useState(false);
+  const handleRefresh = useCallback(() => {
+    setRefreshing(true);
+    queryClient.invalidateQueries({ queryKey: ['feed'] })
+      .then(() => setRefreshing(false))
+      .catch(() => setRefreshing(false));
+  }, [queryClient]);
+
   // ── Active index tracking ──────────────────────────────────────────────────
   const [activeIndex, setActiveIndex] = useState(startIndex);
   const activeIndexRef = useRef(activeIndex);
   activeIndexRef.current = activeIndex;
 
-  // ── Index pill fade ────────────────────────────────────────────────────────
-  const pillOpacity = useRef(new Animated.Value(0)).current;
-  const pillTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const showIndexPill = useCallback(() => {
-    if (pillTimer.current) clearTimeout(pillTimer.current);
-    Animated.timing(pillOpacity, { toValue: 1, duration: 150, useNativeDriver: true }).start();
-    pillTimer.current = setTimeout(() => {
-      Animated.timing(pillOpacity, { toValue: 0, duration: 300, useNativeDriver: true }).start();
-    }, 2000);
-  }, [pillOpacity]);
-
-  // ── Viewability (active post detection) ───────────────────────────────────
+  // ── Viewability ───────────────────────────────────────────────────────────
   const viewabilityConfig = useRef({ itemVisiblePercentThreshold: 60 });
   const onViewableItemsChanged = useRef(({ viewableItems }: any) => {
     if (!viewableItems.length) return;
     const newIdx = viewableItems[0].index ?? 0;
     if (newIdx === activeIndexRef.current) return;
     setActiveIndex(newIdx);
-    showIndexPill();
-    // Record view
     const p = viewableItems[0].item as Post;
     postsService.recordView(p.id).catch(() => {});
-    // Load more when 3 posts from end
-    if (newIdx >= (viewableItems[0].item ? posts.length - 3 : 0)) {
-      loadMore();
-    }
+    if (!isSinglePost && newIdx >= posts.length - 3) loadMore();
   }).current;
 
-  // ── Back handling ──────────────────────────────────────────────────────────
-  const handleBack = useCallback(() => {
+  // ── Swipe-down to dismiss (disabled for single-post mode) ──────────────────
+  const dismissY = useSharedValue(0);
+  const goBack = useCallback(() => {
     if (navigation.canGoBack()) {
       navigation.goBack();
     } else {
-      (navigation as any).reset({
-        index: 0,
-        routes: [{ name: 'Main', params: { screen: 'Home' } }],
-      });
+      (navigation as any).reset({ index: 0, routes: [{ name: 'Main', params: { screen: 'Home' } }] });
     }
   }, [navigation]);
 
-  useEffect(() => {
-    const sub = BackHandler.addEventListener('hardwareBackPress', () => {
-      if (!navigation.canGoBack()) { handleBack(); return true; }
-      return false;
+  const panGesture = isSinglePost ? Gesture.Pan().enabled(false) : Gesture.Pan()
+    .activeOffsetY(10)
+    .onUpdate((e) => {
+      if (e.translationY > 0) {
+        const dampened = e.translationY * 0.6;
+        dismissY.value = dampened;
+      } else if (e.translationY < -20) {
+        dismissY.value = Math.max(-30, e.translationY * 0.25);
+      }
+    })
+    .onEnd((e) => {
+      const dragDistance = dismissY.value;
+      const vy = e.velocityY;
+      const shouldDismiss = dragDistance > SCREEN_H * 0.3 || (vy > 400 && dragDistance > 40);
+
+      if (shouldDismiss) {
+        const exitDuration = Math.max(120, Math.min(300, 60000 / Math.max(vy, 1)));
+        dismissY.value = withTiming(SCREEN_H * 1.1, { duration: exitDuration }, () => {
+          runOnJS(goBack)();
+        });
+      } else {
+        dismissY.value = withSpring(0, { damping: 18, stiffness: 280, mass: 0.8 });
+      }
     });
-    return () => sub.remove();
-  }, [handleBack, navigation]);
+
+  const dismissStyle = useAnimatedStyle(() => {
+    const ty = dismissY.value;
+    const scale = interpolate(ty, [0, SCREEN_H * 0.5], [1, 0.85], Extrapolation.CLAMP);
+    const opacity = interpolate(ty, [0, SCREEN_H * 0.6], [1, 0], Extrapolation.CLAMP);
+    const borderRadius = interpolate(ty, [0, SCREEN_H * 0.5], [0, 20], Extrapolation.CLAMP);
+    return {
+      transform: [{ translateY: ty }, { scale }],
+      opacity,
+      borderRadius,
+      overflow: 'hidden' as const,
+    };
+  });
 
   // ── Initial view record ────────────────────────────────────────────────────
   useEffect(() => {
     postsService.recordView(initialPost.id).catch(() => {});
   }, [initialPost.id]);
 
-  // ── Cache sync helpers (keep feed / profile / bookmarks in step) ───────────
+  // ── Cache sync helpers ─────────────────────────────────────────────────────
   const patchCachedPosts = useCallback(
     (postId: string, patch: (p: any) => any) => {
       queryClient.getQueryCache().findAll().forEach((query) => {
@@ -137,12 +150,7 @@ export default function ReelScreen({ navigation, route }: Props) {
         if (!['feed', 'bookmarks', 'profile'].includes(key[0] as string)) return;
         queryClient.setQueryData(key, (old: any) => {
           if (!old || !Array.isArray(old.pages)) return old;
-          return {
-            ...old,
-            pages: old.pages.map((page: any[]) =>
-              page.map((p: any) => (p.id === postId ? patch(p) : p)),
-            ),
-          };
+          return { ...old, pages: old.pages.map((page: any[]) => page.map((p: any) => (p.id === postId ? patch(p) : p))) };
         });
       });
     },
@@ -157,12 +165,7 @@ export default function ReelScreen({ navigation, route }: Props) {
         if (!['feed', 'bookmarks', 'profile'].includes(key[0] as string)) return;
         queryClient.setQueryData(key, (old: any) => {
           if (!old || !Array.isArray(old.pages)) return old;
-          return {
-            ...old,
-            pages: old.pages.map((page: any[]) =>
-              page.filter((p: any) => p.id !== postId),
-            ),
-          };
+          return { ...old, pages: old.pages.map((page: any[]) => page.filter((p: any) => p.id !== postId)) };
         });
       });
     },
@@ -209,22 +212,20 @@ export default function ReelScreen({ navigation, route }: Props) {
     (post: Post) => {
       postsService.deletePost(post.id).then(() => {
         removeFromCaches(post.id);
-        handleBack();
+        goBack();
       }).catch(() => {});
     },
-    [removeFromCaches, handleBack],
+    [removeFromCaches, goBack],
   );
 
   const handleAuthorPress = useCallback(
     (post: Post) => {
-      (navigation as any).push('UserProfile', {
-        user: (post as any).author || {},
-      });
+      (navigation as any).push('UserProfile', { user: (post as any).author || {} });
     },
     [navigation],
   );
 
-  // ── Comments bottom sheet ──────────────────────────────────────────────────
+  // ── Comments / Share ───────────────────────────────────────────────────────
   const [commentsPost, setCommentsPost] = useState<Post | null>(null);
   const [shareVisible, setShareVisible] = useState(false);
   const [sharePost, setSharePost] = useState<Post | null>(null);
@@ -233,30 +234,18 @@ export default function ReelScreen({ navigation, route }: Props) {
     (postId: string, delta: number) => {
       patchPost(postId, (p) => {
         const base = p.comments ?? (p as any).commentsCount ?? 0;
-        const next = Math.max(0, base + delta);
-        return { ...p, comments: next, commentsCount: next };
+        return { ...p, comments: Math.max(0, base + delta), commentsCount: Math.max(0, base + delta) };
       });
     },
     [patchPost],
   );
 
-  // ── FlatList helpers ───────────────────────────────────────────────────────
-  const getItemLayout = useCallback(
-    (_: any, index: number) => ({
-      length: SCREEN_H,
-      offset: SCREEN_H * index,
-      index,
-    }),
-    [],
-  );
-
+  // ── FlashList helpers ─────────────────────────────────────────────────────
   const keyExtractor = useCallback((item: Post) => item.id, []);
 
   const renderItem = useCallback(
     ({ item, index }: { item: Post; index: number }) => {
-      const isOwnPost =
-        !!currentUser?.id &&
-        (item as any)?.author?.id === currentUser.id;
+      const isOwnPost = !!currentUser?.id && (item as any)?.author?.id === currentUser.id;
       return (
         <ReelItem
           post={item}
@@ -268,101 +257,53 @@ export default function ReelScreen({ navigation, route }: Props) {
           onDelete={handleDelete}
           onReport={() => {}}
           onShare={() => { setSharePost(item); setShareVisible(true); }}
+          onReposted={() => { patchPost(item.id, (p) => ({ ...p, repostedByMe: true })); }}
           showDelete={isOwnPost}
+          isProfileReel={feedContext === 'profile'}
         />
       );
     },
-    [activeIndex, currentUser?.id, handleLike, handleSave, handleAuthorPress, handleDelete],
+    [activeIndex, currentUser?.id, handleLike, handleSave, handleAuthorPress, handleDelete, feedContext],
   );
 
   // ── Render ─────────────────────────────────────────────────────────────────
   return (
     <GestureHandlerRootView style={styles.root}>
       <StatusBar hidden translucent backgroundColor="transparent" />
+      <GestureDetector gesture={panGesture}>
+        <Animated.View style={[{ flex: 1 }, dismissStyle]}>
+          <FlashList
+            data={posts}
+            keyExtractor={keyExtractor}
+            renderItem={renderItem}
+            pagingEnabled={!isSinglePost}
+            showsVerticalScrollIndicator={false}
+            decelerationRate="fast"
+            initialScrollIndex={isSinglePost ? 0 : startIndex}
+            onViewableItemsChanged={onViewableItemsChanged}
+            viewabilityConfig={viewabilityConfig.current}
+            onEndReached={loadMore}
+            onEndReachedThreshold={0.5}
+            removeClippedSubviews
+            refreshControl={
+              <RefreshControl
+                refreshing={refreshing}
+                onRefresh={handleRefresh}
+                tintColor="#7C3AED"
+                colors={['#7C3AED']}
+                progressBackgroundColor="rgba(0,0,0,0.5)"
+              />
+            }
+          />
+        </Animated.View>
+      </GestureDetector>
 
-      <FlatList
-        data={posts}
-        keyExtractor={keyExtractor}
-        renderItem={renderItem}
-        pagingEnabled
-        showsVerticalScrollIndicator={false}
-        decelerationRate="fast"
-        getItemLayout={getItemLayout}
-        initialScrollIndex={startIndex}
-        onViewableItemsChanged={onViewableItemsChanged}
-        viewabilityConfig={viewabilityConfig.current}
-        onEndReached={loadMore}
-        onEndReachedThreshold={0.5}
-        removeClippedSubviews
-        windowSize={5}
-        maxToRenderPerBatch={3}
-        initialNumToRender={2}
-      />
-
-      {/* Back button — always visible, absolute top-left */}
-      <TouchableOpacity
-        style={[styles.backBtn, { top: insets.top + 12 }]}
-        onPress={handleBack}
-        hitSlop={12}
-      >
-        <Ionicons name="arrow-back" size={24} color="#fff" />
-      </TouchableOpacity>
-
-      {/* Index pill — fades in on scroll, auto-hides after 2 s */}
-      <Animated.View
-        style={[styles.indexPill, { top: insets.top + 14, opacity: pillOpacity }]}
-        pointerEvents="none"
-      >
-        <Text style={styles.indexPillText}>
-          {activeIndex + 1} / {posts.length}
-        </Text>
-      </Animated.View>
-
-      {/* Comments bottom sheet */}
-      <CommentsBottomSheet
-        post={commentsPost}
-        onClose={() => setCommentsPost(null)}
-        onCountChange={handleCountChange}
-      />
-
-      <ShareSheet
-        visible={shareVisible}
-        onClose={() => setShareVisible(false)}
-        postId={sharePost?.id || ""}
-        postTitle={(sharePost as any)?.title || sharePost?.content?.slice(0, 80)}
-      />
+      <CommentsBottomSheet post={commentsPost} onClose={() => setCommentsPost(null)} onCountChange={handleCountChange} />
+      <ShareSheet visible={shareVisible} onClose={() => setShareVisible(false)} postId={sharePost?.id || ""} postTitle={(sharePost as any)?.title || sharePost?.content?.slice(0, 80)} />
     </GestureHandlerRootView>
   );
 }
 
 const styles = StyleSheet.create({
-  root: {
-    flex: 1,
-    backgroundColor: '#000',
-  },
-  backBtn: {
-    position: 'absolute',
-    left: 16,
-    width: 36,
-    height: 36,
-    borderRadius: 18,
-    backgroundColor: 'rgba(0,0,0,0.40)',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  indexPill: {
-    position: 'absolute',
-    right: 16,
-    backgroundColor: 'rgba(0,0,0,0.45)',
-    paddingHorizontal: 12,
-    paddingVertical: 5,
-    borderRadius: 20,
-    borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.12)',
-  },
-  indexPillText: {
-    fontSize: fontSizes.xs,
-    fontWeight: '700',
-    color: '#fff',
-  },
+  root: { flex: 1, backgroundColor: '#0a0a1a' },
 });

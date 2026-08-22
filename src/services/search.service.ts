@@ -37,7 +37,7 @@ export const searchService = {
     page,
     limit,
   }: {
-    scope?: 'global' | 'bookmarks' | 'notifications';
+    scope?: 'global' | 'bookmarks' | 'notifications' | 'messages';
     q?: string;
     sort?: string;
     time?: string;

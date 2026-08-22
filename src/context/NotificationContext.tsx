@@ -158,6 +158,37 @@ export function NotificationProvider({
         clearUnread();
         const data = response.notification.request.content.data || {};
         const { navigationRef } = require("../navigation/AppNavigator");
+
+        // ── Chat message deep-link ──────────────────────────────────────
+        // Chat pushes carry conversationId + otherUser info so we can
+        // open the Chat screen directly (registered at root navigator).
+        if (
+          (data?.resourceType === "chat" || data?.type === "chat:message") &&
+          (data?.conversationId || data?.resourceId)
+        ) {
+          if (navigationRef?.isReady?.()) {
+            (navigationRef.navigate as any)("Chat", {
+              conversationId: data.conversationId || data.resourceId,
+              otherUserId: data.otherUserId || undefined,
+              otherUser: data.otherUser || undefined,
+            });
+            return;
+          }
+        }
+
+        // ── Chat invite deep-link (game invites inside chat) ────────────
+        if (data?.type === "chat:invite" && data?.conversationId) {
+          if (navigationRef?.isReady?.()) {
+            (navigationRef.navigate as any)("Chat", {
+              conversationId: data.conversationId,
+              otherUserId: data.otherUserId || undefined,
+              otherUser: data.otherUser || undefined,
+            });
+            return;
+          }
+        }
+
+        // ── Post deep-link (mentions, replies, likes, comments) ────────
         if (data?.resourceType === "post" && data?.resourceId) {
           try {
             const { postsService } = require("../services/posts.service");
@@ -174,6 +205,8 @@ export function NotificationProvider({
             // Post gone / offline → fall through to the notifications list.
           }
         }
+
+        // ── Follow / generic notification → notifications list ──────────
         notificationBus.emit(NOTIF_EVENTS.OPEN, data);
         if (navigationRef?.isReady?.()) {
           (navigationRef.navigate as any)("Main", {

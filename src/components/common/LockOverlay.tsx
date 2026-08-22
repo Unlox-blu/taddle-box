@@ -31,17 +31,19 @@ export default function LockOverlay() {
   const { user, isLoggedIn, signOut, goToAddAccount } = useAuth();
   const insets = useSafeAreaInsets();
 
-  // ── Screenshot protection ──────────────────────────────────────────
-  useEffect(() => {
-    ScreenCapture.preventScreenCaptureAsync();
-    return () => { ScreenCapture.allowScreenCaptureAsync(); };
-  }, []);
-
   const [isLocked, setIsLocked] = useState(false);
   const [error, setError] = useState("");
   const [isVerifying, setIsVerifying] = useState(false);
   const [showBiometric, setShowBiometric] = useState(false);
   const [removePinVisible, setRemovePinVisible] = useState(false);
+
+  // ── Screenshot protection (only while lock modal is visible) ───────
+  useEffect(() => {
+    if (isLocked) {
+      ScreenCapture.preventScreenCaptureAsync();
+      return () => { ScreenCapture.allowScreenCaptureAsync(); };
+    }
+  }, [isLocked]);
 
   // ── PIN attempt lockout ─────────────────────────────────────────────────
   // After 3 wrong PINs, lock out for 30 seconds (client-side).

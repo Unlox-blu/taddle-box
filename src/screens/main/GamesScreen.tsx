@@ -748,7 +748,7 @@ export default function GamesScreen() {
           <>
             <ContentSectionHeader title="Available Games" />
             {loading && realGames.length === 0 ? (
-              <StateBlock card loading label="Loading games" style={{ paddingTop: 40 }} />
+              <View style={{ minHeight: 300, justifyContent: 'center' }}><StateBlock card loading label="Loading games" /></View>
             ) : (
               <View style={{ flexDirection: 'row', flexWrap: 'wrap', paddingHorizontal: spacing.lg, marginHorizontal: -spacing.sm }}>
                 {realGames.map(game => {

@@ -49,6 +49,7 @@ import { queryKeys } from "../../lib/queryKeys";
 import type { CommunityStackParamList, Post, Community } from "../../types";
 import { themedAlert } from "../../components/common/ThemedAlert";
 import BioText from "../../components/common/BioText";
+import BrandedLottieLoader from "../../components/common/BrandedLoader";
 import { log, warn, error } from '../../utils/logger';
 
 const BANNER_COLORS: Record<string, [string, string]> = {
@@ -354,6 +355,7 @@ export default function CommunityDetailScreen() {
   const [loadingPosts, setLoadingPosts] = useState(true);
   const [loadingDetail, setLoadingDetail] = useState(true);
   const [detailError, setDetailError] = useState<string | null>(null);
+  const [qrModalVisible, setQrModalVisible] = useState(false);
 
   // Post feed pagination + pull-to-refresh. The server endpoint supports
   // page/limit (newest first); we append pages on scroll and reset on refresh.
@@ -704,11 +706,7 @@ export default function CommunityDetailScreen() {
           </TouchableOpacity>
           <TouchableOpacity
             style={styles.shareBtn}
-            onPress={() =>
-              Share.share({
-                message: `Check out ${community.name} on TADDLEBOX!`,
-              })
-            }
+            onPress={() => setQrModalVisible(true)}
           >
             <Ionicons name="share-outline" size={20} color="#fff" />
           </TouchableOpacity>
@@ -1062,6 +1060,127 @@ export default function CommunityDetailScreen() {
         styles={styles}
         colors={colors}
       />
+
+      {qrModalVisible && (
+        <View
+          style={{
+            position: "absolute",
+            top: 0,
+            bottom: 0,
+            left: 0,
+            right: 0,
+            backgroundColor: "rgba(0,0,0,0.8)",
+            alignItems: "center",
+            justifyContent: "center",
+            zIndex: 100,
+          }}
+        >
+          <View
+            style={{
+              backgroundColor: colors.bg.card,
+              padding: 32,
+              borderRadius: 24,
+              alignItems: "center",
+            }}
+          >
+            <Text
+              style={{
+                fontSize: 20,
+                fontWeight: "700",
+                color: colors.text.primary,
+                marginBottom: 8,
+              }}
+            >
+              Share Community
+            </Text>
+            <Text
+              style={{
+                fontSize: 14,
+                color: colors.text.secondary,
+                marginBottom: 24,
+                textAlign: "center"
+              }}
+            >
+              Scan to join {community.name}
+            </Text>
+
+            <View
+              style={{
+                width: 200,
+                height: 200,
+                backgroundColor: "#fff",
+                borderRadius: 16,
+                alignItems: "center",
+                justifyContent: "center",
+                marginBottom: 24,
+                overflow: "hidden",
+                position: "relative",
+              }}
+            >
+              <Image
+                source={{
+                  uri: `https://api.qrserver.com/v1/create-qr-code/?size=200x200&ecc=H&data=taddlebox://community/${community.slug}`,
+                }}
+                style={{ width: 180, height: 180 }}
+              />
+              <View style={{ position: "absolute" }}>
+                <BrandedLottieLoader size={48} />
+              </View>
+            </View>
+            <View style={{ flexDirection: "row", gap: 16 }}>
+              <TouchableOpacity
+                style={{
+                  backgroundColor: colors.bg.base,
+                  paddingVertical: 12,
+                  paddingHorizontal: 32,
+                  borderRadius: 100,
+                  borderWidth: 1,
+                  borderColor: colors.border
+                }}
+                onPress={() => setQrModalVisible(false)}
+              >
+                <Text
+                  style={{
+                    color: colors.text.primary,
+                    fontSize: 16,
+                    fontWeight: "600",
+                  }}
+                >
+                  Close
+                </Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                style={{
+                  backgroundColor: colors.primary,
+                  paddingVertical: 12,
+                  paddingHorizontal: 32,
+                  borderRadius: 100,
+                  flexDirection: "row",
+                  alignItems: "center",
+                  gap: 8
+                }}
+                onPress={() => {
+                  Share.share({
+                    message: `Check out ${community.name} on TADDLEBOX!\n\ntaddlebox://community/${community.slug}`
+                  });
+                }}
+              >
+                <Ionicons name="share-outline" size={20} color="#fff" />
+                <Text
+                  style={{
+                    color: "#fff",
+                    fontSize: 16,
+                    fontWeight: "600",
+                  }}
+                >
+                  Share
+                </Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      )}
     </View>
   );
 }

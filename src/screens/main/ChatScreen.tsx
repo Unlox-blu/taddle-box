@@ -4,13 +4,13 @@ import {
   Text,
   TextInput,
   TouchableOpacity,
-  FlatList,
   StyleSheet,
   KeyboardAvoidingView,
   Platform,
   Pressable,
   Alert,
 } from "react-native";
+import { FlashList } from "@shopify/flash-list";
 import { Image } from "expo-image";
 import { Ionicons } from "@expo/vector-icons";
 import { useRoute, useNavigation } from "@react-navigation/native";
@@ -22,12 +22,13 @@ import { useAuth } from "../../context/AuthContext";
 import { chatService, type ChatMessage } from "../../services/chat.service";
 import { chatSocketClient } from "../../services/chatSocketClient";
 import { themedAlert } from "../../components/common/ThemedAlert";
+import StateBlock from "../../components/common/StateBlock";
 import {
   useActiveStatus,
   activeStatusLabel,
 } from "../../context/ActiveStatusContext";
-import * as ScreenCapture from 'expo-screen-capture';
 import { warn } from '../../utils/logger';
+import { DeviceEventEmitter } from 'react-native';
 
 const REACTION_EMOJIS = ["❤️", "😂", "😮", "😢", "🔥", "👍"];
 
@@ -51,16 +52,16 @@ export default function ChatScreen() {
   const activeStatus = useActiveStatus(otherUserId);
   const statusLabel = activeStatusLabel(activeStatus);
 
-  // ── Screenshot protection ──────────────────────────────────────────
+  // ── Hide tab bar while inside a chat ──
   useEffect(() => {
-    ScreenCapture.preventScreenCaptureAsync();
-    return () => { ScreenCapture.allowScreenCaptureAsync(); };
+    DeviceEventEmitter.emit('chatScreenOpen');
+    return () => { DeviceEventEmitter.emit('chatScreenClose'); };
   }, []);
 
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [loading, setLoading] = useState(true);
   const [longPressedMsg, setLongPressedMsg] = useState<string | null>(null);
-  const flatListRef = useRef<FlatList>(null);
+  const flatListRef = useRef<any>(null);
 
   const fetchMessages = useCallback(async () => {
     if (isCommunityChat) {
@@ -178,8 +179,9 @@ export default function ChatScreen() {
 
   const openPost = useCallback(
     (postId: string) => {
-      // Navigate to reels/detail — the post page
-      navigation.navigate("Main", { screen: "Reels", params: { postId } });
+      // Navigate to PostDetail (at root level) to view the reel
+      // PostDetail expects a full Post object; fetch it first if needed.
+      navigation.navigate("PostDetail", { post: { id: postId } as any });
     },
     [navigation],
   );
@@ -414,10 +416,14 @@ export default function ChatScreen() {
           activeOpacity={0.7}
           onPress={() => {
             if (isCommunityChat) {
-              navigation.navigate("Community", {
-                screen: "CommunityDetail",
-                params: { communitySlug: conversationId },
-              });
+              // Chat is at root — navigate through Main tab to Community stack
+              navigation.navigate("Main" as never, {
+                screen: "Community",
+                params: {
+                  screen: "CommunityDetail",
+                  params: { communitySlug: conversationId },
+                },
+              } as never);
             } else if (otherUser) {
               navigation.navigate("UserProfile", { user: otherUser });
             }
@@ -513,6 +519,22 @@ export default function ChatScreen() {
           )}
         </TouchableOpacity>
 
+        <TouchableOpacity
+          style={styles.headerIconBtn}
+          onPress={() => {
+            const params: any = { source: 'messages' };
+            if (isCommunityChat && communityName) {
+              params.query = communityName;
+            } else if (otherUser?.username) {
+              params.authorFilter = otherUser.username;
+            } else if (otherUserId) {
+              params.authorFilter = otherUserId;
+            }
+            navigation.navigate('Search', params);
+          }}
+        >
+          <Ionicons name="search-outline" size={22} color={colors.text.secondary} />
+        </TouchableOpacity>
         <TouchableOpacity style={styles.headerIconBtn} onPress={showComingSoon}>
           <Ionicons
             name="videocam-outline"
@@ -526,7 +548,7 @@ export default function ChatScreen() {
       </View>
 
       {/* Messages */}
-      <FlatList
+      <FlashList
         ref={flatListRef}
         data={messages}
         keyExtractor={(item) => item.id}
@@ -561,7 +583,9 @@ export default function ChatScreen() {
                 </Text>
               </View>
             )
-          ) : null
+          ) : (
+            <StateBlock inline loading loaderSize={32} style={{ marginTop: 100 }} />
+          )
         }
       />
 

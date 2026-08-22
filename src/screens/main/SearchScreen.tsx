@@ -685,6 +685,46 @@ export default function SearchScreen({ navigation, route }: Props) {
           return;
         }
 
+        // Messages scope — search conversations and message content via the
+        // unified search endpoint with scope=messages.
+        if (sourceRef.current === "messages") {
+          const res = await searchService.universalSearch({
+            q,
+            sort: sortByRef.current,
+            time: timeWindowRef.current,
+            filter: buildFilterString(),
+            type: resultTypeRef.current,
+            scope: "messages",
+            page: pageToLoad,
+            limit: 10,
+          });
+          if (searchReqRef.current !== reqId) return;
+          tabHasMoreRef.current[tab] = res.hasNext;
+          tabPageRef.current[tab] = res.page;
+          setServerTypes(res.types);
+          const newRows: Row[] = (res.results || []).map((item: any) => ({
+            isHeader: false,
+            item,
+            type: (item.itemType || 'text') as ResultType,
+          }));
+          setRowsByTab((prev) => {
+            const existing = prev[tab] || [];
+            const merged = append ? [...existing, ...newRows] : newRows;
+            const seen = new Set<string>();
+            return {
+              ...prev,
+              [tab]: merged.filter((row: Row) => {
+                const key = rowKey(row);
+                if (key === null) return true;
+                if (seen.has(key)) return false;
+                seen.add(key);
+                return true;
+              }),
+            };
+          });
+          return;
+        }
+
         // Wallet scope — search the user's cash + XP transactions. The query
         // goes to BOTH endpoints so the FULL history is searched server-side
         // (not just the first page); the local pass applies the TIME window
@@ -1008,14 +1048,29 @@ export default function SearchScreen({ navigation, route }: Props) {
     rows,
   ]);
 
-  const renderItem = ({ item }: { item: Row }) => {
+  const renderItem = ({ item, index }: { item: Row; index: number }) => {
     // Section headers are no longer produced — the server returns a flat,
     // ordered list; the pill row under the search bar handles type filtering.
     if (item.isHeader) return null;
     // Declarative dispatch: each backend result kind maps to its own row
     // component (ROW_RENDERERS); unknown kinds fall back to the generic row.
     const RowComponent = ROW_RENDERERS[item.type] ?? GenericRow;
-    return <RowComponent data={item.item} ctx={rowCtx} />;
+    // Every row — posts, people, communities, etc. — must report its
+    // layout height so useActivePostTracking can compute accurate sequential
+    // positions. Without this, non-post rows default to 500 px, pushing
+    // post positions far below the viewport focus zone and preventing
+    // videos from ever auto-playing.
+    const rowId = item.item?.id ?? `__row_${index}`;
+    return (
+      <View
+        onLayout={(e) => {
+          const { y, height } = e.nativeEvent.layout;
+          trackLayout(rowId, { top: y, bottom: y + height });
+        }}
+      >
+        <RowComponent data={item.item} ctx={rowCtx} />
+      </View>
+    );
   };
 
   // Result-type pills the SERVER returns for the current query — the unified
@@ -1305,6 +1360,40 @@ export default function SearchScreen({ navigation, route }: Props) {
                   numberOfLines={1}
                 >
                   Notifications
+                </Text>
+                <Ionicons
+                  name="close-circle"
+                  size={13}
+                  color={colors.text.secondary}
+                />
+              </TouchableOpacity>
+            ) : null}
+            {source === "messages" ? (
+              <TouchableOpacity
+                style={[
+                  styles.filterChip,
+                  {
+                    backgroundColor: colors.bg.elevated,
+                    marginLeft: 0,
+                    marginRight: 8,
+                  },
+                ]}
+                onPress={() => setSource("")}
+                activeOpacity={0.8}
+              >
+                <Ionicons
+                  name="chatbubbles-outline"
+                  size={12}
+                  color={colors.text.secondary}
+                />
+                <Text
+                  style={[
+                    styles.filterChipText,
+                    { color: colors.text.secondary },
+                  ]}
+                  numberOfLines={1}
+                >
+                  Messages
                 </Text>
                 <Ionicons
                   name="close-circle"

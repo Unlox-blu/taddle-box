@@ -19,7 +19,8 @@ export type PostDetailParams = {
 };
 
 export type UserProfileParams = {
-  user: User;
+  user?: User;
+  username?: string;
   /** openPostId deep-links a post (e.g. from a notification) into the profile. */
   /** openPost ships the full post so the deep-link opens without re-fetching. */
   openPostId?: string;
@@ -44,7 +45,7 @@ export type HomeStackParamList = {
   ChangePhone:    undefined;
   ChangeEmail:    undefined;
   FollowRequests: undefined;
-  Search:         { query?: string; tab?: 'all' | 'posts' | 'people' | 'communities' | 'events' | 'games' | 'hashtags'; scopeCommunity?: string; authorFilter?: string; source?: 'bookmarks' | 'settings' | 'notifications' | 'wallet'; type?: string } | undefined;
+  Search:         { query?: string; tab?: 'all' | 'posts' | 'people' | 'communities' | 'events' | 'games' | 'hashtags'; scopeCommunity?: string; authorFilter?: string; source?: 'bookmarks' | 'settings' | 'notifications' | 'wallet' | 'messages'; type?: string } | undefined;
   ChatInbox:      undefined;
   Chat:           { conversationId: string; otherUserId?: string; otherUser?: any; isCommunityChat?: boolean; communityName?: string; communityAvatar?: string };
 };
@@ -94,6 +95,20 @@ export type RootStackParamList = {
       handles search inside the tab. */
   Search: HomeStackParamList['Search'];
   EventDetail: { event: any };
+  ChatInbox: undefined;
+  Chat: { conversationId: string; otherUserId?: string; otherUser?: any; isCommunityChat?: boolean; communityName?: string; communityAvatar?: string };
+  /** SideDrawer screens — at root so they don't activate any tab. */
+  Bookmarks: undefined;
+  Settings: undefined;
+  Leaderboards: HomeStackParamList['Leaderboards'];
+  Terms: undefined;
+  Privacy: undefined;
+  EditProfile: undefined;
+  ChangePassword: undefined;
+  ChangePhone: undefined;
+  ChangeEmail: undefined;
+  FollowRequests: undefined;
+  LockScreen: HomeStackParamList['LockScreen'];
 };
 
 // ── Data models ─────────────────────────────────────────────────

@@ -579,13 +579,11 @@ class GameService {
         );
       }
 
-      // Deduct XP (tournaments are paid upfront)
+      // Deduct XP (tournaments are paid upfront). Use the database
+      // entryFee so the server always matches the client's display and
+      // the fee is tunable without redeploying the server.
       if (mode !== 'TOURNAMENT' && mode !== 'tournament') {
-        const entryFeeMap = {
-          'tap-rush': 5, 'memory-grid': 5, 'scribble': 10,
-          'ludo': 5, 'snake-ladder': 10, 'chess': 15, 'word-rush': 5
-        };
-        const entryFee = entryFeeMap[game.slug] || 5;
+        const entryFee = Number(game.metadata?.entryFee) || 5;
         await this.xpSvc.debitXP({
           userId, xp: entryFee,
           transactionType: 'spent', sourceType: `session_${game.slug}`

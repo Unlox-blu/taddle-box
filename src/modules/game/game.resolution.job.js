@@ -76,7 +76,12 @@ async function resolveAbandonedMatches() {
         const game = await gameRepository.findGameById({ gameId: session.game_id });
         if (game) {
           const calculated = gameService.calculateResult({ game, score: myScore, duration: 60 });
-          myXp = myResult === 'WIN' ? calculated.xpEarned : 0;
+          // Practice mode: entry fee was deducted at session start but no XP
+          // reward is ever awarded. The old code skipped this check and let
+          // practice wins through the sweep, handing out free XP.
+          const gameModel = require('./game.model');
+          const isPractice = gameModel.normalizeMatchMode(session.metadata?.mode) === 'PRACTICE';
+          myXp = (myResult === 'WIN' && !isPractice) ? calculated.xpEarned : 0;
 
           // Update ledger
           await client.query(`

@@ -45,6 +45,8 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useNavigation } from "@react-navigation/native";
 import { useQueryClient } from "@tanstack/react-query";
 import { fontSizes, spacing, radii } from "../../theme";
+import { BlurView } from "expo-blur";
+import MaskedView from "@react-native-masked-view/masked-view";
 import { useAuth } from "../../context/AuthContext";
 import type { Post } from "../../types";
 import { postsService } from "../../services/posts.service";
@@ -1773,26 +1775,9 @@ export default React.memo(function ReelItem({
   return (
     <View style={[styles.cell, { width: SCREEN_W, height: SCREEN_H }]}>
       {/* ── Layer 1: Content ── */}
-      <ReelContent
-        post={post}
-        isActive={isActive}
-        isMuted={isMuted}
-        isPaused={isPaused}
-        onPinchStateChange={setIsPinching}
-        onRepostPress={handleRepostPress}
-        overlayAnim={overlayAnim}
-      />
+      <TouchableWithoutFeedback onPress={isActive ? handleContentPress : undefined} onPressIn={isActive ? handleContentPressIn : undefined} onPressOut={isActive ? handleContentPressOut : undefined}><View style={StyleSheet.absoluteFill}><ReelContent post={post} isActive={isActive} isMuted={isMuted} isPaused={isPaused} onPinchStateChange={setIsPinching} onRepostPress={handleRepostPress} overlayAnim={overlayAnim} /></View></TouchableWithoutFeedback>
 
-      {/* ── Layer 1.5: Touch overlay for taps (Pressable uses JS touch system — coexists with ZoomableMedia's native pinch) ── */}
-      {isActive && (
-        <Pressable
-          style={StyleSheet.absoluteFill}
-          onPress={handleContentPress}
-          onPressIn={handleContentPressIn}
-          onPressOut={handleContentPressOut}
-          // No onLongPress — we use manual timer to avoid Pressable's default delay interaction
-        />
-      )}
+      
 
       {/* ── Layer 1.6: Heart burst animation (pointerEvents=none) ── */}
       <Animated.View
@@ -1826,7 +1811,7 @@ export default React.memo(function ReelItem({
           {
             height:
               topOverlayHeight > 0
-                ? insets.top + 8 + topOverlayHeight + 10
+                ? insets.top + 8 + topOverlayHeight + 40
                 : isContentExpanded
                   ? SCREEN_H * 0.5
                   : SCREEN_H * 0.25,
@@ -1838,30 +1823,15 @@ export default React.memo(function ReelItem({
         <LinearGradient
           colors={[
             reelGradientColor,
-            `${reelGradientColor}F2`,
-            `${reelGradientColor}E6`,
-            `${reelGradientColor}D9`,
-            `${reelGradientColor}8C`,
-            `${reelGradientColor}73`,
-            `${reelGradientColor}59`,
-            `${reelGradientColor}40`,
-            `${reelGradientColor}26`,
-            `${reelGradientColor}1A`,
-            `${reelGradientColor}0D`,
+            `${reelGradientColor}FC`,
             `${reelGradientColor}00`,
           ]}
           locations={[
             0,
-            topOverlayHeight > 0 ? (insets.top + 8 + 44) / (insets.top + 8 + topOverlayHeight + 10) : 0.2,
-            topOverlayHeight > 0 ? (insets.top + 8 + 74) / (insets.top + 8 + topOverlayHeight + 10) : 0.4,
-            topOverlayHeight > 0 ? (insets.top + 8 + topOverlayHeight) / (insets.top + 8 + topOverlayHeight + 10) : 0.6,
-            topOverlayHeight > 0 ? (insets.top + 8 + topOverlayHeight + 1) / (insets.top + 8 + topOverlayHeight + 10) : 0.64,
-            topOverlayHeight > 0 ? (insets.top + 8 + topOverlayHeight + 2) / (insets.top + 8 + topOverlayHeight + 10) : 0.68,
-            topOverlayHeight > 0 ? (insets.top + 8 + topOverlayHeight + 3) / (insets.top + 8 + topOverlayHeight + 10) : 0.72,
-            topOverlayHeight > 0 ? (insets.top + 8 + topOverlayHeight + 4) / (insets.top + 8 + topOverlayHeight + 10) : 0.76,
-            topOverlayHeight > 0 ? (insets.top + 8 + topOverlayHeight + 5) / (insets.top + 8 + topOverlayHeight + 10) : 0.8,
-            topOverlayHeight > 0 ? (insets.top + 8 + topOverlayHeight + 6) / (insets.top + 8 + topOverlayHeight + 10) : 0.84,
-            topOverlayHeight > 0 ? (insets.top + 8 + topOverlayHeight + 7) / (insets.top + 8 + topOverlayHeight + 10) : 0.88,
+            topOverlayHeight > 0
+              ? (insets.top + 8 + 44) /
+                (insets.top + 8 + topOverlayHeight + 40)
+              : 0.2,
             1,
           ]}
           style={{ flex: 1 }}
@@ -2087,7 +2057,7 @@ export default React.memo(function ReelItem({
         style={[
           styles.bottomScrim,
           {
-            height: insets.bottom + 8 + 24 + 10,
+            height: insets.bottom + 8 + 24 + 40,
             opacity: overlayAnim,
           },
         ]}
@@ -2096,30 +2066,12 @@ export default React.memo(function ReelItem({
         <LinearGradient
           colors={[
             `${reelGradientColor}00`,
-            `${reelGradientColor}0D`,
-            `${reelGradientColor}1A`,
-            `${reelGradientColor}26`,
-            `${reelGradientColor}40`,
-            `${reelGradientColor}59`,
-            `${reelGradientColor}73`,
-            `${reelGradientColor}8C`,
-            `${reelGradientColor}D9`,
-            `${reelGradientColor}E6`,
-            `${reelGradientColor}F2`,
+            `${reelGradientColor}FC`,
             reelGradientColor,
           ]}
           locations={[
             0,
-            3 / (insets.bottom + 8 + 24 + 10),
-            4 / (insets.bottom + 8 + 24 + 10),
-            5 / (insets.bottom + 8 + 24 + 10),
-            6 / (insets.bottom + 8 + 24 + 10),
-            7 / (insets.bottom + 8 + 24 + 10),
-            8 / (insets.bottom + 8 + 24 + 10),
-            9 / (insets.bottom + 8 + 24 + 10),
-            10 / (insets.bottom + 8 + 24 + 10),
-            (10 + 8) / (insets.bottom + 8 + 24 + 10),
-            (10 + 16) / (insets.bottom + 8 + 24 + 10),
+            40 / (insets.bottom + 8 + 24 + 40),
             1,
           ]}
           style={{ flex: 1 }}

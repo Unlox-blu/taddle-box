@@ -856,7 +856,31 @@ function RepostedReelPreview({
   );
 }
 
-// ─── ReelContent ──────────────────────────────────────────────────────────────
+const AmbientBackground = ({ url, children, style }: { url?: string, children?: React.ReactNode, style?: any }) => {
+  if (!url) {
+    return (
+      <View style={[{ width: SCREEN_W, height: SCREEN_H, backgroundColor: "#000" }, style]}>
+        {children}
+      </View>
+    );
+  }
+  return (
+    <View style={[{ width: SCREEN_W, height: SCREEN_H }, style]}>
+      <Image
+        source={{ uri: url }}
+        style={StyleSheet.absoluteFill}
+        contentFit="cover"
+        blurRadius={40}
+      />
+      <BlurView style={StyleSheet.absoluteFill} tint="dark" intensity={80} />
+      <View style={[StyleSheet.absoluteFill, { backgroundColor: "rgba(0,0,0,0.5)" }]} />
+      <View style={[StyleSheet.absoluteFill, { justifyContent: "center", alignItems: "center" }]}>
+        {children}
+      </View>
+    </View>
+  );
+};
+
 function ReelContent({
   post,
   isActive,
@@ -910,27 +934,20 @@ function ReelContent({
   // Repost → show embedded preview of the original post
   if (isRepost) {
     return (
-      <LinearGradient
-        colors={[reelBg1, reelBg2]}
-        style={{ width: SCREEN_W, height: SCREEN_H, justifyContent: "center" }}
-      >
+      <AmbientBackground url={(post as any).mediaUri || firstMedia?.preview_url || firstMedia?.media_url}>
         <RepostedReelPreview
           post={post}
           isActive={isActive}
           onPress={(orig) => onRepostPress?.(orig)}
         />
-      </LinearGradient>
+      </AmbientBackground>
     );
   }
 
   // Multiple visual media → horizontal carousel
   if (visualMedia.length > 1) {
     return (
-      <LinearGradient
-        colors={[reelBg1, reelBg2]}
-        style={{ width: SCREEN_W, height: SCREEN_H }}
-      >
-        <ScrollView
+      <View style={{ width: SCREEN_W, height: SCREEN_H }}><ScrollView
           horizontal
           pagingEnabled
           showsHorizontalScrollIndicator={false}
@@ -942,15 +959,7 @@ function ReelContent({
             const isVid = m.media_type === "video" || m.type === "video";
             const dims = getMediaDimensions(m);
             return (
-              <View
-                key={idx}
-                style={{
-                  width: SCREEN_W,
-                  height: SCREEN_H,
-                  justifyContent: "center",
-                  alignItems: "center",
-                }}
-              >
+                <AmbientBackground key={idx} url={url || m.preview_url}>
                 {isVid && url ? (
                   isActive ? (
                     <ActiveVideo
@@ -976,7 +985,7 @@ function ReelContent({
                     transition={200}
                   />
                 ) : null}
-              </View>
+              </AmbientBackground>
             );
           })}
         </ScrollView>
@@ -1003,23 +1012,15 @@ function ReelContent({
             />
           ))}
         </View>
-      </LinearGradient>
+      </View>
     );
   }
 
   // Single video with pinch-to-zoom
   if (isVideo && mediaUrl) {
-    const dims = getMediaDimensions();
-    return (
-      <LinearGradient
-        colors={[reelBg1, reelBg2]}
-        style={{
-          width: SCREEN_W,
-          height: SCREEN_H,
-          justifyContent: "center",
-          alignItems: "center",
-        }}
-      >
+      const dims = getMediaDimensions();
+      return (
+        <AmbientBackground url={firstMedia?.preview_url || mediaUrl}>
         <ZoomableMedia
           width={dims.width}
           height={dims.height}
@@ -1042,21 +1043,13 @@ function ReelContent({
             />
           )}
         </ZoomableMedia>
-      </LinearGradient>
-    );
-  }
+        </AmbientBackground>
+      );
+    }
 
   if (isAudio && mediaUrl) {
-    return (
-      <LinearGradient
-        colors={[reelBg1, reelBg2]}
-        style={{
-          width: SCREEN_W,
-          height: SCREEN_H,
-          justifyContent: "center",
-          alignItems: "center",
-        }}
-      >
+      return (
+        <AmbientBackground url={firstMedia?.preview_url}>
         <ZoomableMedia
           width={SCREEN_W}
           height={SCREEN_W}
@@ -1082,22 +1075,14 @@ function ReelContent({
             </LinearGradient>
           )}
         </ZoomableMedia>
-      </LinearGradient>
-    );
-  }
+        </AmbientBackground>
+      );
+    }
 
   if (mediaUrl) {
-    const dims = getMediaDimensions();
-    return (
-      <LinearGradient
-        colors={[reelBg1, reelBg2]}
-        style={{
-          width: SCREEN_W,
-          height: SCREEN_H,
-          justifyContent: "center",
-          alignItems: "center",
-        }}
-      >
+      const dims = getMediaDimensions();
+      return (
+        <AmbientBackground url={mediaUrl}>
         <ZoomableMedia
           width={dims.width}
           height={dims.height}
@@ -1110,21 +1095,12 @@ function ReelContent({
             transition={200}
           />
         </ZoomableMedia>
-      </LinearGradient>
-    );
-  }
+        </AmbientBackground>
+      );
+    }
 
-  // Text / poll — gradient background
   return (
-    <LinearGradient
-      colors={[reelBg1, reelBg2]}
-      style={{
-        width: SCREEN_W,
-        height: SCREEN_H,
-        justifyContent: "center",
-        alignItems: "center",
-      }}
-    >
+    <AmbientBackground url={(post as any).mediaUri || firstMedia?.preview_url || firstMedia?.media_url}>
       {(post as any).title ? (
         <Text
           style={[
@@ -1159,9 +1135,9 @@ function ReelContent({
           </Text>
         </View>
       )}
-    </LinearGradient>
-  );
-}
+    </AmbientBackground>
+    );
+  }
 
 // ─── ReelItem (main export) ───────────────────────────────────────────────────
 export default React.memo(function ReelItem({
@@ -1821,17 +1797,32 @@ export default React.memo(function ReelItem({
         pointerEvents="none"
       >
         <LinearGradient
-          colors={[
+                    colors={[
             reelGradientColor,
             `${reelGradientColor}FC`,
+            `${reelGradientColor}CE`,
+            `${reelGradientColor}A3`,
+            `${reelGradientColor}7D`,
+            `${reelGradientColor}5C`,
+            `${reelGradientColor}3F`,
+            `${reelGradientColor}28`,
+            `${reelGradientColor}17`,
+            `${reelGradientColor}0A`,
+            `${reelGradientColor}02`,
             `${reelGradientColor}00`,
           ]}
           locations={[
             0,
-            topOverlayHeight > 0
-              ? (insets.top + 8 + 44) /
-                (insets.top + 8 + topOverlayHeight + 40)
-              : 0.2,
+            topOverlayHeight > 0 ? (insets.top + 8 + 44) / (insets.top + 8 + topOverlayHeight + 40) : 0.20,
+            topOverlayHeight > 0 ? (insets.top + 8 + 44 + (topOverlayHeight - 4) * 0.1) / (insets.top + 8 + topOverlayHeight + 40) : 0.28,
+            topOverlayHeight > 0 ? (insets.top + 8 + 44 + (topOverlayHeight - 4) * 0.2) / (insets.top + 8 + topOverlayHeight + 40) : 0.36,
+            topOverlayHeight > 0 ? (insets.top + 8 + 44 + (topOverlayHeight - 4) * 0.3) / (insets.top + 8 + topOverlayHeight + 40) : 0.44,
+            topOverlayHeight > 0 ? (insets.top + 8 + 44 + (topOverlayHeight - 4) * 0.4) / (insets.top + 8 + topOverlayHeight + 40) : 0.52,
+            topOverlayHeight > 0 ? (insets.top + 8 + 44 + (topOverlayHeight - 4) * 0.5) / (insets.top + 8 + topOverlayHeight + 40) : 0.60,
+            topOverlayHeight > 0 ? (insets.top + 8 + 44 + (topOverlayHeight - 4) * 0.6) / (insets.top + 8 + topOverlayHeight + 40) : 0.68,
+            topOverlayHeight > 0 ? (insets.top + 8 + 44 + (topOverlayHeight - 4) * 0.7) / (insets.top + 8 + topOverlayHeight + 40) : 0.76,
+            topOverlayHeight > 0 ? (insets.top + 8 + 44 + (topOverlayHeight - 4) * 0.8) / (insets.top + 8 + topOverlayHeight + 40) : 0.84,
+            topOverlayHeight > 0 ? (insets.top + 8 + 44 + (topOverlayHeight - 4) * 0.9) / (insets.top + 8 + topOverlayHeight + 40) : 0.92,
             1,
           ]}
           style={{ flex: 1 }}
@@ -2064,13 +2055,31 @@ export default React.memo(function ReelItem({
         pointerEvents="none"
       >
         <LinearGradient
-          colors={[
+                    colors={[
             `${reelGradientColor}00`,
+            `${reelGradientColor}02`,
+            `${reelGradientColor}0A`,
+            `${reelGradientColor}17`,
+            `${reelGradientColor}28`,
+            `${reelGradientColor}3F`,
+            `${reelGradientColor}5C`,
+            `${reelGradientColor}7D`,
+            `${reelGradientColor}A3`,
+            `${reelGradientColor}CE`,
             `${reelGradientColor}FC`,
             reelGradientColor,
           ]}
           locations={[
             0,
+            4 / (insets.bottom + 8 + 24 + 40),
+            8 / (insets.bottom + 8 + 24 + 40),
+            12 / (insets.bottom + 8 + 24 + 40),
+            16 / (insets.bottom + 8 + 24 + 40),
+            20 / (insets.bottom + 8 + 24 + 40),
+            24 / (insets.bottom + 8 + 24 + 40),
+            28 / (insets.bottom + 8 + 24 + 40),
+            32 / (insets.bottom + 8 + 24 + 40),
+            36 / (insets.bottom + 8 + 24 + 40),
             40 / (insets.bottom + 8 + 24 + 40),
             1,
           ]}

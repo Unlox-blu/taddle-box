@@ -20,6 +20,7 @@ import { useTheme, useThemeColors } from "../../context/ThemeContext";
 import { fontSizes, spacing, radii } from "../../theme";
 import { useAuth } from "../../context/AuthContext";
 import { chatService, type ChatMessage } from "../../services/chat.service";
+import { postsService } from "../../services/posts.service";
 import { chatSocketClient } from "../../services/chatSocketClient";
 import { themedAlert } from "../../components/common/ThemedAlert";
 import StateBlock from "../../components/common/StateBlock";
@@ -178,10 +179,17 @@ export default function ChatScreen() {
   );
 
   const openPost = useCallback(
-    (postId: string) => {
-      // Navigate to PostDetail (at root level) to view the reel
-      // PostDetail expects a full Post object; fetch it first if needed.
-      navigation.navigate("PostDetail", { post: { id: postId } as any });
+    async (postId: string) => {
+      try {
+        const res = await postsService.getPost(postId);
+        const post = res?.data;
+        if (post) {
+          navigation.navigate("PostDetail", { post, feedPosts: [post], isSinglePost: true } as any);
+        }
+      } catch {
+        // Fallback — navigate with minimal object
+        navigation.navigate("PostDetail", { post: { id: postId } as any });
+      }
     },
     [navigation],
   );
@@ -312,6 +320,11 @@ export default function ChatScreen() {
             own ? styles.msgOwn : styles.msgOther,
             { backgroundColor: own ? colors.primaryLight : colors.bg.elevated },
           ]}
+          onPress={() => {
+            if (item.game_lobby_id) {
+              navigation.navigate("Main" as never, { screen: "Games" } as never);
+            }
+          }}
           onLongPress={() =>
             setLongPressedMsg(longPressedMsg === item.id ? null : item.id)
           }
@@ -324,12 +337,12 @@ export default function ChatScreen() {
               color={colors.primaryLight}
             />
             <Text
-              style={[styles.gameInviteTitle, { color: colors.text.primary }]}
+              style={[styles.gameInviteTitle, { color: colors.primaryLight }]}
             >
               {item.game_name || "Game Invite"}
             </Text>
             <Text style={[styles.gameInviteSub, { color: colors.text.muted }]}>
-              {own ? "You invited to play" : "Invited you to play"}
+              {own ? "You invited to play" : "Tap to join"}
             </Text>
           </View>
           {renderReactions(item)}

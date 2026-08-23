@@ -222,15 +222,26 @@ export default function TapRushGame({
   useEffect(() => {
     if (status === "active" && externalPhase === "playing" && timeLeft === 0) {
       setStatus("finished");
-      onComplete({
-        score,
-        won: score >= 1, // basic win condition if at least 1 tap
-        durationSeconds: 20,
-        accuracy: Math.min(100, Math.round((score / 15) * 100)),
-        longestStreak: score,
-      });
+      // Stop the local clock — don't call onComplete here. The server's
+      // GAME_OVER event provides the authoritative win/loss result. Calling
+      // onComplete locally with a heuristic (score >= 1) would race the
+      // server and show an incorrect outcome for draws, timeouts where the
+      // opponent scored more, etc.
+      // Fallback: if the server doesn't emit GAME_OVER within 5s (network
+      // hiccup), fall back to the local score so the player isn't stuck.
+      const fallback = setTimeout(() => {
+        onComplete({
+          score,
+          won: false, // unknown — let the server decide on next complete call
+          xpEarned: 0,
+          durationSeconds: 20,
+          accuracy: Math.min(100, Math.round((score / 15) * 100)),
+          longestStreak: score,
+        });
+      }, 5000);
+      return () => clearTimeout(fallback);
     }
-  }, [timeLeft, status, externalPhase, score, onComplete]);
+  }, [timeLeft, status, externalPhase]);
 
   // Reveal targets on the server-provided cumulative schedule. Each target's
   // `delay` is its absolute offset from game start, so we schedule every reveal

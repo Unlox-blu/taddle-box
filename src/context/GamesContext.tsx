@@ -13,7 +13,7 @@ export type GameMatch = {
   gameEmoji:  string;
   gameSlug?:  string;
   mode:       PlayMode;
-  result:     'win' | 'loss';
+  result:     'win' | 'loss' | 'draw';
   xpEarned:   number;
   score:      string;
   duration:   string;
@@ -64,7 +64,12 @@ const formatMatch = (match: any): GameMatch => {
     gameEmoji: GAME_EMOJIS[match.gameSlug] || 'GM',
     gameSlug: match.gameSlug,
     mode: normalizedMode as PlayMode,
-    result: String(match.result || 'LOSS').toLowerCase() === 'win' ? 'win' : 'loss',
+    result: (() => {
+      const r = String(match.result || 'LOSS').toLowerCase();
+      if (r === 'win') return 'win' as const;
+      if (r === 'draw') return 'draw' as const;
+      return 'loss' as const;
+    })(),
     xpEarned: match.xpEarned || 0,
     score: `${(match.score || 0).toLocaleString()} pts`,
     duration: formatDuration(match.duration),

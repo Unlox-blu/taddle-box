@@ -69,6 +69,9 @@ export default function ScribbleGame({ matchId, userId, wsToken, players, extern
   // Latest plugin state (for re-syncing the round clock when the board becomes
   // visible after the 3-2-1 countdown).
   const lastPsRef = useRef<any>(null);
+  // Tracks which round's timer was last started so applyState doesn't
+  // unconditionally restart the interval on every SYNC during the same round.
+  const timerRoundRef = useRef<number>(0);
   const roleAnim = useRef(new Animated.Value(0)).current;
   const timerBarAnim = useRef(new Animated.Value(1)).current;
   // Mirrors `currentStroke` but is updated synchronously inside the PanResponder,
@@ -163,14 +166,18 @@ export default function ScribbleGame({ matchId, userId, wsToken, players, extern
       clearInterval(timerRef.current);
       const ps = data.state?.pluginState ?? data.state;
       const myScore = ps?.scores?.[userId] || 0;
-      const allScores = Object.values<number>(ps?.scores || { _: 0 });
-      const maxScore = allScores.length ? Math.max(...allScores) : 0;
-      const won = myScore >= maxScore && myScore > 0;
-      themedAlert(
-        won ? '🎨 You Won!' : '😔 Good Try!',
-        `Your score: ${myScore} pts`,
-        [{ text: 'OK', onPress: () => onComplete({ score: myScore, won, xpEarned: won ? 50 : 10, durationSeconds: 0 }) }]
-      );
+      // Prefer the server's authoritative win/loss from the reward payload.
+      // Fall back to a client-side heuristic only when the server omits it.
+      const serverResult = data.reward?.result;
+      const won = serverResult
+        ? serverResult === 'WIN'
+        : (() => {
+            const allScores = Object.values<number>(ps?.scores || { _: 0 });
+            const maxScore = allScores.length ? Math.max(...allScores) : 0;
+            return myScore >= maxScore && myScore > 0;
+          })();
+      // Call onComplete immediately so the result overlay renders right away.
+      onComplete({ score: myScore, won, xpEarned: won ? 50 : 10, durationSeconds: 0 });
     });
 
     s.on(E.ERROR, (e: any) => {
@@ -236,7 +243,15 @@ export default function ScribbleGame({ matchId, userId, wsToken, players, extern
     // START during the countdown, so the effect below kicks the clock off once
     // the board is actually shown).
     if (externalPhaseRef.current === 'playing') {
-      startTimerFromState(ps);
+      // Only (re)start the timer when the round actually changed or the timer
+      // isn't running yet. Without this guard, every SYNC during the same
+      // round would clear and restart the interval, resetting the visual timer
+      // bar to full and burning the elapsed time that already passed.
+      const curRound = ps.currentRound ?? 0;
+      if (!timerRef.current || curRound !== timerRoundRef.current) {
+        timerRoundRef.current = curRound;
+        startTimerFromState(ps);
+      }
     }
   };
 
@@ -244,7 +259,11 @@ export default function ScribbleGame({ matchId, userId, wsToken, players, extern
   useEffect(() => {
     if (externalPhase !== 'playing') return;
     if (status === 'connecting' || status === 'waiting' || status === 'finished') return;
-    startTimerFromState(lastPsRef.current);
+    // Only start if the timer isn't already running (applyState may have
+    // already started it via START/SYNC during the countdown).
+    if (!timerRef.current) {
+      startTimerFromState(lastPsRef.current);
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [externalPhase]);
 

@@ -138,11 +138,22 @@ export default function ChatInboxScreen() {
   const openChat = useCallback(async (otherUserId: string) => {
     try {
       const convId = await chatService.getOrCreateConversation(otherUserId);
-      navigation.navigate("Chat", { conversationId: convId, otherUserId });
+      const conv = conversations.find((c) => c.other_user_id === otherUserId);
+      navigation.navigate("Chat", {
+        conversationId: convId,
+        otherUserId,
+        otherUser: conv ? {
+          id: conv.other_user_id,
+          name: conv.other_user_name,
+          username: conv.other_user_username,
+          avatarUrl: conv.other_user_avatar,
+          handle: conv.other_user_username,
+        } : undefined,
+      });
     } catch (e: any) {
       themedAlert("Cannot Message", e?.response?.data?.message || "You can only message mutual followers.");
     }
-  }, [navigation]);
+  }, [navigation, conversations]);
 
   return (
     <View style={[styles.container, { backgroundColor: colors.bg.base }]}>
@@ -150,6 +161,12 @@ export default function ChatInboxScreen() {
       <MainHeader showBack />
 
       <View style={{ flex: 1, paddingTop: insets.top + 50 }}>
+        {/* Heading */}
+        <View style={{ paddingHorizontal: spacing.lg, marginBottom: spacing.sm }}>
+          <Text style={{ fontSize: fontSizes.xxl, fontWeight: '800', color: colors.text.primary }}>Messages</Text>
+          <Text style={{ fontSize: fontSizes.sm, color: colors.text.muted, marginTop: 2 }}>Chat with mutuals & communities</Text>
+        </View>
+
         {loading ? (
           <StateBlock inline loading loaderSize={32} style={{ flex: 1, justifyContent: 'center' }} />
         ) : conversations.length === 0 ? (

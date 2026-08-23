@@ -156,9 +156,11 @@ export default function MemoryGridGame({
       } else {
         const pState = payload.state?.pluginState || payload;
         const finalScore = pState.scores?.[userId] || 0;
+        // Prefer the server's winner field. Only fall back to a heuristic when
+        // the server omits both reward and winner (legacy engine).
         onComplete({
           score: finalScore,
-          won: pState.winner === userId || (finalScore >= 1 && pState.winner === null),
+          won: pState.winner != null ? pState.winner === userId : finalScore >= 1,
           xpEarned: 0,
           durationSeconds: 30,
           accuracy: Math.min(100, Math.round((finalScore / (totalRoundsRef.current || 1)) * 100)),

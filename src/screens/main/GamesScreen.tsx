@@ -604,6 +604,11 @@ export default function GamesScreen() {
     // Release native audio players — frees ~11 AudioPlayer allocations.
     // initGameSound() will recreate them on next PLAY tap.
     destroyGameSound().catch(() => {});
+    // Clear stale reconnect session IMMEDIATELY so the REJOIN button on the
+    // game card disappears the moment the session closes. loadGamesData() will
+    // re-fetch the active session from the server — if a new one exists it
+    // will re-appear; if the old one was stale it stays cleared.
+    setReconnectSession(null);
     setActiveSession(null);
     loadGamesData();
   };
@@ -1330,6 +1335,10 @@ function GamePlayModal({
     const onResume = (event: any) => {
       if (event.matchId === session.matchId) {
         setOpponentPausedCountdown(null);
+        // Resume the game: the opponent reconnected and the engine is back
+        // to ACTIVE. Without this the disconnect overlay disappears but the
+        // game stays frozen on whatever phase was shown during the pause.
+        setPhase((prev) => (prev === "result" ? prev : "playing"));
       }
     };
 
@@ -1351,6 +1360,7 @@ function GamePlayModal({
       if (st !== "FINISHED" && st !== "ARCHIVED") return;
       const winnerId = event.data?.state?.pluginState?.winner;
       const won = !!winnerId && String(winnerId) === String(user?.id);
+      const draw = !!event.data?.state?.pluginState?.drawReason;
       handleCompleteRef.current({
         score: won ? 1 : 0,
         won,
@@ -1388,15 +1398,24 @@ function GamePlayModal({
     resultSoundPlayedRef.current = false;
     setPhase(session.isRejoin ? "playing" : "prestart");
     setScore(0);
+    setResult("pending");
     setXpEarned(0);
     setGameStats({});
+    setOpponentPausedCountdown(null);
   }, [session.matchId, session.sessionId]);
 
-  // Resolve a pending PVP result when the server broadcasts the final outcome
+  // Resolve a pending PVP result when the server broadcasts the final outcome.
+  // Uses a ref for the result guard so the listener is registered exactly once
+  // per match — without the ref, including `result` in the dep array causes
+  // the listener to re-register on every render (since result is set inside
+  // the listener itself), and the stale closure can miss the "pending" check.
+  const resultRef = useRef(result);
+  useEffect(() => { resultRef.current = result; }, [result]);
+
   useEffect(() => {
     const onNotif = (notif: NotificationNewPayload) => {
       if (notif?.type !== "MATCH_RESOLVED") return;
-      if (result !== "pending") return;
+      if (resultRef.current !== "pending") return;
       const payload = notif.payload || {};
       // Ignore stale resolutions from an earlier match (payload.matchId added
       // server-side; fall back to matchId/sessionId when absent).
@@ -1427,7 +1446,7 @@ function GamePlayModal({
 
     accountSocket.events.on("notification:new", onNotif);
     return () => accountSocket.events.off("notification:new", onNotif);
-  }, [phase, result]);
+  }, [session.matchId]);
 
   const handleComplete = async (gameResult: HtmlGameResult) => {
     if (completingRef.current) return;
@@ -1482,9 +1501,12 @@ function GamePlayModal({
         msg.includes("not finished");
       if (benign) {
         // Don't clobber a result the server already returned on an earlier call.
-        if (result === "pending") {
+        // Use the ref (not the closure) so the guard reads the live value —
+        // setResult('win') above may have run in the same render cycle but the
+        // closure still sees the old 'pending' snapshot.
+        if (resultRef.current === "pending") {
           setScore(gameResult.score || 0);
-          setResult(gameResult.won ? "win" : "loss");
+          setResult(gameResult.won ? "win" : gameResult.won === false ? "loss" : "draw");
           setXpEarned(gameResult.xpEarned || 0);
           setGameStats({
             accuracy: gameResult.accuracy,
@@ -1508,6 +1530,23 @@ function GamePlayModal({
   // Keep the engine-socket listeners pointed at the latest handler.
   handleCompleteRef.current = handleComplete;
 
+  // Safety timeout: if the game doesn't start within 15s (stale session,
+  // engine won't accept connection, etc.) close the session instead of
+  // leaving the player stuck on a blank loading screen.
+  useEffect(() => {
+    if (phase !== "prestart" || session.isRejoin) return;
+    const timer = setTimeout(() => {
+      if (phase === "prestart") {
+        themedAlert(
+          "Connection Timeout",
+          "Could not connect to the game. Returning to the games screen.",
+          [{ text: "OK", onPress: () => onClose() }],
+        );
+      }
+    }, 15000);
+    return () => clearTimeout(timer);
+  }, [phase, session.matchId]);
+
   return (
     <Modal
       visible
@@ -1526,14 +1565,26 @@ function GamePlayModal({
               <Text style={styles.playTitle}>{session.game.name}</Text>
             </View>
           </View>
-          {session.game.metadata?.runtime === "html5_webview" ? (
-            <View style={styles.scoreBox}>
-              <Text style={styles.scoreLabel}>Score</Text>
-              <Text style={styles.scoreValue}>{score}</Text>
-            </View>
-          ) : (
-            <View style={{ width: 38 }} />
-          )}
+          <View style={styles.playHeaderRight}>
+            {/* Chat button — opens the game's built-in chat (Snake & Ladder,
+                Ludo, Scribble). Other games don't listen so this is a no-op. */}
+            <TouchableOpacity
+              onPress={() => {
+                const { DeviceEventEmitter } = require("react-native");
+                DeviceEventEmitter.emit("OPEN_GAME_CHAT");
+              }}
+              style={styles.iconButton}
+            >
+              <Ionicons name="chatbubble-ellipses" size={18} color={colors.text.secondary} />
+            </TouchableOpacity>
+            {/* Score — shown only for html5 webview games */}
+            {session.game.metadata?.runtime === "html5_webview" && (
+              <View style={styles.scoreBox}>
+                <Text style={styles.scoreLabel}>Score</Text>
+                <Text style={styles.scoreValue}>{score}</Text>
+              </View>
+            )}
+          </View>
         </View>
 
         {/* playStage: game mounts ONLY while phase === "playing".
@@ -1722,6 +1773,7 @@ function MatchRow({ match }: { match: GameMatch }) {
   const colors = useThemeColors();
   const styles = useMemo(() => makeStyles(colors), [colors]);
   const isWin = match.result === "win";
+  const isDraw = match.result === "draw";
   const logoGame: Game = {
     id: match.gameId,
     name: match.gameName,
@@ -1749,10 +1801,10 @@ function MatchRow({ match }: { match: GameMatch }) {
         <Text
           style={[
             styles.matchResult,
-            { color: isWin ? colors.success : colors.danger },
+            { color: isWin ? colors.success : isDraw ? colors.text.secondary : colors.danger },
           ]}
         >
-          {isWin ? "WIN" : "LOSS"}
+          {isWin ? "WIN" : isDraw ? "DRAW" : "LOSS"}
         </Text>
         <Text style={styles.matchXp}>+{match.xpEarned} XP</Text>
       </View>
@@ -2258,6 +2310,7 @@ function makeStyles(c: ColorPalette) {
       borderBottomColor: "rgba(255,255,255,0.08)",
     },
     playHeaderCenter: { flex: 1, alignItems: "center" },
+    playHeaderRight: { flexDirection: "row", alignItems: "center", gap: spacing.sm },
     playHeaderTitleRow: {
       flexDirection: "row",
       alignItems: "center",

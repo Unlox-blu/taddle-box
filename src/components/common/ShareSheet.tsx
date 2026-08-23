@@ -17,6 +17,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useThemeColors } from "../../context/ThemeContext";
 import { chatService, type ChatUser } from "../../services/chat.service";
 import { themedAlert } from "./ThemedAlert";
+import * as Clipboard from 'expo-clipboard';
 import { fontSizes, spacing, radii } from "../../theme";
 
 interface ShareSheetProps {
@@ -66,19 +67,17 @@ export default function ShareSheet({
 
   const shareNative = useCallback(async () => {
     const url = postUrl || `https://taddlebox.com/post/${postId}`;
+    const message = `${postTitle || "Check out this post"}\n\n${url}`;
     try {
-      await Share.share(
-        { message: `${postTitle || "Check out this post"}\n\n${url}`, url, title: postTitle || "Share Post" },
-        { dialogTitle: "Share Post" }
-      );
+      await Share.share({ message, url, title: postTitle || "Share Post" });
     } catch {}
     onClose();
   }, [postId, postTitle, postUrl, onClose]);
 
-  const copyLink = useCallback(() => {
+  const copyLink = useCallback(async () => {
     const url = postUrl || `https://taddlebox.com/post/${postId}`;
-    // RN doesn't have a clean clipboard API without expo-clipboard
-    themedAlert("Link Copied", url);
+    await Clipboard.setStringAsync(url);
+    themedAlert("Copied", "Link copied to clipboard");
     onClose();
   }, [postId, postUrl, onClose]);
 

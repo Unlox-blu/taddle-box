@@ -66,6 +66,10 @@ export default function WordRushGame({ matchId, userId, wsToken, externalPhase =
   const roundRef = useRef(0);
   const externalPhaseRef = useRef(externalPhase);
   useEffect(() => { externalPhaseRef.current = externalPhase; }, [externalPhase]);
+  // Tracks how many times the board has become visible (externalPhase → "playing")
+  // so the timer-start effect only fires once per visibility session instead of
+  // re-running on every render where externalPhase is already "playing".
+  const playCountRef = useRef(0);
   // The engine fires START only after every player's board is visible — READY
   // is sent once the 3-2-1 countdown finishes, never on connect, so the 90s
   // round clock and the countdown never overlap.
@@ -128,14 +132,21 @@ export default function WordRushGame({ matchId, userId, wsToken, externalPhase =
       clearInterval(timerRef.current);
       const ps = data.state?.pluginState ?? data.state;
       const myScore = ps?.scores?.[userId] || 0;
-      const allScores = Object.values<number>(ps?.scores || { _: 0 });
-      const maxScore = allScores.length ? Math.max(...allScores) : 0;
-      const won = myScore >= maxScore && myScore > 0;
-      themedAlert(
-        won ? '🏆 You Won!' : '😔 Good Try!',
-        `Your score: ${myScore} pts`,
-        [{ text: 'OK', onPress: () => onComplete({ score: myScore, won, xpEarned: won ? 50 : 10, durationSeconds: 0 }) }]
-      );
+      // Prefer the server's authoritative win/loss from the reward payload.
+      // Fall back to a client-side heuristic only when the server omits it
+      // (e.g. legacy engine versions).
+      const serverResult = data.reward?.result;
+      const won = serverResult
+        ? serverResult === 'WIN'
+        : (() => {
+            const allScores = Object.values<number>(ps?.scores || { _: 0 });
+            const maxScore = allScores.length ? Math.max(...allScores) : 0;
+            return myScore >= maxScore && myScore > 0;
+          })();
+      // Call onComplete immediately so the result overlay renders right away.
+      // Using themedAlert delayed the result screen until the user tapped OK,
+      // leaving a blank "finished" screen in between.
+      onComplete({ score: myScore, won, xpEarned: won ? 50 : 10, durationSeconds: 0 });
     });
 
     s.on(E.ERROR, (e: any) => {
@@ -186,10 +197,12 @@ export default function WordRushGame({ matchId, userId, wsToken, externalPhase =
       if (ps.currentRound !== roundRef.current) {
         roundRef.current = ps.currentRound;
         setSelectedIndices([]);
-        // Only (re)start the visible clock when the board is actually on screen.
-        // The initial 0→1 round change arrives on CONNECT_ACK, before the 3-2-1
-        // countdown — starting then would burn round time behind the countdown.
-        if (ps.status !== 'finished' && externalPhaseRef.current === 'playing') {
+        // Only (re)start the visible clock when the board is actually on screen
+        // AND the timer isn't already running for a previous round. Without the
+        // timerRef guard, a fresh START that fires while the 3-2-1 countdown
+        // is still showing would clear and restart the interval even though the
+        // board isn't visible yet, wasting the round's time behind the overlay.
+        if (ps.status !== 'finished' && externalPhaseRef.current === 'playing' && !timerRef.current) {
           startLocalTimer(90);
         }
       }
@@ -199,9 +212,13 @@ export default function WordRushGame({ matchId, userId, wsToken, externalPhase =
   };
 
   // The 3-2-1 countdown hides the board — start the round clock only when it's
-  // visible so the countdown never burns round time.
+  // visible so the countdown never burns round time. playCountRef gates this to
+  // fire exactly once per visibility session so it never restarts the clock on
+  // every render where externalPhase is already "playing".
   useEffect(() => {
-    if (status === 'active' && externalPhase === 'playing' && !timerRef.current) {
+    if (status !== 'active' || externalPhase !== 'playing') return;
+    playCountRef.current += 1;
+    if (!timerRef.current) {
       startLocalTimer(90);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps

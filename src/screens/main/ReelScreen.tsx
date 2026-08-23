@@ -9,37 +9,49 @@ import React, {
   useMemo,
   useRef,
   useState,
-} from 'react';
+} from "react";
 import {
   Dimensions,
   RefreshControl,
   StatusBar,
   StyleSheet,
   View,
-} from 'react-native';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { NativeStackScreenProps } from '@react-navigation/native-stack';
-import { useQueryClient } from '@tanstack/react-query';
-import { GestureHandlerRootView, GestureDetector, Gesture } from 'react-native-gesture-handler';
-import Animated, { useSharedValue, useAnimatedStyle, withTiming, withSpring, runOnJS, interpolate, Extrapolation } from 'react-native-reanimated';
-import { FlashList } from '@shopify/flash-list';
-import { useAuth } from '../../context/AuthContext';
-import { postsService } from '../../services/posts.service';
-import { useReelFeed } from '../../hooks/useReelFeed';
-import type { RootStackParamList, Post } from '../../types';
-import ReelItem from './ReelItem';
-import CommentsBottomSheet from '../../components/home/CommentsBottomSheet';
-import ShareSheet from '../../components/common/ShareSheet';
+} from "react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { NativeStackScreenProps } from "@react-navigation/native-stack";
+import { useQueryClient } from "@tanstack/react-query";
+import {
+  GestureHandlerRootView,
+  GestureDetector,
+  Gesture,
+} from "react-native-gesture-handler";
+import Animated, {
+  useSharedValue,
+  useAnimatedStyle,
+  withTiming,
+  withSpring,
+  runOnJS,
+  interpolate,
+  Extrapolation,
+} from "react-native-reanimated";
+import { FlashList } from "@shopify/flash-list";
+import { useAuth } from "../../context/AuthContext";
+import { postsService } from "../../services/posts.service";
+import { useReelFeed } from "../../hooks/useReelFeed";
+import type { RootStackParamList, Post } from "../../types";
+import ReelItem from "./ReelItem";
+import CommentsBottomSheet from "../../components/home/CommentsBottomSheet";
+import ShareSheet from "../../components/common/ShareSheet";
 
-const { width: SCREEN_W, height: SCREEN_H } = Dimensions.get('window');
+const { width: SCREEN_W, height: SCREEN_H } = Dimensions.get("window");
 
-type Props = NativeStackScreenProps<RootStackParamList, 'PostDetail'>;
+type Props = NativeStackScreenProps<RootStackParamList, "PostDetail">;
 
 export default function ReelScreen({ navigation, route }: Props) {
   const {
     post: initialPost,
     feedPosts = [],
-    feedContext = 'feed',
+    feedContext = "feed",
     feedContextId,
     isSinglePost = false,
   } = route.params as any;
@@ -66,7 +78,8 @@ export default function ReelScreen({ navigation, route }: Props) {
   const [refreshing, setRefreshing] = useState(false);
   const handleRefresh = useCallback(() => {
     setRefreshing(true);
-    queryClient.invalidateQueries({ queryKey: ['feed'] })
+    queryClient
+      .invalidateQueries({ queryKey: ["feed"] })
       .then(() => setRefreshing(false))
       .catch(() => setRefreshing(false));
   }, [queryClient]);
@@ -94,45 +107,77 @@ export default function ReelScreen({ navigation, route }: Props) {
     if (navigation.canGoBack()) {
       navigation.goBack();
     } else {
-      (navigation as any).reset({ index: 0, routes: [{ name: 'Main', params: { screen: 'Home' } }] });
+      (navigation as any).reset({
+        index: 0,
+        routes: [{ name: "Main", params: { screen: "Home" } }],
+      });
     }
   }, [navigation]);
 
-  const panGesture = isSinglePost ? Gesture.Pan().enabled(false) : Gesture.Pan()
-    .activeOffsetY(10)
-    .onUpdate((e) => {
-      if (e.translationY > 0) {
-        const dampened = e.translationY * 0.6;
-        dismissY.value = dampened;
-      } else if (e.translationY < -20) {
-        dismissY.value = Math.max(-30, e.translationY * 0.25);
-      }
-    })
-    .onEnd((e) => {
-      const dragDistance = dismissY.value;
-      const vy = e.velocityY;
-      const shouldDismiss = dragDistance > SCREEN_H * 0.3 || (vy > 400 && dragDistance > 40);
+  const panGesture = isSinglePost
+    ? Gesture.Pan().enabled(false)
+    : Gesture.Pan()
+        .activeOffsetY(10)
+        .onUpdate((e) => {
+          if (e.translationY > 0) {
+            const dampened = e.translationY * 0.6;
+            dismissY.value = dampened;
+          } else if (e.translationY < -20) {
+            dismissY.value = Math.max(-30, e.translationY * 0.25);
+          }
+        })
+        .onEnd((e) => {
+          const dragDistance = dismissY.value;
+          const vy = e.velocityY;
+          const shouldDismiss =
+            dragDistance > SCREEN_H * 0.3 || (vy > 400 && dragDistance > 40);
 
-      if (shouldDismiss) {
-        const exitDuration = Math.max(120, Math.min(300, 60000 / Math.max(vy, 1)));
-        dismissY.value = withTiming(SCREEN_H * 1.1, { duration: exitDuration }, () => {
-          runOnJS(goBack)();
+          if (shouldDismiss) {
+            const exitDuration = Math.max(
+              120,
+              Math.min(300, 60000 / Math.max(vy, 1)),
+            );
+            dismissY.value = withTiming(
+              SCREEN_H * 1.1,
+              { duration: exitDuration },
+              () => {
+                runOnJS(goBack)();
+              },
+            );
+          } else {
+            dismissY.value = withSpring(0, {
+              damping: 18,
+              stiffness: 280,
+              mass: 0.8,
+            });
+          }
         });
-      } else {
-        dismissY.value = withSpring(0, { damping: 18, stiffness: 280, mass: 0.8 });
-      }
-    });
 
   const dismissStyle = useAnimatedStyle(() => {
     const ty = dismissY.value;
-    const scale = interpolate(ty, [0, SCREEN_H * 0.5], [1, 0.85], Extrapolation.CLAMP);
-    const opacity = interpolate(ty, [0, SCREEN_H * 0.6], [1, 0], Extrapolation.CLAMP);
-    const borderRadius = interpolate(ty, [0, SCREEN_H * 0.5], [0, 20], Extrapolation.CLAMP);
+    const scale = interpolate(
+      ty,
+      [0, SCREEN_H * 0.5],
+      [1, 0.85],
+      Extrapolation.CLAMP,
+    );
+    const opacity = interpolate(
+      ty,
+      [0, SCREEN_H * 0.6],
+      [1, 0],
+      Extrapolation.CLAMP,
+    );
+    const borderRadius = interpolate(
+      ty,
+      [0, SCREEN_H * 0.5],
+      [0, 20],
+      Extrapolation.CLAMP,
+    );
     return {
       transform: [{ translateY: ty }, { scale }],
       opacity,
       borderRadius,
-      overflow: 'hidden' as const,
+      overflow: "hidden" as const,
     };
   });
 
@@ -144,30 +189,48 @@ export default function ReelScreen({ navigation, route }: Props) {
   // ── Cache sync helpers ─────────────────────────────────────────────────────
   const patchCachedPosts = useCallback(
     (postId: string, patch: (p: any) => any) => {
-      queryClient.getQueryCache().findAll().forEach((query) => {
-        const key = query.queryKey;
-        if (!Array.isArray(key) || key.length === 0) return;
-        if (!['feed', 'bookmarks', 'profile'].includes(key[0] as string)) return;
-        queryClient.setQueryData(key, (old: any) => {
-          if (!old || !Array.isArray(old.pages)) return old;
-          return { ...old, pages: old.pages.map((page: any[]) => page.map((p: any) => (p.id === postId ? patch(p) : p))) };
+      queryClient
+        .getQueryCache()
+        .findAll()
+        .forEach((query) => {
+          const key = query.queryKey;
+          if (!Array.isArray(key) || key.length === 0) return;
+          if (!["feed", "bookmarks", "profile"].includes(key[0] as string))
+            return;
+          queryClient.setQueryData(key, (old: any) => {
+            if (!old || !Array.isArray(old.pages)) return old;
+            return {
+              ...old,
+              pages: old.pages.map((page: any[]) =>
+                page.map((p: any) => (p.id === postId ? patch(p) : p)),
+              ),
+            };
+          });
         });
-      });
     },
     [queryClient],
   );
 
   const removeFromCaches = useCallback(
     (postId: string) => {
-      queryClient.getQueryCache().findAll().forEach((query) => {
-        const key = query.queryKey;
-        if (!Array.isArray(key) || key.length === 0) return;
-        if (!['feed', 'bookmarks', 'profile'].includes(key[0] as string)) return;
-        queryClient.setQueryData(key, (old: any) => {
-          if (!old || !Array.isArray(old.pages)) return old;
-          return { ...old, pages: old.pages.map((page: any[]) => page.filter((p: any) => p.id !== postId)) };
+      queryClient
+        .getQueryCache()
+        .findAll()
+        .forEach((query) => {
+          const key = query.queryKey;
+          if (!Array.isArray(key) || key.length === 0) return;
+          if (!["feed", "bookmarks", "profile"].includes(key[0] as string))
+            return;
+          queryClient.setQueryData(key, (old: any) => {
+            if (!old || !Array.isArray(old.pages)) return old;
+            return {
+              ...old,
+              pages: old.pages.map((page: any[]) =>
+                page.filter((p: any) => p.id !== postId),
+              ),
+            };
+          });
         });
-      });
     },
     [queryClient],
   );
@@ -180,9 +243,19 @@ export default function ReelScreen({ navigation, route }: Props) {
       const wasLiked = !!current.isLiked;
       const base = current.likes ?? (current as any).likesCount ?? 0;
       const next = wasLiked ? Math.max(0, base - 1) : base + 1;
-      patchPost(postId, (p) => ({ ...p, isLiked: !wasLiked, likes: next, likesCount: next }));
+      patchPost(postId, (p) => ({
+        ...p,
+        isLiked: !wasLiked,
+        likes: next,
+        likesCount: next,
+      }));
       postsService.toggleLike(postId, wasLiked).catch(() => {
-        patchPost(postId, (p) => ({ ...p, isLiked: wasLiked, likes: base, likesCount: base }));
+        patchPost(postId, (p) => ({
+          ...p,
+          isLiked: wasLiked,
+          likes: base,
+          likesCount: base,
+        }));
       });
       patchCachedPosts(postId, (cp) => ({
         ...cp,
@@ -210,17 +283,22 @@ export default function ReelScreen({ navigation, route }: Props) {
 
   const handleDelete = useCallback(
     (post: Post) => {
-      postsService.deletePost(post.id).then(() => {
-        removeFromCaches(post.id);
-        goBack();
-      }).catch(() => {});
+      postsService
+        .deletePost(post.id)
+        .then(() => {
+          removeFromCaches(post.id);
+          goBack();
+        })
+        .catch(() => {});
     },
     [removeFromCaches, goBack],
   );
 
   const handleAuthorPress = useCallback(
     (post: Post) => {
-      (navigation as any).push('UserProfile', { user: (post as any).author || {} });
+      (navigation as any).push("UserProfile", {
+        user: (post as any).author || {},
+      });
     },
     [navigation],
   );
@@ -234,7 +312,11 @@ export default function ReelScreen({ navigation, route }: Props) {
     (postId: string, delta: number) => {
       patchPost(postId, (p) => {
         const base = p.comments ?? (p as any).commentsCount ?? 0;
-        return { ...p, comments: Math.max(0, base + delta), commentsCount: Math.max(0, base + delta) };
+        return {
+          ...p,
+          comments: Math.max(0, base + delta),
+          commentsCount: Math.max(0, base + delta),
+        };
       });
     },
     [patchPost],
@@ -245,7 +327,8 @@ export default function ReelScreen({ navigation, route }: Props) {
 
   const renderItem = useCallback(
     ({ item, index }: { item: Post; index: number }) => {
-      const isOwnPost = !!currentUser?.id && (item as any)?.author?.id === currentUser.id;
+      const isOwnPost =
+        !!currentUser?.id && (item as any)?.author?.id === currentUser.id;
       return (
         <ReelItem
           post={item}
@@ -256,14 +339,27 @@ export default function ReelScreen({ navigation, route }: Props) {
           onAuthorPress={handleAuthorPress}
           onDelete={handleDelete}
           onReport={() => {}}
-          onShare={() => { setSharePost(item); setShareVisible(true); }}
-          onReposted={() => { patchPost(item.id, (p) => ({ ...p, repostedByMe: true })); }}
+          onShare={() => {
+            setSharePost(item);
+            setShareVisible(true);
+          }}
+          onReposted={() => {
+            patchPost(item.id, (p) => ({ ...p, repostedByMe: true }));
+          }}
           showDelete={isOwnPost}
-          isProfileReel={feedContext === 'profile'}
+          isProfileReel={feedContext === "profile"}
         />
       );
     },
-    [activeIndex, currentUser?.id, handleLike, handleSave, handleAuthorPress, handleDelete, feedContext],
+    [
+      activeIndex,
+      currentUser?.id,
+      handleLike,
+      handleSave,
+      handleAuthorPress,
+      handleDelete,
+      feedContext,
+    ],
   );
 
   // ── Render ─────────────────────────────────────────────────────────────────
@@ -290,7 +386,7 @@ export default function ReelScreen({ navigation, route }: Props) {
                 refreshing={refreshing}
                 onRefresh={handleRefresh}
                 tintColor="#7C3AED"
-                colors={['#7C3AED']}
+                colors={["#7C3AED"]}
                 progressBackgroundColor="rgba(0,0,0,0.5)"
               />
             }
@@ -298,12 +394,23 @@ export default function ReelScreen({ navigation, route }: Props) {
         </Animated.View>
       </GestureDetector>
 
-      <CommentsBottomSheet post={commentsPost} onClose={() => setCommentsPost(null)} onCountChange={handleCountChange} />
-      <ShareSheet visible={shareVisible} onClose={() => setShareVisible(false)} postId={sharePost?.id || ""} postTitle={(sharePost as any)?.title || sharePost?.content?.slice(0, 80)} />
+      <CommentsBottomSheet
+        post={commentsPost}
+        onClose={() => setCommentsPost(null)}
+        onCountChange={handleCountChange}
+      />
+      <ShareSheet
+        visible={shareVisible}
+        onClose={() => setShareVisible(false)}
+        postId={sharePost?.id || ""}
+        postTitle={
+          (sharePost as any)?.title || sharePost?.content?.slice(0, 80)
+        }
+      />
     </GestureHandlerRootView>
   );
 }
 
 const styles = StyleSheet.create({
-  root: { flex: 1, backgroundColor: '#0a0a1a' },
+  root: { flex: 1, backgroundColor: "#000000" },
 });

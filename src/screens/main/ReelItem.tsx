@@ -856,10 +856,76 @@ function RepostedReelPreview({
   );
 }
 
-const AmbientBackground = ({ url, children, style }: { url?: string, children?: React.ReactNode, style?: any }) => {
+const MediaEdgeMask = ({
+  children,
+  width,
+  height,
+}: {
+  children: React.ReactNode;
+  width: number;
+  height: number;
+}) => {
+  const fadeSize = Math.min(60, height * 0.009);
+  const p1 = fadeSize / height;
+  return (
+    <MaskedView
+      style={{ width, height }}
+      maskElement={
+        <LinearGradient
+          colors={[
+            "transparent",
+            "rgba(0,0,0,0.04)",
+            "rgba(0,0,0,0.16)",
+            "rgba(0,0,0,0.36)",
+            "rgba(0,0,0,0.64)",
+            "black",
+            "black",
+            "rgba(0,0,0,0.64)",
+            "rgba(0,0,0,0.36)",
+            "rgba(0,0,0,0.16)",
+            "rgba(0,0,0,0.04)",
+            "transparent",
+          ]}
+          locations={[
+            0,
+            p1 * 0.2,
+            p1 * 0.4,
+            p1 * 0.6,
+            p1 * 0.8,
+            p1,
+            1 - p1,
+            1 - p1 + p1 * 0.2,
+            1 - p1 + p1 * 0.4,
+            1 - p1 + p1 * 0.6,
+            1 - p1 + p1 * 0.8,
+            1,
+          ]}
+          style={{ flex: 1 }}
+        />
+      }
+    >
+      {children}
+    </MaskedView>
+  );
+};
+
+const AmbientBackground = ({
+  url,
+  children,
+  style,
+}: {
+  url?: string;
+  children?: React.ReactNode;
+  style?: any;
+}) => {
   if (!url) {
     return (
-      <View style={[{ width: SCREEN_W, height: SCREEN_H, backgroundColor: "#000" }, style]}>
+      <View
+        style={[
+          { width: SCREEN_W, height: SCREEN_H, backgroundColor: "#000" },
+          style,
+        ]}
+      >
         {children}
       </View>
     );
@@ -873,8 +939,18 @@ const AmbientBackground = ({ url, children, style }: { url?: string, children?: 
         blurRadius={40}
       />
       <BlurView style={StyleSheet.absoluteFill} tint="dark" intensity={80} />
-      <View style={[StyleSheet.absoluteFill, { backgroundColor: "rgba(0,0,0,0.5)" }]} />
-      <View style={[StyleSheet.absoluteFill, { justifyContent: "center", alignItems: "center" }]}>
+      <View
+        style={[
+          StyleSheet.absoluteFill,
+          { backgroundColor: "rgba(0,0,0,0.5)" },
+        ]}
+      />
+      <View
+        style={[
+          StyleSheet.absoluteFill,
+          { justifyContent: "center", alignItems: "center" },
+        ]}
+      >
         {children}
       </View>
     </View>
@@ -934,7 +1010,13 @@ function ReelContent({
   // Repost → show embedded preview of the original post
   if (isRepost) {
     return (
-      <AmbientBackground url={(post as any).mediaUri || firstMedia?.preview_url || firstMedia?.media_url}>
+      <AmbientBackground
+        url={
+          (post as any).mediaUri ||
+          firstMedia?.preview_url ||
+          firstMedia?.media_url
+        }
+      >
         <RepostedReelPreview
           post={post}
           isActive={isActive}
@@ -947,7 +1029,8 @@ function ReelContent({
   // Multiple visual media → horizontal carousel
   if (visualMedia.length > 1) {
     return (
-      <View style={{ width: SCREEN_W, height: SCREEN_H }}><ScrollView
+      <View style={{ width: SCREEN_W, height: SCREEN_H }}>
+        <ScrollView
           horizontal
           pagingEnabled
           showsHorizontalScrollIndicator={false}
@@ -959,32 +1042,34 @@ function ReelContent({
             const isVid = m.media_type === "video" || m.type === "video";
             const dims = getMediaDimensions(m);
             return (
-                <AmbientBackground key={idx} url={url || m.preview_url}>
-                {isVid && url ? (
-                  isActive ? (
-                    <ActiveVideo
-                      url={url}
-                      width={dims.width}
-                      height={dims.height}
-                      muted={!!isMuted}
-                      loop
-                      isPausedOverride={isPaused}
-                    />
-                  ) : (
+              <AmbientBackground key={idx} url={url || m.preview_url}>
+                <MediaEdgeMask width={dims.width} height={dims.height}>
+                  {isVid && url ? (
+                    isActive ? (
+                      <ActiveVideo
+                        url={url}
+                        width={dims.width}
+                        height={dims.height}
+                        muted={!!isMuted}
+                        loop
+                        isPausedOverride={isPaused}
+                      />
+                    ) : (
+                      <Image
+                        source={{ uri: m.preview_url || url }}
+                        style={{ width: dims.width, height: dims.height }}
+                        contentFit="contain"
+                      />
+                    )
+                  ) : url ? (
                     <Image
-                      source={{ uri: m.preview_url || url }}
+                      source={{ uri: url }}
                       style={{ width: dims.width, height: dims.height }}
                       contentFit="contain"
+                      transition={200}
                     />
-                  )
-                ) : url ? (
-                  <Image
-                    source={{ uri: url }}
-                    style={{ width: dims.width, height: dims.height }}
-                    contentFit="contain"
-                    transition={200}
-                  />
-                ) : null}
+                  ) : null}
+                </MediaEdgeMask>
               </AmbientBackground>
             );
           })}
@@ -1018,89 +1103,101 @@ function ReelContent({
 
   // Single video with pinch-to-zoom
   if (isVideo && mediaUrl) {
-      const dims = getMediaDimensions();
-      return (
-        <AmbientBackground url={firstMedia?.preview_url || mediaUrl}>
-        <ZoomableMedia
-          width={dims.width}
-          height={dims.height}
-          onPinchStateChange={onPinchStateChange}
-        >
-          {isActive ? (
-            <ActiveVideo
-              url={mediaUrl}
-              width={dims.width}
-              height={dims.height}
-              muted={!!isMuted}
-              loop
-              isPausedOverride={isPaused}
-            />
-          ) : (
-            <Image
-              source={{ uri: firstMedia?.preview_url || mediaUrl }}
-              style={{ width: dims.width, height: dims.height }}
-              contentFit="contain"
-            />
-          )}
-        </ZoomableMedia>
-        </AmbientBackground>
-      );
-    }
+    const dims = getMediaDimensions();
+    return (
+      <AmbientBackground url={firstMedia?.preview_url || mediaUrl}>
+        <MediaEdgeMask width={dims.width} height={dims.height}>
+          <ZoomableMedia
+            width={dims.width}
+            height={dims.height}
+            onPinchStateChange={onPinchStateChange}
+          >
+            {isActive ? (
+              <ActiveVideo
+                url={mediaUrl}
+                width={dims.width}
+                height={dims.height}
+                muted={!!isMuted}
+                loop
+                isPausedOverride={isPaused}
+              />
+            ) : (
+              <Image
+                source={{ uri: firstMedia?.preview_url || mediaUrl }}
+                style={{ width: dims.width, height: dims.height }}
+                contentFit="contain"
+              />
+            )}
+          </ZoomableMedia>
+        </MediaEdgeMask>
+      </AmbientBackground>
+    );
+  }
 
   if (isAudio && mediaUrl) {
-      return (
-        <AmbientBackground url={firstMedia?.preview_url}>
-        <ZoomableMedia
-          width={SCREEN_W}
-          height={SCREEN_W}
-          onPinchStateChange={onPinchStateChange}
-        >
-          {firstMedia?.preview_url ? (
-            <Image
-              source={{ uri: firstMedia.preview_url }}
-              style={{ width: SCREEN_W, height: SCREEN_W }}
-              contentFit="cover"
-            />
-          ) : (
-            <LinearGradient
-              colors={[reelBg2, reelBg1]}
-              style={{
-                width: SCREEN_W,
-                height: SCREEN_H,
-                justifyContent: "center",
-                alignItems: "center",
-              }}
-            >
-              <Ionicons name="musical-notes" size={64} color="#7C3AED" />
-            </LinearGradient>
-          )}
-        </ZoomableMedia>
-        </AmbientBackground>
-      );
-    }
+    return (
+      <AmbientBackground url={firstMedia?.preview_url}>
+        <MediaEdgeMask width={SCREEN_W} height={SCREEN_W}>
+          <ZoomableMedia
+            width={SCREEN_W}
+            height={SCREEN_W}
+            onPinchStateChange={onPinchStateChange}
+          >
+            {firstMedia?.preview_url ? (
+              <Image
+                source={{ uri: firstMedia.preview_url }}
+                style={{ width: SCREEN_W, height: SCREEN_W }}
+                contentFit="cover"
+              />
+            ) : (
+              <LinearGradient
+                colors={[reelBg2, reelBg1]}
+                style={{
+                  width: SCREEN_W,
+                  height: SCREEN_H,
+                  justifyContent: "center",
+                  alignItems: "center",
+                }}
+              >
+                <Ionicons name="musical-notes" size={64} color="#7C3AED" />
+              </LinearGradient>
+            )}
+          </ZoomableMedia>
+        </MediaEdgeMask>
+      </AmbientBackground>
+    );
+  }
 
   if (mediaUrl) {
-      const dims = getMediaDimensions();
-      return (
-        <AmbientBackground url={mediaUrl}>
-        <ZoomableMedia
-          width={dims.width}
-          height={dims.height}
-          onPinchStateChange={onPinchStateChange}
-        >
-          <Image
-            source={{ uri: mediaUrl }}
-            style={{ width: dims.width, height: dims.height }}
-            contentFit="contain"
-            transition={200}
-          />
-        </ZoomableMedia>
-        </AmbientBackground>
-      );
-    }
+    const dims = getMediaDimensions();
+    return (
+      <AmbientBackground url={mediaUrl}>
+        <MediaEdgeMask width={dims.width} height={dims.height}>
+          <ZoomableMedia
+            width={dims.width}
+            height={dims.height}
+            onPinchStateChange={onPinchStateChange}
+          >
+            <Image
+              source={{ uri: mediaUrl }}
+              style={{ width: dims.width, height: dims.height }}
+              contentFit="contain"
+              transition={200}
+            />
+          </ZoomableMedia>
+        </MediaEdgeMask>
+      </AmbientBackground>
+    );
+  }
 
   return (
-    <AmbientBackground url={(post as any).mediaUri || firstMedia?.preview_url || firstMedia?.media_url}>
+    <AmbientBackground
+      url={
+        (post as any).mediaUri ||
+        firstMedia?.preview_url ||
+        firstMedia?.media_url
+      }
+    >
       {(post as any).title ? (
         <Text
           style={[
@@ -1136,8 +1233,8 @@ function ReelContent({
         </View>
       )}
     </AmbientBackground>
-    );
-  }
+  );
+}
 
 // ─── ReelItem (main export) ───────────────────────────────────────────────────
 export default React.memo(function ReelItem({
@@ -1751,9 +1848,23 @@ export default React.memo(function ReelItem({
   return (
     <View style={[styles.cell, { width: SCREEN_W, height: SCREEN_H }]}>
       {/* ── Layer 1: Content ── */}
-      <TouchableWithoutFeedback onPress={isActive ? handleContentPress : undefined} onPressIn={isActive ? handleContentPressIn : undefined} onPressOut={isActive ? handleContentPressOut : undefined}><View style={StyleSheet.absoluteFill}><ReelContent post={post} isActive={isActive} isMuted={isMuted} isPaused={isPaused} onPinchStateChange={setIsPinching} onRepostPress={handleRepostPress} overlayAnim={overlayAnim} /></View></TouchableWithoutFeedback>
-
-      
+      <TouchableWithoutFeedback
+        onPress={isActive ? handleContentPress : undefined}
+        onPressIn={isActive ? handleContentPressIn : undefined}
+        onPressOut={isActive ? handleContentPressOut : undefined}
+      >
+        <View style={StyleSheet.absoluteFill}>
+          <ReelContent
+            post={post}
+            isActive={isActive}
+            isMuted={isMuted}
+            isPaused={isPaused}
+            onPinchStateChange={setIsPinching}
+            onRepostPress={handleRepostPress}
+            overlayAnim={overlayAnim}
+          />
+        </View>
+      </TouchableWithoutFeedback>
 
       {/* ── Layer 1.6: Heart burst animation (pointerEvents=none) ── */}
       <Animated.View
@@ -1797,7 +1908,7 @@ export default React.memo(function ReelItem({
         pointerEvents="none"
       >
         <LinearGradient
-                    colors={[
+          colors={[
             reelGradientColor,
             `${reelGradientColor}FC`,
             `${reelGradientColor}CE`,
@@ -1813,16 +1924,45 @@ export default React.memo(function ReelItem({
           ]}
           locations={[
             0,
-            topOverlayHeight > 0 ? (insets.top + 8 + 44) / (insets.top + 8 + topOverlayHeight + 40) : 0.20,
-            topOverlayHeight > 0 ? (insets.top + 8 + 44 + (topOverlayHeight - 4) * 0.1) / (insets.top + 8 + topOverlayHeight + 40) : 0.28,
-            topOverlayHeight > 0 ? (insets.top + 8 + 44 + (topOverlayHeight - 4) * 0.2) / (insets.top + 8 + topOverlayHeight + 40) : 0.36,
-            topOverlayHeight > 0 ? (insets.top + 8 + 44 + (topOverlayHeight - 4) * 0.3) / (insets.top + 8 + topOverlayHeight + 40) : 0.44,
-            topOverlayHeight > 0 ? (insets.top + 8 + 44 + (topOverlayHeight - 4) * 0.4) / (insets.top + 8 + topOverlayHeight + 40) : 0.52,
-            topOverlayHeight > 0 ? (insets.top + 8 + 44 + (topOverlayHeight - 4) * 0.5) / (insets.top + 8 + topOverlayHeight + 40) : 0.60,
-            topOverlayHeight > 0 ? (insets.top + 8 + 44 + (topOverlayHeight - 4) * 0.6) / (insets.top + 8 + topOverlayHeight + 40) : 0.68,
-            topOverlayHeight > 0 ? (insets.top + 8 + 44 + (topOverlayHeight - 4) * 0.7) / (insets.top + 8 + topOverlayHeight + 40) : 0.76,
-            topOverlayHeight > 0 ? (insets.top + 8 + 44 + (topOverlayHeight - 4) * 0.8) / (insets.top + 8 + topOverlayHeight + 40) : 0.84,
-            topOverlayHeight > 0 ? (insets.top + 8 + 44 + (topOverlayHeight - 4) * 0.9) / (insets.top + 8 + topOverlayHeight + 40) : 0.92,
+            topOverlayHeight > 0
+              ? (insets.top + 8 + 44) / (insets.top + 8 + topOverlayHeight + 40)
+              : 0.2,
+            topOverlayHeight > 0
+              ? (insets.top + 8 + 44 + (topOverlayHeight - 4) * 0.1) /
+                (insets.top + 8 + topOverlayHeight + 40)
+              : 0.28,
+            topOverlayHeight > 0
+              ? (insets.top + 8 + 44 + (topOverlayHeight - 4) * 0.2) /
+                (insets.top + 8 + topOverlayHeight + 40)
+              : 0.36,
+            topOverlayHeight > 0
+              ? (insets.top + 8 + 44 + (topOverlayHeight - 4) * 0.3) /
+                (insets.top + 8 + topOverlayHeight + 40)
+              : 0.44,
+            topOverlayHeight > 0
+              ? (insets.top + 8 + 44 + (topOverlayHeight - 4) * 0.4) /
+                (insets.top + 8 + topOverlayHeight + 40)
+              : 0.52,
+            topOverlayHeight > 0
+              ? (insets.top + 8 + 44 + (topOverlayHeight - 4) * 0.5) /
+                (insets.top + 8 + topOverlayHeight + 40)
+              : 0.6,
+            topOverlayHeight > 0
+              ? (insets.top + 8 + 44 + (topOverlayHeight - 4) * 0.6) /
+                (insets.top + 8 + topOverlayHeight + 40)
+              : 0.68,
+            topOverlayHeight > 0
+              ? (insets.top + 8 + 44 + (topOverlayHeight - 4) * 0.7) /
+                (insets.top + 8 + topOverlayHeight + 40)
+              : 0.76,
+            topOverlayHeight > 0
+              ? (insets.top + 8 + 44 + (topOverlayHeight - 4) * 0.8) /
+                (insets.top + 8 + topOverlayHeight + 40)
+              : 0.84,
+            topOverlayHeight > 0
+              ? (insets.top + 8 + 44 + (topOverlayHeight - 4) * 0.9) /
+                (insets.top + 8 + topOverlayHeight + 40)
+              : 0.92,
             1,
           ]}
           style={{ flex: 1 }}
@@ -2055,7 +2195,7 @@ export default React.memo(function ReelItem({
         pointerEvents="none"
       >
         <LinearGradient
-                    colors={[
+          colors={[
             `${reelGradientColor}00`,
             `${reelGradientColor}02`,
             `${reelGradientColor}0A`,

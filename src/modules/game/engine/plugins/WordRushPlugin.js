@@ -2,27 +2,44 @@
 
 const GamePlugin = require('../GamePlugin');
 
-const WORDS = require('./wordList.json'); // A curated word list (loaded server-side only)
+const WORDS = require('./wordList.json');
 const WORD_SET = new Set(WORDS);
 
-const ROUND_DURATION_MS = 90 * 1000; // 90 seconds per round
-const ROUNDS_PER_GAME = 1;
-
 /**
- * Word Rush Plugin
+ * Word Rush Plugin — ported to new architecture.
  *
- * Prompt: A 4x4 letter grid is generated server-side.
- * Players submit words they can form from adjacent letters.
- * The dictionary is NEVER sent to the client.
+ * canPlayerAct: anyone can submit words (simultaneous)
+ * getTimers: returns round timer from config
  */
 class WordRushPlugin extends GamePlugin {
+  static EXECUTION_MODEL = 'round-based';
+
   constructor(matchData) {
     super(matchData);
     this.players = matchData.players || [];
   }
 
+  canPlayerAct(state, userId) {
+    // Simultaneous: anyone can submit words
+    return true;
+  }
+
+  getTimers(state) {
+    const config = this.configSnapshot || {};
+    const roundTimeoutMs = config.roundTimeoutMs || 90000;
+
+    return [{
+      type: 'round',
+      durationMs: roundTimeoutMs,
+      jobData: { gameSlug: 'word-rush' },
+    }];
+  }
+
+  getCommandTimeoutMs() {
+    return 500;
+  }
+
   _generateGrid() {
-    // Letter frequency weighted for English
     const LETTERS = 'AAABCDDEEEFGHIIIJKLMMNOOOOPQRRSSSTTTTUUUVWXYZ';
     const grid = [];
     for (let i = 0; i < 16; i++) {
@@ -32,7 +49,6 @@ class WordRushPlugin extends GamePlugin {
   }
 
   _isAdjacentPath(path) {
-    // Validate that indices form a valid adjacent chain on a 4x4 grid
     const toRC = idx => ({ r: Math.floor(idx / 4), c: idx % 4 });
     for (let i = 1; i < path.length; i++) {
       const prev = toRC(path[i - 1]);
@@ -52,19 +68,19 @@ class WordRushPlugin extends GamePlugin {
       scores,
       foundWords: [],
       currentRound: 1,
-      totalRounds: ROUNDS_PER_GAME,
+      totalRounds: 1,
       roundStartedAt: Date.now(),
       status: 'active',
       winner: null,
     };
   }
 
-  onReconnect(userId) {}
   onPlayerJoin(userId) {}
   onPlayerLeave(userId) {}
+  onReconnect(userId) {}
+  cleanup() {}
 
   validateMove(userId, moveData, currentState) {
-    // moveData: { path: [0,1,5,6,...], word: 'WORD' }
     const { path, word } = moveData;
 
     if (!word || word.length < 3) {
@@ -84,13 +100,11 @@ class WordRushPlugin extends GamePlugin {
       return { valid: false, reason: 'Letters are not adjacent' };
     }
 
-    // Validate the letters in the path spell the word
     const formedWord = path.map(idx => currentState.grid[idx]).join('').toUpperCase();
     if (formedWord !== word.toUpperCase()) {
       return { valid: false, reason: 'Path does not spell the submitted word' };
     }
 
-    // Server-side dictionary check — dictionary never leaves the server
     if (!WORD_SET.has(word.toUpperCase())) {
       return { valid: false, reason: 'Not a valid word' };
     }
@@ -100,7 +114,7 @@ class WordRushPlugin extends GamePlugin {
 
   applyMove(userId, moveData, currentState) {
     const { word } = moveData;
-    const wordScore = word.length; // Simple scoring: 1 point per letter
+    const wordScore = word.length;
 
     const newScores = {
       ...currentState.scores,
@@ -118,14 +132,9 @@ class WordRushPlugin extends GamePlugin {
 
   advanceRound(currentState) {
     if (currentState.currentRound >= currentState.totalRounds) {
-      // Determine winner by score
       const winner = Object.entries(currentState.scores)
         .sort((a, b) => b[1] - a[1])[0][0];
-      return {
-        ...currentState,
-        status: 'finished',
-        winner,
-      };
+      return { ...currentState, status: 'finished', winner };
     }
 
     return {
@@ -143,11 +152,11 @@ class WordRushPlugin extends GamePlugin {
 
   calculateReward(currentState, userId) {
     if (currentState.winner === userId) return { result: 'WIN', xpEarned: 50 };
+    if (currentState.winner === null || currentState.winner === undefined) return { result: 'DRAW', xpEarned: 15 };
     return { result: 'LOSS', xpEarned: 10 };
   }
 
   getSpectatorState(currentState) {
-    // Spectators see the grid and scores, NOT the foundWords
     return { ...currentState, foundWords: [] };
   }
 }

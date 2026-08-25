@@ -2,51 +2,63 @@
 
 const GamePlugin = require('../GamePlugin');
 
-/**
- * Tap Rush Plugin
- *
- * A 20-second timed game. The server:
- * - Generates all target positions using an HMAC chain (seeded, deterministic)
- * - Validates that tap timestamps are physically plausible
- * - Rejects superhuman scores (> 100 taps in 20s = impossible)
- *
- * The WebView receives the pre-computed target sequence from the server,
- * so clients cannot inject fake taps.
- */
 const GAME_DURATION_SECONDS = 20;
-const MAX_PLAUSIBLE_TAPS = 100; // ~5 taps/sec * 20s = 100 (generous ceiling)
-const MIN_DURATION = 18;        // Allow slight timing variance
+const MAX_PLAUSIBLE_TAPS = 100;
+const MIN_DURATION = 18;
 const MAX_DURATION = 28;
 
+/**
+ * Tap Rush Plugin — ported to new architecture.
+ *
+ * canPlayerAct: anyone can tap (simultaneous)
+ * getTimers: returns game timer from config
+ */
 class TapRushPlugin extends GamePlugin {
+  static EXECUTION_MODEL = 'simultaneous';
+
   constructor(matchData) {
     super(matchData);
     this.players = matchData.players || [];
     this.gameMetadata = matchData.metadata || {};
   }
 
-  /** Generate a deterministic target sequence from a seed using HMAC */
+  canPlayerAct(state, userId) {
+    // Simultaneous: anyone can tap
+    return true;
+  }
+
+  getTimers(state) {
+    const config = this.configSnapshot || {};
+    const gameDurationMs = (config.gameDurationSeconds || GAME_DURATION_SECONDS) * 1000;
+
+    return [{
+      type: 'game',
+      durationMs: gameDurationMs,
+      jobData: { gameSlug: 'tap-rush' },
+    }];
+  }
+
+  getCommandTimeoutMs() {
+    return 200;
+  }
+
   _generateTargetSequence(seed, count = 15) {
     const crypto = require('crypto');
     const targets = [];
-    // Spread the 15 reveals across the full game (~18s of the 20s window) so a
-    // tap target keeps appearing for the whole match instead of running out
-    // after the first ~9s. Each delay is the gap before the next reveal.
-    const totalBudget = (GAME_DURATION_SECONDS - 2) * 1000; // 18,000ms
-    const base = Math.floor(totalBudget / count); // ~1200ms per target
+    const totalBudget = (GAME_DURATION_SECONDS - 2) * 1000;
+    const base = Math.floor(totalBudget / count);
     let acc = 0;
     for (let i = 0; i < count; i++) {
       const hash = crypto
         .createHmac('sha256', seed)
         .update(i.toString())
         .digest('hex');
-      const jitter = (parseInt(hash.slice(4, 6), 16) % 400) - 200; // ±200ms
+      const jitter = (parseInt(hash.slice(4, 6), 16) % 400) - 200;
       acc = Math.max(250, acc + base + jitter);
       targets.push({
         seq: i,
         x: parseInt(hash.slice(0, 2), 16) % 100,
         y: parseInt(hash.slice(2, 4), 16) % 100,
-        // Absolute timestamp offset from game start (cumulative reveal schedule)
         delay: acc,
       });
     }
@@ -63,7 +75,7 @@ class TapRushPlugin extends GamePlugin {
       seed,
       targetSequence: this._generateTargetSequence(seed),
       scores,
-      tapLogs: {}, // { userId: [{ seq, ts }] }
+      tapLogs: {},
       startedAt: null,
       finishedAt: null,
       status: 'active',
@@ -74,31 +86,25 @@ class TapRushPlugin extends GamePlugin {
   onPlayerJoin(userId) {}
   onPlayerLeave(userId) {}
   onReconnect(userId) {}
+  cleanup() {}
 
-  /**
-   * moveData: { type: 'TAP', seq: 3, clientTs: 1234567890 }
-   * seq = the target sequence number being tapped
-   */
   validateMove(userId, moveData, currentState) {
     if (moveData.type !== 'TAP') {
       return { valid: false, reason: 'Unknown move type' };
     }
 
-    const { seq, clientTs } = moveData;
+    const { seq } = moveData;
     const userTaps = currentState.tapLogs[userId] || [];
     const currentScore = currentState.scores[userId] || 0;
 
-    // Reject if over max plausible score
     if (currentScore >= MAX_PLAUSIBLE_TAPS) {
       return { valid: false, reason: 'Score ceiling reached' };
     }
 
-    // Reject duplicate taps on same target
     if (userTaps.some(t => t.seq === seq)) {
       return { valid: false, reason: 'Duplicate tap' };
     }
 
-    // Check sequence is valid
     if (!currentState.targetSequence[seq]) {
       return { valid: false, reason: 'Invalid target sequence' };
     }
@@ -122,20 +128,14 @@ class TapRushPlugin extends GamePlugin {
     return { ...currentState, scores: newScores, tapLogs: newTapLogs };
   }
 
-  /**
-   * Called by the engine when the 20-second timer fires.
-   * Validates the final score against physical plausibility.
-   */
   finalize(userId, reportedScore, durationSeconds, currentState) {
     const actualScore = currentState.scores[userId] || 0;
     const maxXp = this.gameMetadata.maxXp || 35;
 
-    // Reject impossible durations
     if (durationSeconds < MIN_DURATION || durationSeconds > MAX_DURATION) {
       throw new Error('Invalid game duration');
     }
 
-    // Use server-tracked score, not client-reported score
     const xpEarned = Math.min(maxXp, actualScore > 0 ? 10 + Math.floor((actualScore * maxXp) / 28) : 0);
 
     return {
@@ -160,7 +160,6 @@ class TapRushPlugin extends GamePlugin {
     };
   }
 
-  /** Send the target sequence to the player so WebView can render it */
   getInitialPlayerPayload(currentState) {
     return {
       targetSequence: currentState.targetSequence,
@@ -169,7 +168,7 @@ class TapRushPlugin extends GamePlugin {
   }
 
   getSpectatorState(currentState) {
-    const { seed, ...safe } = currentState; // Never expose the seed
+    const { seed, ...safe } = currentState;
     return safe;
   }
 }

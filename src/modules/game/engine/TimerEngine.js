@@ -1,12 +1,21 @@
 'use strict';
 
+/**
+ * TimerEngine — manages match timers via BullMQ.
+ *
+ * Timer authority:
+ *   - Plugin defines WHAT timers exist (via getTimers())
+ *   - Executor manages the timer LIFECYCLE (start, clear, expire)
+ *   - Timer durations come from config snapshots (not hard-coded)
+ *
+ * Crash-resilient:
+ *   - BullMQ provides durable delayed jobs
+ *   - Unique job IDs prevent collision with active/locked jobs
+ */
+
 const { Queue } = require('bullmq');
 const redis = require('../../../config/redis');
 
-/**
- * Timer Engine for managing generic timeouts (turn, round, reconnect, game).
- * Powered by BullMQ for distributed crash-resilient delays.
- */
 class TimerEngine {
   constructor() {
     this.queue = new Queue('GameTimers', { connection: redis });
@@ -15,40 +24,32 @@ class TimerEngine {
   /**
    * Start or overwrite a timer for a specific match.
    *
-   * IMPORTANT: every timer gets a UNIQUE job id. Timers are sometimes restarted
-   * from inside a worker callback while the previous job of the same type is
-   * still ACTIVE (locked by that worker). BullMQ refuses to remove locked jobs,
-   * and re-adding a job with the SAME id while the old one is processing
-   * silently destroys the new job when the old completes (removeOnComplete). A
-   * unique suffix avoids the collision entirely — the old job self-cleans once
-   * its processor returns, and clearTimer only removes pending (removable) jobs.
-   * @param {string} matchId 
-   * @param {string} type e.g., 'turn', 'round', 'reconnect'
-   * @param {number} ms 
-   * @param {Object} jobData 
+   * Every timer gets a UNIQUE job ID to avoid collision with active/locked jobs.
+   * BullMQ >= 5 does not allow colons in custom job IDs.
+   *
+   * @param {string} matchId
+   * @param {string} type e.g. 'turn', 'round', 'reconnect', 'game'
+   * @param {number} ms delay in milliseconds
+   * @param {Object} jobData data passed to the worker
    */
   async startTimer(matchId, type, ms, jobData) {
-    // BullMQ >= 5 does not allow colons in custom job IDs
     const jobId = `${matchId}_${type.replace(/:/g, '_')}_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
     await this.clearTimer(matchId, type);
-    
-    await this.queue.add(type, { matchId, type, ...jobData }, { 
-      delay: ms, 
-      jobId, 
+
+    await this.queue.add(type, { matchId, type, ...jobData }, {
+      delay: ms,
+      jobId,
       removeOnComplete: true,
-      removeOnFail: true 
+      removeOnFail: true,
     });
-    
+
     await redis.sadd(`match:${matchId}:timers`, jobId);
   }
 
   /**
-   * Clear pending timers of a given type for a match. Timers currently being
-   * processed (active/locked) can't be removed — they are consumed by the
-   * worker and self-clean on completion, so they are only dropped from the
-   * tracking set.
-   * @param {string} matchId 
-   * @param {string} type 
+   * Clear pending timers of a given type for a match.
+   * Timers currently being processed (active/locked) are dropped from tracking
+   * only — they self-clean on completion.
    */
   async clearTimer(matchId, type) {
     const key = `match:${matchId}:timers`;
@@ -65,8 +66,7 @@ class TimerEngine {
   }
 
   /**
-   * Clear all timers associated with a match (useful for GAME_OVER or archiving).
-   * @param {string} matchId 
+   * Clear all timers associated with a match.
    */
   async clearAllTimers(matchId) {
     const key = `match:${matchId}:timers`;
@@ -78,6 +78,20 @@ class TimerEngine {
       }
     }
     await redis.del(key);
+  }
+
+  /**
+   * Start timers defined by the plugin for the current match state.
+   * Plugin returns the timer definitions; executor manages lifecycle.
+   *
+   * @param {string} matchId
+   * @param {Object} pluginState current plugin state
+   * @param {Object} timers array from plugin.getTimers()
+   */
+  async startPluginTimers(matchId, pluginState, timers) {
+    for (const timer of timers) {
+      await this.startTimer(matchId, timer.type, timer.durationMs, timer.jobData || {});
+    }
   }
 }
 

@@ -24,9 +24,10 @@ const GAME_STATS_FIELDS = [
     'total_xp', 'created_at', 'updated_at'
 ].join(', ');
 
-// Natural player capacity per game. Used as the fallback when AUTO matchmaking
-// has no explicit targetPlayers so 4-player games (ludo, snake-ladder) don't
-// default to a 1v1 queue. Prefer row.metadata.maxPlayers if the game defines it.
+// Natural player capacity per game.
+// Source of truth: GameRegistry.getMeta(slug).maxPlayers (set at startup).
+// This map is the fallback for code that doesn't have a plugin instance
+// (e.g. matchmaking SQL queries).
 const GAME_MAX_PLAYERS = {
   'ludo': 4,
   'snake-ladder': 4,
@@ -54,6 +55,17 @@ const normalizeMatchMode = (mode) => {
 
 const formatGame = (row) => {
   if (!row) return null;
+
+  // Merge runtime contract from GameRegistry (SSOT for runtime selection).
+  // The registry meta is set at startup in engine/index.js — it carries the
+  // runtimeType, runtime, runtimeVersion, protocolVersion, minAppVersion,
+  // assetSetId, and assetManifestVersion that the frontend needs to render.
+  let registryMeta = {};
+  try {
+    const GameRegistry = require('./engine/GameRegistry');
+    registryMeta = GameRegistry.getMeta(row.slug) || {};
+  } catch { /* registry not initialized yet (tests, migrations) */ }
+
   return {
     id: row.id,
     name: row.name,
@@ -65,7 +77,21 @@ const formatGame = (row) => {
     isActive: row.is_active,
     metadata: row.metadata,
     maxXp: Number(row.metadata?.maxXp || 25),
+    entryFee: Number(row.metadata?.entryFee) || 0,
     maxPlayers: resolveNaturalMaxPlayers(row),
+    rounds: registryMeta.rounds || { min: 1, max: 1, default: 1 },
+
+    // ── Frontend runtime contract (from GameRegistry) ──
+    // Runtime fields are included so the frontend can validate compatibility
+    // and preload the correct bundle. Asset fields (assetSetId, assetManifestVersion)
+    // are NOT included here — they are only returned by startGameSession after
+    // matchmaking, allowing per-match asset customization.
+    runtimeType: registryMeta.runtimeType || 'app',
+    runtime: registryMeta.runtime || row.slug,
+    runtimeVersion: registryMeta.runtimeVersion || 1,
+    protocolVersion: registryMeta.protocolVersion || 1,
+    minAppVersion: registryMeta.minAppVersion || '1.0.0',
+
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   };
@@ -77,9 +103,10 @@ const formatGameMatch = (row) => {
 	    id: row.id,
 	    userId: row.user_id,
 	    gameId: row.game_id,
-	    gameName: row.game_name,
-	    gameSlug: row.game_slug,
-	    mode: row.mode,
+    gameName: row.game_name,
+    gameSlug: row.game_slug,
+    gameThumbnail: row.game_thumbnail,
+    mode: row.mode,
     result: row.result,
     score: row.score,
     duration: row.duration,

@@ -1,6 +1,7 @@
 'use strict';
 
 const crypto = require('crypto');
+const pool = require('../../config/database');
 const { createError } = require('../../utils/error.util');
 const gameModel = require('./game.model');
 
@@ -145,7 +146,11 @@ class GameService {
           id: active.game_id,
           name: active.game_name,
           slug: active.game_slug,
-          metadata: { runtime: active.match_metadata?.runtime || 'native' }
+          // Canonical field: runtimeType ('app' | 'web'). Legacy DB field is
+          // metadata.runtime with value 'native' — map to 'app' for the client.
+          runtimeType: active.match_metadata?.runtimeType
+            || (active.match_metadata?.runtime === 'native' ? 'app' : active.match_metadata?.runtime)
+            || 'app',
         }
       };
     } catch (error) {
@@ -220,7 +225,10 @@ class GameService {
       }
       matchData.metadata = {
         ...(matchData.metadata || {}),
-        runtime: isGameExist.metadata?.runtime || 'native',
+        // Canonical field: runtimeType. Legacy DB field is metadata.runtime ('native').
+        runtimeType: isGameExist.metadata?.runtimeType
+          || (isGameExist.metadata?.runtime === 'native' ? 'app' : isGameExist.metadata?.runtime)
+          || 'app',
       }
       const match = await this.gameRepo.createGameMatche({matchData})
       return match
@@ -391,7 +399,19 @@ class GameService {
 	        tournamentId = null
 	      }
 
-	      const result = await this.gameRepo.joinMatchmaking({userId, game, mode, tournamentId, targetPlayers: matchData.targetPlayers, visibility: matchData.visibility, lobbyTtlSeconds});
+	      // Validate rounds configuration — never trust the frontend
+      const roundsConfig = (() => {
+        try {
+          const GameRegistry = require('./engine/GameRegistry');
+          return GameRegistry.getMeta(game.slug)?.rounds || { min: 1, max: 1, default: 1 };
+        } catch { return { min: 1, max: 1, default: 1 }; }
+      })();
+      let configuredRounds = Number(matchData.rounds) || roundsConfig.default;
+      configuredRounds = Math.max(roundsConfig.min, Math.min(roundsConfig.max, configuredRounds));
+      // Quick mode is always 1 round regardless of config
+      if (mode === 'AUTO' || mode === 'PRACTICE') configuredRounds = 1;
+
+      const result = await this.gameRepo.joinMatchmaking({userId, game, mode, tournamentId, targetPlayers: matchData.targetPlayers, visibility: matchData.visibility, lobbyTtlSeconds, configuredRounds});
         try {
           const { getIO } = require('../../sockets/index');
           const io = getIO();
@@ -561,6 +581,70 @@ class GameService {
     return result;
   }
 
+  /**
+   * Silently abandon an active session so the user can start a new game.
+   * Marks the session EXPIRED, the match COMPLETED with result ABANDONED,
+   * records a LOSS in match history, and cleans up engine state.
+   */
+  async _abandonSession(activeSession, userId) {
+    const matchId = activeSession.match_id;
+    const sessionId = activeSession.session_id;
+    try {
+      // 1. Mark session EXPIRED
+      await this.gameRepo.updateGameSessionStatus({
+        sessionId,
+        status: 'EXPIRED',
+        completedAt: new Date().toISOString(),
+      });
+
+      // 2. Mark match COMPLETED / ABANDONED
+      if (matchId) {
+        await pool.query(
+          `UPDATE game_matches
+           SET status = 'COMPLETED',
+               metadata = metadata || $1,
+               ended_at = NOW()
+           WHERE id = $2`,
+          [JSON.stringify({ result: 'ABANDONED', abandonedBy: userId }), matchId]
+        );
+      }
+
+      // 3. Record LOSS in match history
+      await this.gameRepo.recordMatchHistory({
+        userId,
+        gameId: activeSession.game_id,
+        mode: activeSession.mode,
+        result: 'LOSS',
+        score: 0,
+        duration: 0,
+        xpEarned: 0,
+        matchGroupId: matchId,
+      });
+
+      // 4. Clean up engine state (best-effort, don't block new game)
+      if (matchId) {
+        try {
+          const { MatchManager } = require('./engine/MatchManager');
+          const EventStore = require('./engine/EventStore');
+          const TimerEngine = require('./engine/TimerEngine');
+          await TimerEngine.clearAllTimers(matchId);
+          await EventStore.cleanupMatch(matchId);
+          MatchManager.removeActor(matchId);
+        } catch (e) { /* non-fatal */ }
+      }
+
+      // 5. Notify any connected clients on the old match
+      try {
+        const { getIO } = require('../../sockets/index');
+        const io = getIO();
+        io.to(`user:${userId}`).emit('SESSION_EXPIRED', { matchId });
+      } catch (e) { /* non-fatal */ }
+
+      console.info(`[Game] Auto-abandoned session ${sessionId} (match ${matchId}) for user ${userId}`);
+    } catch (e) {
+      console.error(`[Game] Failed to auto-abandon session ${sessionId}:`, e.message);
+    }
+  }
 
 
   async startGameSession({ userId, gameId, mode, matchGroupId }) {
@@ -568,15 +652,12 @@ class GameService {
       const game = await this.gameRepo.findGameById({ gameId });
       if (!game) throw createError("Game not found", 404);
 
-      // Multi-device guard: prevent starting a second session while one is active.
-      // If the user is already in a game on another device, they must complete
-      // or abandon it first — or the resolution job will expire it.
+      // Auto-abandon: if the user already has an active session (e.g. they
+      // left a game and started another from the lobby), silently clean it up
+      // instead of blocking with a 409.
       const existingActive = await this.gameRepo.findActiveSession({ userId });
       if (existingActive && existingActive.id !== matchGroupId) {
-        throw createError(
-          'You already have an active game session. Complete or leave it before starting a new one.',
-          409
-        );
+        await this._abandonSession(existingActive, userId);
       }
 
       // Deduct XP (tournaments are paid upfront). Use the database
@@ -591,13 +672,12 @@ class GameService {
       }
 
       const seed = crypto.randomBytes(32).toString('hex');
-      // Turn-based games (chess/ludo/snake-ladder) and multi-round games
-      // (scribble/word-rush) routinely run longer than 5 minutes, so a short
-      // expiry caused "Session expired" when the client completed the session
-      // after a long match. Give them a generous window; single-round realtime
-      // games keep the tight 5-minute cap.
-      const LONG_SESSION_GAMES = ['chess', 'ludo', 'snake-ladder', 'scribble', 'word-rush'];
-      const isLongSessionGame = LONG_SESSION_GAMES.includes(game.slug);
+      // Turn-based and multi-round games routinely run longer than 5 minutes,
+      // so give them a generous session TTL. Single-round realtime games keep
+      // the tight 5-minute cap. Use the plugin's execution model to decide.
+      const sessionPlugin = require('./engine').createInstance(game.slug, { metadata: game.metadata, configSnapshot: {} });
+      const isLongSessionGame = sessionPlugin.isTurnBased()
+        || sessionPlugin.constructor.EXECUTION_MODEL === 'round-based';
       const sessionTtlMs = isLongSessionGame ? 4 * 60 * 60 * 1000 : 5 * 60 * 1000;
       const expiresAt = new Date(Date.now() + sessionTtlMs);
       
@@ -621,11 +701,25 @@ class GameService {
         }
       });
 
+      // Pull runtime + asset contract from the in-memory registry so the
+      // frontend can preload the correct bundle and asset manifest after
+      // matchmaking — without relying on the static games-list endpoint.
+      const GameRegistry = require('./engine/GameRegistry');
+      const registryMeta = GameRegistry.getMeta(game.slug) || {};
+
       return {
         sessionId: session.id,
         wsToken,
         expiresAt: session.expires_at,
-        ticket: { userMatchId: effectiveMatchId, token: wsToken }
+        ticket: { userMatchId: effectiveMatchId, token: wsToken },
+        // Runtime + asset contract (SSOT from GameRegistry)
+        runtime: registryMeta.runtime || game.slug,
+        runtimeType: registryMeta.runtimeType || 'app',
+        runtimeVersion: registryMeta.runtimeVersion || 1,
+        protocolVersion: registryMeta.protocolVersion || 1,
+        minAppVersion: registryMeta.minAppVersion || '1.0.0',
+        assetSetId: registryMeta.assetSetId || `${game.slug}-v1`,
+        assetManifestVersion: registryMeta.assetManifestVersion || 1,
       };
     } catch (error) {
       throw error;
@@ -717,14 +811,19 @@ class GameService {
                // A finished turn-based match with no winner is a forced draw
                // (all players went offline, or the engine produced a draw).
                if (!matchState.pluginState?.winner) {
+                  // Draw refunds entry fee as XP
+                  const drawXp = Number(game.metadata?.entryFee) || 5;
                   await this.gameRepo.updateGameSessionStatus({
                     sessionId, status: 'COMPLETED', completedAt: new Date().toISOString()
                   });
                   await this.gameRepo.recordMatchHistory({
                     userId, gameId: game.id, mode: session.metadata?.mode, result: 'DRAW',
-                    score: 0, duration: 60, xpEarned: 0, matchGroupId
+                    score: 0, duration: 60, xpEarned: drawXp, matchGroupId
                   });
-                  return { result: 'DRAW', score: 0, xpEarned: 0, forcedDraw: true };
+                  if (drawXp > 0 && this.xpSvc) {
+                    await this.xpSvc.creditXP({ userId, xp: drawXp, transactionType: 'earned', sourceType: `game_draw_${sessionId}` });
+                  }
+                  return { result: 'DRAW', score: 0, xpEarned: drawXp, forcedDraw: true };
                }
                rawScore = matchState.pluginState?.winner === userId ? (game.metadata?.winScore || 1) : 0;
                duration = 60;
@@ -753,7 +852,33 @@ class GameService {
          duration = Number(game.metadata?.durationSeconds) || 60;
       }
 
-      let calculated = this.calculateResult({ game, score: rawScore, duration });
+      // ── Calculate reward via plugin (server-authoritative) ──────────────
+      // When we have the engine plugin state, delegate to the plugin's
+      // calculateReward() — it owns the per-game XP formula and result logic.
+      // Fall back to calculateResult() for legacy matches without engine state.
+      let calculated;
+      const GameRegistry = require('./engine');
+      if (engineResult) {
+        try {
+          const plugin = GameRegistry.createInstance(game.slug, {
+            metadata: { ...game.metadata },
+            configSnapshot: {},
+          });
+          const reward = plugin.calculateReward(engineResult, userId);
+          calculated = {
+            score: rawScore,
+            duration,
+            result: reward.result,
+            xpEarned: reward.xpEarned,
+          };
+        } catch {
+          // Plugin not found or calculateReward threw — use service fallback
+          calculated = this.calculateResult({ game, score: rawScore, duration });
+        }
+      } else {
+        // No engine state available (legacy match) — use service calculation
+        calculated = this.calculateResult({ game, score: rawScore, duration });
+      }
 
       // PRACTICE mode: the entry fee is deducted at session start, but the run is
       // solo practice — no XP reward, regardless of win/loss. Keep the result and
@@ -775,12 +900,28 @@ class GameService {
 
         let myResult = calculated.score > botScore ? 'WIN' : calculated.score < botScore ? 'LOSS' : 'DRAW';
         // Turn-based games: the engine winner is authoritative (draw if null)
-        if (['chess', 'ludo', 'snake-ladder'].includes(game.slug)) {
+        const botPlugin = GameRegistry.createInstance(game.slug, { metadata: game.metadata, configSnapshot: {} });
+        if (botPlugin.isTurnBased()) {
           const winner = ps.winner;
           myResult = winner === userId ? 'WIN' : winner ? 'LOSS' : 'DRAW';
         }
-        // Practice = no rewards: force 0 XP even on a win.
-        const myXp = isPractice ? 0 : (myResult === 'WIN' ? calculated.xpEarned : 0);
+        // Calculate rewards from total entry fees collected
+        const { calculateRewards, applyRewards } = require('./engine/RewardCalculator');
+        const entryFee = Number(game.metadata?.entryFee) || 5;
+        const allPlayers = (matchState.players || matchState.metadata?.players || [])
+          .map(p => ({
+            userId: p.userId || p.id,
+            result: (p.userId || p.id) === userId ? myResult : 'LOSS',
+            score: (p.userId || p.id) === userId ? calculated.score : 0,
+            isBot: String(p.userId || p.id || '').startsWith('bot_'),
+          }));
+        // Update the current player's result in the list
+        const meIdx = allPlayers.findIndex(p => p.userId === userId);
+        if (meIdx >= 0) allPlayers[meIdx] = { ...allPlayers[meIdx], result: myResult, score: calculated.score };
+
+        const reward = calculateRewards({ players: allPlayers, entryFee, gameMetadata: game.metadata, isPractice });
+        const myReward = reward.rankings.find(r => r.userId === userId);
+        const myXp = myReward?.xpEarned || 0;
 
         await this.gameRepo.updateGameSessionStatus({
           sessionId, status: 'COMPLETED', completedAt: new Date().toISOString()
@@ -822,7 +963,13 @@ class GameService {
 
         return {
           result: myResult, score: calculated.score,
-          xpEarned: myXp, ledgerId: ledgerEntry.id
+          xpEarned: myXp, ledgerId: ledgerEntry.id,
+          // Full reward structure — frontend auto-adopts to this
+          reward: {
+            totalPool: reward.totalPool,
+            entryFee: reward.entryFee,
+            rankings: reward.rankings,
+          },
         };
       }
 
@@ -853,8 +1000,16 @@ class GameService {
         const opScore = opponentSession.validated_score || 0; // We need to fetch this from ledger ideally
         
         let myResult = myScore > opScore ? 'WIN' : myScore < opScore ? 'LOSS' : 'DRAW';
-        // Practice = no rewards: force 0 XP even on a win.
-        let myXp = isPractice ? 0 : (myResult === 'WIN' ? calculated.xpEarned : 0);
+        // Calculate rewards from total entry fees collected
+        const { calculateRewards } = require('./engine/RewardCalculator');
+        const pvpEntryFee = Number(game.metadata?.entryFee) || 5;
+        const pvpAllPlayers = [
+          { userId, result: myResult, score: myScore, isBot: false },
+          { userId: opponentSession.user_id, result: myResult === 'WIN' ? 'LOSS' : myResult === 'LOSS' ? 'WIN' : 'DRAW', score: opScore, isBot: false },
+        ];
+        const pvpReward = calculateRewards({ players: pvpAllPlayers, entryFee: pvpEntryFee, gameMetadata: game.metadata, isPractice });
+        const myReward = pvpReward.rankings.find(r => r.userId === userId);
+        let myXp = myReward?.xpEarned || 0;
         
         // In a real app we'd update both ledgers and wallets here and emit WS events.
         // For now, we instantly resolve the current player.
@@ -876,23 +1031,31 @@ class GameService {
         
         // Let the opponent know the final outcome as well
         const opResult = opScore > myScore ? 'WIN' : opScore < myScore ? 'LOSS' : 'DRAW';
-        const opXp = opResult === 'WIN' ? calculated.xpEarned : 0;
+        const opReward = pvpReward.rankings.find(r => r.userId === opponentSession.user_id);
+        const opXp = opReward?.xpEarned || 0;
         
-        // We update opponent ledger in the background
-        this.gameRepo.updateGameSessionStatus({
-          sessionId: opponentSession.id, status: 'COMPLETED', completedAt: new Date().toISOString()
-        }).catch(console.error);
-        
-        await this.gameRepo.recordMatchHistory({
-          userId: opponentSession.user_id, gameId: game.id, mode: session.metadata?.mode, result: opResult,
-          score: opScore, duration, xpEarned: opXp, matchGroupId
-        });
+        // Update opponent session + history + XP — these MUST succeed so the
+        // opponent doesn't lose XP. If creditXP fails, we retry once.
+        try {
+          await this.gameRepo.updateGameSessionStatus({
+            sessionId: opponentSession.id, status: 'COMPLETED', completedAt: new Date().toISOString()
+          });
+          
+          await this.gameRepo.recordMatchHistory({
+            userId: opponentSession.user_id, gameId: game.id, mode: session.metadata?.mode, result: opResult,
+            score: opScore, duration, xpEarned: opXp, matchGroupId
+          });
 
-        if (opXp > 0 && this.xpSvc) {
-          this.xpSvc.creditXP({
-            userId: opponentSession.user_id, xp: opXp,
-            transactionType: 'earned', sourceType: `game_session_${opponentSession.id}`
-          }).catch(console.error);
+          if (opXp > 0 && this.xpSvc) {
+            await this.xpSvc.creditXP({
+              userId: opponentSession.user_id, xp: opXp,
+              transactionType: 'earned', sourceType: `game_session_${opponentSession.id}`
+            });
+          }
+        } catch (opErr) {
+          console.error(`[GameService] Failed to resolve opponent ${opponentSession.user_id} XP:`, opErr.message);
+          // The opponent's session stays PENDING — they can still complete
+          // via completeGameSession which will re-resolve from match history.
         }
 
         const { emitNotification, emitLeaderboardsChanged } = require('../../sockets/account.socket');

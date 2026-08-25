@@ -7,8 +7,10 @@ const NotificationModel = require('../../../modules/notification/notification.mo
 const { logger } = require('../../../middlewares/logger.middleware');
 const { getPromotionalNotificationByUserId } = require('../../../modules/settings/settings.repository');
 const { clientRegistryService: pushNotificationService } = require('../../../modules/pushNotification/clientRegistry.container');
+const { userRepository } = require('../../../modules/user/user.container');
 const emitNotificationBatch = require('../../../modules/notification/notification.worker');
 const { addJob } = require('../../../jobs/queues/job.queue');
+const { emitDeviceUnreadPing } = require('../../../sockets/device.socket');
 
 const notificationJobProcessor = async (job) => {
       logger.info(`[NotifWorker] Processing: ${job.name}`, { id: job.id });
@@ -174,11 +176,24 @@ const notificationJobProcessor = async (job) => {
           // — surface it in the push data so a tray tap can deep-link straight
           // to the mentioned comment on the post page.
           const commentIdMatch = String(payload.message || '').match(/\|\s*([0-9a-fA-F-]{36})$/);
+
+          let pushTitle = payload.title;
+          try {
+            // Use findByIdAuth or findByIdPrivate since we just need the username quickly
+            const recipientUser = await userRepository.findByIdPrivate(payload.recipientId);
+            if (recipientUser && recipientUser.username) {
+              pushTitle = `[@${recipientUser.username}] ${payload.title}`;
+            }
+          } catch (e) {
+            logger.warn('[NotifDeliveryWorker] Failed to fetch recipient user for prefix', { error: e.message });
+          }
+
           const receipts = await pushNotificationService.sendToUser({
             userId: payload.recipientId,
-            title: payload.title,
+            title: pushTitle,
             message: payload.message || "Push notification" ,
             data: {
+              recipientId: payload.recipientId,
               senderId: payload.senderId,
               type: payload.type,
               resourceId: payload.resourceId,
@@ -186,6 +201,8 @@ const notificationJobProcessor = async (job) => {
               commentId: commentIdMatch ? commentIdMatch[1] : undefined,
             },
           });
+          
+          emitDeviceUnreadPing(payload.recipientId).catch(err => logger.warn('[NotifDeliveryWorker] emitDeviceUnreadPing failed', { error: err.message }));
 
           // Log delivery outcomes per token so push failures are
           // diagnosable without reproducing on-device.

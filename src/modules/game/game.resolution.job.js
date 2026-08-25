@@ -79,7 +79,6 @@ async function resolveAbandonedMatches() {
           // Practice mode: entry fee was deducted at session start but no XP
           // reward is ever awarded. The old code skipped this check and let
           // practice wins through the sweep, handing out free XP.
-          const gameModel = require('./game.model');
           const isPractice = gameModel.normalizeMatchMode(session.metadata?.mode) === 'PRACTICE';
           myXp = (myResult === 'WIN' && !isPractice) ? calculated.xpEarned : 0;
 

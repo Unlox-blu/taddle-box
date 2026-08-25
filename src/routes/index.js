@@ -31,6 +31,7 @@ router.use('/bookmark',      require('./bookmark.route'));
 router.use('/chat',          require('./chat.route'));
 router.use('/save',          require('./save.route'));
 router.use('/game',          require('./game.route'));
+router.use('/game',          require('./game.replay.route'));
 router.use('/leaderboards',  require('./leaderboard.route'));
 
 // Expose auth-only router (used by app.js for stricter rate limiting)

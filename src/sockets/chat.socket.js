@@ -52,6 +52,12 @@ const emitChatMessage = (userId, message) => {
     const accountNs = getNamespace('account');
     if (accountNs) accountNs.to(`user:${userId}`).emit('chat:message', message);
   } catch (e) { /* best-effort */ }
+
+  // Tell devices to re-fetch unread counts for multi-account badges
+  try {
+    const { emitDeviceUnreadPing } = require('./device.socket');
+    emitDeviceUnreadPing(userId).catch(err => console.error('[ChatSocket] emitDeviceUnreadPing failed:', err.message));
+  } catch (e) { /* best-effort */ }
 };
 
 const emitChatReaction = (userId, payload) => {

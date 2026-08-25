@@ -2,29 +2,45 @@
 
 const GamePlugin = require('../GamePlugin');
 
-const ROUND_DURATION_MS = 80 * 1000;
-// One drawing turn per player (a "round" = everyone draws once).
-const ROUNDS_PER_GAME = 1;
-
-/**
- * Scribble Plugin
- *
- * Round flow:
- * 1. Server selects a secret word and sends it ONLY to the drawer.
- * 2. The drawer sends stroke paths (NOT full canvas frames).
- * 3. Guessers submit guesses; server validates against the secret word.
- * 4. First correct guesser gets max points; drawer gets points per correct guess.
- */
 const WORD_POOL = [
   'ELEPHANT', 'BICYCLE', 'MOUNTAIN', 'UMBRELLA', 'COMPUTER',
   'DOLPHIN', 'GUITAR', 'TELESCOPE', 'PIZZA', 'ROCKET',
   'CASTLE', 'TORNADO', 'LIBRARY', 'SUBMARINE', 'CACTUS',
 ];
 
+/**
+ * Scribble Plugin — ported to new architecture.
+ *
+ * canPlayerAct: drawer can draw, guessers can guess (simultaneous)
+ * getTimers: returns round timer from config
+ * applyMove: returns complete state
+ */
 class ScribblePlugin extends GamePlugin {
+  static EXECUTION_MODEL = 'round-based';
+
   constructor(matchData) {
     super(matchData);
     this.players = matchData.players || [];
+  }
+
+  canPlayerAct(state, userId) {
+    // Simultaneous: anyone can act (strokes and guesses)
+    return true;
+  }
+
+  getTimers(state) {
+    const config = this.configSnapshot || {};
+    const roundTimeoutMs = config.roundTimeoutMs || 80000;
+
+    return [{
+      type: 'round',
+      durationMs: roundTimeoutMs,
+      jobData: { gameSlug: 'scribble' },
+    }];
+  }
+
+  getCommandTimeoutMs() {
+    return 500;
   }
 
   _pickWord(usedWords) {
@@ -45,11 +61,9 @@ class ScribblePlugin extends GamePlugin {
       usedWords: [word],
       scores,
       currentRound: 1,
-      totalRounds: ROUNDS_PER_GAME,
+      totalRounds: 1,
       roundStartedAt: Date.now(),
       correctGuessers: [],
-      // Live guess feed (wrong + correct) broadcast to every player so the
-      // guessers get instant feedback instead of a dead chat.
       guesses: [],
       status: 'active',
       winner: null,
@@ -59,12 +73,9 @@ class ScribblePlugin extends GamePlugin {
   onPlayerJoin(userId) {}
   onPlayerLeave(userId) {}
   onReconnect(userId) {}
+  cleanup() {}
 
   validateMove(userId, moveData, currentState) {
-    // moveData can be:
-    //   { type: 'STROKE', data: { points: [], color, width } }  — from drawer
-    //   { type: 'GUESS', word: 'ELEPHANT' }                     — from guesser
-
     const currentDrawer = currentState.turnOrder[currentState.currentDrawerIndex];
 
     if (moveData.type === 'STROKE') {
@@ -89,14 +100,11 @@ class ScribblePlugin extends GamePlugin {
 
   applyMove(userId, moveData, currentState) {
     if (moveData.type === 'STROKE') {
-      // Strokes are just broadcast via WS; no state mutation needed
-      return currentState;
+      return currentState; // Strokes broadcast via WS, no state mutation
     }
 
     if (moveData.type === 'GUESS') {
       const isCorrect = moveData.word.toUpperCase() === currentState.secretWord.toUpperCase();
-      // Every guess is broadcast (correct OR wrong) so the chat feed reacts
-      // live — a wrong guess must not silently vanish.
       const guesses = [
         ...(currentState.guesses || []),
         {
@@ -108,11 +116,10 @@ class ScribblePlugin extends GamePlugin {
       ];
       if (!isCorrect) return { ...currentState, guesses };
 
-      // Score: earlier guesses get more points
       const pointsForGuesser = Math.max(10, 100 - (currentState.correctGuessers.length * 20));
       const pointsForDrawer = 10;
-
       const drawer = currentState.turnOrder[currentState.currentDrawerIndex];
+
       const newScores = { ...currentState.scores };
       newScores[userId] = (newScores[userId] || 0) + pointsForGuesser;
       newScores[drawer] = (newScores[drawer] || 0) + pointsForDrawer;
@@ -131,8 +138,7 @@ class ScribblePlugin extends GamePlugin {
   advanceRound(currentState) {
     const nextDrawerIndex = (currentState.currentDrawerIndex + 1) % currentState.turnOrder.length;
     const isLastRound =
-      currentState.currentRound >= currentState.totalRounds &&
-      nextDrawerIndex === 0;
+      currentState.currentRound >= currentState.totalRounds && nextDrawerIndex === 0;
 
     if (isLastRound) {
       const winner = Object.entries(currentState.scores)
@@ -159,26 +165,33 @@ class ScribblePlugin extends GamePlugin {
 
   calculateReward(currentState, userId) {
     if (currentState.winner === userId) return { result: 'WIN', xpEarned: 50 };
+    if (currentState.winner === null || currentState.winner === undefined) return { result: 'DRAW', xpEarned: 15 };
     return { result: 'LOSS', xpEarned: 10 };
   }
 
-  /**
-   * Spectators see strokes but NOT the secret word.
-   */
   getSpectatorState(currentState) {
     const { secretWord, ...safe } = currentState;
     return safe;
   }
 
-  /**
-   * State sent to the DRAWER contains the secret word.
-   * State sent to GUESSERS does NOT.
-   */
-  getPlayerState(currentState, userId) {
-    const drawer = currentState.turnOrder[currentState.currentDrawerIndex];
-    if (userId === drawer) return currentState;
-    const { secretWord, ...safe } = currentState;
-    return safe;
+  getPlayerState(state, userId) {
+    const drawer = state.turnOrder[state.currentDrawerIndex];
+    const drawerId = drawer;
+
+    if (userId === drawer) {
+      // Drawer sees the actual word
+      return { ...state, word: state.secretWord, wordMask: null, drawerId };
+    }
+
+    // Guesser: progressive word reveal (letters appear over time)
+    const elapsed = Date.now() - (state.roundStartedAt || Date.now());
+    const revealCount = elapsed > 30000 ? 1 + Math.floor((elapsed - 30000) / 15000) : 0;
+    const wordMask = state.secretWord
+      ? state.secretWord.split('').map((c, i) => (i < revealCount ? c : '_')).join(' ')
+      : null;
+
+    const { secretWord, ...safe } = state;
+    return { ...safe, wordMask, drawerId };
   }
 }
 

@@ -5,36 +5,68 @@ const GamePlugin = require('../GamePlugin');
 
 /**
  * Chess Plugin — uses chess.js for 100% server-side rule validation.
- * 
- * No chess logic is written manually. The engine handles:
- * - Move validation (including castling, en passant, promotion)
- * - Check / checkmate / stalemate / draw detection
- * - FEN serialization for state snapshots
+ *
+ * New architecture contract:
+ *   - canPlayerAct checks chess.turn() vs player color
+ *   - getTimers returns turn timer from config snapshot
+ *   - applyMove returns complete state (never executor-mutated)
+ *   - All state mutations (currentTurnIndex, timers) happen inside plugin
  */
 class ChessPlugin extends GamePlugin {
+  static EXECUTION_MODEL = 'turn-based';
+
   constructor(matchData) {
     super(matchData);
-    // players: [{ userId, color }] where color is 'w' or 'b'
     this.players = matchData.players || [];
   }
 
-  /** Returns the userId assigned the given color */
+  getBotColor(players) {
+    const used = players.filter(p => !String(p.userId || '').startsWith('bot_')).map(p => p.color);
+    return used.includes('b') ? 'w' : 'b';
+  }
+
   _getPlayerByColor(color) {
     return this.players.find(p => p.color === color)?.userId;
   }
 
-  /** Returns the color assigned to a userId */
   _getColorByUser(userId) {
     if (userId === 'bot_w') return 'w';
     if (userId === 'bot_b') return 'b';
     return this.players.find(p => p.userId === userId)?.color;
   }
 
+  // ── New Architecture: Turn Authority ──────────────────────────────────
+
+  canPlayerAct(state, userId) {
+    const chess = new Chess(state.fen);
+    const playerColor = this._getColorByUser(userId);
+    return chess.turn() === playerColor;
+  }
+
+  getTimers(state) {
+    const config = this.configSnapshot || {};
+    const turnTimeoutMs = config.turnTimeoutMs || 600000; // 10 min default
+    const turnColor = state.turn || 'w';
+    const remaining = state.timers?.[turnColor] ?? turnTimeoutMs;
+
+    return [{
+      type: 'turn',
+      durationMs: Math.max(1000, remaining), // minimum 1s
+      jobData: { gameSlug: 'chess' },
+    }];
+  }
+
+  getCommandTimeoutMs() {
+    return 500;
+  }
+
+  // ── Lifecycle ─────────────────────────────────────────────────────────
+
   createState() {
     const chess = new Chess();
     const wPlayer = this._getPlayerByColor('w') || 'bot_w';
     const bPlayer = this._getPlayerByColor('b') || 'bot_b';
-    
+
     return {
       fen: chess.fen(),
       turn: 'w',
@@ -49,32 +81,35 @@ class ChessPlugin extends GamePlugin {
     };
   }
 
-  onPlayerJoin(userId) {}
-  onPlayerLeave(userId) {}
-
-  onReconnect(userId) {
-    // Nothing to rebuild — state is in Redis as FEN
+  onTimerExpired(state, timerType, userId) {
+    if (timerType !== 'turn') return state;
+    // Timed-out player loses — opponent wins by timeout
+    const turnOrder = state.turnOrder || [];
+    const timedOutPlayer = turnOrder[state.currentTurnIndex];
+    const winner = turnOrder.find(id => id !== timedOutPlayer);
+    return {
+      ...state,
+      status: 'finished',
+      winner,
+      turnOrder: state.turnOrder,
+      currentTurnIndex: state.currentTurnIndex,
+      timers: { ...state.timers, [state.turn]: 0 },
+    };
   }
-
-  onTimeout(type) {
-    // Turn timeout → the player whose turn it is loses
-    return { timedOut: true, type };
-  }
-
   cleanup() {}
+
+  // ── Mechanics ─────────────────────────────────────────────────────────
 
   validateMove(userId, moveData, currentState) {
     const chess = new Chess(currentState.fen);
     const playerColor = this._getColorByUser(userId);
 
-    // Must be this player's turn
     if (chess.turn() !== playerColor) {
       return { valid: false, reason: 'Not your turn' };
     }
 
-    // Attempt the move using chess.js
     try {
-      const result = chess.move(moveData); // moveData: { from, to, promotion? }
+      const result = chess.move(moveData);
       return result ? { valid: true } : { valid: false, reason: 'Illegal move' };
     } catch {
       return { valid: false, reason: 'Illegal move' };
@@ -84,28 +119,34 @@ class ChessPlugin extends GamePlugin {
   applyMove(userId, moveData, currentState) {
     const chess = new Chess(currentState.fen);
     const move = chess.move(moveData);
-    const playerColor = chess.turn() === 'w' ? 'b' : 'w'; // chess.turn() is next player
+    const movedColor = this._getColorByUser(userId);
 
     const now = Date.now();
     const elapsed = currentState.lastMoveTime ? now - currentState.lastMoveTime : 0;
-    
+
+    // Deduct elapsed time from the player who just moved
     const newTimers = { ...currentState.timers };
-    newTimers[playerColor] = Math.max(0, newTimers[playerColor] - elapsed);
+    newTimers[movedColor] = Math.max(0, (newTimers[movedColor] || 0) - elapsed);
+
+    // Determine next turn index (plugin-authoritative)
+    const nextTurnIndex = (currentState.currentTurnIndex + 1) % 2;
 
     const newState = {
       ...currentState,
       fen: chess.fen(),
       turn: chess.turn(),
-      currentTurnIndex: (currentState.currentTurnIndex + 1) % 2,
-      moveHistory: [...currentState.moveHistory, move],
+      currentTurnIndex: nextTurnIndex,
+      moveHistory: [...(currentState.moveHistory || []), move],
       timers: newTimers,
       lastMoveTime: now,
     };
 
     // Check time forfeit
-    if (newTimers[playerColor] === 0) {
+    if (newTimers[movedColor] === 0) {
+      const loserColor = movedColor;
+      const winnerColor = loserColor === 'w' ? 'b' : 'w';
       newState.status = 'finished';
-      newState.winner = this._getPlayerByColor(chess.turn()); // The other player wins
+      newState.winner = this._getPlayerByColor(winnerColor);
       newState.drawReason = 'timeout';
       return newState;
     }
@@ -113,7 +154,7 @@ class ChessPlugin extends GamePlugin {
     // Check terminal conditions
     if (chess.isCheckmate()) {
       newState.status = 'finished';
-      newState.winner = userId; // The player who just moved wins
+      newState.winner = userId;
     } else if (chess.isDraw() || chess.isStalemate() || chess.isThreefoldRepetition()) {
       newState.status = 'finished';
       newState.winner = null;
@@ -128,27 +169,14 @@ class ChessPlugin extends GamePlugin {
   }
 
   calculateReward(currentState, userId) {
-    if (currentState.winner === userId) {
-      return { result: 'WIN', xpEarned: 100 };
-    }
-    if (currentState.winner === null) {
-      return { result: 'DRAW', xpEarned: 30 };
-    }
+    if (currentState.winner === userId) return { result: 'WIN', xpEarned: 100 };
+    if (currentState.winner === null) return { result: 'DRAW', xpEarned: 30 };
     return { result: 'LOSS', xpEarned: 10 };
   }
 
-  serialize(currentState) {
-    return currentState; // FEN is already compact
-  }
-
-  deserialize(serializedState) {
-    return serializedState;
-  }
-
-  getSpectatorState(currentState) {
-    // Spectators see everything in chess (no hidden info)
-    return currentState;
-  }
+  serialize(currentState) { return currentState; }
+  deserialize(serializedState) { return serializedState; }
+  getSpectatorState(currentState) { return currentState; }
 }
 
 module.exports = ChessPlugin;

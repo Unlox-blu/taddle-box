@@ -9,12 +9,15 @@ const pool = require('./src/config/database');
 const redis = require('./src/config/redis');
 const { initializeSockets } = require('./src/sockets');
 const { startJobWorker } = require('./src/jobs/workers/backgroundjob/job.worker');
-// require('./src/jobs/workers/start-workers');
 require('./src/workers/redis.subscriber');
-// const { startEmailWorker } = require('./src/jobs/workers/email/email.worker');
-// const { startNotificationWorker } = require('./src/jobs/workers/notification/notification.worker');
-// const { startVideoWorker } = require('./src/jobs/workers/video/video.worker');
 const { logger } = require('./src/middlewares/logger.middleware');
+
+// ── Engine readiness state ───────────────────────────────────────────────
+const engineReady = {
+  postgres: false,
+  redis: false,
+  pluginsLoaded: false,
+};
 
 // Unhandled error safety nets
 process.on('unhandledRejection', (reason) => {
@@ -27,13 +30,6 @@ process.on('uncaughtException', (error) => {
   process.exit(1);
 });
 
-// Fail fast if a core service is unreachable at boot — a hung or silent start
-// would otherwise leave PM2 running a dead server. The checks are time-boxed
-// because both drivers QUEUE commands while disconnected: pg's pool rejects
-// after connectionTimeoutMillis, but ioredis (retryStrategy +
-// maxRetriesPerRequest: null) buffers ping() forever while reconnecting, so a
-// Redis outage would hang the bootstrap instead of exiting non-zero. A timeout
-// turns the silent wait into a hard failure PM2 can see (errored + restart).
 const withTimeout = (promise, ms, label) =>
   new Promise((resolve, reject) => {
     const timer = setTimeout(
@@ -49,54 +45,76 @@ const withTimeout = (promise, ms, label) =>
 // Bootstrap
 const bootstrap = async () => {
   try {
-    // Verify DB connection — pool.query already rejects after the pool's
-    // 10s connectionTimeoutMillis; the extra margin keeps the message ours.
+    // Verify DB connection
     await withTimeout(pool.query('SELECT 1'), 15000, 'PostgreSQL');
+    engineReady.postgres = true;
     logger.info('PostgreSQL connected');
 
-    // Verify Redis connection — ping() alone would queue forever on a down
-    // Redis; the timeout makes the startup check fail with a clear reason.
+    // Verify Redis connection
     await withTimeout(redis.ping(), 15000, 'Redis');
+    engineReady.redis = true;
     logger.info('Redis connected');
+
+    // Load game plugins
+    require('./src/modules/game/engine');
+    engineReady.pluginsLoaded = true;
+    logger.info('Game plugins loaded');
 
     // Create HTTP server
     const server = http.createServer(app);
+
+    // ── Health endpoints ──────────────────────────────────────────────
+    // Liveness: process is alive
+    server.on('request', (req, res) => {
+      if (req.url === '/health/live' && req.method === 'GET') {
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ status: 'alive', timestamp: new Date().toISOString() }));
+        return;
+      }
+
+      if (req.url === '/health/ready' && req.method === 'GET') {
+        const ready = engineReady.postgres && engineReady.redis && engineReady.pluginsLoaded;
+        const status = ready ? 200 : 503;
+        res.writeHead(status, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({
+          status: ready ? 'ready' : 'not_ready',
+          postgres: engineReady.postgres,
+          redis: engineReady.redis,
+          pluginsLoaded: engineReady.pluginsLoaded,
+          timestamp: new Date().toISOString(),
+        }));
+        return;
+      }
+    });
 
     // Initialize Socket.io
     initializeSockets(server);
     logger.info('Socket.io initialized');
 
-    // Start BullMQ workers
-    // startEmailWorker();
-    // startNotificationWorker();
-    // startVideoWorker();
-    // startJobWorker()
-    // logger.info('BullMQ workers started');
+    // Start outbox worker
+    const outboxWorker = require('./src/workers/outbox.worker');
+    outboxWorker.start();
+    logger.info('Outbox worker started');
 
     // Run game resolution sweeper every minute
     const { resolveAbandonedMatches, resolveTournaments, resolveExpiredLobbies, resolveExpiredMatches, resolveBotFillingLobbies, expireAbandonedSessions } = require('./src/modules/game/game.resolution.job');
     setInterval(() => {
       resolveAbandonedMatches().catch(err => logger.error('Error sweeping abandoned matches', err));
       resolveTournaments().catch(err => logger.error('Error sweeping tournaments', err));
-      // Terminate MATCHED tickets whose match the player never entered
-      // (older than the 10-minute reconnect-replay freshness window).
       resolveExpiredMatches().catch(err => logger.error('Error sweeping expired matches', err));
-      // Expire long-abandoned ACTIVE sessions so rejoin cards and stale
-      // session rows never linger.
       expireAbandonedSessions().catch(err => logger.error('Error sweeping expired sessions', err));
     }, 60000);
-    
+
     // Check for expired matchmaking lobbies every 2.5 seconds
     setInterval(() => {
       resolveExpiredLobbies().catch(err => logger.error('Error sweeping expired lobbies', err));
-      // Gradually fill open lobby slots with bots (starts 15s into the 30s window)
       resolveBotFillingLobbies().catch(err => logger.error('Error sweeping bot-fill lobbies', err));
     }, 2500);
 
     // Start server
     server.listen(config.PORT, async () => {
       logger.info(`Server running on port ${config.PORT} [${config.NODE_ENV}]`);
-      
+
       if (config.NODE_ENV === 'development' && process.env.NGROK_AUTHTOKEN && process.env.NGROK_DOMAIN) {
         try {
           const ngrok = require('@ngrok/ngrok');
@@ -115,6 +133,7 @@ const bootstrap = async () => {
     // Graceful shutdown
     const shutdown = async (signal) => {
       logger.info(`${signal} received. Graceful shutdown...`);
+      outboxWorker.stop();
       server.close(async () => {
         await pool.end();
         await redis.quit();

@@ -1,6 +1,10 @@
+'use strict';
+
 const BotManager = require('../../modules/game/bot/BotManager');
 const { MatchManager, MATCH_STATES } = require('../../modules/game/engine/MatchManager');
 const TimerEngine = require('../../modules/game/engine/TimerEngine');
+const EventStore = require('../../modules/game/engine/EventStore');
+const GameRegistry = require('../../modules/game/engine');
 
 class BotMatchHandler {
   constructor(ns, events, archiveMatchFn, startTurnTimerFn) {
@@ -8,9 +12,6 @@ class BotMatchHandler {
     this.EVENTS = events;
     this.archiveMatch = archiveMatchFn;
     this.startTurnTimer = startTurnTimerFn;
-    // Bounded re-drive guard: matchId -> consecutive rejected-move count.
-    // Prevents an infinite catch → re-drive → reject loop if a bot move keeps
-    // failing (e.g. engine fault). Reset on any successful move.
     this.reDriveCounts = new Map();
     this.MAX_RE_DRIVES = 3;
   }
@@ -24,41 +25,30 @@ class BotMatchHandler {
     );
   }
 
-  /** All bot ids present in the match state (multi-bot lobbies) */
   getBotIds(state) {
     const ids = new Set();
-    // state.players is the most reliable source — injected lobby bots always appear here
     (state?.players || []).forEach(p => {
       const id = p?.userId || p?.id;
       if (id && (p.isBot || String(id).startsWith('bot_'))) ids.add(id);
     });
-    // Fallbacks for engine states that only track bots in plugin state
     const scores = state?.pluginState?.scores || {};
     Object.keys(scores).forEach(id => { if (String(id).startsWith('bot_')) ids.add(id); });
     (state?.pluginState?.turnOrder || []).forEach(id => { if (String(id).startsWith('bot_')) ids.add(id); });
     return Array.from(ids);
   }
 
-  /** Assign a color the real players haven't taken (chess: w/b, ludo/snake-ladder: palettes) */
   _assignBotColor(socket, players) {
-    const used = players.filter(p => !String(p.userId || '').startsWith('bot_')).map(p => p.color);
-    const slug = socket.gameSlug;
-    if (slug === 'chess') return used.includes('b') ? 'w' : 'b';
-    if (slug === 'ludo') {
-      const palette = ['red', 'green', 'yellow', 'blue'];
-      return palette.find(c => !used.includes(c)) || palette[players.length % 4];
-    }
-    if (slug === 'snake-ladder') {
-      const palette = ['red', 'blue', 'green', 'yellow'];
-      return palette.find(c => !used.includes(c)) || palette[players.length % 4];
-    }
-    return 'blue';
+    const plugin = GameRegistry.createInstance(socket.gameSlug, {});
+    return plugin.getBotColor(players);
   }
 
   async handleBotMoveGenerated(matchId, gameSlug, botId, botMove) {
     try {
-      const updatedState = await MatchManager.handlePlayerMove(matchId, gameSlug, botId, botMove);
-      // A move landed — reset the re-drive guard.
+      // Use the actor to process the bot's move
+      const commandId = require('crypto').randomUUID();
+      const updatedState = await MatchManager.handlePlayerMove(
+        matchId, gameSlug, botId, botMove, commandId
+      );
       this.reDriveCounts.delete(matchId);
 
       if (updatedState.status === MATCH_STATES.FINISHED) {
@@ -70,8 +60,6 @@ class BotMatchHandler {
         BotManager.onMatchEnd(matchId, gameSlug, updatedState);
         await this.archiveMatch(matchId, updatedState);
 
-        // Tell every real player their session is over so stale "REJOIN MATCH"
-        // buttons don't stick around after a bot-driven finish.
         try {
           const { getIO } = require('../../sockets/index');
           const io = getIO();
@@ -94,15 +82,13 @@ class BotMatchHandler {
           this.ns
             .to(`match:${matchId}`)
             .emit(this.EVENTS.SYNC, { state: updatedState.pluginState, botMove: true });
-          // Round-based games (word-rush / scribble) keep a fixed-length round
-          // clock driven by the round timer — bot moves must not reset it.
           if (gameSlug !== 'scribble' && gameSlug !== 'word-rush') {
             this.startTurnTimer(this.ns, matchId, gameSlug, updatedState);
           }
-          
+
           if (updatedState.isBotMatch) {
-            const turnBasedSlugs = ['chess', 'ludo', 'snake-ladder'];
-            if (!turnBasedSlugs.includes(gameSlug)) {
+            const plugin = GameRegistry.createInstance(gameSlug, updatedState.metadata);
+            if (!plugin.isTurnBased()) {
               this.handleTurn(matchId, gameSlug, updatedState);
             }
           }
@@ -110,9 +96,6 @@ class BotMatchHandler {
       }
     } catch (e) {
       console.error('[BotEngine] Error executing bot move:', e.message);
-      // A rejected/stale move must never deadlock the match. Reload the freshest
-      // state and re-drive the current player's turn so the game continues — but
-      // only up to a bounded number of consecutive failures.
       const attempts = (this.reDriveCounts.get(matchId) || 0) + 1;
       if (attempts > this.MAX_RE_DRIVES) {
         this.reDriveCounts.delete(matchId);
@@ -121,7 +104,6 @@ class BotMatchHandler {
       }
       this.reDriveCounts.set(matchId, attempts);
       try {
-        const EventStore = require('../modules/game/engine/EventStore');
         const fresh = await EventStore.loadMatchSnapshot(matchId);
         if (!fresh || fresh.status !== MATCH_STATES.ACTIVE) return;
         this.startTurnTimer(this.ns, matchId, gameSlug, fresh);
@@ -143,7 +125,6 @@ class BotMatchHandler {
   handleTurn(matchId, gameSlug, state, currentPlayerId = null) {
     if (!state || !state.isBotMatch) return;
 
-    // If a specific player's turn is being triggered, drive only that bot
     if (currentPlayerId) {
       if (!String(currentPlayerId).startsWith('bot_')) return;
       BotManager.onTurn(matchId, gameSlug, state, currentPlayerId, (bId, move) =>
@@ -152,7 +133,6 @@ class BotMatchHandler {
       return;
     }
 
-    // Otherwise determine whose turn it is and drive the bot if it's theirs
     const ps = state.pluginState || {};
     const current = ps.turnOrder ? ps.turnOrder[ps.currentTurnIndex] : null;
     if (current && String(current).startsWith('bot_')) {
@@ -162,7 +142,6 @@ class BotMatchHandler {
       return;
     }
 
-    // Fallback: drive all bots (realtime games without turns)
     for (const botId of this.getBotIds(state)) {
       BotManager.onTurn(matchId, gameSlug, state, botId, (bId, move) =>
         this.handleBotMoveGenerated(matchId, gameSlug, bId, move)
@@ -191,9 +170,6 @@ class BotMatchHandler {
   }
 
   setupBotPlayer(socket, players) {
-    // Inject lobby bots (AUTO/CUSTOM flow) so the engine treats them as players.
-    // Bot matches are detected via the bot_ ID prefix / isBot flag — there is
-    // no standalone BOT mode anymore, so no mode-based fallback is needed.
     const lobbyBots = Array.isArray(socket.lobbyBots) ? socket.lobbyBots : [];
     for (const bot of lobbyBots) {
       if (!players.find(p => String(p.userId) === String(bot.id))) {
@@ -201,22 +177,14 @@ class BotMatchHandler {
           userId: bot.id,
           color: this._assignBotColor(socket, players),
           isBot: true,
-          // Carry identity so in-match chat shows the bot's real name/avatar
-          // instead of the generic "Player" fallback.
           name: bot.name || bot.username,
           username: bot.username,
           avatar: bot.avatar || null,
-          // Carry the profile level/badge so the in-game level badge renders
-          // for bots too. The client falls back to the engine player list
-          // (state.players) for matches whose metadata has no playerSnapshots
-          // (practice / quick-start bot matches), and the CONNECT_ACK/players
-          // snapshot path already carries these fields.
           level: bot.level,
           badge: bot.badge,
         });
       }
     }
-
     return lobbyBots.length > 0;
   }
 }

@@ -2,34 +2,48 @@
 
 const GamePlugin = require('../GamePlugin');
 
-/**
- * Memory Grid Plugin
- *
- * A pattern memorization game. The server:
- * - Generates all patterns for every round using a seeded HMAC chain
- * - Validates player input against the server-side pattern (client never decides correctness)
- * - Tracks rounds and score entirely server-side
- *
- * Pattern: A 3x3 grid (9 tiles). Server reveals a sequence; player must replay it.
- * Each round adds one more tile to the sequence.
- */
-
 const GRID_SIZE = 9;
 const STARTING_PATTERN_LENGTH = 2;
 const MAX_ROUNDS = 1;
-const MAX_PLAUSIBLE_SCORE = MAX_ROUNDS;
 
+/**
+ * Memory Grid Plugin — ported to new architecture.
+ *
+ * canPlayerAct: anyone can submit inputs (simultaneous after SHOW phase)
+ * getTimers: returns round timer from config
+ */
 class MemoryGridPlugin extends GamePlugin {
+  static EXECUTION_MODEL = 'round-based';
+
   constructor(matchData) {
     super(matchData);
     this.players = matchData.players || [];
     this.gameMetadata = matchData.metadata || {};
   }
 
-  /** Generate a round's pattern from the seed + round index */
+  canPlayerAct(state, userId) {
+    // During INPUT phase, anyone can submit
+    return state.roundPhase === 'INPUT' || state.roundPhase === 'SHOW';
+  }
+
+  getTimers(state) {
+    const config = this.configSnapshot || {};
+    const roundTimeoutMs = config.roundTimeoutMs || 30000;
+
+    return [{
+      type: 'round',
+      durationMs: roundTimeoutMs,
+      jobData: { gameSlug: 'memory-grid' },
+    }];
+  }
+
+  getCommandTimeoutMs() {
+    return 500;
+  }
+
   _generatePattern(seed, round) {
     const crypto = require('crypto');
-    const length = STARTING_PATTERN_LENGTH + round; // round 0 = 2 tiles, round 4 = 6 tiles
+    const length = STARTING_PATTERN_LENGTH + round;
     const pattern = [];
     for (let i = 0; i < length; i++) {
       const hash = crypto
@@ -55,8 +69,8 @@ class MemoryGridPlugin extends GamePlugin {
       totalRounds: MAX_ROUNDS,
       currentPattern: firstPattern,
       scores,
-      playerInputs: {}, // { userId: [tile indices submitted this round] }
-      roundPhase: 'SHOW',   // SHOW → INPUT → RESULT
+      playerInputs: {},
+      roundPhase: 'SHOW',
       startedAt: Date.now(),
       status: 'active',
       winner: null,
@@ -66,17 +80,10 @@ class MemoryGridPlugin extends GamePlugin {
   onPlayerJoin(userId) {}
   onPlayerLeave(userId) {}
   onReconnect(userId) {}
+  cleanup() {}
 
-  /**
-   * moveData: { type: 'INPUT', tiles: [0, 4, 7, ...] }
-   * The player submits their full pattern guess for the current round.
-   */
   validateMove(userId, moveData, currentState) {
     if (moveData.type === 'READY_INPUT') {
-      // Tolerate a late READY_INPUT landing after the phase already flipped to
-      // INPUT (e.g. the bot's READY_INPUT firing after the real player's flip).
-      // Treat it as a no-op instead of rejecting it, so the bot session never
-      // errors and the round keeps flowing.
       if (currentState.roundPhase !== 'SHOW' && currentState.roundPhase !== 'INPUT') {
         return { valid: false, reason: 'Not in show phase' };
       }
@@ -95,7 +102,6 @@ class MemoryGridPlugin extends GamePlugin {
       return { valid: false, reason: 'Incorrect number of tiles submitted' };
     }
 
-    // Validate all tile indices are in range
     if (moveData.tiles.some(t => t < 0 || t >= GRID_SIZE)) {
       return { valid: false, reason: 'Invalid tile index' };
     }
@@ -105,16 +111,12 @@ class MemoryGridPlugin extends GamePlugin {
 
   applyMove(userId, moveData, currentState) {
     if (moveData.type === 'READY_INPUT') {
-      // Late READY_INPUT after the phase already flipped — no-op, nothing to do.
       if (currentState.roundPhase === 'INPUT') return currentState;
 
       const readyPlayers = currentState.readyPlayers || [];
       if (!readyPlayers.includes(userId)) {
         readyPlayers.push(userId);
       }
-      // Only real players gate the reveal — bots read the pattern straight from
-      // the state and never need to "watch" it, so a missing/late bot
-      // READY_INPUT must never stall the round (tap area would never appear).
       const realIds = this.players
         .filter(p => !String(p.userId || p.id || '').startsWith('bot_'))
         .map(p => p.userId || p.id);
@@ -132,7 +134,6 @@ class MemoryGridPlugin extends GamePlugin {
     const newPlayerInputs = { ...currentState.playerInputs, [userId]: tiles };
 
     if (!correct) {
-      // Game over for this player — if they are wrong, they lose
       const winner = Object.entries(newScores).sort((a, b) => b[1] - a[1])[0][0];
       return {
         ...currentState,
@@ -149,7 +150,6 @@ class MemoryGridPlugin extends GamePlugin {
     const numInputs = Object.keys(newPlayerInputs).length;
 
     if (numInputs < numPlayers) {
-      // Wait for other players
       return {
         ...currentState,
         scores: newScores,
@@ -170,7 +170,6 @@ class MemoryGridPlugin extends GamePlugin {
       };
     }
 
-    // Advance to next round
     const nextRound = currentState.currentRound + 1;
     const nextPattern = this._generatePattern(currentState.seed, nextRound);
 
@@ -199,20 +198,15 @@ class MemoryGridPlugin extends GamePlugin {
     };
   }
 
-  /** 
-   * Sent to the player when their INPUT phase starts.
-   * Does NOT expose the seed.
-   */
   getRoundPayload(currentState) {
     return {
       round: currentState.currentRound,
       patternLength: currentState.currentPattern.length,
-      // Pattern itself is revealed during SHOW phase via WebSocket SYNC events
     };
   }
 
   getSpectatorState(currentState) {
-    const { seed, ...safe } = currentState; // Never expose the seed
+    const { seed, ...safe } = currentState;
     return safe;
   }
 }

@@ -145,7 +145,7 @@ const completeGameMatch = async ({ matchData }) => {
       WHERE gm.id = $5 AND gm.user_id = $6 AND gm.result IS NULL AND g.id = gm.game_id
       RETURNING gm.id, gm.user_id, gm.game_id, gm.mode, gm.result, gm.score, gm.duration, gm.xp_earned,
         gm.category, gm.difficulty, gm.metadata, gm.created_at, gm.updated_at,
-        g.name AS game_name, g.slug AS game_slug`,
+        g.name AS game_name, g.slug AS game_slug, g.thumbnail AS game_thumbnail`,
       [
         matchData.result,
         matchData.score,
@@ -221,7 +221,7 @@ const findManyGameMatshs = async ({ userId, limit, offset }) => {
     const { rows } = await pool.query(
       `SELECT gm.id, gm.user_id, gm.game_id, gm.mode, gm.result, gm.score, gm.duration, gm.xp_earned,
         gm.category, gm.difficulty, gm.metadata, gm.created_at, gm.updated_at,
-        g.name AS game_name, g.slug AS game_slug, COUNT(*) OVER() AS total
+        g.name AS game_name, g.slug AS game_slug, g.thumbnail AS game_thumbnail, COUNT(*) OVER() AS total
       FROM ${gameModel.GAME_MATCH_TABLE} gm
       JOIN ${gameModel.GAME_TABLE} g ON g.id = gm.game_id
       WHERE gm.user_id = $1 AND gm.result IS NOT NULL
@@ -556,7 +556,7 @@ const findMatchmakingTicketById = async ({ userId, ticketId }) => {
       const matchRows = await pool.query(
         `SELECT gm.id, gm.user_id, gm.game_id, gm.mode, gm.result, gm.score, gm.duration, gm.xp_earned,
           gm.category, gm.difficulty, gm.metadata, gm.created_at, gm.updated_at,
-          g.name AS game_name, g.slug AS game_slug
+          g.name AS game_name, g.slug AS game_slug, g.thumbnail AS game_thumbnail
         FROM ${gameModel.GAME_MATCH_TABLE} gm
         JOIN ${gameModel.GAME_TABLE} g ON g.id = gm.game_id
         WHERE gm.id = $1 AND gm.user_id = $2`,
@@ -681,7 +681,7 @@ const joinMatchmaking = async ({ userId, game, mode, tournamentId, targetPlayers
       RETURNING *`,
       [
         userId, game.id, tournamentId || null, normalizedMode, lobby.id,
-        JSON.stringify({ runtime: game.metadata?.runtime, queuedAt: new Date().toISOString() })
+        JSON.stringify({ runtimeType: game.metadata?.runtimeType || 'app', queuedAt: new Date().toISOString() })
       ]
     );
 
@@ -754,7 +754,7 @@ const joinMatchmaking = async ({ userId, game, mode, tournamentId, targetPlayers
         maxPlayers: lobby.max_players,
         teamsLocked: !!(lobby.settings?.teamsLocked),
         startedAt,
-        runtime: game.metadata?.runtime,
+        runtimeType: game.metadata?.runtimeType || 'app',
         tournamentId
       };
 
@@ -986,7 +986,7 @@ const fillMatchmakingLobby = async ({ userId, ticketId, overrideLobbyId, fillBot
       maxPlayers: lobby.max_players,
       teamsLocked: !!(lobby.settings?.teamsLocked),
       startedAt,
-      runtime: game.metadata?.runtime,
+      runtimeType: game.metadata?.runtimeType || 'app',
       tournamentId: initialTicket.tournament_id
     };
 
@@ -1036,7 +1036,7 @@ const findGameMatchById = async ({ matchId }) => {
     const { rows } = await pool.query(
       `SELECT gm.id, gm.user_id, gm.game_id, gm.mode, gm.result, gm.score, gm.duration, gm.xp_earned,
         gm.category, gm.difficulty, gm.metadata, gm.created_at, gm.updated_at,
-        g.name AS game_name, g.slug AS game_slug
+        g.name AS game_name, g.slug AS game_slug, g.thumbnail AS game_thumbnail
       FROM ${gameModel.GAME_MATCH_TABLE} gm
       JOIN ${gameModel.GAME_TABLE} g ON g.id = gm.game_id
       WHERE gm.id = $1`,
@@ -1151,11 +1151,12 @@ const setupMatchSession = async ({ matchId, gameId, userId, wsToken, mode, gameS
     await client.query('BEGIN');
 
     // Ensure the game_matches row exists
+    const configuredRounds = Number(matchMetadata?.configuredRounds) || 1;
     await client.query(
-      `INSERT INTO game_matches (id, game_id, mode, status)
-       VALUES ($1, $2, $3, 'ACTIVE')
+      `INSERT INTO game_matches (id, game_id, mode, status, configured_rounds, current_round_number)
+       VALUES ($1, $2, $3, 'ACTIVE', $4, 1)
        ON CONFLICT (id) DO NOTHING`,
-      [matchId, gameId, gameModel.normalizeMatchMode(mode)]
+      [matchId, gameId, gameModel.normalizeMatchMode(mode), configuredRounds]
     );
 
     // Fetch existing colors to determine this player's color
@@ -1378,7 +1379,7 @@ const findActiveSession = async ({ userId }) => {
     const { rows } = await pool.query(
       `SELECT gs.id AS session_id, gs.game_id, gs.metadata->>'matchGroupId' AS match_id, 
               mm.ws_token, gs.metadata->>'mode' AS mode, g.slug AS game_slug, g.name AS game_name,
-              gm.metadata as match_metadata
+              g.thumbnail AS game_thumbnail, gm.metadata as match_metadata
        FROM game_sessions gs
        JOIN match_members mm ON mm.match_id::text = gs.metadata->>'matchGroupId' AND mm.user_id = gs.user_id
        JOIN game_matches gm ON gm.id::text = gs.metadata->>'matchGroupId'
@@ -1551,9 +1552,15 @@ const updateLobby = async ({ userId, lobbyId, updates }) => {
        if (updates.targetPlayers < lobby.current_players) {
          throw require('../../utils/error.util').createError('Target players cannot be less than current players', 400);
        }
-       lobby.max_players = updates.targetPlayers;
+       // Clamp to the game's natural max — prevent exceeding the game's capacity.
+       const GameRegistry = require('./engine/GameRegistry');
+       const gameSlug = lobby.game_id;
+       const registryMeta = GameRegistry.getMeta(gameSlug) || {};
+       const naturalMax = registryMeta.maxPlayers || require('./game.model').resolveNaturalMaxPlayers({ slug: gameSlug });
+       const clamped = Math.min(updates.targetPlayers, naturalMax);
+       lobby.max_players = clamped;
        lobby.settings = lobby.settings || {};
-       lobby.settings.targetPlayers = updates.targetPlayers;
+       lobby.settings.targetPlayers = clamped;
     }
     
     const updated = await client.query(

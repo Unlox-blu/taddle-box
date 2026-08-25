@@ -1311,10 +1311,14 @@ class AuthService {
         role: user.role,
       };
 
+      const decodedAccessToken = decodeToken(accessToken);
+      const tokenExpiresAt = decodedAccessToken.exp * 1000;
+
       const sessionData = {
         accessToken,
         refreshToken,
         sessionId,
+        tokenExpiresAt,
         cookieOpts: COOKIE_OPTS,
       };
       return { userData, sessionData };

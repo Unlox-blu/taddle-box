@@ -40,14 +40,37 @@ class ChatService {
     try {
       const { emitChatMessage } = require('../../sockets/chat.socket');
       const pool = require('../../config/database');
+      const { addJob } = require('../../jobs/queues/job.queue');
+      const userRepo = require('../user/user.repository');
+      
       const { rows } = await pool.query(
         `SELECT user_id FROM conversation_participants WHERE conversation_id = $1 AND user_id != $2`,
         [conversationId, senderId]
       );
+      
+      let senderInfo = null;
+      if (rows.length > 0) {
+        senderInfo = await userRepo.findByIdPrivate(senderId);
+      }
+      
       for (const row of rows) {
         emitChatMessage(row.user_id, { ...message, conversationId });
+        
+        // Dispatch a push notification job for the chat message
+        const senderName = senderInfo ? senderInfo.name : 'Someone';
+        const messageBody = payload.messageType === 'text' ? payload.content : `Sent a ${payload.messageType}`;
+        
+        addJob('push', {
+          recipientId: row.user_id,
+          senderId: senderId,
+          type: 'chat:message',
+          title: `New message from ${senderName}`,
+          message: messageBody,
+          resourceId: conversationId,
+          resourceType: 'chat'
+        }).catch(err => console.error('[ChatService] addJob push error:', err));
       }
-    } catch (e) { /* socket emit is best-effort */ }
+    } catch (e) { /* socket emit/push is best-effort */ }
     return message;
   }
 

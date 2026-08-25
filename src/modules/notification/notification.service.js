@@ -204,10 +204,14 @@ class NotificationService {
 
   async markAllRead({ userId }) {
     await this.notifRepo.markAllRead(userId);
+    const { emitDeviceUnreadPing } = require('../../sockets/device.socket');
+    emitDeviceUnreadPing(userId).catch(err => console.error('[NotifSvc] emitDeviceUnreadPing error:', err.message));
   }
 
   async markOneRead({ notificationId, userId }) {
     await this.notifRepo.markOneRead(notificationId, userId);
+    const { emitDeviceUnreadPing } = require('../../sockets/device.socket');
+    emitDeviceUnreadPing(userId).catch(err => console.error('[NotifSvc] emitDeviceUnreadPing error:', err.message));
   }
 
   async ensurePreferences(userId) {

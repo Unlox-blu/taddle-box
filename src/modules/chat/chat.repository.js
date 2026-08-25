@@ -101,6 +101,11 @@ class ChatRepository {
        WHERE conversation_id = $1 AND user_id = $2`,
       [conversationId, userId]
     );
+
+    // Notify devices that unread counts have changed
+    const { emitDeviceUnreadPing } = require('../../sockets/device.socket');
+    emitDeviceUnreadPing(userId).catch(err => console.error('[ChatRepo] emitDeviceUnreadPing error:', err.message));
+
     return rows;
   }
 

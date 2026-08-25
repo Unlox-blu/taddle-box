@@ -33,6 +33,7 @@ export function useActivePostTracking(
 
     let bestId: string | null = null;
     let bestScore = -Infinity;
+    let bestTop = Infinity;
 
     // 35% focus window perfectly centered in the screen
     const FOCUS_ZONE_RATIO = 0.35;
@@ -47,27 +48,6 @@ export function useActivePostTracking(
 
     // The top of the list content is physically shifted down by the app header height
     const topOffset = options?.headerHeight || 0;
-    
-    // Use the explicit spotlightBoundary if provided, otherwise fallback to the entire list header
-    const spotlightHeight = options?.spotlightBoundary ?? options?.listHeaderOffset ?? 0;
-
-    // Home Feed: if the spotlight carousel is in the focus window,
-    // the active post engine should NOT start.
-    if (spotlightHeight > 0) {
-      const spotlightTop = topOffset;
-      const spotlightBottom = spotlightTop + spotlightHeight;
-      const intersection = Math.max(
-        0,
-        Math.min(spotlightBottom, focusBottom) - Math.max(spotlightTop, focusTop),
-      );
-      if (intersection > 0) {
-        if (activeIdRef.current !== null) {
-          activeIdRef.current = null;
-          setActivePostId(null);
-        }
-        return;
-      }
-    }
 
     // Accumulate absolute post positions starting from the header offsets.
     // FlashList's contentContainerStyle.paddingTop physically shifts items down,
@@ -92,19 +72,17 @@ export function useActivePostTracking(
         Math.min(rect.bottom, focusBottom) - Math.max(rect.top, focusTop),
       );
 
-      const postHeight = rect.bottom - rect.top;
-
-      // The user requested: "how much of the card the active zone is covering"
-      // Score is now the percentage of the post that is inside the focus zone (0.0 to 1.0)
-      const score = postHeight > 0 ? focusIntersection / postHeight : 0;
-
-      if (score > bestScore) {
-        bestScore = score;
+      // The user requested: a post ONLY becomes active if it occupies more
+      // than 50% of the focus area.
+      if (focusIntersection > focusHeight * 0.5) {
+        // Since it's mathematically impossible for more than one post to occupy
+        // >50% of a fixed area at the exact same time, this post is the undisputed winner.
         bestId = id;
+        break; // We found the winner, no need to check other posts
       }
     }
 
-    if (!bestId || bestId === activeIdRef.current) {
+    if (bestId === activeIdRef.current) {
       return;
     }
 

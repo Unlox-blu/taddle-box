@@ -3,6 +3,7 @@ import {
   View,
   Text,
   DeviceEventEmitter,
+  Dimensions,
 } from "react-native";
 import { FlashList } from "@shopify/flash-list";
 import {
@@ -436,6 +437,23 @@ export default function SharedFeed({
         onClose={() => setShareVisible(false)}
         postId={sharePost?.id || ""}
         postTitle={(sharePost as any)?.title || sharePost?.content?.slice(0, 80)}
+      />
+
+      {/* Debug Focus Area: matches useActivePostTracking's FOCUS_ZONE_RATIO (0.35) */}
+      <View
+        pointerEvents="none"
+        style={{
+          position: "absolute",
+          top: (Dimensions.get("window").height * 0.65) / 2, // (1 - 0.35) / 2
+          height: Dimensions.get("window").height * 0.35,
+          left: 0,
+          right: 0,
+          backgroundColor: "rgba(255, 0, 0, 0.15)",
+          borderWidth: 2,
+          borderColor: "rgba(255, 0, 0, 0.5)",
+          borderStyle: "dashed",
+          zIndex: 9999,
+        }}
       />
     </>
   );

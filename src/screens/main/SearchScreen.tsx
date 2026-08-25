@@ -17,6 +17,7 @@ import {
   Modal,
   ScrollView,
   Keyboard,
+  Dimensions,
 } from "react-native";
 import { FlashList } from '@shopify/flash-list';
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -51,6 +52,7 @@ import {
   GenericRow,
   type RowCtx,
 } from "../../components/search/SearchRows";
+import { resolveContentId } from "../../utils/content.util";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { useActivePostTracking } from "../../hooks/useActivePostTracking";
 import { warn } from '../../utils/logger';
@@ -525,41 +527,19 @@ export default function SearchScreen({ navigation, route }: Props) {
 
   // Pass ALL rows so accumulated heights account for non-post rows
   // (headers, people, communities) that take up scroll space.
-  const hookRows = rows.map((r: any, i: number) => ({
-    id: r.isHeader ? `__header_${r.type}_${i}` : (r.item?.id ?? `__row_${i}`),
-    _row: r,
-  }));
-  // Map from item.id → hookRow.id so trackLayout can resolve correctly
-  const hookRowIdMap = useRef(new Map<string, string>());
-  useEffect(() => {
-    const m = new Map<string, string>();
-    for (const hr of hookRows) m.set(hr.id, hr.id);
-    hookRowIdMap.current = m;
-  }, [hookRows]);
+  const hookRows = rows.map((r: any, i: number) => {
+    const cid = resolveContentId(r.item);
+    return {
+      id: r.isHeader ? `__header_${r.type}_${i}` : (cid || `__row_${i}`),
+      _row: r,
+    };
+  });
+  
   const { activePostId, viewabilityConfig, onViewableItemsChanged,
-          trackLayout: rawTrackLayout, handleScroll: handleScrollForTracking } =
+          trackLayout, handleScroll: handleScrollForTracking } =
     useActivePostTracking(hookRows, {
-      getPostId: (row: any) => {
-        // FlashList passes raw Row objects; hook may also pass wrapped hookRows
-        const r = row._row ?? row;
-        // By returning an ID for EVERYTHING (not just posts), non-post items 
-        // (headers, people) can become the "active" item when in the center.
-        // This naturally pauses any video post that gets pushed out of the center.
-        if (r.isHeader) {
-           const idx = rows.indexOf(r);
-           return `__header_${r.type}_${idx}`;
-        }
-        return r.item?.id ?? null;
-      },
+      headerHeight: searchOverlayH,
     });
-  // Wrap trackLayout: SearchRows calls it with post.id, but the hook
-  // accumulates heights by hookRow.id. Map one to the other.
-  const trackLayout = useCallback((id: string, rect: { top: number; bottom: number }) => {
-    // Find the hookRow that wraps this item.id
-    const hookRow = hookRows.find((hr: any) => hr.id === id || hr._row?.item?.id === id);
-    if (hookRow) rawTrackLayout(hookRow.id, rect);
-    else rawTrackLayout(id, rect);
-  }, [hookRows, rawTrackLayout]);
 
   // ── Video preload: direction-aware ────────────────────────────────
   const lastScrollYRef = useRef(0);
@@ -1053,27 +1033,18 @@ export default function SearchScreen({ navigation, route }: Props) {
     rows,
   ]);
 
-  const renderItem = ({ item, index }: { item: Row; index: number }) => {
-    // Section headers are no longer produced — the server returns a flat,
-    // ordered list; the pill row under the search bar handles type filtering.
-    if (item.isHeader) return null;
-    // Declarative dispatch: each backend result kind maps to its own row
-    // component (ROW_RENDERERS); unknown kinds fall back to the generic row.
-    const RowComponent = ROW_RENDERERS[item.type] ?? GenericRow;
-    // Every row — posts, people, communities, etc. — must report its
-    // layout height so useActivePostTracking can compute accurate sequential
-    // positions. Without this, non-post rows default to 500 px, pushing
-    // post positions far below the viewport focus zone and preventing
-    // videos from ever auto-playing.
-    const rowId = item.item?.id ?? `__row_${index}`;
+  const renderItem = ({ item: hookRow, index }: { item: any; index: number }) => {
+    const row = hookRow._row;
+    if (row.isHeader) return null;
+    const RowComponent = ROW_RENDERERS[row.type] ?? GenericRow;
     return (
       <View
         onLayout={(e) => {
           const { y, height } = e.nativeEvent.layout;
-          trackLayout(rowId, { top: y, bottom: y + height });
+          trackLayout(hookRow.id, { top: y, bottom: y + height });
         }}
       >
-        <RowComponent data={item.item} ctx={rowCtx} />
+        <RowComponent data={row.item} ctx={rowCtx} />
       </View>
     );
   };
@@ -1784,19 +1755,12 @@ export default function SearchScreen({ navigation, route }: Props) {
         >
           <FlashList
             ref={listRef}
-            data={rows}
-            keyExtractor={(row, index) =>
-              row.isHeader
-                ? `header-${row.type}-${index}`
-                : `${row.type}-${row.item.id || index}`
-            }
+            data={hookRows}
+            keyExtractor={(item) => item.id}
             renderItem={renderItem}
             contentContainerStyle={[
               styles.listContent,
-              // Top padding clears the floating search chrome; bottom padding
-              // clears the tab bar (the footer hides on scroll like the
-              // chrome, but stays visible on short result lists).
-              { paddingTop: searchOverlayH, paddingBottom: footerHeight + 20 },
+              { paddingTop: searchOverlayH, paddingBottom: footerHeight + Dimensions.get('window').height * 0.6 },
             ]}
             keyboardDismissMode="on-drag"
             keyboardShouldPersistTaps="handled"
@@ -1991,6 +1955,23 @@ export default function SearchScreen({ navigation, route }: Props) {
         onClose={() => setShareVisible(false)}
         postId={sharePost?.id}
         postTitle={sharePost?.title || ''}
+      />
+
+      {/* Debug Focus Area: matches useActivePostTracking's FOCUS_ZONE_RATIO (0.10) */}
+      <View
+        pointerEvents="none"
+        style={{
+          position: "absolute",
+          top: (Dimensions.get("window").height * 0.90) / 2, // (1 - 0.10) / 2
+          height: Dimensions.get("window").height * 0.10,
+          left: 0,
+          right: 0,
+          backgroundColor: "rgba(255, 0, 0, 0.15)",
+          borderWidth: 2,
+          borderColor: "rgba(255, 0, 0, 0.5)",
+          borderStyle: "dashed",
+          zIndex: 9999,
+        }}
       />
     </View>
   );

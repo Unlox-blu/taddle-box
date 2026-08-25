@@ -1,5 +1,5 @@
 import React, { useMemo, useState, useCallback, useRef } from "react";
-import { View, Text, StyleSheet, FlatList, ScrollView } from "react-native";
+import { View, Text, StyleSheet, FlatList, ScrollView, Dimensions } from "react-native";
 import { FlashList } from "@shopify/flash-list";
 import {
   useNavigation,
@@ -11,6 +11,7 @@ import { fontSizes, spacing, type ColorPalette } from "../../theme";
 import { useThemeColors } from "../../context/ThemeContext";
 import { useAuth } from "../../context/AuthContext";
 import MainHeader from "../../components/common/MainHeader";
+import { resolveContentId } from "../../utils/content.util";
 import { SectionHeader } from "../../components/common/SectionChrome";
 import { bookmarkService } from "../../services/bookmark.service";
 import type { HomeStackParamList } from "../../types";
@@ -86,7 +87,7 @@ export default function BookmarksScreen() {
   const searchStyles = useMemo(() => makeSearchStyles(colors), [colors]);
   const isFocused = useIsFocused();
   const { user: currentUser } = useAuth();
-  const { footerHeight } = useGlobalScroll();
+  const { headerHeight, footerHeight } = useGlobalScroll();
 
   const [rows, setRows] = useState<Row[]>([]);
   const [page, setPage] = useState(1);
@@ -97,35 +98,19 @@ export default function BookmarksScreen() {
   const searchReqRef = useRef(0);
 
   const [serverTypes, setServerTypes] = useState<string[]>([]);
-  // Pass ALL rows so accumulated heights account for non-post rows
-  // (headers, people, communities) that take up scroll space.
-  const hookRows = rows.map((r: any, i: number) => ({
-    id: r.isHeader ? `__header_${r.type}_${i}` : (r.item?.id ?? `__row_${i}`),
-    _row: r,
-  }));
+  const hookRows = rows.map((r: any, i: number) => {
+    const cid = resolveContentId(r.item);
+    return {
+      id: r.isHeader ? `__header_${r.type}_${i}` : (cid || `__row_${i}`),
+      _row: r,
+    };
+  });
+
   const { activePostId, viewabilityConfig, onViewableItemsChanged,
-          trackLayout: rawTrackLayout, handleScroll: handleScrollForTracking } =
+          trackLayout, handleScroll: handleScrollForTracking } =
     useActivePostTracking(hookRows, {
-      getPostId: (row: any) => {
-        // FlashList passes raw Row objects; hook may also pass wrapped hookRows
-        const r = row._row ?? row;
-        // By returning an ID for EVERYTHING (not just posts), non-post items 
-        // (headers, people) can become the "active" item when in the center.
-        // This naturally pauses any video post that gets pushed out of the center.
-        if (r.isHeader) {
-           const idx = rows.indexOf(r);
-           return `__header_${r.type}_${idx}`;
-        }
-        return r.item?.id ?? null;
-      },
+      headerHeight: headerHeight + SECTION_HEADER_H,
     });
-  // Wrap trackLayout: SearchRows calls it with post.id, but the hook
-  // accumulates heights by hookRow.id. Map one to the other.
-  const trackLayout = useCallback((id: string, rect: { top: number; bottom: number }) => {
-    const hookRow = hookRows.find((hr: any) => hr.id === id || hr._row?.item?.id === id);
-    if (hookRow) rawTrackLayout(hookRow.id, rect);
-    else rawTrackLayout(id, rect);
-  }, [hookRows, rawTrackLayout]);
 
   const { mutate: toggleLike } = useToggleLike();
   const { mutate: toggleSave } = useToggleSave();
@@ -290,11 +275,21 @@ export default function BookmarksScreen() {
     <SectionHeader title="Bookmarks" subtitle={`${rows.length} saved`} />
   );
 
-  const renderItem = ({ item: row }: { item: Row }) => {
+  const renderItem = ({ item: hookRow }: { item: any }) => {
+    const row = hookRow._row;
     if (row.isHeader) return null;
     const Renderer =
       ROW_RENDERERS[row.type] || ROW_RENDERERS[row.type + "s"] || GenericRow;
-    return <Renderer data={row.item} ctx={rowCtx} />;
+    return (
+      <View
+        onLayout={(e) => {
+          const { y, height } = e.nativeEvent.layout;
+          trackLayout(hookRow.id, { top: y, bottom: y + height });
+        }}
+      >
+        <Renderer data={row.item} ctx={rowCtx} />
+      </View>
+    );
   };
 
   return (
@@ -324,12 +319,12 @@ export default function BookmarksScreen() {
             </ScrollView>
           ) : (
             <FlashList
-              data={rows}
-              keyExtractor={(row, idx) => rowKey(row) || idx.toString()}
+              data={hookRows}
+              keyExtractor={(item) => item.id}
               showsVerticalScrollIndicator={false}
               keyboardDismissMode="on-drag"
               alwaysBounceVertical
-              contentContainerStyle={{ paddingBottom: footerHeight + 20 }}
+              contentContainerStyle={{ paddingBottom: footerHeight + Dimensions.get('window').height * 0.6 }}
               onEndReached={() => {
                 if (hasMore) fetchBookmarks(page + 1, true);
               }}
@@ -360,6 +355,23 @@ export default function BookmarksScreen() {
         onClose={() => setShareVisible(false)}
         postId={sharePost?.id}
         postTitle={sharePost?.title || ''}
+      />
+
+      {/* Debug Focus Area: matches useActivePostTracking's FOCUS_ZONE_RATIO (0.10) */}
+      <View
+        pointerEvents="none"
+        style={{
+          position: "absolute",
+          top: (Dimensions.get("window").height * 0.90) / 2, // (1 - 0.10) / 2
+          height: Dimensions.get("window").height * 0.10,
+          left: 0,
+          right: 0,
+          backgroundColor: "rgba(255, 0, 0, 0.15)",
+          borderWidth: 2,
+          borderColor: "rgba(255, 0, 0, 0.5)",
+          borderStyle: "dashed",
+          zIndex: 9999,
+        }}
       />
     </View>
   );

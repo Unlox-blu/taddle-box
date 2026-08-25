@@ -439,13 +439,13 @@ export default function SharedFeed({
         postTitle={(sharePost as any)?.title || sharePost?.content?.slice(0, 80)}
       />
 
-      {/* Debug Focus Area: matches useActivePostTracking's FOCUS_ZONE_RATIO (0.35) */}
+      {/* Debug Focus Area: matches useActivePostTracking's FOCUS_ZONE_RATIO (0.10) */}
       <View
         pointerEvents="none"
         style={{
           position: "absolute",
-          top: (Dimensions.get("window").height * 0.65) / 2, // (1 - 0.35) / 2
-          height: Dimensions.get("window").height * 0.35,
+          top: (Dimensions.get("window").height * 0.90) / 2, // (1 - 0.10) / 2
+          height: Dimensions.get("window").height * 0.10,
           left: 0,
           right: 0,
           backgroundColor: "rgba(255, 0, 0, 0.15)",

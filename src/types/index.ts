@@ -150,6 +150,7 @@ export interface User {
 
 export interface Post {
   id: string;
+  content_id?: string;
   author: User;
   community: string;
   content: string;

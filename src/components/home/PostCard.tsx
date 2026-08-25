@@ -42,6 +42,7 @@ import {
   makePostCardStyles,
   RollingText,
 } from "./postcard/shared";
+import { resolveContentId } from "../../utils/content.util";
 
 const SCREEN_W = Dimensions.get("window").width;
 const CARD_W = SCREEN_W - spacing.lg * 2;
@@ -105,7 +106,7 @@ function PostCardInner({
   const [showMenu, setShowMenu] = useState(false);
   const [isExpanded, setIsExpanded] = useState(false);
   const [isPinching, setIsPinching] = useState(false);
-  const postId = String(post?.id || "");
+  const contentId = resolveContentId(post);
 
   // ── Poll state (shared between card and actions menu) ───────────────────
   const [pollData, setPollData] = useState((post as any)?.pollData || null);
@@ -115,13 +116,13 @@ function PostCardInner({
   useEffect(() => {
     setPollData((post as any)?.pollData || null);
     setMyPollVote((post as any)?.myPollVote ?? null);
-  }, [postId]);
+  }, [contentId]);
 
   const handlePollVote = useCallback(
     async (optionIndex: number) => {
-      if (!postId || !pollData) return;
+      if (!contentId || !pollData) return;
       try {
-        const res = await postsService.castPollVote(postId, optionIndex);
+        const res = await postsService.castPollVote(contentId, optionIndex);
         const data = res?.data;
         if (data?.pollData) setPollData(data.pollData);
         setMyPollVote(data?.myVote ?? null);
@@ -132,7 +133,7 @@ function PostCardInner({
         );
       }
     },
-    [postId, pollData],
+    [contentId, pollData],
   );
 
   // ── Author info ─────────────────────────────────────────────────────────
@@ -200,8 +201,8 @@ function PostCardInner({
       }),
       Animated.spring(scale, { toValue: 1, useNativeDriver: true, speed: 50 }),
     ]).start();
-    onLike?.(postId);
-  }, [onLike, postId, scale]);
+    onLike?.(contentId);
+  }, [onLike, contentId, scale]);
 
   const handleDoubleTap = useCallback(() => {
     if (!post.isLiked) {
@@ -434,7 +435,7 @@ function PostCardInner({
             ...old,
             pages: old.pages.map((page: any[]) =>
               page.map((p) => {
-                if (p?.id !== postId) return p;
+                if (p?.id !== contentId) return p;
                 const current = p.shares ?? p.sharesCount ?? 0;
                 return {
                   ...p,
@@ -468,7 +469,7 @@ function PostCardInner({
         .findAll({ queryKey: ["search"] })
         .forEach(apply);
     },
-    [queryClient, postId],
+    [queryClient, contentId],
   );
 
   // ── Open post thread (for repost preview) ───────────────────────────────
@@ -589,7 +590,7 @@ function PostCardInner({
         {/* Actions */}
         <PostActions
           post={post}
-          postId={postId}
+          postId={contentId}
           author={author}
           displayLikes={displayLikes}
           displayComments={displayComments}

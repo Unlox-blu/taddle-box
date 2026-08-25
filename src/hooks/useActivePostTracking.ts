@@ -1,10 +1,11 @@
 import { useState, useRef, useCallback, useEffect } from "react";
 import { Dimensions } from "react-native";
+import { resolveContentId } from "../utils/content.util";
 
 type Rect = { top: number; bottom: number };
 
 type Options = {
-  /** Maps any list item to a post ID. When provided, the hook uses this
+  /** Maps any list item to a content ID. When provided, the hook uses this
    *  to resolve IDs from items that may not have a top-level `id` field
    *  (e.g. mixed-type search/bookmark rows). Returns null for non-post
    *  items (headers, people, etc.) — those still get heights tracked but
@@ -35,8 +36,8 @@ export function useActivePostTracking(
     let bestScore = -Infinity;
     let bestTop = Infinity;
 
-    // 35% focus window perfectly centered in the screen
-    const FOCUS_ZONE_RATIO = 0.35;
+    // 10% focus window perfectly centered in the screen
+    const FOCUS_ZONE_RATIO = 0.10;
     const focusHeight = viewportH * FOCUS_ZONE_RATIO;
     const focusTop = viewportTop + (viewportH - focusHeight) / 2;
     const focusBottom = focusTop + focusHeight;
@@ -56,8 +57,10 @@ export function useActivePostTracking(
       (options?.listHeaderOffset || 0) + (options?.headerHeight || 0);
     const computedLayout = new Map<string, Rect>();
     for (const post of posts) {
-      const h = heightMapRef.current.get(post.id) || 500;
-      computedLayout.set(post.id, { top: currentY, bottom: currentY + h });
+      const contentId = resolveContentId(post);
+      if (!contentId) continue;
+      const h = heightMapRef.current.get(contentId) || 500;
+      computedLayout.set(contentId, { top: currentY, bottom: currentY + h });
       currentY += h;
     }
 
@@ -107,7 +110,7 @@ export function useActivePostTracking(
 
     const ids = viewableItems
       .filter((v) => v.isViewable)
-      .map((v) => (resolveId ? resolveId(v.item) : (v.item?.id ?? null)))
+      .map((v) => (resolveId ? resolveId(v.item) : (resolveContentId(v.item) || null)))
       .filter((id): id is string => id !== null);
 
     candidateIdsRef.current = new Set(ids);
@@ -136,18 +139,22 @@ export function useActivePostTracking(
   // Cleanup RAF on unmount
   useEffect(() => {
     return () => {
-      if (layoutRafRef.current != null) cancelAnimationFrame(layoutRafRef.current);
+      if (layoutRafRef.current != null)
+        cancelAnimationFrame(layoutRafRef.current);
     };
   }, []);
 
-  const trackLayout = useCallback((id: string, rect: Rect) => {
-    const height = rect.bottom - rect.top;
-    if (heightMapRef.current.get(id) === height) {
-      return;
-    }
-    heightMapRef.current.set(id, height);
-    scheduleRecalc();
-  }, [scheduleRecalc]);
+  const trackLayout = useCallback(
+    (id: string, rect: Rect) => {
+      const height = rect.bottom - rect.top;
+      if (heightMapRef.current.get(id) === height) {
+        return;
+      }
+      heightMapRef.current.set(id, height);
+      scheduleRecalc();
+    },
+    [scheduleRecalc],
+  );
 
   const handleScroll = useCallback((e: any) => {
     scrollYRef.current = e.nativeEvent.contentOffset.y;

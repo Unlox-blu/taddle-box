@@ -2,6 +2,7 @@ import React from "react";
 import { View, Text, TouchableOpacity } from "react-native";
 import { Image } from "expo-image";
 import { Ionicons } from "@expo/vector-icons";
+import { resolveContentId } from "../../utils/content.util";
 import { fontSizes, type ColorPalette } from "../../theme";
 import type { Post, Transaction } from "../../types";
 import PostCard from "../home/PostCard";
@@ -93,7 +94,7 @@ export type RowCtx = {
 // Maps backend snake_case columns to the Post type PostCard expects.
 // Backend returns nested author/community objects and enriched media —
 // no aliases, no fallbacks, no rebuilding nested objects here.
-const normalizePostResult = (item: any): Post => {
+const normalizeContentResult = (item: any): Post => {
   return {
     ...item,
     content: item.content || item.text || item.body || "",
@@ -122,6 +123,7 @@ const normalizePostResult = (item: any): Post => {
     linkData: item.link_data || item.linkData || null,
     myPollVote: item.my_poll_vote ?? item.myPollVote ?? null,
     type: item.type || item.itemType || item.item_type || (item.media?.length ? "image" : "text"),
+    content_id: resolveContentId(item),
   } as Post;
 };
 
@@ -143,7 +145,7 @@ const timeAgo = (input?: string | number | null): string => {
 };
 
 const PostRow = ({ data, ctx }: RowProps) => {
-  const post = normalizePostResult(data);
+  const post = normalizeContentResult(data);
   const { styles } = ctx;
   return (
     <View

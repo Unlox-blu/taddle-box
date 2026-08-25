@@ -5,7 +5,7 @@ import { Ionicons } from "@expo/vector-icons";
 import { fontSizes, spacing, radii } from "../../theme";
 import { useThemeColors } from "../../context/ThemeContext";
 import { useNotifications, type InAppBanner } from "../../context/NotificationContext";
-import { navigationRef } from "../../navigation/AppNavigator";
+import { navigationRef } from "../../navigation/navigationRef";
 
 // Slide-down banner that appears at the very top of the app whenever a new
 // notification arrives in real-time. Tapping it opens the notifications list.

@@ -6,7 +6,6 @@ import HomeStackNavigator      from './HomeStackNavigator';
 import CommunityStackNavigator from './CommunityStackNavigator';
 import EventsScreen            from '../screens/main/EventsScreen';
 import GamesScreen      from '../screens/main/GamesScreen';
-import WalletScreen     from '../screens/main/WalletScreen';
 import ProfileScreen    from '../screens/main/ProfileScreen';
 import CustomTabBar     from '../components/navigation/CustomTabBar';
 import TabErrorBoundary from '../components/common/TabErrorBoundary';
@@ -32,7 +31,6 @@ const HomeBounded      = withTabBoundary(HomeStackNavigator, 'Home');
 const CommunityBounded = withTabBoundary(CommunityStackNavigator, 'Community');
 const EventsBounded    = withTabBoundary(EventsScreen, 'Events');
 const GamesBounded     = withTabBoundary(GamesScreen, 'Games');
-const WalletBounded    = withTabBoundary(WalletScreen, 'Wallet');
 const ProfileBounded   = withTabBoundary(ProfileScreen, 'Profile');
 
 export default function MainNavigator() {
@@ -48,7 +46,6 @@ export default function MainNavigator() {
       <Tab.Screen name="Community" component={CommunityBounded} />
       <Tab.Screen name="Events"    component={EventsBounded}    />
       <Tab.Screen name="Games"     component={GamesBounded}     />
-      <Tab.Screen name="Wallet"    component={WalletBounded}    />
       <Tab.Screen name="Profile"   component={ProfileBounded}   />
     </Tab.Navigator>
   );

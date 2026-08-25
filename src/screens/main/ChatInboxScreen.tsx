@@ -4,8 +4,8 @@ import {
   Text,
   TouchableOpacity,
   StyleSheet,
-  DeviceEventEmitter,
 } from "react-native";
+import { notificationBus } from "../../lib/notificationBus";
 import { FlashList } from "@shopify/flash-list";
 import { Image } from "expo-image";
 import { Ionicons } from "@expo/vector-icons";
@@ -124,8 +124,8 @@ export default function ChatInboxScreen() {
   useFocusEffect(
     useCallback(() => {
       fetchInbox();
-      DeviceEventEmitter.emit('chatScreenOpen');
-      return () => { DeviceEventEmitter.emit('chatScreenClose'); };
+      notificationBus.emit('chatScreenOpen');
+      return () => { notificationBus.emit('chatScreenClose'); };
     }, [fetchInbox])
   );
 

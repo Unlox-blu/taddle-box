@@ -6,15 +6,27 @@ import Constants from "expo-constants";
 import { apiClient } from "./apiClient";
 import { log, warn, info } from '../utils/logger';
 import * as Crypto from "expo-crypto";
-// Foreground notifications: we render our own in-app banner, so don't double up
-// with the OS alert. Background/killed deliveries still use the system tray.
+let activeUserIdForPush: string | null = null;
+
+export function setActiveUserIdForPush(userId: string | null) {
+  activeUserIdForPush = userId;
+}
+
+// Foreground notifications: we render our own in-app banner for the ACTIVE account,
+// so we don't double up with the OS alert. But if a push arrives for an INACTIVE
+// account, we show the standard OS banner so the user can see it and tap to switch.
 Notifications.setNotificationHandler({
-  handleNotification: async () => ({
-    shouldShowBanner: false,
-    shouldShowList: true,
-    shouldPlaySound: false,
-    shouldSetBadge: false,
-  }),
+  handleNotification: async (notification) => {
+    const data = notification.request.content.data || {};
+    const isForOtherUser = !!(data.recipientId && String(data.recipientId) !== String(activeUserIdForPush));
+    
+    return {
+      shouldShowBanner: isForOtherUser,
+      shouldShowList: true,
+      shouldPlaySound: isForOtherUser,
+      shouldSetBadge: false,
+    };
+  },
 });
 
 const isAndroid = Platform.OS === "android";

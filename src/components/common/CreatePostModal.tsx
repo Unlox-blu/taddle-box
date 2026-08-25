@@ -1,7 +1,6 @@
 import React, { useState, useRef, useEffect } from "react";
 import {
   Modal,
-  DeviceEventEmitter,
   View,
   Text,
   StyleSheet,
@@ -12,8 +11,8 @@ import {
   Platform,
   Image,
   Dimensions,
-
   Animated,
+  Keyboard,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { LinearGradient } from "expo-linear-gradient";
@@ -39,8 +38,9 @@ import type { Post } from "../../types";
 import SmartInput from "./SmartInput";
 import AudiencePicker from "./AudiencePicker";
 import { nativeBypass } from "../../utils/nativeBypass";
-import { themedAlert } from './ThemedAlert';
-import { log, warn, error } from '../../utils/logger';
+import { themedAlert } from "./ThemedAlert";
+import { log, warn, error } from "../../utils/logger";
+import { notificationBus } from "../../lib/notificationBus";
 
 const SCREEN_W = Dimensions.get("window").width;
 
@@ -115,7 +115,11 @@ const PreviewVideo = React.memo(function PreviewVideo({
   // Release native video player when preview unmounts
   useEffect(() => {
     return () => {
-      try { player.release(); } catch { /* best-effort */ }
+      try {
+        player.release();
+      } catch {
+        /* best-effort */
+      }
     };
   }, [player]);
   return (
@@ -126,7 +130,7 @@ const PreviewVideo = React.memo(function PreviewVideo({
       nativeControls={false}
     />
   );
-})
+});
 
 function detectMediaInText(text: string): {
   uri: string;
@@ -197,11 +201,15 @@ export default function CreatePostModal({
   const [showPicker, setShowPicker] = useState(false);
 
   // Validate preselected community: if private and not joined, unselect it.
-  const { data: preselectedCommunity } = useCommunity(preselectedCommunityId || "");
-  
+  const { data: preselectedCommunity } = useCommunity(
+    preselectedCommunityId || "",
+  );
+
   React.useEffect(() => {
     if (preselectedCommunityId && preselectedCommunity) {
-      const isJoined = preselectedCommunity.isJoined || preselectedCommunity.ownerId === CURRENT_USER?.id;
+      const isJoined =
+        preselectedCommunity.isJoined ||
+        preselectedCommunity.ownerId === CURRENT_USER?.id;
       if (preselectedCommunity.privacy === "private" && !isJoined) {
         setPostType(null);
         setSelComId(null);
@@ -233,8 +241,7 @@ export default function CreatePostModal({
     { name: string; lat: number; lon: number }[]
   >([]);
   const [locationSearching, setLocationSearching] = useState(false);
-  const [locationDropdownVisible, setLocationDropdownVisible] =
-    useState(false);
+  const [locationDropdownVisible, setLocationDropdownVisible] = useState(false);
   const [isTypingLocation, setIsTypingLocation] = useState(false);
 
   const [showHashtagInput, setShowHashtagInput] = useState(false);
@@ -455,13 +462,17 @@ export default function CreatePostModal({
   const joinedCommunities = communities.filter(
     (c) => c.isJoined || c.ownerId === CURRENT_USER?.id,
   );
-  const selectedComm = joinedCommunities.find((c) => c.id === selectedComId) || (selectedComId === preselectedCommunityId ? preselectedCommunity : undefined);
+  const selectedComm =
+    joinedCommunities.find((c) => c.id === selectedComId) ||
+    (selectedComId === preselectedCommunityId
+      ? preselectedCommunity
+      : undefined);
 
   // Audience adapts to the account type: public accounts post to everyone,
   // private accounts post to their followers only (community posts always use
   // the community's own privacy).
-  const isPrivateAccount = CURRENT_USER?.privacy === 'private';
-  const feedLabel = isPrivateAccount ? 'Followers' : 'Public';
+  const isPrivateAccount = CURRENT_USER?.privacy === "private";
+  const feedLabel = isPrivateAccount ? "Followers" : "Public";
 
   // ── Validation ────────────────────────────────────────────────
   const hasTitle = title.trim().length > 0;
@@ -519,7 +530,10 @@ export default function CreatePostModal({
     try {
       if (kind === "audio") {
         if (mediaItems.length >= 5 && !audioItem) {
-          themedAlert("Limit Reached", "You can only add up to 5 media files total.");
+          themedAlert(
+            "Limit Reached",
+            "You can only add up to 5 media files total.",
+          );
           setPickLoading(false);
           return;
         }
@@ -555,7 +569,10 @@ export default function CreatePostModal({
           const currentTotal = mediaItems.length + (audioItem ? 1 : 0);
           const remaining = 5 - currentTotal;
           if (remaining <= 0) {
-            themedAlert("Limit Reached", "You can only add up to 5 media files total.");
+            themedAlert(
+              "Limit Reached",
+              "You can only add up to 5 media files total.",
+            );
             setPickLoading(false);
             nativeBypass.endNativeFlow();
             return;
@@ -586,7 +603,10 @@ export default function CreatePostModal({
               const currentTotal = prev.length + (audioItem ? 1 : 0);
               const combined = [...prev, ...newItems];
               if (currentTotal + newItems.length > 5) {
-                themedAlert("Limit Reached", "You can only add up to 5 media files total.");
+                themedAlert(
+                  "Limit Reached",
+                  "You can only add up to 5 media files total.",
+                );
                 return combined.slice(0, 5 - (audioItem ? 1 : 0));
               }
               return combined;
@@ -632,8 +652,7 @@ export default function CreatePostModal({
     setLocationLoading(true);
     nativeBypass.beginNativeFlow();
     try {
-      const { status } =
-        await Location.requestForegroundPermissionsAsync();
+      const { status } = await Location.requestForegroundPermissionsAsync();
       if (status !== "granted") {
         themedAlert(
           "Permission needed",
@@ -690,11 +709,7 @@ export default function CreatePostModal({
         );
         const uniqueItems = res.data
           .map((item: any) => ({
-            name: item.display_name
-              .split(",")
-              .slice(0, 3)
-              .join(",")
-              .trim(),
+            name: item.display_name.split(",").slice(0, 3).join(",").trim(),
             lat: parseFloat(item.lat),
             lon: parseFloat(item.lon),
           }))
@@ -722,9 +737,9 @@ export default function CreatePostModal({
         : `trending?`;
       const klipyKey =
         process.env.EXPO_PUBLIC_KLIPY_KEY ||
-        'cVApYlZX4zBljHaSpnIstsHmTWPNThPuYmuJ167v0ETv7askko61kZKD2r2ytJ2X';
+        "cVApYlZX4zBljHaSpnIstsHmTWPNThPuYmuJ167v0ETv7askko61kZKD2r2ytJ2X";
       const res = await fetch(
-        `https://api.klipy.co/api/v1/${klipyKey}/gifs/${endpoint}limit=20`
+        `https://api.klipy.co/api/v1/${klipyKey}/gifs/${endpoint}limit=20`,
       );
       const json = await res.json();
       setGifs(json.data?.data || []);
@@ -741,12 +756,16 @@ export default function CreatePostModal({
   }, [showGifPicker]);
 
   const selectGif = (gif: any) => {
-    const original = gif.file?.hd?.gif || gif.file?.md?.gif || gif.file?.xs?.gif;
+    const original =
+      gif.file?.hd?.gif || gif.file?.md?.gif || gif.file?.xs?.gif;
     const uri = original?.url;
     if (!uri) return;
 
     if (mediaItems.length + (audioItem ? 1 : 0) >= 5) {
-      themedAlert("Limit Reached", "You can only add up to 5 media files total.");
+      themedAlert(
+        "Limit Reached",
+        "You can only add up to 5 media files total.",
+      );
       return;
     }
 
@@ -825,7 +844,10 @@ export default function CreatePostModal({
         if (!alreadyAdded) {
           const currentTotal = mediaItems.length + (audioItem ? 1 : 0);
           if (currentTotal >= 5 && !(detected.type === "audio" && audioItem)) {
-            themedAlert("Limit Reached", "You can only add up to 5 media files total.");
+            themedAlert(
+              "Limit Reached",
+              "You can only add up to 5 media files total.",
+            );
           } else {
             if (detected.type === "audio") {
               setAudioItem(detected);
@@ -877,9 +899,12 @@ export default function CreatePostModal({
     }, 2600);
   };
 
-  React.useEffect(() => () => {
-    if (validationTimer.current) clearTimeout(validationTimer.current);
-  }, []);
+  React.useEffect(
+    () => () => {
+      if (validationTimer.current) clearTimeout(validationTimer.current);
+    },
+    [],
+  );
 
   const handlePost = async () => {
     // ── Validation with shakes + sleek pop under the Post button ──
@@ -920,6 +945,12 @@ export default function CreatePostModal({
     }
 
     setUploading(true);
+    
+    // Close modal immediately + show spinner on + icon
+    Keyboard.dismiss();
+    onClose();
+    notificationBus.emit("postSubmitting");
+
     // Tracks every media row created this attempt so a failure AFTER upload
     // (e.g. the post API rejects) deletes the orphaned S3 objects instead of
     // junking the bucket.
@@ -998,10 +1029,14 @@ export default function CreatePostModal({
 
       // Publish post via mutation
       await createPostAsync(postPayload);
-      // Close modal immediately + show spinner on + icon
-      DeviceEventEmitter.emit('postSubmitting');
-      resetAndClose();
-      // Reset state after close
+
+      // Show success alert globally after a delay to prevent iOS multiple-modal 
+      // conflict (wait for this modal's slide-out animation to finish)
+      setTimeout(() => {
+        themedAlert("Success", `Post published successfully! +${xpReward} XP earned.`);
+      }, 400);
+
+      // Reset state after successful submit
       setTitle("");
       setContent("");
       setMediaItems([]);
@@ -1021,11 +1056,12 @@ export default function CreatePostModal({
           }
         });
       }
-      themedAlert("Error", "Failed to upload media or create post. Try again.");
+      // Since modal is closed, alert shows globally
+      themedAlert("Error", "Failed to create post. Try again.");
       error(err);
     } finally {
       setUploading(false);
-      DeviceEventEmitter.emit('postCompleted');
+      notificationBus.emit("postCompleted");
     }
   };
 
@@ -1114,7 +1150,7 @@ export default function CreatePostModal({
                 up to 100 XP
               </Text>
             </View>
-            <View style={{ position: 'relative', zIndex: 200, elevation: 20 }}>
+            <View style={{ position: "relative", zIndex: 200, elevation: 20 }}>
               <TouchableOpacity onPress={handlePost} disabled={uploading}>
                 <LinearGradient
                   colors={
@@ -1603,9 +1639,7 @@ export default function CreatePostModal({
                     name={postLocation ? "location" : "location-outline"}
                     size={24}
                     color={
-                      locationLoading
-                        ? colors.text.muted
-                        : colors.primaryLight
+                      locationLoading ? colors.text.muted : colors.primaryLight
                     }
                   />
                 </TouchableOpacity>
@@ -1760,9 +1794,7 @@ export default function CreatePostModal({
           {/* ── Location picker ── */}
           {showLocationInput && (
             <View style={styles.section}>
-              <Text style={styles.sectionLabel}>
-                Location{" "}
-              </Text>
+              <Text style={styles.sectionLabel}>Location </Text>
               <View
                 style={{
                   position: "relative",
@@ -2070,7 +2102,13 @@ export default function CreatePostModal({
           <AudiencePicker
             visible={showPicker}
             onClose={() => setShowPicker(false)}
-            selectedId={postType === "community" ? selectedComId : postType === "feed" ? null : undefined}
+            selectedId={
+              postType === "community"
+                ? selectedComId
+                : postType === "feed"
+                  ? null
+                  : undefined
+            }
             onSelect={(id) => {
               if (id === null) {
                 setPostType("feed");
@@ -2129,7 +2167,9 @@ export default function CreatePostModal({
                     style={styles.gifItem}
                   >
                     <Image
-                      source={{ uri: g.file?.xs?.gif?.url || g.file?.md?.gif?.url }}
+                      source={{
+                        uri: g.file?.xs?.gif?.url || g.file?.md?.gif?.url,
+                      }}
                       style={{
                         width: "100%",
                         height: 100,
@@ -2185,7 +2225,7 @@ function makeStyles(colors: ReturnType<typeof useThemeColors>) {
       top: "100%",
       right: 0,
       marginTop: 8,
-      minWidth:150,
+      minWidth: 150,
       backgroundColor: "rgba(239,68,68,0.95)",
       borderRadius: 10,
       paddingHorizontal: 12,

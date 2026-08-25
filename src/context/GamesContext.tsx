@@ -12,6 +12,7 @@ export type GameMatch = {
   gameName:   string;
   gameEmoji:  string;
   gameSlug?:  string;
+  gameThumbnail?: string;
   mode:       PlayMode;
   result:     'win' | 'loss' | 'draw';
   xpEarned:   number;
@@ -63,6 +64,7 @@ const formatMatch = (match: any): GameMatch => {
     gameName: match.gameName || 'Game',
     gameEmoji: GAME_EMOJIS[match.gameSlug] || 'GM',
     gameSlug: match.gameSlug,
+    gameThumbnail: match.gameThumbnail || null,
     mode: normalizedMode as PlayMode,
     result: (() => {
       const r = String(match.result || 'LOSS').toLowerCase();

@@ -24,23 +24,24 @@ import {
 import { Ionicons } from "@expo/vector-icons";
 import * as Clipboard from "expo-clipboard";
 import LottieView from "lottie-react-native";
-import StateBlock from "../common/StateBlock";
+import StateBlock from "../../common/StateBlock";
 import {
   getCachedLottie,
   getCachedLottieSync,
   S3_APP_ICON_LOTTIE_URL,
-} from "../../services/lottie.service";
+} from "../../../services/lottie.service";
 import { LinearGradient } from "expo-linear-gradient";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { useAuth } from "../../context/AuthContext";
-import { useThemeColors } from "../../context/ThemeContext";
-import { apiClient } from "../../services/apiClient";
-import { gamesService, type MatchmakingResponse } from "../../services/games.service";
-import { accountSocket } from "../../services/accountSocketClient";
-import { userService } from "../../services/user.service";
-import { fontSizes, radii, spacing, type ColorPalette } from "../../theme";
-import type { Game, MatchmakingEventPayload } from "../../types";
-import { themedAlert } from '../common/ThemedAlert';
+import GameLogo from "./GameLogo";
+import { useAuth } from "../../../context/AuthContext";
+import { useThemeColors } from "../../../context/ThemeContext";
+import { apiClient } from "../../../services/apiClient";
+import { gamesService, type MatchmakingResponse } from "../../../services/games.service";
+import { accountSocket } from "../../../services/accountSocketClient";
+import { userService } from "../../../services/user.service";
+import { fontSizes, radii, spacing, type ColorPalette } from "../../../theme";
+import type { Game, MatchmakingEventPayload } from "../../../types";
+import { themedAlert } from '../../common/ThemedAlert';
 
 export type MatchMode = "AUTO" | "CUSTOM" | "PRACTICE";
 
@@ -63,8 +64,7 @@ type AutoSize = "auto" | number; // "auto" = join any lobby, number = exact size
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
 function getMaxPlayers(game: Game | null): number {
-  if (!game) return 4;
-  if (game.slug === "ludo" || game.slug === "snake-ladder") return 4;
+  if (!game) return 2;
   return (game as any).maxPlayers || 2;
 }
 
@@ -109,6 +109,7 @@ export default function MatchModeModal({
 
   // ── auto / shared ─────────────────────────────────────────────────────────
   const [targetPlayers, setTargetPlayers] = useState<AutoSize>("auto");
+  const [selectedRounds, setSelectedRounds] = useState<number>(game?.rounds?.default || 1);
 
   // ── invite-code join ──────────────────────────────────────────────────────
   const [joinCode, setJoinCode] = useState("");
@@ -552,6 +553,7 @@ export default function MatchModeModal({
       mode: tournamentId ? "TOURNAMENT" : isPractice ? "PRACTICE" : "AUTO",
       tournamentId,
       targetPlayers: exactCount,
+      rounds: selectedRounds,
     })
       .then((res) => {
         if (cancelledRef.current) return;
@@ -998,6 +1000,9 @@ export default function MatchModeModal({
             value={targetPlayers} onChange={(v) => setTargetPlayers(v)}
             isPractice={mode === "PRACTICE"}
             onProceed={proceedFromCount}
+            roundsConfig={game?.rounds}
+            selectedRounds={selectedRounds}
+            onRoundsChange={setSelectedRounds}
           />
         )}
 
@@ -1046,16 +1051,21 @@ export default function MatchModeModal({
 
 // ─── PlayerCountStep (AUTO only) ─────────────────────────────────────────────
 
-function PlayerCountStep({ colors, styles, maxP, value, onChange, isPractice, onProceed }: {
+function PlayerCountStep({ colors, styles, maxP, value, onChange, isPractice, onProceed, roundsConfig, selectedRounds, onRoundsChange }: {
   colors: ColorPalette; styles: ReturnType<typeof makeStyles>;
   maxP: number;
   value: AutoSize;
   onChange: (v: AutoSize) => void;
   isPractice?: boolean;
   onProceed: () => void;
+  roundsConfig?: { min: number; max: number; default: number };
+  selectedRounds?: number;
+  onRoundsChange?: (v: number) => void;
 }) {
   const isAuto = value === "auto";
   const count  = isAuto ? maxP : (value as number);
+  const rounds = selectedRounds ?? roundsConfig?.default ?? 1;
+  const showRounds = roundsConfig && roundsConfig.max > 1;
   const ctaLabel = isPractice
     ? (isAuto ? "Start Practice" : `Practice with ${count} Players`)
     : (isAuto ? "Find Any Match" : `Find ${count}-Player Match`);
@@ -1127,6 +1137,36 @@ function PlayerCountStep({ colors, styles, maxP, value, onChange, isPractice, on
         </View>
       )}
 
+      {/* Rounds selector — only for multi-round games */}
+      {showRounds && (
+        <>
+          <Text style={[styles.sectionLabel, { marginTop: 20 }]}>Rounds</Text>
+          <Text style={styles.sectionHint}>Number of rounds per match.</Text>
+          <View style={styles.countStepperCard}>
+            <TouchableOpacity
+              style={[styles.countStepBtn, rounds <= roundsConfig!.min && styles.stepBtnDisabled]}
+              onPress={() => onRoundsChange?.(Math.max(roundsConfig!.min, rounds - 1))}
+              disabled={rounds <= roundsConfig!.min}
+            >
+              <Ionicons name="remove" size={22} color={rounds <= roundsConfig!.min ? colors.text.muted : colors.primaryLight} />
+            </TouchableOpacity>
+            <View style={styles.countStepValueBox}>
+              <Text style={styles.countStepNum}>{rounds}</Text>
+              <Text style={styles.countStepLabel}>
+                {rounds === 1 ? "1 round" : `${rounds} rounds`}
+              </Text>
+            </View>
+            <TouchableOpacity
+              style={[styles.countStepBtn, rounds >= roundsConfig!.max && styles.stepBtnDisabled]}
+              onPress={() => onRoundsChange?.(Math.min(roundsConfig!.max, rounds + 1))}
+              disabled={rounds >= roundsConfig!.max}
+            >
+              <Ionicons name="add" size={22} color={rounds >= roundsConfig!.max ? colors.text.muted : colors.primaryLight} />
+            </TouchableOpacity>
+          </View>
+        </>
+      )}
+
       {/* Auto description */}
       {isAuto && (
         <View style={styles.autoDescCard}>
@@ -1152,6 +1192,65 @@ function PlayerCountStep({ colors, styles, maxP, value, onChange, isPractice, on
   );
 }
 
+
+/**
+ * FriendCooldownRow — extracted from LobbyStep to satisfy Rules of Hooks.
+ * Each row manages its own cooldown timer via useState + useEffect,
+ * which is illegal inside a .map() callback.
+ */
+function FriendCooldownRow({
+  person, isInLobby, isPending, lastInvite, allFilled, colors, styles, onInvite,
+}: {
+  person: any; isInLobby: boolean; isPending: boolean; lastInvite: number;
+  allFilled: boolean; colors: ColorPalette; styles: ReturnType<typeof makeStyles>;
+  onInvite: () => void;
+}) {
+  const COOLDOWN_MS = 5000;
+  const [now, setNow] = React.useState(Date.now());
+  React.useEffect(() => {
+    if (!isPending || !lastInvite) return;
+    const t = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(t);
+  }, [isPending, lastInvite]);
+  const cooldownLeft = Math.max(0, Math.ceil((lastInvite + COOLDOWN_MS - now) / 1000));
+  const canReinvite = isPending && !isInLobby && cooldownLeft === 0;
+
+  return (
+    <View style={styles.friendRow}>
+      {person.avatar || person.profileImage
+        ? <Image source={{ uri: person.avatar || person.profileImage }} style={styles.friendAvatar} />
+        : <View style={styles.friendAvatarPh}>
+            <Text style={styles.friendInitial}>{(person.name || "?")[0].toUpperCase()}</Text>
+          </View>}
+      <View style={{ flex: 1 }}>
+        <Text style={styles.friendName} numberOfLines={1}>{person.name || person.username}</Text>
+        {person.username ? <Text style={styles.friendHandle}>@{person.username}</Text> : null}
+      </View>
+      {isInLobby ? (
+        <View style={styles.inLobbyPill}>
+          <Ionicons name="checkmark" size={12} color={colors.success} />
+          <Text style={[styles.inLobbyText, { color: colors.success }]}>In Lobby</Text>
+        </View>
+      ) : isPending && !canReinvite ? (
+        <View style={[styles.inviteBtn, styles.inviteBtnDim]}>
+          <Text style={[styles.inviteBtnText, { color: colors.text.muted }]}>
+            {cooldownLeft > 0 ? "Invited" : "Waiting..."}
+          </Text>
+        </View>
+      ) : (
+        <TouchableOpacity
+          style={[styles.inviteBtn, allFilled && styles.inviteBtnDim]}
+          onPress={() => !allFilled && onInvite()}
+          disabled={allFilled}
+        >
+          <Text style={styles.inviteBtnText}>
+            {canReinvite ? "Resend" : "Invite"}
+          </Text>
+        </TouchableOpacity>
+      )}
+    </View>
+  );
+}
 
 // ─── LobbyStep ────────────────────────────────────────────────────────────────
 
@@ -1397,62 +1496,19 @@ function LobbyStep({
         {!followersLoading && followers.length === 0 && (
           <Text style={styles.emptyText}>No mutual followers found.</Text>
         )}
-        {followers.map((person: any) => {
-          const personId = pid(person);
-          const isPending   = pendingInviteIds.includes(personId);
-          // Only a player who actually JOINED (ticket exists) counts as "In Lobby".
-          // Pending invites are merely awaiting acceptance — never onboarded yet.
-          const isInLobby   = displayPlayers.some((p: any) => pid(p) === personId && p._status !== "invited");
-          const lastInvite  = invitedAtMap[personId] || 0;
-          const cooldownMs  = 5000;
-          const [now, setNow] = React.useState(Date.now());
-          // Tick every second while in cooldown
-          React.useEffect(() => {
-            if (!isPending || !lastInvite) return;
-            const t = setInterval(() => setNow(Date.now()), 1000);
-            return () => clearInterval(t);
-          }, [isPending, lastInvite]);
-          const cooldownLeft = Math.max(0, Math.ceil((lastInvite + cooldownMs - now) / 1000));
-          const canReinvite  = isPending && !isInLobby && cooldownLeft === 0;
-
-          return (
-            <View key={personId} style={styles.friendRow}>
-              {person.avatar || person.profileImage
-                ? <Image source={{ uri: person.avatar || person.profileImage }} style={styles.friendAvatar} />
-                : <View style={styles.friendAvatarPh}>
-                    <Text style={styles.friendInitial}>{(person.name || "?")[0].toUpperCase()}</Text>
-                  </View>}
-              <View style={{ flex: 1 }}>
-                <Text style={styles.friendName} numberOfLines={1}>{person.name || person.username}</Text>
-                {person.username ? <Text style={styles.friendHandle}>@{person.username}</Text> : null}
-              </View>
-              {isInLobby ? (
-                <View style={styles.inLobbyPill}>
-                  <Ionicons name="checkmark" size={12} color={colors.success} />
-                  <Text style={[styles.inLobbyText, { color: colors.success }]}>In Lobby</Text>
-                </View>
-              ) : isPending && !canReinvite ? (
-                // Sent — show cooldown if still in window, else "Waiting"
-                <View style={[styles.inviteBtn, styles.inviteBtnDim]}>
-                  <Text style={[styles.inviteBtnText, { color: colors.text.muted }]}>
-                    {cooldownLeft > 0 ? "Invited" : "Waiting..."}
-                  </Text>
-                </View>
-              ) : (
-                // Not yet invited OR cooldown expired — show Invite / Re-invite
-                <TouchableOpacity
-                  style={[styles.inviteBtn, allFilled && styles.inviteBtnDim]}
-                  onPress={() => !allFilled && onInviteFriend(person)}
-                  disabled={allFilled}
-                >
-                  <Text style={styles.inviteBtnText}>
-                    {canReinvite ? "Resend" : "Invite"}
-                  </Text>
-                </TouchableOpacity>
-              )}
-            </View>
-          );
-        })}
+        {followers.map((person: any) => (
+          <FriendCooldownRow
+            key={pid(person)}
+            person={person}
+            isInLobby={displayPlayers.some((p: any) => pid(p) === pid(person) && p._status !== "invited")}
+            isPending={pendingInviteIds.includes(pid(person))}
+            lastInvite={invitedAtMap[pid(person)] || 0}
+            allFilled={allFilled}
+            colors={colors}
+            styles={styles}
+            onInvite={() => onInviteFriend(person)}
+          />
+        ))}
       </View>
 
       {/* ── CTA ── */}
@@ -1482,16 +1538,26 @@ function QueueStep({ colors, styles, mode, game, phase, statusText, countdown, b
   isTournament?: boolean;
 }) {
   return (
-    <ScrollView contentContainerStyle={styles.body} showsVerticalScrollIndicator={false}>
-      <MatchmakingRadar colors={colors} isActive={phase !== "matched"} players={players || []} initialCount={initialCount} />
-      <View style={styles.queueCard}>
-        <View style={styles.rowBetween}>
+    <View style={{ flex: 1 }}>
+      {/* Centered radar with game identity above it */}
+      <View style={{ flex: 1, justifyContent: "center", alignItems: "center", paddingBottom: 16 }}>
+        {/* Game logo above name, stacked vertically — pushed up from radar */}
+        <View style={{ alignItems: "center", marginBottom: 20 }}>
+          <GameLogo game={game} size={36} radius={10} />
+          <Text style={{ color: "#F8FAFC", fontSize: 15, fontWeight: "800", marginTop: 8 }}>{game.name}</Text>
+        </View>
+        <MatchmakingRadar colors={colors} isActive={phase !== "matched"} players={players || []} initialCount={initialCount} />
+      </View>
+
+      {/* Bottom section: status + info + cancel */}
+      <View style={{ paddingHorizontal: 20, paddingBottom: 24 }}>
+        {/* Mode pill + countdown */}
+        <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginBottom: 10 }}>
           <View style={[styles.modePill, isTournament && { backgroundColor: "rgba(251,191,36,0.12)", borderColor: "rgba(251,191,36,0.35)" }]}>
             <Text style={[styles.modePillText, isTournament && { color: "#FBBF24" }]}>
               {isTournament ? "TOURNAMENT" : mode === "AUTO" ? "AUTO MATCH" : mode === "PRACTICE" ? "PRACTICE" : "CUSTOM LOBBY"}
             </Text>
           </View>
-          {/* Countdown only shown for non-tournament queues — tournaments wait indefinitely */}
           {countdown !== null && phase === "searching" && !botFilling && !isTournament && (
             <View style={styles.timerPill}>
               <Ionicons name="time-outline" size={13} color={colors.primaryLight} />
@@ -1499,7 +1565,8 @@ function QueueStep({ colors, styles, mode, game, phase, statusText, countdown, b
             </View>
           )}
         </View>
-        <Text style={styles.queueTitle}>
+        {/* Status text */}
+        <Text style={[styles.queueTitle, { marginBottom: 4, textAlign: "center" }]}>
           {phase === "matched"
             ? "Match Found!"
             : isTournament
@@ -1508,16 +1575,19 @@ function QueueStep({ colors, styles, mode, game, phase, statusText, countdown, b
                 ? "Setting up match..."
                 : "Finding your match"}
         </Text>
-        <Text style={styles.queueGame}>{game.name}</Text>
-        <Text style={styles.queueStatus}>{statusText}</Text>
-      </View>
-
-      {phase !== "matched" && (
-        <TouchableOpacity style={styles.cancelBtn} onPress={onCancel} disabled={cancelling}>
-          <Text style={styles.cancelText}>{cancelling ? "Cancelling..." : "Cancel"}</Text>
+        <Text style={[styles.queueStatus, { textAlign: "center", marginBottom: 14 }]}>{statusText}</Text>
+        {/* Cancel button */}
+        <TouchableOpacity
+          onPress={onCancel}
+          disabled={cancelling}
+          style={{ alignSelf: "center", backgroundColor: "rgba(239,68,68,0.12)", paddingHorizontal: 24, paddingVertical: 10, borderRadius: 20, borderWidth: 1, borderColor: "rgba(239,68,68,0.25)" }}
+        >
+          <Text style={{ color: "#EF4444", fontSize: 13, fontWeight: "700" }}>
+            {cancelling ? "Cancelling..." : "Cancel"}
+          </Text>
         </TouchableOpacity>
-      )}
-    </ScrollView>
+      </View>
+    </View>
   );
 }
 

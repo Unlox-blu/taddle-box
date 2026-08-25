@@ -30,9 +30,9 @@ import Svg, {
   Rect,
   Path,
 } from "react-native-svg";
-import type { HtmlGameResult } from "../../games/types";
-import { createGameEngineSocket } from "../../services/accountSocketClient";
-import { gameSound, useTurnSound } from "../../services/gameSound";
+import type { HtmlGameResult, PlayerContext } from "../../../../games/types";
+import { createGameEngineSocket } from "../../../../services/accountSocketClient";
+import { gameSound, useTurnSound } from "../../../../services/gameSound";
 
 // Backstop hold for remote rolls: the tumble (~1.2s) clears the rolling state
 // itself when the die settles; this timer only catches rolls that arrived
@@ -413,30 +413,73 @@ function buildPlayerInfo(
   return info;
 }
 
-export type PlayerContext = {
-  id: string;
-  name: string;
-  username?: string;
-  avatar?: string;
-  team?: number;
-  seat?: number;
-  level?: number;
-};
-
+/**
+ * LudoRenderer props — everything needed to render the Ludo board.
+ * All game state is provided by LudoRuntime. This component owns
+ * only rendering: board, tokens, dice, effects, cards, chat, toasts.
+ *
+ * No socket. No game logic. No state management. Pure pixels.
+ */
 type Props = {
+  // ── Identity ────────────────────────────────────────────────────────
   matchId: string;
   userId: string;
-  wsToken: string;
   players?: PlayerContext[];
-  myName?: string;
-  myAvatar?: string | null;
-  /** My level badge — the snapshot path supplies it on modern matches, but a
-      legacy rejoin roster excludes me, so GamesScreen passes it explicitly. */
+  myName: string;
+  myAvatar: string | null;
   myLevel?: number;
-  /** Mirrors the GamePlayModal phase — the engine only STARTs once this is
-      "playing" (READY is sent after the 3-2-1, never on connect). */
-  externalPhase?: "playing" | "waiting";
   onComplete: (result: HtmlGameResult) => void;
+
+  // ── Game state (from LudoRuntime) ───────────────────────────────────
+  status: "connecting" | "waiting" | "active" | "finished";
+  gameState: any;
+  myPlayerIdx: number;
+  displayTurn: number;
+  setDisplayTurn: (v: number) => void;
+  isMyTurn: boolean;
+  playerInfo: Record<string, { name: string; avatar?: string; level?: number }>;
+
+  // ── Dice state ──────────────────────────────────────────────────────
+  rolling: boolean;
+  setRolling: (v: boolean) => void;
+  remoteRolling: string | null;
+  setRemoteRolling: (v: string | null) => void;
+  dicePreview: number | null;
+  settledFace: number | null;
+  noMoveHold: { playerIdx: number; face: number } | null;
+  setNoMoveHold: (v: { playerIdx: number; face: number } | null) => void;
+
+  // ── Chat state ──────────────────────────────────────────────────────
+  chatOpen: boolean;
+  setChatOpen: (v: boolean) => void;
+  messages: ChatMsg[];
+  setMessages: (fn: any) => void;
+  draft: string;
+  setDraft: (v: string) => void;
+  chatPopups: Array<{ id: number; uid: string; name: string; text: string; color: string; cornerIdx: number }>;
+  setChatPopups: (fn: any) => void;
+
+  // ── Effects ─────────────────────────────────────────────────────────
+  bursts: Array<{ id: number; x: number; y: number; color: string }>;
+  setBursts: (fn: any) => void;
+  burstIdRef: React.MutableRefObject<number>;
+  toast: string | null;
+  setToast: (v: string | null) => void;
+
+  // ── Layout ──────────────────────────────────────────────────────────
+  kbH: number;
+  kbLift: number;
+
+  // ── Turn animation management ───────────────────────────────────────
+  pendingTurnRef: React.MutableRefObject<number | null>;
+  revealTimerRef: React.MutableRefObject<ReturnType<typeof setTimeout> | null>;
+  activeWalksRef: React.MutableRefObject<number>;
+  pendingKeysRef: React.MutableRefObject<Set<string>>;
+
+  // ── Actions (callbacks to LudoRuntime) ──────────────────────────────
+  onRoll: () => void;
+  onTokenTap: (tokenId: number) => void;
+  onSendChat: (text: string) => void;
 };
 
 type ChatMsg = {
@@ -489,122 +532,61 @@ const DOT_POS: Record<number, [number, number][]> = {
 export default function LudoGame({
   matchId,
   userId,
-  wsToken,
   players,
-  myName: myNameProp,
-  myAvatar: myAvatarProp,
+  myName,
+  myAvatar,
   myLevel,
-  externalPhase = "waiting",
   onComplete,
+  status,
+  gameState,
+  myPlayerIdx,
+  displayTurn,
+  setDisplayTurn,
+  isMyTurn,
+  playerInfo,
+  rolling,
+  setRolling,
+  remoteRolling,
+  setRemoteRolling,
+  dicePreview,
+  settledFace,
+  noMoveHold,
+  setNoMoveHold,
+  chatOpen,
+  setChatOpen,
+  messages,
+  setMessages,
+  draft,
+  setDraft,
+  chatPopups,
+  setChatPopups,
+  bursts,
+  setBursts,
+  burstIdRef,
+  toast,
+  setToast,
+  kbH,
+  kbLift,
+  pendingTurnRef,
+  revealTimerRef,
+  activeWalksRef,
+  pendingKeysRef,
+  onRoll,
+  onTokenTap,
+  onSendChat,
 }: Props) {
-  const [socket, setSocket] = useState<any>(null);
 
-  // Responsive board: measured from the available space so the board always
-  // fits above the chat panel (and shrinks when the chat opens).
+  // ── Rendering-only state (board layout, not game state) ──────────────
   const [boardSize, setBoardSize] = useState(BOARD_SIZE);
   const cell = boardSize / 15;
-  // Chat panel height (measured) — bottom-anchored UI lifts above it.
   const [chatPanelH, setChatPanelH] = useState(0);
   const cellRef = useRef(cell);
   cellRef.current = cell;
-  // Measured width of every corner card (measured on mount) — the die anchors
-  // beside the active card's measured edge (with a gap), so a long name can
-  // never collide with it, even after the turn changes players.
   const cardWidthsRef = useRef<Record<string, number>>({});
-  // Snapshotted die anchor used while coin walks are in flight — the die lock
-  // logic near the anchor computation keeps the die in place through a mid-walk
-  // shrink and re-anchors it beside the shrunken card once the walk completes.
   const dieLockRef = useRef<Record<string, any> | null>(null);
-  // Keyboard height (both platforms). iOS overlays the keyboard, so the game
-  // content is lifted explicitly by kbH. Android applies adjustResize to the
-  // whole window, so this container ALREADY loses kbH of height when the
-  // keyboard opens — manually lifting again would double-shift and collapse
-  // everything. All bottom-anchored offsets therefore use kbLift below.
-  const [kbH, setKbH] = useState(0);
-  // The lift actually applied to positions: full on iOS (overlay keyboard),
-  // zero on Android (the window already resized).
-  const kbLift = Platform.OS === "ios" ? kbH : 0;
-
-  const me = players?.find((p) => p.id === userId);
-  const myName = myNameProp || me?.name || "You";
-  const myAvatar = myAvatarProp || me?.avatar || null;
-  const [status, setStatus] = useState<
-    "connecting" | "waiting" | "active" | "finished"
-  >("connecting");
-  const [gameState, setGameState] = useState<any>(null);
-  const [myPlayerIdx, setMyPlayerIdx] = useState(0);
-  // Capture impact bursts — an expanding player-colored shockwave that plays
-  // at the capture cell the moment the capturer lands (before the captured
-  // coin runs home), so captures read as a real event.
-  const [bursts, setBursts] = useState<
-    Array<{ id: number; x: number; y: number; color: string }>
-  >([]);
-  const burstIdRef = useRef(0);
-  // ── Turn-reveal gate ───────────────────────────────────────────────────────
-  // The engine advances turns the instant a move is processed, but the token
-  // walk animation takes a visible beat. The VISIBLE turn (coin giggle, die
-  // anchor, my-turn interactivity) only advances once every in-flight coin
-  // animation has settled — the next player never gets their turn while the
-  // previous move is still playing out on screen.
-  const [displayTurn, setDisplayTurn] = useState(0);
-  const activeWalksRef = useRef(0); // in-flight token walks
-  // Token keys with a walk currently registered. Drives the walk counter with
-  // exact accounting: a walk replaced or cancelled (new SYNC for the same
-  // token, board re-seat) is decremented via clearTokenPath, so the counter
-  // always returns to 0 instead of leaking.
-  const pendingKeysRef = useRef<Set<string>>(new Set());
-  // Captured tokens whose retreat home is deferred until the capturing coin
-  // finishes walking to the cell — the capture plays out in sequence instead
-  // of the captured coin fleeing before the capturer arrives.
-  const deferredCapturesRef = useRef<Set<string>>(new Set());
-  // Poll timers waiting on a capturing walk; cleared on unmount.
-  const capturePollRefs = useRef<ReturnType<typeof setInterval>[]>([]);
-  const pendingTurnRef = useRef<number | null>(null); // engine turn awaiting reveal
-  const revealTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const isMyTurn = displayTurn === myPlayerIdx;
-  const [toast, setToast] = useState<string | null>(null);
-  // Dice roll animation — visible to every player, not just the roller.
-  const [rolling, setRolling] = useState(false);
-  const [remoteRolling, setRemoteRolling] = useState<string | null>(null);
-  const [dicePreview, setDicePreview] = useState<number | null>(null);
-  // The last rolled face latched so it stays visible even when the move SYNC
-  // lands right behind the roll (bot matches) and clears dice before the
-  // tumble settles — the die shows the rolled result, never a bare idle.
-  const [settledFace, setSettledFace] = useState<number | null>(null);
-  // A roll that produced no legal move is held on screen so everyone can see
-  // what was rolled and why the turn passes before the die moves on. This is
-  // what makes no-move turns (bot matches especially) read as human play.
-  const [noMoveHold, setNoMoveHold] = useState<{
-    playerIdx: number;
-    face: number;
-  } | null>(null);
-  // Chat
-  const [chatOpen, setChatOpen] = useState(false);
-  const [messages, setMessages] = useState<ChatMsg[]>([]);
-  const [draft, setDraft] = useState("");
-  const [chatPopups, setChatPopups] = useState<
-    Array<{
-      id: number;
-      uid: string;
-      name: string;
-      text: string;
-      color: string;
-      cornerIdx: number;
-    }>
-  >([]);
-  // How much the open chat panel lifts bottom-anchored UI (corner cards, die,
-  // toast, bubbles) so nothing hides behind the panel. Uses the measured panel
-  // height once known; falls back to a reasonable estimate on the first frame.
   const chatInset = chatOpen
-    ? chatPanelH > 0
-      ? chatPanelH
-      : Math.min(280, CHAT_MAX_H)
+    ? chatPanelH > 0 ? chatPanelH : Math.min(280, CHAT_MAX_H)
     : 0;
-
-  // Player info from socket (name + avatar + level for opponents)
-  const [playerInfo, setPlayerInfo] = useState<
-    Record<string, { name: string; avatar?: string; level?: number }>
-  >({});
 
   // Single merged map of player identity (name + avatar + level) so the corner
   // cards always show the real profile pic, name and level badge. Sources,
@@ -1216,6 +1198,10 @@ export default function LudoGame({
   const maybeRevealTurn = useCallback(() => {
     if (activeWalksRef.current <= 0) revealPendingTurn();
   }, [revealPendingTurn]);
+  // Tracks in-flight capture sequences so the turn-reveal fallback knows
+  // to wait longer for capturer walks + beat + retreat.
+  const deferredCapturesRef = useRef<Set<string>>(new Set());
+  const capturePollRefs = useRef<ReturnType<typeof setInterval>[]>([]);
   // Safety net: a walk cancelled mid-flight (board re-layout, re-seat) never
   // fires its completion, so force the reveal after a fixed ceiling. This path
   // reveals immediately (no gap) — it only fires when a walk was cancelled.
@@ -1235,6 +1221,94 @@ export default function LudoGame({
       TURN_REVEAL_MAX_MS + TURN_GAP_MS + extra,
     );
   }, [doReveal]);
+
+  // ── Idle safeguard ────────────────────────────────────────────────────────
+  // My turn, nothing pressed: 5s silent grace → 5s visible countdown →
+  // auto-roll. Once the die settles, every roll gets a move window — the
+  // live countdown is shown under the die itself, and the first movable
+  // token is auto-moved just before the window ends.
+  const [idleLeft, setIdleLeft] = useState<number | null>(null);
+  const [moveLeft, setMoveLeft] = useState<number | null>(null);
+  const idleTickRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const idleMoveRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const onRollRef = useRef(onRoll);
+  onRollRef.current = onRoll;
+  const onTokenTapRef = useRef(onTokenTap);
+  onTokenTapRef.current = onTokenTap;
+
+  useEffect(() => {
+    const clearMove = () => {
+      setMoveLeft(null);
+      if (idleMoveRef.current) {
+        clearInterval(idleMoveRef.current);
+        idleMoveRef.current = null;
+      }
+    };
+    const clearIdle = () => {
+      setIdleLeft(null);
+      if (idleTickRef.current) {
+        clearInterval(idleTickRef.current);
+        idleTickRef.current = null;
+      }
+    };
+
+    if (status !== "active" || !isMyTurn) {
+      clearIdle();
+      clearMove();
+      return;
+    }
+
+    if (gameState?.dice != null) {
+      clearIdle();
+      if (!idleMoveRef.current) {
+        let left = MOVE_WINDOW_MS / 1000;
+        setMoveLeft(left);
+        idleMoveRef.current = setInterval(() => {
+          left -= 1;
+          if (left <= 1) {
+            if (idleMoveRef.current) {
+              clearInterval(idleMoveRef.current);
+              idleMoveRef.current = null;
+            }
+            const st = gameStateRef.current;
+            const movable = st?.movableTokens;
+            if (
+              movable &&
+              movable.length > 0 &&
+              (st?.currentTurnIndex ?? 0) === myPlayerIdx &&
+              st?.dice != null
+            ) {
+              onTokenTapRef.current(movable[0]);
+            }
+            setMoveLeft(null);
+            return;
+          }
+          setMoveLeft(left);
+        }, 1000);
+      }
+      return clearMove;
+    }
+
+    // Waiting for a roll — 5s grace, then visible 5s countdown, then auto-roll.
+    clearMove();
+    let seconds = 0;
+    setIdleLeft(null);
+    if (idleTickRef.current) clearInterval(idleTickRef.current);
+    idleTickRef.current = setInterval(() => {
+      seconds += 1;
+      if (seconds >= 5 && seconds < 10) setIdleLeft(10 - seconds);
+      if (seconds >= 10) {
+        if (idleTickRef.current) {
+          clearInterval(idleTickRef.current);
+          idleTickRef.current = null;
+        }
+        onRollRef.current();
+      }
+    }, 1000);
+    return () => {
+      clearIdle();
+    };
+  }, [status, isMyTurn, gameState?.dice, myPlayerIdx]);
 
   const runTokenPath = useCallback(
     (
@@ -1365,634 +1439,9 @@ export default function LudoGame({
   // burst self-removes after its ~0.5s animation via the render onDone.
   const spawnBurst = useCallback((x: number, y: number, color: string) => {
     const id = ++burstIdRef.current;
-    setBursts((b) => [...b.slice(-5), { id, x, y, color }]); // cap active bursts
+    setBursts((b: Array<{ id: number; x: number; y: number; color: string }>) => [...b.slice(-5), { id, x, y, color }]); // cap active bursts
   }, []);
 
-  useEffect(() => {
-    const s = createGameEngineSocket(matchId, userId, wsToken);
-    setSocket(s);
-
-    s.on(EVENTS.CONNECT_ACK, (data: any) => {
-      const ps = data.state?.pluginState;
-      // Pull the rich lobby snapshots (displayName + avatar) the same way the
-      // other games do — the flat players array only carries { userId, color }.
-      const players: any[] = extractEnginePlayers(data);
-      const idx = players.findIndex(
-        (p: any) => p.userId === userId || p.id === userId,
-      );
-      // The ENGINE turn order is the single source of truth for seating (it
-      // drives the board corners, colors and currentTurnIndex). Derive my seat
-      // from it first — the snapshot roster may be rotated differently (or
-      // stale), and a mismatch would break my-turn detection. Fall back to the
-      // snapshot index, then 0, for legacy matches without a turn order.
-      const engineSeat = ps?.turnOrder?.indexOf(userId) ?? -1;
-      setMyPlayerIdx(engineSeat >= 0 ? engineSeat : idx >= 0 ? idx : 0);
-
-      // Collect player info (name / avatar)
-      const info = buildPlayerInfo(players);
-      // Inject self — keep the snapshot's level (or the explicit myLevel prop
-      // for legacy matches), override name/avatar
-      info[userId] = {
-        name: myName || "You",
-        avatar: myAvatar || undefined,
-        level: info[userId]?.level ?? myLevel,
-      };
-      setPlayerInfo(info);
-
-      // Seed dice bookkeeping so a reconnect mid-turn doesn't fake a remote roll
-      if (ps?.dice != null) {
-        lastDiceRef.current = ps.dice;
-      }
-      if (settledFaceTimer.current) {
-        clearTimeout(settledFaceTimer.current);
-        settledFaceTimer.current = null;
-      }
-      setSettledFace(ps?.dice ?? null);
-      prevRoundRef.current = ps?.roundCount ?? null;
-      prevTurnIdxRef.current = ps?.currentTurnIndex ?? null;
-      // Seed last-known token positions so a reconnect never replays moves.
-      if (ps?.tokens) {
-        Object.entries(ps.tokens).forEach(([uid, tks]: [string, any]) => {
-          (tks || []).forEach((t: any) => {
-            lastPosRef.current[`${uid}-${t.id}`] = t.pos ?? -1;
-          });
-        });
-      }
-      if (ps) setGameState(ps);
-      // Fresh connection — show the engine's current turn immediately and
-      // reset the walk gate (no animations are running yet).
-      setDisplayTurn(ps?.currentTurnIndex ?? 0);
-      activeWalksRef.current = 0;
-      pendingKeysRef.current.clear();
-      // Fresh state — drop any deferred capture waits and their poll timers.
-      deferredCapturesRef.current.clear();
-      capturePollRefs.current.forEach(clearInterval);
-      capturePollRefs.current = [];
-      pendingTurnRef.current = null;
-      if (revealTimerRef.current) {
-        clearTimeout(revealTimerRef.current);
-        revealTimerRef.current = null;
-      }
-      setStatus(data.state?.status === "ACTIVE" ? "active" : "waiting");
-      // Reconnect (or fresh join) — re-arm the READY gate.
-      readySentRef.current = false;
-      setReadyTick((t) => t + 1);
-    });
-
-    s.on(EVENTS.START, (data: any) => {
-      const ps = data.state?.pluginState ?? data.state;
-      if (ps) setGameState(ps);
-      setStatus("active");
-    });
-
-    s.on(EVENTS.SYNC, (data: any) => {
-      if (!data.state) return;
-      const ns = data.state;
-      // Animate all tokens — coins walk the track cell by cell with a tick
-      // per hop; a captured coin runs fast backwards along the track home.
-      // Captures are SEQUENCED below: the capturing coin walks to the cell
-      // and settles first, then the captured coin(s) run home.
-      const captures: Array<{
-        key: string;
-        pi: number;
-        tokenId: number;
-        oldPos: number;
-      }> = [];
-      if (ns.tokens) {
-        Object.entries(ns.tokens).forEach(([uid, tks]: [string, any]) => {
-          const pi = ns.turnOrder?.indexOf(uid) ?? 0;
-          (tks || []).forEach((t: any) => {
-            const key = `${uid}-${t.id}`;
-            tokenMetaRef[key] = { pi, tokenId: t.id };
-            const newPos = t.pos ?? -1;
-            const oldPos = lastPosRef.current[key];
-            if (oldPos != null && oldPos !== newPos) {
-              if (newPos === -1 && oldPos >= 0) {
-                // Captured — defer the reverse run until the capturing coin
-                // arrives at this cell (handled after the loop).
-                captures.push({ key, pi, tokenId: t.id, oldPos });
-              } else if (newPos > oldPos || oldPos === -1) {
-                // Normal move — walk from the previous cell to the destination.
-                const pts: { x: number; y: number }[] = [];
-                if (oldPos === -1) pts.push(pathPoint(pi, t.id, -1, ns)); // pop out of the yard
-                for (let p = Math.max(0, oldPos); p <= newPos; p++) {
-                  // Entering the home lane (pos 52+): the coin glides straight
-                  // from the loop corner (pos 51) into the lane mouth (pos 52)
-                  // — a clean diagonal cut at the corner instead of backtracking
-                  // over the cell it just crossed. The cut never lands on the
-                  // start square (verified per color: the diagonal crosses only
-                  // the corner vertex, never the start cell).
-                  pts.push(pathPoint(pi, t.id, p, ns));
-                }
-                runTokenPath(
-                  key,
-                  pts,
-                  STEP_MS,
-                  () => gameSound.playTick(),
-                  ENTRY_MS,
-                );
-              } else {
-                // Unexpected backward move (engine can't produce one today) —
-                // never leave the token silently snapped; spring it into place.
-                const { x, y } = pathPoint(pi, t.id, newPos, ns);
-                springToken(key, x, y);
-              }
-            }
-            lastPosRef.current[key] = newPos;
-          });
-        });
-      }
-
-      // Sequence the captures: hold each captured coin where it was until the
-      // capturing walk lands on its cell, then run it home with a short beat
-      // at the capture point so the moment reads clearly. The retreat is
-      // registered in the walk gate NOW (deferred), so the visible turn stays
-      // locked until both the capturer's walk and the retreat finish.
-      captures.forEach((c) => {
-        const startRetreat = () => {
-          if (!deferredCapturesRef.current.delete(c.key)) return;
-          const pts: { x: number; y: number }[] = [];
-          for (let p = c.oldPos; p >= 0; p--)
-            pts.push(pathPoint(c.pi, c.tokenId, p, ns));
-          pts.push(pathPoint(c.pi, c.tokenId, -1, ns));
-          const steps = Math.max(1, pts.length - 1);
-          const stepMs = Math.max(
-            55,
-            Math.min(110, Math.floor(CAPTURE_BUDGET_MS / steps)),
-          );
-          gameSound.playSnake();
-          // Long retreats tick sparsely so the sound never rattles.
-          const tickEvery = steps > 25 ? 5 : 3;
-          let n = 0;
-          runTokenPath(c.key, pts, stepMs, () => {
-            if (n++ % tickEvery === 0) gameSound.playTick();
-          });
-        };
-        // The capturing coin is the walk headed exactly to the captured cell.
-        const capPt = pathPoint(c.pi, c.tokenId, c.oldPos, ns);
-        let capturerKey: string | null = null;
-        // Tolerance is cell-scaled: only ONE coin walks forward per SYNC (the
-        // mover), so a generous radius can't false-positive — it just absorbs
-        // stack-fan shifts on the landing cell.
-        const capTol = Math.max(4, cellRef.current * 0.5);
-        Object.keys(walkDestRef).forEach((k) => {
-          if (k === c.key) return;
-          const d = walkDestRef[k];
-          if (
-            d &&
-            Math.abs(d.x - capPt.x) < capTol &&
-            Math.abs(d.y - capPt.y) < capTol
-          )
-            capturerKey = k;
-        });
-        // Hold the walk-gate slot now so the reveal waits for the retreat too.
-        // (Guard: if the coin has no anim entry it was never rendered — skip
-        // the deferral so the gate can never lock on a phantom token.)
-        if (!tokenAnims[c.key]) return;
-        deferredCapturesRef.current.add(c.key);
-        pendingKeysRef.current.add(c.key);
-        activeWalksRef.current += 1;
-        if (capturerKey) {
-          let waited = 0;
-          const iv = setInterval(() => {
-            waited += 60;
-            // Start the retreat as soon as the capturing walk finishes (its
-            // completion removes it from the pending set), with a ceiling so a
-            // cancelled/re-seated capturer can never strand the captured coin.
-            if (
-              !pendingKeysRef.current.has(capturerKey!) ||
-              waited > CAPTURE_WAIT_MS
-            ) {
-              clearInterval(iv);
-              // Impact moment: the capturer has landed on the cell — flash the
-              // shockwave, then let the captured coin flee after the beat.
-              spawnBurst(capPt.x, capPt.y, PLAYER_COLORS[c.pi % 4]);
-              const t = setTimeout(startRetreat, CAPTURE_BEAT_MS); // beat at the capture cell
-              capturePollRefs.current.push(t as ReturnType<typeof setInterval>);
-            }
-          }, 60);
-          capturePollRefs.current.push(iv);
-        } else {
-          spawnBurst(capPt.x, capPt.y, PLAYER_COLORS[c.pi % 4]);
-          capturePollRefs.current.push(
-            setTimeout(startRetreat, CAPTURE_BEAT_MS) as ReturnType<
-              typeof setInterval
-            >,
-          );
-        }
-      });
-
-      // Re-flow stacks: when a coin moves on/off a shared spot, the remaining
-      // coins' fan positions change — spring any token that isn't mid-walk to
-      // its updated spot so stacked coins stay fanned out and every one stays
-      // visible.
-      Object.entries(ns.tokens).forEach(([uid, tks]: [string, any]) => {
-        const pi = ns.turnOrder?.indexOf(uid) ?? 0;
-        (tks || []).forEach((t: any) => {
-          const key = `${uid}-${t.id}`;
-          if (pendingKeysRef.current.has(key)) return; // still walking — skip
-          const { x, y } = getTokenRenderPos(pi, t.id, t.pos ?? -1, ns);
-          const a = tokenAnims[key];
-          if (
-            a &&
-            (Math.abs((a.x as any).__getValue() - x) > 1.5 ||
-              Math.abs((a.y as any).__getValue() - y) > 1.5)
-          ) {
-            springToken(key, x, y);
-          }
-        });
-      });
-
-      // A roll that couldn't move: the engine advances the turn with dice=null
-      // (the value only in lastDice). Surface it — hold the result on the
-      // roller's corner so players see what was rolled before the turn passes.
-      const noMovePass =
-        ns.dice === null &&
-        ns.lastDice != null &&
-        prevRoundRef.current != null &&
-        ns.roundCount === prevRoundRef.current &&
-        ns.currentTurnIndex !== prevTurnIdxRef.current;
-      if (noMovePass) {
-        const prevIdx = prevTurnIdxRef.current ?? 0;
-        if (noMoveTimer.current) clearTimeout(noMoveTimer.current);
-        setNoMoveHold({ playerIdx: prevIdx, face: ns.lastDice });
-        noMoveTimer.current = setTimeout(
-          () => setNoMoveHold(null),
-          NO_MOVE_HOLD_MS,
-        );
-        // The no-move reveal supersedes any previously held rolled face — the
-        // die must not flash a stale result after the reveal clears.
-        if (settledFaceTimer.current) {
-          clearTimeout(settledFaceTimer.current);
-          settledFaceTimer.current = null;
-        }
-        setSettledFace(null);
-        // A short squash-pop so the result "drops in" and reads as a real
-        // roll. Skipped when it's my own roll or a tumble is already running —
-        // two concurrent sequences over the same axes would fight and stutter.
-        if (!rollingRef.current && !tumbleBusyRef.current) {
-          runDiceTumble({ mode: "pulse" });
-        }
-      }
-
-      // Detect a fresh roll so EVERY player sees the tumble + result.
-      const newDice = ns.dice ?? null;
-      if (newDice !== null && newDice !== lastDiceRef.current) {
-        // The next roll supersedes any held no-move result.
-        setNoMoveHold(null);
-        // Latch the rolled face so it stays visible even when the move SYNC
-        // lands right behind the roll (bot matches) and clears dice before the
-        // tumble settles.
-        setSettledFace(newDice);
-        if (settledFaceTimer.current) clearTimeout(settledFaceTimer.current);
-        settledFaceTimer.current = setTimeout(() => setSettledFace(null), 2800);
-        // Who just rolled? The current turn player is the roller. Every
-        // opponent's roll (bots included) must animate — even when my own
-        // tumble is still playing, so a roll arriving inside that window is
-        // queued by runDiceTumble rather than dropped.
-        const order = ns.turnOrder || [];
-        const rollerId = order[ns.currentTurnIndex ?? 0];
-        const isRemote = rollerId && rollerId !== userId;
-        if (isRemote) {
-          setRemoteRolling(rollerId);
-          setDicePreview(null);
-          if (remoteRollTimer.current) clearTimeout(remoteRollTimer.current);
-          remoteRollTimer.current = setTimeout(
-            () => setRemoteRolling(null),
-            DICE_ROLL_MS,
-          );
-          // Kick off the tumble right away so remote rolls animate too
-          // (previously the face only flickered in place). If the dice axes
-          // are mid-tumble (my own roll, or a rapid sequence of bot rolls),
-          // runDiceTumble queues it and plays it the moment they free up —
-          // a remote roll's animation is never skipped, and its roller id is
-          // carried through the queue so each tumble re-arms the preview.
-          runDiceTumble({
-            mode: "remote",
-            rollerId,
-            onDone: () => {
-              if (remoteRollTimer.current)
-                clearTimeout(remoteRollTimer.current);
-              setRemoteRolling(null);
-            },
-          });
-        }
-        // My own roll: rolling stays true until the tumble animation finishes,
-        // so the preview keeps cycling and the result lands with the final face.
-      }
-      lastDiceRef.current = newDice;
-      prevRoundRef.current = ns.roundCount ?? null;
-      prevTurnIdxRef.current = ns.currentTurnIndex ?? null;
-      setGameState(ns);
-      // Hold the visible turn until every coin animation from this (and any
-      // still-running) move has settled — the next player only gets their turn
-      // once the previous move has fully played out on screen.
-      const newTurn = ns.currentTurnIndex ?? 0;
-      if (activeWalksRef.current > 0) {
-        pendingTurnRef.current = newTurn;
-        armTurnRevealFallback();
-      } else {
-        // No walks in flight — reveal immediately. Drop any pending gap reveal
-        // (a 2s timer left by an earlier walk completion) so a stale doReveal
-        // can never revert the turn after a no-walk SYNC (e.g. a no-move pass).
-        if (revealTimerRef.current) {
-          clearTimeout(revealTimerRef.current);
-          revealTimerRef.current = null;
-        }
-        pendingTurnRef.current = null;
-        setDisplayTurn(newTurn);
-      }
-    });
-
-    s.on(EVENTS.GAME_OVER, (data: any) => {
-      setStatus("finished");
-      const won = (data.winner || data.state?.pluginState?.winner) === userId;
-      showToast(won ? "🏆 You Won!" : "😢 You Lost");
-      // The match is over — release any deferred capture waits (walk-gate
-      // slots) and their poll timers so nothing animates or locks the turn
-      // reveal after the game ends.
-      capturePollRefs.current.forEach(clearInterval);
-      capturePollRefs.current = [];
-      deferredCapturesRef.current.forEach((k) => {
-        if (pendingKeysRef.current.delete(k)) {
-          activeWalksRef.current = Math.max(0, activeWalksRef.current - 1);
-        }
-      });
-      deferredCapturesRef.current.clear();
-      // The match is over — drop every cached token identity so the map can't
-      // grow during long sessions (e.g. replaying matches on the same mount).
-      Object.keys(tokenMetaRef).forEach((k) => delete tokenMetaRef[k]);
-      setTimeout(() => {
-        onComplete({
-          score: won ? 1 : 0,
-          won,
-          xpEarned: won ? 60 : 10,
-          durationSeconds: 0,
-        });
-      }, 2500);
-    });
-
-    s.on(EVENTS.ERROR, (e: any) => showToast("⚠️ " + (e.message || "Error")));
-
-    // ── Real multiplayer chat ─────────────────────────────────────────────
-    s.on(EVENTS.CHAT, (data: any) => {
-      const text = String(data?.text || "").trim();
-      if (!text) return;
-      const uid = String(data?.userId || "");
-      const order = gameStateRef.current?.turnOrder || [];
-      const idx = order.indexOf(uid);
-      const color = PLAYER_COLORS[(idx >= 0 ? idx : 0) % 4];
-      // Real sender name: the server resolves it from the match roster; fall
-      // back to the corner-card identity so chat never shows the bare string
-      // "Player".
-      const rosterName = playerMetaRef.current[uid]?.name;
-      const name =
-        data?.name ||
-        rosterName ||
-        (uid === userId ? myName : `Player ${idx + 1}`) ||
-        "Player";
-      const id = ++msgIdRef.current;
-      setMessages((m) => [
-        ...m,
-        {
-          id,
-          uid,
-          name,
-          color,
-          text,
-          time: new Date(data?.ts || Date.now()).toLocaleTimeString([], {
-            hour: "2-digit",
-            minute: "2-digit",
-          }),
-        },
-      ]);
-      // Pop the message up over the sender's corner card
-      setChatPopups((p) => [
-        ...p,
-        { id, uid, name, color, text, cornerIdx: Math.max(0, idx) },
-      ]);
-    });
-
-    return () => {
-      if (remoteRollTimer.current) clearTimeout(remoteRollTimer.current);
-      if (tumbleWatchdog.current) clearTimeout(tumbleWatchdog.current);
-      if (noMoveTimer.current) clearTimeout(noMoveTimer.current);
-      if (settledFaceTimer.current) clearTimeout(settledFaceTimer.current);
-      if (revealTimerRef.current) clearTimeout(revealTimerRef.current);
-      Object.values(pathTimers).forEach((tl) => tl.forEach(clearTimeout));
-      // Cancel any deferred-capture polls still waiting on a walk.
-      capturePollRefs.current.forEach(clearInterval);
-      capturePollRefs.current = [];
-      deferredCapturesRef.current.clear();
-      // Stop every walk + turn giggle so no loop keeps ticking after unmount.
-      Object.values(giggleLoops).forEach((l) => l.stop());
-      Object.keys(giggleLoops).forEach((k) => delete giggleLoops[k]);
-      Object.values(turnGiggleLoops).forEach((l) => l.stop());
-      Object.keys(turnGiggleLoops).forEach((k) => delete turnGiggleLoops[k]);
-      // Board is going away — release the cached token identities too.
-      Object.keys(tokenMetaRef).forEach((k) => delete tokenMetaRef[k]);
-      s.disconnect();
-    };
-  }, [matchId, userId, wsToken]);
-
-  // Keyboard lift — the full-screen game Modal doesn't resize with the
-  // keyboard (especially on Android), so the whole game is padded up by the
-  // keyboard height. This keeps the chat input visible while typing and lets
-  // the board compress above it — deterministic on every platform.
-  useEffect(() => {
-    const showEvt =
-      Platform.OS === "ios" ? "keyboardWillShow" : "keyboardDidShow";
-    const hideEvt =
-      Platform.OS === "ios" ? "keyboardWillHide" : "keyboardDidHide";
-    const show = Keyboard.addListener(showEvt, (e: any) =>
-      setKbH(e?.endCoordinates?.height ?? 0),
-    );
-    const hide = Keyboard.addListener(hideEvt, () => setKbH(0));
-    return () => {
-      show.remove();
-      hide.remove();
-    };
-  }, []);
-
-  // Send READY the moment the board is actually visible (after the 3-2-1).
-  useEffect(() => {
-    if (externalPhase !== "playing" || readySentRef.current || !socket) return;
-    readySentRef.current = true;
-    socket.emit(EVENTS.READY);
-  }, [externalPhase, socket, readyTick]);
-
-  // When the board is resized (e.g. chat opens and the board compresses),
-  // re-seat every token animation so tokens don't sit at stale positions.
-  useEffect(() => {
-    if (!gameState?.tokens) return;
-    Object.entries(gameState.tokens).forEach(([uid, tks]: [string, any]) => {
-      const pi = gameState.turnOrder?.indexOf(uid) ?? 0;
-      (tks || []).forEach((t: any) => {
-        const key = `${uid}-${t.id}`;
-        // Never interrupt a coin mid-walk: springing it straight to the
-        // destination would make it skip the track cells. Walking coins finish
-        // their hops and re-seat on the next SYNC if the scale shifted.
-        if (pendingKeysRef.current.has(key)) return;
-        const { x, y } = getTokenRenderPos(pi, t.id, t.pos ?? -1);
-        if (tokenAnims[key]) springToken(key, x, y);
-      });
-    });
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [cell, getTokenRenderPos]);
-
-  // Turn-change sound + haptic when it becomes your turn
-  useTurnSound(isMyTurn, status === "active");
-
-  const rollDice = useCallback(() => {
-    if (!isMyTurn || gameState?.dice !== null || rolling) return;
-    rollingRef.current = true;
-    setRolling(true);
-    socket?.emit(EVENTS.MOVE, { type: "ROLL" });
-    gameSound.playTap();
-
-    // Full 5-phase tumble: pick-up → shake → throw → impact → settle. The
-    // preview face cycles beneath it and the real result lands via SYNC just
-    // as the die settles.
-    runDiceTumble({
-      mode: "own",
-      onDone: () => {
-        rollingRef.current = false;
-        setRolling(false);
-      },
-    });
-  }, [isMyTurn, gameState, socket, rolling, runDiceTumble]);
-
-  // Cycle the dice preview face while anyone is mid-roll (my roll or remote).
-  useEffect(() => {
-    if (!rolling && !remoteRolling) return;
-    const iv = setInterval(() => {
-      setDicePreview(1 + Math.floor(Math.random() * 6));
-    }, 110);
-    return () => clearInterval(iv);
-  }, [rolling, remoteRolling]);
-
-  const moveToken = useCallback(
-    (tokenId: number) => {
-      // Moves are only legal once the die has rolled AND settled so the player
-      // can see the result — never while the tumble is still running.
-      if (!isMyTurn || gameState?.dice === null || rolling) return;
-      socket?.emit(EVENTS.MOVE, { type: "MOVE_TOKEN", tokenId });
-      gameSound.playTap();
-    },
-    [isMyTurn, gameState, rolling, socket],
-  );
-
-  // ── Idle safeguard ────────────────────────────────────────────────────────
-  // My turn, nothing pressed: 5s silent grace → 5s visible countdown →
-  // auto-roll. Once the die settles, every roll (manual OR auto-rolled) gets a
-  // 30s move window — the live countdown is shown under the die itself, and
-  // the first movable token is auto-moved just before the window ends. The
-  // server's own 30s timeout AUTO-MOVES as a backstop (never skips), so an
-  // idle or backgrounded player can never stall the match.
-  const [idleLeft, setIdleLeft] = useState<number | null>(null);
-  const [moveLeft, setMoveLeft] = useState<number | null>(null);
-  const idleTickRef = useRef<ReturnType<typeof setInterval> | null>(null);
-  const idleMoveRef = useRef<ReturnType<typeof setInterval> | null>(null);
-  const rollDiceRef = useRef<() => void>(() => {});
-  const moveTokenRef = useRef<(tokenId: number) => void>(() => {});
-  rollDiceRef.current = rollDice;
-  moveTokenRef.current = moveToken;
-
-  useEffect(() => {
-    const clearMove = () => {
-      setMoveLeft(null);
-      if (idleMoveRef.current) {
-        clearInterval(idleMoveRef.current);
-        idleMoveRef.current = null;
-      }
-    };
-    const clearIdle = () => {
-      setIdleLeft(null);
-      if (idleTickRef.current) {
-        clearInterval(idleTickRef.current);
-        idleTickRef.current = null;
-      }
-    };
-
-    if (status !== "active" || !isMyTurn) {
-      clearIdle();
-      clearMove();
-      return;
-    }
-
-    if (gameState?.dice != null) {
-      // Rolled but nothing tapped. The clock starts the moment the dice SYNC
-      // lands — the server restarts its 15s skip on the ROLL, so measuring
-      // from the die-settle (tumble ~1.3s later) would auto-move too late and
-      // the server skip would win. Auto-move fires at 14s (left hits 1) so the
-      // MOVE event reliably beats the 15s server skip. The chip is hidden
-      // while the die is mid-tumble (render gate) but the clock never pauses.
-      clearIdle();
-      if (!idleMoveRef.current) {
-        let left = MOVE_WINDOW_MS / 1000; // 15
-        setMoveLeft(left);
-        idleMoveRef.current = setInterval(() => {
-          left -= 1;
-          if (left <= 1) {
-            if (idleMoveRef.current) {
-              clearInterval(idleMoveRef.current);
-              idleMoveRef.current = null;
-            }
-            const st = gameStateRef.current;
-            const movable = st?.movableTokens;
-            if (
-              movable &&
-              movable.length > 0 &&
-              (st?.currentTurnIndex ?? 0) === myPlayerIdx &&
-              st?.dice != null
-            ) {
-              moveTokenRef.current(movable[0]);
-            }
-            setMoveLeft(null);
-            return;
-          }
-          setMoveLeft(left);
-        }, 1000);
-      }
-      return clearMove;
-    }
-
-    // Waiting for a roll — 5s grace, then a visible 5s countdown, then auto-roll.
-    clearMove();
-    let seconds = 0;
-    setIdleLeft(null);
-    if (idleTickRef.current) clearInterval(idleTickRef.current);
-    idleTickRef.current = setInterval(() => {
-      seconds += 1;
-      if (seconds >= 5 && seconds < 10) setIdleLeft(10 - seconds);
-      if (seconds >= 10) {
-        if (idleTickRef.current) {
-          clearInterval(idleTickRef.current);
-          idleTickRef.current = null;
-        }
-        rollDiceRef.current();
-      }
-    }, 1000);
-    return () => {
-      clearIdle();
-    };
-  }, [status, isMyTurn, gameState?.dice, myPlayerIdx]);
-
-  // ── Real multiplayer chat (server broadcasts to the match room) ──────────
-  const sendChat = useCallback(
-    (text: string) => {
-      const t = text.trim();
-      if (!t) return;
-      // Broadcast to the match room — the server echoes it to every player
-      // (including me), and the CHAT listener below renders it for everyone.
-      socket?.emit(EVENTS.CHAT, { text: t });
-      setDraft("");
-      gameSound.playTap();
-    },
-    [socket],
-  );
-
-  // ── Static SVG board (memoized; rebuilds when the board is resized) ──────
   const boardSvg = useMemo(() => {
     const C = cell;
     const S = boardSize;
@@ -2373,7 +1822,7 @@ export default function LudoGame({
 
         const touchable = (
           <TouchableOpacity
-            onPress={() => canMove && moveToken(token.id)}
+            onPress={() => canMove && onTokenTap(token.id)}
             activeOpacity={canMove ? 0.7 : 1}
             style={{ width: PIN_W, height: PIN_H, alignItems: "center" }}
           >
@@ -2447,7 +1896,7 @@ export default function LudoGame({
         key={b.id}
         burst={b}
         cell={cell}
-        onDone={(id) => setBursts((prev) => prev.filter((x) => x.id !== id))}
+        onDone={(id: number) => setBursts((prev: Array<{ id: number; x: number; y: number; color: string }>) => prev.filter((x: { id: number }) => x.id !== id))}
       />
     ));
   };
@@ -2812,7 +2261,7 @@ export default function LudoGame({
           cornerIdx={pop.cornerIdx}
           chatInset={chatInset}
           kbH={kbLift}
-          onDone={(id) => setChatPopups((p) => p.filter((x) => x.id !== id))}
+          onDone={(id: number) => setChatPopups((p: Array<{ id: number; uid: string; name: string; text: string; color: string; cornerIdx: number }>) => p.filter((x: { id: number }) => x.id !== id))}
         />
       ))}
 
@@ -2834,7 +2283,7 @@ export default function LudoGame({
               size={dieSize}
             />
             <TouchableOpacity
-              onPress={rollDice}
+              onPress={onRoll}
               disabled={!isMyTurn || hasDice || rolling}
               activeOpacity={0.85}
             >
@@ -2988,22 +2437,6 @@ export default function LudoGame({
         );
       })()}
 
-      {/* ─ Chat button — hidden while the chat panel is open ─ */}
-      {!chatOpen && (
-        <View
-          pointerEvents="box-none"
-          style={[styles.chatBtnPos, { bottom: 14 + kbLift }]}
-        >
-          <TouchableOpacity
-            style={styles.chatBtn}
-            onPress={() => setChatOpen(true)}
-            activeOpacity={0.85}
-          >
-            <Ionicons name="chatbubble" size={20} color="#FFF" />
-          </TouchableOpacity>
-        </View>
-      )}
-
       {/* ─ Toast — lifted above the chat panel when it's open ─ */}
       {toast && (
         <Animated.View
@@ -3038,7 +2471,7 @@ export default function LudoGame({
           messages={messages}
           draft={draft}
           onDraftChange={setDraft}
-          onSend={(t) => sendChat(t)}
+          onSend={onSendChat}
           onClose={() => setChatOpen(false)}
           onPanelLayout={(h) => setChatPanelH(h)}
           scrollRef={chatScroll}

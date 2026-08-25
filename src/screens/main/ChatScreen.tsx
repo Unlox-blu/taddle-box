@@ -29,7 +29,7 @@ import {
   activeStatusLabel,
 } from "../../context/ActiveStatusContext";
 import { warn } from '../../utils/logger';
-import { DeviceEventEmitter } from 'react-native';
+import { notificationBus } from '../../lib/notificationBus';
 
 const REACTION_EMOJIS = ["❤️", "😂", "😮", "😢", "🔥", "👍"];
 
@@ -55,8 +55,8 @@ export default function ChatScreen() {
 
   // ── Hide tab bar while inside a chat ──
   useEffect(() => {
-    DeviceEventEmitter.emit('chatScreenOpen');
-    return () => { DeviceEventEmitter.emit('chatScreenClose'); };
+    notificationBus.emit('chatScreenOpen');
+    return () => { notificationBus.emit('chatScreenClose'); };
   }, []);
 
   const [messages, setMessages] = useState<ChatMessage[]>([]);
@@ -73,6 +73,7 @@ export default function ChatScreen() {
     try {
       const msgs = await chatService.getMessages(conversationId);
       setMessages(msgs);
+      notificationBus.emit('chat_inbox_updated');
     } catch (e) {
       warn("Failed to load messages", e);
     } finally {

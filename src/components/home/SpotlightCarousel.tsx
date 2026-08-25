@@ -16,7 +16,7 @@ import { useNavigation } from "@react-navigation/native";
 import { fontSizes, spacing, radii, type ColorPalette } from "../../theme";
 import { useThemeColors } from "../../context/ThemeContext";
 import { highlightService, Highlight } from "../../services/highlight.service";
-import { GAME_ASSETS } from "../../games/assets";
+
 import { error } from '../../utils/logger';
 
 const { width: SW } = Dimensions.get("window");
@@ -185,8 +185,6 @@ export default function SpotlightCarousel() {
       }));
 
       const gameHighlights: Highlight[] = (trendingGames || []).map(bg => {
-        const slug = (bg as any).slug || 'tap-rush';
-        const localGame = GAME_ASSETS[slug as keyof typeof GAME_ASSETS] || GAME_ASSETS['tap-rush'];
         return {
           id: `game-${bg.id}`,
           title: bg.name,
@@ -195,12 +193,10 @@ export default function SpotlightCarousel() {
           sourceId: bg.id,
           tag: 'Trending Game',
           tagColor: '#EF4444',
-          emoji: localGame.emoji,
-          gradient: localGame.gradient as [string, string],
-          meta: localGame.averageDurationLabel,
-          // Native game artwork from the DB (game.thumbnail) beats the generic
-          // placeholder; the local asset is only a fallback when it's empty.
-          imageUrl: (bg as any).thumbnail || localGame.imageUrl,
+          emoji: (bg as any).emoji || '🎮',
+          gradient: ((bg as any).metadata?.gradient || (bg as any).gradient || ['#7C3AED', '#0891B2']) as [string, string],
+          meta: (bg as any).metadata?.averageDurationLabel || (bg as any).averageDurationLabel || '',
+          imageUrl: (bg as any).thumbnail || (bg as any).imageUrl || '',
         };
       });
 

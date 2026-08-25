@@ -10,12 +10,14 @@ import React, {
 import * as Notifications from "expo-notifications";
 import { useAuth } from "./AuthContext";
 import { accountSocket } from "../services/accountSocketClient";
+import { deviceSocketClient } from "../services/deviceSocketClient";
 import { notificationService } from "../services/notification.service";
 import {
   registerForPushNotificationsAsync,
   clearPushBadge,
   startTokenRefreshListener,
   stopTokenRefreshListener,
+  setActiveUserIdForPush,
 } from "../services/pushNotification.service";
 import { notificationBus, NOTIF_EVENTS } from "../lib/notificationBus";
 import type { NotificationNewPayload } from "../types";
@@ -31,6 +33,8 @@ export type InAppBanner = {
 type NotificationContextType = {
   /** Number of unread notifications (live-updated via socket). */
   unreadCount: number;
+  /** Map of inactive userId to their unread status boolean. */
+  inactiveUnreadStatus: Record<string, boolean>;
   /** The banner currently displayed in-app (top overlay). */
   banner: InAppBanner;
   showBanner: (b: Exclude<InAppBanner, null>) => void;
@@ -43,6 +47,7 @@ type NotificationContextType = {
 
 const NotificationContext = createContext<NotificationContextType>({
   unreadCount: 0,
+  inactiveUnreadStatus: {},
   banner: null,
   showBanner: () => {},
   hideBanner: () => {},
@@ -75,8 +80,9 @@ export function NotificationProvider({
 }: {
   children: React.ReactNode;
 }) {
-  const { isLoggedIn } = useAuth();
+  const { isLoggedIn, user, switchAccount } = useAuth();
   const [unreadCount, setUnreadCount] = useState(0);
+  const [inactiveUnreadStatus, setInactiveUnreadStatus] = useState<Record<string, boolean>>({});
   const [banner, setBanner] = useState<InAppBanner>(null);
   const bannerTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const registeredRef = useRef(false);
@@ -119,11 +125,17 @@ export function NotificationProvider({
       if (key === lastNotifKey.current) return;
       lastNotifKey.current = key;
 
+      // If the notification is for a different account, ignore it here.
+      // The device socket's ping will automatically update the inactive red dots instead.
+      if (notif?.recipientId && String(notif.recipientId) !== String(user?.id)) {
+        return;
+      }
+
       setUnreadCount((prev) => prev + 1);
       notificationBus.emit(NOTIF_EVENTS.NEW, notif);
       showBanner(toBanner(notif));
     },
-    [showBanner],
+    [showBanner, user?.id],
   );
 
   // Reset on logout so a different account on the same device re-registers its
@@ -131,6 +143,10 @@ export function NotificationProvider({
   useEffect(() => {
     if (!isLoggedIn) registeredRef.current = false;
   }, [isLoggedIn]);
+
+  useEffect(() => {
+    setActiveUserIdForPush(user?.id ? String(user.id) : null);
+  }, [user?.id]);
 
   // ── Push token registration + system notification listeners ──────────────
   useEffect(() => {
@@ -157,7 +173,19 @@ export function NotificationProvider({
       async (response) => {
         clearUnread();
         const data = response.notification.request.content.data || {};
-        const { navigationRef } = require("../navigation/AppNavigator");
+        const { navigationRef } = require("../navigation/navigationRef");
+
+        const recipientId = data?.recipientId;
+        if (recipientId && String(user?.id) !== String(recipientId)) {
+          try {
+            await switchAccount(recipientId);
+            // Give the app a small delay to unmount/remount the active session
+            await new Promise((res) => setTimeout(res, 500));
+          } catch (e) {
+            console.warn("Failed to switch account from notification", e);
+            return; // Stop deep linking if the switch failed
+          }
+        }
 
         // ── Chat message deep-link ──────────────────────────────────────
         // Chat pushes carry conversationId + otherUser info so we can
@@ -236,7 +264,7 @@ export function NotificationProvider({
       notifSub.remove();
       stopTokenRefreshListener();
     };
-  }, [isLoggedIn, handleIncoming, clearUnread]);
+  }, [isLoggedIn, handleIncoming, clearUnread, user?.id, switchAccount]);
 
   // ── Real-time socket notifications ───────────────────────────────────────
   useEffect(() => {
@@ -248,11 +276,34 @@ export function NotificationProvider({
     };
   }, [isLoggedIn, handleIncoming, refreshUnread]);
 
+  // ── Multi-account background unread checks ──────────────────────────────
+  useEffect(() => {
+    const handleDeviceUnreadStatus = (statusMap: Record<string, boolean>) => {
+      // Do NOT delete the active user from this map!
+      // The UI components (SideDrawer/MainHeader) explicitly filter out the active
+      // user when deciding whether to show a red dot. If we delete it here, switching
+      // accounts causes us to lose the previous account's state.
+      setInactiveUnreadStatus(statusMap);
+    };
+    deviceSocketClient.events.on("device:unread_status", handleDeviceUnreadStatus);
+    
+    // When the active user changes (e.g. on account switch), immediately ask the
+    // device socket for fresh counts so the new "inactive" accounts reflect properly.
+    if (user?.id) {
+      deviceSocketClient.fetchUnread();
+    }
+
+    return () => {
+      deviceSocketClient.events.off("device:unread_status", handleDeviceUnreadStatus);
+    };
+  }, [user?.id]);
+
   return (
     <NotificationContext.Provider
       value={useMemo(
         () => ({
           unreadCount,
+          inactiveUnreadStatus,
           banner,
           showBanner,
           hideBanner,
@@ -261,6 +312,7 @@ export function NotificationProvider({
         }),
         [
           unreadCount,
+          inactiveUnreadStatus,
           banner,
           showBanner,
           hideBanner,

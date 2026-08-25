@@ -174,9 +174,10 @@ export default function LockScreen() {
     if (isSetup || isDisable || isVerifyToEnable) {
       navigation.goBack();
     } else if (returnScreen) {
-      // Tabs live in the parent (MainNavigator), so use getParent to navigate there
-      navigation.goBack(); // first close the lock screen
-      navigation.getParent()?.navigate(returnScreen as never);
+      // Both LockScreen and Wallet are in the Root Stack. Replacing ensures
+      // the lock screen is popped from the stack and immediately replaced by
+      // the target screen without parent-traversal issues.
+      navigation.replace(returnScreen as never);
     } else {
       navigation.goBack();
     }

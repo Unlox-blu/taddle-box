@@ -6,7 +6,7 @@ import NetInfo from '@react-native-community/netinfo';
 import { authService } from '../services/auth.service';
 import { apiClient } from '../services/apiClient';
 import { accountSocket } from '../services/accountSocketClient';
-import { ensureGameLogos } from '../games/gameAssets';
+
 import { getAccounts, addAccount as storeAddAccount, removeAccount as storeRemoveAccount, storeCurrentAccountTokens, restoreAccountTokens, clearAccountTokens, clearAllAccounts, type AccountProfile } from '../utils/accountStore';
 import type { XPUpdatedPayload } from '../types';
 import { queryClient } from '../lib/react-query';
@@ -417,9 +417,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         const state = await NetInfo.fetch();
         if (cancelled) return;
         if (!state.isConnected || state.isInternetReachable === false) return;
-        // Skip metered links (cellular) — the tab-entry warm covers them.
-        if (state.type !== 'wifi' && state.type !== 'ethernet') return;
-        await ensureGameLogos();
+        // Thumbnail pre-warming is now handled by preloadGameThumbnails
+        // in GamesScreen on tab focus — no app-start download needed.
       } catch {
         /* prewarm is best-effort */
       }

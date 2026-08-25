@@ -1,7 +1,12 @@
 import React, { useState, useEffect, useRef } from "react";
 import { View, Text, TouchableOpacity, StyleSheet, Image } from "react-native";
+import { notificationBus } from "../../lib/notificationBus";
 import { Ionicons } from "@expo/vector-icons";
-import { useNavigation, useRoute, useFocusEffect } from "@react-navigation/native";
+import {
+  useNavigation,
+  useRoute,
+  useFocusEffect,
+} from "@react-navigation/native";
 import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
 import { fontSizes, spacing, radii } from "../../theme";
 import { useTheme, useThemeColors } from "../../context/ThemeContext";
@@ -53,16 +58,31 @@ export default function MainHeader({
   // NOTE: do NOT add a per-focus refreshUnread() here — MainHeader mounts on
   // every tab screen (lazy:false), so a focus listener fires the notifications
   // API on EVERY tab click (Community/Events/…), spamming the backend.
-  const { unreadCount } = useNotifications();
+  const { unreadCount, inactiveUnreadStatus } = useNotifications();
+  const otherAccounts = accounts.filter(
+    (a) => String(a.userId) !== String(currentUser?.id),
+  );
+  const hasInactiveUnread = otherAccounts.some(
+    (a) => inactiveUnreadStatus[String(a.userId)],
+  );
 
   // ── Chat Unread Logic ──
   const [unreadChatCount, setUnreadChatCount] = useState(0);
   useEffect(() => {
-    // Fetch initial chat unread count
-    chatService.getInbox(1, 10).then((res) => {
-      const count = res.conversations?.reduce((acc: number, c: any) => acc + (c.unread_count || 0), 0) || 0;
-      setUnreadChatCount(count);
-    }).catch(() => {});
+    const fetchInbox = () => {
+      chatService
+        .getInbox(1, 10)
+        .then((res) => {
+          const count =
+            res.conversations?.reduce(
+              (acc: number, c: any) => acc + (c.unread_count || 0),
+              0,
+            ) || 0;
+          setUnreadChatCount(count);
+        })
+        .catch(() => {});
+    };
+    fetchInbox();
 
     // Listen to real-time chat messages
     const handleChatMessage = (data: any) => {
@@ -71,8 +91,14 @@ export default function MainHeader({
       }
     };
     accountSocket.events.on("chat:message" as any, handleChatMessage);
+    const unsubscribe = notificationBus.on("chat_inbox_updated", fetchInbox);
+    // @ts-ignore
+    window._mainHeaderSubCleanup = unsubscribe;
+
     return () => {
       accountSocket.events.off("chat:message" as any, handleChatMessage);
+      // @ts-ignore
+      if (window._mainHeaderSubCleanup) window._mainHeaderSubCleanup();
     };
   }, [currentUser?.id]);
 
@@ -84,7 +110,7 @@ export default function MainHeader({
     if (now - lastTapRef.current < 300) {
       // Double tap detected
       if (singleTapTimerRef.current) clearTimeout(singleTapTimerRef.current);
-      
+
       const nextAcc = accounts.find((a) => a.userId !== currentUser?.id);
       if (nextAcc) {
         switchAccount(nextAcc.userId);
@@ -99,7 +125,17 @@ export default function MainHeader({
   };
 
   return (
-    <Animated.View style={[styles.header, { borderBottomColor: colors.border, backgroundColor: colors.bg.base, paddingTop: insets.top + 4 }, animatedStyle]}>
+    <Animated.View
+      style={[
+        styles.header,
+        {
+          borderBottomColor: colors.border,
+          backgroundColor: colors.bg.base,
+          paddingTop: insets.top + 4,
+        },
+        animatedStyle,
+      ]}
+    >
       {showBack ? (
         // Pushed screens (community detail, settings, bookmarks, …) keep the
         // main header — logo, global search, notifications — with a back arrow
@@ -113,21 +149,54 @@ export default function MainHeader({
         </TouchableOpacity>
       ) : (
         <TouchableOpacity
-          style={[styles.iconBtn, { overflow: 'hidden', padding: 0, justifyContent: 'center', alignItems: 'center' }]}
+          style={[
+            styles.iconBtn,
+            { padding: 0, justifyContent: "center", alignItems: "center" },
+          ]}
           onPress={handleAvatarPress}
           activeOpacity={0.7}
         >
           {currentUser?.avatarUrl ? (
-            <Image source={{ uri: currentUser.avatarUrl }} style={{ width: 30, height: 30, borderRadius: 15 }} />
+            <Image
+              source={{ uri: currentUser.avatarUrl }}
+              style={{ width: 30, height: 30, borderRadius: 15 }}
+            />
           ) : (
-            <View style={{ width: 30, height: 30, borderRadius: 15, backgroundColor: colors.bg.card, alignItems: 'center', justifyContent: 'center' }}>
-              <Text style={{ color: colors.text.primary, fontSize: 14, fontWeight: 'bold' }}>
+            <View
+              style={{
+                width: 30,
+                height: 30,
+                borderRadius: 15,
+                backgroundColor: colors.bg.card,
+                alignItems: "center",
+                justifyContent: "center",
+              }}
+            >
+              <Text
+                style={{
+                  color: colors.text.primary,
+                  fontSize: 14,
+                  fontWeight: "bold",
+                }}
+              >
                 {(currentUser?.name || "U").charAt(0).toUpperCase()}
               </Text>
             </View>
           )}
-          {unreadChatCount > 0 && (
-            <View style={{ position: 'absolute', top: 0, right: 0, width: 10, height: 10, borderRadius: 5, backgroundColor: colors.danger, borderWidth: 1.5, borderColor: colors.bg.base }} />
+          {(unreadChatCount > 0 || hasInactiveUnread) && (
+            <View
+              style={{
+                position: "absolute",
+                top: 4,
+                right: 4,
+                width: 10,
+                height: 10,
+                borderRadius: 5,
+                backgroundColor: colors.danger,
+                borderWidth: 1.5,
+                borderColor: colors.bg.base,
+              }}
+            />
           )}
         </TouchableOpacity>
       )}
@@ -218,20 +287,23 @@ export default function MainHeader({
             else if (route.name === "ChatInbox") source = "messages";
             else if (route.name === "Chat") {
               source = "messages";
-              authorFilter = (route.params as any)?.otherUser?.username || (route.params as any)?.otherUserId || '';
+              authorFilter =
+                (route.params as any)?.otherUser?.username ||
+                (route.params as any)?.otherUserId ||
+                "";
             }
-            // Search from Bookmarks is scoped to saved posts; from Settings it
-            // scopes to the viewer's own posts.
+            // Search from Bookmarks is scoped to saved items; from Settings it
+            // scopes to the viewer's own items.
             else if (route.name === "Bookmarks") {
-              tab = "posts";
+              tab = "all";
               source = "bookmarks";
             } else if (route.name === "Settings") {
-              tab = "posts";
+              tab = "all";
               source = "settings";
             } else if (route.name === "Notifications") {
-              tab = "posts";
+              tab = "all";
               source = "notifications";
-            } else tab = "posts"; // fallback
+            } else tab = "all"; // fallback
 
             const params: any = { tab };
             if (scopeCommunity) params.scopeCommunity = scopeCommunity;
@@ -272,16 +344,9 @@ export default function MainHeader({
       <SideDrawer
         visible={isDrawerOpen}
         onClose={() => setDrawerOpen(false)}
-        onNavigateTab={(tab) => navigation.getParent()?.navigate(tab as never)}
-        onNavigateStack={(screen) => {
-          // All SideDrawer stack screens are at root level so they don't
-          // activate any tab (Home, Community, etc.).
-          const rootNav = navigation.getParent()?.getParent();
-          if (rootNav) {
-            rootNav.navigate(screen as never);
-          }
-        }}
-        onProfile={() => navigation.getParent()?.navigate("Profile" as never)}
+        onNavigateTab={(tab) => navigation.navigate(tab as never)}
+        onNavigateStack={(screen) => navigation.navigate(screen as never)}
+        onProfile={() => navigation.navigate("Profile" as never)}
       />
     </Animated.View>
   );

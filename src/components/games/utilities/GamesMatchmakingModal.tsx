@@ -10,9 +10,9 @@ import {
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
-import { useThemeColors } from '../../context/ThemeContext';
-import { fontSizes, radii, spacing } from '../../theme';
-import type { Game } from '../../types';
+import { useThemeColors } from '../../../context/ThemeContext';
+import { fontSizes, radii, spacing } from '../../../theme';
+import type { Game } from '../../../types';
 
 interface GamesMatchmakingModalProps {
   visible: boolean;

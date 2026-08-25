@@ -19,7 +19,7 @@ export default function ProfileScreen() {
       <SharedProfile 
         initialUser={authUser} 
         isOwnProfile={true}
-        headerComponent={<MainHeader />}
+        headerComponent={<MainHeader showBack={true} />}
       />
     </View>
   );

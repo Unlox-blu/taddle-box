@@ -6,11 +6,14 @@ import React, {
   useState,
 } from "react";
 import {
+  Alert,
   Animated,
   DeviceEventEmitter,
   Easing,
   Image,
+  Keyboard,
   Modal,
+  Platform,
   ScrollView,
   StyleSheet,
   Switch,
@@ -24,6 +27,7 @@ import { Ionicons } from "@expo/vector-icons";
 import { LinearGradient } from "expo-linear-gradient";
 import { StatusBar } from "expo-status-bar";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
+import Svg, { Circle } from "react-native-svg";
 import { useNavigation, useFocusEffect } from "@react-navigation/native";
 import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
 import type {
@@ -48,61 +52,44 @@ import MainHeader from "../../components/common/MainHeader";
 import { SectionHeader } from "../../components/common/SectionChrome";
 import ActiveStatusDot from "../../components/common/ActiveStatusDot";
 import StateBlock from "../../components/common/StateBlock";
-// Lazy-load game components — deferred until a match starts to reduce
-// startup memory. React.lazy in RN defers component initialization
-// (PanResponder, Animated values, intervals) until first render.
-const ChessGame = React.lazy(() => import("../../components/games/ChessGame"));
-const LudoGame = React.lazy(() => import("../../components/games/LudoGame"));
-const SnakeLadderGame = React.lazy(() => import("../../components/games/SnakeLadderGame"));
-const ScribbleGame = React.lazy(() => import("../../components/games/ScribbleGame"));
-const WordRushGame = React.lazy(() => import("../../components/games/WordRushGame"));
-const TapRushGame = React.lazy(() => import("../../components/games/TapRushGame"));
-const MemoryGridGame = React.lazy(() => import("../../components/games/MemoryGridGame"));
-import GameLogo from "../../components/games/GameLogo";
-import GameStartScreen from "../../components/games/GameStartScreen";
-import { GAME_ASSETS } from "../../games/assets";
+import AppGameHost from "../../components/games/infrastructure/AppGameHost";
+import { preloadRuntime } from "../../games/GameRuntimeRegistry";
+import GameLogo from "../../components/games/utilities/GameLogo";
+import GameChatPanel from "../../components/games/utilities/GameChatPanel";
+import GameStartScreen from "../../components/games/utilities/GameStartScreen";
+import GameCard from "../../components/games/utilities/GameCard";
+import TournamentCard from "../../components/games/utilities/TournamentCard";
+import HistoryModal from "../../components/games/utilities/HistoryModal";
+import MatchRow from "../../components/games/utilities/MatchRow";
+import GameSettingsModal from "../../components/games/utilities/GameSettingsModal";
+import { makeStyles } from "./GamesScreen.styles";
+
 import LottieView from "lottie-react-native";
 import { getCachedLottieSync, getCachedLottie, S3_APP_ICON_LOTTIE_URL } from "../../services/lottie.service";
-import {
-  ensureGameAssets,
-  ensureGameLogos,
-  getCachedGameLogo,
-  getCachedGameCard,
-  useGameAssetsVersion,
-} from "../../games/gameAssets";
+
 import type { Game } from "../../types";
-import type { HtmlGameResult } from "../../games/types";
-const MatchModeModal = React.lazy(() => import("../../components/games/MatchModeModal"));
-const GameResultOverlay = React.lazy(() => import("../../components/games/GameResultOverlay"));
+import type { HtmlGameResult, PlayerContext } from "../../games/types";
+import { preloadGameAssets as preloadManifestAssets, releaseAssetSet, preloadGameThumbnails, getCachedThumbnail, warmThumbnailCache, pruneOldAssetVersions } from "../../games/assetManifest";
+const MatchModeModal = React.lazy(() => import("../../components/games/utilities/MatchModeModal"));
+const GameResultOverlay = React.lazy(() => import("../../components/games/utilities/GameResultOverlay"));
+const RoundResultOverlay = React.lazy(() => import("../../components/games/utilities/RoundResultOverlay"));
 import { accountSocket } from "../../services/accountSocketClient";
 import type { User } from "../../types";
 import { useAuth } from "../../context/AuthContext";
-import TournamentLeaderboardModal from "../../components/games/TournamentLeaderboardModal";
+import TournamentLeaderboardModal from "../../components/games/utilities/TournamentLeaderboardModal";
 import {
   gameSound,
-  initGameSound,
   destroyGameSound,
   useGameSoundPrefs,
 } from "../../services/gameSound";
 import { themedAlert } from "../../components/common/ThemedAlert";
-import GamesMatchmakingModal from "../../components/games/GamesMatchmakingModal";
+import GamesMatchmakingModal from "../../components/games/utilities/GamesMatchmakingModal";
+import { useRoundLifecycle } from "../../hooks/useRoundLifecycle";
 import { warn } from '../../utils/logger';
 
 type ActiveTab = "games" | "tournaments" | "history";
 type ScreenModal = "none" | "history";
 
-// Every game shows the cosmetic 3-2-1 countdown. Realtime games gate their
-// own clocks (round timers, pattern reveals) on `externalPhase === "playing"`
-// so the countdown never burns match time before the board is visible.
-export type PlayerContext = {
-  id: string;
-  name: string;
-  username?: string;
-  avatar?: string;
-  team?: number;
-  seat?: number;
-  level?: number;
-};
 
 type ActiveSession = {
   game: Game;
@@ -118,6 +105,8 @@ type ActiveSession = {
   myTeam?: number;
   /** Set when the session was re-opened from a reconnect — skip the countdown. */
   isRejoin?: boolean;
+  /** Number of rounds configured for this match (default 1). */
+  configuredRounds?: number;
 };
 
 const formatTimeLeft = (endsAt: string) => {
@@ -140,31 +129,9 @@ const formatStartsIn = (startsAt: string) => {
   return `starts in ${minutes}m`;
 };
 
-// Every game is rendered by a native React Native component (there is no HTML5
-// webview renderer anymore). Some DB rows still carry a stale `html5_webview`
-// runtime flag, so gate on the slug — never on the runtime metadata — or the
-// game would never mount and matches would appear stuck in "waiting".
-const NATIVE_GAME_SLUGS = new Set([
-  "chess",
-  "ludo",
-  "snake-ladder",
-  "scribble",
-  "word-rush",
-  "tap-rush",
-  "memory-grid",
-]);
-
-// Module-level map — created once, never recreated on re-renders.
-// Each game is React.lazy, so the actual bundle only loads when the slug matches.
-const GAME_COMPONENTS: Record<string, any> = {
-  chess: ChessGame,
-  ludo: LudoGame,
-  "snake-ladder": SnakeLadderGame,
-  scribble: ScribbleGame,
-  "word-rush": WordRushGame,
-  "tap-rush": TapRushGame,
-  "memory-grid": MemoryGridGame,
-};
+// Game rendering is runtime-driven via AppGameHost.
+// No hardcoded GAME_COMPONENTS map — AppGameHost routes by runtimeType + runtime
+// from backend metadata. Adding a new game = backend-only change (new plugin + registry entry).
 
 export default function GamesScreen() {
   const insets = useSafeAreaInsets();
@@ -182,26 +149,22 @@ export default function GamesScreen() {
     refreshGames,
   } = useGames();
 
-  // Merges backend games with local assets, then orders the display list so
-  // trending games (top 3) appear FIRST, followed by the rest. The branded
-  // logo is the cached download (file URI) when present, else null → the card
-  // shows the remote image / monogram tile until the player taps PLAY.
-  const logoVersion = useGameAssetsVersion();
+  // Merges backend games, then orders the display list so trending games
+  // (top 3) appear FIRST, followed by the rest. All visual fields are
+  // SSOT from the backend — no hardcoded asset lookups.
   const realGames: Game[] = useMemo(() => {
     if (!backendGames || backendGames.length === 0) return [];
     const merged = backendGames.map((bg) => {
-      const assets = GAME_ASSETS[bg.slug] || GAME_ASSETS["tap-rush"];
       return {
         ...bg,
-        emoji: bg.emoji || assets.emoji,
-        gradient: bg.metadata?.gradient || assets.gradient,
-        imageUrl: bg.thumbnail || assets.imageUrl,
-        logo: getCachedGameLogo(bg.slug),
-        card: getCachedGameCard(bg.slug || ""),
+        // All visual fields are SSOT from the backend game object.
+        // No hardcoded fallbacks — the backend returns emoji, gradient,
+        // thumbnail, entryFee, prize, and averageDurationLabel.
+        imageUrl: getCachedThumbnail(bg.slug || '') || bg.thumbnail || bg.imageUrl,
         entryFee: bg.metadata?.entryFee || bg.entryFee,
         prize: bg.metadata?.prize || bg.prize,
         averageDurationLabel:
-          bg.metadata?.averageDurationLabel || assets.averageDurationLabel,
+          bg.metadata?.averageDurationLabel || (bg as any).averageDurationLabel,
       };
     });
 
@@ -216,7 +179,7 @@ export default function GamesScreen() {
       }
     }
     return [...trending, ...rest];
-  }, [backendGames, backendTrending, logoVersion]);
+  }, [backendGames, backendTrending]);
 
   const findLocalGame = useCallback(
     (gameId: string) =>
@@ -263,19 +226,10 @@ export default function GamesScreen() {
   const [gameSettingsVisible, setGameSettingsVisible] = useState(false);
   const [globalMatchModalVisible, setGlobalMatchModalVisible] = useState(false);
 
-  // Which game's assets are downloading right now (drives the card spinner).
-  const [downloadingSlug, setDownloadingSlug] = useState<string | null>(null);
 
-  // Fire-and-forget asset warm for flows that open the match modal directly
-  // (invites, rematch) — the download runs while the user picks a mode.
-  const preloadGameAssets = useCallback((slug?: string) => {
-    if (!slug) return;
-    ensureGameAssets(slug)
-      .then(() => initGameSound())
-      .catch(() => {
-        /* asset download failure must never block play */
-      });
-  }, []);
+
+  // No-op: asset preload now happens in handleMatched after matchmaking,
+  // using the backend-decided runtime + asset contract.
 
   const handleGamePlay = useCallback(
     async (game: Game, isRejoin: boolean) => {
@@ -294,30 +248,27 @@ export default function GamesScreen() {
         );
         return;
       }
-      if (downloadingSlug) return; // one download at a time
-      // The game's logo + sounds download ONLY on this PLAY tap — never at
-      // app launch (see gameAssets.ts). Best-effort: on failure the game
-      // still opens — logo falls back to the monogram tile, sounds stay
-      // silent until cached.
-      setDownloadingSlug(game.slug || null);
-      try {
-        await ensureGameAssets(game.slug || "");
-        await initGameSound();
-      } catch {
-        /* asset download failure must never block play */
-      } finally {
-        setDownloadingSlug(null);
-      }
+      // No pre-download needed — logos, sounds, and all game assets are
+      // delivered via the backend asset manifest after matchmaking.
+      // The manifest preload + runtime preload happen in handleMatched
+      // during the countdown.
       setSelectedGame(game);
       setMatchModalVisible(true);
     },
-    [reconnectSession, user, downloadingSlug],
+    [reconnectSession, user],
   );
 
   const loadGamesData = useCallback(async () => {
     setLoading(true);
     try {
       await fetchGamesData();
+      // Pre-download game thumbnails from backend-provided URLs so the
+      // grid shows local artwork instantly (no remote fetch on render).
+      // Fire-and-forget — runs in background, never blocks the tab.
+      const games = realGamesRef.current;
+      if (games.length > 0) {
+        preloadGameThumbnails(games).catch(() => {});
+      }
     } catch (e) {
       warn("Failed to fetch games history", e);
     }
@@ -371,12 +322,9 @@ export default function GamesScreen() {
   const gamesScrollOffsetRef = useRef(0);
   useFocusEffect(
     useCallback(() => {
-      // Logos download when the Games tab opens so the grid shows the real
-      // artwork (idempotent — disk-checked after the first time). Sounds stay
-      // on the PLAY tap. Never runs at app launch.
-      ensureGameLogos().catch(() => {
-        /* logo download failure must never block the tab */
-      });
+      // Warm the thumbnail cache from disk so previously downloaded
+      // thumbnails appear instantly without waiting for preloadGameThumbnails.
+      warmThumbnailCache().catch(() => {});
       if (!hasLoadedRef.current) {
         hasLoadedRef.current = true;
         loadGamesData();
@@ -432,7 +380,6 @@ export default function GamesScreen() {
           setSelectedGame(game);
           setIncomingInviteCode(inviteCode);
           setMatchModalVisible(true);
-          preloadGameAssets(game.slug);
         }
       },
     );
@@ -566,8 +513,21 @@ export default function GamesScreen() {
             });
           }
 
+          // Merge runtime + asset contract from startGameSession response
+          // into the game object so AppGameHost and the asset system can use
+          // the backend-decided manifest (per-match aware).
+          const sessionRuntime = {
+            runtime: res.data?.runtime || request.game.runtime,
+            runtimeType: res.data?.runtimeType || request.game.runtimeType || 'app',
+            runtimeVersion: res.data?.runtimeVersion || request.game.runtimeVersion || 1,
+            protocolVersion: res.data?.protocolVersion || request.game.protocolVersion || 1,
+            minAppVersion: res.data?.minAppVersion || request.game.minAppVersion,
+            assetSetId: res.data?.assetSetId || request.game.assetSetId,
+            assetManifestVersion: res.data?.assetManifestVersion || request.game.assetManifestVersion,
+          };
+
           setActiveSession({
-            game: request.game,
+            game: { ...request.game, ...sessionRuntime } as any,
             mode:
               request.mode === "tournament"
                 ? "tournament"
@@ -587,7 +547,20 @@ export default function GamesScreen() {
             tournamentId: request.tournamentId,
             teamsLocked: !!(response as any).matchMetadata?.teamsLocked,
             myTeam,
+            configuredRounds: res.data?.configuredRounds || request.game.rounds?.default || 1,
           });
+
+          // ── Kick off manifest + runtime preload DURING countdown ────────
+          // The game mounts in prestart (behind the countdown overlay), so
+          // these fire-and-forget downloads run while the countdown ticks.
+          // By the time phase switches to "playing", the bundle and critical
+          // assets are already cached.
+          const rSlug = sessionRuntime.runtime || request.game.slug || '';
+          const rVer = sessionRuntime.runtimeVersion || 1;
+          preloadRuntime(rSlug, rVer);
+          if (sessionRuntime.assetSetId && sessionRuntime.assetManifestVersion) {
+            preloadManifestAssets(sessionRuntime.assetSetId, sessionRuntime.assetManifestVersion).catch(() => {});
+          }
         })
         .catch((err: any) => {
           themedAlert(
@@ -604,6 +577,17 @@ export default function GamesScreen() {
     // Release native audio players — frees ~11 AudioPlayer allocations.
     // initGameSound() will recreate them on next PLAY tap.
     destroyGameSound().catch(() => {});
+    // Release the asset set from the active set so it can be pruned,
+    // then prune old versions of ALL asset sets to reclaim disk space.
+    if (activeSession?.game?.assetSetId) {
+      releaseAssetSet(activeSession.game.assetSetId);
+    }
+    try {
+      // Prune is non-blocking — runs in background, never blocks UI.
+      const currentId = activeSession?.game?.assetSetId || "";
+      const currentVer = (activeSession?.game as any)?.assetManifestVersion || 1;
+      pruneOldAssetVersions(currentId, currentVer).catch(() => {});
+    } catch { /* best-effort */ }
     // Clear stale reconnect session IMMEDIATELY so the REJOIN button on the
     // game card disappears the moment the session closes. loadGamesData() will
     // re-fetch the active session from the server — if a new one exists it
@@ -619,7 +603,6 @@ export default function GamesScreen() {
     const s = activeSession as ActiveSession | null;
     setActiveSession(null);
     setSelectedGame(s?.game || null);
-    preloadGameAssets(s?.game?.slug);
     setSelectedTournamentId(s?.tournamentId || null);
     // Custom lobbies can't be re-queued instantly (they need a fresh lobby),
     // so only auto-queue AUTO / practice / tournament rematches.
@@ -734,7 +717,6 @@ export default function GamesScreen() {
                         setIncomingInviteCode(inviteCode);
                         setMatchModalVisible(true);
                         setIncomingInvite(null);
-                        preloadGameAssets(game.slug);
                       }
                     }}
                   >
@@ -755,12 +737,12 @@ export default function GamesScreen() {
             {loading && realGames.length === 0 ? (
               <View style={{ minHeight: 300, justifyContent: 'center' }}><StateBlock card loading label="Loading games" /></View>
             ) : (
-              <View style={{ flexDirection: 'row', flexWrap: 'wrap', paddingHorizontal: spacing.lg, marginHorizontal: -spacing.sm }}>
+              <View style={styles.gameGridWrapper}>
                 {realGames.map(game => {
                   const isRejoin = !!reconnectSession && reconnectSession.gameId === game.id;
                   const rejoinWindowMs = isRejoin ? reconnectSession.reconnectWindowMs : null;
                 return (
-                  <View key={game.id} style={{ width: '50%', paddingHorizontal: spacing.sm, marginBottom: spacing.md }}>
+                  <View key={game.id} style={styles.gameGridItem}>
                     <GameCard
                       game={{
                         ...game,
@@ -770,7 +752,6 @@ export default function GamesScreen() {
                       }}
                       isRejoin={isRejoin}
                       rejoinWindowMs={rejoinWindowMs}
-                      downloading={downloadingSlug === game.slug}
                       onRejoinExpired={() => {
                         setReconnectSession(null);
                         loadGamesData();
@@ -797,7 +778,8 @@ export default function GamesScreen() {
                 subtitle="Check back soon for the next challenge."
               />
             ) : (
-              tournaments.map((tournament) => {
+              <View style={{ paddingHorizontal: 16, gap: 10 }}>
+              {tournaments.map((tournament) => {
                 const game = findLocalGame(tournament.gameId);
                 if (!game) return null;
                 return (
@@ -821,7 +803,8 @@ export default function GamesScreen() {
                     />
                   </TouchableOpacity>
                 );
-              })
+              })}
+              </View>
             )}
           </>
         )}
@@ -957,299 +940,6 @@ function BrandedGameLoader() {
   );
 }
 
-/** Pulsing loader dots for the play button — lightweight, no Lottie dependency. */
-function BrandedButtonLoader() {
-  const dot1 = useRef(new Animated.Value(0.4)).current;
-  const dot2 = useRef(new Animated.Value(0.4)).current;
-  const dot3 = useRef(new Animated.Value(0.4)).current;
-  useEffect(() => {
-    const makeAnim = (val: Animated.Value, delay: number) =>
-      Animated.loop(
-        Animated.sequence([
-          Animated.delay(delay),
-          Animated.timing(val, { toValue: 1, duration: 400, useNativeDriver: true }),
-          Animated.timing(val, { toValue: 0.4, duration: 400, useNativeDriver: true }),
-        ]),
-      );
-    const a1 = makeAnim(dot1, 0);
-    const a2 = makeAnim(dot2, 150);
-    const a3 = makeAnim(dot3, 300);
-    a1.start(); a2.start(); a3.start();
-    return () => { a1.stop(); a2.stop(); a3.stop(); };
-  }, []);
-
-  const dotStyle = { width: 5, height: 5, borderRadius: 2.5, backgroundColor: '#fff' };
-  return (
-    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 3 }}>
-      <Animated.View style={[dotStyle, { opacity: dot1 }]} />
-      <Animated.View style={[dotStyle, { opacity: dot2 }]} />
-      <Animated.View style={[dotStyle, { opacity: dot3 }]} />
-    </View>
-  );
-}
-
-function GameCard({
-  game,
-  isRejoin,
-  rejoinWindowMs,
-  downloading,
-  onPlayClick,
-  onRejoinExpired,
-}: {
-  game: Game;
-  isRejoin?: boolean;
-  rejoinWindowMs?: number | null;
-  /** True while this game's assets are downloading on first PLAY tap. */
-  downloading?: boolean;
-  onPlayClick: () => void;
-  onRejoinExpired?: () => void;
-}) {
-  const [timeLeft, setTimeLeft] = useState<number | null>(
-    rejoinWindowMs != null ? Math.floor(rejoinWindowMs / 1000) : null,
-  );
-
-  const formatTime = (seconds: number) => {
-    if (seconds >= 3600) {
-      const h = Math.floor(seconds / 3600);
-      const m = Math.floor((seconds % 3600) / 60);
-      return `${h}h ${m}m`;
-    }
-    if (seconds >= 60) {
-      const m = Math.floor(seconds / 60);
-      const s = seconds % 60;
-      return `${m}m ${s}s`;
-    }
-    return `${seconds}s`;
-  };
-
-  useEffect(() => {
-    if (rejoinWindowMs != null) {
-      setTimeLeft(Math.floor(rejoinWindowMs / 1000));
-    } else {
-      // Server didn't report a window (match still ACTIVE, or Redis snapshot
-      // missing after a restart). Fall back to the standard 60s reconnect
-      // window so a rejoin button ALWAYS shows a countdown and self-expires
-      // instead of sitting on "REJOIN MATCH" with no seconds for a long time.
-      // Non-rejoin cards keep timeLeft null so they never tick.
-      setTimeLeft(isRejoin ? 60 : null);
-    }
-  }, [rejoinWindowMs, isRejoin]);
-
-  useEffect(() => {
-    if (!isRejoin || timeLeft === null || timeLeft <= 0) return;
-    const timer = setInterval(() => {
-      setTimeLeft((prev) => (prev && prev > 0 ? prev - 1 : 0));
-    }, 1000);
-    return () => clearInterval(timer);
-  }, [timeLeft, isRejoin]);
-
-  // When the reconnect window expires the match is forfeited server-side, so
-  // the REJOIN button must revert to a normal PLAY card instead of showing
-  // "REJOIN MATCH" forever (stale session left in state).
-  useEffect(() => {
-    if (isRejoin && timeLeft === 0) {
-      const t = setTimeout(() => onRejoinExpired?.(), 1200);
-      return () => clearTimeout(t);
-    }
-  }, [isRejoin, timeLeft, onRejoinExpired]);
-
-  const colors = useThemeColors();
-  const styles = useMemo(() => makeStyles(colors), [colors]);
-
-  return (
-    <View style={styles.gameCard}>
-      {game.logo ? (
-        <ImageBackground
-          source={game.logo}
-          style={styles.gameArt}
-          resizeMode="cover"
-        >
-          {game.isHot && <Text style={styles.gameBadge}>TRENDING</Text>}
-        </ImageBackground>
-      ) : game.card ? (
-        <ImageBackground
-          source={game.card}
-          style={styles.gameArt}
-          resizeMode="cover"
-        >
-          {game.isHot && <Text style={styles.gameBadge}>TRENDING</Text>}
-        </ImageBackground>
-      ) : game.imageUrl ? (
-        <ImageBackground
-          source={{ uri: game.imageUrl }}
-          style={styles.gameArt}
-          resizeMode="cover"
-        >
-          {game.isHot && <Text style={styles.gameBadge}>TRENDING</Text>}
-        </ImageBackground>
-      ) : (
-        <LinearGradient
-          colors={game.gradient as [string, string]}
-          style={styles.gameArt}
-        >
-          <GameLogo game={game} size={52} radius={16} />
-          {game.isHot && <Text style={styles.gameBadge}>TRENDING</Text>}
-        </LinearGradient>
-      )}
-      <View style={styles.gameBody}>
-        <Text style={styles.gameTitle} numberOfLines={1}>
-          {game.name}
-        </Text>
-        <Text style={styles.gameMeta}>Earn Up to {game.maxXp} XP</Text>
-
-        <TouchableOpacity
-          style={{ marginTop: 12 }}
-          onPress={downloading ? undefined : onPlayClick}
-        >
-          <LinearGradient
-            colors={
-              isRejoin
-                ? [colors.warning, "#FF8C00"]
-                : [colors.primary, colors.cyanDark]
-            }
-            style={styles.primaryButton}
-          >
-            {downloading ? (
-              <BrandedButtonLoader />
-            ) : isRejoin ? (
-              <Ionicons name="play-forward" size={16} color="#fff" />
-            ) : (
-              <Ionicons name="play" size={16} color="#fff" />
-            )}
-            <Text style={styles.primaryButtonText}>
-              {downloading
-                ? "LOADING..."
-                : isRejoin
-                  ? `REJOIN MATCH ${timeLeft && timeLeft > 0 ? `(${formatTime(timeLeft)})` : ""}`
-                  : `PLAY | ${game.entryFee || 0} XP`}
-            </Text>
-          </LinearGradient>
-        </TouchableOpacity>
-      </View>
-    </View>
-  );
-}
-
-function TournamentCard({
-  tournament,
-  game,
-  onJoin,
-  onPlay,
-}: {
-  tournament: GameTournament;
-  game: Game;
-  onJoin: () => void;
-  onPlay: () => void;
-}) {
-  const colors = useThemeColors();
-  const styles = useMemo(() => makeStyles(colors), [colors]);
-  const fill = Math.min(
-    100,
-    Math.round((tournament.playerCount / tournament.maxPlayers) * 100),
-  );
-  const isUpcoming = tournament.status === "UPCOMING";
-  const joined = tournament.isJoined && !isUpcoming;
-
-  return (
-    <View style={styles.tournamentCard}>
-      <View style={styles.tournamentTop}>
-        <LinearGradient
-          colors={game.gradient as [string, string]}
-          style={styles.tournamentIcon}
-        >
-          <GameLogo game={game} size={38} radius={10} />
-        </LinearGradient>
-        <View style={styles.tournamentInfo}>
-          <Text style={styles.tournamentTitle}>{tournament.title}</Text>
-          <Text style={styles.tournamentMeta}>
-            {tournament.gameName} | Ends in {formatTimeLeft(tournament.endsAt)}
-          </Text>
-        </View>
-        <View
-          style={[styles.statusPill, isUpcoming && styles.statusPillUpcoming]}
-        >
-          <Text
-            style={[styles.statusText, isUpcoming && styles.statusTextUpcoming]}
-          >
-            {isUpcoming ? "UPCOMING" : tournament.status}
-          </Text>
-        </View>
-      </View>
-
-      <View style={styles.tournamentNumbers}>
-        <InfoPill
-          label="Players"
-          value={`${tournament.playerCount}/${tournament.maxPlayers}`}
-        />
-        <InfoPill label="Entry" value={`${tournament.entryFeeXP} XP`} />
-        <InfoPill label="Prize" value={`${tournament.prizeXP} XP`} />
-      </View>
-
-      <View style={styles.progressTrack}>
-        <View style={[styles.progressFill, { width: `${fill}%` }]} />
-      </View>
-
-      {/* My rank: shown once the player has joined and played at least one match */}
-      {joined && tournament.myRank != null && (
-        <View style={styles.myRankRow}>
-          <Ionicons name="podium-outline" size={16} color={colors.xpGold} />
-          <Text style={styles.myRankText}>
-            Your rank: #{tournament.myRank}{" "}
-            <Text style={styles.myRankSub}>
-              · {tournament.myScore || 0}{" "}
-              {(tournament.myScore || 0) === 1 ? "win" : "wins"}
-            </Text>
-          </Text>
-        </View>
-      )}
-
-      {isUpcoming ? (
-        <View
-          style={[styles.tournamentButton, styles.tournamentDisabledButton]}
-        >
-          <Ionicons name="time-outline" size={18} color={colors.text.muted} />
-          <Text
-            style={[styles.tournamentButtonText, { color: colors.text.muted }]}
-          >
-            {formatStartsIn(tournament.startsAt)}
-          </Text>
-        </View>
-      ) : (
-        <TouchableOpacity
-          onPress={joined ? onPlay : onJoin}
-          activeOpacity={0.85}
-        >
-          <LinearGradient
-            colors={
-              joined
-                ? [colors.primary, colors.cyanDark]
-                : ["rgba(124,58,237,0.18)", "rgba(6,182,212,0.12)"]
-            }
-            style={[
-              styles.tournamentButton,
-              !joined && styles.tournamentJoinButton,
-            ]}
-          >
-            <Ionicons
-              name={joined ? "people-outline" : "add-circle-outline"}
-              size={18}
-              color={joined ? "#fff" : colors.primaryLight}
-            />
-            <Text
-              style={[
-                styles.tournamentButtonText,
-                !joined && { color: colors.primaryLight },
-              ]}
-            >
-              {joined ? "Find Tournament Opponent" : "Join Tournament"}
-            </Text>
-          </LinearGradient>
-        </TouchableOpacity>
-      )}
-    </View>
-  );
-}
-
 function InfoPill({ label, value }: { label: string; value: string }) {
   const colors = useThemeColors();
   const styles = useMemo(() => makeStyles(colors), [colors]);
@@ -1260,6 +950,172 @@ function InfoPill({ label, value }: { label: string; value: string }) {
     </View>
   );
 }
+
+/**
+ * DisconnectOverlay — shown when a player disconnects during the match.
+ * Animated countdown ring, player avatar, fun tips, and exit option.
+ */
+function DisconnectOverlay({
+  players,
+  onExit,
+}: {
+  players: Array<{ userId: string; name: string; remainingMs: number }>;
+  onExit: () => void;
+}) {
+  const colors = useThemeColors();
+  const count = players.length;
+  // Use the SHORTEST remaining time across all disconnected players
+  const minRemaining = Math.min(...players.map((p) => p.remainingMs));
+  const minSeconds = Math.max(0, Math.floor(minRemaining / 1000));
+
+  // Scale avatar size based on player count
+  const avatarSize = count <= 2 ? 72 : count <= 4 ? 56 : 44;
+  const avatarFontSize = count <= 2 ? 28 : count <= 4 ? 22 : 18;
+
+  // Ring animation — duration = min remaining time
+  const ringProgress = useRef(new Animated.Value(0)).current;
+  useEffect(() => {
+    ringProgress.setValue(0);
+    if (minRemaining > 0) {
+      Animated.timing(ringProgress, {
+        toValue: 1,
+        duration: minRemaining,
+        easing: Easing.linear,
+        useNativeDriver: false,
+      }).start();
+    }
+  }, [minRemaining]);
+
+  // Pulse on player avatars
+  const pulse = useRef(new Animated.Value(1)).current;
+  useEffect(() => {
+    const loop = Animated.loop(
+      Animated.sequence([
+        Animated.timing(pulse, { toValue: 1.06, duration: 800, useNativeDriver: true }),
+        Animated.timing(pulse, { toValue: 1, duration: 800, useNativeDriver: true }),
+      ]),
+    );
+    loop.start();
+    return () => loop.stop();
+  }, []);
+
+  // Tip rotation
+  const tips = [
+    "While you wait, plan your next move...",
+    "Use this time to think about your strategy.",
+    "Stay focused — the match resumes any moment.",
+    "A calm player is a winning player.",
+    "Take a deep breath while you wait.",
+  ];
+  const [tipIdx, setTipIdx] = useState(0);
+  const tipFade = useRef(new Animated.Value(1)).current;
+  useEffect(() => {
+    const interval = setInterval(() => {
+      Animated.timing(tipFade, { toValue: 0, duration: 300, useNativeDriver: true }).start(() => {
+        setTipIdx((i) => (i + 1) % tips.length);
+        Animated.timing(tipFade, { toValue: 1, duration: 300, useNativeDriver: true }).start();
+      });
+    }, 4000);
+    return () => clearInterval(interval);
+  }, []);
+
+  const formatTime = (ms: number) => {
+    const s = Math.max(0, Math.floor(ms / 1000));
+    return s >= 60 ? `${Math.floor(s / 60)}m ${s % 60}s` : `${s}s`;
+  };
+
+  const ringSize = count <= 2 ? 140 : count <= 4 ? 120 : 100;
+  const ringR = ringSize / 2 - 8;
+  const ringCirc = 2 * Math.PI * ringR;
+  const dashOffset = ringProgress.interpolate({ inputRange: [0, 1], outputRange: [ringCirc, 0] });
+
+  const statusText = count === 1
+    ? `Waiting for ${players[0]?.name || 'Player'} to reconnect...`
+    : count <= 4
+    ? `Waiting for ${count} players to reconnect...`
+    : `Waiting for ${count} players to reconnect...`;
+
+  return (
+    <View
+      style={[
+        StyleSheet.absoluteFill,
+        {
+          backgroundColor: "rgba(0,0,0,0.88)",
+          justifyContent: "center",
+          alignItems: "center",
+          zIndex: 100,
+        },
+      ]}
+    >
+      {/* Player avatars — grid for multiple players */}
+      <Animated.View style={{ transform: [{ scale: pulse }], flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'center', gap: 12, maxWidth: 300 }}>
+        {players.map((p) => (
+          <View key={p.userId} style={{ alignItems: 'center', width: avatarSize + 20 }}>
+            <View
+              style={{
+                width: avatarSize, height: avatarSize, borderRadius: avatarSize / 2,
+                backgroundColor: "rgba(239,68,68,0.15)",
+                borderWidth: 2, borderColor: "rgba(239,68,68,0.4)",
+                alignItems: "center", justifyContent: "center",
+              }}
+            >
+              <Text style={{ color: "#fff", fontSize: avatarFontSize, fontWeight: "900" }}>
+                {p.name[0]?.toUpperCase() || "?"}
+              </Text>
+            </View>
+            <Text style={{ color: "#F8FAFC", fontSize: 11, fontWeight: "700", marginTop: 4 }} numberOfLines={1}>
+              {p.name}
+            </Text>
+            <Text style={{ color: "#EF4444", fontSize: 10, fontWeight: "600", marginTop: 2 }}>
+              {formatTime(p.remainingMs)}
+            </Text>
+          </View>
+        ))}
+      </Animated.View>
+
+      {/* Overall countdown ring */}
+      <View style={{ marginTop: 20, alignItems: "center", justifyContent: "center" }}>
+        <Svg width={ringSize} height={ringSize}>
+          <Circle cx={ringSize / 2} cy={ringSize / 2} r={ringR} stroke="rgba(255,255,255,0.08)" strokeWidth={6} fill="none" />
+          <AnimatedCircle
+            cx={ringSize / 2} cy={ringSize / 2} r={ringR}
+            stroke="#EF4444" strokeWidth={6} strokeLinecap="round"
+            strokeDasharray={`${ringCirc} ${ringCirc}`}
+            strokeDashoffset={dashOffset}
+            fill="none"
+            transform={`rotate(-90 ${ringSize / 2} ${ringSize / 2})`}
+          />
+        </Svg>
+        <View style={{ position: "absolute", alignItems: "center" }}>
+          <Text style={{ color: "#fff", fontSize: 32, fontWeight: "900" }}>{minSeconds}</Text>
+          <Text style={{ color: "rgba(255,255,255,0.4)", fontSize: 10, fontWeight: "700", letterSpacing: 1 }}>SECONDS</Text>
+        </View>
+      </View>
+
+      {/* Status text */}
+      <Text style={{ color: colors.text.secondary, fontSize: 14, textAlign: "center", marginTop: 12, marginHorizontal: 40 }}>
+        {statusText}
+      </Text>
+
+      {/* Rotating tip */}
+      <Animated.View style={{ opacity: tipFade, marginTop: 10, backgroundColor: "rgba(139,92,246,0.1)", borderRadius: 12, paddingHorizontal: 16, paddingVertical: 10, marginHorizontal: 32, borderWidth: 1, borderColor: "rgba(139,92,246,0.2)" }}>
+        <Text style={{ color: "rgba(255,255,255,0.5)", fontSize: 12, fontWeight: "600", textAlign: "center" }}>
+          {tips[tipIdx]}
+        </Text>
+      </Animated.View>
+
+      {/* Exit button */}
+      <TouchableOpacity
+        style={{ marginTop: 24, backgroundColor: "rgba(239,68,68,0.15)", paddingHorizontal: 28, paddingVertical: 12, borderRadius: 20, borderWidth: 1, borderColor: "rgba(239,68,68,0.3)" }}
+        onPress={onExit}
+      >
+        <Text style={{ color: "#EF4444", fontSize: 14, fontWeight: "700" }}>Exit Match</Text>
+      </TouchableOpacity>
+    </View>
+  );
+}
+
+const AnimatedCircle = Animated.createAnimatedComponent(Circle);
 
 /**
  * GamePlayModal — full-screen modal that hosts the game and its pre/post overlays.
@@ -1278,11 +1134,10 @@ function GamePlayModal({
   const styles = useMemo(() => makeStyles(colors), [colors]);
   const { addMatch } = useGames();
   const { user } = useAuth();
-  // Wait for players only when the native game can actually connect (it needs
+  // Wait for players only when the game can actually connect (it needs
   // a wsToken to open the engine socket that sends READY — without one the
   // engine would never START and the waiting screen would deadlock).
-  const canEngineConnect =
-    NATIVE_GAME_SLUGS.has((session.game as any)?.slug) && !!session.wsToken;
+  const canEngineConnect = !!session.wsToken;
   const [phase, setPhase] = useState<"prestart" | "playing" | "result">(
     session.isRejoin ? "playing" : "prestart",
   );
@@ -1291,16 +1146,51 @@ function GamePlayModal({
     "pending",
   );
   const [xpEarned, setXpEarned] = useState(0);
+  // Full reward rankings from backend — frontend auto-adopts to whatever
+  // the backend returns. Each entry: { userId, result, rank, xpEarned, isBot }.
+  const [rewardRankings, setRewardRankings] = useState<Array<{
+    userId: string; result: string; rank: number; xpEarned: number; isBot?: boolean;
+  }> | null>(null);
   // Per-game breakdown (accuracy / longest streak) surfaced on the result overlay
   const [gameStats, setGameStats] = useState<{
     accuracy?: number;
     longestStreak?: number;
   }>({});
 
-  const [opponentPausedCountdown, setOpponentPausedCountdown] = useState<
-    number | null
-  >(null);
-  const [pausedPlayerName, setPausedPlayerName] = useState<string>("Opponent");
+  // In-game chat panel
+  const [chatOpen, setChatOpen] = useState(false);
+  const [chatPanelH, setChatPanelH] = useState(0);
+  const [chatUnread, setChatUnread] = useState(false);
+  const [chatIncoming, setChatIncoming] = useState<{ name: string; text: string } | null>(null);
+  // Game readiness — becomes true when the runtime is mounted, the socket
+  // is connected, and critical assets are downloaded. The start screen uses
+  // this to transition from "Loading game…" to "ALL READY!" instead of a
+  // fixed countdown.
+  const [gameReady, setGameReady] = useState(false);
+  // Keyboard height — track so the game board shrinks upward when the
+  // keyboard opens (especially important on iOS where the keyboard overlays).
+  const [kbHeight, setKbHeight] = useState(0);
+
+  useEffect(() => {
+    const showEvt = Platform.OS === 'ios' ? 'keyboardWillShow' : 'keyboardDidShow';
+    const hideEvt = Platform.OS === 'ios' ? 'keyboardWillHide' : 'keyboardDidHide';
+    const sub1 = Keyboard.addListener(showEvt, (e) => setKbHeight(e.endCoordinates?.height || 0));
+    const sub2 = Keyboard.addListener(hideEvt, () => setKbHeight(0));
+    return () => { sub1.remove(); sub2.remove(); };
+  }, []);
+
+  // Multi-round lifecycle — only active when configuredRounds > 1.
+  // Provides round context (number, total, status) for header label + waiting screen.
+  const roundLifecycle = useRoundLifecycle({
+    matchId: session.matchId,
+    configuredRounds: session.configuredRounds || 1,
+  });
+
+  // Per-player disconnect state — supports N simultaneous disconnects.
+  // Each entry has { userId, name, remainingMs } for independent countdowns.
+  const [disconnectedPlayers, setDisconnectedPlayers] = useState<
+    Array<{ userId: string; name: string; remainingMs: number }>
+  >([]);
   // Guards against double-completion: some games (e.g. TapRush) fire onComplete
   // from a local timer while the server also emits GAME_OVER, so completeGameSession
   // could run twice and hit "Session already completed".
@@ -1317,24 +1207,36 @@ function GamePlayModal({
 
     const onPause = (event: any) => {
       if (event.matchId === session.matchId && event.data?.reconnectWindowMs) {
-        setOpponentPausedCountdown(
-          Math.floor(event.data.reconnectWindowMs / 1000),
-        );
-        // Resolve the disconnected player's name from the session players list.
-        // The server sends the userId in disconnectedPlayers[0]; fall back to
-        // "Opponent" when absent (bot matches, legacy payloads).
-        const disconnectedId =
-          event.data?.disconnectedPlayers?.[0] || event.data?.userId;
-        const match = (session.players || []).find(
-          (p) => p.id === disconnectedId,
-        );
-        setPausedPlayerName(match?.name || "Opponent");
+        // N-player disconnect support: server sends disconnectDetails[] with
+        // per-player remaining time. Fall back to single-player mode.
+        const details = event.data.disconnectDetails;
+        if (Array.isArray(details) && details.length > 0) {
+          const resolved = details.map((d: any) => {
+            const p = (session.players || []).find((pl: any) => pl.id === d.userId);
+            return {
+              userId: d.userId,
+              name: p?.name || "Player",
+              remainingMs: d.remainingMs || 60000,
+            };
+          });
+          setDisconnectedPlayers(resolved);
+        } else {
+          // Legacy single-player fallback
+          const disconnectedId = event.data?.disconnectedPlayers?.[0] || event.data?.userId;
+          const match = (session.players || []).find((p: any) => p.id === disconnectedId);
+          setDisconnectedPlayers([{
+            userId: disconnectedId || 'unknown',
+            name: match?.name || "Opponent",
+            remainingMs: event.data.reconnectWindowMs || 60000,
+          }]);
+        }
+        setPhase((prev) => (prev === "result" ? prev : "playing"));
       }
     };
 
     const onResume = (event: any) => {
       if (event.matchId === session.matchId) {
-        setOpponentPausedCountdown(null);
+        setDisconnectedPlayers([]);
         // Resume the game: the opponent reconnected and the engine is back
         // to ACTIVE. Without this the disconnect overlay disappears but the
         // game stays frozen on whatever phase was shown during the pause.
@@ -1357,6 +1259,12 @@ function GamePlayModal({
     const onConnect = (event: any) => {
       if (event.matchId !== session.matchId) return;
       const st = event.data?.state?.status;
+      // Signal game readiness — the socket is connected, the runtime has
+      // received initial state, and assets were preloaded during matchmaking.
+      // The start screen will transition from "Loading game…" to "ALL READY!"
+      // and then call onDone to reveal the game.
+      setGameReady(true);
+      // If reconnecting to an already-finished match, complete immediately.
       if (st !== "FINISHED" && st !== "ARCHIVED") return;
       const winnerId = event.data?.state?.pluginState?.winner;
       const won = !!winnerId && String(winnerId) === String(user?.id);
@@ -1374,6 +1282,17 @@ function GamePlayModal({
     const sub3 = DeviceEventEmitter.addListener("GAME_ENGINE_OVER", onResume);
     const sub4 = DeviceEventEmitter.addListener("GAME_ENGINE_ACTIVE", onActive);
     const sub5 = DeviceEventEmitter.addListener("GAME_ENGINE_CONNECT", onConnect);
+    // Games (Ludo, SnakeLadder, Scribble) can request the chat panel to open
+    const sub6 = DeviceEventEmitter.addListener("OPEN_GAME_CHAT", () => setChatOpen(true));
+    const sub7 = DeviceEventEmitter.addListener("GAME_ENGINE_CHAT", (event: any) => {
+      if (event.matchId !== session.matchId) return;
+      const d = event.data;
+      const info = (session.players || []).find((p: any) => p.id === (d.userId || d.uid));
+      setChatIncoming({
+        name: info?.name || d.name || "Player",
+        text: d.text || "",
+      });
+    });
 
     return () => {
       sub1.remove();
@@ -1381,27 +1300,43 @@ function GamePlayModal({
       sub3.remove();
       sub4.remove();
       sub5.remove();
+      sub6.remove();
+      sub7.remove();
     };
   }, [session.matchId]);
 
+  // Clear incoming chat message after it's been consumed by GameChatPanel
   useEffect(() => {
-    if (opponentPausedCountdown === null || opponentPausedCountdown <= 0)
-      return;
+    if (chatIncoming) {
+      const t = setTimeout(() => setChatIncoming(null), 500);
+      return () => clearTimeout(t);
+    }
+  }, [chatIncoming]);
+
+  // Per-player countdown: tick each disconnected player's remainingMs every second.
+  useEffect(() => {
+    if (disconnectedPlayers.length === 0) return;
     const timer = setInterval(() => {
-      setOpponentPausedCountdown((prev) => (prev && prev > 0 ? prev - 1 : 0));
+      setDisconnectedPlayers((prev) =>
+        prev
+          .map((p) => ({ ...p, remainingMs: Math.max(0, p.remainingMs - 1000) }))
+          .filter((p) => p.remainingMs > 0),
+      );
     }, 1000);
     return () => clearInterval(timer);
-  }, [opponentPausedCountdown]);
+  }, [disconnectedPlayers.length > 0]);
 
   useEffect(() => {
     completingRef.current = false;
     resultSoundPlayedRef.current = false;
+    setGameReady(false);
     setPhase(session.isRejoin ? "playing" : "prestart");
     setScore(0);
     setResult("pending");
     setXpEarned(0);
+    setRewardRankings(null);
     setGameStats({});
-    setOpponentPausedCountdown(null);
+    setDisconnectedPlayers([]);
   }, [session.matchId, session.sessionId]);
 
   // Resolve a pending PVP result when the server broadcasts the final outcome.
@@ -1429,6 +1364,7 @@ function GamePlayModal({
             : "loss";
       setResult(resolved);
       setXpEarned(payload.xpEarned || 0);
+      if (payload.reward?.rankings) setRewardRankings(payload.reward.rankings);
       if (payload.score != null) setScore(payload.score);
       // Server resolved the outcome (finish, forfeit, or draw) — always land
       // on the result overlay, even if the match was still in waiting/countdown.
@@ -1471,6 +1407,7 @@ function GamePlayModal({
               : "loss";
       setResult(finalResult);
       setXpEarned(match.xpEarned || 0);
+      if (match.reward?.rankings) setRewardRankings(match.reward.rankings);
       setGameStats({
         accuracy: gameResult.accuracy,
         longestStreak: gameResult.longestStreak,
@@ -1530,22 +1467,22 @@ function GamePlayModal({
   // Keep the engine-socket listeners pointed at the latest handler.
   handleCompleteRef.current = handleComplete;
 
-  // Safety timeout: if the game doesn't start within 15s (stale session,
-  // engine won't accept connection, etc.) close the session instead of
-  // leaving the player stuck on a blank loading screen.
+  // Safety timeout: if the game doesn't become ready within 20s (stale
+  // session, engine won't accept connection, etc.) close the session
+  // instead of leaving the player stuck on the loading screen.
   useEffect(() => {
-    if (phase !== "prestart" || session.isRejoin) return;
+    if (gameReady || session.isRejoin) return;
     const timer = setTimeout(() => {
-      if (phase === "prestart") {
+      if (!gameReady) {
         themedAlert(
           "Connection Timeout",
           "Could not connect to the game. Returning to the games screen.",
           [{ text: "OK", onPress: () => onClose() }],
         );
       }
-    }, 15000);
+    }, 20000);
     return () => clearTimeout(timer);
-  }, [phase, session.matchId]);
+  }, [gameReady, session.matchId]);
 
   return (
     <Modal
@@ -1556,29 +1493,66 @@ function GamePlayModal({
     >
       <View style={[styles.playModal, { paddingTop: insets.top || 16 }]}>
         <View style={styles.playHeader}>
-          <TouchableOpacity onPress={onClose} style={styles.iconButton}>
-            <Ionicons name="close" size={22} color={colors.text.secondary} />
+          <TouchableOpacity
+            onPress={() => {
+              Alert.alert(
+                "Leave Game?",
+                "Are you sure you want to leave? The game will continue with other players.",
+                [
+                  { text: "Cancel", style: "cancel" },
+                  {
+                    text: "Leave Game",
+                    style: "destructive",
+                    onPress: () => {
+                  // Tell the socket layer to send LEAVE to server (forfeit)
+                  // BEFORE closing. This prevents the server from pausing
+                  // and offering a "resume" on next entry.
+                  DeviceEventEmitter.emit("GAME_LEAVE");
+                  onClose();
+                },
+                  },
+                ],
+              );
+            }}
+            style={styles.iconButton}
+          >
+            <Ionicons name="log-out" size={22} color={colors.text.secondary} style={{ transform: [{ scaleX: -1 }] }} />
           </TouchableOpacity>
           <View style={styles.playHeaderCenter}>
             <View style={styles.playHeaderTitleRow}>
               <GameLogo game={session.game} size={26} radius={8} />
               <Text style={styles.playTitle}>{session.game.name}</Text>
+              {roundLifecycle.showRoundLabel && (
+                <View style={{ backgroundColor: 'rgba(124,58,237,0.2)', borderRadius: 8, paddingHorizontal: 8, paddingVertical: 2, marginLeft: 8 }}>
+                  <Text style={{ color: '#A78BFA', fontSize: 11, fontWeight: '700' }}>
+                    R{roundLifecycle.currentRoundNumber}/{roundLifecycle.totalRounds}
+                  </Text>
+                </View>
+              )}
             </View>
           </View>
           <View style={styles.playHeaderRight}>
-            {/* Chat button — opens the game's built-in chat (Snake & Ladder,
-                Ludo, Scribble). Other games don't listen so this is a no-op. */}
+            {/* Chat button — toggles the in-game chat panel */}
             <TouchableOpacity
               onPress={() => {
-                const { DeviceEventEmitter } = require("react-native");
-                DeviceEventEmitter.emit("OPEN_GAME_CHAT");
+                setChatOpen((p) => !p);
+                setChatUnread(false);
               }}
-              style={styles.iconButton}
+              style={[styles.iconButton, chatOpen && { backgroundColor: "rgba(139, 92, 246, 0.25)" }]}
             >
-              <Ionicons name="chatbubble-ellipses" size={18} color={colors.text.secondary} />
+              <View>
+                <Ionicons
+                  name={chatOpen ? "chatbubble" : "chatbubble-ellipses"}
+                  size={18}
+                  color={chatOpen ? "#A78BFA" : colors.text.secondary}
+                />
+                {chatUnread && !chatOpen && (
+                  <View style={{ position: "absolute", top: -3, right: -3, width: 8, height: 8, borderRadius: 4, backgroundColor: "#EF4444" }} />
+                )}
+              </View>
             </TouchableOpacity>
-            {/* Score — shown only for html5 webview games */}
-            {session.game.metadata?.runtime === "html5_webview" && (
+            {/* Score — shown during gameplay */}
+            {score > 0 && (
               <View style={styles.scoreBox}>
                 <Text style={styles.scoreLabel}>Score</Text>
                 <Text style={styles.scoreValue}>{score}</Text>
@@ -1587,62 +1561,40 @@ function GamePlayModal({
           </View>
         </View>
 
-        {/* playStage: game mounts ONLY while phase === "playing".
-            During prestart the branded Lottie spinner shows while
-            React.lazy resolves the game bundle. When the game ends
-            (phase = "result") the component unmounts immediately,
-            freeing all native memory (video players, Animated values, 
-            PanResponder, intervals). */}
-        <View style={styles.playStage}>
-          {phase === "playing" &&
-            (() => {
-              const { slug } = session.game as any;
-              const uid = user?.id || "";
-              const token = session.wsToken || "";
-              const mid = session.matchId;
-
-              if (NATIVE_GAME_SLUGS.has(slug)) {
-                const NativeGame = GAME_COMPONENTS[slug];
-                if (NativeGame && token) {
-                  return (
-                    <React.Suspense
-                      fallback={
-                        <View style={[StyleSheet.absoluteFill, { justifyContent: 'center', alignItems: 'center', backgroundColor: '#000' }]}>
-                          <BrandedGameLoader />
-                        </View>
-                      }
-                    >
-                    <View
-                      style={[StyleSheet.absoluteFill, { opacity: 1 }]}
-                      pointerEvents="auto"
-                    >
-                      <NativeGame
-                        key={mid}
-                        matchId={mid}
-                        userId={uid}
-                        wsToken={token}
-                        players={session.players || []}
-                        externalPhase={
-                          phase === "playing" ? "playing" : "waiting"
-                        }
-                        myName={user?.username || user?.name || "You"}
-                        myAvatar={user?.avatarUrl || user?.avatar || null}
-                        myLevel={
-                          user?.level ??
-                          (user?.totalXpEarned != null
-                            ? Math.floor(user.totalXpEarned / 1000) + 1
-                            : undefined)
-                        }
-                        opponentName={session.players?.[0]?.name || "Opponent"}
-                        onComplete={handleComplete}
-                      />
-                    </View>
-                    </React.Suspense>
-                  );
-                }
-              }
-              return null;
-            })()}
+        {/* playStage: the game mounts as early as prestart so the runtime,
+            socket connection, and assets are fully loaded by the time the
+            countdown ends. During prestart the GameStartScreen overlays on top;
+            during result the component unmounts immediately, freeing all native
+            memory (video players, Animated values, PanResponder, intervals). */}
+        <View style={[styles.playStage, (chatOpen || (Platform.OS === 'ios' && kbHeight > 0)) && { paddingBottom: (chatOpen ? (chatPanelH || 280) : 0) + (Platform.OS === 'ios' ? kbHeight : 0) }]}>
+          {(phase === "playing" || phase === "prestart") && session.wsToken && (
+            <View
+              style={{ flex: 1 }}
+              pointerEvents={phase === "prestart" ? "none" : "auto"}
+            >
+              <AppGameHost
+                key={session.matchId}
+                game={session.game as any}
+                gameProps={{
+                  matchId: session.matchId,
+                  slug: session.game?.slug,
+                  userId: user?.id || "",
+                  wsToken: session.wsToken || "",
+                  players: session.players || [],
+                  externalPhase: phase === "playing" ? "playing" : "waiting",
+                  myName: user?.username || user?.name || "You",
+                  myAvatar: user?.avatarUrl || user?.avatar || null,
+                  myLevel:
+                    user?.level ??
+                    (user?.totalXpEarned != null
+                      ? Math.floor(user.totalXpEarned / 1000) + 1
+                      : undefined),
+                  opponentName: session.players?.[0]?.name || "Opponent",
+                  onComplete: handleComplete,
+                }}
+              />
+            </View>
+          )}
 
           {phase === "prestart" && (
             <View style={StyleSheet.absoluteFill}>
@@ -1668,73 +1620,34 @@ function GamePlayModal({
                         ? "CUSTOM LOBBY"
                         : "AUTO MATCH"
                 }
+                ready={gameReady}
                 onDone={() => setPhase("playing")}
                 onExit={onClose}
+                roundNumber={roundLifecycle.showRoundLabel ? roundLifecycle.currentRoundNumber : undefined}
+                roundTotal={roundLifecycle.showRoundLabel ? roundLifecycle.totalRounds : undefined}
               />
             </View>
           )}
 
-          {opponentPausedCountdown !== null && phase !== "result" && (
-            <View
-              style={[
-                StyleSheet.absoluteFill,
-                {
-                  backgroundColor: "rgba(0,0,0,0.85)",
-                  justifyContent: "center",
-                  alignItems: "center",
-                  zIndex: 100,
-                },
-              ]}
-            >
-              <Ionicons name="warning" size={64} color={colors.warning} />
-              <Text
-                style={{
-                  color: "#fff",
-                  fontSize: 24,
-                  fontWeight: "bold",
-                  marginTop: 16,
-                }}
-              >
-                {pausedPlayerName} Disconnected
-              </Text>
-              <Text
-                style={{
-                  color: colors.text.secondary,
-                  fontSize: 16,
-                  textAlign: "center",
-                  marginHorizontal: 32,
-                  marginTop: 12,
-                }}
-              >
-                Match paused — waiting for them to return…
-              </Text>
-              <Text
-                style={{
-                  color: colors.primaryLight,
-                  fontSize: 36,
-                  fontWeight: "900",
-                  marginTop: 16,
-                }}
-              >
-                {opponentPausedCountdown}s
-              </Text>
-              <TouchableOpacity
-                style={{
-                  marginTop: 40,
-                  backgroundColor: colors.danger,
-                  paddingHorizontal: 32,
-                  paddingVertical: 14,
-                  borderRadius: 24,
-                }}
-                onPress={onClose}
-              >
-                <Text
-                  style={{ color: "#fff", fontSize: 16, fontWeight: "bold" }}
-                >
-                  Exit Match
-                </Text>
-              </TouchableOpacity>
-            </View>
+          {disconnectedPlayers.length > 0 && phase !== "result" && (
+            <DisconnectOverlay
+              players={disconnectedPlayers}
+              onExit={onClose}
+            />
+          )}
+
+          {phase === "result" && roundLifecycle.showRoundLabel && roundLifecycle.roundResult && !roundLifecycle.isMatchFinished && (
+            <React.Suspense fallback={null}>
+            <RoundResultOverlay
+              roundResult={roundLifecycle.roundResult}
+              userId={user?.id || ''}
+              roundNumber={roundLifecycle.currentRoundNumber}
+              totalRounds={roundLifecycle.totalRounds}
+              playerNames={Object.fromEntries(
+                (session.players || []).map((p) => [p.id, p.name])
+              )}
+            />
+            </React.Suspense>
           )}
 
           {phase === "result" && (
@@ -1744,6 +1657,7 @@ function GamePlayModal({
               result={result}
               score={score}
               xpEarned={xpEarned}
+              rewardRankings={rewardRankings}
               accuracy={gameStats.accuracy}
               longestStreak={gameStats.longestStreak}
               gameName={session.game.name}
@@ -1764,713 +1678,22 @@ function GamePlayModal({
             </React.Suspense>
           )}
         </View>
+
+        {/* In-game chat panel — shrinks the game area above it */}
+        {phase === "playing" && (
+          <GameChatPanel
+            open={chatOpen}
+            onClose={() => setChatOpen(false)}
+            onPanelLayout={(h) => setChatPanelH(h)}
+            playerName={user?.username || user?.name || "You"}
+            incoming={chatIncoming}
+            onUnread={() => {
+              if (!chatOpen) setChatUnread(true);
+            }}
+          />
+        )}
       </View>
     </Modal>
   );
 }
 
-function MatchRow({ match }: { match: GameMatch }) {
-  const colors = useThemeColors();
-  const styles = useMemo(() => makeStyles(colors), [colors]);
-  const isWin = match.result === "win";
-  const isDraw = match.result === "draw";
-  const logoGame: Game = {
-    id: match.gameId,
-    name: match.gameName,
-    emoji: match.gameEmoji,
-    gradient:
-      GAME_ASSETS[match.gameSlug || ""]?.gradient ||
-      (["#7C3AED", "#0891B2"] as [string, string]),
-    logo: getCachedGameLogo(match.gameSlug || ""),
-    slug: match.gameSlug,
-    maxXp: 0,
-    isHot: false,
-  };
-  return (
-    <View style={styles.matchRow}>
-      <View style={styles.matchIcon}>
-        <GameLogo game={logoGame} size={32} radius={9} />
-      </View>
-      <View style={styles.matchBody}>
-        <Text style={styles.matchTitle}>{match.gameName}</Text>
-        <Text style={styles.matchMeta}>
-          {match.opponent} | {match.duration}
-        </Text>
-      </View>
-      <View style={styles.matchRight}>
-        <Text
-          style={[
-            styles.matchResult,
-            { color: isWin ? colors.success : isDraw ? colors.text.secondary : colors.danger },
-          ]}
-        >
-          {isWin ? "WIN" : isDraw ? "DRAW" : "LOSS"}
-        </Text>
-        <Text style={styles.matchXp}>+{match.xpEarned} XP</Text>
-      </View>
-    </View>
-  );
-}
-
-function HistoryModal({
-  visible,
-  matches,
-  onClose,
-}: {
-  visible: boolean;
-  matches: GameMatch[];
-  onClose: () => void;
-}) {
-  const insets = useSafeAreaInsets();
-  const colors = useThemeColors();
-  const styles = useMemo(() => makeStyles(colors), [colors]);
-  return (
-    <Modal
-      visible={visible}
-      animationType="slide"
-      presentationStyle="pageSheet"
-      onRequestClose={onClose}
-    >
-      <View style={[styles.modalShell, { paddingTop: insets.top || 16 }]}>
-        <ModalHeader title="Match History" onClose={onClose} />
-        <ScrollView contentContainerStyle={styles.modalContent}>
-          {matches.map((match) => (
-            <MatchRow key={match.id} match={match} />
-          ))}
-          {matches.length === 0 && (
-            <StateBlock
-              card
-              title="No matches yet"
-              subtitle="Your saved game sessions will appear here."
-            />
-          )}
-        </ScrollView>
-      </View>
-    </Modal>
-  );
-}
-
-function ModalHeader({
-  title,
-  onClose,
-}: {
-  title: string;
-  onClose: () => void;
-}) {
-  const colors = useThemeColors();
-  const styles = useMemo(() => makeStyles(colors), [colors]);
-  return (
-    <View style={styles.modalHeader}>
-      <TouchableOpacity onPress={onClose}>
-        <Ionicons name="close" size={24} color={colors.text.secondary} />
-      </TouchableOpacity>
-      <Text style={styles.modalTitle}>{title}</Text>
-      <View style={{ width: 24 }} />
-    </View>
-  );
-}
-
-/**
- * GameSettingsModal — game-specific settings (like Wallet's SettingsModal),
- * opened from the Games tab header gear. Kept separate from the global
- * Settings screen: sound effects + haptics for the game flow only.
- */
-function GameSettingsModal({
-  visible,
-  onClose,
-}: {
-  visible: boolean;
-  onClose: () => void;
-}) {
-  const insets = useSafeAreaInsets();
-  const colors = useThemeColors();
-  const styles = useMemo(() => makeStyles(colors), [colors]);
-  const { soundEnabled, hapticsEnabled, setSoundEnabled, setHapticsEnabled } =
-    useGameSoundPrefs();
-
-  return (
-    <Modal
-      visible={visible}
-      animationType="slide"
-      presentationStyle="pageSheet"
-      onRequestClose={onClose}
-    >
-      <View style={[styles.modalShell, { paddingTop: insets.top || 16 }]}>
-        <ModalHeader title="Game Settings" onClose={onClose} />
-        <ScrollView contentContainerStyle={styles.modalContent}>
-          <Text style={styles.settingsSection}>Audio & Feedback</Text>
-          <View style={styles.settingsCard}>
-            <View style={styles.settingsRow}>
-              <View style={styles.settingsRowLeft}>
-                <Ionicons
-                  name="volume-high-outline"
-                  size={20}
-                  color={colors.primaryLight}
-                />
-                <View style={{ flex: 1 }}>
-                  <Text style={styles.settingsRowLabel}>Sound Effects</Text>
-                  <Text style={styles.settingsRowDesc}>
-                    Countdown beeps and game sounds
-                  </Text>
-                </View>
-              </View>
-              <Switch
-                value={soundEnabled}
-                onValueChange={(v) => setSoundEnabled(v)}
-                trackColor={{ false: colors.bg.elevated, true: colors.primary }}
-                thumbColor={soundEnabled ? "#fff" : colors.text.muted}
-              />
-            </View>
-            <View
-              style={[
-                styles.settingsRow,
-                { borderTopWidth: 1, borderTopColor: colors.border },
-              ]}
-            >
-              <View style={styles.settingsRowLeft}>
-                <Ionicons
-                  name="phone-portrait-outline"
-                  size={20}
-                  color={colors.primaryLight}
-                />
-                <View style={{ flex: 1 }}>
-                  <Text style={styles.settingsRowLabel}>Haptics</Text>
-                  <Text style={styles.settingsRowDesc}>
-                    Vibration feedback while playing
-                  </Text>
-                </View>
-              </View>
-              <Switch
-                value={hapticsEnabled}
-                onValueChange={(v) => setHapticsEnabled(v)}
-                trackColor={{ false: colors.bg.elevated, true: colors.primary }}
-                thumbColor={hapticsEnabled ? "#fff" : colors.text.muted}
-              />
-            </View>
-          </View>
-          <View style={{ height: 40 }} />
-        </ScrollView>
-      </View>
-    </Modal>
-  );
-}
-
-function makeStyles(c: ColorPalette) {
-  return StyleSheet.create({
-    container: { flex: 1, backgroundColor: c.bg.base },
-    iconButton: {
-      width: 36,
-      height: 36,
-      borderRadius: 18,
-      backgroundColor: c.bg.card,
-      borderWidth: 1,
-      borderColor: c.border,
-      alignItems: "center",
-      justifyContent: "center",
-    },
-    statsRow: {
-      flexDirection: "row",
-      paddingHorizontal: spacing.lg,
-      marginBottom: spacing.md,
-    },
-    onlinePill: {
-      flexDirection: "row",
-      alignItems: "center",
-      backgroundColor: "rgba(16, 185, 129, 0.15)",
-      paddingHorizontal: 12,
-      paddingVertical: 6,
-      borderRadius: radii.full,
-      borderWidth: 1,
-      borderColor: "rgba(16, 185, 129, 0.3)",
-    },
-    onlineDot: {
-      width: 6,
-      height: 6,
-      borderRadius: 3,
-      backgroundColor: c.success,
-      marginRight: 6,
-    },
-    onlineText: {
-      fontSize: fontSizes.xs,
-      fontWeight: "700",
-      color: c.success,
-    },
-    content: { paddingBottom: 110 },
-    sectionHeader: {
-      flexDirection: "row",
-      alignItems: "center",
-      justifyContent: "space-between",
-      paddingHorizontal: spacing.lg,
-      marginBottom: spacing.sm,
-    },
-    sectionTitle: {
-      fontSize: fontSizes.sm,
-      color: c.text.secondary,
-      fontWeight: "800",
-      textTransform: "uppercase",
-    },
-    sectionAction: {
-      fontSize: fontSizes.xs,
-      color: c.primaryLight,
-      fontWeight: "700",
-    },
-    gameGrid: {
-      paddingHorizontal: spacing.lg,
-      flexDirection: "row",
-      flexWrap: "wrap",
-      justifyContent: "space-between",
-    },
-    gameCard: {
-      width: "100%",
-      marginBottom: spacing.md,
-      borderRadius: radii.lg,
-      overflow: "hidden",
-      backgroundColor: c.bg.card,
-      borderWidth: 1,
-      borderColor: c.border,
-    },
-    gameArt: { aspectRatio: 1, alignItems: "center", justifyContent: "center" },
-    gameBadge: {
-      position: "absolute",
-      top: 6,
-      right: 6,
-      paddingHorizontal: 6,
-      paddingVertical: 2,
-      borderRadius: radii.full,
-      overflow: "hidden",
-      backgroundColor: "rgba(239,68,68,0.9)",
-      color: "#fff",
-      fontSize: 8,
-      fontWeight: "900",
-    },
-    gameBody: { padding: spacing.sm },
-    gameTitle: {
-      fontSize: fontSizes.md,
-      fontWeight: "800",
-      color: c.text.primary,
-    },
-    gameMeta: { marginTop: 2, fontSize: 11, color: c.text.muted },
-    primaryButton: {
-      height: 36,
-      flexDirection: "row",
-      alignItems: "center",
-      justifyContent: "center",
-      gap: 4,
-      borderRadius: radii.md,
-    },
-    primaryButtonText: {
-      color: "#fff",
-      fontSize: fontSizes.sm,
-      fontWeight: "800",
-    },
-    tournamentCard: {
-      marginHorizontal: spacing.lg,
-      marginBottom: spacing.md,
-      padding: spacing.md,
-      borderRadius: radii.lg,
-      backgroundColor: c.bg.card,
-      borderWidth: 1,
-      borderColor: c.border,
-    },
-    tournamentTop: {
-      flexDirection: "row",
-      alignItems: "center",
-      gap: spacing.sm,
-    },
-    tournamentIcon: {
-      width: 50,
-      height: 50,
-      borderRadius: radii.md,
-      alignItems: "center",
-      justifyContent: "center",
-    },
-    tournamentInfo: { flex: 1 },
-    tournamentTitle: {
-      fontSize: fontSizes.md,
-      fontWeight: "800",
-      color: c.text.primary,
-    },
-    tournamentMeta: {
-      marginTop: 2,
-      fontSize: fontSizes.xs,
-      color: c.text.muted,
-    },
-    statusPill: {
-      paddingHorizontal: 8,
-      paddingVertical: 4,
-      borderRadius: radii.full,
-      backgroundColor: "rgba(16,185,129,0.14)",
-    },
-    statusText: { fontSize: 10, fontWeight: "800", color: c.success },
-    statusPillUpcoming: {
-      backgroundColor: "rgba(251,191,36,0.12)",
-      borderWidth: 1,
-      borderColor: "rgba(251,191,36,0.35)",
-    },
-    statusTextUpcoming: { color: "#FBBF24" },
-    myRankRow: {
-      marginTop: spacing.md,
-      paddingHorizontal: 12,
-      paddingVertical: 9,
-      borderRadius: radii.md,
-      backgroundColor: "rgba(251,191,36,0.08)",
-      borderWidth: 1,
-      borderColor: "rgba(251,191,36,0.25)",
-      flexDirection: "row",
-      alignItems: "center",
-      gap: 8,
-    },
-    myRankText: {
-      flex: 1,
-      fontSize: fontSizes.sm,
-      fontWeight: "800",
-      color: c.text.primary,
-    },
-    myRankSub: {
-      fontSize: fontSizes.xs,
-      fontWeight: "600",
-      color: c.text.muted,
-    },
-    tournamentNumbers: {
-      flexDirection: "row",
-      gap: spacing.sm,
-      marginTop: spacing.md,
-    },
-    infoPill: {
-      flex: 1,
-      padding: 9,
-      borderRadius: radii.md,
-      backgroundColor: c.bg.elevated,
-      alignItems: "center",
-    },
-    infoValue: {
-      fontSize: fontSizes.sm,
-      fontWeight: "800",
-      color: c.text.primary,
-    },
-    infoLabel: { marginTop: 2, fontSize: 10, color: c.text.muted },
-    progressTrack: {
-      height: 5,
-      marginTop: spacing.md,
-      borderRadius: radii.full,
-      backgroundColor: c.bg.elevated,
-      overflow: "hidden",
-    },
-    progressFill: {
-      height: "100%",
-      borderRadius: radii.full,
-      backgroundColor: c.primaryLight,
-    },
-    tournamentButton: {
-      height: 44,
-      marginTop: spacing.md,
-      borderRadius: radii.md,
-      flexDirection: "row",
-      alignItems: "center",
-      justifyContent: "center",
-      gap: 8,
-    },
-    tournamentJoinButton: {
-      borderWidth: 1,
-      borderColor: "rgba(124,58,237,0.28)",
-    },
-    tournamentDisabledButton: {
-      backgroundColor: c.bg.elevated,
-      borderWidth: 1,
-      borderColor: c.border,
-    },
-    tournamentButtonText: {
-      color: "#fff",
-      fontSize: fontSizes.sm,
-      fontWeight: "800",
-    },
-    playModal: { flex: 1, backgroundColor: "#05050F" },
-    playStage: {
-      flex: 1,
-      overflow: "hidden",
-      backgroundColor: "#05050F",
-    },
-    waitingWrap: {
-      flex: 1,
-      alignItems: "center",
-      justifyContent: "center",
-      paddingHorizontal: spacing.xl,
-      backgroundColor: "#05050F",
-    },
-    waitingModePill: {
-      flexDirection: "row",
-      alignItems: "center",
-      gap: 6,
-      marginTop: spacing.md,
-      paddingHorizontal: 14,
-      paddingVertical: 7,
-      borderRadius: radii.full,
-      backgroundColor: "rgba(124,58,237,0.16)",
-      borderWidth: 1,
-      borderColor: "rgba(124,58,237,0.4)",
-    },
-    waitingModeText: {
-      color: c.primaryLight,
-      fontSize: 12,
-      fontWeight: "900",
-      letterSpacing: 1.5,
-    },
-    waitingTitle: {
-      marginTop: spacing.lg,
-      color: "#F8FAFC",
-      fontSize: 24,
-      fontWeight: "900",
-      letterSpacing: 0.5,
-    },
-    waitingSub: {
-      marginTop: spacing.sm,
-      color: "#94A3B8",
-      fontSize: fontSizes.sm,
-      textAlign: "center",
-      lineHeight: 19,
-      maxWidth: 320,
-    },
-    waitingRoster: {
-      marginTop: spacing.xl,
-      flexDirection: "row",
-      flexWrap: "wrap",
-      justifyContent: "center",
-      gap: spacing.md,
-    },
-    waitingPlayer: {
-      alignItems: "center",
-      width: 72,
-    },
-    waitingAvatar: {
-      width: 52,
-      height: 52,
-      borderRadius: 26,
-      alignItems: "center",
-      justifyContent: "center",
-      borderWidth: 1.5,
-      borderColor: "rgba(255,255,255,0.22)",
-    },
-    waitingAvatarText: {
-      color: "#fff",
-      fontSize: 20,
-      fontWeight: "900",
-    },
-    waitingName: {
-      marginTop: 8,
-      color: "#E2E8F0",
-      fontSize: 12,
-      fontWeight: "700",
-      maxWidth: "100%",
-    },
-    waitingTag: {
-      marginTop: 3,
-      color: "#64748B",
-      fontSize: 9,
-      fontWeight: "900",
-      letterSpacing: 1.2,
-    },
-    waitingDots: {
-      marginTop: spacing.xl,
-      alignItems: "center",
-      gap: 10,
-    },
-    waitingHint: {
-      color: "#64748B",
-      fontSize: 12,
-      fontWeight: "700",
-      letterSpacing: 0.4,
-    },
-    waitingExit: {
-      position: "absolute",
-      top: spacing.md,
-      right: spacing.lg,
-      flexDirection: "row",
-      alignItems: "center",
-      gap: 6,
-      paddingHorizontal: 14,
-      paddingVertical: 8,
-      borderRadius: radii.full,
-      backgroundColor: "rgba(255,255,255,0.06)",
-      borderWidth: 1,
-      borderColor: "rgba(255,255,255,0.14)",
-    },
-    waitingExitText: {
-      color: "#94A3B8",
-      fontSize: 10,
-      fontWeight: "900",
-      letterSpacing: 1.2,
-    },
-    playHeader: {
-      minHeight: 68,
-      flexDirection: "row",
-      alignItems: "center",
-      gap: spacing.sm,
-      paddingHorizontal: spacing.lg,
-      borderBottomWidth: 1,
-      borderBottomColor: "rgba(255,255,255,0.08)",
-    },
-    playHeaderCenter: { flex: 1, alignItems: "center" },
-    playHeaderRight: { flexDirection: "row", alignItems: "center", gap: spacing.sm },
-    playHeaderTitleRow: {
-      flexDirection: "row",
-      alignItems: "center",
-      gap: 8,
-    },
-    playTitle: { color: "#fff", fontSize: fontSizes.md, fontWeight: "900" },
-    playSubtitle: { marginTop: 2, color: "#94A3B8", fontSize: fontSizes.xs },
-    scoreBox: { width: 58, alignItems: "flex-end" },
-    scoreLabel: { color: "#94A3B8", fontSize: 10, fontWeight: "700" },
-    scoreValue: { color: "#fff", fontSize: fontSizes.lg, fontWeight: "900" },
-    matchRow: {
-      marginHorizontal: spacing.lg,
-      marginBottom: spacing.sm,
-      padding: spacing.md,
-      borderRadius: radii.md,
-      backgroundColor: c.bg.card,
-      borderWidth: 1,
-      borderColor: c.border,
-      flexDirection: "row",
-      alignItems: "center",
-      gap: spacing.sm,
-    },
-    matchIcon: {
-      width: 42,
-      height: 42,
-      borderRadius: radii.md,
-      alignItems: "center",
-      justifyContent: "center",
-      backgroundColor: c.bg.elevated,
-    },
-    matchBody: { flex: 1 },
-    matchTitle: {
-      color: c.text.primary,
-      fontSize: fontSizes.sm,
-      fontWeight: "800",
-    },
-    matchMeta: { marginTop: 2, color: c.text.muted, fontSize: fontSizes.xs },
-    matchRight: { alignItems: "flex-end" },
-    matchResult: { fontSize: fontSizes.xs, fontWeight: "900" },
-    matchXp: {
-      marginTop: 2,
-      color: c.xpGold,
-      fontSize: fontSizes.xs,
-      fontWeight: "800",
-    },
-    modalShell: { flex: 1, backgroundColor: c.bg.base },
-    modalHeader: {
-      height: 56,
-      paddingHorizontal: spacing.lg,
-      flexDirection: "row",
-      alignItems: "center",
-      justifyContent: "space-between",
-      borderBottomWidth: 1,
-      borderBottomColor: c.border,
-    },
-    modalTitle: {
-      color: c.text.primary,
-      fontSize: fontSizes.lg,
-      fontWeight: "900",
-    },
-    modalContent: { paddingVertical: spacing.md, paddingBottom: 50 },
-    settingsSection: {
-      fontSize: fontSizes.xs,
-      fontWeight: "800",
-      color: c.text.muted,
-      textTransform: "uppercase",
-      letterSpacing: 0.5,
-      paddingHorizontal: spacing.lg,
-      marginTop: spacing.lg,
-      marginBottom: 6,
-    },
-    settingsCard: {
-      marginHorizontal: spacing.lg,
-      backgroundColor: c.bg.card,
-      borderRadius: radii.lg,
-      borderWidth: 1,
-      borderColor: c.border,
-      overflow: "hidden",
-    },
-    settingsRow: {
-      flexDirection: "row",
-      alignItems: "center",
-      justifyContent: "space-between",
-      padding: spacing.md,
-    },
-    settingsRowLeft: {
-      flexDirection: "row",
-      alignItems: "center",
-      gap: 12,
-      flex: 1,
-    },
-    settingsRowLabel: {
-      fontSize: fontSizes.sm,
-      fontWeight: "600",
-      color: c.text.primary,
-    },
-    settingsRowDesc: {
-      fontSize: fontSizes.xs,
-      color: c.text.muted,
-      marginTop: 2,
-    },
-    inviteBanner: {
-      marginHorizontal: spacing.lg,
-      marginBottom: spacing.md,
-      padding: spacing.md,
-      backgroundColor: c.primary,
-      borderRadius: radii.xl,
-      shadowColor: c.primary,
-      shadowOffset: { width: 0, height: 4 },
-      shadowOpacity: 0.3,
-      shadowRadius: 8,
-    },
-    inviteBannerRow: {
-      flexDirection: "row",
-      alignItems: "center",
-      gap: 10,
-      marginBottom: 12,
-    },
-    inviteAvatar: {
-      width: 36,
-      height: 36,
-      borderRadius: 18,
-      backgroundColor: "rgba(255,255,255,0.25)",
-      alignItems: "center",
-      justifyContent: "center",
-      overflow: "hidden",
-    },
-    inviteBannerText: {
-      color: "#fff",
-      fontSize: fontSizes.md,
-      fontWeight: "700",
-      flex: 1,
-    },
-    inviteBannerActions: {
-      flexDirection: "row",
-      gap: 12,
-    },
-    inviteJoinBtn: {
-      flex: 1,
-      backgroundColor: "#fff",
-      paddingVertical: 8,
-      borderRadius: radii.md,
-      alignItems: "center",
-    },
-    inviteJoinBtnText: {
-      color: c.primary,
-      fontSize: fontSizes.sm,
-      fontWeight: "800",
-    },
-    inviteDenyBtn: {
-      flex: 1,
-      backgroundColor: "rgba(255,255,255,0.2)",
-      paddingVertical: 8,
-      borderRadius: radii.md,
-      alignItems: "center",
-    },
-    inviteDenyBtnText: {
-      color: "#fff",
-      fontSize: fontSizes.sm,
-      fontWeight: "700",
-    },
-  });
-}

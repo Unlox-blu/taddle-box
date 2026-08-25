@@ -21,6 +21,7 @@ const ChatInboxScreen = React.lazy(() => import('../screens/main/ChatInboxScreen
 const ChatScreen = React.lazy(() => import('../screens/main/ChatScreen'));
 const BookmarksScreen = React.lazy(() => import('../screens/main/BookmarksScreen'));
 const SettingsScreen = React.lazy(() => import('../screens/main/SettingsScreen'));
+const WalletScreen = React.lazy(() => import('../screens/main/WalletScreen'));
 const LeaderboardsScreen = React.lazy(() => import('../screens/main/LeaderboardsScreen'));
 const TermsScreen = React.lazy(() => import('../screens/main/TermsScreen'));
 const PrivacyScreen = React.lazy(() => import('../screens/main/PrivacyScreen'));
@@ -35,9 +36,7 @@ import { BrandedStaticLoader } from '../components/common/BrandedLoader';
 
 const Stack = createNativeStackNavigator<RootStackParamList>();
 
-// App-wide navigation ref so non-component code (notification banners, deep
-// links, push response handlers) can navigate without being inside the tree.
-export const navigationRef = createNavigationContainerRef<RootStackParamList>();
+import { navigationRef } from './navigationRef';
 
 // Shared branded fallback for lazy-loaded screens — static image avoids
 // blocking the main thread during navigation transitions.
@@ -66,6 +65,11 @@ const SuspenseBookmarks = (props: any) => (
 const SuspenseSettings = (props: any) => (
   <React.Suspense fallback={<BrandedFallback />}>
     <SettingsScreen {...props} />
+  </React.Suspense>
+);
+const SuspenseWallet = (props: any) => (
+  <React.Suspense fallback={<BrandedFallback />}>
+    <WalletScreen {...props} />
   </React.Suspense>
 );
 const SuspenseLeaderboards = (props: any) => (
@@ -204,6 +208,11 @@ export default function AppNavigator() {
             <Stack.Screen
               name="Settings"
               component={SuspenseSettings}
+              options={{ animation: 'slide_from_right' }}
+            />
+            <Stack.Screen
+              name="Wallet"
+              component={SuspenseWallet}
               options={{ animation: 'slide_from_right' }}
             />
             <Stack.Screen

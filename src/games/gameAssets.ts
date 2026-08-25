@@ -1,5 +1,6 @@
 /**
- * gameAssets — on-demand download of game logos + sound effects.
+ * gameAssets — single source of truth for all game asset metadata + on-demand
+ * download of game logos + sound effects.
  *
  * The games' logos and sounds used to ship inside the APK (~20 MB — scribble
  * and chess artwork alone were 18 MB). Now they live on S3 (pushed by
@@ -17,8 +18,118 @@
  */
 import * as FileSystem from "expo-file-system/legacy";
 import { useEffect, useState } from "react";
-import { GAME_ASSETS, GAME_SOUND_NAMES, gameSoundUrl } from "./assets";
-import { warn } from '../utils/logger';
+import { getBackendOrigin } from "../services/backendUrl";
+import { warn } from "../utils/logger";
+
+// ─── Asset manifest ──────────────────────────────────────────────────────────
+
+export type GameAssetManifest = {
+  emoji: string;
+  /** Remote branded logo — downloaded to cache on first play. */
+  logoUrl: string;
+  /** Local cache file name (must match what build/game-assets/logos ships). */
+  logoFile: string;
+  /** Remote card image — rendered from the network while the logo is uncached. */
+  imageUrl: string;
+  gradient: [string, string];
+  averageDurationLabel: string;
+};
+
+// The app NEVER talks to S3 (or a third-party image host) directly: the
+// backend serves /app-assets/games/ by streaming from S3 (the origin, pushed
+// by scripts/upload-game-assets.js + scripts/sync-third-party-images.js), so
+// the bucket name stays server-side. The base URL derives from
+// EXPO_PUBLIC_BACKEND_URL via the shared resolver (see backendUrl.ts) — never
+// a hardcoded domain. Override per-build with EXPO_PUBLIC_GAME_ASSETS_URL
+// (e.g. a CDN in front of the API) when needed.
+export const GAME_ASSETS_BASE_URL =
+  process.env.EXPO_PUBLIC_GAME_ASSETS_URL ||
+  `${getBackendOrigin()}/app-assets/games/`;
+
+const logoUrl = (file: string) => `${GAME_ASSETS_BASE_URL}logos/${file}`;
+
+/** Mirrored card art served through the backend (/app-assets/games/cards). */
+const cardUrl = (file: string) => `${GAME_ASSETS_BASE_URL}cards/${file}`;
+
+export const GAME_ASSETS: Record<string, GameAssetManifest> = {
+  "tap-rush": {
+    emoji: "TR",
+    logoUrl: logoUrl("tap-rush.webp"),
+    logoFile: "tap-rush.webp",
+    imageUrl: cardUrl("tap-rush.jpg"),
+    gradient: ["#7C3AED", "#0891B2"],
+    averageDurationLabel: "20 sec",
+  },
+  "memory-grid": {
+    emoji: "MG",
+    logoUrl: logoUrl("memory-grid.webp"),
+    logoFile: "memory-grid.webp",
+    imageUrl: cardUrl("memory-grid.jpg"),
+    gradient: ["#0F766E", "#4F46E5"],
+    averageDurationLabel: "1 min",
+  },
+  scribble: {
+    emoji: "✏️",
+    logoUrl: logoUrl("scribble.webp"),
+    logoFile: "scribble.webp",
+    imageUrl: cardUrl("scribble.jpg"),
+    gradient: ["#F59E0B", "#EF4444"],
+    averageDurationLabel: "3 min",
+  },
+  ludo: {
+    emoji: "🎲",
+    logoUrl: logoUrl("ludo.webp"),
+    logoFile: "ludo.webp",
+    imageUrl: cardUrl("ludo.jpg"),
+    gradient: ["#10B981", "#3B82F6"],
+    averageDurationLabel: "10 min",
+  },
+  "snake-ladder": {
+    emoji: "🐍",
+    logoUrl: logoUrl("snake-ladder.webp"),
+    logoFile: "snake-ladder.webp",
+    imageUrl: cardUrl("snake-ladder.jpg"),
+    gradient: ["#8B5CF6", "#EC4899"],
+    averageDurationLabel: "8 min",
+  },
+  chess: {
+    emoji: "♟️",
+    logoUrl: logoUrl("chess.webp"),
+    logoFile: "chess.webp",
+    imageUrl: cardUrl("chess.jpg"),
+    gradient: ["#374151", "#111827"],
+    averageDurationLabel: "15 min",
+  },
+  "word-rush": {
+    emoji: "📝",
+    logoUrl: logoUrl("word-rush.webp"),
+    logoFile: "word-rush.webp",
+    imageUrl: cardUrl("word-rush.jpg"),
+    gradient: ["#F43F5E", "#8B5CF6"],
+    averageDurationLabel: "2 min",
+  },
+};
+
+/** Remote URL for one shared sound effect (see gameSound.ts). */
+export const gameSoundUrl = (name: string) =>
+  `${GAME_ASSETS_BASE_URL}sounds/${name}.wav`;
+
+/** The 11 shared sound effects — single source of truth for gameSound.ts. */
+export const GAME_SOUND_NAMES = [
+  "tick",
+  "go",
+  "turn",
+  "win",
+  "loss",
+  "tap",
+  "correct",
+  "error",
+  "snake",
+  "ladder",
+  "hop",
+] as const;
+
+// ─── On-demand download + cache layer ────────────────────────────────────────
 
 export const GAME_ASSET_VERSION = 1;
 

@@ -125,6 +125,8 @@ export const gamesService = {
     mode: 'AUTO' | 'CUSTOM' | 'TOURNAMENT' | 'PRACTICE';
     tournamentId?: string;
     targetPlayers?: number;
+    /** Number of rounds per match (multi-round games only). Backend validates against game config. */
+    rounds?: number;
   }): Promise<{ data: MatchmakingResponse }> => {
     const response = await apiClient.post('/game/matchmaking/join', data);
     return response.data;

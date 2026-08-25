@@ -109,9 +109,14 @@ export default function BookmarksScreen() {
       getPostId: (row: any) => {
         // FlashList passes raw Row objects; hook may also pass wrapped hookRows
         const r = row._row ?? row;
-        return !r.isHeader && (r.type === 'posts' || r.type === 'post')
-          ? (r.item?.id ?? null)
-          : null;
+        // By returning an ID for EVERYTHING (not just posts), non-post items 
+        // (headers, people) can become the "active" item when in the center.
+        // This naturally pauses any video post that gets pushed out of the center.
+        if (r.isHeader) {
+           const idx = rows.indexOf(r);
+           return `__header_${r.type}_${idx}`;
+        }
+        return r.item?.id ?? null;
       },
     });
   // Wrap trackLayout: SearchRows calls it with post.id, but the hook

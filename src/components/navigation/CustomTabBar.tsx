@@ -1,7 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import {
-  View, TouchableOpacity, Text, StyleSheet, DeviceEventEmitter, ActivityIndicator
+  View, TouchableOpacity, Text, StyleSheet, Pressable, ActivityIndicator, DeviceEventEmitter
 } from 'react-native';
+import { notificationBus } from "../../lib/notificationBus";
 import { BottomTabBarProps } from '@react-navigation/bottom-tabs';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
@@ -10,6 +11,7 @@ import { radii, fontSizes } from '../../theme';
 import { useTheme } from '../../context/ThemeContext';
 import { useGlobalScroll } from '../../context/ScrollContext';
 import { useAuth } from '../../context/AuthContext';
+import BrandedLottieLoader from '../common/BrandedLoader';
 const CreatePostModal = React.lazy(() => import('../common/CreatePostModal'));
 import Animated, { useAnimatedStyle } from 'react-native-reanimated';
 
@@ -48,11 +50,11 @@ export default function CustomTabBar({ state, navigation }: BottomTabBarProps) {
   const [isPosting, setIsPosting] = useState(false);
   const [chatOpen, setChatOpen] = useState(false);
   useEffect(() => {
-    const sub = DeviceEventEmitter.addListener('postSubmitting', () => setIsPosting(true));
-    const sub2 = DeviceEventEmitter.addListener('postCompleted', () => setIsPosting(false));
-    const sub3 = DeviceEventEmitter.addListener('chatScreenOpen', () => setChatOpen(true));
-    const sub4 = DeviceEventEmitter.addListener('chatScreenClose', () => setChatOpen(false));
-    return () => { sub.remove(); sub2.remove(); sub3.remove(); sub4.remove(); };
+    const sub1 = notificationBus.on('postSubmitting', () => setIsPosting(true));
+    const sub2 = notificationBus.on('postCompleted', () => setIsPosting(false));
+    const sub3 = notificationBus.on('chatScreenOpen', () => setChatOpen(true));
+    const sub4 = notificationBus.on('chatScreenClose', () => setChatOpen(false));
+    return () => { sub1(); sub2(); sub3(); sub4(); };
   }, []);
   const [preselectedCommunityId, setPreselectedCommunityId] = useState<string | undefined>(undefined);
   const lastPressRef = React.useRef<Record<string, number>>({});
@@ -171,7 +173,13 @@ export default function CustomTabBar({ state, navigation }: BottomTabBarProps) {
                   end={{ x: 1, y: 1 }}
                   style={styles.fab}
                 >
-                  {isPosting ? <ActivityIndicator size="small" color="#fff" /> : <Ionicons name="add" size={28} color="#fff" />}
+                  {isPosting ? (
+                    <View style={{ flex: 1, width: '100%', height: '100%', borderRadius: 27, overflow: 'hidden', alignItems: 'center', justifyContent: 'center' }}>
+                      <BrandedLottieLoader size={64} />
+                    </View>
+                  ) : (
+                    <Ionicons name="add" size={28} color="#fff" />
+                  )}
                 </LinearGradient>
               </TouchableOpacity>
             </View>

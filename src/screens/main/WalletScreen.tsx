@@ -353,7 +353,7 @@ export default function WalletScreen() {
     return (
       <View style={styles.container}>
         <StatusBar style="light" />
-        <MainHeader />
+        <MainHeader showBack={true} />
         <View style={{ flex: 1, backgroundColor: colors.bg.base }}>
           <PinPad
             title="Wallet Locked"
@@ -406,7 +406,7 @@ export default function WalletScreen() {
     <View style={styles.container}>
       <StatusBar style="light" />
 
-      <MainHeader />
+      <MainHeader showBack={true} />
 
       {/* Pull-to-refresh + pinned "My Wallet" heading — the heading hides and
           shows IN LOCKSTEP with the main header (same treatment as the other

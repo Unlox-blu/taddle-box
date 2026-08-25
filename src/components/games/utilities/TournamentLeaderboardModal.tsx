@@ -11,17 +11,17 @@ import {
 import { FlashList } from '@shopify/flash-list';
 import { Ionicons } from "@expo/vector-icons";
 import { LinearGradient } from "expo-linear-gradient";
-import StateBlock from "../common/StateBlock";
+import StateBlock from "../../common/StateBlock";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { fontSizes, radii, spacing } from "../../theme";
-import { useThemeColors } from "../../context/ThemeContext";
-import { apiClient } from "../../services/apiClient";
-import type { GameTournament } from "../../services/games.service";
+import { fontSizes, radii, spacing } from "../../../theme";
+import { useThemeColors } from "../../../context/ThemeContext";
+import { apiClient } from "../../../services/apiClient";
+import type { GameTournament } from "../../../services/games.service";
 import { useNavigation } from "@react-navigation/native";
 import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
-import type { HomeStackParamList } from "../../types";
-import { useAuth } from "../../context/AuthContext";
-import { error } from '../../utils/logger';
+import type { HomeStackParamList } from "../../../types";
+import { useAuth } from "../../../context/AuthContext";
+import { error } from '../../../utils/logger';
 
 type Props = {
   visible: boolean;

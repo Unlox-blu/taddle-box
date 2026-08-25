@@ -69,6 +69,9 @@ class DeviceSocketClient {
       this.socket.on("connect", () => {
         this.isConnecting = false;
         log("[deviceSocket] Connected:", this.socket?.id);
+
+        // Fetch initial unread stats for all accounts on this device
+        this.socket?.emit("device:get_unread");
       });
 
       this.socket.on("disconnect", (reason) => {
@@ -88,10 +91,25 @@ class DeviceSocketClient {
         log("[deviceSocket] Session revoked for userId:", data.userId);
         this.events.emit("auth:session_revoked", data);
       });
+
+      // ── Unread Status Events ───────────────────────────────────────────
+      this.socket.on("device:unread_status", (statusMap: Record<string, boolean>) => {
+        this.events.emit("device:unread_status", statusMap);
+      });
+
+      this.socket.on("device:unread_ping", () => {
+        // A new notification or chat message arrived for one of the accounts.
+        // Re-fetch the unread stats to update the UI badges.
+        this.socket?.emit("device:get_unread");
+      });
     } catch (err) {
       this.isConnecting = false;
       logError("[deviceSocket] Failed to connect:", err);
     }
+  }
+
+  fetchUnread() {
+    this.socket?.emit("device:get_unread");
   }
 
   disconnect() {

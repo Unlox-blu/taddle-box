@@ -13,6 +13,7 @@ import {
   Share,
   Platform,
 } from "react-native";
+import { notificationBus } from "../../lib/notificationBus";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useNavigation } from "@react-navigation/native";
 import { Ionicons } from "@expo/vector-icons";
@@ -27,7 +28,10 @@ import { themedAlert } from "../common/ThemedAlert";
 import { useTheme } from "../../context/ThemeContext";
 import { chatService } from "../../services/chat.service";
 import { accountSocket } from "../../services/accountSocketClient";
-import { error } from '../../utils/logger';
+import { error } from "../../utils/logger";
+
+import { useNotifications } from "../../context/NotificationContext";
+import { navigationRef } from "../../navigation/navigationRef";
 
 const { width: SW } = Dimensions.get("window");
 const DRAWER_W = Math.min(Math.round(SW * 0.82), 320);
@@ -68,10 +72,14 @@ export default function SideDrawer({
   } = useAuth();
   const insets = useSafeAreaInsets();
   const { isDark, colors } = useTheme();
-
+  const { inactiveUnreadStatus } = useNotifications();
   const [accountsExpanded, setAccountsExpanded] = useState(false);
   const otherAccounts = accounts.filter(
     (a) => String(a.userId) !== String(user?.id),
+  );
+
+  const hasInactiveUnread = otherAccounts.some(
+    (a) => inactiveUnreadStatus[String(a.userId)],
   );
 
   const [localXP, setLocalXP] = useState(0);
@@ -119,12 +127,27 @@ export default function SideDrawer({
       getReferralRewards()
         .then((rewards) => setReferralXp(rewards?.joinerXp ?? null))
         .catch(() => setReferralXp(null));
-        
+
       // Fetch chat unread count when drawer opens
-      chatService.getInbox(1, 10).then((res) => {
-        const count = res.conversations?.reduce((acc: number, c: any) => acc + (c.unread_count || 0), 0) || 0;
-        setUnreadChatCount(count);
-      }).catch(() => {});
+      const fetchInbox = () => {
+        chatService
+          .getInbox(1, 10)
+          .then((res) => {
+            const count =
+              res.conversations?.reduce(
+                (acc: number, c: any) => acc + (c.unread_count || 0),
+                0,
+              ) || 0;
+            setUnreadChatCount(count);
+          })
+          .catch(() => {});
+      };
+      fetchInbox();
+
+      // Ensure we listen to chat read events while drawer is visible or mounted
+      const sub = notificationBus.on("chat_inbox_updated", fetchInbox);
+      // @ts-ignore
+      window._sideDrawerSubCleanup = sub;
     }
   }, [visible]);
 
@@ -137,6 +160,8 @@ export default function SideDrawer({
     accountSocket.events.on("chat:message" as any, handleChatMessage);
     return () => {
       accountSocket.events.off("chat:message" as any, handleChatMessage);
+      // @ts-ignore
+      if (window._sideDrawerSubCleanup) window._sideDrawerSubCleanup();
     };
   }, [user?.id]);
 
@@ -148,7 +173,13 @@ export default function SideDrawer({
 
   const closeAndNavigateStack = (screen: string) => {
     onClose();
-    setTimeout(() => onNavigateStack(screen), CLOSE_DELAY);
+    setTimeout(() => {
+      if (navigationRef.isReady()) {
+        (navigationRef.navigate as any)(screen);
+      } else {
+        onNavigateStack(screen);
+      }
+    }, CLOSE_DELAY);
   };
 
   const closeAndProfile = () => {
@@ -195,13 +226,15 @@ export default function SideDrawer({
         if (user?.globalAccountLockEnabled) {
           onClose();
           setTimeout(() => {
-            navigation.navigate("LockScreen", {
-              mode: "app",
-              returnScreen: "Wallet",
-            });
+            if (navigationRef.isReady()) {
+              (navigationRef.navigate as any)("LockScreen", {
+                mode: "app",
+                returnScreen: "Wallet",
+              });
+            }
           }, CLOSE_DELAY);
         } else {
-          closeAndNavigateTab("Wallet");
+          closeAndNavigateStack("Wallet");
         }
       },
     },
@@ -309,6 +342,7 @@ export default function SideDrawer({
                   borderRadius: 20,
                   borderWidth: 1,
                   borderColor: "rgba(124,58,237,0.2)",
+                  position: "relative",
                 }}
                 onPress={() => setAccountsExpanded(!accountsExpanded)}
                 activeOpacity={0.6}
@@ -318,6 +352,21 @@ export default function SideDrawer({
                   size={18}
                   color={colors.primaryLight}
                 />
+                {hasInactiveUnread && (
+                  <View
+                    style={{
+                      position: "absolute",
+                      top: -2,
+                      right: -2,
+                      width: 10,
+                      height: 10,
+                      borderRadius: 5,
+                      backgroundColor: colors.danger,
+                      borderWidth: 1.5,
+                      borderColor: colors.bg.surface,
+                    }}
+                  />
+                )}
               </TouchableOpacity>
             </View>
 
@@ -346,40 +395,65 @@ export default function SideDrawer({
                       );
                     }}
                   >
-                    <View style={styles.expandedAvatarRing}>
-                      {account.avatarUrl ? (
-                        <Image
-                          source={{ uri: account.avatarUrl }}
-                          style={styles.avatarImage}
-                        />
-                      ) : (
-                        <View
-                          style={[
-                            styles.avatarFallback,
-                            { backgroundColor: colors.bg.card },
-                          ]}
-                        >
-                          <Text
+                    <View style={{ position: "relative" }}>
+                      <View style={styles.expandedAvatarRing}>
+                        {account.avatarUrl ? (
+                          <Image
+                            source={{ uri: account.avatarUrl }}
+                            style={styles.avatarImage}
+                          />
+                        ) : (
+                          <View
                             style={[
-                              styles.avatarInitial,
-                              { color: colors.text.primary },
+                              styles.avatarFallback,
+                              { backgroundColor: colors.bg.card },
                             ]}
                           >
-                            {(account.name || "U").charAt(0).toUpperCase()}
-                          </Text>
-                        </View>
+                            <Text
+                              style={[
+                                styles.avatarInitial,
+                                { color: colors.text.primary },
+                              ]}
+                            >
+                              {(account.name || "U").charAt(0).toUpperCase()}
+                            </Text>
+                          </View>
+                        )}
+                      </View>
+                      {inactiveUnreadStatus[String(account.userId)] && (
+                        <View
+                          style={{
+                            position: "absolute",
+                            top: -2,
+                            right: -2,
+                            width: 10,
+                            height: 10,
+                            borderRadius: 5,
+                            backgroundColor: colors.danger,
+                            borderWidth: 1.5,
+                            borderColor: colors.bg.surface,
+                          }}
+                        />
                       )}
                     </View>
                     <View style={{ flex: 1, justifyContent: "center" }}>
                       <Text
                         numberOfLines={1}
-                        style={{ color: colors.text.primary, fontSize: 13, fontWeight: "600" }}
+                        style={{
+                          color: colors.text.primary,
+                          fontSize: 13,
+                          fontWeight: "600",
+                        }}
                       >
                         {account.name || account.username}
                       </Text>
                       <Text
                         numberOfLines={1}
-                        style={{ color: colors.text.muted, fontSize: 11, marginTop: 1 }}
+                        style={{
+                          color: colors.text.muted,
+                          fontSize: 11,
+                          marginTop: 1,
+                        }}
                       >
                         @{account.username}
                       </Text>
@@ -412,8 +486,10 @@ export default function SideDrawer({
                       height: 32,
                       borderRadius: 16,
                       borderWidth: 1.5,
-                      borderStyle: 'dashed',
-                      borderColor: isDark ? 'rgba(124,58,237,0.5)' : 'rgba(124,58,237,0.4)',
+                      borderStyle: "dashed",
+                      borderColor: isDark
+                        ? "rgba(124,58,237,0.5)"
+                        : "rgba(124,58,237,0.4)",
                       alignItems: "center",
                       justifyContent: "center",
                     }}
@@ -427,7 +503,11 @@ export default function SideDrawer({
                   <Text
                     style={[
                       styles.expandedAccountName,
-                      { color: colors.primaryLight, fontWeight: "600", fontSize: fontSizes.sm - 1 },
+                      {
+                        color: colors.primaryLight,
+                        fontWeight: "600",
+                        fontSize: fontSizes.sm - 1,
+                      },
                     ]}
                   >
                     Add Account
@@ -456,8 +536,12 @@ export default function SideDrawer({
               style={{
                 borderRadius: radii.md,
                 borderWidth: 1,
-                borderColor: isDark ? "rgba(124,58,237,0.3)" : "rgba(124,58,237,0.4)",
-                backgroundColor: isDark ? "rgba(124,58,237,0.1)" : "rgba(124,58,237,0.08)",
+                borderColor: isDark
+                  ? "rgba(124,58,237,0.3)"
+                  : "rgba(124,58,237,0.4)",
+                backgroundColor: isDark
+                  ? "rgba(124,58,237,0.1)"
+                  : "rgba(124,58,237,0.08)",
                 paddingVertical: 12,
                 paddingHorizontal: 12,
                 flexDirection: "row",
@@ -507,7 +591,9 @@ export default function SideDrawer({
                     marginRight: 10,
                   }}
                 >
-                  <Text style={{ color: "#fff", fontSize: 11, fontWeight: "bold" }}>
+                  <Text
+                    style={{ color: "#fff", fontSize: 11, fontWeight: "bold" }}
+                  >
                     {unreadChatCount > 99 ? "99+" : unreadChatCount}
                   </Text>
                 </View>
@@ -517,7 +603,9 @@ export default function SideDrawer({
                   width: 24,
                   height: 24,
                   borderRadius: 12,
-                  backgroundColor: isDark ? "rgba(124,58,237,0.15)" : "rgba(124,58,237,0.2)",
+                  backgroundColor: isDark
+                    ? "rgba(124,58,237,0.15)"
+                    : "rgba(124,58,237,0.2)",
                   alignItems: "center",
                   justifyContent: "center",
                 }}

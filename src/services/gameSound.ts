@@ -16,7 +16,7 @@ import type { AudioPlayer } from "expo-audio";
 import * as Haptics from "expo-haptics";
 import * as SecureStore from "expo-secure-store";
 import { useEffect, useRef, useState } from "react";
-import { GAME_SOUND_NAMES } from "../games/assets";
+import { GAME_SOUND_NAMES } from "../games/gameAssets";
 import { warn } from '../utils/logger';
 import { getCachedSoundUri } from "../games/gameAssets";
 

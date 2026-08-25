@@ -6,25 +6,10 @@ import { Ionicons } from "@expo/vector-icons";
 
 export type LogoGame = {
   name: string;
-  slug?: string;
   gradient: [string, string] | string[];
   imageUrl?: string | null;
   /** Branded logo asset (require'd PNG) — rendered in place of the monogram tile */
   logo?: any;
-};
-
-// Per-game brand marks (logo tile monogram + accent icon)
-const GAME_MARKS: Record<
-  string,
-  { icon: keyof typeof Ionicons.glyphMap; letters: string }
-> = {
-  "tap-rush": { icon: "flash", letters: "TR" },
-  "memory-grid": { icon: "grid", letters: "MG" },
-  scribble: { icon: "create", letters: "SC" },
-  ludo: { icon: "shapes", letters: "LU" },
-  "snake-ladder": { icon: "trail-sign", letters: "SL" },
-  chess: { icon: "shield-half", letters: "CH" },
-  "word-rush": { icon: "chatbox-ellipses", letters: "WR" },
 };
 
 const DEFAULT_GRADIENT: [string, string] = ["#7C3AED", "#0891B2"];
@@ -41,9 +26,8 @@ export default function GameLogo({
   style?: ViewStyle;
 }) {
   const r = radius ?? Math.round(size * 0.26);
-  const mark = game.slug ? GAME_MARKS[game.slug] : null;
+  // Generate monogram from game name — no hardcoded slug lookups.
   const letters =
-    mark?.letters ||
     (game.name || "GM")
       .replace(/[^a-zA-Z0-9 ]/g, "")
       .split(/\s+/)
@@ -52,11 +36,15 @@ export default function GameLogo({
       .map((w) => w[0].toUpperCase())
       .join("") ||
     "GM";
-  const icon = mark?.icon || "game-controller";
+  const icon = "game-controller";
   const gradient =
     game.gradient?.length === 2
       ? (game.gradient as [string, string])
       : DEFAULT_GRADIENT;
+
+  // Resolve image URL from either field — backend sends 'thumbnail',
+  // frontend type uses 'imageUrl'. Accept both.
+  const imageUri = game.imageUrl || (game as any).thumbnail || null;
 
   // Branded per-game logo wins over the remote image and the monogram tile.
   // The tile View owns the border/elevation/clipping; the Image fills it.
@@ -78,13 +66,15 @@ export default function GameLogo({
     );
   }
 
-  if (game.imageUrl) {
+  if (imageUri) {
     return (
-      <Image
-        source={{ uri: game.imageUrl }}
-        style={{ width: size, height: size, borderRadius: r }}
-        contentFit="cover"
-      />
+      <View style={[{ width: size, height: size, borderRadius: r }, style]}>
+        <Image
+          source={{ uri: imageUri }}
+          style={{ width: size, height: size, borderRadius: r }}
+          contentFit="cover"
+        />
+      </View>
     );
   }
 

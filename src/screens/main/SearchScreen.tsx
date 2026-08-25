@@ -18,6 +18,7 @@ import {
   ScrollView,
   Keyboard,
   Dimensions,
+  Animated as RNAnimated,
 } from "react-native";
 import { FlashList } from '@shopify/flash-list';
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -535,11 +536,26 @@ export default function SearchScreen({ navigation, route }: Props) {
     };
   });
   
+  // Calculate overlay height inline to avoid referencing the hoisted variable too early
+  const _searchHeaderH = headerMeasuredH ?? 60 + insets.top;
+  const _showPills = source === "notifications" || (source !== "settings" && source !== "wallet" && serverTypes.length > 0);
+  const _searchOverlayH = _searchHeaderH + (_showPills ? 56 : 0);
+
   const { activePostId, viewabilityConfig, onViewableItemsChanged,
           trackLayout, handleScroll: handleScrollForTracking } =
     useActivePostTracking(hookRows, {
-      headerHeight: searchOverlayH,
+      headerHeight: _searchOverlayH,
     });
+
+  const scrollYAnim = useRef(new RNAnimated.Value(0)).current;
+  const startPhysicalTop = _searchOverlayH;
+  const targetPhysicalTop = (Dimensions.get("window").height * 0.90) / 2;
+  const transitionDistance = Math.max(1, targetPhysicalTop - startPhysicalTop);
+  const focusBoxTop = scrollYAnim.interpolate({
+    inputRange: [0, transitionDistance],
+    outputRange: [startPhysicalTop, targetPhysicalTop],
+    extrapolate: "clamp",
+  });
 
   // ── Video preload: direction-aware ────────────────────────────────
   const lastScrollYRef = useRef(0);
@@ -1768,6 +1784,7 @@ export default function SearchScreen({ navigation, route }: Props) {
             // Track the live offset so switching tabs can save/restore it.
             onScroll={(e) => {
               const y = e.nativeEvent.contentOffset.y;
+              scrollYAnim.setValue(y);
               if (y > lastScrollYRef.current + 2) scrollDirRef.current = 1;
               else if (y < lastScrollYRef.current - 2) scrollDirRef.current = -1;
               lastScrollYRef.current = y;
@@ -1957,12 +1974,12 @@ export default function SearchScreen({ navigation, route }: Props) {
         postTitle={sharePost?.title || ''}
       />
 
-      {/* Debug Focus Area: matches useActivePostTracking's FOCUS_ZONE_RATIO (0.10) */}
-      <View
+      {/* Debug Tracking Overlay */}
+      <RNAnimated.View
         pointerEvents="none"
         style={{
           position: "absolute",
-          top: (Dimensions.get("window").height * 0.90) / 2, // (1 - 0.10) / 2
+          top: focusBoxTop,
           height: Dimensions.get("window").height * 0.10,
           left: 0,
           right: 0,

@@ -151,7 +151,7 @@ const PostRow = ({ data, ctx }: RowProps) => {
     <View
       onLayout={(e) => {
         const { y, height } = e.nativeEvent.layout;
-        ctx.trackLayout?.(post.id, { top: y, bottom: y + height });
+        ctx.trackLayout?.(resolveContentId(post) ?? post.id, { top: y, bottom: y + height });
       }}
     >
       <PostCard

@@ -31,15 +31,35 @@ export function useActivePostTracking(
 
   const recalculate = () => {
     const viewportTop = scrollYRef.current;
+    const viewportBottom = viewportTop + viewportH;
 
     let bestId: string | null = null;
     let bestScore = -Infinity;
     let bestTop = Infinity;
 
-    // 10% focus window perfectly centered in the screen
-    const FOCUS_ZONE_RATIO = 0.10;
+    // 10% Focus Zone height
+    const FOCUS_ZONE_RATIO = 0.1;
     const focusHeight = viewportH * FOCUS_ZONE_RATIO;
-    const focusTop = viewportTop + (viewportH - focusHeight) / 2;
+
+    // Calculate physical sliding top — starts at y=0 (screen top), slides to
+    // screen centre over exactly targetPhysicalTop pixels of scrolling.
+    // headerOffset still anchors the content layout below.
+    const scrollY = Math.max(0, viewportTop);
+    const headerOffset =
+      (options?.listHeaderOffset || 0) + (options?.headerHeight || 0);
+    const targetPhysicalTop = (viewportH - focusHeight) / 2;
+    const startPhysicalTop = options?.headerHeight || 0; // below MainHeader only
+
+    // Slide from start to target mathematically proportional to the distance
+    const transitionDistance = Math.max(
+      1,
+      targetPhysicalTop - startPhysicalTop,
+    );
+    const progress = Math.min(1, scrollY / transitionDistance);
+    const currentPhysicalTop =
+      startPhysicalTop + (targetPhysicalTop - startPhysicalTop) * progress;
+
+    const focusTop = viewportTop + currentPhysicalTop;
     const focusBottom = focusTop + focusHeight;
 
     const idsToProcess = new Set(candidateIdsRef.current);
@@ -59,7 +79,8 @@ export function useActivePostTracking(
     for (const post of posts) {
       const contentId = resolveContentId(post);
       if (!contentId) continue;
-      const h = heightMapRef.current.get(contentId) || 500;
+      const h = heightMapRef.current.get(contentId);
+      if (!h) continue;
       computedLayout.set(contentId, { top: currentY, bottom: currentY + h });
       currentY += h;
     }
@@ -110,7 +131,9 @@ export function useActivePostTracking(
 
     const ids = viewableItems
       .filter((v) => v.isViewable)
-      .map((v) => (resolveId ? resolveId(v.item) : (resolveContentId(v.item) || null)))
+      .map((v) =>
+        resolveId ? resolveId(v.item) : resolveContentId(v.item) || null,
+      )
       .filter((id): id is string => id !== null);
 
     candidateIdsRef.current = new Set(ids);

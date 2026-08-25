@@ -1,5 +1,5 @@
 import React, { useMemo, useState, useCallback, useRef } from "react";
-import { View, Text, StyleSheet, FlatList, ScrollView, Dimensions } from "react-native";
+import { View, Text, StyleSheet, FlatList, ScrollView, Dimensions, Animated } from "react-native";
 import { FlashList } from "@shopify/flash-list";
 import {
   useNavigation,
@@ -111,6 +111,16 @@ export default function BookmarksScreen() {
     useActivePostTracking(hookRows, {
       headerHeight: headerHeight + SECTION_HEADER_H,
     });
+
+  const scrollYAnim = useRef(new Animated.Value(0)).current;
+  const startPhysicalTop = headerHeight + SECTION_HEADER_H;
+  const targetPhysicalTop = (Dimensions.get("window").height * 0.90) / 2;
+  const transitionDistance = Math.max(1, targetPhysicalTop - startPhysicalTop);
+  const focusBoxTop = scrollYAnim.interpolate({
+    inputRange: [0, transitionDistance],
+    outputRange: [startPhysicalTop, targetPhysicalTop],
+    extrapolate: "clamp",
+  });
 
   const { mutate: toggleLike } = useToggleLike();
   const { mutate: toggleSave } = useToggleSave();
@@ -334,6 +344,7 @@ export default function BookmarksScreen() {
               onViewableItemsChanged={onViewableItemsChanged}
               onScroll={(e) => {
                 const y = e.nativeEvent.contentOffset.y;
+                scrollYAnim.setValue(y);
                 if (y > lastScrollYRef.current + 2) scrollDirRef.current = 1;
                 else if (y < lastScrollYRef.current - 2) scrollDirRef.current = -1;
                 lastScrollYRef.current = y;
@@ -357,15 +368,15 @@ export default function BookmarksScreen() {
         postTitle={sharePost?.title || ''}
       />
 
-      {/* Debug Focus Area: matches useActivePostTracking's FOCUS_ZONE_RATIO (0.10) */}
-      <View
+      {/* Debug Tracking Overlay */}
+      <Animated.View
         pointerEvents="none"
         style={{
           position: "absolute",
-          top: (Dimensions.get("window").height * 0.90) / 2, // (1 - 0.10) / 2
-          height: Dimensions.get("window").height * 0.10,
           left: 0,
           right: 0,
+          top: focusBoxTop,
+          height: Dimensions.get("window").height * 0.10,
           backgroundColor: "rgba(255, 0, 0, 0.15)",
           borderWidth: 2,
           borderColor: "rgba(255, 0, 0, 0.5)",

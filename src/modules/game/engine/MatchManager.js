@@ -15,7 +15,7 @@
  *   one command → one state transition → one event sequence → one durable TX
  */
 
-const { Pool } = require('pg');
+
 const EventStore = require('./EventStore');
 const GameRegistry = require('./GameRegistry');
 
@@ -220,9 +220,7 @@ class MatchActor {
 // MatchManager (singleton actor registry)
 // ═══════════════════════════════════════════════════════════════════════════
 
-const pool = new Pool({
-  connectionString: require('../../../config/app.config').DB?.connectionString,
-});
+const pool = require('../../../config/database');
 
 class MatchManager {
   static actors = new Map(); // matchId → MatchActor

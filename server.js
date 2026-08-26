@@ -164,6 +164,12 @@ const bootstrap = async () => {
       });
     }, 2500);
 
+    // ── Memory diagnostics (temporary — remove after leak is confirmed fixed) ──
+    setInterval(() => {
+      const m = process.memoryUsage();
+      logger.info(`[mem] rss=${Math.round(m.rss / 1024 / 1024)}MB heap=${Math.round(m.heapUsed / 1024 / 1024)}/${Math.round(m.heapTotal / 1024 / 1024)}MB ext=${Math.round(m.external / 1024 / 1024)}MB pool_max=${pool.options.max} pool_idle=${pool.totalCount} pool_waiting=${pool.waitingCount}`);
+    }, 30_000);
+
     // Start server
     server.listen(config.PORT, async () => {
       logger.info(`Server running on port ${config.PORT} [${config.NODE_ENV}]`);

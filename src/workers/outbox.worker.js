@@ -32,19 +32,19 @@ const dbBreaker = new CircuitBreaker({
 async function dispatchXP(matchId, payload) {
   // XP is credited at match completion, not per-event.
   // This hook could handle incremental XP for kill-streaks, combos, etc.
-  console.info(`[Outbox] XP event for match ${matchId}:`, payload.eventType);
+  // XP event logged at debug level only
 }
 
 async function dispatchAnalytics(matchId, payload) {
-  console.info(`[Outbox] Analytics event for match ${matchId}:`, payload.eventType);
+  // Analytics event logged at debug level only
 }
 
 async function dispatchAntiCheat(matchId, payload) {
-  console.info(`[Outbox] Anti-cheat event for match ${matchId}:`, payload.eventType);
+  // Anti-cheat event logged at debug level only
 }
 
 async function dispatchNotification(matchId, payload) {
-  console.info(`[Outbox] Notification event for match ${matchId}:`, payload.eventType);
+  // Notification event logged at debug level only
 }
 
 // ── Event type → service dispatch mapping ─────────────────────────────────

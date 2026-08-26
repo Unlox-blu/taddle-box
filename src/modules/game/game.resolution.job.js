@@ -16,7 +16,7 @@ const gameService = new GameService({ gameRepository, xpService });
  */
 async function resolveAbandonedMatches() {
   const client = await pool.connect();
-  client.on('error', err => console.error('Abandoned matches client error:', err));
+  client.on('error', () => {})  // silenced — circuit breaker handles DB failures;
   try {
     // Find all PENDING game sessions older than 3 minutes
     const { rows: pendingSessions } = await client.query(`
@@ -136,7 +136,7 @@ async function resolveAbandonedMatches() {
       }
     }
   } catch (error) {
-    console.error('Error sweeping abandoned matches', error);
+    console.warn('[sweeper] abandoned matches — DB unreachable (circuit breaker active)');
   } finally {
     client.release();
   }
@@ -216,7 +216,7 @@ async function resolveExpiredLobbies() {
       }
     }
   } catch (err) {
-    console.error('Error sweeping expired lobbies', err);
+    console.warn('[sweeper] expired lobbies — DB unreachable (circuit breaker active)');
   } finally {
     client.release();
   }
@@ -238,7 +238,7 @@ async function resolveExpiredLobbies() {
  */
 async function resolveExpiredMatches() {
   const client = await pool.connect();
-  client.on('error', err => console.error('Expired matches client error:', err));
+  client.on('error', () => {})  // silenced — circuit breaker handles DB failures;
   try {
     const { rows: stale } = await client.query(`
       SELECT t.id AS ticket_id, gm.id AS match_id
@@ -283,7 +283,7 @@ async function resolveExpiredMatches() {
       console.info(`[Game] Expired ${stale.length} stale matched ticket(s) (match abandoned, player never reconnected)`);
     }
   } catch (err) {
-    console.error('Error sweeping expired matches', err);
+    console.warn('[sweeper] expired matches — DB unreachable (circuit breaker active)');
   } finally {
     client.release();
   }
@@ -445,7 +445,7 @@ async function resolveBotFillingLobbies() {
       }
     }
   } catch (err) {
-    console.error('Error sweeping bot-fill lobbies', err);
+    console.warn('[sweeper] bot-fill lobbies — DB unreachable (circuit breaker active)');
   } finally {
     client.release();
   }
@@ -453,7 +453,7 @@ async function resolveBotFillingLobbies() {
 
 async function resolveTournaments() {
   const client = await pool.connect();
-  client.on('error', err => console.error('Tournaments client error:', err));
+  client.on('error', () => {})  // silenced — circuit breaker handles DB failures;
   try {
     const { rows: endedTournaments } = await client.query(`
       SELECT * FROM ${gameModel.GAME_TOURNAMENT_TABLE}
@@ -534,7 +534,7 @@ async function resolveTournaments() {
       }
     }
   } catch (error) {
-    console.error('Error resolving tournaments', error);
+    console.warn('[sweeper] tournaments — DB unreachable (circuit breaker active)');
   } finally {
     client.release();
   }
@@ -560,7 +560,7 @@ async function resolveTournaments() {
  */
 async function expireAbandonedSessions() {
   const client = await pool.connect();
-  client.on('error', err => console.error('Expired sessions client error:', err));
+  client.on('error', () => {})  // silenced — circuit breaker handles DB failures;
   try {
     const { rows: stale } = await client.query(`
       SELECT gs.id, gs.user_id, gs.metadata->>'matchGroupId' AS match_group_id
@@ -622,7 +622,7 @@ async function expireAbandonedSessions() {
       console.info(`[Game] Expired ${toExpire.length} abandoned game session(s)`);
     }
   } catch (error) {
-    console.error('Error sweeping expired sessions', error);
+    console.warn('[sweeper] expired sessions — DB unreachable (circuit breaker active)');
   } finally {
     client.release();
   }

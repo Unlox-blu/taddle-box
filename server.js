@@ -224,9 +224,12 @@ const bootstrap = async () => {
         // Publish own stats with 120s TTL
         await redis.set(`health:stats:${process.pid}`, JSON.stringify(stats), 'EX', 120);
 
-        // Only worker 1 reads all stats and logs the combined line
+        // In PM2, only instance '0' should aggregate and log.
+        // In native cluster, only worker 1 should log.
+        // In single-process (local), it should always log.
+        if (process.env.NODE_APP_INSTANCE && process.env.NODE_APP_INSTANCE !== '0') return;
         const cluster = require('cluster');
-        if (cluster.isWorker && cluster.worker?.id !== 1) return;
+        if (!process.env.NODE_APP_INSTANCE && cluster.isWorker && cluster.worker?.id !== 1) return;
 
         // Scan for all health:stats:* keys
         const keys = [];

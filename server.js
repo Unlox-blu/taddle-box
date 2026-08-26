@@ -204,7 +204,7 @@ const bootstrap = async () => {
         });
       });
     // Every process publishes its stats to Redis; worker 1 aggregates and logs.
-    const _healthLog = setInterval(async () => {
+    const logHealth = async () => {
       try {
         const m = process.memoryUsage();
         const stats = {
@@ -252,7 +252,8 @@ const bootstrap = async () => {
       } catch (e) {
         /* non-fatal */
       }
-    }, 60_000);
+    };
+    const _healthLog = setInterval(logHealth, 60_000);
     process.on('SIGINT', () => {
       clearInterval(_healthLog);
       redis.del(`health:stats:${process.pid}`).catch(() => {});
@@ -262,6 +263,7 @@ const bootstrap = async () => {
     // Start server
     server.listen(config.PORT, async () => {
       logger.info(`Server running on port ${config.PORT} [${config.NODE_ENV}]`);
+      logHealth(); // Initial run immediately after bootup
 
       if (
         config.NODE_ENV === 'development' &&

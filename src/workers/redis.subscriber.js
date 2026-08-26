@@ -4,6 +4,7 @@ const Redis = require('ioredis');
 const config = require('../config/app.config');
 const { emitWalletUpdate } = require('../sockets/account.socket');
 const { walletRepo } = require('../modules/wallet/wallet.container');
+const { logger } = require('../middlewares/logger.middleware');
 
 // We need a dedicated Redis client for subscribing (ioredis requires it)
 const subscriber = new Redis(config.REDIS_URL, {
@@ -12,19 +13,15 @@ const subscriber = new Redis(config.REDIS_URL, {
   retryStrategy: (times) => Math.min(times * 50, 2000),
 });
 
-subscriber.on('connect', () => console.info('Redis Subscriber connecting...'));
 subscriber.on('ready', () => {
-  console.info('Redis Subscriber ready');
   // Subscribe to the wallet updates channel
-  subscriber.subscribe('wallet_updated', (err, count) => {
+  subscriber.subscribe('wallet_updated', (err) => {
     if (err) {
-      console.error('Failed to subscribe to wallet_updated:', err.message);
-    } else {
-      console.info(`Subscribed to ${count} channels (including wallet_updated)`);
+      logger.error('Failed to subscribe to wallet_updated:', { error: err.message });
     }
   });
 });
-subscriber.on('error', (err) => console.error('Redis Subscriber error:', err.message));
+subscriber.on('error', (err) => logger.error('Redis Subscriber error:', { error: err.message }));
 
 // Listen for messages
 subscriber.on('message', async (channel, message) => {
@@ -40,7 +37,7 @@ subscriber.on('message', async (channel, message) => {
         emitWalletUpdate(userId, wallet.balanceCents);
       }
     } catch (err) {
-      console.error('Error processing wallet_updated pubsub message:', err.message);
+      logger.error('Error processing wallet_updated pubsub message:', { error: err.message });
     }
   }
 });

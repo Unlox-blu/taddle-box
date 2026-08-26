@@ -10,9 +10,9 @@ const redis = new Redis(config.REDIS_URL, {
   retryStrategy: (times) => Math.min(times * 50, 2000),
 });
 
-redis.on('connect', () => console.info('Redis connecting...'));
-redis.on('ready', () => console.info('Redis ready'));
-redis.on('error', (err) => console.error('Redis error:', err.message));
-redis.on('reconnecting', () => console.warn('Redis reconnecting...'));
+const { logger } = require('../middlewares/logger.middleware');
+
+redis.on('error', (err) => logger.error('Redis error:', { error: err.message }));
+redis.on('reconnecting', () => logger.warn('Redis reconnecting...'));
 
 module.exports = redis;

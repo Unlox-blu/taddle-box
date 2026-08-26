@@ -2,6 +2,7 @@
 
 const nodemailer = require('nodemailer');
 const config = require('./app.config');
+const { logger } = require('../middlewares/logger.middleware');
 
 const transporter = nodemailer.createTransport({
   host: config.EMAIL.host,
@@ -11,9 +12,16 @@ const transporter = nodemailer.createTransport({
 });
 
 // Verify connection on startup (non-fatal in dev)
-transporter.verify((err) => {
-  if (err) console.warn('⚠️  Nodemailer connection failed:', err.message);
-  else console.info('Nodemailer ready');
+transporter.verifyConnection = () => new Promise((resolve) => {
+  transporter.verify((err) => {
+    if (err) {
+      logger.warn('⚠️  Nodemailer connection failed:', { error: err.message });
+      resolve(false);
+    } else {
+      logger.info('Nodemailer ready');
+      resolve(true);
+    }
+  });
 });
 
 module.exports = transporter;

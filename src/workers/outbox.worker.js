@@ -10,7 +10,8 @@
  * Stale events (PROCESSING longer than lease) are reclaimed periodically.
  */
 
-const pool = require('../config/database');
+const config = require('../config/app.config');
+const { logger } = require('../middlewares/logger.middleware');
 const EventStore = require('../modules/game/engine/EventStore');
 const CircuitBreaker = require('../utils/circuitBreaker');
 
@@ -62,6 +63,7 @@ const DISPATCH_MAP = {
 // ── Main worker loop ─────────────────────────────────────────────────────
 
 let running = false;
+let timer = null;
 
 async function processBatch() {
   const events = await EventStore.claimOutboxEvents(BATCH_SIZE, LEASE_MS);
@@ -77,7 +79,7 @@ async function processBatch() {
       }
       await EventStore.markOutboxProcessed(event.id);
     } catch (err) {
-      console.error(`[Outbox] Failed to process event ${event.id}:`, err.message);
+      logger.error(`[Outbox] Failed to process event ${event.id}:`, { error: err.message });
       await EventStore.markOutboxFailed(event.id, true);
     }
   }
@@ -86,15 +88,13 @@ async function processBatch() {
 async function reclaimStale() {
   const reclaimed = await EventStore.reclaimStaleOutboxEvents(LEASE_MS);
   if (reclaimed > 0) {
-    console.info(`[Outbox] Reclaimed ${reclaimed} stale outbox events`);
+    logger.info(`[Outbox] Reclaimed ${reclaimed} stale outbox events`);
   }
 }
 
 function start() {
   if (running) return;
   running = true;
-
-  console.info('[Outbox] Worker started');
 
   const loop = async () => {
     if (!running) return;
@@ -103,13 +103,13 @@ function start() {
         await processBatch();
         await reclaimStale();
       } catch (err) {
-        console.error('[Outbox] Worker error:', err.message);
+        logger.error('[Outbox] Worker error:', { error: err.message });
         // Re-throw so the circuit breaker sees the failure
         throw err;
       }
     });
     if (running) {
-      setTimeout(loop, POLL_INTERVAL_MS);
+      timer = setTimeout(loop, POLL_INTERVAL_MS);
     }
   };
 
@@ -117,8 +117,9 @@ function start() {
 }
 
 function stop() {
+  if (!running) return;
   running = false;
-  console.info('[Outbox] Worker stopped');
+  if (timer) clearTimeout(timer);
 }
 
 module.exports = { start, stop };

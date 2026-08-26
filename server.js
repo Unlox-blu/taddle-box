@@ -9,7 +9,6 @@ const pool = require('./src/config/database');
 const redis = require('./src/config/redis');
 const { initializeSockets } = require('./src/sockets');
 const { startJobWorker } = require('./src/jobs/workers/backgroundjob/job.worker');
-require('./src/workers/redis.subscriber');
 const { logger } = require('./src/middlewares/logger.middleware');
 const CircuitBreaker = require('./src/utils/circuitBreaker');
 
@@ -63,6 +62,11 @@ const bootstrap = async () => {
     await withTimeout(redis.ping(), 15000, 'Redis');
     engineReady.redis = true;
     logger.info('Redis connected');
+
+    // Verify Redis Subscriber connection
+    const subscriber = require('./src/workers/redis.subscriber');
+    await withTimeout(subscriber.ping(), 15000, 'Redis Subscriber');
+    logger.info('Redis Subscriber ready');
 
     // Load game plugins
     require('./src/modules/game/engine');
@@ -260,11 +264,7 @@ const bootstrap = async () => {
     });
     process.on('SIGTERM', () => clearInterval(_healthLog));
 
-    // Start server
     server.listen(config.PORT, async () => {
-      logger.info(`Server running on port ${config.PORT} [${config.NODE_ENV}]`);
-      logHealth(); // Initial run immediately after bootup
-
       if (
         config.NODE_ENV === 'development' &&
         process.env.NGROK_AUTHTOKEN &&
@@ -282,6 +282,15 @@ const bootstrap = async () => {
           logger.error('Failed to start ngrok', { error: ngrokErr.message });
         }
       }
+
+      // Await the asynchronous Nodemailer verification so it logs BEFORE [HEALTH]
+      const transporter = require('./src/config/nodemailer');
+      if (typeof transporter.verifyConnection === 'function') {
+        await transporter.verifyConnection();
+      }
+
+      logger.info(`Taddle Server Started Succesfully! [Port: ${config.PORT}] [${config.NODE_ENV}]`);
+      logHealth(); // Initial run immediately after ALL bootup finishes (including ngrok)
     });
 
     // Graceful shutdown

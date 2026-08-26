@@ -1,6 +1,7 @@
 'use strict';
 
 const GamePlugin = require('../GamePlugin');
+const { seededShuffle } = require('../../../../utils/seededShuffle');
 
 const WORD_POOL = [
   'ELEPHANT', 'BICYCLE', 'MOUNTAIN', 'UMBRELLA', 'COMPUTER',
@@ -50,8 +51,10 @@ class ScribblePlugin extends GamePlugin {
 
   createState() {
     const scores = {};
-    const turnOrder = this.players.map(p => p.userId);
-    this.players.forEach(p => { scores[p.userId] = 0; });
+    const matchGroupId = this.matchData?.matchGroupId || this.matchData?.lobbyId || 'default';
+    const shuffled = seededShuffle(this.players, `${matchGroupId}:r0`);
+    const turnOrder = shuffled.map(p => p.userId);
+    shuffled.forEach(p => { scores[p.userId] = 0; });
 
     const word = this._pickWord([]);
     return {

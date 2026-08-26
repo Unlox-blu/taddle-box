@@ -17,16 +17,12 @@ const FeedController = require('./feed.controller')
 // so requiring it breaks the cycle and hands the same cached instance over.
 const postRepository = require('../post/post.repository')
 const {followerRepository} = require('../user/user.container')
-const {xpService} = require('../xp/xp.container')
-
-
 
 // Instantiate Service
 const feedService = new FeedService({ 
   feedRepository, 
   postRepository,
   followerRepository,
-  xpService,
 })
 
 // Instantiate Controller

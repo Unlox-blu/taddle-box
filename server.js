@@ -11,6 +11,7 @@ const { initializeSockets } = require('./src/sockets');
 const { startJobWorker } = require('./src/jobs/workers/backgroundjob/job.worker');
 require('./src/workers/redis.subscriber');
 const { logger } = require('./src/middlewares/logger.middleware');
+const CircuitBreaker = require('./src/utils/circuitBreaker');
 
 // ── Engine readiness state ───────────────────────────────────────────────
 const engineReady = {
@@ -98,17 +99,54 @@ const bootstrap = async () => {
 
     // Run game resolution sweeper every minute
     const { resolveAbandonedMatches, resolveTournaments, resolveExpiredLobbies, resolveExpiredMatches, resolveBotFillingLobbies, expireAbandonedSessions } = require('./src/modules/game/game.resolution.job');
+
+    // ── Circuit breakers: skip sweepers when the DB is unreachable ──────
+    // Each sweeper group gets its own breaker so a fast-failing lobby sweep
+    // doesn't block the slower 60s tournament sweep from probing.
+    const sweeperBreaker = new CircuitBreaker({
+      name: 'sweepers-60s',
+      failThreshold: 2,
+      baseBackoffMs: 30_000,
+      maxBackoffMs: 300_000,
+      logger: ({ level, message }) => logger[level] || logger.info(message),
+    });
+    const lobbyBreaker = new CircuitBreaker({
+      name: 'lobby-2.5s',
+      failThreshold: 2,
+      baseBackoffMs: 15_000,
+      maxBackoffMs: 120_000,
+      logger: ({ level, message }) => logger[level] || logger.info(message),
+    });
+
+    const logSettled = (label, results) => {
+      results.forEach((r, i) => {
+        if (r.status === 'rejected') {
+          logger.error(`Error sweeping ${label}[${i}]`, r.reason);
+        }
+      });
+    };
+
     setInterval(() => {
-      resolveAbandonedMatches().catch(err => logger.error('Error sweeping abandoned matches', err));
-      resolveTournaments().catch(err => logger.error('Error sweeping tournaments', err));
-      resolveExpiredMatches().catch(err => logger.error('Error sweeping expired matches', err));
-      expireAbandonedSessions().catch(err => logger.error('Error sweeping expired sessions', err));
+      sweeperBreaker.run(async () => {
+        const results = await Promise.allSettled([
+          resolveAbandonedMatches(),
+          resolveTournaments(),
+          resolveExpiredMatches(),
+          expireAbandonedSessions(),
+        ]);
+        logSettled('sweepers-60s', results);
+      });
     }, 60000);
 
     // Check for expired matchmaking lobbies every 2.5 seconds
     setInterval(() => {
-      resolveExpiredLobbies().catch(err => logger.error('Error sweeping expired lobbies', err));
-      resolveBotFillingLobbies().catch(err => logger.error('Error sweeping bot-fill lobbies', err));
+      lobbyBreaker.run(async () => {
+        const results = await Promise.allSettled([
+          resolveExpiredLobbies(),
+          resolveBotFillingLobbies(),
+        ]);
+        logSettled('lobby-2.5s', results);
+      });
     }, 2500);
 
     // Start server

@@ -8,19 +8,6 @@ class FeedController {
     this.feedSvc = feedService;
   }
 
-  recordPostView = async (req, res, next) => {
-    try {
-      const userId = req.userId;
-      const { postId } = req.body;
-      if (!postId) return res.json({ success: false });
-      await this.feedSvc.recordPostViewXP(userId, postId);
-      res.json({ success: true });
-    } catch (error) {
-      // Non-fatal — swallow gracefully
-      res.json({ success: false });
-    }
-  };
-
   getTrendingHashtags = async (req, res, next) => {
     try {
       const hashtags = await this.feedSvc.getTrendingHashtags({ userId: req.userId });

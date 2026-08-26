@@ -12,10 +12,20 @@
 
 const pool = require('../config/database');
 const EventStore = require('../modules/game/engine/EventStore');
+const CircuitBreaker = require('../utils/circuitBreaker');
 
 const BATCH_SIZE = 10;
 const LEASE_MS = 30000;
 const POLL_INTERVAL_MS = 2000;
+
+// Circuit breaker: if the DB is unreachable, back off instead of spamming
+// connection attempts every 2 seconds.
+const dbBreaker = new CircuitBreaker({
+  name: 'outbox-worker',
+  failThreshold: 3,
+  baseBackoffMs: 15_000,
+  maxBackoffMs: 120_000,
+});
 
 // ── Service dispatchers ──────────────────────────────────────────────────
 
@@ -88,12 +98,16 @@ function start() {
 
   const loop = async () => {
     if (!running) return;
-    try {
-      await processBatch();
-      await reclaimStale();
-    } catch (err) {
-      console.error('[Outbox] Worker error:', err.message);
-    }
+    await dbBreaker.run(async () => {
+      try {
+        await processBatch();
+        await reclaimStale();
+      } catch (err) {
+        console.error('[Outbox] Worker error:', err.message);
+        // Re-throw so the circuit breaker sees the failure
+        throw err;
+      }
+    });
     if (running) {
       setTimeout(loop, POLL_INTERVAL_MS);
     }

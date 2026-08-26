@@ -9,6 +9,9 @@ const pool = require('../src/config/database');
 const MIGRATIONS_DIR = path.join(__dirname, 'migrations');
 
 const ensureMigrationsTable = async () => {
+  // Ensure public schema is in search_path so CREATE TABLE works
+  // even when the DB user has no default search_path (e.g. Neon, Supabase).
+  await pool.query('SET search_path TO public');
   await pool.query(`
     CREATE TABLE IF NOT EXISTS _migrations (
       id         SERIAL PRIMARY KEY,

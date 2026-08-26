@@ -1246,11 +1246,23 @@ const setupGameSocket = (io, gameNs) => {
       );
 
       if (nextRound) {
+        // Reassign colours / turn order for the new round (deterministic shuffle).
+        if (typeof plugin.reassignColors === 'function') {
+          state.pluginState = plugin.reassignColors(state.pluginState, nextNumber);
+          await EventStore.saveMatchSnapshot(matchId, state);
+        }
+
         await RoundManager.markLoading(nextRound.roundId);
         gameNs.to(`match:${matchId}`).emit(EVENTS.ROUND_CREATED, {
           eventId: `round_created_${nextRound.roundId}`,
           matchId,
           round: nextRound,
+        });
+        // Push updated pluginState (new turnOrder + playerColors) so clients
+        // see the new colour assignment immediately, not on the first move SYNC.
+        gameNs.to(`match:${matchId}`).emit(EVENTS.SYNC, {
+          state: state.pluginState,
+          reason: 'round_created',
         });
         console.info(`[GameEngine] Round ${nextRound.number} created for match ${matchId}`);
       }

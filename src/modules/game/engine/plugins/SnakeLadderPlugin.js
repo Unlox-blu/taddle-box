@@ -1,6 +1,7 @@
 'use strict';
 
 const GamePlugin = require('../GamePlugin');
+const { seededShuffle } = require('../../../../utils/seededShuffle');
 
 const SNAKES = {
   99: 80, 95: 75, 92: 88, 89: 58, 74: 53,
@@ -49,9 +50,11 @@ class SnakeLadderPlugin extends GamePlugin {
   }
 
   createState() {
+    const matchGroupId = this.matchData?.matchGroupId || this.matchData?.lobbyId || 'default';
+    const shuffled = seededShuffle(this.players, `${matchGroupId}:r0`);
     const positions = {};
-    const turnOrder = this.players.map(p => p.userId);
-    this.players.forEach(p => { positions[p.userId] = 0; });
+    const turnOrder = shuffled.map(p => p.userId);
+    shuffled.forEach(p => { positions[p.userId] = 0; });
     return {
       positions,
       turnOrder,

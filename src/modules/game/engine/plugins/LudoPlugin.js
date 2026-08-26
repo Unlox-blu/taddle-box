@@ -1,10 +1,12 @@
 'use strict';
 
 const GamePlugin = require('../GamePlugin');
+const { seededShuffle } = require('../../../../utils/seededShuffle');
 
 const START_POSITIONS = { 0: 0, 1: 13, 2: 26, 3: 39 };
 const LOOP_LEN = 52;
 const SAFE_PATH_IDX = new Set([0, 8, 13, 21, 26, 34, 39, 47]);
+const COLOR_NAMES = ['red', 'green', 'yellow', 'blue'];
 
 /**
  * Ludo Plugin — ported to new architecture.
@@ -51,22 +53,48 @@ class LudoPlugin extends GamePlugin {
 
   // ── Lifecycle ─────────────────────────────────────────────────────────
 
-  createState() {
-    const tokens = {};
+  /**
+   * Build a deterministic shuffle seed from match identity.
+   * Combines matchGroupId (lobby) with round number so each round
+   * can produce a different colour assignment while staying replayable.
+   */
+  _shuffleSeed(round = 0) {
+    const matchGroupId = this.matchData?.matchGroupId || this.matchData?.lobbyId || 'default';
+    return `${matchGroupId}:r${round}`;
+  }
+
+  /**
+   * Shuffle players and build the turnOrder + playerColors mapping.
+   * Extracted so it can be called from createState() and from
+   * reassignColors() for per-round colour reassignment.
+   */
+  _buildTurnOrder(round = 0) {
+    const shuffled = seededShuffle(this.players, this._shuffleSeed(round));
     const turnOrder = [];
-    this.players.forEach((p, idx) => {
+    const playerColors = {};  // { userId: { color: 'red', index: 0 } }
+    const tokens = {};
+
+    shuffled.forEach((p, idx) => {
+      turnOrder.push(p.userId);
+      playerColors[p.userId] = { color: COLOR_NAMES[idx], index: idx };
       tokens[p.userId] = [
         { id: 0, pos: -1, playerIndex: idx },
         { id: 1, pos: -1, playerIndex: idx },
         { id: 2, pos: -1, playerIndex: idx },
         { id: 3, pos: -1, playerIndex: idx },
       ];
-      turnOrder.push(p.userId);
     });
+
+    return { turnOrder, playerColors, tokens };
+  }
+
+  createState() {
+    const { turnOrder, playerColors, tokens } = this._buildTurnOrder(0);
 
     return {
       tokens,
       turnOrder,
+      playerColors,  // Backend-driven colour assignment — frontend reads this, not hardcoded.
       currentTurnIndex: 0,
       dice: null,
       lastDice: null,
@@ -74,6 +102,26 @@ class LudoPlugin extends GamePlugin {
       status: 'active',
       winner: null,
       roundCount: 0,
+    };
+  }
+
+  /**
+   * Reassign colours for a new round. Called by the round lifecycle
+   * handler when configuredRounds > 1. Resets all tokens to the yard,
+   * shuffles turn order with a new seed, and returns the fresh state.
+   */
+  reassignColors(currentState, roundNumber) {
+    const { turnOrder, playerColors, tokens } = this._buildTurnOrder(roundNumber);
+    return {
+      ...currentState,
+      tokens,
+      turnOrder,
+      playerColors,
+      currentTurnIndex: 0,
+      dice: null,
+      lastDice: null,
+      movableTokens: [],
+      roundCount: roundNumber,
     };
   }
 

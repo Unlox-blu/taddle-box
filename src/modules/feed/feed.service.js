@@ -5,11 +5,10 @@ const PostModel = require('./feed.model');
 const { getPaginationParams, paginationMeta } = require('../../utils/pagination.util');
 
 class FeedService {
-  constructor({ feedRepository, postRepository, followerRepository, xpService }) {
+  constructor({ feedRepository, postRepository, followerRepository }) {
     this.feedRepo = feedRepository;
     this.postRepo = postRepository;
     this.followerRepo = followerRepository;
-    this.xpSvc = xpService;
   }
 
   async getPersonalizedFeed({userId, limit, offset, page, hashtag}) {
@@ -65,21 +64,6 @@ class FeedService {
       }
     } catch (error) {
       throw error;
-    }
-  }
-
-  async recordPostViewXP(userId, postId) {
-    try {
-      if (!this.xpSvc) return;
-      // xpService.creditXP already deduplicates by sourceType
-      await this.xpSvc.creditXP({
-        userId,
-        xp: 2,
-        transactionType: 'earned',
-        sourceType: `view_post_${postId}`,
-      });
-    } catch (error) {
-      // swallow — non-critical
     }
   }
 

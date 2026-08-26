@@ -408,8 +408,6 @@ class GameService {
       })();
       let configuredRounds = Number(matchData.rounds) || roundsConfig.default;
       configuredRounds = Math.max(roundsConfig.min, Math.min(roundsConfig.max, configuredRounds));
-      // Quick mode is always 1 round regardless of config
-      if (mode === 'AUTO' || mode === 'PRACTICE') configuredRounds = 1;
 
       const result = await this.gameRepo.joinMatchmaking({userId, game, mode, tournamentId, targetPlayers: matchData.targetPlayers, visibility: matchData.visibility, lobbyTtlSeconds, configuredRounds});
         try {

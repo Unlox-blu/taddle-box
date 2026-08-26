@@ -24,13 +24,15 @@ async function resolveAbandonedMatches() {
   const client = await pool.connect();
   client.on('error', () => {})  // silenced — circuit breaker handles DB failures;
   try {
-    // Find all PENDING game sessions older than 3 minutes
+    // Find PENDING game sessions older than 3 minutes (batch of 50 to cap memory)
     const { rows: pendingSessions } = await client.query(`
       SELECT gs.*, rl.validated_score
       FROM ${gameModel.GAME_SESSION_TABLE} gs
       LEFT JOIN reward_ledger rl ON rl.session_id = gs.id
       WHERE gs.status = 'PENDING'
       AND gs.started_at < NOW() - INTERVAL '3 minutes'
+      ORDER BY gs.started_at ASC
+      LIMIT 50
     `);
 
     if (!pendingSessions.length) return;
@@ -152,10 +154,12 @@ async function resolveExpiredLobbies() {
   requireDb();
   const client = await pool.connect();
   try {
-    // Find expired WAITING lobbies (no locks held — each lobby is processed on its own connection)
+    // Find expired WAITING lobbies (batch of 50 to cap memory)
     const { rows: expiredLobbies } = await client.query(`
       SELECT id, host_user_id, settings FROM game_lobby
       WHERE status = 'WAITING' AND expires_at <= NOW()
+      ORDER BY expires_at ASC
+      LIMIT 50
     `);
 
     if (expiredLobbies.length > 0) {
@@ -252,9 +256,6 @@ async function resolveExpiredMatches() {
       SELECT t.id AS ticket_id, gm.id AS match_id
       FROM ${gameModel.GAME_MATCHMAKING_TICKET_TABLE} t
       JOIN ${gameModel.GAME_MATCH_TABLE} gm ON gm.id = t.user_match_id
-      -- 11 minutes, not 10: the reconnect replay's freshness window is 10
-      -- minutes, so this 1-minute buffer guarantees the sweep can never race
-      -- a just-in-time replay at the exact boundary.
       WHERE t.status = 'MATCHED'
         AND gm.result IS NULL
         AND gm.created_at <= NOW() - INTERVAL '11 minutes'
@@ -263,6 +264,8 @@ async function resolveExpiredMatches() {
           WHERE gs.metadata->>'matchGroupId' = gm.metadata->>'matchGroupId'
             AND gs.status = 'PENDING'
         )
+      ORDER BY gm.created_at ASC
+      LIMIT 50
     `);
 
     if (!stale.length) return;
@@ -468,6 +471,8 @@ async function resolveTournaments() {
     const { rows: endedTournaments } = await client.query(`
       SELECT * FROM ${gameModel.GAME_TOURNAMENT_TABLE}
       WHERE status = 'ACTIVE' AND ends_at <= NOW()
+      ORDER BY ends_at ASC
+      LIMIT 20
     `);
     
     // Roll UPCOMING tournaments into ACTIVE the moment their start window opens
@@ -578,17 +583,15 @@ async function expireAbandonedSessions() {
       FROM ${gameModel.GAME_SESSION_TABLE} gs
       WHERE gs.status = 'ACTIVE'
         AND (
-          -- Past the session TTL (the player never completed the session).
           gs.expires_at < NOW()
-          -- OR the match was already flagged ABANDONED by the stale-ticket sweep
-          -- (matched but never entered — expire the session right away instead
-          -- of keeping a REJOIN card alive for the full TTL).
           OR EXISTS (
             SELECT 1 FROM ${gameModel.GAME_MATCH_TABLE} gm
             WHERE gm.metadata->>'matchGroupId' = gs.metadata->>'matchGroupId'
               AND gm.result = 'ABANDONED'
           )
         )
+      ORDER BY gs.expires_at ASC
+      LIMIT 50
     `);
 
     if (!stale.length) return;

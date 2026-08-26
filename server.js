@@ -46,10 +46,15 @@ const withTimeout = (promise, ms, label) =>
 // Bootstrap
 const bootstrap = async () => {
   try {
-    // Verify DB connection
-    await withTimeout(pool.query('SELECT 1'), 15000, 'PostgreSQL');
-    engineReady.postgres = true;
-    logger.info('PostgreSQL connected');
+    // Verify DB connection (non-fatal — server starts in degraded mode if DB is down)
+    try {
+      await withTimeout(pool.query('SELECT 1'), 15000, 'PostgreSQL');
+      engineReady.postgres = true;
+      logger.info('PostgreSQL connected');
+    } catch (dbErr) {
+      logger.error(`PostgreSQL unavailable: ${dbErr.message} — starting in degraded mode`);
+      engineReady.postgres = false;
+    }
 
     // Verify Redis connection
     await withTimeout(redis.ping(), 15000, 'Redis');
@@ -137,6 +142,13 @@ const bootstrap = async () => {
           logger.warn(`[sweeper] ${label}[${i}] — ${r.reason?.message || 'unknown'}`);
         }
       });
+      // If ALL results failed, re-throw so the circuit breaker trips.
+      // Promise.allSettled never rejects, so the breaker would otherwise
+      // see every call as a success and never open.
+      const allFailed = results.length > 0 && results.every(r => r.status === 'rejected');
+      if (allFailed) {
+        throw new Error(`[sweeper] ${label} — all ${results.length} queries failed`);
+      }
     };
 
     setInterval(() => {
@@ -164,18 +176,38 @@ const bootstrap = async () => {
       });
     }, 2500);
 
-    // ── Memory diagnostics (temporary — remove after leak is confirmed fixed) ──
-    let _lastRss = 0;
-    const _memLogInterval = setInterval(() => {
+    // ── System health log (every 60s) ──
+    const os = require('os');
+    const fs = require('fs');
+    const totalMemGB = (os.totalmem() / 1073741824).toFixed(1);
+    const dbHost = config.DB?.host || 'unknown';
+    const _getStorage = () => new Promise((resolve) => {
+      fs.statfs('/', (err, stats) => {
+        if (err) return resolve('??/??GB');
+        const total = (stats.blocks * stats.bsize / 1073741824).toFixed(1);
+        const free = (stats.bavail * stats.bsize / 1073741824).toFixed(1);
+        const used = ((stats.blocks - stats.bavail) * stats.bsize / 1073741824).toFixed(1);
+        resolve(`${used}/${total}GB (${free}GB free)`);
+      });
+    });
+    const _healthLog = setInterval(async () => {
       const m = process.memoryUsage();
       const rss = Math.round(m.rss / 1024 / 1024);
-      const delta = _lastRss ? ` Δ${rss > _lastRss ? '+' : ''}${rss - _lastRss}` : '';
-      _lastRss = rss;
-      logger.info(`[mem][${process.pid}] rss=${rss}MB${delta} heap=${Math.round(m.heapUsed / 1024 / 1024)}/${Math.round(m.heapTotal / 1024 / 1024)}MB ext=${Math.round(m.external / 1024 / 1024)}MB arrBuf=${Math.round(m.arrayBuffers / 1024 / 1024)}MB pool=${pool.totalCount}/${pool.options.max} idle=${pool.idleCount} wait=${pool.waitingCount} handles=${process._getActiveHandles().length} reqs=${process._getActiveRequests().length}`);
-    }, 10_000);
-    // Stop logging if process is shutting down
-    process.on('SIGINT', () => clearInterval(_memLogInterval));
-    process.on('SIGTERM', () => clearInterval(_memLogInterval));
+      const freeMemGB = (os.freemem() / 1073741824).toFixed(1);
+      const usedMemGB = ((os.totalmem() - os.freemem()) / 1073741824).toFixed(1);
+      const heap = Math.round(m.heapUsed / 1024 / 1024);
+      const storage = await _getStorage();
+      logger.info(
+        `[health] PID=${process.pid}` +
+        ` | Node: rss=${rss}MB heap=${heap}MB` +
+        ` | Total RAM Usage [this project alone]: ${usedMemGB}/${totalMemGB}GB` +
+        ` | Total Storage Usage: ${storage}` +
+        ` | DB: pool=${pool.totalCount}/${pool.options.max} idle=${pool.idleCount}` +
+        ` | handles=${process._getActiveHandles().length} reqs=${process._getActiveRequests().length}`
+      );
+    }, 60_000);
+    process.on('SIGINT', () => clearInterval(_healthLog));
+    process.on('SIGTERM', () => clearInterval(_healthLog));
 
     // Start server
     server.listen(config.PORT, async () => {
@@ -211,7 +243,7 @@ const bootstrap = async () => {
     process.on('SIGTERM', () => shutdown('SIGTERM'));
     process.on('SIGINT', () => shutdown('SIGINT'));
   } catch (error) {
-    logger.error('Failed to start server', { error: error.message });
+    logger.error(`Failed to start server: ${error.message}`);
     process.exit(1);
   }
 };

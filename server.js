@@ -114,14 +114,14 @@ const bootstrap = async () => {
       failThreshold: 2,
       baseBackoffMs: 30_000,
       maxBackoffMs: 300_000,
-      logger: ({ level, message }) => logger[level] || logger.info(message),
+      logger: ({ level, message }) => (logger[level] || logger.info)(message),
     });
     const lobbyBreaker = new CircuitBreaker({
       name: 'lobby-2.5s',
       failThreshold: 2,
       baseBackoffMs: 15_000,
       maxBackoffMs: 120_000,
-      logger: ({ level, message }) => logger[level] || logger.info(message),
+      logger: ({ level, message }) => (logger[level] || logger.info)(message),
     });
 
     // Wire the DB health gate: when a circuit breaker is OPEN, sweepers
@@ -130,7 +130,7 @@ const bootstrap = async () => {
     const updateDbHealth = () => {
       if (typeof resolutionJob.setDbHealthy === 'function') {
         resolutionJob.setDbHealthy(
-          sweeperBreaker.state !== 'open' && lobbyBreaker.state !== 'open'
+          sweeperBreaker.state !== 'OPEN' && lobbyBreaker.state !== 'OPEN'
         );
       }
     };

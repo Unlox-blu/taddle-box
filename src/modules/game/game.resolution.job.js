@@ -145,6 +145,7 @@ async function resolveAbandonedMatches() {
     }
   } catch (error) {
     console.warn('[sweeper] abandoned matches — DB unreachable (circuit breaker active)');
+    throw error;
   } finally {
     client.release();
   }
@@ -228,6 +229,7 @@ async function resolveExpiredLobbies() {
     }
   } catch (err) {
     console.warn('[sweeper] expired lobbies — DB unreachable (circuit breaker active)');
+    throw err;
   } finally {
     client.release();
   }
@@ -295,6 +297,7 @@ async function resolveExpiredMatches() {
     }
   } catch (err) {
     console.warn('[sweeper] expired matches — DB unreachable (circuit breaker active)');
+    throw err;
   } finally {
     client.release();
   }
@@ -458,6 +461,7 @@ async function resolveBotFillingLobbies() {
     }
   } catch (err) {
     console.warn('[sweeper] bot-fill lobbies — DB unreachable (circuit breaker active)');
+    throw err;
   } finally {
     client.release();
   }
@@ -528,18 +532,25 @@ async function resolveTournaments() {
           }
         }
         
-        // Auto-reset recurring tournaments
+        // Auto-reset recurring tournaments — but only if no ACTIVE one already exists
         if (t.metadata && t.metadata.type === 'recurring') {
-           await client.query(`
-              INSERT INTO ${gameModel.GAME_TOURNAMENT_TABLE} (
-                  game_id, title, description, entry_fee_xp, prize_xp, 
-                  max_players, starts_at, ends_at, status, metadata
-              )
-              VALUES ($1, $2, $3, $4, $5, $6, NOW(), NOW() + INTERVAL '24 hours', 'ACTIVE', $7)
-           `, [
-              t.game_id, t.title, t.description, t.entry_fee_xp, t.prize_xp, 
-              t.max_players, JSON.stringify(t.metadata)
-           ]);
+           const { rows: existing } = await client.query(
+             `SELECT 1 FROM ${gameModel.GAME_TOURNAMENT_TABLE}
+              WHERE game_id = $1 AND status = 'ACTIVE' LIMIT 1`,
+             [t.game_id]
+           );
+           if (existing.length === 0) {
+             await client.query(`
+                INSERT INTO ${gameModel.GAME_TOURNAMENT_TABLE} (
+                    game_id, title, description, entry_fee_xp, prize_xp, 
+                    max_players, starts_at, ends_at, status, metadata
+                )
+                VALUES ($1, $2, $3, $4, $5, $6, NOW(), NOW() + INTERVAL '24 hours', 'ACTIVE', $7)
+             `, [
+                t.game_id, t.title, t.description, t.entry_fee_xp, t.prize_xp, 
+                t.max_players, JSON.stringify(t.metadata)
+             ]);
+           }
         }
         
         await client.query('COMMIT');
@@ -550,6 +561,7 @@ async function resolveTournaments() {
     }
   } catch (error) {
     console.warn('[sweeper] tournaments — DB unreachable (circuit breaker active)');
+    throw error;
   } finally {
     client.release();
   }
@@ -637,6 +649,7 @@ async function expireAbandonedSessions() {
     }
   } catch (error) {
     console.warn('[sweeper] expired sessions — DB unreachable (circuit breaker active)');
+    throw error;
   } finally {
     client.release();
   }

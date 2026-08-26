@@ -79,20 +79,66 @@ async function main() {
     );
   }
 
-  // ── 2. ALL old tournaments (ACTIVE + COMPLETED older than 7 days) ──
-  const oldTournamentCount = await countDead(`
+  // ── 2. All COMPLETED tournaments (no retention needed) ──────────
+  const completedCount = await countDead(`
     SELECT COUNT(*) AS count
     FROM game_tournament
-    WHERE ends_at < NOW() - INTERVAL '7 days'
+    WHERE status = 'COMPLETED'
   `);
 
-  console.log(`📦 Old tournaments (>7 days, all statuses): ${oldTournamentCount.toLocaleString()}`);
+  console.log(`📦 COMPLETED tournaments (all): ${completedCount.toLocaleString()}`);
 
-  if (oldTournamentCount > 0 && !DRY_RUN) {
+  if (completedCount > 0 && !DRY_RUN) {
     await deleteBatch(
       'game_tournament',
-      `ends_at < NOW() - INTERVAL '7 days'`
+      `status = 'COMPLETED'`
     );
+  }
+
+  // ── 3. Old ACTIVE tournaments (> 7 days, stale) ────────────────
+  const staleCount = await countDead(`
+    SELECT COUNT(*) AS count
+    FROM game_tournament
+    WHERE status = 'ACTIVE' AND ends_at < NOW() - INTERVAL '7 days'
+  `);
+
+  console.log(`📦 Stale ACTIVE tournaments (>7 days): ${staleCount.toLocaleString()}`);
+
+  if (staleCount > 0 && !DRY_RUN) {
+    await deleteBatch(
+      'game_tournament',
+      `status = 'ACTIVE' AND ends_at < NOW() - INTERVAL '7 days'`
+    );
+  }
+
+  // ── 3. Duplicate ACTIVE tournaments — keep only 1 per game ──────
+  const dupTournamentCount = await countDead(`
+    SELECT COUNT(*) AS count
+    FROM game_tournament
+    WHERE id NOT IN (
+      SELECT DISTINCT ON (game_id) id
+      FROM game_tournament
+      WHERE status = 'ACTIVE'
+      ORDER BY game_id, created_at DESC
+    )
+    AND status = 'ACTIVE'
+  `);
+
+  console.log(`📦 Duplicate ACTIVE tournaments (keep 1 per game): ${dupTournamentCount.toLocaleString()}`);
+
+  if (dupTournamentCount > 0 && !DRY_RUN) {
+    // Delete all ACTIVE tournaments except the newest per game_id
+    await pool.query(`
+      DELETE FROM game_tournament
+      WHERE id NOT IN (
+        SELECT DISTINCT ON (game_id) id
+        FROM game_tournament
+        WHERE status = 'ACTIVE'
+        ORDER BY game_id, created_at DESC
+      )
+      AND status = 'ACTIVE'
+    `);
+    console.log(`   Deleted duplicate ACTIVE tournaments`);
   }
 
   // ── 3. Old event outbox rows ─────────────────────────────────────
@@ -146,8 +192,8 @@ async function main() {
   }
 
   // ── 6. Show final size ──────────────────────────────────────────
-  const [dbSize] = await pool.query(`SELECT pg_size_pretty(pg_database_size(current_database())) AS size`);
-  console.log(`\n📊 Database size: ${dbSize.size}`);
+  const dbSizeResult = await pool.query(`SELECT pg_size_pretty(pg_database_size(current_database())) AS size`);
+  console.log(`\n📊 Database size: ${dbSizeResult.rows[0].size}`);
 
   if (DRY_RUN && totalDeleted > 0) {
     console.log(`\n💡 Run with --execute to actually delete ${totalDeleted.toLocaleString()} rows`);

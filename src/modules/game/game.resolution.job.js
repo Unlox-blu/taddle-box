@@ -1,6 +1,11 @@
 'use strict';
 
 const pool = require('../../config/database');
+// Circuit-breaker-controlled gate: sweepers skip when DB is known-dead.
+// Set by the health-check probe in server.js via module.exports.setDbHealthy.
+let _dbHealthy = true;
+function requireDb() { if (!_dbHealthy) throw new Error('DB gate: circuit breaker open'); }
+module.exports.setDbHealthy = (v) => { _dbHealthy = v; };
 const gameModel = require('./game.model');
 const GameService = require('./game.service');
 const gameRepository = require('./game.repository');
@@ -15,6 +20,7 @@ const gameService = new GameService({ gameRepository, xpService });
  * Timeout window is 3 minutes from the session creation.
  */
 async function resolveAbandonedMatches() {
+  requireDb();
   const client = await pool.connect();
   client.on('error', () => {})  // silenced — circuit breaker handles DB failures;
   try {
@@ -143,6 +149,7 @@ async function resolveAbandonedMatches() {
 }
 
 async function resolveExpiredLobbies() {
+  requireDb();
   const client = await pool.connect();
   try {
     // Find expired WAITING lobbies (no locks held — each lobby is processed on its own connection)
@@ -237,6 +244,7 @@ async function resolveExpiredLobbies() {
  * yet are left alone until the session resolves.
  */
 async function resolveExpiredMatches() {
+  requireDb();
   const client = await pool.connect();
   client.on('error', () => {})  // silenced — circuit breaker handles DB failures;
   try {
@@ -316,6 +324,7 @@ const REAL_PLAYER_WINDOW_MS = 15 * 1000;
 const PENDING_INVITE_GRACE_MS = 30 * 1000;
 
 async function resolveBotFillingLobbies() {
+  requireDb();
   const client = await pool.connect();
   try {
     const nowMs = Date.now();
@@ -452,6 +461,7 @@ async function resolveBotFillingLobbies() {
 }
 
 async function resolveTournaments() {
+  requireDb();
   const client = await pool.connect();
   client.on('error', () => {})  // silenced — circuit breaker handles DB failures;
   try {
@@ -559,6 +569,7 @@ async function resolveTournaments() {
  *     (engine forfeit / normal completion) can never be overwritten.
  */
 async function expireAbandonedSessions() {
+  requireDb();
   const client = await pool.connect();
   client.on('error', () => {})  // silenced — circuit breaker handles DB failures;
   try {

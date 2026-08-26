@@ -98,7 +98,8 @@ const bootstrap = async () => {
     logger.info('Outbox worker started');
 
     // Run game resolution sweeper every minute
-    const { resolveAbandonedMatches, resolveTournaments, resolveExpiredLobbies, resolveExpiredMatches, resolveBotFillingLobbies, expireAbandonedSessions } = require('./src/modules/game/game.resolution.job');
+    const resolutionJob = require('./src/modules/game/game.resolution.job');
+    const { resolveAbandonedMatches, resolveTournaments, resolveExpiredLobbies, resolveExpiredMatches, resolveBotFillingLobbies, expireAbandonedSessions } = resolutionJob;
 
     // ── Circuit breakers: skip sweepers when the DB is unreachable ──────
     // Each sweeper group gets its own breaker so a fast-failing lobby sweep
@@ -118,15 +119,26 @@ const bootstrap = async () => {
       logger: ({ level, message }) => logger[level] || logger.info(message),
     });
 
+    // Wire the DB health gate: when a circuit breaker is OPEN, sweepers
+    // skip pool.connect() entirely — no Client objects allocated, no 10s
+    // connection timeouts piling up in memory.
+    const updateDbHealth = () => {
+      resolutionJob.setDbHealthy(
+        sweeperBreaker.state !== 'open' && lobbyBreaker.state !== 'open'
+      );
+    };
+
     const logSettled = (label, results) => {
       results.forEach((r, i) => {
         if (r.status === 'rejected') {
-          logger.error(`Error sweeping ${label}[${i}]`, r.reason);
+          // Log only the message, not the full error object (saves memory)
+          logger.warn(`[sweeper] ${label}[${i}] — ${r.reason?.message || 'unknown'}`);
         }
       });
     };
 
     setInterval(() => {
+      updateDbHealth();
       sweeperBreaker.run(async () => {
         const results = await Promise.allSettled([
           resolveAbandonedMatches(),
@@ -140,6 +152,7 @@ const bootstrap = async () => {
 
     // Check for expired matchmaking lobbies every 2.5 seconds
     setInterval(() => {
+      updateDbHealth();
       lobbyBreaker.run(async () => {
         const results = await Promise.allSettled([
           resolveExpiredLobbies(),

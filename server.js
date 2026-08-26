@@ -33,13 +33,16 @@ process.on('uncaughtException', (error) => {
 
 const withTimeout = (promise, ms, label) =>
   new Promise((resolve, reject) => {
-    const timer = setTimeout(
-      () => reject(new Error(`${label} check timed out after ${ms}ms`)),
-      ms
-    );
+    const timer = setTimeout(() => reject(new Error(`${label} check timed out after ${ms}ms`)), ms);
     promise.then(
-      (value) => { clearTimeout(timer); resolve(value); },
-      (error) => { clearTimeout(timer); reject(error); }
+      (value) => {
+        clearTimeout(timer);
+        resolve(value);
+      },
+      (error) => {
+        clearTimeout(timer);
+        reject(error);
+      }
     );
   });
 
@@ -82,13 +85,15 @@ const bootstrap = async () => {
         const ready = engineReady.postgres && engineReady.redis && engineReady.pluginsLoaded;
         const status = ready ? 200 : 503;
         res.writeHead(status, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify({
-          status: ready ? 'ready' : 'not_ready',
-          postgres: engineReady.postgres,
-          redis: engineReady.redis,
-          pluginsLoaded: engineReady.pluginsLoaded,
-          timestamp: new Date().toISOString(),
-        }));
+        res.end(
+          JSON.stringify({
+            status: ready ? 'ready' : 'not_ready',
+            postgres: engineReady.postgres,
+            redis: engineReady.redis,
+            pluginsLoaded: engineReady.pluginsLoaded,
+            timestamp: new Date().toISOString(),
+          })
+        );
         return;
       }
     });
@@ -104,7 +109,14 @@ const bootstrap = async () => {
 
     // Run game resolution sweeper every minute
     const resolutionJob = require('./src/modules/game/game.resolution.job');
-    const { resolveAbandonedMatches, resolveTournaments, resolveExpiredLobbies, resolveExpiredMatches, resolveBotFillingLobbies, expireAbandonedSessions } = resolutionJob;
+    const {
+      resolveAbandonedMatches,
+      resolveTournaments,
+      resolveExpiredLobbies,
+      resolveExpiredMatches,
+      resolveBotFillingLobbies,
+      expireAbandonedSessions,
+    } = resolutionJob;
 
     // ── Circuit breakers: skip sweepers when the DB is unreachable ──────
     // Each sweeper group gets its own breaker so a fast-failing lobby sweep
@@ -145,7 +157,7 @@ const bootstrap = async () => {
       // If ALL results failed, re-throw so the circuit breaker trips.
       // Promise.allSettled never rejects, so the breaker would otherwise
       // see every call as a success and never open.
-      const allFailed = results.length > 0 && results.every(r => r.status === 'rejected');
+      const allFailed = results.length > 0 && results.every((r) => r.status === 'rejected');
       if (allFailed) {
         throw new Error(`[sweeper] ${label} — all ${results.length} queries failed`);
       }
@@ -176,50 +188,92 @@ const bootstrap = async () => {
       });
     }, 2500);
 
-    // ── System health log (every 60s) ──
+    // ── System health log (every 60s, all processes in one line) ──
     const os = require('os');
+    const cluster = require('cluster');
     const fs = require('fs');
     const totalMemGB = (os.totalmem() / 1073741824).toFixed(1);
-    const dbHost = config.DB?.host || 'unknown';
-    const _getStorage = () => new Promise((resolve) => {
-      fs.statfs('/', (err, stats) => {
-        if (err) return resolve('??/??GB');
-        const total = (stats.blocks * stats.bsize / 1073741824).toFixed(1);
-        const free = (stats.bavail * stats.bsize / 1073741824).toFixed(1);
-        const used = ((stats.blocks - stats.bavail) * stats.bsize / 1073741824).toFixed(1);
-        resolve(`${used}/${total}GB (${free}GB free)`);
+    const _getStorage = () =>
+      new Promise((resolve) => {
+        fs.statfs('/', (err, stats) => {
+          if (err) return resolve('??/??GB');
+          const total = ((stats.blocks * stats.bsize) / 1073741824).toFixed(1);
+          const free = ((stats.bavail * stats.bsize) / 1073741824).toFixed(1);
+          const used = (((stats.blocks - stats.bavail) * stats.bsize) / 1073741824).toFixed(1);
+          resolve(`${used}/${total}GB`);
+        });
       });
-    });
+    // Every process publishes its stats to Redis; worker 1 aggregates and logs.
     const _healthLog = setInterval(async () => {
-      const m = process.memoryUsage();
-      const rss = Math.round(m.rss / 1024 / 1024);
-      const freeMemGB = (os.freemem() / 1073741824).toFixed(1);
-      const usedMemGB = ((os.totalmem() - os.freemem()) / 1073741824).toFixed(1);
-      const heap = Math.round(m.heapUsed / 1024 / 1024);
-      const storage = await _getStorage();
-      logger.info(
-        `[health] PID=${process.pid}` +
-        ` | Node: rss=${rss}MB heap=${heap}MB` +
-        ` | Total RAM Usage [this project alone]: ${usedMemGB}/${totalMemGB}GB` +
-        ` | Total Storage Usage: ${storage}` +
-        ` | DB: pool=${pool.totalCount}/${pool.options.max} idle=${pool.idleCount}` +
-        ` | handles=${process._getActiveHandles().length} reqs=${process._getActiveRequests().length}`
-      );
+      try {
+        const m = process.memoryUsage();
+        const stats = {
+          pid: process.pid,
+          rss: Math.round(m.rss / 1024 / 1024),
+          heap: Math.round(m.heapUsed / 1024 / 1024),
+          pool: `${pool.totalCount}/${pool.options.max}`,
+          idle: pool.idleCount,
+          handles: process._getActiveHandles().length,
+          reqs: process._getActiveRequests().length,
+          ts: Date.now(),
+        };
+        // Publish own stats with 120s TTL
+        await redis.set(`health:stats:${process.pid}`, JSON.stringify(stats), 'EX', 120);
+
+        // Only worker 1 reads all stats and logs the combined line
+        const cluster = require('cluster');
+        if (cluster.isWorker && cluster.worker?.id !== 1) return;
+
+        // Scan for all health:stats:* keys
+        const keys = [];
+        let cursor = '0';
+        do {
+          const [next, found] = await redis.scan(cursor, 'MATCH', 'health:stats:*', 'COUNT', 100);
+          cursor = next;
+          keys.push(...found);
+        } while (cursor !== '0');
+
+        if (keys.length === 0) return;
+        const values = await redis.mget(keys);
+        const procs = values.map((v) => JSON.parse(v)).sort((a, b) => a.pid - b.pid);
+
+        const storage = await _getStorage();
+        const freeMemGB = (os.freemem() / 1073741824).toFixed(1);
+        const usedMemGB = ((os.totalmem() - os.freemem()) / 1073741824).toFixed(1);
+        const pids = procs.map((p) => p.pid).join(', ');
+        const totalRssMB = procs.reduce((acc, p) => acc + p.rss, 0);
+
+        logger.info(
+          `[HEALTH] PID's: ${pids}` +
+            ` | RAM USAGE: ${totalRssMB}MB of ${usedMemGB}/${totalMemGB}GB` +
+            ` | ROM USAGE: ${storage}` +
+            ` | DB USAGE: pool=${pool.totalCount}/${pool.options.max} idle=${pool.idleCount}`
+        );
+      } catch (e) {
+        /* non-fatal */
+      }
     }, 60_000);
-    process.on('SIGINT', () => clearInterval(_healthLog));
+    process.on('SIGINT', () => {
+      clearInterval(_healthLog);
+      redis.del(`health:stats:${process.pid}`).catch(() => {});
+    });
     process.on('SIGTERM', () => clearInterval(_healthLog));
 
     // Start server
     server.listen(config.PORT, async () => {
       logger.info(`Server running on port ${config.PORT} [${config.NODE_ENV}]`);
 
-      if (config.NODE_ENV === 'development' && process.env.NGROK_AUTHTOKEN && process.env.NGROK_DOMAIN) {
+      if (
+        config.NODE_ENV === 'development' &&
+        process.env.NGROK_AUTHTOKEN &&
+        process.env.NGROK_DOMAIN
+      ) {
         try {
           const ngrok = require('@ngrok/ngrok');
           const listener = await ngrok.forward({
             addr: config.PORT,
             authtoken: process.env.NGROK_AUTHTOKEN,
-            domain: process.env.NGROK_DOMAIN
+            domain: process.env.NGROK_DOMAIN,
           });
           logger.info(`Ngrok tunnel established at: ${listener.url()}`);
         } catch (ngrokErr) {

@@ -123,9 +123,11 @@ const bootstrap = async () => {
     // skip pool.connect() entirely — no Client objects allocated, no 10s
     // connection timeouts piling up in memory.
     const updateDbHealth = () => {
-      resolutionJob.setDbHealthy(
-        sweeperBreaker.state !== 'open' && lobbyBreaker.state !== 'open'
-      );
+      if (typeof resolutionJob.setDbHealthy === 'function') {
+        resolutionJob.setDbHealthy(
+          sweeperBreaker.state !== 'open' && lobbyBreaker.state !== 'open'
+        );
+      }
     };
 
     const logSettled = (label, results) => {

@@ -165,10 +165,17 @@ const bootstrap = async () => {
     }, 2500);
 
     // ── Memory diagnostics (temporary — remove after leak is confirmed fixed) ──
-    setInterval(() => {
+    let _lastRss = 0;
+    const _memLogInterval = setInterval(() => {
       const m = process.memoryUsage();
-      logger.info(`[mem] rss=${Math.round(m.rss / 1024 / 1024)}MB heap=${Math.round(m.heapUsed / 1024 / 1024)}/${Math.round(m.heapTotal / 1024 / 1024)}MB ext=${Math.round(m.external / 1024 / 1024)}MB pool_max=${pool.options.max} pool_idle=${pool.totalCount} pool_waiting=${pool.waitingCount}`);
-    }, 30_000);
+      const rss = Math.round(m.rss / 1024 / 1024);
+      const delta = _lastRss ? ` Δ${rss > _lastRss ? '+' : ''}${rss - _lastRss}` : '';
+      _lastRss = rss;
+      logger.info(`[mem][${process.pid}] rss=${rss}MB${delta} heap=${Math.round(m.heapUsed / 1024 / 1024)}/${Math.round(m.heapTotal / 1024 / 1024)}MB ext=${Math.round(m.external / 1024 / 1024)}MB arrBuf=${Math.round(m.arrayBuffers / 1024 / 1024)}MB pool=${pool.totalCount}/${pool.options.max} idle=${pool.idleCount} wait=${pool.waitingCount} handles=${process._getActiveHandles().length} reqs=${process._getActiveRequests().length}`);
+    }, 10_000);
+    // Stop logging if process is shutting down
+    process.on('SIGINT', () => clearInterval(_memLogInterval));
+    process.on('SIGTERM', () => clearInterval(_memLogInterval));
 
     // Start server
     server.listen(config.PORT, async () => {

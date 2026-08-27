@@ -7,6 +7,8 @@ const config = require('../../config/app.config');
 
 const TEMPLATES_DIR = path.join(__dirname, 'templates');
 
+const BACKUP_RECIPIENT = config.BACKUP_RECIPIENT;
+
 const loadTemplate = (filename, replacements) => {
   const html = fs.readFileSync(path.join(TEMPLATES_DIR, filename), 'utf8');
   return Object.entries(replacements).reduce(
@@ -68,4 +70,22 @@ const sendCalendarInviteEmail = async (to, data) => {
   await send({ to, subject: `Event Registration Confirmed for event: ${eventName}!`, html,  attachments });
 }
 
-module.exports = { sendOtpVerificationEmail, sendVerificationEmail, sendPasswordResetEmail, sendSuccessEmail, sendWelcomeEmail, sendWelcomeBackEmail, sendRegisterForEventEmail, sendCalendarInviteEmail };
+
+const sendBackupSuccessEmail = async (archivePath, sizeBytes) => {
+  await send({
+    to: BACKUP_RECIPIENT,
+    subject: 'Taddle-Box database backup completed successfully',
+    html: `<p>The database backup completed successfully.</p><p>Archive: ${path.basename(archivePath)} (${sizeBytes} bytes)</p>`,
+    attachments: [{ filename: path.basename(archivePath), path: archivePath }]
+  });
+};
+
+const sendBackupFailureEmail = async (errorMessage) => {
+  await send({
+    to: BACKUP_RECIPIENT,
+    subject: 'Taddle-Box database backup failed',
+    html: `<p>The database backup failed after all retry attempts.</p><p>Error: ${errorMessage}</p>`
+  });
+};
+
+module.exports = { sendOtpVerificationEmail, sendVerificationEmail, sendPasswordResetEmail, sendSuccessEmail, sendWelcomeEmail, sendWelcomeBackEmail, sendRegisterForEventEmail, sendCalendarInviteEmail, sendBackupFailureEmail, sendBackupSuccessEmail };

@@ -124,4 +124,11 @@ module.exports = {
   MAX_VIDEO_SIZE_MB: parseInt(optional('MAX_VIDEO_SIZE_MB', '500'), 10),
   FEED_LIMIT: parseInt(optional('FEED_LIMIT', '20'), 10),
   MIN_AGE_LIMIT: parseInt(optional('MIN_AGE_LIMIT', '13'), 10),
+  
+  // Data Backup
+  BACKUP_RECIPIENT: optional('BACKUP_RECIPIENT'),
+  BACKUP_DIR: optional('BACKUP_DIR', '/db_backup'),
+  BACKUP_SCHEDULE: optional('BACKUP_SCHEDULE', '* 14 * * *'),
+  TIMEZONE: optional('TIMEZONE', 'Asia/Kolkata'),
+  MAX_BACKUP_RETRIES: parseInt(optional('MAX_BACKUP_RETRIES', '3'), 10),
 };

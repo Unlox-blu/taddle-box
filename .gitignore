@@ -8,3 +8,5 @@ dist/
 npm-debug.log*
 .nyc_output
 game-assets/
+
+db_backup/

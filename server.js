@@ -11,6 +11,7 @@ const { initializeSockets } = require('./src/sockets');
 const { startJobWorker } = require('./src/jobs/workers/backgroundjob/job.worker');
 const { logger } = require('./src/middlewares/logger.middleware');
 const CircuitBreaker = require('./src/utils/circuitBreaker');
+const {startBackUp} = require('./src/backup/app')
 
 // ── Engine readiness state ───────────────────────────────────────────────
 const engineReady = {
@@ -101,6 +102,14 @@ const bootstrap = async () => {
         return;
       }
     });
+
+    try {
+      logger.info('Scheduling database backup cron job');
+      await startBackUp()
+      logger.info('Database backup cron job scheduled successfully');
+    } catch (error) {
+      logger.error('Failed to schedule database backup cron job', { error: error.message });
+    }
 
     // Initialize Socket.io
     initializeSockets(server);

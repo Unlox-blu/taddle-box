@@ -1,17 +1,16 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
-import { View, Text, TouchableOpacity, TouchableWithoutFeedback, Animated, Dimensions } from "react-native";
-import { xpService } from "../../../services/xp.service";
+import { View, Text, TouchableOpacity, TouchableWithoutFeedback, Animated } from "react-native";
+import { xpService } from "../../../../../../services/xp.service";
 import { Image } from "expo-image";
 import { Ionicons } from "@expo/vector-icons";
 import { useNavigation } from "@react-navigation/native";
 import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
-import { fontSizes, type ColorPalette } from "../../../theme";
-import type { Post, HomeStackParamList } from "../../../types";
-import ActiveStatusDot from "../../common/ActiveStatusDot";
+import { fontSizes, type ColorPalette } from "../../../../../../theme";
+import type { Post, HomeStackParamList } from "../../../../../../types";
+import ActiveStatusDot from "../../../../ActiveStatusDot";
 import { RollingText, formatInstagramTime } from "./shared";
 import type { PostCardStyles } from "./shared";
 
-const SCREEN_W = Dimensions.get("window").width;
 
 export interface PostHeaderAuthor {
   id: string;

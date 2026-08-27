@@ -3,7 +3,7 @@ import type { Post } from '../types';
 
 export const postsService = {
   getFeed: async (page = 1, limit = 20, hashtag?: string): Promise<{ data: Post[] }> => {
-    let url = `/feed?page=${page}&limit=${limit}`;
+    let url = `/feed/home?page=${page}&limit=${limit}`;
     if (hashtag && hashtag !== 'All') url += `&hashtag=${encodeURIComponent(hashtag)}`;
     const response = await apiClient.get(url);
     return response.data;
@@ -129,7 +129,7 @@ export const postsService = {
     type: 'all' | 'posts' | 'reposts' = 'all',
   ): Promise<{ data: Post[] }> => {
     const response = await apiClient.get(
-      `/posts/user/${authorId}?page=${page}&limit=${limit}&type=${type}`,
+      `/feed/user/${authorId}?page=${page}&limit=${limit}&type=${type}`,
     );
     return response.data;
   },

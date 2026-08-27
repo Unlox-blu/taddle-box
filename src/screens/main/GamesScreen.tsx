@@ -149,6 +149,10 @@ export default function GamesScreen() {
     refreshGames,
   } = useGames();
 
+  // Bumped after preloadGameThumbnails finishes so realGames memo
+  // re-runs and picks up the freshly cached thumbnail URIs.
+  const [thumbCacheVer, setThumbCacheVer] = useState(0);
+
   // Merges backend games, then orders the display list so trending games
   // (top 3) appear FIRST, followed by the rest. All visual fields are
   // SSOT from the backend — no hardcoded asset lookups.
@@ -179,7 +183,7 @@ export default function GamesScreen() {
       }
     }
     return [...trending, ...rest];
-  }, [backendGames, backendTrending]);
+  }, [backendGames, backendTrending, thumbCacheVer]);
 
   const findLocalGame = useCallback(
     (gameId: string) =>
@@ -258,16 +262,22 @@ export default function GamesScreen() {
     [reconnectSession, user],
   );
 
+  const backendGamesRef = useRef(backendGames);
+  useEffect(() => { backendGamesRef.current = backendGames; }, [backendGames]);
+
   const loadGamesData = useCallback(async () => {
     setLoading(true);
     try {
       await fetchGamesData();
       // Pre-download game thumbnails from backend-provided URLs so the
       // grid shows local artwork instantly (no remote fetch on render).
-      // Fire-and-forget — runs in background, never blocks the tab.
-      const games = realGamesRef.current;
-      if (games.length > 0) {
-        preloadGameThumbnails(games).catch(() => {});
+      // Use the ref because the state may not have synced yet after
+      // fetchGamesData().
+      const bg = backendGamesRef.current;
+      if (bg && bg.length > 0) {
+        preloadGameThumbnails(bg)
+          .then(() => setThumbCacheVer((v) => v + 1))
+          .catch(() => {});
       }
     } catch (e) {
       warn("Failed to fetch games history", e);
@@ -309,6 +319,13 @@ export default function GamesScreen() {
     // games pill — a single getGames call (trending + resume banner stay
     // stale on purpose, per request).
     await refreshGames();
+    // Re-download thumbnails after refresh so new games show artwork.
+    const bg = backendGamesRef.current;
+    if (bg && bg.length > 0) {
+      preloadGameThumbnails(bg)
+        .then(() => setThumbCacheVer((v) => v + 1))
+        .catch(() => {});
+    }
   }, [activeTab, refreshMatchHistory, refreshGames]);
 
   // First mount loads EVERYTHING (full sweep warms all pills); later focus

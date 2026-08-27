@@ -57,7 +57,7 @@ import {
   RollingText,
   formatInstagramTime,
   ZoomableMedia,
-} from "../../components/home/postcard/shared";
+} from "../../components/common/contentCards/types/postCard/components/shared";
 import ActiveStatusDot from "../../components/common/ActiveStatusDot";
 import PollBlock from "../../components/common/PollBlock";
 import PostMenuSheet from "../../components/home/PostMenuSheet";

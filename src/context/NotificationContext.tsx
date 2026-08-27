@@ -172,7 +172,7 @@ export function NotificationProvider({
     const responseSub = Notifications.addNotificationResponseReceivedListener(
       async (response) => {
         clearUnread();
-        const data = response.notification.request.content.data || {};
+        const data: Record<string, any> = response.notification.request.content.data || {};
         const { navigationRef } = require("../navigation/navigationRef");
 
         const recipientId = data?.recipientId;

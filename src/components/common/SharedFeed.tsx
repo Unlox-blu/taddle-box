@@ -1,9 +1,8 @@
-import React, { useState, useRef, useCallback, useMemo } from "react";
+import React, { useState, useRef, useCallback, useMemo, useEffect } from "react";
 import {
   View,
   Text,
   DeviceEventEmitter,
-  Dimensions,
   Animated,
 } from "react-native";
 import { FlashList } from "@shopify/flash-list";
@@ -12,7 +11,7 @@ import {
   useNavigation,
   useScrollToTop,
 } from "@react-navigation/native";
-import PostCard from "../home/PostCard";
+import PostCard from "./contentCards/types/postCard/PostCard";
 import CommentsModal from "../home/CommentsModal";
 import { postsService } from "../../services/posts.service";
 import { useAuth } from "../../context/AuthContext";
@@ -22,11 +21,24 @@ import PullToRefreshWrapper from "./PullToRefreshWrapper";
 import ShareSheet from "./ShareSheet";
 import { useGlobalScroll } from "../../context/ScrollContext";
 import { useActivePostTracking } from "../../hooks/useActivePostTracking";
-import { error } from '../../utils/logger';
+import { resolveContentId } from "../../utils/content.util";
+import ContentCard, { type RowCtx } from "./contentCards/ContentCard";
+import { createRowStyles } from "./rowStyles";
+import { useThemeColors } from "../../context/ThemeContext";
+
+// ── Mixed-content row type ───────────────────────────────────────────────────
+// Same shape as Search / Bookmarks hookRows.  Callers wrap their data:
+//   rows={posts.map(p => ({ type: 'posts', item: p }))}
+// New content types (people, communities, etc.) are added by injecting new
+// entries — SharedFeed dispatches through a renderer map.
+export type FeedRow = {
+  type: string;
+  item: any;
+  isHeader?: boolean;
+};
 
 interface SharedFeedProps {
-  posts: Post[];
-  setPosts?: React.Dispatch<React.SetStateAction<Post[]>>;
+  rows: FeedRow[];
   onLike?: (id: string) => void;
   onSave?: (id: string) => void;
   refreshing?: boolean;
@@ -68,8 +80,7 @@ interface SharedFeedProps {
 }
 
 export default function SharedFeed({
-  posts,
-  setPosts,
+  rows,
   onLike,
   onSave,
   refreshing,
@@ -112,6 +123,15 @@ export default function SharedFeed({
 
   const [listHeaderOffset, setListHeaderOffset] = useState(0);
 
+  // ── Derive posts-only list from rows for active tracking / preload ──────────
+  const posts = useMemo(
+    () =>
+      rows
+        .filter((r) => r.type === "posts" || r.type === "post")
+        .map((r) => r.item as Post),
+    [rows],
+  );
+
   // ── Active-post tracking (hybrid: viewability filter + layout.y + hysteresis) ─
   const {
     activePostId,
@@ -119,7 +139,29 @@ export default function SharedFeed({
     onViewableItemsChanged,
     trackLayout,
     handleScroll: handleScrollForTracking,
-  } = useActivePostTracking(posts, { listHeaderOffset, headerHeight, spotlightBoundary });
+  } = useActivePostTracking(posts, {
+    listHeaderOffset,
+    headerHeight,
+    spotlightBoundary,
+    // FlashList's data is FeedRow[], so viewability items arrive as
+    // { type, item } wrappers.  Unwrap to get the real post ID.
+    getPostId: (feedItem: any) => {
+      const inner = feedItem?.item ?? feedItem;
+      const id = resolveContentId(inner);
+      return id || null;
+    },
+  });
+
+  // ── Instant view count: record server-side view the moment a post enters
+  // the viewport. Each post fires at most once per mount (deduped by Set).
+  // This is separate from the XP pill — XP needs dwell time, view count
+  // is just "this post was seen".
+  const viewedPostIdsRef = useRef(new Set<string>());
+  useEffect(() => {
+    if (!activePostId || viewedPostIdsRef.current.has(activePostId)) return;
+    viewedPostIdsRef.current.add(activePostId);
+    postsService.recordView(activePostId).catch(() => {});
+  }, [activePostId]);
 
   const [commentsVisible, setCommentsVisible] = useState(false);
   const [activeCommentPost, setActiveCommentPost] = useState<Post | null>(null);
@@ -157,40 +199,23 @@ export default function SharedFeed({
     return () => subs.forEach((s) => s.remove());
   }, []);
 
-  // ── Video preload: find the next video post after active ────────────────
-  // Only 1 video ahead gets preloaded. When the user scrolls to it,
-  // it plays immediately. This keeps 1 active + 1 preloaded = ~2 players max.
   // ── Video preload: direction-aware ─────────────────────────────────
-  // Tracks scroll direction so we preload the NEXT video when scrolling
-  // down and the PREVIOUS video when scrolling up.
   const lastScrollYRef = useRef(0);
   const scrollDirRef = useRef<1 | -1>(1); // 1=down, -1=up
 
-  const scrollYAnim = useRef(new Animated.Value(0)).current;
-  const startPhysicalTop = headerHeight; // below MainHeader only
-  const targetPhysicalTop = (Dimensions.get("window").height * 0.90) / 2;
-  const transitionDistance = Math.max(1, targetPhysicalTop - startPhysicalTop);
-  const focusBoxTop = scrollYAnim.interpolate({
-    inputRange: [0, transitionDistance],
-    outputRange: [startPhysicalTop, targetPhysicalTop],
-    extrapolate: "clamp",
-  });
-
-  const preloadPostId = useMemo(() => {
+  const scrollYAnim = useRef(new Animated.Value(0)).current;  const preloadPostId = useMemo(() => {
     if (!activePostId) return null;
     const activeIdx = posts.findIndex((p) => p.id === activePostId);
     if (activeIdx < 0) return null;
 
     const dir = scrollDirRef.current;
     if (dir === 1) {
-      // Scrolling down → look ahead
       for (let i = activeIdx + 1; i < posts.length; i++) {
         const p = posts[i] as any;
         const media = p.media || [];
         if (media.some((m: any) => m.media_type === "video")) return p.id;
       }
     } else {
-      // Scrolling up → look behind
       for (let i = activeIdx - 1; i >= 0; i--) {
         const p = posts[i] as any;
         const media = p.media || [];
@@ -222,9 +247,6 @@ export default function SharedFeed({
         if (currentUser?.id && post.author.id === currentUser.id) {
           navigation.navigate("Profile");
         } else {
-          // push (not navigate): from a profile grid opened off a detail page a
-          // UserProfile may already be in the stack — navigate would pop back to
-          // it and skip the screens in between.
           navigation.push("UserProfile", { user: post.author });
         }
       }
@@ -236,50 +258,147 @@ export default function SharedFeed({
     async (id: string) => {
       if (onLike) {
         onLike(id);
-      } else if (setPosts) {
-        setPosts((prev) =>
-          prev.map((p) => {
-            if (p.id !== id) return p;
-            const currentLikes = p.likes ?? (p as any).likesCount ?? 0;
-            const newLikes = p.isLiked
-              ? Math.max(0, currentLikes - 1)
-              : currentLikes + 1;
-            return {
-              ...p,
-              isLiked: !p.isLiked,
-              likes: newLikes,
-              likesCount: newLikes,
-            };
-          }),
-        );
-        const post = posts.find((p) => p.id === id);
-        if (post) {
-          await postsService
-            .toggleLike(id, !!post.isLiked)
-            .catch(error);
-        }
       }
     },
-    [onLike, setPosts, posts],
+    [onLike],
   );
 
   const handleSaveInternal = useCallback(
     async (id: string) => {
       if (onSave) {
         onSave(id);
-      } else if (setPosts) {
-        setPosts((prev) =>
-          prev.map((p) => (p.id !== id ? p : { ...p, isSaved: !p.isSaved })),
-        );
-        const post = posts.find((p) => p.id === id);
-        if (post) {
-          await postsService
-            .toggleSave(id, !!post.isSaved)
-            .catch(error);
+      }
+    },
+    [onSave],
+  );
+
+  // ── Shared show-delete check ───────────────────────────────────────
+  const canDelete = useCallback(
+    (item: Post) =>
+      currentUser?.id === (item as any)?.author?.id ||
+      currentUser?.id === (item as any)?.author_id ||
+      currentUser?.id === (item as any)?.authorId ||
+      isAdmin,
+    [currentUser?.id, isAdmin],
+  );
+
+  // ── Row styles + context for non-post ROW_RENDERERS ──────────────
+  const colors = useThemeColors();
+  const rowStyles = useMemo(() => createRowStyles(colors), [colors]);
+
+  const rowCtx: RowCtx = useMemo(
+    () => ({
+      styles: rowStyles as any,
+      colors,
+      navigation,
+      isFocused,
+      activePostId,
+      currentUserId: currentUser?.id,
+      toggleLike: (id) => handleLikeInternal(id),
+      toggleSave: (id) => handleSaveInternal(id),
+      patchPost: () => {},
+      sharePost: (post) => handleShare(post),
+      reportPost: () => {},
+      refresh: () => onRefresh?.(),
+      openPost: (post) => navigation.push("PostDetail", { post }),
+      openComments: (post) => handleComment(post),
+      openUser: (user) => {
+        if (currentUser?.id && user?.id === currentUser.id) {
+          navigation.navigate("Profile");
+        } else {
+          navigation.push("UserProfile", { user });
+        }
+      },
+      openCommunity: (slug) => navigation.push("CommunityDetail", { communitySlug: slug }),
+      openGames: () => {},
+      openEvents: () => {},
+      openSettings: () => navigation.push("Settings"),
+      openNotifications: () => {},
+      addHashtag: () => {},
+      trackLayout,
+      preloadPostId,
+      feedPosts: feedPosts ?? posts,
+      feedContext,
+      feedContextId,
+    }),
+    [
+      rowStyles, colors, navigation, isFocused, activePostId,
+      currentUser?.id, handleLikeInternal, handleSaveInternal,
+      handleShare, handleComment, onRefresh, trackLayout,
+      preloadPostId, feedPosts, posts, feedContext, feedContextId,
+    ],
+  );
+
+  // ── Render a single row through the type dispatcher ────────────────
+  const renderRow = useCallback(
+    (row: FeedRow, index: number) => {
+      // Header rows render nothing (zero-height section dividers)
+      if (row.isHeader) return null;
+
+      switch (row.type) {
+        case "posts":
+        case "post": {
+          const post = row.item as Post;
+          return (
+            <PostCard
+              post={post}
+              index={index}
+              isActive={isFocused && post.id === activePostId}
+              showViews={showViews}
+              onAuthorPress={handleAuthorPress}
+              onComment={handleComment}
+              onShare={handleShare}
+              onReposted={onReposted}
+              onLike={handleLikeInternal}
+              onSave={handleSaveInternal}
+              onDelete={onDelete}
+              onReport={
+                onReport ||
+                (() =>
+                  themedAlert(
+                    "Reported",
+                    "Thank you. This post has been reported for review.",
+                  ))
+              }
+              showDelete={canDelete(post)}
+              preloadVideo={post.id === preloadPostId}
+              feedPosts={feedPosts ?? posts}
+              feedContext={feedContext}
+              feedContextId={feedContextId}
+            />
+          );
+        }
+        default: {
+          return <ContentCard item={row.item} ctx={rowCtx} index={index} />;
         }
       }
     },
-    [onSave, setPosts, posts],
+    [
+      isFocused,
+      activePostId,
+      showViews,
+      handleAuthorPress,
+      handleComment,
+      handleShare,
+      onReposted,
+      handleLikeInternal,
+      handleSaveInternal,
+      onDelete,
+      onReport,
+      canDelete,
+      preloadPostId,
+      feedPosts,
+      posts,
+      feedContext,
+      feedContextId,
+    ],
+  );
+
+  // ── Row key extractor ──────────────────────────────────────────────
+  const rowKeyExtractor = useCallback(
+    (row: FeedRow, index: number) =>
+      resolveContentId(row.item) || `row-${index}`,
+    [],
   );
 
   if (!scrollEnabled) {
@@ -291,40 +410,12 @@ export default function SharedFeed({
         ]}
       >
         {safeNode(ListHeaderComponent)}
-        {posts.length === 0
+        {rows.length === 0
           ? safeNode(ListEmptyComponent)
-          : posts.map((item, index) => (
-              <PostCard
-                key={item.id}
-                post={item}
-                index={index}
-                isActive={isFocused && item.id === activePostId}
-                showViews={showViews}
-                onAuthorPress={handleAuthorPress}
-                onComment={handleComment}
-                onShare={handleShare}
-                onReposted={onReposted}
-                onLike={handleLikeInternal}
-                onSave={handleSaveInternal}
-                onDelete={onDelete}
-                onReport={
-                  onReport ||
-                  (() =>
-                    themedAlert(
-                      "Reported",
-                      "Thank you. This post has been reported for review.",
-                    ))
-                }
-                showDelete={
-                  currentUser?.id === (item as any)?.author?.id ||
-                  currentUser?.id === (item as any)?.author_id ||
-                  currentUser?.id === (item as any)?.authorId ||
-                  isAdmin
-                }
-                feedPosts={feedPosts ?? posts}
-                feedContext={feedContext}
-                feedContextId={feedContextId}
-              />
+          : rows.map((row, index) => (
+              <View key={rowKeyExtractor(row, index)}>
+                {renderRow(row, index)}
+              </View>
             ))}
         {safeNode(ListFooterComponent)}
         <CommentsModal
@@ -336,9 +427,6 @@ export default function SharedFeed({
     );
   }
 
-  // The old static pull icon (an app logo floating above the list) is gone:
-  // PullToRefreshWrapper renders its own Lottie bubble, so a second logo here
-  // would float under the header and double up during pull-to-refresh.
   const enhancedHeader = safeNode(ListHeaderComponent);
 
   return (
@@ -351,12 +439,11 @@ export default function SharedFeed({
       >
         <FlashList
           ref={flatListRef}
-          data={posts}
-          keyExtractor={(item) => item.id}
-          // FlashList handles view recycling internally — no need for
-          // removeClippedSubviews workaround.
+          data={rows}
+          keyExtractor={rowKeyExtractor}
           showsVerticalScrollIndicator={false}
           keyboardDismissMode="on-drag"
+          keyboardShouldPersistTaps="handled"
           contentContainerStyle={[
             { paddingTop: headerHeight, paddingBottom: footerHeight },
             contentContainerStyle,
@@ -374,9 +461,6 @@ export default function SharedFeed({
             handleScrollForTracking(e);
           }}
           scrollEventThrottle={16}
-          // iOS only: without this, a short list (few posts / short bookmarks /
-          // profile with a handful of posts) can't be pulled down at all, so the
-          // refresh gesture silently does nothing.
           alwaysBounceVertical
           onEndReached={onEndReached}
           onEndReachedThreshold={onEndReachedThreshold || 0.5}
@@ -395,44 +479,19 @@ export default function SharedFeed({
           }
           ListEmptyComponent={safeNode(ListEmptyComponent)}
           ListFooterComponent={safeNode(ListFooterComponent)}
-          renderItem={({ item, index }) => (
+          renderItem={({ item: row, index }) => (
             <View
               onLayout={(e) => {
-                const { y, height } = e.nativeEvent.layout;
-                trackLayout(item.id, { top: y, bottom: y + height });
+                // Only track layout for post rows (active-post tracker only
+                // cares about posts; other types return null ID).
+                const id = resolveContentId(row.item);
+                if (id) {
+                  const { y, height } = e.nativeEvent.layout;
+                  trackLayout(id, { top: y, bottom: y + height });
+                }
               }}
             >
-              <PostCard
-                post={item}
-                index={index}
-                isActive={isFocused && item.id === activePostId}
-                showViews={showViews}
-                onAuthorPress={handleAuthorPress}
-                onComment={handleComment}
-                onShare={handleShare}
-                onReposted={onReposted}
-                onLike={handleLikeInternal}
-                onSave={handleSaveInternal}
-                onDelete={onDelete}
-                onReport={
-                  onReport ||
-                  (() =>
-                    themedAlert(
-                      "Reported",
-                      "Thank you. This post has been reported for review.",
-                    ))
-                }
-                showDelete={
-                  currentUser?.id === (item as any)?.author?.id ||
-                  currentUser?.id === (item as any)?.author_id ||
-                  currentUser?.id === (item as any)?.authorId ||
-                  isAdmin
-                }
-                preloadVideo={item.id === preloadPostId}
-                feedPosts={feedPosts ?? posts}
-                feedContext={feedContext}
-                feedContextId={feedContextId}
-              />
+              {renderRow(row, index)}
             </View>
           )}
         />
@@ -451,22 +510,7 @@ export default function SharedFeed({
         postTitle={(sharePost as any)?.title || sharePost?.content?.slice(0, 80)}
       />
 
-      {/* Debug Tracking Overlay */}
-      <Animated.View
-        pointerEvents="none"
-        style={{
-          position: "absolute",
-          left: 0,
-          right: 0,
-          top: focusBoxTop,
-          height: Dimensions.get("window").height * 0.10,
-          backgroundColor: "rgba(255, 0, 0, 0.15)",
-          borderWidth: 2,
-          borderColor: "rgba(255, 0, 0, 0.5)",
-          borderStyle: "dashed",
-          zIndex: 9999,
-        }}
-      />
+
     </>
   );
 }

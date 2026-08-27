@@ -1649,12 +1649,35 @@ export default function SharedProfile({
         </PullToRefreshWrapper>
       ) : (
         <SharedFeed
-          posts={posts}
-          setPosts={setPosts}
+          rows={posts.map((p) => ({ type: 'posts', item: p }))}
           onDelete={handleDeletePost}
           onReposted={loadPosts}
           refreshing={refreshing}
           onRefresh={onRefresh}
+          onLike={async (id) => {
+            const post = posts.find((p) => p.id === id);
+            if (!post) return;
+            const currentLikes = post.likes ?? 0;
+            const newLikes = post.isLiked
+              ? Math.max(0, currentLikes - 1)
+              : currentLikes + 1;
+            setPosts((prev) =>
+              prev.map((p) =>
+                p.id !== id
+                  ? p
+                  : { ...p, isLiked: !p.isLiked, likes: newLikes, likesCount: newLikes },
+              ),
+            );
+            await postsService.toggleLike(id, !!post.isLiked).catch(() => {});
+          }}
+          onSave={async (id) => {
+            const post = posts.find((p) => p.id === id);
+            if (!post) return;
+            setPosts((prev) =>
+              prev.map((p) => (p.id !== id ? p : { ...p, isSaved: !p.isSaved })),
+            );
+            await postsService.toggleSave(id, !!post.isSaved).catch(() => {});
+          }}
           ListHeaderComponent={profileHeader}
           ListEmptyComponent={
             loadingPosts ? (

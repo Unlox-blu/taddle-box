@@ -72,6 +72,16 @@ export default function LudoRuntime({
   const activeWalksRef = useRef(0);
   const pendingKeysRef = useRef(new Set<string>());
 
+  // ── Dice animation refs ────────────────────────────────────────────
+  const rollingRef = useRef(false);
+  rollingRef.current = rolling;
+  const remoteRollingRef = useRef<string | null>(null);
+  remoteRollingRef.current = remoteRolling;
+  // Buffered dice result while a tumble animation is running — the result
+  // arrives via SYNC but is applied only when the tumble finishes, so the
+  // dice face reveal syncs with the animation completion.
+  const pendingDiceRef = useRef<{ face: number; turnIndex: number } | null>(null);
+
   // ── Keyboard ───────────────────────────────────────────────────────
   const [kbH, setKbH] = useState(0);
   const kbLift = Platform.OS === "ios" ? kbH : 0;
@@ -125,7 +135,30 @@ export default function LudoRuntime({
         pendingTurnRef.current = pluginState.currentTurnIndex;
         maybeRevealTurn();
       }
-      if (pluginState.dice != null) { setDicePreview(pluginState.dice); setSettledFace(pluginState.dice); }
+      if (pluginState.dice != null) {
+        // Determine who rolled — the roller is the player whose turn it was
+        // when the ROLL was processed (currentTurnIndex hasn't advanced yet
+        // for a successful roll).
+        const turnOrder = pluginState.turnOrder || gameStateRef.current?.turnOrder || [];
+        const rollerIdx = pluginState.currentTurnIndex ?? 0;
+        const rollerId = turnOrder[rollerIdx];
+        const isRemoteRoll = rollerId != null && rollerId !== userId;
+
+        if (rollingRef.current) {
+          // Own roll — the tumble animation is running; buffer the result so
+          // the dice face is revealed only when the animation completes.
+          pendingDiceRef.current = { face: pluginState.dice, turnIndex: pluginState.currentTurnIndex };
+        } else if (isRemoteRoll) {
+          // Remote player rolled — buffer the result and signal the game to
+          // start the remote tumble animation.
+          pendingDiceRef.current = { face: pluginState.dice, turnIndex: pluginState.currentTurnIndex };
+          setRemoteRolling(rollerId);
+        } else {
+          // Fallback / reconnect — apply the dice face immediately.
+          setDicePreview(pluginState.dice);
+          setSettledFace(pluginState.dice);
+        }
+      }
       if (pluginState.lastDice != null && pluginState.dice == null) setSettledFace(pluginState.lastDice);
     },
     onChat: (data) => {
@@ -155,6 +188,7 @@ export default function LudoRuntime({
   // ── Actions ────────────────────────────────────────────────────────
   const handleRoll = useCallback(() => {
     if (status !== "active") return;
+    setRolling(true);
     sendCommand(GAME_EVENTS.MOVE, { type: "ROLL" });
   }, [status, sendCommand]);
 
@@ -178,6 +212,36 @@ export default function LudoRuntime({
 
   useEffect(() => () => { if (revealTimerRef.current) clearTimeout(revealTimerRef.current); }, []);
 
+  // ── Dice preview cycling — random face while tumble is running ────
+  useEffect(() => {
+    if (!rolling && !remoteRolling) return;
+    const id = setInterval(() => setDicePreview(1 + Math.floor(Math.random() * 6)), 110);
+    return () => clearInterval(id);
+  }, [rolling, remoteRolling]);
+
+  // ── Dice tumble completion callbacks ───────────────────────────────
+  // Called by LudoGame when a tumble animation finishes. Applies the
+  // buffered dice result and clears the rolling/remoteRolling state.
+  const onRollComplete = useCallback(() => {
+    const pending = pendingDiceRef.current;
+    if (pending) {
+      setDicePreview(pending.face);
+      setSettledFace(pending.face);
+      pendingDiceRef.current = null;
+    }
+    setRolling(false);
+  }, []);
+
+  const onRemoteRollComplete = useCallback(() => {
+    const pending = pendingDiceRef.current;
+    if (pending) {
+      setDicePreview(pending.face);
+      setSettledFace(pending.face);
+      pendingDiceRef.current = null;
+    }
+    setRemoteRolling(null);
+  }, []);
+
   const isMyTurn = displayTurn === myPlayerIdx;
 
   return (
@@ -198,6 +262,7 @@ export default function LudoRuntime({
       pendingTurnRef={pendingTurnRef} revealTimerRef={revealTimerRef}
       activeWalksRef={activeWalksRef} pendingKeysRef={pendingKeysRef}
       onRoll={handleRoll} onTokenTap={handleTokenTap} onSendChat={sendChat}
+      onRollComplete={onRollComplete} onRemoteRollComplete={onRemoteRollComplete}
     />
   );
 }

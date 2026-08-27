@@ -12,8 +12,8 @@ import { useAudioPlayer, useAudioPlayerStatus } from "expo-audio";
 import { useEvent } from "expo";
 import { Ionicons } from "@expo/vector-icons";
 import { Image } from "expo-image";
-import { fontSizes, spacing, type ColorPalette } from "../../../theme";
-import { log } from '../../../utils/logger';
+import { fontSizes, spacing, type ColorPalette } from "../../../../../../theme";
+import { log } from '../../../../../../utils/logger';
 
 // ── Video player count tracker (debug instrumentation) ─────────────────────
 // Temporary: logs active/preloaded player count to help verify ≤2 players.
@@ -293,11 +293,11 @@ export const VideoPoster = ({
   height: number;
 }) => {
   return (
-    <View style={{ width, height, backgroundColor: "#000" }}>
-      {previewUrl ? (
+    <View style={{ width, height, backgroundColor: "#000", justifyContent: "center", alignItems: "center" }}>
+      {previewUrl || url ? (
         <Image
-          source={{ uri: previewUrl }}
-          style={{ width, height }}
+          source={{ uri: previewUrl || url }}
+          style={{ width, height, position: "absolute", top: 0, left: 0 }}
           contentFit="cover"
           cachePolicy="memory-disk"
         />

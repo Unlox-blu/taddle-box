@@ -30,7 +30,7 @@ export const communityService = {
   },
 
   getCommunityPosts: async (id: string, page = 1, limit = 20): Promise<{ data: Post[]; meta?: any }> => {
-    const response = await apiClient.get(`/communities/${id}/posts?page=${page}&limit=${limit}`);
+    const response = await apiClient.get(`/feed/community/${id}?page=${page}&limit=${limit}`);
     return response.data;
   },
 

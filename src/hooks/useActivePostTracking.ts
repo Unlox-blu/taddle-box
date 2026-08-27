@@ -77,7 +77,13 @@ export function useActivePostTracking(
       (options?.listHeaderOffset || 0) + (options?.headerHeight || 0);
     const computedLayout = new Map<string, Rect>();
     for (const post of posts) {
-      const contentId = resolveContentId(post);
+      // Use the same ID resolver as onViewableItemsChanged so the keys in
+      // computedLayout match the keys in candidateIdsRef and heightMapRef.
+      // When getPostId is provided (e.g. Search screen where hookRow.id is
+      // type-prefixed but we track by raw content ID), this ensures consistency.
+      const contentId = getPostIdRef.current
+        ? getPostIdRef.current(post)
+        : resolveContentId(post);
       if (!contentId) continue;
       const h = heightMapRef.current.get(contentId);
       if (!h) continue;

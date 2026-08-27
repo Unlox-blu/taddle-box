@@ -21,28 +21,28 @@ import { Ionicons } from "@expo/vector-icons";
 import { useNavigation } from "@react-navigation/native";
 import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
 import { useQueryClient } from "@tanstack/react-query";
-import { radii, fontSizes, spacing, type ColorPalette } from "../../theme";
-import { useThemeColors } from "../../context/ThemeContext";
-import { useAuth } from "../../context/AuthContext";
-import type { Post, HomeStackParamList } from "../../types";
-import { xpService } from "../../services/xp.service";
-import { postsService } from "../../services/posts.service";
-import { queryKeys } from "../../lib/queryKeys";
-import PollBlock from "../common/PollBlock";
-import { themedAlert } from "../common/ThemedAlert";
+import { radii, fontSizes, spacing, type ColorPalette } from "../../../../../theme";
+import { useThemeColors } from "../../../../../context/ThemeContext";
+import { useAuth } from "../../../../../context/AuthContext";
+import type { Post, HomeStackParamList } from "../../../../../types";
+import { xpService } from "../../../../../services/xp.service";
+import { postsService } from "../../../../../services/posts.service";
+import { queryKeys } from "../../../../../lib/queryKeys";
+import PollBlock from "../../../PollBlock";
+import { themedAlert } from "../../../ThemedAlert";
 
 // ── Sub-components from postcard/ directory ──────────────────────────────────
-import PostHeader from "./postcard/PostHeader";
-import type { PostHeaderAuthor } from "./postcard/PostHeader";
-import PostMedia from "./postcard/PostMedia";
-import PostActions from "./postcard/PostActions";
+import PostHeader from "./components/PostHeader";
+import type { PostHeaderAuthor } from "./components/PostHeader";
+import PostMedia from "./components/PostMedia";
+import PostActions from "./components/PostActions";
 import {
   FeedVideo,
   formatInstagramTime,
   makePostCardStyles,
   RollingText,
-} from "./postcard/shared";
-import { resolveContentId } from "../../utils/content.util";
+} from "./components/shared";
+import { resolveContentId } from "../../../../../utils/content.util";
 
 const SCREEN_W = Dimensions.get("window").width;
 const CARD_W = SCREEN_W - spacing.lg * 2;

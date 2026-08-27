@@ -219,7 +219,7 @@ export default function MatchModeModal({
     if (!game) return;
     setLobbyLoading(true);
     try {
-      const res = await gamesService.joinMatchmaking({ gameId: game.id, mode: "CUSTOM", targetPlayers: maxP });
+      const res = await gamesService.joinMatchmaking({ gameId: game.id, mode: "CUSTOM", targetPlayers: maxP, rounds: selectedRounds });
       const d = res.data as any;
       const id = d.lobbyId || d.ticket?.lobbyId;
       if (!id) throw new Error("No lobby ID returned");
@@ -237,7 +237,7 @@ export default function MatchModeModal({
       themedAlert("Error", e?.response?.data?.message || "Could not create lobby.");
       onClose();
     } finally { setLobbyLoading(false); }
-  }, [game, onClose]);
+  }, [game, onClose, selectedRounds]);
 
   // ── socket listeners (lobby + queue steps) ────────────────────────────────
   useEffect(() => {
@@ -1026,6 +1026,9 @@ export default function MatchModeModal({
             onToggleLobbyAuto={toggleLobbyAuto}
             onCopyCode={copyCode}
             onProceed={proceedFromLobby}
+            roundsConfig={game?.rounds}
+            selectedRounds={selectedRounds}
+            onRoundsChange={setSelectedRounds}
           />
         )}
 
@@ -1360,7 +1363,7 @@ function LobbyStep({
   filledCount, allFilled, maxP, lobbyAuto, followers, followersLoading, searchQuery,
   copyState, pendingInviteIds, invitedAtMap, onSearchChange, onInviteFriend,
   onRemovePlayer, onInviteBot, onChangeLobbySize, onToggleLobbyAuto,
-  onCopyCode, onProceed,
+  onCopyCode, onProceed, roundsConfig, selectedRounds, onRoundsChange,
 }: {
   colors: ColorPalette; styles: ReturnType<typeof makeStyles>; game: Game;
   lobbyCode: string; lobbyMaxPlayers: number; displayPlayers: any[];
@@ -1377,8 +1380,13 @@ function LobbyStep({
   onToggleLobbyAuto: (auto: boolean) => void;
   onCopyCode: () => void;
   onProceed: () => void;
+  roundsConfig?: { min: number; max: number; default: number };
+  selectedRounds?: number;
+  onRoundsChange?: (v: number) => void;
 }) {
   const totalSlots = lobbyMaxPlayers;
+  const rounds = selectedRounds ?? roundsConfig?.default ?? 1;
+  const showRounds = roundsConfig && roundsConfig.max > 1;
 
   return (
     <ScrollView contentContainerStyle={[styles.body, { paddingBottom: 100 }]} showsVerticalScrollIndicator={false}>
@@ -1461,6 +1469,36 @@ function LobbyStep({
           </Text>
         )}
       </View>
+
+      {/* ── Rounds selector ── */}
+      {showRounds && (
+        <View style={styles.panel}>
+          <Text style={styles.panelTitle}>Rounds</Text>
+          <Text style={styles.panelHint}>Number of rounds per match.</Text>
+          <View style={styles.rowBetween}>
+            <View style={styles.stepper}>
+              <TouchableOpacity
+                style={[styles.stepBtn, rounds <= roundsConfig!.min && styles.stepBtnDisabled]}
+                onPress={() => onRoundsChange?.(Math.max(roundsConfig!.min, rounds - 1))}
+                disabled={rounds <= roundsConfig!.min}
+              >
+                <Ionicons name="remove" size={16} color={rounds <= roundsConfig!.min ? colors.text.muted : colors.primaryLight} />
+              </TouchableOpacity>
+              <Text style={styles.stepVal}>{rounds}</Text>
+              <TouchableOpacity
+                style={[styles.stepBtn, rounds >= roundsConfig!.max && styles.stepBtnDisabled]}
+                onPress={() => onRoundsChange?.(Math.min(roundsConfig!.max, rounds + 1))}
+                disabled={rounds >= roundsConfig!.max}
+              >
+                <Ionicons name="add" size={16} color={rounds >= roundsConfig!.max ? colors.text.muted : colors.primaryLight} />
+              </TouchableOpacity>
+            </View>
+            <Text style={styles.slotCountText}>
+              {rounds === 1 ? '1 round' : `${rounds} rounds`}
+            </Text>
+          </View>
+        </View>
+      )}
 
       {/* ── Circular slot ring ── */}
       <SlotRing
@@ -1989,6 +2027,7 @@ function makeStyles(c: ColorPalette) {
     // panel
     panel:       { backgroundColor: c.bg.card, borderRadius: radii.lg, borderWidth: 1, borderColor: c.border, padding: spacing.md, marginBottom: spacing.md },
     panelTitle:  { fontSize: fontSizes.md, fontWeight: "700", color: c.text.primary, marginBottom: 4 },
+    panelHint:   { fontSize: fontSizes.sm, color: c.text.muted, marginBottom: spacing.sm },
     rowBetween:  { flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
     stepper:     { flexDirection: "row", alignItems: "center", gap: spacing.sm },
     stepBtn:     { width: 32, height: 32, borderRadius: 16, borderWidth: 1, borderColor: c.border, alignItems: "center", justifyContent: "center", backgroundColor: c.bg.elevated },

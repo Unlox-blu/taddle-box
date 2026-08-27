@@ -15,19 +15,19 @@ import {
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { useNavigation } from "@react-navigation/native";
-import StateBlock from '../../common/StateBlock';
+import StateBlock from '../../../../StateBlock';
 import { useQueryClient } from "@tanstack/react-query";
-import { radii, fontSizes, spacing, type ColorPalette } from "../../../theme";
-import { useAuth } from "../../../context/AuthContext";
-import type { Post } from "../../../types";
-import { postsService } from "../../../services/posts.service";
-import { userService } from "../../../services/user.service";
-import { queryKeys } from "../../../lib/queryKeys";
-import SmartInput from "../../common/SmartInput";
-import { AudiencePickerList } from "../../common/AudiencePicker";
-import { useMyCommunities } from "../../../queries/communities";
-import { themedAlert } from "../../common/ThemedAlert";
-import PostMenuSheet from "../PostMenuSheet";
+import { radii, fontSizes, spacing, type ColorPalette } from "../../../../../../theme";
+import { useAuth } from "../../../../../../context/AuthContext";
+import type { Post } from "../../../../../../types";
+import { postsService } from "../../../../../../services/posts.service";
+import { userService } from "../../../../../../services/user.service";
+import { queryKeys } from "../../../../../../lib/queryKeys";
+import SmartInput from "../../../../SmartInput";
+import { AudiencePickerList } from "../../../../AudiencePicker";
+import { useMyCommunities } from "../../../../../../queries/communities";
+import { themedAlert } from "../../../../ThemedAlert";
+import PostMenuSheet from "../../../../../home/PostMenuSheet";
 import { RollingText } from "./shared";
 import type { PostHeaderAuthor } from "./PostHeader";
 import type { PostCardStyles } from "./shared";
@@ -254,8 +254,8 @@ function UsersModal({
 }
 
 import { Image } from "expo-image";
-import { useThemeColors } from "../../../context/ThemeContext";
-import { warn } from '../../../utils/logger';
+import { useThemeColors } from "../../../../../../context/ThemeContext";
+import { warn } from '../../../../../../utils/logger';
 
 function PostActionsInner({
   post,

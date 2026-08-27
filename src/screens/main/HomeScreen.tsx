@@ -24,7 +24,7 @@ import {
 import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
 import { fontSizes, spacing, radii } from "../../theme";
 import { useTheme, useThemeColors } from "../../context/ThemeContext";
-import PostCard from "../../components/home/PostCard";
+import PostCard from "../../components/common/contentCards/types/postCard/PostCard";
 import SpotlightCarousel from "../../components/home/SpotlightCarousel";
 import MainHeader from "../../components/common/MainHeader";
 import StateBlock from "../../components/common/StateBlock";
@@ -437,7 +437,7 @@ export default function HomeScreen() {
         onScroll={(offsetY) => {
           scrollYRef.current = offsetY;
         }}
-        posts={filteredPosts}
+        rows={filteredPosts.map((p) => ({ type: 'posts', item: p }))}
         spotlightBoundary={spotlightBoundary}
         // Only the actual pull gesture (or the tab-double-tap refresh) should
         // show the refresh indicator. Feeding isRefetching in here made EVERY

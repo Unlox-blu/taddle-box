@@ -1,12 +1,10 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useMemo } from 'react';
 import { View, Text, TouchableOpacity, Image, ActivityIndicator } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
 import { useThemeColors } from '../../context/ThemeContext';
-import { fontSizes, spacing } from '../../theme';
-import { postsService } from '../../services/posts.service';
+import { spacing } from '../../theme';
 import SharedFeed from '../common/SharedFeed';
-import type { Post } from '../../types';
-import { warn } from '../../utils/logger';
+import { useProfilePosts } from '../../queries/feed';
 
 type Tab = 'posts' | 'media' | 'saved' | 'games';
 
@@ -18,31 +16,17 @@ export default function ProfileTabs({ userId }: ProfileTabsProps) {
   const colors = useThemeColors();
   const navigation = useNavigation<any>();
 
-  const [posts, setPosts] = useState<Post[]>([]);
-  const [loading, setLoading] = useState(true);
   const [tab, setTab] = useState<Tab>('posts');
 
-  useEffect(() => {
-    let active = true;
-    const loadPosts = async () => {
-      try {
-        if (!userId) return;
-        setLoading(true);
-        const postsRes = await postsService.getUserPosts(userId);
-        if (active && postsRes?.data) {
-          setPosts(postsRes.data);
-        }
-      } catch (e) {
-        warn('Failed to load user posts', e);
-      } finally {
-        if (active) setLoading(false);
-      }
-    };
-    loadPosts();
-    return () => { active = false; };
-  }, [userId]);
+  const {
+    data: postPages,
+    isLoading,
+  } = useProfilePosts(userId, 'posts', tab === 'posts' || tab === 'media');
 
-  // SharedFeed handles handleLike and handleSave natively when setPosts is provided
+  const posts = useMemo(
+    () => postPages?.pages.flat().map((r) => r.item) || [],
+    [postPages],
+  );
 
   return (
     <View>
@@ -60,7 +44,7 @@ export default function ProfileTabs({ userId }: ProfileTabsProps) {
       </View>
 
       {tab === 'posts' ? (
-        loading ? (
+        isLoading ? (
           <View style={{ padding: 40, alignItems: 'center' }}>
             <ActivityIndicator size="small" color={colors.primary} />
           </View>
@@ -70,8 +54,7 @@ export default function ProfileTabs({ userId }: ProfileTabsProps) {
           </View>
         ) : (
           <SharedFeed
-            posts={posts}
-            setPosts={setPosts}
+            rows={posts.map((p: any) => ({ type: 'posts', item: p }))}
             scrollEnabled={false}
             contentContainerStyle={{ gap: 12, paddingHorizontal: spacing.lg }}
             feedPosts={posts}
@@ -81,16 +64,16 @@ export default function ProfileTabs({ userId }: ProfileTabsProps) {
         )
       ) : tab === 'media' ? (
         <View style={{ flexDirection: 'row', flexWrap: 'wrap', paddingHorizontal: 2 }}>
-          {posts.filter(p => !!p.mediaUri).length === 0 ? (
+          {posts.filter((p: any) => !!p.mediaUri).length === 0 ? (
             <View style={{ padding: 40, alignItems: 'center', width: '100%' }}>
               <Text style={{ color: colors.text.muted }}>No media yet.</Text>
             </View>
           ) : (
-            posts.filter(p => !!p.mediaUri).map(post => {
+            posts.filter((p: any) => !!p.mediaUri).map((post: any) => {
               return (
                 <TouchableOpacity key={post.id} style={{ width: '33.33%', padding: 2, aspectRatio: 1 }} onPress={() => navigation.push('PostDetail', {
                   post,
-                  feedPosts: posts.filter(p => !!p.mediaUri),
+                  feedPosts: posts.filter((p: any) => !!p.mediaUri),
                   feedContext: 'profile',
                   feedContextId: userId,
                 })}>

@@ -57,10 +57,9 @@ export function makeStyles(c: ColorPalette) {
     },
     gameArt: {
       width: "100%",
-      height: 100,
-      justifyContent: "flex-start",
-      alignItems: "flex-end",
-      padding: 8,
+      height: 90,
+      justifyContent: "center",
+      alignItems: "center",
     },
     gameBadge: {
       backgroundColor: c.primary,
@@ -72,7 +71,7 @@ export function makeStyles(c: ColorPalette) {
       borderRadius: 4,
       overflow: "hidden",
     },
-    gameBody: { padding: 12 },
+    gameBody: { padding: 10, paddingTop: 8 },
     gameTitle: { fontSize: 14, fontWeight: "600", color: c.text.primary },
     gameMeta: { fontSize: 11, color: c.text.secondary, marginTop: 2 },
 
@@ -91,34 +90,67 @@ export function makeStyles(c: ColorPalette) {
       fontWeight: "700",
     },
 
-    // Tournament card
+    // Tournament card — rectangle shape, 1 per row
     tournamentCard: {
       width: "100%",
       backgroundColor: c.bg.card,
       borderRadius: 16,
-      padding: 14,
       borderWidth: 1,
       borderColor: c.border,
       flexDirection: "row",
+      alignItems: "stretch",
+      overflow: "hidden",
+    },
+    tournamentBanner: {
+      width: 100,
+      justifyContent: "center",
       alignItems: "center",
-      gap: 12,
+    },
+    tournamentBannerOverlay: {
+      ...StyleSheet.absoluteFillObject,
+      backgroundColor: "rgba(0,0,0,0.25)",
+    },
+    tournamentInfo: {
+      flex: 1,
+      justifyContent: "center",
+      paddingHorizontal: 14,
+      paddingVertical: 14,
+      gap: 4,
     },
     tournamentTitle: {
-      fontSize: 14,
-      fontWeight: "600",
+      fontSize: 15,
+      fontWeight: "700",
       color: c.text.primary,
-      marginBottom: 4,
     },
     tournamentMeta: {
-      fontSize: 11,
+      fontSize: 12,
       color: c.text.secondary,
-      marginBottom: 8,
     },
     tournamentPrize: {
       fontSize: 13,
       fontWeight: "700",
       color: c.primary,
-      marginBottom: 8,
+    },
+    tournamentTimeBadge: {
+      flexDirection: "row",
+      alignItems: "center",
+      gap: 4,
+      backgroundColor: "rgba(124,58,237,0.12)",
+      borderRadius: 6,
+      paddingHorizontal: 8,
+      paddingVertical: 3,
+      alignSelf: "flex-start",
+      marginTop: 4,
+    },
+    tournamentTimeText: {
+      fontSize: 11,
+      fontWeight: "600",
+      color: c.primaryLight,
+    },
+    tournamentAction: {
+      justifyContent: "center",
+      alignItems: "center",
+      paddingHorizontal: 14,
     },
 
     // Match row

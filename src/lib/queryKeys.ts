@@ -1,5 +1,6 @@
 export const queryKeys = {
   feed: ['feed'],
+  bookmarks: ['bookmarks'],
   events: ['events'],
   communities: ['communities'],
   wallet: ['wallet'],

@@ -8,10 +8,10 @@ import {
   Dimensions,
 } from "react-native";
 import { Image } from "expo-image";
-import { useAudio } from "../../../context/AudioContext";
+import { useAudio } from "../../../../../../context/AudioContext";
 import { Ionicons } from "@expo/vector-icons";
-import { radii, spacing, type ColorPalette } from "../../../theme";
-import type { Post } from "../../../types";
+import { radii, spacing, type ColorPalette } from "../../../../../../theme";
+import type { Post } from "../../../../../../types";
 import type { PostCardStyles } from "./shared";
 import {
   FeedVideo,

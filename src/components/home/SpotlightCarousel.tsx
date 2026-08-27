@@ -24,6 +24,11 @@ const CARD_W = SW - spacing.lg * 2;
 const CARD_H = 168;
 const ITEM_W = CARD_W + spacing.md;
 
+// Number of times to repeat the data array for seamless infinite scroll.
+// With 3 copies, the FlatList starts in the middle copy and can scroll
+// in either direction before we silently recenter.
+const REPEAT_COUNT = 3;
+
 function makeStyles(c: ColorPalette) {
   return StyleSheet.create({
     container: { marginBottom: spacing.md, minHeight: CARD_H + 40 },
@@ -71,24 +76,6 @@ function makeStyles(c: ColorPalette) {
       fontSize: fontSizes.xs,
       color: "rgba(255,255,255,0.45)",
       marginTop: 4,
-    },
-    dots: {
-      flexDirection: "row",
-      justifyContent: "center",
-      gap: 5,
-      marginTop: 10,
-    },
-    dot: {
-      width: 6,
-      height: 6,
-      borderRadius: 3,
-      backgroundColor: c.border,
-    },
-    dotActive: {
-      width: 22,
-      height: 6,
-      borderRadius: 3,
-      backgroundColor: c.primary,
     },
     emptyContainer: {
       marginHorizontal: spacing.xl,
@@ -150,10 +137,10 @@ export default function SpotlightCarousel() {
 
   const [spotlights, setSpotlights] = useState<Highlight[]>([]);
   const [loading, setLoading] = useState(true);
-  const [activeIdx, setActiveIdx] = useState(0);
   const flatRef = useRef<FlatList<Highlight>>(null);
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
-  const activeRef = useRef(0);
+  // Position within the repeated array — always points forward.
+  const scrollPosRef = useRef(0);
 
   useEffect(() => {
     fetchHighlights();
@@ -162,14 +149,10 @@ export default function SpotlightCarousel() {
   const fetchHighlights = async () => {
     try {
       setLoading(true);
-      // Single round-trip: the /highlight payload carries curated spotlight
-      // rows PLUS featured events and trending games (server-composed), so the
-      // carousel no longer fans out to /events/discover + /game/trending.
       const hlRes = await highlightService.getHighlights();
       const { spotlight = [], featuredEvents = [], trendingGames = [] } =
         hlRes.data || {};
 
-      // Featured events — the backend already filters to is_featured.
       const eventHighlights: Highlight[] = (featuredEvents || []).map(ev => ({
         id: `event-${ev.id}`,
         title: ev.title,
@@ -200,8 +183,6 @@ export default function SpotlightCarousel() {
         };
       });
 
-      // Backend spotlight rows now carry native artwork too (event cover /
-      // community banner) — prefer it over the gradient+emoji fallback.
       const nativeHighlights: Highlight[] = (spotlight || []).map(h => ({
         id: h.id,
         title: h.title,
@@ -224,26 +205,73 @@ export default function SpotlightCarousel() {
     }
   };
 
+  const count = spotlights.length;
+
+  // Build the repeated array used by the FlatList.
+  const repeatedData = React.useMemo(() => {
+    if (count === 0) return [];
+    const arr: Highlight[] = [];
+    for (let r = 0; r < REPEAT_COUNT; r++) {
+      for (const item of spotlights) {
+        // Give each clone a unique key so React doesn't dedupe them.
+        arr.push({ ...item, _key: `${r}-${item.id}` } as Highlight & { _key: string });
+      }
+    }
+    return arr;
+  }, [spotlights, count]);
+
+  // Index of the first item in the middle copy — our stable "origin".
+  const middleCopyStart = count > 0 ? count : 0;
+
+  // Silently recenter the scroll position to the equivalent spot in the
+  // middle copy so we never run out of room in either direction.
+  const recenterIfNeeded = useCallback(
+    (index: number) => {
+      if (count === 0) return;
+      const midStart = middleCopyStart;
+      const midEnd = midStart + count - 1;
+
+      if (index < midStart || index > midEnd) {
+        // Map to the equivalent position inside the middle copy.
+        const normalized = ((index - midStart) % count + count) % count;
+        const newIndex = midStart + normalized;
+        scrollPosRef.current = newIndex;
+        flatRef.current?.scrollToIndex({ index: newIndex, animated: false });
+      }
+    },
+    [count, middleCopyStart],
+  );
+
   const startTimer = useCallback(() => {
     if (timerRef.current) clearInterval(timerRef.current);
-    if (spotlights.length === 0) return;
+    if (count === 0) return;
 
     timerRef.current = setInterval(() => {
-      const next = (activeRef.current + 1) % spotlights.length;
-      activeRef.current = next;
-      setActiveIdx(next);
+      // Always advance forward by one.
+      const next = scrollPosRef.current + 1;
+      scrollPosRef.current = next;
       flatRef.current?.scrollToIndex({ index: next, animated: true });
+
+      // If we've scrolled past the middle copy, silently recenter.
+      setTimeout(() => recenterIfNeeded(next), 400);
     }, 3600);
-  }, [spotlights.length]);
+  }, [count, recenterIfNeeded]);
 
   useEffect(() => {
-    if (spotlights.length > 0) {
+    if (count > 0) {
+      // Start in the middle copy so there's room to scroll in both directions.
+      const startIndex = middleCopyStart;
+      scrollPosRef.current = startIndex;
+      // Wait a tick for the FlatList to mount, then position it.
+      requestAnimationFrame(() => {
+        flatRef.current?.scrollToIndex({ index: startIndex, animated: false });
+      });
       startTimer();
     }
     return () => {
       if (timerRef.current) clearInterval(timerRef.current);
     };
-  }, [startTimer, spotlights]);
+  }, [startTimer, count, middleCopyStart]);
 
   if (loading) {
     return (
@@ -269,7 +297,6 @@ export default function SpotlightCarousel() {
             end={{ x: 1, y: 1 }}
             style={styles.emptyGradient}
           >
-            {/* Decorative glow blobs */}
             <View
               style={{
                 position: "absolute",
@@ -292,7 +319,6 @@ export default function SpotlightCarousel() {
                 backgroundColor: "rgba(167,139,250,0.08)",
               }}
             />
-
             <View style={styles.emptyIconRing}>
               <Ionicons
                 name="sparkles"
@@ -345,26 +371,21 @@ export default function SpotlightCarousel() {
     ];
     const style = fallbacks[index % fallbacks.length];
 
-  const handlePress = (item: Highlight) => {
-    if (!item.type) return;
-    if (item.type === "game") {
-      navigation.navigate("Games");
-    } else if (item.type === "event") {
-      navigation.navigate("Events");
-    } else if (item.type === "community") {
-      // sourceId is the community's UUID; the backend also returns the slug
-      // so the detail route can resolve it (the /communities/:slug endpoint
-      // only accepts slugs).
-      navigation.navigate("Community", {
-        screen: "CommunityDetail",
-        params: { communitySlug: item.sourceSlug || item.sourceId },
-      });
-    } else if (item.type === "post") {
-      // If there's a specific post, it would be ideal to go to Comments/Details,
-      // but since we only have sourceId, navigating to Community tab is a good fallback
-      navigation.navigate("Community");
-    }
-  };
+    const handlePress = (item: Highlight) => {
+      if (!item.type) return;
+      if (item.type === "game") {
+        navigation.navigate("Games");
+      } else if (item.type === "event") {
+        navigation.navigate("Events");
+      } else if (item.type === "community") {
+        navigation.navigate("Community", {
+          screen: "CommunityDetail",
+          params: { communitySlug: item.sourceSlug || item.sourceId },
+        });
+      } else if (item.type === "post") {
+        navigation.navigate("Community");
+      }
+    };
 
     return (
       <TouchableOpacity
@@ -461,9 +482,9 @@ export default function SpotlightCarousel() {
 
       <FlatList
         ref={flatRef}
-        data={spotlights}
+        data={repeatedData}
         renderItem={renderItem}
-        keyExtractor={(i) => i.id.toString()}
+        keyExtractor={(i, idx) => `${(i as any)._key || i.id}-${idx}`}
         horizontal
         pagingEnabled={false}
         snapToInterval={ITEM_W}
@@ -480,21 +501,13 @@ export default function SpotlightCarousel() {
         })}
         onMomentumScrollEnd={(e) => {
           const idx = Math.round(e.nativeEvent.contentOffset.x / ITEM_W);
-          const clamped = Math.max(0, Math.min(idx, spotlights.length - 1));
-          activeRef.current = clamped;
-          setActiveIdx(clamped);
+          scrollPosRef.current = idx;
+          // Recenter if we've drifted outside the middle copy.
+          recenterIfNeeded(idx);
+          // Restart the timer from the new position.
           startTimer();
         }}
       />
-
-      <View style={styles.dots}>
-        {spotlights.map((_, i) => (
-          <View
-            key={i}
-            style={[styles.dot, i === activeIdx && styles.dotActive]}
-          />
-        ))}
-      </View>
     </View>
   );
 }

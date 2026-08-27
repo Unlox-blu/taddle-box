@@ -39,13 +39,14 @@ import { usePosts } from "../../context/PostsContext";
 import { useJoinCommunity } from "../../mutations/communities";
 import { communityService } from "../../services/community.service";
 import { postsService } from "../../services/posts.service";
-import PostCard from "../../components/home/PostCard";
+import PostCard from "../../components/common/contentCards/types/postCard/PostCard";
 import MainHeader from "../../components/common/MainHeader";
 import CreatePostModal from "../../components/common/CreatePostModal";
 import SharedFeed from "../../components/common/SharedFeed";
 import { useAuth } from "../../context/AuthContext";
 import { useQueryClient } from "@tanstack/react-query";
 import { queryKeys } from "../../lib/queryKeys";
+import { useCommunityPosts } from "../../queries/feed";
 import type { CommunityStackParamList, Post, Community } from "../../types";
 import { themedAlert } from "../../components/common/ThemedAlert";
 import BioText from "../../components/common/BioText";
@@ -351,19 +352,25 @@ export default function CommunityDetailScreen() {
   // CommunityContext that used to seed this is never mounted) — otherwise we
   // show a proper loading state instead of a blank screen.
   const [community, setCommunity] = useState<Community | null>(null);
-  const [communityPosts, setCommunityPosts] = useState<Post[]>([]);
-  const [loadingPosts, setLoadingPosts] = useState(true);
   const [loadingDetail, setLoadingDetail] = useState(true);
   const [detailError, setDetailError] = useState<string | null>(null);
   const [qrModalVisible, setQrModalVisible] = useState(false);
 
-  // Post feed pagination + pull-to-refresh. The server endpoint supports
-  // page/limit (newest first); we append pages on scroll and reset on refresh.
-  const [postPage, setPostPage] = useState(1);
-  const [hasMorePosts, setHasMorePosts] = useState(false);
-  const [loadingMorePosts, setLoadingMorePosts] = useState(false);
-  const [refreshingPosts, setRefreshingPosts] = useState(false);
-  const postsReqRef = useRef(0);
+  // Community posts via react-query — same pattern as home feed.
+  // Auto-fetches when community?.id becomes available (after detail loads).
+  const {
+    data: communityPostPages,
+    fetchNextPage,
+    hasNextPage,
+    refetch: refetchPosts,
+    isRefetching: isRefreshingPosts,
+    isLoading: loadingPosts,
+  } = useCommunityPosts(community?.id, !!community?.id);
+
+  const communityPosts = useMemo(
+    () => communityPostPages?.pages.flat().map((r: any) => r.item) || [],
+    [communityPostPages],
+  );
 
   const [showCreate, setShowCreate] = useState(false);
   const [showRequests, setShowRequests] = useState(false);
@@ -445,51 +452,9 @@ export default function CommunityDetailScreen() {
     }
   };
 
-  // Loads a page of the community's posts and appends/replaces the list. Uses
-  // a request-id guard so a slow page-1 response can't clobber a newer one
-  // after a refresh or a community switch.
-  const loadPosts = useCallback(
-    async (communityId: string, nextPage: number, refresh = false) => {
-      const reqId = ++postsReqRef.current;
-      if (!refresh) setLoadingPosts(true);
-      try {
-        const postsRes = await communityService.getCommunityPosts(
-          communityId,
-          nextPage,
-          20,
-        );
-        if (postsReqRef.current !== reqId) return;
-        const rows = postsRes.data || [];
-        const meta = postsRes.meta as any;
-        setHasMorePosts(meta ? !!meta.hasNext : rows.length === 20);
-        setCommunityPosts((prev) =>
-          refresh
-            ? rows
-            : [
-                ...prev,
-                ...rows.filter(
-                  (r: any) => !prev.some((p: any) => p.id === r.id),
-                ),
-              ],
-        );
-        setPostPage(nextPage);
-      } catch (e) {
-        // Private communities: non-members get 403 on posts — that's fine,
-        // the empty state explains they must join first.
-        if (postsReqRef.current === reqId) setCommunityPosts([]);
-      } finally {
-        if (postsReqRef.current === reqId) {
-          setLoadingPosts(false);
-          setRefreshingPosts(false);
-          setLoadingMorePosts(false);
-        }
-      }
-    },
-    [],
-  );
-
   // Resolves true only when the detail re-fetch succeeded — callers use the
   // boolean to decide whether an optimistic membership flip can be trusted.
+  // Posts auto-fetch via useCommunityPosts when community?.id becomes available.
   const loadData = useMemo(
     () => async (): Promise<boolean> => {
       setLoadingDetail(true);
@@ -499,8 +464,6 @@ export default function CommunityDetailScreen() {
           await communityService.getCommunityDetail(communitySlug);
         if (detailRes.data) {
           setCommunity(detailRes.data);
-          setLoadingPosts(true);
-          await loadPosts(detailRes.data.id, 1, true);
           return true;
         }
         setDetailError("Community not found.");
@@ -515,7 +478,7 @@ export default function CommunityDetailScreen() {
         setLoadingDetail(false);
       }
     },
-    [communitySlug, loadPosts],
+    [communitySlug],
   );
 
   // Fetch full details and posts whenever the screen gains focus (mount, or
@@ -543,8 +506,7 @@ export default function CommunityDetailScreen() {
           // Approved — refresh posts right away and stop polling.
           clearInterval(timer);
           setCommunity(fresh);
-          setLoadingPosts(true);
-          await loadPosts(fresh.id, 1, true);
+          refetchPosts();
         } else if (
           fresh.isPending !== community.isPending ||
           fresh.memberCount !== community.memberCount
@@ -557,12 +519,13 @@ export default function CommunityDetailScreen() {
     }, 10000);
     return () => clearInterval(timer);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [community?.isPending, community?.id, communitySlug, loadPosts]);
+  }, [community?.isPending, community?.id, communitySlug, refetchPosts]);
 
   const handleDeletePost = async (post: Post) => {
     try {
       await postsService.deletePost(post.id);
-      setCommunityPosts((prev) => prev.filter((p) => p.id !== post.id));
+      // Invalidate so react-query refetches the community posts
+      if (community?.id) queryClient.invalidateQueries({ queryKey: [...queryKeys.communityPosts(community.id)] });
     } catch (e) {
       error("Failed to delete post:", e);
     }
@@ -936,32 +899,26 @@ export default function CommunityDetailScreen() {
       <MainHeader showBack />
 
       <SharedFeed
-        posts={communityPosts}
-        setPosts={setCommunityPosts}
+        rows={communityPosts.map((p) => ({ type: 'posts', item: p }))}
         onDelete={handleDeletePost}
         onReposted={loadData}
         isAdmin={isAdmin}
+        onLike={undefined}
+        onSave={undefined}
         // Pull-to-refresh re-fetches detail + the first page of posts from the
         // server (previously nothing was wired here — the gesture did nothing).
-        refreshing={refreshingPosts}
+        refreshing={isRefreshingPosts}
         onRefresh={async () => {
-          setRefreshingPosts(true);
-          try {
-            await loadData();
-          } finally {
-            setRefreshingPosts(false);
-          }
+          await loadData();
+          refetchPosts();
         }}
         // Infinite scroll — appends page 2, 3, … of the community's posts.
         onEndReached={() => {
-          if (hasMorePosts && !loadingPosts && !loadingMorePosts) {
-            setLoadingMorePosts(true);
-            loadPosts(community.id, postPage + 1);
-          }
+          if (hasNextPage) fetchNextPage();
         }}
         onEndReachedThreshold={0.4}
         ListFooterComponent={
-          loadingMorePosts ? (
+          loadingPosts ? (
             <StateBlock inline loading style={{ paddingVertical: 16 }} />
           ) : (
             <View style={{ height: 100 }} />

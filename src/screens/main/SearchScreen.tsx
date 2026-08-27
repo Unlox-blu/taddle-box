@@ -10,7 +10,6 @@ import {
   Text,
   TextInput,
   TouchableOpacity,
-  FlatList,
   Image,
   Share,
   RefreshControl,
@@ -19,8 +18,9 @@ import {
   Keyboard,
   Dimensions,
   Animated as RNAnimated,
+  ActivityIndicator,
 } from "react-native";
-import { FlashList } from '@shopify/flash-list';
+import { FlashList } from "@shopify/flash-list";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons, MaterialCommunityIcons } from "@expo/vector-icons";
 import { StatusBar } from "expo-status-bar";
@@ -35,50 +35,124 @@ import { hashtagService } from "../../services/hashtag.service";
 import { mapNotificationRow } from "../../services/notification.service";
 import { walletService } from "../../services/wallet.service";
 import { xpService } from "../../services/xp.service";
+import { postsService } from "../../services/posts.service";
 import type { HomeStackParamList, Post, Transaction } from "../../types";
-import PullToRefreshWrapper from "../../components/common/PullToRefreshWrapper";
 import StateBlock from "../../components/common/StateBlock";
 import CommentsModal from "../../components/home/CommentsModal";
-import Animated, { useSharedValue, useAnimatedStyle } from "react-native-reanimated";
-import {
-  useGlobalScroll,
-  applySectionScrollOffset,
-} from "../../context/ScrollContext";
-import { useToggleLike, useToggleSave } from "../../mutations/posts";
+import Animated, {
+  useSharedValue,
+  useAnimatedStyle,
+} from "react-native-reanimated";
+import { useGlobalScroll } from "../../context/ScrollContext";
 import { themedAlert } from "../../components/common/ThemedAlert";
 import ShareSheet from "../../components/common/ShareSheet";
 import { makeStyles } from "../../components/search/searchStyles";
-import {
-  ROW_RENDERERS,
-  GenericRow,
-  type RowCtx,
-} from "../../components/search/SearchRows";
+import SharedFeed from "../../components/common/SharedFeed";
 import { resolveContentId } from "../../utils/content.util";
 import AsyncStorage from "@react-native-async-storage/async-storage";
-import { useActivePostTracking } from "../../hooks/useActivePostTracking";
-import { warn } from '../../utils/logger';
+import { warn } from "../../utils/logger";
 
 type Props = NativeStackScreenProps<HomeStackParamList, "Search">;
 
 // Reddit-style filter-token pattern: a boxed token becomes a removable chip.
 // `@user` scopes results to people involved, `c/community` scopes them to that
 // community's posts, `#tag` scopes them to posts carrying that hashtag — they
-// combine (e.g. "@pravin_viswa c/tvk #peaceful").
 const TOKEN_FILTER_RE = /^(@[^\s@]+|c\/[^\s/]+|#[^\s#]+|\.\/[a-z]+)$/i;
 
 const SETTINGS_ITEMS = [
-  { id: "edit_profile", title: "Edit Profile", icon: "person-outline", route: "EditProfile", keywords: ["name", "avatar", "bio", "profile"] },
-  { id: "global_account_lock", title: "Global Account Lock & PIN", icon: "lock-closed-outline", route: "Settings", keywords: ["security", "passcode", "fingerprint", "face id", "lock"] },
-  { id: "change_password", title: "Change Password", icon: "key-outline", route: "ChangePassword", keywords: ["security", "password"] },
-  { id: "phone", title: "Phone Number", icon: "call-outline", route: "ChangePhone", keywords: ["mobile", "phone"] },
-  { id: "email", title: "Email Address", icon: "mail-outline", route: "ChangeEmail", keywords: ["contact", "email"] },
-  { id: "notifications", title: "Notification Preferences", icon: "notifications-outline", route: "Settings", keywords: ["alerts", "push", "emails", "notifications"] },
-  { id: "privacy", title: "Account Privacy", icon: "eye-off-outline", route: "Settings", keywords: ["public", "private", "activity", "status", "privacy"] },
-  { id: "preferences", title: "App Preferences", icon: "options-outline", route: "Settings", keywords: ["theme", "dark mode", "language", "content", "safe search", "haptics", "sound", "preferences"] },
-  { id: "terms", title: "Terms of Service", icon: "document-text-outline", route: "Terms", keywords: ["legal", "rules", "terms"] },
-  { id: "privacy_policy", title: "Privacy Policy", icon: "shield-checkmark-outline", route: "Privacy", keywords: ["legal", "data", "privacy"] },
-  { id: "delete_account", title: "Delete Account", icon: "trash-outline", route: "Settings", keywords: ["remove", "close", "deactivate", "delete"] },
-  { id: "logout", title: "Log Out", icon: "log-out-outline", route: "Settings", keywords: ["sign out", "exit", "logout"] },
+  {
+    id: "edit_profile",
+    title: "Edit Profile",
+    icon: "person-outline",
+    route: "EditProfile",
+    keywords: ["name", "avatar", "bio", "profile"],
+  },
+  {
+    id: "global_account_lock",
+    title: "Global Account Lock & PIN",
+    icon: "lock-closed-outline",
+    route: "Settings",
+    keywords: ["security", "passcode", "fingerprint", "face id", "lock"],
+  },
+  {
+    id: "change_password",
+    title: "Change Password",
+    icon: "key-outline",
+    route: "ChangePassword",
+    keywords: ["security", "password"],
+  },
+  {
+    id: "phone",
+    title: "Phone Number",
+    icon: "call-outline",
+    route: "ChangePhone",
+    keywords: ["mobile", "phone"],
+  },
+  {
+    id: "email",
+    title: "Email Address",
+    icon: "mail-outline",
+    route: "ChangeEmail",
+    keywords: ["contact", "email"],
+  },
+  {
+    id: "notifications",
+    title: "Notification Preferences",
+    icon: "notifications-outline",
+    route: "Settings",
+    keywords: ["alerts", "push", "emails", "notifications"],
+  },
+  {
+    id: "privacy",
+    title: "Account Privacy",
+    icon: "eye-off-outline",
+    route: "Settings",
+    keywords: ["public", "private", "activity", "status", "privacy"],
+  },
+  {
+    id: "preferences",
+    title: "App Preferences",
+    icon: "options-outline",
+    route: "Settings",
+    keywords: [
+      "theme",
+      "dark mode",
+      "language",
+      "content",
+      "safe search",
+      "haptics",
+      "sound",
+      "preferences",
+    ],
+  },
+  {
+    id: "terms",
+    title: "Terms of Service",
+    icon: "document-text-outline",
+    route: "Terms",
+    keywords: ["legal", "rules", "terms"],
+  },
+  {
+    id: "privacy_policy",
+    title: "Privacy Policy",
+    icon: "shield-checkmark-outline",
+    route: "Privacy",
+    keywords: ["legal", "data", "privacy"],
+  },
+  {
+    id: "delete_account",
+    title: "Delete Account",
+    icon: "trash-outline",
+    route: "Settings",
+    keywords: ["remove", "close", "deactivate", "delete"],
+  },
+  {
+    id: "logout",
+    title: "Log Out",
+    icon: "log-out-outline",
+    route: "Settings",
+    keywords: ["sign out", "exit", "logout"],
+  },
 ];
 
 // Result kinds the unified search can return, plus the legacy SearchType tabs
@@ -168,10 +242,14 @@ export default function SearchScreen({ navigation, route }: Props) {
   resultTypeRef.current = resultType;
   // Type pills the server returned for the current query — each carries its
   // own display label, so the pill row is rendered verbatim. Re-populated on
-  // every unified fetch.
+  // every unified fetch. NOT cleared on query change — stale pills stay
+  // visible while the next query loads (isTypesLoading covers that state).
   const [serverTypes, setServerTypes] = useState<
     { type: string; label: string; count?: number }[]
   >([]);
+  // True while a fetch is in-flight and the displayed pills may be stale.
+  // Used to dim pills during loading instead of blanking the reserved row.
+  const [isTypesLoading, setIsTypesLoading] = useState(false);
 
   const [showFilters, setShowFilters] = useState(false);
   // Draft values for the filter modal — only committed to the live search
@@ -201,9 +279,7 @@ export default function SearchScreen({ navigation, route }: Props) {
   // ── Reddit-style filter chips ──
   // A token typed in the box and completed with a space (or committed on
   // submit) becomes a removable chip: `@user` scopes to that author's posts,
-  // `c/community` scopes to that community's posts. They combine — e.g.
-  // "@pravin_viswa c/tvk" returns that person's posts inside that community —
-  // and the free text left in the box is what's actually searched.
+  // `c/community` scopes to that community's posts.
   const applyTokenFilter = (token: string) => {
     const t = token.toLowerCase();
     if (t.startsWith("@")) {
@@ -523,75 +599,64 @@ export default function SearchScreen({ navigation, route }: Props) {
   const [shareVisible, setShareVisible] = useState(false);
   const [sharePost, setSharePost] = useState<any>(null);
 
+  // Header measured height — set by onLayout so pills/results align to the
+  // real search bar height (varies by device/font scale).
+  const [headerMeasuredH, setHeaderMeasuredH] = useState<number | null>(null);
+
   // Active tab's rows — derived from the cache so switching tabs is instant.
   const rows = rowsByTab[activeTab] || [];
 
   // Pass ALL rows so accumulated heights account for non-post rows
   // (headers, people, communities) that take up scroll space.
-  const hookRows = rows.map((r: any, i: number) => {
-    const cid = resolveContentId(r.item);
-    return {
-      id: r.isHeader ? `__header_${r.type}_${i}` : (cid || `__row_${i}`),
-      _row: r,
-    };
-  });
-  
-  // Calculate overlay height inline to avoid referencing the hoisted variable too early
-  const _searchHeaderH = headerMeasuredH ?? 60 + insets.top;
-  const _showPills = source === "notifications" || (source !== "settings" && source !== "wallet" && serverTypes.length > 0);
-  const _searchOverlayH = _searchHeaderH + (_showPills ? 56 : 0);
+  // Memoized to prevent FlashList from seeing new data refs on every render
+  const hookRows = useMemo(
+    () =>
+      // Filter out header rows — they return null from renderItem, but FlashList
+      // still allocates layout space for every item in the data array. Keeping
+      // header rows in data creates invisible gaps in the list.
+      rows
+        .filter((r: any) => !r.isHeader)
+        .map((r: any, i: number) => {
+          const cid = resolveContentId(r.item);
+          // `id` is the FlashList keyExtractor key — MUST be unique across all
+          // result types. The same raw content_id can appear across different
+          // types (e.g. a comment whose content_id is the parent post’s ID
+          // collides with the actual post row), causing FlashList’s RecyclerView
+          // to enter an infinite reconcile loop (“Maximum update depth exceeded”).
+          // Prefixing with type guarantees uniqueness.
+          //
+          // `_trackId` is the RAW content ID used for height tracking and the
+          // activePostId comparison in PostCard. Kept separate so the tracking
+          // layer (getPostId / trackLayout / heightMapRef) is consistent.
+          return {
+            id: cid ? `${r.type}:${cid}` : `__row_${i}`,
+            _trackId: cid || null,
+            _row: r,
+          };
+        }),
+    [rows],
+  );
 
-  const { activePostId, viewabilityConfig, onViewableItemsChanged,
-          trackLayout, handleScroll: handleScrollForTracking } =
-    useActivePostTracking(hookRows, {
-      headerHeight: _searchOverlayH,
-    });
+  // ── Reserved overlay height (stable by design, not by hack) ──────────────
+  // The pill row height is RESERVED whenever the current scope could ever
+  // produce type pills — regardless of whether any have arrived yet.
+  // This makes the FlashList paddingTop and useActivePostTracking headerHeight
+  // completely stable: they never change mid-request when types arrive.
+  //
+  // Scopes that never have pills: settings, wallet.
+  // All other scopes (global search, bookmarks, notifications, messages) can
+  // return pills, so we always pre-allocate the space for them.
+  const _searchHeaderH = headerMeasuredH ?? 60 + insets.top;
+  const _searchPillsH = 56;
+  const pillsCouldExist = source !== "settings" && source !== "wallet";
+  // This is the stable reserved height — fixed as soon as the header is
+  // measured, never changes mid-session regardless of pill state.
+  const reservedOverlayH =
+    _searchHeaderH + (pillsCouldExist ? _searchPillsH : 0);
 
   const scrollYAnim = useRef(new RNAnimated.Value(0)).current;
-  const startPhysicalTop = _searchOverlayH;
-  const targetPhysicalTop = (Dimensions.get("window").height * 0.90) / 2;
-  const transitionDistance = Math.max(1, targetPhysicalTop - startPhysicalTop);
-  const focusBoxTop = scrollYAnim.interpolate({
-    inputRange: [0, transitionDistance],
-    outputRange: [startPhysicalTop, targetPhysicalTop],
-    extrapolate: "clamp",
-  });
-
-  // ── Video preload: direction-aware ────────────────────────────────
-  const lastScrollYRef = useRef(0);
-  const scrollDirRef = useRef<1 | -1>(1);
-
-  const preloadPostId = useMemo(() => {
-    if (!activePostId) return null;
-    const activeIdx = rows.findIndex(
-      (r) => !r.isHeader && (r.item as any)?.id === activePostId,
-    );
-    if (activeIdx < 0) return null;
-
-    const dir = scrollDirRef.current;
-    const scan = (start: number, step: number) => {
-      for (let i = start; i >= 0 && i < rows.length; i += step) {
-        const r = rows[i] as any;
-        if (r.isHeader) continue;
-        if (r.type !== "posts" && r.type !== "post") continue;
-        const hasVid = r.item?.media?.some?.((m: any) => m.media_type === "video");
-        if (hasVid) return r.item.id as string;
-      }
-      return null;
-    };
-
-    const found = dir === 1
-      ? scan(activeIdx + 1, 1)
-      : scan(activeIdx - 1, -1);
-    if (found) return found;
-    // Fallback: try the other direction
-    return dir === 1 ? scan(activeIdx - 1, -1) : scan(activeIdx + 1, 1);
-    return null;
-  }, [rows, activePostId]);
 
   const { user: currentUser } = useAuth();
-  const { mutate: toggleLike } = useToggleLike();
-  const { mutate: toggleSave } = useToggleSave();
 
   // One combined `filter` param for the unified API — c/<slug> for communities,
   // @<user> for people, #<tag> for hashtags. Matches the URL shape
@@ -632,10 +697,18 @@ export default function SearchScreen({ navigation, route }: Props) {
       try {
         if (sourceRef.current === "settings") {
           const term = q.toLowerCase();
-          const filtered = SETTINGS_ITEMS.filter(s => s.title.toLowerCase().includes(term) || s.keywords.some(k => k.toLowerCase().includes(term)));
+          const filtered = SETTINGS_ITEMS.filter(
+            (s) =>
+              s.title.toLowerCase().includes(term) ||
+              s.keywords.some((k) => k.toLowerCase().includes(term)),
+          );
           setRowsByTab((prev) => ({
             ...prev,
-            [tab]: filtered.map(item => ({ isHeader: false, item, type: "settings_item" as SearchType }))
+            [tab]: filtered.map((item) => ({
+              isHeader: false,
+              item,
+              type: "settings_item" as SearchType,
+            })),
           }));
           setLoading(false);
           return;
@@ -662,6 +735,7 @@ export default function SearchScreen({ navigation, route }: Props) {
           tabHasMoreRef.current[tab] = res.hasNext;
           tabPageRef.current[tab] = res.page;
           setServerTypes(res.types);
+          setIsTypesLoading(false);
           const newRows: Row[] = (res.results || []).map((item: any) => ({
             isHeader: false,
             item: mapNotificationRow(item),
@@ -703,10 +777,11 @@ export default function SearchScreen({ navigation, route }: Props) {
           tabHasMoreRef.current[tab] = res.hasNext;
           tabPageRef.current[tab] = res.page;
           setServerTypes(res.types);
+          setIsTypesLoading(false);
           const newRows: Row[] = (res.results || []).map((item: any) => ({
             isHeader: false,
             item,
-            type: (item.itemType || 'text') as ResultType,
+            type: (item.itemType || "text") as ResultType,
           }));
           setRowsByTab((prev) => {
             const existing = prev[tab] || [];
@@ -834,7 +909,7 @@ export default function SearchScreen({ navigation, route }: Props) {
           time: timeWindowRef.current,
           filter: buildFilterString(),
           type: resultTypeRef.current,
-          scope: (sourceRef.current || 'global') as any,
+          scope: (sourceRef.current || "global") as any,
           page: pageToLoad,
           limit: 10,
         });
@@ -843,6 +918,7 @@ export default function SearchScreen({ navigation, route }: Props) {
         tabHasMoreRef.current[tab] = res.hasNext;
         tabPageRef.current[tab] = res.page;
         setServerTypes(res.types);
+        setIsTypesLoading(false);
         const newRows: Row[] = res.results.map((item: any) => ({
           isHeader: false,
           item,
@@ -920,14 +996,16 @@ export default function SearchScreen({ navigation, route }: Props) {
     const handler = setTimeout(
       () => {
         if (queryChanged) {
-          // New query → drop every tab's cache + pagination + scroll offsets,
-          // and clear the stale type pills (the fetch re-populates them).
+          // New query → drop every tab’s cache + pagination + scroll offsets.
+          // Do NOT clear serverTypes — stale pills stay visible (dimmed via
+          // isTypesLoading) while the new results load, so the reserved pill
+          // row always has content and the layout never jumps.
           setRowsByTab({});
           tabPageRef.current = {};
           tabHasMoreRef.current = {};
           scrollOffsetsRef.current = {};
           scrollOffsetCurrentRef.current = 0;
-          setServerTypes([]);
+          setIsTypesLoading(true);
         }
         const cached = rowsByTabRef.current[activeTab];
         if (!queryChanged && cached && cached.length > 0) {
@@ -991,80 +1069,6 @@ export default function SearchScreen({ navigation, route }: Props) {
 
   // Everything the per-type row renderers need, bundled once per render so the
   // ROW_RENDERERS map stays pure and stateless.
-  const rowCtx = useMemo<RowCtx>(() => {
-    return {
-      styles,
-      colors,
-      navigation,
-      isFocused,
-      activePostId,
-      currentUserId: currentUser?.id,
-      toggleLike: (id, isCurrentlyLiked) => toggleLike({ id, isCurrentlyLiked }),
-      toggleSave: (id, isCurrentlySaved) => toggleSave({ id, isCurrentlySaved }),
-      patchPost,
-      sharePost: (post: any) => { setSharePost(post); setShareVisible(true); },
-      reportPost: () =>
-        themedAlert(
-          "Reported",
-          "Thank you. This post has been reported for review.",
-        ),
-      refresh: () => fetchResults(query, activeTab),
-      openPost: (post) => navigation.push("PostDetail", { post }),
-      openComments: (post: any) => { setActiveCommentPost(post); setCommentsVisible(true); },
-      openUser: (user) => navigation.push("UserProfile", { user }),
-      openCommunity: (slug) =>
-        (navigation as any).navigate("Community", {
-          screen: "CommunityDetail",
-          params: { communitySlug: slug },
-        }),
-      openGames,
-      openEvents: () => (navigation as any).navigate("Main", { screen: "Events" }),
-      openSettings: () => (navigation as any).navigate("Settings"),
-      openNotifications: () => (navigation as any).navigate("Notifications"),
-      addHashtag: (tag) => {
-        setTagFilters((prev) => (prev.includes(tag) ? prev : [...prev, tag]));
-        setResultType("all");
-      },
-      trackLayout,
-      preloadPostId,
-      feedPosts: rows.filter((r: any) => !r.isHeader && (r.type === 'posts' || r.type === 'post')).map((r: any) => r.item),
-      feedContext: 'search' as const,
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [
-    styles,
-    colors,
-    navigation,
-    isFocused,
-    activePostId,
-    currentUser?.id,
-    toggleLike,
-    toggleSave,
-    patchPost,
-    openGames,
-    query,
-    activeTab,
-    trackLayout,
-    preloadPostId,
-    rows,
-  ]);
-
-  const renderItem = ({ item: hookRow, index }: { item: any; index: number }) => {
-    const row = hookRow._row;
-    if (row.isHeader) return null;
-    const RowComponent = ROW_RENDERERS[row.type] ?? GenericRow;
-    return (
-      <View
-        onLayout={(e) => {
-          const { y, height } = e.nativeEvent.layout;
-          trackLayout(hookRow.id, { top: y, bottom: y + height });
-        }}
-      >
-        <RowComponent data={row.item} ctx={rowCtx} />
-      </View>
-    );
-  };
-
   // Result-type pills the SERVER returns for the current query — the unified
   // search's equivalent of tabs. The backend returns "all" first (the mixed
   // ordered list) plus every type that exists, each with its own label; every
@@ -1085,50 +1089,35 @@ export default function SearchScreen({ navigation, route }: Props) {
 
   // Instagram-style hide-on-scroll for the search chrome — the search bar and
   // the result-pill row slide up with the results for a full-screen view.
-  // The header is an absolute overlay whose true height (status-bar inset +
-  // search bar + padding + border) varies by device/font scale — hardcoding
-  // it made the pills row sit PARTIALLY BEHIND the search bar. It's measured
-  // on layout so pills/suggestions/results align to the real height.
-  const [headerMeasuredH, setHeaderMeasuredH] = useState<number | null>(null);
-  const searchHeaderH = headerMeasuredH ?? 60 + insets.top; // measured, or fallback
-  const searchPillsH = 56; // horizontal result-pill row
+  // searchHeaderH / searchPillsH are re-derived here (same values as _searchHeaderH
+  // / _searchPillsH computed near the top) for use in animation styles that run
+  // in the Reanimated worklet context.
+  const searchHeaderH = headerMeasuredH ?? 60 + insets.top;
+  const searchPillsH = 56;
   const searchOverlayY = useSharedValue(0);
   const searchPrevY = useRef(0);
-  // Dismiss the keyboard once per scroll gesture; reset when the user taps
-  // the input again (TextInput onFocus below).
   const keyboardDismissedRef = useRef(false);
-  const showPills =
-    source === "notifications" ||
-    (source !== "settings" &&
-      source !== "wallet" &&
-      universalPills.length > 0);
-  const searchOverlayH = searchHeaderH + (showPills ? searchPillsH : 0);
 
   const headerAnimStyle = useAnimatedStyle(() => ({
     transform: [
       {
+        translateY: Math.max(-searchHeaderH, Math.min(0, searchOverlayY.value)),
+      },
+    ],
+  }));
+  // Pills travel the full reserved overlay height (header + pills row) so
+  // they exit the screen completely when the user scrolls down.
+  const pillsAnimStyle = useAnimatedStyle(() => ({
+    transform: [
+      {
         translateY: Math.max(
-          -searchHeaderH,
+          -reservedOverlayH,
           Math.min(0, searchOverlayY.value),
         ),
       },
     ],
   }));
-  // The pills sit at top: searchHeaderH, so to leave the screen they must
-  // travel the FULL overlay height — clamping to -searchPillsH (their own
-  // height) left them parked at insets.top+4, floating over the results.
-  const pillsAnimStyle = useAnimatedStyle(() => ({
-    transform: [
-      {
-        translateY: Math.max(-searchOverlayH, Math.min(0, searchOverlayY.value)),
-      },
-    ],
-  }));
-  const renderPill = (pill: {
-    key: string;
-    label: string;
-    count?: number;
-  }) => {
+  const renderPill = (pill: { key: string; label: string; count?: number }) => {
     const isActive = resultType === pill.key;
     return (
       <TouchableOpacity
@@ -1562,22 +1551,22 @@ export default function SearchScreen({ navigation, route }: Props) {
               fixed-order pills (people/communities/games) are showing, where
               sort/time can't apply. */}
           {source !== "settings" && sortTimeApplies && (
-              <TouchableOpacity
-                onPress={() => {
-                  // Open the modal with the CURRENT sort/time as the drafts.
-                  setDraftSort(sortBy);
-                  setDraftTime(timeWindow);
-                  setShowFilters(true);
-                }}
-              >
-                <MaterialCommunityIcons
-                  name="sort-variant"
-                  size={24}
-                  color={colors.text.secondary}
-                  style={{ transform: [{ scaleX: -1 }] }}
-                />
-              </TouchableOpacity>
-            )}
+            <TouchableOpacity
+              onPress={() => {
+                // Open the modal with the CURRENT sort/time as the drafts.
+                setDraftSort(sortBy);
+                setDraftTime(timeWindow);
+                setShowFilters(true);
+              }}
+            >
+              <MaterialCommunityIcons
+                name="sort-variant"
+                size={24}
+                color={colors.text.secondary}
+                style={{ transform: [{ scaleX: -1 }] }}
+              />
+            </TouchableOpacity>
+          )}
         </View>
       </Animated.View>
 
@@ -1664,8 +1653,8 @@ export default function SearchScreen({ navigation, route }: Props) {
                 ? `@${item.username}`
                 : suggestionKind === "community"
                   ? `c/${item.slug}`
-                  // nav rows return above — only tag rows reach here.
-                  : `posts tagged #${tag}`;
+                  : // nav rows return above — only tag rows reach here.
+                    `posts tagged #${tag}`;
             return (
               <TouchableOpacity
                 key={suggestionKind === "tag" ? tag : item.id || i}
@@ -1701,7 +1690,9 @@ export default function SearchScreen({ navigation, route }: Props) {
                 </View>
                 <View style={{ flex: 1 }}>
                   <Text style={styles.suggestionName} numberOfLines={1}>
-                    {suggestionKind === "tag" ? `#${tag}` : (item.name || item.title)}
+                    {suggestionKind === "tag"
+                      ? `#${tag}`
+                      : item.name || item.title}
                   </Text>
                   <Text style={styles.suggestionHandle} numberOfLines={1}>
                     {handle}
@@ -1719,111 +1710,38 @@ export default function SearchScreen({ navigation, route }: Props) {
         </Animated.View>
       )}
 
-      {/* Pills Row — shown ONLY when there are pills to show. The unified
-          search renders the SERVER-driven result pills verbatim (whatever the
-          backend returns — even none); tapping one re-requests with
-          type=<type>. This includes the notifications scope (All / Likes /
-          Comments / Follows with counts); the wallet scope is a local
-          transaction filter (no pills). */}
-      {showPills && (
-        <Animated.View
-          style={[
-            {
-              position: "absolute",
-              top: searchHeaderH,
-              left: 0,
-              right: 0,
-              zIndex: 10,
-              backgroundColor: colors.bg.base,
-              borderBottomWidth: 1,
-              borderBottomColor: colors.border,
-            },
-            pillsAnimStyle,
-          ]}
-        >
-          <FlashList
-            horizontal
-            showsHorizontalScrollIndicator={false}
-            data={universalPills}
-            keyExtractor={(item) => item.key}
-            contentContainerStyle={styles.tabsContainer}
-            ItemSeparatorComponent={() => <View style={{ width: 12 }} />}
-            renderItem={({ item }) => renderPill(item)}
-          />
-        </Animated.View>
-      )}
-
       {/* Results */}
       {loading ? (
         <StateBlock
           loading
-          style={[styles.centerBox, { paddingTop: searchOverlayH, paddingVertical: 0 }]}
+          style={[
+            styles.centerBox,
+            { paddingTop: reservedOverlayH, paddingVertical: 0 },
+          ]}
         />
       ) : hasResults ? (
-        // headerOffsetH drops the pull bubble BELOW the search chrome (bar +
-        // pills) — without it the bubble sits at the global header height,
-        // hidden behind the search overlay (zIndex 10+), so the pull showed
-        // no feedback.
-        <PullToRefreshWrapper
+        <SharedFeed
+          rows={hookRows as any}
           refreshing={refreshing}
           onRefresh={onRefresh}
-          headerOffsetH={searchOverlayH}
-        >
-          <FlashList
-            ref={listRef}
-            data={hookRows}
-            keyExtractor={(item) => item.id}
-            renderItem={renderItem}
-            contentContainerStyle={[
-              styles.listContent,
-              { paddingTop: searchOverlayH, paddingBottom: footerHeight + Dimensions.get('window').height * 0.6 },
-            ]}
-            keyboardDismissMode="on-drag"
-            keyboardShouldPersistTaps="handled"
-            alwaysBounceVertical
-            // Track the live offset so switching tabs can save/restore it.
-            onScroll={(e) => {
-              const y = e.nativeEvent.contentOffset.y;
-              scrollYAnim.setValue(y);
-              if (y > lastScrollYRef.current + 2) scrollDirRef.current = 1;
-              else if (y < lastScrollYRef.current - 2) scrollDirRef.current = -1;
-              lastScrollYRef.current = y;
-              scrollOffsetCurrentRef.current = y;
-              handleScrollForTracking(e);
-              // Instagram-style hide — the search bar + pill row ride up
-              // WITH the finger (the same finger-tracking as the global
-              // header): scrolling down translates them proportionally,
-              // scrolling up snaps them back immediately, and reaching the
-              // top always restores them. Scrolling also dismisses the
-              // keyboard.
-              const dy = y - searchPrevY.current;
-              applySectionScrollOffset(
-                y,
-                searchPrevY.current,
-                searchOverlayY,
-                searchOverlayH,
-              );
-              searchPrevY.current = y;
-              if (!keyboardDismissedRef.current && Math.abs(dy) > 2) {
-                keyboardDismissedRef.current = true;
-                Keyboard.dismiss();
-              }
-            }}
-          scrollEventThrottle={16}
-          viewabilityConfig={viewabilityConfig}
-          onViewableItemsChanged={onViewableItemsChanged}
           onEndReached={loadMore}
           onEndReachedThreshold={0.4}
+          feedContext="search"
+          onScroll={(y) => scrollYAnim.setValue(y)}
+          contentContainerStyle={{
+            paddingBottom: footerHeight + Dimensions.get("window").height * 0.6,
+          }}
           ListFooterComponent={
             loadingMore ? (
-              <StateBlock inline loading loaderSize={36} style={{ paddingVertical: 16 }} />
+              <StateBlock
+                inline
+                loading
+                loaderSize={36}
+                style={{ paddingVertical: 16 }}
+              />
             ) : null
           }
           ListHeaderComponent={
-            // The discovery label belongs to the discovery CONTENT — only
-            // render it once discovery rows actually exist (empty query AND
-            // rows), right where the feed starts. It never appears as a
-            // standalone banner above the pill row / empty area.
             isEmptyQuery && hasResults ? (
               <View>
                 {renderEmptyStateHeader()}
@@ -1834,12 +1752,37 @@ export default function SearchScreen({ navigation, route }: Props) {
               </View>
             ) : null
           }
+          sectionHeader={
+            pillsCouldExist ? (
+              <View
+                style={{
+                  height: searchPillsH,
+                  marginTop: searchHeaderH,
+                  backgroundColor: colors.bg.base,
+                  opacity: isTypesLoading ? 0.45 : 1,
+                  justifyContent: "center",
+                }}
+              >
+                {universalPills.length > 0 && (
+                  <FlashList
+                    horizontal
+                    showsHorizontalScrollIndicator={false}
+                    data={universalPills}
+                    keyExtractor={(item) => item.key}
+                    contentContainerStyle={styles.tabsContainer}
+                    ItemSeparatorComponent={() => <View style={{ width: 12 }} />}
+                    renderItem={({ item }) => renderPill(item)}
+                  />
+                )}
+              </View>
+            ) : null
+          }
+          sectionHeaderH={pillsCouldExist ? searchPillsH + searchHeaderH : 0}
         />
-        </PullToRefreshWrapper>
       ) : showSearchPrompt ? (
         renderEmptyStateHeader()
       ) : !isEmptyQuery ? (
-        <View style={[styles.centerBox, { paddingTop: searchOverlayH }]}>
+        <View style={[styles.centerBox, { paddingTop: reservedOverlayH }]}>
           <Text style={styles.emptyText}>
             No results found for "{query}" in {activeTabLabel}
           </Text>
@@ -1847,7 +1790,7 @@ export default function SearchScreen({ navigation, route }: Props) {
       ) : (
         // Empty query + no rows on an individual tab — e.g. a "See all" jump
         // from the discovery view. Show a hint instead of a blank screen.
-        <View style={[styles.centerBox, { paddingTop: searchOverlayH }]}>
+        <View style={[styles.centerBox, { paddingTop: reservedOverlayH }]}>
           <Ionicons name="compass-outline" size={56} color={colors.border} />
           <Text style={styles.emptyText}>
             Nothing here yet — type a search, or explore the All tab.
@@ -1927,10 +1870,11 @@ export default function SearchScreen({ navigation, route }: Props) {
                   { id: "all_time", label: "All Time" },
                 ].map((t) => (
                   <TouchableOpacity
-                    key={t.id}                      style={[
-                        styles.sheetFilterChip,
-                        draftTime === t.id && styles.sheetFilterChipActive,
-                      ]}
+                    key={t.id}
+                    style={[
+                      styles.sheetFilterChip,
+                      draftTime === t.id && styles.sheetFilterChipActive,
+                    ]}
                     onPress={() => setDraftTime(t.id)}
                   >
                     <Text
@@ -1971,26 +1915,8 @@ export default function SearchScreen({ navigation, route }: Props) {
         visible={shareVisible}
         onClose={() => setShareVisible(false)}
         postId={sharePost?.id}
-        postTitle={sharePost?.title || ''}
-      />
-
-      {/* Debug Tracking Overlay */}
-      <RNAnimated.View
-        pointerEvents="none"
-        style={{
-          position: "absolute",
-          top: focusBoxTop,
-          height: Dimensions.get("window").height * 0.10,
-          left: 0,
-          right: 0,
-          backgroundColor: "rgba(255, 0, 0, 0.15)",
-          borderWidth: 2,
-          borderColor: "rgba(255, 0, 0, 0.5)",
-          borderStyle: "dashed",
-          zIndex: 9999,
-        }}
+        postTitle={sharePost?.title || ""}
       />
     </View>
   );
 }
-

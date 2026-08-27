@@ -1,4 +1,4 @@
-import React, { useMemo, useState, useEffect, useRef } from "react";
+import React, { useMemo, useState, useEffect, useRef, useCallback } from "react";
 import {
   View,
   Text,
@@ -369,6 +369,8 @@ function formatSelDate(isoDate: string): string {
   return `${d} ${MONTHS_SHORT[m - 1]} ${y}`;
 }
 
+const REPEAT_COUNT = 3;
+
 const CalendarView = ({ selectedDate, onSelectDate, events, styles }: any) => {
   const today = new Date();
   const year = today.getFullYear();
@@ -541,24 +543,63 @@ export default function EventsScreen() {
     (e: any) => e.isFeatured && !e.isRegistered,
   );
 
-  const featuredScrollRef = useRef<ScrollView>(null);
+  const featuredFlatRef = useRef<FlatList<any>>(null);
+  const featuredScrollPosRef = useRef(0);
+  const featuredTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  const SW = Dimensions.get('window').width;
+  const FEATURED_CARD_W = SW - spacing.lg * 2;
+  const FEATURED_ITEM_W = FEATURED_CARD_W + spacing.md;
+
+  // Triple the featured list for infinite scroll
+  const repeatedFeaturedData = useMemo(() => {
+    if (featuredList.length === 0) return [];
+    const arr: any[] = [];
+    for (let r = 0; r < REPEAT_COUNT; r++) {
+      for (const item of featuredList) {
+        arr.push({ ...item, _fkey: `${r}-${item.id}` });
+      }
+    }
+    return arr;
+  }, [featuredList]);
+
+  const featuredMidStart = featuredList.length;
+
+  const recenterFeatured = useCallback((index: number) => {
+    if (featuredList.length === 0) return;
+    const midStart = featuredList.length;
+    const midEnd = midStart + featuredList.length - 1;
+    if (index < midStart || index > midEnd) {
+      const normalized = ((index - midStart) % featuredList.length + featuredList.length) % featuredList.length;
+      const newIndex = midStart + normalized;
+      featuredScrollPosRef.current = newIndex;
+      featuredFlatRef.current?.scrollToIndex({ index: newIndex, animated: false });
+    }
+  }, [featuredList.length]);
+
+  const startFeaturedTimer = useCallback(() => {
+    if (featuredTimerRef.current) clearInterval(featuredTimerRef.current);
+    if (featuredList.length <= 1) return;
+
+    featuredTimerRef.current = setInterval(() => {
+      const next = featuredScrollPosRef.current + 1;
+      featuredScrollPosRef.current = next;
+      featuredFlatRef.current?.scrollToIndex({ index: next, animated: true });
+      setTimeout(() => recenterFeatured(next), 420);
+    }, 4000);
+  }, [featuredList.length, recenterFeatured]);
 
   useEffect(() => {
     if (isFocused && activeTab === "all" && featuredList.length > 1) {
-      let currentIndex = 0;
-      const interval = setInterval(() => {
-        currentIndex = (currentIndex + 1) % featuredList.length;
-        const cardWidth = Dimensions.get('window').width * 0.85;
-        const snapInterval = cardWidth + spacing.lg;
-        
-        featuredScrollRef.current?.scrollTo({
-          x: currentIndex * snapInterval,
-          animated: true,
-        });
-      }, 4000);
-      return () => clearInterval(interval);
+      const startIdx = featuredMidStart;
+      featuredScrollPosRef.current = startIdx;
+      requestAnimationFrame(() => {
+        featuredFlatRef.current?.scrollToIndex({ index: startIdx, animated: false });
+      });
+      startFeaturedTimer();
     }
-  }, [activeTab, featuredList.length]);
+    return () => { if (featuredTimerRef.current) clearInterval(featuredTimerRef.current); };
+  }, [isFocused, activeTab, featuredList.length, featuredMidStart, startFeaturedTimer]);
 
   const featuredIds = new Set(featuredList.map((e: any) => e.id));
   const unregUnfeat = displayEvents.filter(
@@ -697,9 +738,24 @@ export default function EventsScreen() {
             )}
 
             {activeTab === "all" && featuredList.length > 0 && (
-              <ScrollView ref={featuredScrollRef} horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ paddingHorizontal: spacing.lg, paddingBottom: 16 }} snapToInterval={Dimensions.get('window').width * 0.85 + spacing.lg} decelerationRate="fast">
-                {featuredList.map((featured: any) => (
-                  <TouchableOpacity key={featured.id} activeOpacity={0.9} style={[styles.featCard, { width: Dimensions.get('window').width * 0.85, marginHorizontal: 0, marginRight: spacing.lg }]} onPress={() => navigation.navigate("EventDetail", { event: featured })}>
+              <FlatList
+                ref={featuredFlatRef}
+                data={repeatedFeaturedData}
+                horizontal
+                keyExtractor={(item) => item._fkey}
+                showsHorizontalScrollIndicator={false}
+                snapToInterval={FEATURED_ITEM_W}
+                decelerationRate="fast"
+                contentContainerStyle={{ paddingHorizontal: spacing.lg, gap: spacing.md }}
+                getItemLayout={(_, idx) => ({ length: FEATURED_ITEM_W, offset: FEATURED_ITEM_W * idx, index: idx })}
+                onMomentumScrollEnd={(e) => {
+                  const idx = Math.round(e.nativeEvent.contentOffset.x / FEATURED_ITEM_W);
+                  featuredScrollPosRef.current = idx;
+                  recenterFeatured(idx);
+                  startFeaturedTimer();
+                }}
+                renderItem={({ item: featured }) => (
+                  <TouchableOpacity key={featured.id} activeOpacity={0.9} style={[styles.featCard, { width: FEATURED_CARD_W, marginHorizontal: 0 }]} onPress={() => navigation.navigate("EventDetail", { event: featured })}>
                     {featured.banner ? (
                   <ImageBackground
                     source={{ uri: featured.banner }}
@@ -815,8 +871,8 @@ export default function EventsScreen() {
                   />
                 </View>
               </TouchableOpacity>
-                ))}
-              </ScrollView>
+              )}
+              />
             )}
 
             {activeTab === "all" && participated.length > 0 && (

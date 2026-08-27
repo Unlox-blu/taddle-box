@@ -97,7 +97,7 @@ export default function GameCard({
           colors={(game.gradient?.length === 2 ? game.gradient : ["#7C3AED", "#0891B2"]) as [string, string]}
           style={[styles.gameArt, { alignItems: "center", justifyContent: "center" }]}
         >
-          <GameLogo game={game} size={52} radius={16} />
+          <GameLogo game={game} size={64} radius={18} />
           {game.isHot && (
             <View style={{ position: "absolute", top: 8, right: 8 }}>
               <Text style={styles.gameBadge}>TRENDING</Text>

@@ -2,13 +2,14 @@ import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { queryKeys } from '../lib/queryKeys';
 import { postsService } from '../services/posts.service';
 import type { Post } from '../types';
+import type { FeedRow } from '../components/common/SharedFeed';
 
 export function useCreatePost() {
   const queryClient = useQueryClient();
   
   return useMutation({
     mutationFn: (postData: any) => postsService.createPost(postData),
-    onSuccess: (res) => {
+    onSuccess: () => {
       // Invalidate both global feed and profile posts just to be safe
       queryClient.invalidateQueries({ queryKey: queryKeys.feed });
     },
@@ -24,15 +25,18 @@ export function useToggleLike() {
     },
     onMutate: async ({ id, isCurrentlyLiked }) => {
       await queryClient.cancelQueries({ queryKey: queryKeys.feed });
+      await queryClient.cancelQueries({ queryKey: queryKeys.bookmarks });
+      // Cancel all profile post queries (all authorIds + types)
+      queryClient.getQueryCache().findAll({ queryKey: queryKeys.feed }).forEach(() => {}); // noop — just to keep pattern
+      const profileQueries = queryClient.getQueryCache().findAll({ predicate: (q) => q.queryKey[0] === 'profile' && q.queryKey[2] === 'posts' });
+      await Promise.all(profileQueries.map((q) => queryClient.cancelQueries({ queryKey: q.queryKey })));
 
-      // Patch EVERY feed variant (['feed'], ['feed', hashtag], …) so the heart
-      // flips instantly everywhere. Patching only the bare ['feed'] key would
-      // miss the active ['feed', hashtag] queries — which is why the old code
-      // had to refetch the whole feed after every like (that refetch is what
-      // flashed the pull-to-refresh spinner and yanked/blanked the list).
-      const previous: [readonly unknown[], unknown][] = [];
+      const nextLiked = !isCurrentlyLiked;
+      const prevData: [readonly unknown[], unknown][] = [];
+
+      // Patch feed caches (flat Post[] pages)
       queryClient.getQueryCache().findAll({ queryKey: queryKeys.feed }).forEach((query) => {
-        previous.push([query.queryKey, queryClient.getQueryData(query.queryKey)]);
+        prevData.push([query.queryKey, queryClient.getQueryData(query.queryKey)]);
         queryClient.setQueryData(query.queryKey, (old: any) => {
           if (!old) return old;
           return {
@@ -42,12 +46,7 @@ export function useToggleLike() {
                 if (post.id === id) {
                   const currentLikes = post.likes ?? (post as any).likesCount ?? 0;
                   const newLikes = isCurrentlyLiked ? Math.max(0, currentLikes - 1) : currentLikes + 1;
-                  return {
-                    ...post,
-                    isLiked: !isCurrentlyLiked,
-                    likes: newLikes,
-                    likesCount: newLikes,
-                  };
+                  return { ...post, isLiked: nextLiked, likes: newLikes, likesCount: newLikes };
                 }
                 return post;
               })
@@ -56,9 +55,51 @@ export function useToggleLike() {
         });
       });
 
-      return { previous };
+      // Patch bookmarks cache (FeedRow[] pages)
+      queryClient.getQueryCache().findAll({ queryKey: queryKeys.bookmarks }).forEach((query) => {
+        prevData.push([query.queryKey, queryClient.getQueryData(query.queryKey)]);
+        queryClient.setQueryData(query.queryKey, (old: any) => {
+          if (!old) return old;
+          return {
+            ...old,
+            pages: old.pages.map((page: FeedRow[]) =>
+              page.map((row) => {
+                if ((row.item as any)?.id === id) {
+                  const currentLikes = (row.item as any).likes ?? (row.item as any).likesCount ?? 0;
+                  const newLikes = isCurrentlyLiked ? Math.max(0, currentLikes - 1) : currentLikes + 1;
+                  return { ...row, item: { ...row.item, isLiked: nextLiked, likes: newLikes, likesCount: newLikes } };
+                }
+                return row;
+              })
+            ),
+          };
+        });
+      });
+
+      // Patch profile post caches (FeedRow[] pages)
+      profileQueries.forEach((query) => {
+        prevData.push([query.queryKey, queryClient.getQueryData(query.queryKey)]);
+        queryClient.setQueryData(query.queryKey, (old: any) => {
+          if (!old) return old;
+          return {
+            ...old,
+            pages: old.pages.map((page: FeedRow[]) =>
+              page.map((row) => {
+                if ((row.item as any)?.id === id) {
+                  const currentLikes = (row.item as any).likes ?? (row.item as any).likesCount ?? 0;
+                  const newLikes = isCurrentlyLiked ? Math.max(0, currentLikes - 1) : currentLikes + 1;
+                  return { ...row, item: { ...row.item, isLiked: nextLiked, likes: newLikes, likesCount: newLikes } };
+                }
+                return row;
+              })
+            ),
+          };
+        });
+      });
+
+      return { previous: prevData };
     },
-    onError: (err, variables, context: any) => {
+    onError: (_err: any, _vars: any, context: any) => {
       context?.previous?.forEach(([key, data]: [readonly unknown[], unknown]) => {
         queryClient.setQueryData(key, data);
       });
@@ -97,16 +138,28 @@ export function useToggleSave() {
       const previousBookmarks = queryClient.getQueryData(BOOKMARKS_KEY);
       const nextSaved = !isCurrentlySaved;
 
-      // The feed (and hashtag variants, via partial-key matching) plus the
-      // bookmarks page both render the bookmark icon — update them all so the
-      // icon flips instantly instead of waiting for a refetch.
+      // Patch all feed variants + bookmarks + profile posts caches so the
+      // bookmark icon flips instantly everywhere.
       queryClient.getQueryCache().findAll({ queryKey: queryKeys.feed })
         .forEach((query) => flipSavedInCache(queryClient, query.queryKey, id, nextSaved));
       flipSavedInCache(queryClient, BOOKMARKS_KEY, id, nextSaved);
+      // Profile post caches store FeedRow[] — patch item.isSaved
+      queryClient.getQueryCache().findAll({ predicate: (q) => q.queryKey[0] === 'profile' && q.queryKey[2] === 'posts' })
+        .forEach((query) => {
+          queryClient.setQueryData(query.queryKey, (old: any) => {
+            if (!old) return old;
+            return {
+              ...old,
+              pages: old.pages.map((page: FeedRow[]) =>
+                page.map((row) => (row.item as any)?.id === id ? { ...row, item: { ...row.item, isSaved: nextSaved } } : row)
+              ),
+            };
+          });
+        });
       
       return { previousFeed, previousBookmarks };
     },
-    onError: (err, variables, context: any) => {
+    onError: (_err: any, _vars: any, context: any) => {
       if (context?.previousFeed) {
         queryClient.setQueryData(queryKeys.feed, context.previousFeed);
       }
@@ -115,11 +168,11 @@ export function useToggleSave() {
       }
     },
     onSettled: () => {
-      // Only the bookmarks list needs a refetch (a newly saved post must appear
+      // Bookmarks + profile posts need a refetch (newly saved post must appear
       // there; flipping isSaved in the cache can't add rows). The feed variants
-      // were already patched optimistically in onMutate — refetching them is
-      // what caused the list to jerk/blank on every save.
+      // were already patched optimistically in onMutate.
       queryClient.invalidateQueries({ queryKey: BOOKMARKS_KEY });
+      queryClient.invalidateQueries({ predicate: (q) => q.queryKey[0] === 'profile' && q.queryKey[2] === 'posts' });
     },
   });
 }

@@ -448,6 +448,7 @@ export type ActiveStatusSnapshotPayload = Record<
 export interface NotificationNewPayload {
   id?: string;
   senderId?: string | null;
+  recipientId?: string | number;
   type?: string;
   title?: string;
   message?: string;

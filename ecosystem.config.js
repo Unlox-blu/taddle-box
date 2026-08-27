@@ -36,11 +36,6 @@ module.exports = {
       // .env's PORT (dotenv never replaces an existing env var) — keep the
       // two in sync.
       env: {
-        NODE_ENV: 'development',
-        PORT: 1999,
-      },
-      env_production: {
-        NODE_ENV: 'production',
         PORT: 1999,
       },
     },
@@ -55,12 +50,7 @@ module.exports = {
       error_file: './logs/workers-error.log',
       out_file: './logs/workers-out.log',
       log_date_format: 'YYYY-MM-DD HH:mm:ss Z',
-      env: {
-        NODE_ENV: 'development',
-      },
-      env_production: {
-        NODE_ENV: 'production',
-      },
+      env: {},
     },
   ],
 };

@@ -50,30 +50,41 @@ const SEARCH_POSt_ALGORITHM = `SELECT
                                     WHERE xt.xp_id = (SELECT id FROM xp WHERE user_id = $4 LIMIT 1) AND xt.source_type = 'view_post_' || p.id
                                 ) AS is_xp_claimed,
 
-                                -- Whether the viewing user reposted this post,
-                                -- so search rows show the filled repeat icon +
-                                -- tick like feed cards (search rows render
-                                -- through PostCard).
                                 EXISTS(
                                     SELECT 1 FROM posts rp
                                     WHERE rp.repost_of_id = p.id
                                       AND rp.author_id = $4
                                       AND rp.deleted_at IS NULL
                                 ) AS is_reposted,
+
+                                -- Poll vote for the current user (matches feed response)
+                                (
+                                    SELECT pv.option_index FROM poll_votes pv
+                                    WHERE pv.post_id = p.id AND pv.user_id = $4 LIMIT 1
+                                ) AS my_poll_vote,
+
+                                -- Author reposts setting (matches feed response)
+                                COALESCE(s.allow_reposts, TRUE) AS author_reposts_enabled,
+
                                 COALESCE(
                                     json_agg(
                                         json_build_object(
-                                            'id', m.id,
+                                            'media_id', m.id,
                                             'media_type', m.media_type,
-                                            'cloudfront_url', m.cloudfront_url,
+                                            'media_url', m.cloudfront_url,
+                                            'preview_url', m.preview_url,
                                             'width', m.width,
                                             'height', m.height,
-                                            'processing_status', m.processing_status
+                                            'duration_seconds', m.duration_seconds,
+                                            'file_size_bytes', m.size_bytes,
+                                            'mime_type', m.mime_type,
+                                            'has_audio', (m.media_type = 'video' AND m.mime_type NOT LIKE '%audio-only%')
                                         )
                                         ORDER BY m.created_at
                                     ) FILTER (
                                         WHERE m.id IS NOT NULL
                                         AND m.deleted_at IS NULL
+                                        AND m.processing_status = 'ready'
                                     ),
                                     '[]'::json
                                 ) AS media,
@@ -144,6 +155,8 @@ const SEARCH_POSt_ALGORITHM = `SELECT
                                 AND orig.status = 'published'
                             LEFT JOIN media ua
                                 ON u.avatar_url = ua.id
+                            LEFT JOIN settings s
+                                ON s.user_id = u.id
                             LEFT JOIN communities c
                                 ON c.id = p.community_id
                             LEFT JOIN media ca
@@ -369,6 +382,7 @@ const SEARCH_POSt_ALGORITHM = `SELECT
                                 p.id,
                                 u.id,
                                 ua.id,
+                                s.user_id,
                                 c.id,
                                 ca.id,
                                 orig.id
@@ -743,20 +757,23 @@ const DISCOVER_POSTS_ALGORITHM = `WITH ranked_posts AS (
                                                         ELSE 0
                                                     END AS freshness_score,
                                                 
-                                            COALESCE(
-                                            json_agg(
-                                                json_build_object(
-                                                    'id', m.id,
-                                                    'media_type', m.media_type,
-                                                    'cloudfront_url', m.cloudfront_url,
-                                                    'width', m.width,
-                                                    'height', m.height,
-                                                    's3_key', m.s3_key,
-                                                    'processing_status', m.processing_status
-                                                    ) ORDER BY m.created_at ASC 
-                                                ) FILTER (WHERE m.id IS NOT NULL AND m.deleted_at IS NULL), 
-                                                '[]'::json
-                                                ) AS media
+                                        COALESCE(
+                                        json_agg(
+                                            json_build_object(
+                                                'media_id', m.id,
+                                                'media_type', m.media_type,
+                                                'media_url', m.cloudfront_url,
+                                                'preview_url', m.preview_url,
+                                                'width', m.width,
+                                                'height', m.height,
+                                                'duration_seconds', m.duration_seconds,
+                                                'file_size_bytes', m.size_bytes,
+                                                'mime_type', m.mime_type,
+                                                'has_audio', (m.media_type = 'video' AND m.mime_type NOT LIKE '%audio-only%')
+                                                ) ORDER BY m.created_at ASC 
+                                            ) FILTER (WHERE m.id IS NOT NULL AND m.deleted_at IS NULL AND m.processing_status = 'ready'), 
+                                            '[]'::json
+                                            ) AS media
                                     
                                             FROM posts p
                                             JOIN users u
@@ -927,15 +944,22 @@ const SEARCH_COMMENT_ALGORITHM = `SELECT
                                 cm.likes_count,
                                 cm.created_at,
                                 cm.reply_count,
-                                u.name AS author_name,
-                                u.username AS author_username,
-                                ua.cloudfront_url AS author_avatar,
+                                json_build_object(
+                                    'id', u.id,
+                                    'name', u.name,
+                                    'username', u.username,
+                                    'avatar_url', ua.cloudfront_url
+                                ) AS author,
                                 p.title AS post_title,
                                 p.content AS post_content,
                                 p.published_at AS post_published_at,
-                                c.name AS community_name,
-                                c.slug AS community_slug,
-                                ca.cloudfront_url AS community_avatar,
+                                CASE WHEN c.id IS NULL THEN NULL ELSE json_build_object(
+                                    'id', c.id,
+                                    'name', c.name,
+                                    'slug', c.slug,
+                                    'privacy', c.privacy,
+                                    'avatar_url', ca.cloudfront_url
+                                ) END AS community,
                                 CASE
                                     WHEN LOWER(cm.content) = LOWER($5) THEN 10000
                                     WHEN cm.content ILIKE $1 THEN 5000
@@ -1101,12 +1125,19 @@ const SEARCH_MEDIA_ALGORITHM = `SELECT
                                 p.title AS post_title,
                                 p.content AS post_content,
                                 p.published_at AS post_published_at,
-                                u.name AS author_name,
-                                u.username AS author_username,
-                                ua.cloudfront_url AS author_avatar,
-                                c.name AS community_name,
-                                c.slug AS community_slug,
-                                ca.cloudfront_url AS community_avatar,
+                                json_build_object(
+                                    'id', u.id,
+                                    'name', u.name,
+                                    'username', u.username,
+                                    'avatar_url', ua.cloudfront_url
+                                ) AS author,
+                                CASE WHEN c.id IS NULL THEN NULL ELSE json_build_object(
+                                    'id', c.id,
+                                    'name', c.name,
+                                    'slug', c.slug,
+                                    'privacy', c.privacy,
+                                    'avatar_url', ca.cloudfront_url
+                                ) END AS community,
                                 (
                                     -- Exact / prefix / fuzzy title match
                                     CASE

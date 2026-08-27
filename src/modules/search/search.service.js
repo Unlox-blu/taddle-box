@@ -96,7 +96,10 @@ const interleave = (groups) => {
 };
 
 const tagRows = (rows, type) =>
-  rows.map((r) => ({ ...r, itemType: type }));
+  rows.map((r) => {
+    const { total, ...rest } = r;
+    return { ...rest, itemType: type };
+  });
 
 class SearchService {
   constructor({ searchRepository, bookmarkService, notificationService }) {

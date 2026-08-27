@@ -7,14 +7,14 @@ const POST_TABLE = 'posts';
 const GAME_TABLE = 'game';
 
 const USER_FIELDS = [
-  'u.id', 'u.name', 'u.username', 'u.avatar_url', 'u.follower_count', 'u.following_count',
-  'ua.cloudfront_url AS user_avatar',
+  'u.id', 'u.name', 'u.username', 'u.follower_count', 'u.following_count',
+  'ua.cloudfront_url AS avatar_url',
 ].join(', ');
 
 const COMMUNITY_FIELDS = [
-  'c.id', 'c.name', 'c.slug', 'c.description', 'c.avatar_url',
+  'c.id', 'c.name', 'c.slug', 'c.description',
   'c.privacy', 'c.category', 'c.member_count', 'c.post_count', 'c.is_verified', 'c.created_at',
-  'ca.cloudfront_url AS community_avatar'
+  'ca.cloudfront_url AS avatar_url'
 ].join(', ');
 
 const EVENT_FIELDS = [

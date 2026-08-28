@@ -54,7 +54,7 @@ export default function ProfileTabs({ userId }: ProfileTabsProps) {
           </View>
         ) : (
           <SharedFeed
-            rows={posts.map((p: any) => ({ type: 'posts', item: p }))}
+            rows={posts}
             scrollEnabled={false}
             contentContainerStyle={{ gap: 12, paddingHorizontal: spacing.lg }}
             feedPosts={posts}

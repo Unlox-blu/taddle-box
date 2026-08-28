@@ -59,8 +59,8 @@ export default function BookmarksScreen() {
   const feedPosts = useMemo(
     () =>
       rows
-        .filter((r) => r.type === "posts" || r.type === "post")
-        .map((r) => r.item),
+        .filter((r) => r.itemType === "post" || r.itemType === "poll")
+        .map((r) => r.data),
     [rows],
   );
 

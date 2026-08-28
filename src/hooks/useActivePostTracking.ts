@@ -17,7 +17,7 @@ type Options = {
 };
 
 export function useActivePostTracking(
-  posts: { id: string }[],
+  items: any[],
   options?: Options,
 ) {
   const [activePostId, setActivePostId] = useState<string | null>(null);
@@ -76,14 +76,12 @@ export function useActivePostTracking(
     let currentY =
       (options?.listHeaderOffset || 0) + (options?.headerHeight || 0);
     const computedLayout = new Map<string, Rect>();
-    for (const post of posts) {
+    for (const item of items) {
       // Use the same ID resolver as onViewableItemsChanged so the keys in
       // computedLayout match the keys in candidateIdsRef and heightMapRef.
-      // When getPostId is provided (e.g. Search screen where hookRow.id is
-      // type-prefixed but we track by raw content ID), this ensures consistency.
       const contentId = getPostIdRef.current
-        ? getPostIdRef.current(post)
-        : resolveContentId(post);
+        ? getPostIdRef.current(item)
+        : resolveContentId(item);
       if (!contentId) continue;
       const h = heightMapRef.current.get(contentId);
       if (!h) continue;

@@ -34,7 +34,7 @@ import { useAuth } from "../../context/AuthContext";
 import { useWallet } from "../../context/WalletContext";
 import SharedFeed from "../../components/common/SharedFeed";
 import { useFeed } from "../../queries/feed";
-import { useToggleLike, useToggleSave } from "../../mutations/posts";
+import { useToggleLike, useToggleSave } from "../../mutations/content";
 import { useQueryClient } from "@tanstack/react-query";
 import { queryKeys } from "../../lib/queryKeys";
 import type { Post, HomeStackParamList } from "../../types";
@@ -437,7 +437,7 @@ export default function HomeScreen() {
         onScroll={(offsetY) => {
           scrollYRef.current = offsetY;
         }}
-        rows={filteredPosts.map((p) => ({ type: 'posts', item: p }))}
+        rows={filteredPosts}
         spotlightBoundary={spotlightBoundary}
         // Only the actual pull gesture (or the tab-double-tap refresh) should
         // show the refresh indicator. Feeding isRefetching in here made EVERY

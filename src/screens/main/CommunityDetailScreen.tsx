@@ -899,7 +899,7 @@ export default function CommunityDetailScreen() {
       <MainHeader showBack />
 
       <SharedFeed
-        rows={communityPosts.map((p) => ({ type: 'posts', item: p }))}
+        rows={communityPosts}
         onDelete={handleDeletePost}
         onReposted={loadData}
         isAdmin={isAdmin}

@@ -870,7 +870,7 @@ function RepostedPostCard({
                   fontSize: 10,
                   color: colors.text.secondary,
                   fontWeight: "500",
-                  marginTop: 0,
+                  marginTop: 2,
                 }}
               >
                 @{author.username}
@@ -889,7 +889,7 @@ function RepostedPostCard({
                   fontSize: 10,
                   color: colors.text.secondary,
                   fontWeight: "500",
-                  marginTop: 0,
+                  marginTop: 2,
                 }}
               >
                 {formatInstagramTime(
@@ -1122,9 +1122,9 @@ function RepostedPostCard({
         <PollBlock poll={pollData} myVote={myPollVote} embedded />
       ) : null}
 
-      {(((orig as any).likesCount ?? 0) +
-        ((orig as any).commentsCount ?? 0) +
-        ((orig as any).sharesCount ?? (orig as any).shares ?? 0) >
+      {(((orig as any).likes ?? 0) +
+        ((orig as any).comments ?? 0) +
+        ((orig as any).shares ?? 0) >
         0 ||
         (isActive && (origHasAudio || origHasVideo))) && (
         <View
@@ -1144,7 +1144,7 @@ function RepostedPostCard({
                 color={colors.text.muted}
               />
               <Text style={{ fontSize: 11, color: colors.text.muted }}>
-                {(orig as any).likesCount ?? 0}
+                {(orig as any).likes ?? 0}
               </Text>
             </View>
             <View
@@ -1156,7 +1156,7 @@ function RepostedPostCard({
                 color={colors.text.muted}
               />
               <Text style={{ fontSize: 11, color: colors.text.muted }}>
-                {(orig as any).commentsCount ?? 0}
+                {(orig as any).comments ?? 0}
               </Text>
             </View>
             <View
@@ -1164,7 +1164,7 @@ function RepostedPostCard({
             >
               <Ionicons name="repeat" size={12} color={colors.text.muted} />
               <Text style={{ fontSize: 11, color: colors.text.muted }}>
-                {(orig as any).sharesCount ?? (orig as any).shares ?? 0}
+                {(orig as any).shares ?? 0}
               </Text>
             </View>
           </View>

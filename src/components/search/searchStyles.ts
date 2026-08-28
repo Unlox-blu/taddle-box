@@ -108,11 +108,11 @@ export function makeStyles(c: ColorPalette) {
       color: c.text.primary,
     },
     tabsContainer: {
-      paddingHorizontal: spacing.md,
-      paddingVertical: 12,
-      gap: 12,
-      borderBottomWidth: 1,
-      borderBottomColor: c.border,
+      paddingLeft: spacing.sm,
+      paddingRight: spacing.lg,
+      paddingTop: 6,
+      alignItems: "center",
+      gap: 9,
     },
     tabBtn: {
       paddingVertical: 6,
@@ -427,7 +427,7 @@ export function makeStyles(c: ColorPalette) {
       fontWeight: "700",
     },
     recentSearchesContainer: {
-      paddingTop: spacing.lg,
+      paddingTop: spacing.sm,
       paddingHorizontal: spacing.md,
     },
     recentHeader: {

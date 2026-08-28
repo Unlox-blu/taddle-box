@@ -22,15 +22,15 @@ export interface BookmarkResponse {
 
 export const bookmarkService = {
   async getBookmarks(page = 1, limit = 20, type = "all") {
-    const response = await apiClient.get<BookmarkResponse>("/bookmark", {
+    const response = await apiClient.get<any>("/bookmark", {
       params: { page, limit, type },
     });
     
     return {
-      results: response.data.data.results,
-      types: response.data.data.types,
-      page: response.data.meta.page,
-      hasNext: response.data.meta.total > response.data.meta.page * limit,
+      results: response.data?.data?.items || [],
+      types: response.data?.data?.types || [],
+      page: response.data?.data?.pagination?.page || page,
+      hasNext: response.data?.data?.pagination?.hasNext || false,
     };
   },
 };

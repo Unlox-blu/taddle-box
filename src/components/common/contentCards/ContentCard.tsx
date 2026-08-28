@@ -37,113 +37,149 @@ export type RowCtx = {
   trackLayout?: (id: string, rect: { top: number; bottom: number }) => void;
   preloadPostId?: string | null;
   feedPosts?: any[];
-  feedContext?: 'feed' | 'profile' | 'bookmarks' | 'community' | 'search';
+  feedContext?: "feed" | "profile" | "bookmarks" | "community" | "search";
   feedContextId?: string;
 };
 
 // ── TypeScript Discriminated Unions ─────────────────────────────────────────
 
-export type PostSearchItem = {
-  itemType: 'posts' | 'polls';
+export type FeedEnvelope<T = any> = {
+  itemType: string;
   id: string;
-  title?: string;
-  content: string;
-  author: { id: string; name: string; username: string; avatar_url?: string };
-  community?: { id: string; name: string; slug: string; privacy: string; avatar_url?: string };
-  media?: any[];
-  tags?: string[];
-  likes_count: number;
-  comments_count: number;
-  shares_count: number;
-  is_liked: boolean;
-  is_bookmarked: boolean;
-  is_reposted: boolean;
-  published_at?: string;
-  created_at: string;
-  highlight_content?: string;
-  poll_data?: any;
-  my_poll_vote?: number;
+  data: T;
+  score?: number;
+  highlight?: any;
 };
 
-export type PersonSearchItem = {
-  itemType: 'people';
+// Data models
+export type PostData = {
+  id: string; // sometimes id is also in data
+  title?: string;
+  content: string;
+  author: { id: string; name: string; username: string; avatarUrl?: string };
+  community?: {
+    id: string;
+    name: string;
+    slug: string;
+    privacy: string;
+    avatarUrl?: string;
+  };
+  media?: any[];
+  tags?: string[];
+  likes: number;
+  comments: number;
+  shares: number;
+  isLiked: boolean;
+  isSaved: boolean;
+  repostedByMe: boolean;
+  publishedAt?: string;
+  createdAt: string;
+  pollData?: any;
+  myPollVote?: number;
+};
+
+export type PersonData = {
   id: string;
   name: string;
   username: string;
-  avatar_url?: string;
-  follower_count: number;
-  following_count: number;
+  avatarUrl?: string;
+  followerCount: number;
+  followingCount: number;
 };
 
-export type CommunitySearchItem = {
-  itemType: 'communities';
+export type CommunityData = {
   id: string;
   name: string;
   slug: string;
   description: string;
-  avatar_url?: string;
-  member_count: number;
+  avatarUrl?: string;
+  memberCount: number;
 };
 
-export type MediaSearchItem = {
-  itemType: 'media';
+export type MediaData = {
   media_id: string;
   media_type: string;
   cloudfront_url?: string;
   post_id: string;
   post_title?: string;
-  author: { id: string; name: string; username: string; avatar_url?: string };
-  community?: { id: string; name: string; slug: string; privacy: string; avatar_url?: string };
+  author: { id: string; name: string; username: string; avatarUrl?: string };
+  community?: {
+    id: string;
+    name: string;
+    slug: string;
+    privacy: string;
+    avatarUrl?: string;
+  };
 };
 
-export type CommentSearchItem = {
-  itemType: 'comments';
+export type CommentData = {
   id: string;
   content: string;
-  post_id: string;
-  post_title: string;
-  highlight_content?: string;
-  author: { id: string; name: string; username: string; avatar_url?: string };
-  community?: { id: string; name: string; slug: string; privacy: string; avatar_url?: string };
+  postId: string;
+  postTitle?: string;
+  author: { id: string; name: string; username: string; avatarUrl?: string };
+  community?: {
+    id: string;
+    name: string;
+    slug: string;
+    privacy: string;
+    avatarUrl?: string;
+  };
+  createdAt?: string;
 };
 
-export type GameSearchItem = { itemType: 'games'; id: string; name: string; description: string; thumbnail?: string; };
-export type EventSearchItem = { itemType: 'events'; id: string; title: string; description: string; cover_image_url?: string; };
-export type MessageSearchItem = { itemType: 'messages'; id: string; content: string; };
-export type TextSearchItem = { itemType: 'text'; text: string; };
-
-export type SearchItem =
-  | PostSearchItem
-  | MediaSearchItem
-  | PersonSearchItem
-  | CommunitySearchItem
-  | CommentSearchItem
-  | GameSearchItem
-  | EventSearchItem
-  | MessageSearchItem
-  | TextSearchItem;
+export type GameData = {
+  id: string;
+  name: string;
+  description: string;
+  thumbnail?: string;
+};
+export type EventData = {
+  id: string;
+  title: string;
+  description: string;
+  cover_image_url?: string;
+};
+export type MessageData = { id: string; content: string };
+export type TextData = { text: string };
 
 export const getContentType = (item: any): string => {
-  return item?.itemType || 'unknown';
+  return item?.itemType || "unknown";
 };
 
 // ── Main Export ─────────────────────────────────────────────────────────────
 
-export default function ContentCard({ item, ctx, index }: { item: any; ctx: RowCtx; index: number }) {
+export default function ContentCard({
+  item,
+  ctx,
+  index,
+}: {
+  item: FeedEnvelope;
+  ctx: RowCtx;
+  index: number;
+}) {
   const type = getContentType(item);
 
   switch (type) {
-    case 'posts':
-    case 'polls':
-      return <PostCardWrapper item={item as PostSearchItem} ctx={ctx} index={index} />;
-    case 'people':
-      return <PersonCard item={item as PersonSearchItem} ctx={ctx} />;
-    case 'communities':
-      return <CommunityCard item={item as CommunitySearchItem} ctx={ctx} />;
-    case 'comments':
-      return <CommentCard item={item as CommentSearchItem} ctx={ctx} />;
-    case 'text':
-      return <TextCard item={item as TextSearchItem} ctx={ctx} />;
+    case "post":
+    case "poll":
+      return (
+        <PostCardWrapper
+          item={item as FeedEnvelope<PostData>}
+          ctx={ctx}
+          index={index}
+        />
+      );
+    case "person":
+      return <PersonCard item={item as FeedEnvelope<PersonData>} ctx={ctx} />;
+    case "community":
+      return (
+        <CommunityCard item={item as FeedEnvelope<CommunityData>} ctx={ctx} />
+      );
+    case "comment":
+      return <CommentCard item={item as FeedEnvelope<CommentData>} ctx={ctx} />;
+    case "text":
+      return <TextCard item={item as FeedEnvelope<TextData>} ctx={ctx} />;
     default:
       return <UnknownCard item={item} ctx={ctx} />;
   }

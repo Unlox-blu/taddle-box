@@ -1649,7 +1649,7 @@ export default function SharedProfile({
         </PullToRefreshWrapper>
       ) : (
         <SharedFeed
-          rows={posts.map((p) => ({ type: 'posts', item: p }))}
+          rows={posts}
           onDelete={handleDeletePost}
           onReposted={loadPosts}
           refreshing={refreshing}

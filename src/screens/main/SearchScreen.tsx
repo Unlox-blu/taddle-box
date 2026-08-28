@@ -19,6 +19,7 @@ import {
   Dimensions,
   Animated as RNAnimated,
   ActivityIndicator,
+  Pressable,
 } from "react-native";
 import { FlashList } from "@shopify/flash-list";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -155,19 +156,16 @@ const SETTINGS_ITEMS = [
   },
 ];
 
-// Result kinds the unified search can return, plus the legacy SearchType tabs
-// still used by bookmarks/settings/notifications scopes.
-type ResultType = string;
-type Row =
-  | { isHeader: true; title: string; type: ResultType }
-  | { isHeader: false; item: any; type: ResultType };
+import type { FeedRow } from "../../components/common/SharedFeed";
+
+type Row = FeedRow;
 
 export default function SearchScreen({ navigation, route }: Props) {
   const insets = useSafeAreaInsets();
   const { isDark } = useTheme();
   const colors = useThemeColors();
   const styles = useMemo(() => makeStyles(colors), [colors]);
-  const { footerHeight } = useGlobalScroll();
+  const { footerHeight, headerTranslateY } = useGlobalScroll();
 
   // If passed from hashtag click or header context
   const initialQuery: string = (route.params as any)?.query || "";
@@ -182,6 +180,7 @@ export default function SearchScreen({ navigation, route }: Props) {
   // "View my reposts") — each becomes its own @user chip.
   const initialAuthor = (route.params as any)?.authorFilter || "";
 
+  const inputRef = useRef<TextInput>(null);
   const [query, setQuery] = useState(initialQuery);
   // The unified search has ONE view ("all"); only the notifications scope
   // keeps its n-* tabs. Legacy tab params (hashtags, f-all, posts, …) all
@@ -629,9 +628,9 @@ export default function SearchScreen({ navigation, route }: Props) {
           // activePostId comparison in PostCard. Kept separate so the tracking
           // layer (getPostId / trackLayout / heightMapRef) is consistent.
           return {
-            id: cid ? `${r.type}:${cid}` : `__row_${i}`,
+            ...r,
+            id: cid ? `${r.itemType}:${cid}` : `__row_${i}`,
             _trackId: cid || null,
-            _row: r,
           };
         }),
     [rows],
@@ -654,8 +653,6 @@ export default function SearchScreen({ navigation, route }: Props) {
   const reservedOverlayH =
     _searchHeaderH + (pillsCouldExist ? _searchPillsH : 0);
 
-  const scrollYAnim = useRef(new RNAnimated.Value(0)).current;
-
   const { user: currentUser } = useAuth();
 
   // One combined `filter` param for the unified API — c/<slug> for communities,
@@ -676,10 +673,14 @@ export default function SearchScreen({ navigation, route }: Props) {
   // return null — the dedupe then keeps every such row instead of collapsing
   // them all onto one shared key.
   const rowKey = (row: Row): string | null => {
-    if (row.isHeader) return `header:${row.type}`;
-    const it = row.item;
-    const id = it?.id ?? it?.media_id ?? it?.text ?? it?.username ?? it?.slug;
-    return id ? `${row.type}:${id}` : null;
+    if (row.isHeader) return `header:${row.itemType}`;
+    const id =
+      row.id ??
+      row.data?.media_id ??
+      row.data?.text ??
+      row.data?.username ??
+      row.data?.slug;
+    return id ? `${row.itemType}:${id}` : null;
   };
 
   const fetchResults = useCallback(
@@ -705,9 +706,9 @@ export default function SearchScreen({ navigation, route }: Props) {
           setRowsByTab((prev) => ({
             ...prev,
             [tab]: filtered.map((item) => ({
-              isHeader: false,
-              item,
-              type: "settings_item" as SearchType,
+              itemType: "settings_item",
+              id: item.id,
+              data: item,
             })),
           }));
           setLoading(false);
@@ -737,9 +738,9 @@ export default function SearchScreen({ navigation, route }: Props) {
           setServerTypes(res.types);
           setIsTypesLoading(false);
           const newRows: Row[] = (res.results || []).map((item: any) => ({
-            isHeader: false,
-            item: mapNotificationRow(item),
-            type: "notification_item" as ResultType,
+            itemType: "notification_item",
+            id: item.id || `notif-${Math.random()}`,
+            data: mapNotificationRow(item),
           }));
           setRowsByTab((prev) => {
             const existing = prev[tab] || [];
@@ -778,11 +779,7 @@ export default function SearchScreen({ navigation, route }: Props) {
           tabPageRef.current[tab] = res.page;
           setServerTypes(res.types);
           setIsTypesLoading(false);
-          const newRows: Row[] = (res.results || []).map((item: any) => ({
-            isHeader: false,
-            item,
-            type: (item.itemType || "text") as ResultType,
-          }));
+          const newRows: Row[] = res.results || [];
           setRowsByTab((prev) => {
             const existing = prev[tab] || [];
             const merged = append ? [...existing, ...newRows] : newRows;
@@ -876,9 +873,9 @@ export default function SearchScreen({ navigation, route }: Props) {
               : (b.ts ?? 0) - (a.ts ?? 0),
           );
           const newRows: Row[] = merged.map((item) => ({
-            isHeader: false,
-            item,
-            type: "transaction_item" as ResultType,
+            itemType: "transaction_item",
+            id: item.id,
+            data: item,
           }));
           setRowsByTab((prev) => {
             const existing = prev[tab] || [];
@@ -919,11 +916,7 @@ export default function SearchScreen({ navigation, route }: Props) {
         tabPageRef.current[tab] = res.page;
         setServerTypes(res.types);
         setIsTypesLoading(false);
-        const newRows: Row[] = res.results.map((item: any) => ({
-          isHeader: false,
-          item,
-          type: (item.itemType || "text") as ResultType,
-        }));
+        const newRows: Row[] = res.results || [];
         setRowsByTab((prev) => {
           const existing = prev[tab] || [];
           const merged = append ? [...existing, ...newRows] : newRows;
@@ -1055,10 +1048,10 @@ export default function SearchScreen({ navigation, route }: Props) {
         const list = prev[tab] || [];
         const mapped = list.map((row) =>
           row.isHeader ||
-          row.type !== "posts" ||
-          (row.item as any)?.id !== postId
+          (row.itemType !== "post" && row.itemType !== "poll") ||
+          row.data?.id !== postId
             ? row
-            : { ...row, item: { ...(row.item as any), ...patch } },
+            : { ...row, data: { ...row.data, ...patch } },
         );
         if (mapped !== list) changed = true;
         next[tab] = mapped;
@@ -1094,28 +1087,13 @@ export default function SearchScreen({ navigation, route }: Props) {
   // in the Reanimated worklet context.
   const searchHeaderH = headerMeasuredH ?? 60 + insets.top;
   const searchPillsH = 56;
-  const searchOverlayY = useSharedValue(0);
-  const searchPrevY = useRef(0);
-  const keyboardDismissedRef = useRef(false);
-
   const headerAnimStyle = useAnimatedStyle(() => ({
-    transform: [
-      {
-        translateY: Math.max(-searchHeaderH, Math.min(0, searchOverlayY.value)),
-      },
-    ],
+    transform: [{ translateY: headerTranslateY.value }],
   }));
   // Pills travel the full reserved overlay height (header + pills row) so
   // they exit the screen completely when the user scrolls down.
   const pillsAnimStyle = useAnimatedStyle(() => ({
-    transform: [
-      {
-        translateY: Math.max(
-          -reservedOverlayH,
-          Math.min(0, searchOverlayY.value),
-        ),
-      },
-    ],
+    transform: [{ translateY: headerTranslateY.value }],
   }));
   const renderPill = (pill: { key: string; label: string; count?: number }) => {
     const isActive = resultType === pill.key;
@@ -1160,7 +1138,7 @@ export default function SearchScreen({ navigation, route }: Props) {
   const showSearchPrompt =
     isEmptyQuery && !hasResults && !loading && !discoveryLoaded;
 
-  const renderEmptyStateHeader = () => (
+  const renderRecentSearches = () => (
     <View style={{ flex: 1, paddingBottom: 10 }}>
       {recentSearches.length > 0 && (
         <View style={styles.recentSearchesContainer}>
@@ -1239,7 +1217,10 @@ export default function SearchScreen({ navigation, route }: Props) {
         >
           <Ionicons name="arrow-back" size={24} color={colors.text.primary} />
         </TouchableOpacity>
-        <View style={styles.searchBar}>
+        <Pressable
+          style={styles.searchBar}
+          onPress={() => inputRef.current?.focus()}
+        >
           {/* Tapping the search icon fires the request — with an empty box
               that's the all-empty-params call returning default discoveries. */}
           <TouchableOpacity onPress={handleSubmit} hitSlop={8}>
@@ -1506,6 +1487,7 @@ export default function SearchScreen({ navigation, route }: Props) {
               </TouchableOpacity>
             ))}
             <TextInput
+              ref={inputRef}
               style={[
                 styles.searchInput,
                 { marginLeft: 0, marginRight: 0, minWidth: 120 },
@@ -1517,9 +1499,6 @@ export default function SearchScreen({ navigation, route }: Props) {
               onSubmitEditing={handleSubmit}
               returnKeyType="search"
               autoCapitalize="none"
-              onFocus={() => {
-                keyboardDismissedRef.current = false;
-              }}
             />
           </ScrollView>
           {(query.length > 0 ||
@@ -1567,7 +1546,7 @@ export default function SearchScreen({ navigation, route }: Props) {
               />
             </TouchableOpacity>
           )}
-        </View>
+        </Pressable>
       </Animated.View>
 
       {/* @user / c/community / #tag suggestions — tap one to commit it as a chip */}
@@ -1711,15 +1690,11 @@ export default function SearchScreen({ navigation, route }: Props) {
       )}
 
       {/* Results */}
-      {loading ? (
-        <StateBlock
-          loading
-          style={[
-            styles.centerBox,
-            { paddingTop: reservedOverlayH, paddingVertical: 0 },
-          ]}
-        />
-      ) : hasResults ? (
+      {showSearchPrompt ? (
+        <View style={{ paddingTop: reservedOverlayH }}>
+          {renderRecentSearches()}
+        </View>
+      ) : (
         <SharedFeed
           rows={hookRows as any}
           refreshing={refreshing}
@@ -1727,7 +1702,6 @@ export default function SearchScreen({ navigation, route }: Props) {
           onEndReached={loadMore}
           onEndReachedThreshold={0.4}
           feedContext="search"
-          onScroll={(y) => scrollYAnim.setValue(y)}
           contentContainerStyle={{
             paddingBottom: footerHeight + Dimensions.get("window").height * 0.6,
           }}
@@ -1744,58 +1718,72 @@ export default function SearchScreen({ navigation, route }: Props) {
           ListHeaderComponent={
             isEmptyQuery && hasResults ? (
               <View>
-                {renderEmptyStateHeader()}
+                {renderRecentSearches()}
                 <View style={styles.discoverBanner}>
                   <Ionicons name="sparkles" size={16} color={colors.xpGold} />
                   <Text style={styles.discoverText}>Discover</Text>
                 </View>
               </View>
-            ) : null
+            ) : (
+              <View style={{ paddingTop: 12 }} />
+            )
           }
           sectionHeader={
             pillsCouldExist ? (
               <View
                 style={{
                   height: searchPillsH,
-                  marginTop: searchHeaderH,
                   backgroundColor: colors.bg.base,
                   opacity: isTypesLoading ? 0.45 : 1,
                   justifyContent: "center",
+                  borderBottomWidth: 1,
+                  borderBottomColor: colors.border,
                 }}
               >
-                {universalPills.length > 0 && (
-                  <FlashList
+                {universalPills.length > 0 ? (
+                  <ScrollView
                     horizontal
                     showsHorizontalScrollIndicator={false}
-                    data={universalPills}
-                    keyExtractor={(item) => item.key}
                     contentContainerStyle={styles.tabsContainer}
-                    ItemSeparatorComponent={() => <View style={{ width: 12 }} />}
-                    renderItem={({ item }) => renderPill(item)}
-                  />
-                )}
+                  >
+                    {universalPills.map((pill) => (
+                      <View key={pill.key}>{renderPill(pill)}</View>
+                    ))}
+                  </ScrollView>
+                ) : loading || isTypesLoading ? (
+                  <ActivityIndicator color={colors.primary} style={{ marginLeft: 16, alignSelf: "flex-start" }} />
+                ) : null}
               </View>
             ) : null
           }
-          sectionHeaderH={pillsCouldExist ? searchPillsH + searchHeaderH : 0}
+          sectionHeaderH={pillsCouldExist ? searchPillsH : 0}
+          ListEmptyComponent={
+            loading ? (
+              pillsCouldExist ? null : (
+                <StateBlock
+                  loading
+                  style={[
+                    styles.centerBox,
+                    { paddingTop: 60, paddingVertical: 0 },
+                  ]}
+                />
+              )
+            ) : !isEmptyQuery ? (
+              <View style={[styles.centerBox, { paddingTop: 60 }]}>
+                <Text style={styles.emptyText}>
+                  No taddles found for "{query}" in {activeTabLabel}
+                </Text>
+              </View>
+            ) : (
+              <View style={[styles.centerBox, { paddingTop: 60 }]}>
+                <Ionicons name="compass-outline" size={56} color={colors.border} />
+                <Text style={styles.emptyText}>
+                  Nothing here yet — type a search, or explore the All tab.
+                </Text>
+              </View>
+            )
+          }
         />
-      ) : showSearchPrompt ? (
-        renderEmptyStateHeader()
-      ) : !isEmptyQuery ? (
-        <View style={[styles.centerBox, { paddingTop: reservedOverlayH }]}>
-          <Text style={styles.emptyText}>
-            No results found for "{query}" in {activeTabLabel}
-          </Text>
-        </View>
-      ) : (
-        // Empty query + no rows on an individual tab — e.g. a "See all" jump
-        // from the discovery view. Show a hint instead of a blank screen.
-        <View style={[styles.centerBox, { paddingTop: reservedOverlayH }]}>
-          <Ionicons name="compass-outline" size={56} color={colors.border} />
-          <Text style={styles.emptyText}>
-            Nothing here yet — type a search, or explore the All tab.
-          </Text>
-        </View>
       )}
 
       {/* Filter Modal */}

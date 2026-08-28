@@ -29,9 +29,9 @@ export const communityService = {
     return response.data;
   },
 
-  getCommunityPosts: async (id: string, page = 1, limit = 20): Promise<{ data: Post[]; meta?: any }> => {
+  getCommunityPosts: async (id: string, page = 1, limit = 20): Promise<{ data: any[]; meta?: any }> => {
     const response = await apiClient.get(`/feed/community/${id}?page=${page}&limit=${limit}`);
-    return response.data;
+    return { data: response.data?.data?.items || [] };
   },
 
   joinCommunity: async (id: string) => {

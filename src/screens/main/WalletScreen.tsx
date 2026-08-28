@@ -14,6 +14,7 @@ import {
   Animated,
   SafeAreaView,
   Alert,
+  Dimensions,
   DeviceEventEmitter,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -432,7 +433,7 @@ export default function WalletScreen() {
           ref={scrollRef}
           showsVerticalScrollIndicator={false}
           scrollEventThrottle={16}
-          contentContainerStyle={{ paddingBottom: 60 }}
+          contentContainerStyle={{ paddingBottom: (insets?.bottom || 0) + 60 + Dimensions.get("window").height * 0.5 }}
         >
           {/* ── Hero: Cash Balance ── */}
           <LinearGradient

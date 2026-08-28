@@ -29,7 +29,7 @@ import { colors as staticColors, fontSizes, spacing, radii } from "../../theme";
 import { useThemeColors } from "../../context/ThemeContext";
 import { useAuth } from "../../context/AuthContext";
 import { useWallet } from "../../context/WalletContext";
-import { useCreatePost } from "../../mutations/posts";
+import { useCreatePost } from "../../mutations/content";
 import { mediaService } from "../../services/media.service";
 import { hashtagService } from "../../services/hashtag.service";
 import { userService } from "../../services/user.service";

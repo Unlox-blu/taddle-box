@@ -4,6 +4,7 @@ import {
   Text,
   DeviceEventEmitter,
   Animated,
+  Dimensions,
 } from "react-native";
 import { FlashList } from "@shopify/flash-list";
 import {
@@ -32,8 +33,11 @@ import { useThemeColors } from "../../context/ThemeContext";
 // New content types (people, communities, etc.) are added by injecting new
 // entries — SharedFeed dispatches through a renderer map.
 export type FeedRow = {
-  type: string;
-  item: any;
+  itemType: string;
+  id: string;
+  data: any;
+  score?: number;
+  highlight?: any;
   isHeader?: boolean;
 };
 
@@ -127,8 +131,8 @@ export default function SharedFeed({
   const posts = useMemo(
     () =>
       rows
-        .filter((r) => r.type === "posts" || r.type === "post")
-        .map((r) => r.item as Post),
+        .filter((r) => r.itemType === "post" || r.itemType === "poll")
+        .map((r) => r.data as Post),
     [rows],
   );
 
@@ -139,7 +143,7 @@ export default function SharedFeed({
     onViewableItemsChanged,
     trackLayout,
     handleScroll: handleScrollForTracking,
-  } = useActivePostTracking(posts, {
+  } = useActivePostTracking(rows, {
     listHeaderOffset,
     headerHeight,
     spotlightBoundary,
@@ -335,43 +339,9 @@ export default function SharedFeed({
       // Header rows render nothing (zero-height section dividers)
       if (row.isHeader) return null;
 
-      switch (row.type) {
-        case "posts":
-        case "post": {
-          const post = row.item as Post;
-          return (
-            <PostCard
-              post={post}
-              index={index}
-              isActive={isFocused && post.id === activePostId}
-              showViews={showViews}
-              onAuthorPress={handleAuthorPress}
-              onComment={handleComment}
-              onShare={handleShare}
-              onReposted={onReposted}
-              onLike={handleLikeInternal}
-              onSave={handleSaveInternal}
-              onDelete={onDelete}
-              onReport={
-                onReport ||
-                (() =>
-                  themedAlert(
-                    "Reported",
-                    "Thank you. This post has been reported for review.",
-                  ))
-              }
-              showDelete={canDelete(post)}
-              preloadVideo={post.id === preloadPostId}
-              feedPosts={feedPosts ?? posts}
-              feedContext={feedContext}
-              feedContextId={feedContextId}
-            />
-          );
-        }
-        default: {
-          return <ContentCard item={row.item} ctx={rowCtx} index={index} />;
-        }
-      }
+      // Delegate ALL content rendering to ContentCard
+      // which acts as the SSOT dispatcher for the envelope architecture.
+      return <ContentCard item={row as any} ctx={rowCtx} index={index} />;
     },
     [
       isFocused,
@@ -397,7 +367,7 @@ export default function SharedFeed({
   // ── Row key extractor ──────────────────────────────────────────────
   const rowKeyExtractor = useCallback(
     (row: FeedRow, index: number) =>
-      resolveContentId(row.item) || `row-${index}`,
+      row.id || resolveContentId(row.data) || `row-${index}`,
     [],
   );
 
@@ -440,12 +410,13 @@ export default function SharedFeed({
         <FlashList
           ref={flatListRef}
           data={rows}
+          extraData={rowCtx}
           keyExtractor={rowKeyExtractor}
           showsVerticalScrollIndicator={false}
           keyboardDismissMode="on-drag"
           keyboardShouldPersistTaps="handled"
           contentContainerStyle={[
-            { paddingTop: headerHeight, paddingBottom: footerHeight },
+            { paddingTop: headerHeight, paddingBottom: footerHeight + Dimensions.get("window").height * 0.5 },
             contentContainerStyle,
           ]}
           contentOffset={
@@ -484,7 +455,7 @@ export default function SharedFeed({
               onLayout={(e) => {
                 // Only track layout for post rows (active-post tracker only
                 // cares about posts; other types return null ID).
-                const id = resolveContentId(row.item);
+                const id = row.id || resolveContentId(row.data);
                 if (id) {
                   const { y, height } = e.nativeEvent.layout;
                   trackLayout(id, { top: y, bottom: y + height });

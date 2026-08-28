@@ -1,6 +1,6 @@
 import React, { useMemo, useState, useEffect } from 'react';
 import {
-  View, Text, ScrollView, TouchableOpacity, StyleSheet, Image, 
+  View, Text, ScrollView, TouchableOpacity, StyleSheet, Image, Dimensions
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
@@ -665,7 +665,7 @@ export default function NotificationsScreen({ navigation }: Props) {
         >
           <ScrollView 
             showsVerticalScrollIndicator={false} 
-            contentContainerStyle={{ paddingTop: headerHeight + 8 }}
+            contentContainerStyle={{ paddingTop: headerHeight + 8, paddingBottom: (insets?.bottom || 0) + 60 + Dimensions.get("window").height * 0.5 }}
             onScroll={({ nativeEvent }: any) => {
               const { layoutMeasurement, contentOffset, contentSize } = nativeEvent;
               const distanceFromBottom =

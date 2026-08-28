@@ -34,29 +34,12 @@ export function useToggleLike() {
       const nextLiked = !isCurrentlyLiked;
       const prevData: [readonly unknown[], unknown][] = [];
 
-      // Patch feed caches (flat Post[] pages)
-      queryClient.getQueryCache().findAll({ queryKey: queryKeys.feed }).forEach((query) => {
-        prevData.push([query.queryKey, queryClient.getQueryData(query.queryKey)]);
-        queryClient.setQueryData(query.queryKey, (old: any) => {
-          if (!old) return old;
-          return {
-            ...old,
-            pages: old.pages.map((page: Post[]) =>
-              page.map((post) => {
-                if (post.id === id) {
-                  const currentLikes = post.likes ?? (post as any).likesCount ?? 0;
-                  const newLikes = isCurrentlyLiked ? Math.max(0, currentLikes - 1) : currentLikes + 1;
-                  return { ...post, isLiked: nextLiked, likes: newLikes, likesCount: newLikes };
-                }
-                return post;
-              })
-            ),
-          };
-        });
-      });
-
-      // Patch bookmarks cache (FeedRow[] pages)
-      queryClient.getQueryCache().findAll({ queryKey: queryKeys.bookmarks }).forEach((query) => {
+      // Patch all feed/bookmark/profile caches (all store FeedRow[] pages now)
+      queryClient.getQueryCache().findAll({ predicate: (q) => 
+        q.queryKey[0] === 'feed' || 
+        q.queryKey[0] === 'bookmarks' || 
+        (q.queryKey[0] === 'profile' && q.queryKey[2] === 'posts') 
+      }).forEach((query) => {
         prevData.push([query.queryKey, queryClient.getQueryData(query.queryKey)]);
         queryClient.setQueryData(query.queryKey, (old: any) => {
           if (!old) return old;
@@ -64,31 +47,11 @@ export function useToggleLike() {
             ...old,
             pages: old.pages.map((page: FeedRow[]) =>
               page.map((row) => {
-                if ((row.item as any)?.id === id) {
-                  const currentLikes = (row.item as any).likes ?? (row.item as any).likesCount ?? 0;
+                const data = row.data as any;
+                if (data && data.id === id) {
+                  const currentLikes = data.likes ?? data.likesCount ?? 0;
                   const newLikes = isCurrentlyLiked ? Math.max(0, currentLikes - 1) : currentLikes + 1;
-                  return { ...row, item: { ...row.item, isLiked: nextLiked, likes: newLikes, likesCount: newLikes } };
-                }
-                return row;
-              })
-            ),
-          };
-        });
-      });
-
-      // Patch profile post caches (FeedRow[] pages)
-      profileQueries.forEach((query) => {
-        prevData.push([query.queryKey, queryClient.getQueryData(query.queryKey)]);
-        queryClient.setQueryData(query.queryKey, (old: any) => {
-          if (!old) return old;
-          return {
-            ...old,
-            pages: old.pages.map((page: FeedRow[]) =>
-              page.map((row) => {
-                if ((row.item as any)?.id === id) {
-                  const currentLikes = (row.item as any).likes ?? (row.item as any).likesCount ?? 0;
-                  const newLikes = isCurrentlyLiked ? Math.max(0, currentLikes - 1) : currentLikes + 1;
-                  return { ...row, item: { ...row.item, isLiked: nextLiked, likes: newLikes, likesCount: newLikes } };
+                  return { ...row, data: { ...data, isLiked: nextLiked, likes: newLikes, likesCount: newLikes } };
                 }
                 return row;
               })
@@ -117,8 +80,14 @@ function flipSavedInCache(queryClient: any, queryKey: any, id: string, nextSaved
     if (!old) return old;
     return {
       ...old,
-      pages: old.pages.map((page: Post[]) =>
-        page.map((post) => post.id === id ? { ...post, isSaved: nextSaved } : post)
+      pages: old.pages.map((page: FeedRow[]) =>
+        page.map((row) => {
+          const data = row.data as any;
+          if (data && data.id === id) {
+            return { ...row, data: { ...data, isSaved: nextSaved } };
+          }
+          return row;
+        })
       ),
     };
   });
@@ -145,17 +114,7 @@ export function useToggleSave() {
       flipSavedInCache(queryClient, BOOKMARKS_KEY, id, nextSaved);
       // Profile post caches store FeedRow[] — patch item.isSaved
       queryClient.getQueryCache().findAll({ predicate: (q) => q.queryKey[0] === 'profile' && q.queryKey[2] === 'posts' })
-        .forEach((query) => {
-          queryClient.setQueryData(query.queryKey, (old: any) => {
-            if (!old) return old;
-            return {
-              ...old,
-              pages: old.pages.map((page: FeedRow[]) =>
-                page.map((row) => (row.item as any)?.id === id ? { ...row, item: { ...row.item, isSaved: nextSaved } } : row)
-              ),
-            };
-          });
-        });
+        .forEach((query) => flipSavedInCache(queryClient, query.queryKey, id, nextSaved));
       
       return { previousFeed, previousBookmarks };
     },

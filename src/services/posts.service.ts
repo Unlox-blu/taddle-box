@@ -2,11 +2,11 @@ import { apiClient } from './apiClient';
 import type { Post } from '../types';
 
 export const postsService = {
-  getFeed: async (page = 1, limit = 20, hashtag?: string): Promise<{ data: Post[] }> => {
+  getFeed: async (page = 1, limit = 20, hashtag?: string): Promise<{ data: any[] }> => {
     let url = `/feed/home?page=${page}&limit=${limit}`;
     if (hashtag && hashtag !== 'All') url += `&hashtag=${encodeURIComponent(hashtag)}`;
     const response = await apiClient.get(url);
-    return response.data;
+    return { data: response.data?.data?.items || [] };
   },
 
   /** User-personalized trending hashtags for the Home chips row
@@ -16,15 +16,15 @@ export const postsService = {
     return { data: response.data?.data || [] };
   },
 
-  getBookmarks: async (page = 1, limit = 20): Promise<{ data: Post[] }> => {
+  getBookmarks: async (page = 1, limit = 20): Promise<{ data: any[] }> => {
     const response = await apiClient.get(`/bookmark?page=${page}&limit=${limit}`);
-    return response.data;
+    return { data: response.data?.data?.items || [] };
   },
 
   // Multi-type bookmarks
   getBookmarksByType: async (type: string, page = 1, limit = 20) => {
     const response = await apiClient.get(`/bookmark?type=${type}&page=${page}&limit=${limit}`);
-    return response.data;
+    return { data: response.data?.data?.items || [] };
   },
 
   toggleBookmark: async (itemType: string, itemId: string) => {
@@ -127,11 +127,11 @@ export const postsService = {
     page = 1,
     limit = 20,
     type: 'all' | 'posts' | 'reposts' = 'all',
-  ): Promise<{ data: Post[] }> => {
+  ): Promise<{ data: any[] }> => {
     const response = await apiClient.get(
       `/feed/user/${authorId}?page=${page}&limit=${limit}&type=${type}`,
     );
-    return response.data;
+    return { data: response.data?.data?.items || [] };
   },
 
   toggleLike: async (postId: string, isCurrentlyLiked: boolean) => {

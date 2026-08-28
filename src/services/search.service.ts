@@ -64,15 +64,14 @@ export const searchService = {
     parts.push(`page=${page || 1}`);
     parts.push(`limit=${limit || 10}`);
     const res = await apiClient.get(`/search?${parts.join("&")}`);
-    // Response shape: { data: { dataType, data: { types, results } } }
-    const data = res?.data?.data?.data || {};
-    const meta = res?.data?.meta;
+    // Response shape: { success: true, data: { items, types, pagination, query, filter } }
+    const responseData = res?.data?.data || {};
     return {
-      types: Array.isArray(data.types) ? data.types : [],
-      results: Array.isArray(data.results) ? data.results : [],
-      total: meta?.total ?? 0,
-      hasNext: meta?.hasNext ?? false,
-      page: meta?.page ?? page ?? 1,
+      types: Array.isArray(responseData.types) ? responseData.types : [],
+      results: Array.isArray(responseData.items) ? responseData.items : [],
+      total: responseData.pagination?.total ?? 0,
+      hasNext: responseData.pagination?.hasNext ?? false,
+      page: responseData.pagination?.page ?? page ?? 1,
     };
   },
 };

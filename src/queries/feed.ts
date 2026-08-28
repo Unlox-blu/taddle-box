@@ -28,10 +28,7 @@ export function useBookmarks() {
     queryKey: queryKeys.bookmarks,
     queryFn: async ({ pageParam = 1 }) => {
       const res = await bookmarkService.getBookmarks(pageParam as number, PAGE_SIZE);
-      return (res.results || []).map((item: any) => ({
-        type: (item.type || item.itemType || item.item_type || 'unknown') as string,
-        item,
-      }));
+      return res.results || [];
     },
     getNextPageParam: (lastPage, allPages) => {
       // bookmarkService returns hasNext in the response, but we can infer

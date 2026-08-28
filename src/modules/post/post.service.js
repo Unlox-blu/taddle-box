@@ -311,7 +311,8 @@ class PostService {
       const alreadyLiked = await this.postRepo.isLikedByUser(postId, userId);
       if (alreadyLiked) return;
       
-      await this.postRepo.addLike(postId, userId);
+      const added = await this.postRepo.addLike(postId, userId);
+      if (!added) return;
       await this.postRepo.incrementLikeCount(postId);
       // A like moves the author's Feed-impact score (likes*3).
       const { emitLeaderboardsChanged } = require('../../sockets/account.socket');
@@ -350,7 +351,8 @@ class PostService {
     try {
       const isLiked = await this.postRepo.isLikedByUser(postId, userId);
       if (!isLiked) return;
-      await this.postRepo.removeLike(postId, userId);
+      const removed = await this.postRepo.removeLike(postId, userId);
+      if (!removed) return;
       await this.postRepo.decrementLikeCount(postId);
     } catch (error) {
       throw error;

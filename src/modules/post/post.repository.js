@@ -492,10 +492,11 @@ const hardDelete = async (postId) => {
 
 const addLike = async (postId, userId) => {
   try {
-    pool.query(
+    const res = await pool.query(
       `INSERT INTO ${PostModel.LIKES_TABLE} (post_id, user_id) VALUES ($1, $2) ON CONFLICT DO NOTHING`,
       [postId, userId]
     );
+    return res.rowCount > 0;
   } catch (error) {
     throw error;
   }
@@ -503,10 +504,11 @@ const addLike = async (postId, userId) => {
 
 const removeLike = async (postId, userId) => {
   try {
-    pool.query(`DELETE FROM ${PostModel.LIKES_TABLE} WHERE post_id = $1 AND user_id = $2`, [
+    const res = await pool.query(`DELETE FROM ${PostModel.LIKES_TABLE} WHERE post_id = $1 AND user_id = $2`, [
       postId,
       userId,
     ]);
+    return res.rowCount > 0;
   } catch (error) {
     throw error;
   }
@@ -526,7 +528,7 @@ const isLikedByUser = async (postId, userId) => {
 
 const incrementLikeCount = async (id) => {
   try {
-    pool.query(`UPDATE ${PostModel.TABLE} SET likes_count    = likes_count    + 1 WHERE id = $1`, [
+    await pool.query(`UPDATE ${PostModel.TABLE} SET likes_count    = likes_count    + 1 WHERE id = $1`, [
       id,
     ]);
   } catch (error) {
@@ -536,7 +538,7 @@ const incrementLikeCount = async (id) => {
 
 const decrementLikeCount = async (id) => {
   try {
-    pool.query(
+    await pool.query(
       `UPDATE ${PostModel.TABLE} SET likes_count    = GREATEST(0, likes_count    - 1) WHERE id = $1`,
       [id]
     );

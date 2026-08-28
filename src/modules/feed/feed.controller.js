@@ -23,13 +23,14 @@ class FeedController {
       const { hashtag } = req.query;
       const userId = req.userId
       const { posts, total, fromCache } = await this.feedSvc.getPersonalizedFeed( {userId, limit, offset, page, hashtag} );
-      res.json(
-        apiResponse(
-          posts,
-          fromCache ? 'Feed fetched (cached)' : 'Feed fetched',
-          paginationMeta(total, page, limit)
-        )
-      );
+      const { envelopeItem } = require('../../utils/envelope.util');
+      res.json({
+        success: true,
+        data: {
+          items: posts.map(p => envelopeItem('post', p)),
+          pagination: paginationMeta(total, page, limit)
+        }
+      });
     } catch (error) {
       next(error);
     }

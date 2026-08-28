@@ -20,15 +20,16 @@ class BookmarkController {
         limit,
         offset,
       });
-      // Return results in the same shape the frontend expects:
-      // { results: [...], types: [...] }
-      res.json(
-        apiResponse(
-          { results: result.bookmark, types: [] },
-          'Bookmarks fetched successfully',
-          paginationMeta(result.total, page, limit),
-        ),
-      );
+      const { envelopeItem } = require('../../utils/envelope.util');
+      res.json({
+        success: true,
+        message: 'Bookmarks fetched successfully',
+        data: {
+          items: result.bookmark.map(b => envelopeItem(b.itemType || 'post', b)),
+          pagination: paginationMeta(result.total, page, limit),
+          types: []
+        }
+      });
     } catch (error) {
       next(error);
     }

@@ -34,7 +34,17 @@ class SearchController {
       // would keep hasNext true after a type is exhausted, so the service's
       // per-group hasNext wins.
       meta.hasNext = hasNext;
-      res.json(apiResponse({ dataType, data }, `${dataType} fetched`, meta));
+      res.json({
+        success: true,
+        message: `${dataType} fetched`,
+        data: {
+          query: req.query.q || '',
+          items: data.results,
+          types: data.types,
+          filter: data.filter,
+          pagination: meta
+        }
+      });
     } catch (error) {
       next(error);
     }

@@ -4,6 +4,12 @@ const { getPaginationParams } = require('../../utils/pagination.util');
 const { timeToCutoff } = require('../../utils/time.util');
 const notificationRepository = require('../notification/notification.repository');
 const { NOTIFICATION_TYPE_BUCKETS } = require('../notification/notification.constants');
+const PostModel = require('../post/post.model');
+const UserModel = require('../user/user.model');
+const CommunityModel = require('../community/community.model');
+const CommentModel = require('../comment/comment.model');
+const EventModel = require('../event/event.model');
+const GameModel = require('../game/game.model');
 
 const UNIVERSAL_TYPES = ['posts', 'people', 'communities', 'events', 'polls', 'comments', 'media', 'games', 'text'];
 
@@ -95,10 +101,30 @@ const interleave = (groups) => {
   return out;
 };
 
+const { envelopeItem } = require('../../utils/envelope.util');
+
+const SINGULAR_MAP = {
+  posts: 'post',
+  people: 'person',
+  communities: 'community',
+  events: 'event',
+  polls: 'poll',
+  comments: 'comment',
+  media: 'media',
+  games: 'game',
+  text: 'text',
+  messages: 'message'
+};
+
 const tagRows = (rows, type) =>
   rows.map((r) => {
-    const { total, ...rest } = r;
-    return { ...rest, itemType: type };
+    const { total, score, highlight, highlight_content, ...rest } = r;
+    // Some legacy highlight structure might use highlight_content, wrap it properly if so
+    const finalHighlight = highlight || (highlight_content ? { content: highlight_content } : undefined);
+    return envelopeItem(SINGULAR_MAP[type] || type, rest, { 
+      ...(score !== undefined && { score }),
+      ...(finalHighlight && { highlight: finalHighlight }) 
+    });
   });
 
 class SearchService {
@@ -239,7 +265,7 @@ class SearchService {
                     sortBy,
                     timeCutoff,
                   });
-                  return { rows: d.data, total: d.total };
+                  return { rows: d.data.map(PostModel.format), total: d.total };
                 }
                 const { rows, total } = await this.searchRepo.searchPost(
                   query,
@@ -256,7 +282,7 @@ class SearchService {
                   'contents',
                   timeCutoff
                 );
-                return { rows, total };
+                return { rows: rows.map(PostModel.format), total };
               }
               case 'polls': {
                 if (isDiscovery) return { rows: [], total: 0 };
@@ -273,7 +299,7 @@ class SearchService {
                     timeCutoff,
                   }
                 );
-                return { rows, total };
+                return { rows: rows.map(PostModel.format), total };
               }
               case 'comments': {
                 if (isDiscovery) return { rows: [], total: 0 };
@@ -291,7 +317,7 @@ class SearchService {
                     timeCutoff,
                   }
                 );
-                return { rows, total };
+                return { rows: rows.map(CommentModel.format), total };
               }
               case 'media': {
                 if (isDiscovery) return { rows: [], total: 0 };
@@ -309,22 +335,24 @@ class SearchService {
                     timeCutoff,
                   }
                 );
-                return { rows, total };
+                // Media returns posts (its parent context) right now, but we just leave it as is if it doesn't match a model precisely.
+                // Wait, searchMedia returns rows that are mostly posts, so PostModel.format should be applied.
+                return { rows: rows.map(PostModel.format), total };
               }
               case 'people': {
                 if (people.length) return { rows: [], total: 0 };
                 if (isDiscovery) {
                   const d = await this.discoverPeople({ userId, page, limit: lmt, offset: off });
-                  return { rows: d.data, total: d.total };
+                  return { rows: d.data.map(UserModel.format), total: d.total };
                 }
                 const { rows, total } = await this.searchRepo.searchUser(query, lmt, off, userId, bm ? true : null);
-                return { rows, total };
+                return { rows: rows.map(UserModel.format), total };
               }
               case 'communities': {
                 if (communities.length) return { rows: [], total: 0 };
                 if (isDiscovery) {
                   const d = await this.discoverCommunity({ userId, page, limit: lmt, offset: off });
-                  return { rows: d.data, total: d.total };
+                  return { rows: d.data.map(CommunityModel.format), total: d.total };
                 }
                 const { rows, total } = await this.searchRepo.searchCommunity(
                   query,
@@ -334,7 +362,7 @@ class SearchService {
                   userId,
                   bm ? true : null
                 );
-                return { rows, total };
+                return { rows: rows.map(CommunityModel.format), total };
               }
               case 'events': {
                 if (isDiscovery) {
@@ -343,7 +371,7 @@ class SearchService {
                     offset: off,
                     timeCutoff,
                   });
-                  return { rows: d.data, total: d.total };
+                  return { rows: d.data.map(EventModel.format), total: d.total };
                 }
                 
                 if (bm) {
@@ -356,14 +384,14 @@ class SearchService {
                     userId,
                     timeCutoff
                   );
-                  return { rows, total };
+                  return { rows: rows.map(EventModel.format), total };
                 }
                 return { rows: [], total: 0 };
               }
               case 'games': {
                 if (isDiscovery) {
                   const d = await this.discoverGames({ limit: lmt, offset: off });
-                  return { rows: d.data, total: d.total };
+                  return { rows: d.data.map(GameModel.formatGame || GameModel.format || (r => r)), total: d.total };
                 }
                 return { rows: [], total: 0 };
               }

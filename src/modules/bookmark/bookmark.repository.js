@@ -178,7 +178,7 @@ const findPostBookmarks = async ({ userId, limit, offset }) => {
       [userId, limit, offset],
     );
     const total = rows[0]?.total || 0;
-    const bookmark = rows.map((r) => BookmarkModel.formatPost(r));
+    const bookmark = rows.map((r) => BookmarkModel.format(r, 'post'));
     return { bookmark, total: parseInt(total, 10) };
   } catch (error) {
     throw error;
@@ -222,7 +222,7 @@ const findProfileBookmarks = async ({ userId, limit, offset }) => {
       [userId, limit, offset],
     );
     const total = rows[0]?.total || 0;
-    const bookmark = rows.map((r) => BookmarkModel.formatProfile(r));
+    const bookmark = rows.map((r) => BookmarkModel.format(r, 'profile'));
     return { bookmark, total: parseInt(total, 10) };
   } catch (error) {
     throw error;
@@ -267,7 +267,7 @@ const findCommunityBookmarks = async ({ userId, limit, offset }) => {
       [userId, limit, offset],
     );
     const total = rows[0]?.total || 0;
-    const bookmark = rows.map((r) => BookmarkModel.formatCommunity(r));
+    const bookmark = rows.map((r) => BookmarkModel.format(r, 'community'));
     return { bookmark, total: parseInt(total, 10) };
   } catch (error) {
     throw error;
@@ -313,7 +313,7 @@ const search = async ({ userId, query = '', communities = [], people = [], tags 
           GROUP BY p.id, b.created_at, u.id, ua.id, c.id, ca.id
           ORDER BY CASE WHEN $7 = 'top' THEN p.likes_count + p.comments_count * 3 ELSE 0 END DESC, b.created_at DESC 
           LIMIT $8 OFFSET $9`,
-        format: BookmarkModel.formatPost,
+        format: (row) => BookmarkModel.format(row, 'post'),
       },
       people: {
         sql: `
@@ -332,7 +332,7 @@ const search = async ({ userId, query = '', communities = [], people = [], tags 
             AND ($4::timestamptz IS NULL OR b.created_at >= $4)
           ORDER BY CASE WHEN $5 = 'top' THEN u.follower_count ELSE 0 END DESC, b.created_at DESC
           LIMIT $6 OFFSET $7`,
-        format: BookmarkModel.formatProfile,
+        format: (row) => BookmarkModel.format(row, 'profile'),
       },
       communities: {
         sql: `
@@ -352,7 +352,7 @@ const search = async ({ userId, query = '', communities = [], people = [], tags 
             AND ($5::timestamptz IS NULL OR b.created_at >= $5)
           ORDER BY CASE WHEN $6 = 'top' THEN c.member_count ELSE 0 END DESC, b.created_at DESC
           LIMIT $7 OFFSET $8`,
-        format: BookmarkModel.formatCommunity,
+        format: (row) => BookmarkModel.format(row, 'community'),
       },
     };
 

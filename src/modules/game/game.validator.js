@@ -138,7 +138,8 @@ const lobbyPlayerParamSchema = z.object({
 const updateLobbySchema = z.object({
   teamsLocked: z.boolean().optional(),
   autoBalance: z.boolean().optional(),
-  targetPlayers: z.number().positive().optional()
+  targetPlayers: z.number().positive().optional(),
+  rounds: z.number().positive().optional()
 }).strict();
 
 const updateLobbyPlayerSchema = z.object({

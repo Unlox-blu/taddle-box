@@ -4,7 +4,6 @@ const GamePlugin = require('../GamePlugin');
 
 const GRID_SIZE = 9;
 const STARTING_PATTERN_LENGTH = 2;
-const MAX_ROUNDS = 1;
 
 /**
  * Memory Grid Plugin — ported to new architecture.
@@ -66,7 +65,7 @@ class MemoryGridPlugin extends GamePlugin {
     return {
       seed,
       currentRound: 0,
-      totalRounds: MAX_ROUNDS,
+      totalRounds: this.matchData?.configured_rounds || 1,
       currentPattern: firstPattern,
       scores,
       playerInputs: {},
@@ -190,7 +189,7 @@ class MemoryGridPlugin extends GamePlugin {
   calculateReward(currentState, userId) {
     const score = currentState.scores[userId] || 0;
     const maxXp = this.gameMetadata.maxXp || 45;
-    const xpEarned = Math.min(maxXp, score > 0 ? 8 + Math.floor((score * maxXp) / MAX_ROUNDS) : 0);
+    const xpEarned = Math.min(maxXp, score > 0 ? 8 + Math.floor((score * maxXp) / currentState.totalRounds) : 0);
 
     return {
       result: currentState.winner === userId ? 'WIN' : 'LOSS',

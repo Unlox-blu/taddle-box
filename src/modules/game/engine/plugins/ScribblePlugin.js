@@ -64,7 +64,7 @@ class ScribblePlugin extends GamePlugin {
       usedWords: [word],
       scores,
       currentRound: 1,
-      totalRounds: 1,
+      totalRounds: this.matchData?.configured_rounds || 1,
       roundStartedAt: Date.now(),
       correctGuessers: [],
       guesses: [],

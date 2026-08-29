@@ -167,8 +167,9 @@ class PostService {
       }
       else if(author && author.privacy !== 'public') {
         const isFollow = await this.followerRepo.findByFollowerIdAndFollowingId(userId, authorId)
-        if(!isFollow || isFollow.status !== 'active')
-          throw createError("You don't have permission to view posts from this private account", 403);
+        if(!isFollow || isFollow.status !== 'active') {
+          throw createError("You don't have permission to view posts from this private account", 403, { isPrivate: true, author });
+        }
       }
       return PostModel.format(post);
     } catch (error) {

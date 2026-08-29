@@ -68,7 +68,7 @@ class WordRushPlugin extends GamePlugin {
       scores,
       foundWords: [],
       currentRound: 1,
-      totalRounds: 1,
+      totalRounds: this.matchData?.configured_rounds || 1,
       roundStartedAt: Date.now(),
       status: 'active',
       winner: null,

@@ -588,7 +588,7 @@ const cancelWaitingMatchmakingTickets = async ({ userId, gameId, mode, tournamen
   }
 };
 
-const joinMatchmaking = async ({ userId, game, mode, tournamentId, targetPlayers, visibility = "PUBLIC", lobbyTtlSeconds = null }) => {
+const joinMatchmaking = async ({ userId, game, mode, tournamentId, targetPlayers, visibility = "PUBLIC", lobbyTtlSeconds = null, configuredRounds = 1 }) => {
   const client = await pool.connect();
   try {
     await client.query('BEGIN');
@@ -632,7 +632,7 @@ const joinMatchmaking = async ({ userId, game, mode, tournamentId, targetPlayers
         );
         lobby = lobbyResult.rows[0];
       } else {
-        // Exact size: only join a lobby with matching max_players
+        // Exact size: only join a lobby with matching max_players and same rounds
         const lobbyResult = await client.query(
           `SELECT * FROM game_lobby 
            WHERE game_id = $1 
@@ -640,10 +640,11 @@ const joinMatchmaking = async ({ userId, game, mode, tournamentId, targetPlayers
              AND current_players < max_players
              AND max_players = $2
              AND ((settings->>'mode' = $3) OR (settings->>'mode' IS NULL AND visibility = 'PUBLIC'))
+             AND COALESCE((settings->>'configuredRounds')::int, 1) = $4
            ORDER BY created_at ASC 
            FOR UPDATE SKIP LOCKED 
            LIMIT 1`,
-          [game.id, maxPlayers, normalizedMode]
+          [game.id, maxPlayers, normalizedMode, configuredRounds]
         );
         lobby = lobbyResult.rows[0];
       }
@@ -652,7 +653,7 @@ const joinMatchmaking = async ({ userId, game, mode, tournamentId, targetPlayers
     if (!lobby) {
       // autoSize: true marks lobbies created without an explicit targetPlayers so the
       // bot-fill path can size the match to the game's natural player count (e.g. 4 for ludo).
-      const settings = JSON.stringify({ mode: normalizedMode, targetPlayers: maxPlayers, autoSize: isAutoAny, teamsLocked: false, autoBalance: true });
+      const settings = JSON.stringify({ mode: normalizedMode, targetPlayers: maxPlayers, autoSize: isAutoAny, teamsLocked: false, autoBalance: true, configuredRounds });
       // CUSTOM lobbies stay open 30 minutes; AUTO/PRACTICE lobbies 30 seconds
       // (bot fallback kicks in at 15s). TOURNAMENT lobbies must survive much
       // longer — opponents can be rare, so they stay open until the server-
@@ -1151,7 +1152,11 @@ const setupMatchSession = async ({ matchId, gameId, userId, wsToken, mode, gameS
     await client.query('BEGIN');
 
     // Ensure the game_matches row exists
-    const configuredRounds = Number(matchMetadata?.configuredRounds) || 1;
+    let configuredRounds = 1;
+    const lobbyRes = await client.query('SELECT settings FROM game_lobby WHERE id = $1', [matchId]);
+    if (lobbyRes.rows.length > 0) {
+      configuredRounds = Number(lobbyRes.rows[0].settings?.configuredRounds) || 1;
+    }
     await client.query(
       `INSERT INTO game_matches (id, game_id, mode, status, configured_rounds, current_round_number)
        VALUES ($1, $2, $3, 'ACTIVE', $4, 1)
@@ -1561,6 +1566,16 @@ const updateLobby = async ({ userId, lobbyId, updates }) => {
        lobby.max_players = clamped;
        lobby.settings = lobby.settings || {};
        lobby.settings.targetPlayers = clamped;
+    }
+    if (updates.rounds !== undefined) {
+       const GameRegistry = require('./engine/GameRegistry');
+       const { rows: gameRows } = await client.query('SELECT slug FROM game WHERE id = $1', [lobby.game_id]);
+       const gameSlug = gameRows[0]?.slug;
+       const registryMeta = GameRegistry.getMeta(gameSlug) || {};
+       const roundsConfig = registryMeta.rounds || { min: 1, max: 1, default: 1 };
+       const clampedRounds = Math.max(roundsConfig.min, Math.min(roundsConfig.max, updates.rounds));
+       lobby.settings = lobby.settings || {};
+       lobby.settings.configuredRounds = clampedRounds;
     }
     
     const updated = await client.query(

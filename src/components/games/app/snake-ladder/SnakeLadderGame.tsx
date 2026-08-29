@@ -17,11 +17,11 @@ import Svg, {
   Line, Circle, Path, Defs, LinearGradient as SvgGrad, Stop, G, Ellipse, Polygon, Text as SvgText,
 } from "react-native-svg";
 import type { HtmlGameResult, PlayerContext } from "../../../../games/types";
+import { useGameContainer } from "../../../../games/useGameContainer";
 
 const { width: SCREEN_W, height: SCREEN_H } = Dimensions.get("window");
-const BOARD_SIZE = Math.min(Math.floor(SCREEN_W - 24), 400, Math.floor(SCREEN_H - 340));
 const GRID = 10;
-const CELL = BOARD_SIZE / GRID;
+const FALLBACK_BOARD = Math.min(Math.floor(SCREEN_W - 24), 400, Math.floor(SCREEN_H - 340));
 
 const SNAKES: Record<number, number> = {
   99: 80, 95: 75, 92: 88, 89: 58, 74: 53,
@@ -61,7 +61,7 @@ const DOT_POSITIONS: Record<number, [number, number][]> = {
 
 type Pt = { x: number; y: number };
 
-function squareToCenter(sq: number): Pt {
+function squareToCenter(sq: number, CELL: number): Pt {
   const idx = sq - 1;
   const rawRow = Math.floor(idx / GRID);
   const rawCol = idx % GRID;
@@ -86,9 +86,9 @@ function bezierTangent(p0: Pt, p1: Pt, p2: Pt, p3: Pt, t: number): Pt {
   };
 }
 
-function snakeCurve(headSq: number, tailSq: number, idx: number) {
-  const s = squareToCenter(headSq);
-  const e = squareToCenter(tailSq);
+function snakeCurve(headSq: number, tailSq: number, idx: number, CELL: number) {
+  const s = squareToCenter(headSq, CELL);
+  const e = squareToCenter(tailSq, CELL);
   const dx = e.x - s.x;
   const dy = e.y - s.y;
   const dist = Math.sqrt(dx * dx + dy * dy);
@@ -179,6 +179,13 @@ export default function SnakeLadderGame({
   diceRotate, diceAnim, toastAnim, turnPulse,
   rollDice, sendChat, showToast,
 }: Props) {
+  // The game renders at its natural size and is uniformly scaled down when
+  // the container shrinks. Everything shrinks together — board, cards, buttons.
+  const NATURAL_W = SCREEN_W;
+  const NATURAL_H = SCREEN_H - 60; // minus GamesScreen header
+  const { onLayout, scale } = useGameContainer({ naturalWidth: NATURAL_W, naturalHeight: NATURAL_H, paddingX: 16 });
+  const BOARD_SIZE = Math.min(Math.floor(SCREEN_W - 24), 400, Math.floor(SCREEN_H - 340));
+  const CELL = BOARD_SIZE / GRID;
   const [helpOpen, setHelpOpen] = useState(false);
   const chatScroll = useRef<ScrollView>(null);
 
@@ -258,8 +265,8 @@ export default function SnakeLadderGame({
 
     Object.entries(LADDERS).forEach(([startStr, end]) => {
       const start = Number(startStr);
-      const s = squareToCenter(start);
-      const e = squareToCenter(end);
+      const s = squareToCenter(start, CELL);
+      const e = squareToCenter(end, CELL);
       const dx = e.x - s.x;
       const dy = e.y - s.y;
       const len = Math.sqrt(dx * dx + dy * dy) || 1;
@@ -307,7 +314,7 @@ export default function SnakeLadderGame({
 
     Object.entries(SNAKES).forEach(([startStr, end], idx) => {
       const start = Number(startStr);
-      const { s, e, p1, p2, d } = snakeCurve(start, end, idx);
+      const { s, e, p1, p2, d } = snakeCurve(start, end, idx, CELL);
       const tan0 = bezierTangent(s, p1, p2, e, 0);
       const headDeg = Math.round(Math.atan2(tan0.y, tan0.x) * 180 / Math.PI);
       const st = SNAKE_STYLES[idx % SNAKE_STYLES.length];
@@ -516,7 +523,7 @@ export default function SnakeLadderGame({
   }
 
   return (
-    <LinearGradient colors={["#150B2E", "#2B1157", "#3B1D7A"]} style={styles.container}>
+    <LinearGradient colors={["#150B2E", "#2B1157", "#3B1D7A"]} style={styles.container} onLayout={onLayout}>
       <View style={StyleSheet.absoluteFill} pointerEvents="none">
         <Svg width={SCREEN_W} height={SCREEN_H} style={StyleSheet.absoluteFill}>
           <Path d={`M ${-40} ${SCREEN_H * 0.85} C ${SCREEN_W * 0.3} ${SCREEN_H * 0.5} ${SCREEN_W * 0.2} ${SCREEN_H * 0.35} ${SCREEN_W * 0.8} ${SCREEN_H * 0.12}`}
@@ -526,6 +533,8 @@ export default function SnakeLadderGame({
         </Svg>
       </View>
 
+      {/* Scale entire game as one unit */}
+      <View style={{ width: NATURAL_W, height: NATURAL_H, transform: [{ scale }], alignSelf: "center" }}>
       <View style={styles.topBar}>
         <View style={{ width: 34 }} />
         <TouchableOpacity style={styles.logoRow} onPress={() => setHelpOpen(true)} activeOpacity={0.7}>
@@ -602,6 +611,7 @@ export default function SnakeLadderGame({
           </LinearGradient>
         </Animated.View>
       )}
+      </View>
 
       <Modal visible={chatOpen} transparent animationType="slide" onRequestClose={() => setChatOpen(false)}>
         <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : undefined} style={styles.chatWrap}>

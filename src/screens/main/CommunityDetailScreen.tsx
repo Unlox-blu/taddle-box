@@ -368,7 +368,7 @@ export default function CommunityDetailScreen() {
   } = useCommunityPosts(community?.id, !!community?.id);
 
   const communityPosts = useMemo(
-    () => communityPostPages?.pages.flat().map((r: any) => r.item) || [],
+    () => (communityPostPages?.pages.flat() as any[]) || [],
     [communityPostPages],
   );
 

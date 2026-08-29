@@ -17,6 +17,7 @@ import ReelScreen from '../screens/main/ReelScreen';
 import UserProfileScreen from '../screens/main/UserProfileScreen';
 const SearchScreen = React.lazy(() => import('../screens/main/SearchScreen'));
 const EventDetailScreen = React.lazy(() => import('../screens/events/EventDetailScreen'));
+const CommunityDetailScreen = React.lazy(() => import('../screens/main/CommunityDetailScreen'));
 const ChatInboxScreen = React.lazy(() => import('../screens/main/ChatInboxScreen'));
 const ChatScreen = React.lazy(() => import('../screens/main/ChatScreen'));
 const BookmarksScreen = React.lazy(() => import('../screens/main/BookmarksScreen'));
@@ -55,6 +56,11 @@ const SuspenseSearch = (props: any) => (
 const SuspenseEventDetail = (props: any) => (
   <React.Suspense fallback={<BrandedFallback />}>
     <EventDetailScreen {...props} />
+  </React.Suspense>
+);
+const SuspenseCommunityDetail = (props: any) => (
+  <React.Suspense fallback={<BrandedFallback />}>
+    <CommunityDetailScreen {...props} />
   </React.Suspense>
 );
 const SuspenseBookmarks = (props: any) => (
@@ -188,6 +194,11 @@ export default function AppNavigator() {
             <Stack.Screen
               name="EventDetail"
               component={SuspenseEventDetail}
+              options={{ animation: 'slide_from_right' }}
+            />
+            <Stack.Screen
+              name="CommunityDetail"
+              component={SuspenseCommunityDetail}
               options={{ animation: 'slide_from_right' }}
             />
             <Stack.Screen

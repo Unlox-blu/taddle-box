@@ -22,7 +22,6 @@ import {
   View,
   ImageBackground,
 } from "react-native";
-import { FlashList } from "@shopify/flash-list";
 import { Ionicons } from "@expo/vector-icons";
 import { LinearGradient } from "expo-linear-gradient";
 import { StatusBar } from "expo-status-bar";
@@ -69,7 +68,7 @@ import { getCachedLottieSync, getCachedLottie, S3_APP_ICON_LOTTIE_URL } from "..
 
 import type { Game } from "../../types";
 import type { HtmlGameResult, PlayerContext } from "../../games/types";
-import { preloadGameAssets as preloadManifestAssets, releaseAssetSet, preloadGameThumbnails, getCachedThumbnail, warmThumbnailCache, pruneOldAssetVersions } from "../../games/assetManifest";
+import { preloadGameThumbnails, getCachedThumbnail, warmThumbnailCache, pruneOldAssetVersions } from "../../games/assetManifest";
 const MatchModeModal = React.lazy(() => import("../../components/games/utilities/MatchModeModal"));
 const GameResultOverlay = React.lazy(() => import("../../components/games/utilities/GameResultOverlay"));
 const RoundResultOverlay = React.lazy(() => import("../../components/games/utilities/RoundResultOverlay"));
@@ -133,7 +132,7 @@ const formatStartsIn = (startsAt: string) => {
 // No hardcoded GAME_COMPONENTS map — AppGameHost routes by runtimeType + runtime
 // from backend metadata. Adding a new game = backend-only change (new plugin + registry entry).
 
-export default function GamesScreen() {
+export default function GamesScreen({ route }: any) {
   const insets = useSafeAreaInsets();
   const navigation =
     useNavigation<NativeStackNavigationProp<HomeStackParamList>>();
@@ -229,6 +228,21 @@ export default function GamesScreen() {
   // NOT the global Settings screen.
   const [gameSettingsVisible, setGameSettingsVisible] = useState(false);
   const [globalMatchModalVisible, setGlobalMatchModalVisible] = useState(false);
+
+  useEffect(() => {
+    const openGameId = route?.params?.openGameId;
+    const autoPlay = route?.params?.autoPlay;
+    if (openGameId && realGames.length > 0) {
+      const g = realGames.find(g => g.id === openGameId || g.slug === openGameId);
+      if (g && !activeSession) {
+        setSelectedGame(g);
+        if (autoPlay) {
+          setMatchModalVisible(true);
+        }
+        navigation.setParams({ openGameId: undefined, autoPlay: undefined } as any);
+      }
+    }
+  }, [route?.params?.openGameId, route?.params?.autoPlay, realGames, navigation, activeSession]);
 
 
 
@@ -575,9 +589,6 @@ export default function GamesScreen() {
           const rSlug = sessionRuntime.runtime || request.game.slug || '';
           const rVer = sessionRuntime.runtimeVersion || 1;
           preloadRuntime(rSlug, rVer);
-          if (sessionRuntime.assetSetId && sessionRuntime.assetManifestVersion) {
-            preloadManifestAssets(sessionRuntime.assetSetId, sessionRuntime.assetManifestVersion).catch(() => {});
-          }
         })
         .catch((err: any) => {
           themedAlert(
@@ -596,22 +607,20 @@ export default function GamesScreen() {
     destroyGameSound().catch(() => {});
     // Release the asset set from the active set so it can be pruned,
     // then prune old versions of ALL asset sets to reclaim disk space.
-    if (activeSession?.game?.assetSetId) {
-      releaseAssetSet(activeSession.game.assetSetId);
-    }
     try {
       // Prune is non-blocking — runs in background, never blocks UI.
       const currentId = activeSession?.game?.assetSetId || "";
       const currentVer = (activeSession?.game as any)?.assetManifestVersion || 1;
       pruneOldAssetVersions(currentId, currentVer).catch(() => {});
     } catch { /* best-effort */ }
-    // Clear stale reconnect session IMMEDIATELY so the REJOIN button on the
-    // game card disappears the moment the session closes. loadGamesData() will
-    // re-fetch the active session from the server — if a new one exists it
-    // will re-appear; if the old one was stale it stays cleared.
     setReconnectSession(null);
-    setActiveSession(null);
-    loadGamesData();
+    
+    // Defer the heavy WebView/DOM unmount to let the iOS Modal closing animation finish,
+    // preventing the JS thread from locking up and freezing the app.
+    setTimeout(() => {
+      setActiveSession(null);
+      loadGamesData();
+    }, 500);
   };
 
   // Rematch: close the finished session, then re-open MatchModeModal which
@@ -1610,6 +1619,10 @@ function GamePlayModal({
                       : undefined),
                   opponentName: session.players?.[0]?.name || "Opponent",
                   onComplete: handleComplete,
+                  // Keyboard & chat state — games use these to shrink the board
+                  kbH: kbHeight,
+                  chatOpen,
+                  chatPanelH: chatPanelH || 0,
                 }}
               />
             </View>
@@ -1698,8 +1711,10 @@ function GamePlayModal({
           )}
         </View>
 
-        {/* In-game chat panel — shrinks the game area above it */}
-        {phase === "playing" && (
+        {/* In-game chat panel — shrinks the game area above it.
+            Render during prestart too so the chat icon works while the
+            start screen is showing (assets loading / countdown). */}
+        {(phase === "playing" || phase === "prestart") && (
           <GameChatPanel
             open={chatOpen}
             onClose={() => setChatOpen(false)}

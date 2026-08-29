@@ -94,6 +94,7 @@ export type RootStackParamList = {
       handles search inside the tab. */
   Search: HomeStackParamList['Search'];
   EventDetail: { event: any };
+  CommunityDetail: { communitySlug: string };
   ChatInbox: undefined;
   Chat: { conversationId: string; otherUserId?: string; otherUser?: any; isCommunityChat?: boolean; communityName?: string; communityAvatar?: string };
   /** SideDrawer screens — at root so they don't activate any tab. */

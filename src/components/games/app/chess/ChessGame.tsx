@@ -13,9 +13,12 @@ import { Chessboard, ChessboardRef } from "@crewbeat/expo-chessboard";
 import { GestureHandlerRootView } from "react-native-gesture-handler";
 import { Chess } from "chess.js";
 import type { HtmlGameResult, PlayerContext } from "../../../../games/types";
+import { useGameContainer } from "../../../../games/useGameContainer";
 
+// Responsive board size — computed from the container, not fixed at module level.
+// Falls back to the old static formula for the initial render before onLayout fires.
 const { width: SCREEN_W, height: SCREEN_H } = Dimensions.get("window");
-const BOARD_SIZE = Math.min(SCREEN_W - 24, Math.floor(SCREEN_H * 0.62), 400);
+const FALLBACK_BOARD = Math.min(SCREEN_W - 24, Math.floor(SCREEN_H * 0.62), 400);
 
 const PIECE_VALUES: Record<string, number> = { p: 1, n: 3, b: 3, r: 5, q: 9 };
 const PIECE_ICONS: Record<string, string> = {
@@ -71,6 +74,13 @@ export default function ChessGame({
   timers,
   onMove,
 }: Props) {
+  // The game renders at its natural size and is uniformly scaled down when
+  // the container shrinks (keyboard/chat opening). Everything shrinks together.
+  const NATURAL_BOARD = Math.min(SCREEN_W - 24, Math.floor(SCREEN_H * 0.62), 400);
+  const NATURAL_W = SCREEN_W;
+  const NATURAL_H = SCREEN_H - 60; // minus GamesScreen header
+  const { onLayout, scale } = useGameContainer({ naturalWidth: NATURAL_W, naturalHeight: NATURAL_H, paddingX: 12 });
+  const BOARD_SIZE = NATURAL_BOARD;
   const chessboardRef = useRef<ChessboardRef>(null);
   const pulseAnim = useRef(new Animated.Value(1)).current;
   const checkAnim = useRef(new Animated.Value(0)).current;
@@ -212,14 +222,16 @@ export default function ChessGame({
   }
 
   return (
-    <GestureHandlerRootView style={styles.container}>
+    <GestureHandlerRootView style={styles.container} onLayout={onLayout}>
+      {/* Scale the entire game as one unit — board, player cards, everything shrinks together */}
+      <View style={{ width: NATURAL_W, height: NATURAL_H, transform: [{ scale }], alignSelf: "center" }}>
       {renderPlayerRow({
         label: opponentName, avatarUri: oppAvatarUri, colorKey: oppColor,
         caps: oppCaps, advantage: oppAdvantage, time: timers[oppColor],
         isTurn: chess.turn() === oppColor && status === "active",
       })}
 
-      <View style={[styles.boardWrap, inCheck && styles.boardWrapCheck]}>
+      <View style={[styles.boardWrap, { width: BOARD_SIZE + 8, height: BOARD_SIZE + 8 }, inCheck && styles.boardWrapCheck]}>
         {inCheck && (
           <View style={styles.checkBanner}>
             <Text style={styles.checkText}>⚠ CHECK</Text>
@@ -239,7 +251,8 @@ export default function ChessGame({
         label: "You", avatarUri: myAvatarUri, colorKey: playerColor,
         caps: myCaps, advantage: myAdvantage, time: timers[playerColor],
         isTurn: isMyTurn && status === "active",
-      })}
+      }      )}
+      </View>
 
       {status === "waiting" && (
         <View style={styles.waitingOverlay}>
@@ -321,7 +334,7 @@ const styles = StyleSheet.create({
   timerTextActive: { color: "#F8FAFC" },
   moveBadge: { backgroundColor: "rgba(124,58,237,0.15)", borderRadius: 6, paddingHorizontal: 6, paddingVertical: 2, borderWidth: 1, borderColor: "rgba(124,58,237,0.3)" },
   moveBadgeText: { color: "#A78BFA", fontSize: 10, fontWeight: "700", fontFamily: "monospace" },
-  boardWrap: { width: BOARD_SIZE + 8, height: BOARD_SIZE + 8, borderRadius: 14, overflow: "hidden", borderWidth: 2, borderColor: "rgba(124,58,237,0.45)", alignSelf: "center", alignItems: "center", justifyContent: "center", backgroundColor: "#0F172A", marginVertical: 10, elevation: 14, shadowColor: "#7C3AED", shadowOpacity: 0.4, shadowRadius: 16, shadowOffset: { width: 0, height: 4 } },
+  boardWrap: { borderRadius: 14, overflow: "hidden", borderWidth: 2, borderColor: "rgba(124,58,237,0.45)", alignSelf: "center", alignItems: "center", justifyContent: "center", backgroundColor: "#0F172A", marginVertical: 10, elevation: 14, shadowColor: "#7C3AED", shadowOpacity: 0.4, shadowRadius: 16, shadowOffset: { width: 0, height: 4 } },
   boardWrapCheck: { borderColor: "#EF4444", shadowColor: "#EF4444" },
   checkBanner: { position: "absolute", top: 8, zIndex: 20, borderRadius: 20, paddingHorizontal: 14, paddingVertical: 5, backgroundColor: "rgba(239,68,68,0.9)", shadowColor: "#EF4444", shadowOpacity: 0.6, shadowRadius: 10 },
   checkText: { color: "#FFF", fontWeight: "900", fontSize: 12, letterSpacing: 1 },

@@ -146,6 +146,11 @@ export const gameSound = {
     play("go");
     haptic("medium");
   },
+  /** All players ready, match starting sequence */
+  playMatchStart: () => {
+    play("match_start");
+    haptic("success");
+  },
   /** Your turn cue */
   playTurn: () => {
     play("turn");

@@ -6,11 +6,11 @@ import {
   TouchableOpacity,
   StyleSheet,
   ScrollView,
-  Image
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useThemeColors } from '../../../context/ThemeContext';
+import { Image } from 'expo-image';
 import { fontSizes, radii, spacing } from '../../../theme';
 import type { Game } from '../../../types';
 
@@ -70,7 +70,7 @@ export default function GamesMatchmakingModal({
                     end={{ x: 1, y: 1 }}
                     style={styles.gameIconWrapper}
                   >
-                    <Image source={game.logo} style={styles.gameIcon} resizeMode="contain" />
+                    <Image source={{ uri: (game as any).imageUrl || (game as any).thumbnail }} style={styles.gameIcon} contentFit="contain" />
                   </LinearGradient>
                   
                   <View style={styles.gameInfo}>

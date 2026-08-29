@@ -51,10 +51,9 @@ export default function BookmarksScreen() {
     isLoading,
   } = useBookmarks();
 
-  const rows = useMemo(
-    () => bookmarkPages?.pages.flat() || [],
-    [bookmarkPages],
-  );
+  const rows = useMemo(() => {
+    return (bookmarkPages?.pages.flat() as any[]) || [];
+  }, [bookmarkPages]);
 
   const feedPosts = useMemo(
     () =>

@@ -31,7 +31,7 @@ import { useAuth } from "../../context/AuthContext";
 import XPProgressBar from "../home/XPProgressBar";
 import { useNavigation, useFocusEffect } from "@react-navigation/native";
 import { WebView } from "react-native-webview";
-import SharedFeed from "../common/SharedFeed";
+import SharedFeed, { type FeedRow } from "../common/SharedFeed";
 import PullToRefreshWrapper from "../common/PullToRefreshWrapper";
 import StateBlock from "../common/StateBlock";
 import { useGlobalScroll } from "../../context/ScrollContext";
@@ -551,7 +551,7 @@ export default function SharedProfile({
   const [browserUrl, setBrowserUrl] = useState<string | null>(null);
 
   const { user: currentUser } = useAuth();
-  const [posts, setPosts] = useState<any[]>([]);
+  const [posts, setPosts] = useState<FeedRow[]>([]);
   const [loadingPosts, setLoadingPosts] = useState(true);
   // Profile feed filter: "Posts" (originals), "Reposts" (Twitter-style), and
   // "Mentions" — @-mentions of this user, rendered like the notifications UI
@@ -1655,28 +1655,28 @@ export default function SharedProfile({
           refreshing={refreshing}
           onRefresh={onRefresh}
           onLike={async (id) => {
-            const post = posts.find((p) => p.id === id);
-            if (!post) return;
-            const currentLikes = post.likes ?? 0;
-            const newLikes = post.isLiked
+            const row = posts.find((p) => p.id === id);
+            if (!row || !row.data) return;
+            const currentLikes = row.data.likes ?? 0;
+            const newLikes = row.data.isLiked
               ? Math.max(0, currentLikes - 1)
               : currentLikes + 1;
             setPosts((prev) =>
               prev.map((p) =>
                 p.id !== id
                   ? p
-                  : { ...p, isLiked: !p.isLiked, likes: newLikes, likesCount: newLikes },
+                  : { ...p, data: { ...p.data, isLiked: !p.data.isLiked, likes: newLikes, likesCount: newLikes } },
               ),
             );
-            await postsService.toggleLike(id, !!post.isLiked).catch(() => {});
+            await postsService.toggleLike(id, !!row.data.isLiked).catch(() => {});
           }}
           onSave={async (id) => {
-            const post = posts.find((p) => p.id === id);
-            if (!post) return;
+            const row = posts.find((p) => p.id === id);
+            if (!row || !row.data) return;
             setPosts((prev) =>
-              prev.map((p) => (p.id !== id ? p : { ...p, isSaved: !p.isSaved })),
+              prev.map((p) => (p.id !== id ? p : { ...p, data: { ...p.data, isSaved: !p.data.isSaved } })),
             );
-            await postsService.toggleSave(id, !!post.isSaved).catch(() => {});
+            await postsService.toggleSave(id, !!row.data.isSaved).catch(() => {});
           }}
           ListHeaderComponent={profileHeader}
           ListEmptyComponent={

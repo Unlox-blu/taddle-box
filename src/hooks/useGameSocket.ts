@@ -167,6 +167,18 @@ export function useGameSocket({
       const gameInitial = onConnectAckRef.current?.(data);
       if (gameInitial && typeof gameInitial === "object") setInitialState(gameInitial);
 
+      // Sync revision from backend so the next SYNC doesn't trigger a
+      // false "revision gap" and get skipped. Without this, reconnecting
+      // after network loss would leave revisionRef at 0 while the
+      // backend is already at e.g. revision 5, causing every subsequent
+      // SYNC to be flagged as a gap and dropped.
+      const backendRevision = data?.state?.currentRevision;
+      if (typeof backendRevision === "number" && backendRevision > revisionRef.current) {
+        revisionRef.current = backendRevision;
+        setRevision(backendRevision);
+        setNeedsFullSync(false);
+      }
+
       setStatus(mapBackendStatus(data?.state?.status));
       readySentRef.current = false;
       setReadyTick((t) => t + 1);
@@ -218,17 +230,15 @@ export function useGameSocket({
         // Still apply (backend is authoritative) — but don't increment
       }
 
-      // Missing revision: legacy compatibility — apply + increment
+      // Missing revision: backend MUST send revision. If absent, skip the SYNC.
       if (incomingRevision == null) {
-        warn("[useGameSocket] Missing server revision — legacy mode. Backend should send revision.");
-        revisionRef.current += 1;
-      } else {
-        revisionRef.current = incomingRevision;
+        warn("[useGameSocket] SYNC missing revision — skipping. Backend must include revision.");
+        return;
       }
-      setRevision(revisionRef.current);
 
-      // Clear full-sync flag once we receive a valid revision
-      if (incomingRevision != null) setNeedsFullSync(false);
+      revisionRef.current = incomingRevision;
+      setRevision(revisionRef.current);
+      setNeedsFullSync(false);
 
       onSyncRef.current?.(data?.state, revisionRef.current);
     };

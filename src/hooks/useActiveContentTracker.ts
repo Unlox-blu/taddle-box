@@ -7,20 +7,21 @@ type Rect = { top: number; bottom: number };
 type Options = {
   /** Maps any list item to a content ID. When provided, the hook uses this
    *  to resolve IDs from items that may not have a top-level `id` field
-   *  (e.g. mixed-type search/bookmark rows). Returns null for non-post
+   *  (e.g. mixed-type search/bookmark rows). Returns null for non-trackable
    *  items (headers, people, etc.) — those still get heights tracked but
-   *  are never candidates for the active post. */
-  getPostId?: (item: any) => string | null;
+   *  are never candidates for the active content. */
+  getContentId?: (item: any) => string | null;
   listHeaderOffset?: number;
   headerHeight?: number;
   spotlightBoundary?: number;
 };
 
-export function useActivePostTracking(
+export function useActiveContentTracker(
   items: any[],
   options?: Options,
 ) {
-  const [activePostId, setActivePostId] = useState<string | null>(null);
+  const [activeContentId, setActiveContentId] = useState<string | null>(null);
+  const [debugZone, setDebugZone] = useState<{ top: number; height: number } | null>(null);
 
   const viewportH = useRef(Dimensions.get("window").height).current;
 
@@ -59,6 +60,10 @@ export function useActivePostTracking(
     const currentPhysicalTop =
       startPhysicalTop + (targetPhysicalTop - startPhysicalTop) * progress;
 
+    if (__DEV__) {
+      setDebugZone({ top: currentPhysicalTop, height: focusHeight });
+    }
+
     const focusTop = viewportTop + currentPhysicalTop;
     const focusBottom = focusTop + focusHeight;
 
@@ -76,16 +81,21 @@ export function useActivePostTracking(
     let currentY =
       (options?.listHeaderOffset || 0) + (options?.headerHeight || 0);
     const computedLayout = new Map<string, Rect>();
-    for (const item of items) {
+    for (let i = 0; i < items.length; i++) {
+      const item = items[i];
       // Use the same ID resolver as onViewableItemsChanged so the keys in
       // computedLayout match the keys in candidateIdsRef and heightMapRef.
-      const contentId = getPostIdRef.current
-        ? getPostIdRef.current(item)
+      const contentId = getContentIdRef.current
+        ? getContentIdRef.current(item)
         : resolveContentId(item);
-      if (!contentId) continue;
-      const h = heightMapRef.current.get(contentId);
+      const trackId = contentId || `non-trackable-${i}`;
+      
+      const h = heightMapRef.current.get(trackId);
       if (!h) continue;
-      computedLayout.set(contentId, { top: currentY, bottom: currentY + h });
+      
+      if (contentId) {
+        computedLayout.set(contentId, { top: currentY, bottom: currentY + h });
+      }
       currentY += h;
     }
 
@@ -100,13 +110,13 @@ export function useActivePostTracking(
         Math.min(rect.bottom, focusBottom) - Math.max(rect.top, focusTop),
       );
 
-      // The user requested: a post ONLY becomes active if it occupies more
+      // The user requested: an item ONLY becomes active if it occupies more
       // than 50% of the focus area.
       if (focusIntersection > focusHeight * 0.5) {
-        // Since it's mathematically impossible for more than one post to occupy
-        // >50% of a fixed area at the exact same time, this post is the undisputed winner.
+        // Since it's mathematically impossible for more than one item to occupy
+        // >50% of a fixed area at the exact same time, this item is the undisputed winner.
         bestId = id;
-        break; // We found the winner, no need to check other posts
+        break; // We found the winner, no need to check other items
       }
     }
 
@@ -115,14 +125,14 @@ export function useActivePostTracking(
     }
 
     activeIdRef.current = bestId;
-    setActivePostId(bestId);
+    setActiveContentId(bestId);
   };
 
   const recalculateRef = useRef(recalculate);
   recalculateRef.current = recalculate;
 
-  const getPostIdRef = useRef(options?.getPostId);
-  getPostIdRef.current = options?.getPostId;
+  const getContentIdRef = useRef(options?.getContentId);
+  getContentIdRef.current = options?.getContentId;
 
   const viewabilityConfig = useRef({
     itemVisiblePercentThreshold: 15,
@@ -131,7 +141,7 @@ export function useActivePostTracking(
 
   const onViewableItemsChanged = useRef((info: any) => {
     const viewableItems: any[] = info?.viewableItems ?? [];
-    const resolveId = getPostIdRef.current;
+    const resolveId = getContentIdRef.current;
 
     const ids = viewableItems
       .filter((v) => v.isViewable)
@@ -189,10 +199,11 @@ export function useActivePostTracking(
   }, []);
 
   return {
-    activePostId,
+    activeContentId,
     viewabilityConfig,
     onViewableItemsChanged,
     trackLayout,
     handleScroll,
+    debugZone,
   };
 }

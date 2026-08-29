@@ -13,10 +13,11 @@ import {
 import { LinearGradient } from "expo-linear-gradient";
 import type { HtmlGameResult, PlayerContext } from "../../../../games/types";
 import { getSessionAvatar } from "../../../../services/sessionAvatarCache";
+import { useGameContainer } from "../../../../games/useGameContainer";
 
-const { width } = Dimensions.get("window");
-const GRID_SIZE = width - 60;
-const CELL_SIZE = (GRID_SIZE - 20) / 3;
+const { width, height } = Dimensions.get("window");
+const FALLBACK_GRID = width - 60;
+const FALLBACK_CELL = (FALLBACK_GRID - 20) / 3;
 
 type Props = {
   matchId: string;
@@ -59,13 +60,19 @@ export default function MemoryGridGame({
   handleCellTap,
   isMyTurn,
 }: Props) {
+  const NATURAL_W = width;
+  const NATURAL_H = height - 60;
+  const { onLayout, scale } = useGameContainer({ naturalWidth: NATURAL_W, naturalHeight: NATURAL_H, paddingX: 60 });
+  const GRID_SIZE = FALLBACK_GRID;
+  const CELL_SIZE = FALLBACK_CELL;
   return (
-    <View style={styles.container}>
-      <View style={styles.header}>
+    <View style={styles.container} onLayout={onLayout}>
+      <View style={{ width: NATURAL_W, height: NATURAL_H, transform: [{ scale }], alignSelf: "center" }}>
+      <View style={[styles.header, { width: GRID_SIZE }]}>
         <View style={styles.vsContainer}>
           <View style={styles.playerSide}>
             <Image
-              source={require("../../../assets/icon.png")}
+              source={require("../../../../../assets/icon.png")}
               style={styles.avatar}
             />
             <Text style={styles.playerName} numberOfLines={1}>You</Text>
@@ -79,7 +86,7 @@ export default function MemoryGridGame({
               source={
                 players?.[0]?.avatar
                   ? { uri: getSessionAvatar(players[0].avatar) }
-                  : require("../../../assets/icon.png")
+                  : require("../../../../../assets/icon.png")
               }
               style={styles.avatar}
             />
@@ -102,7 +109,8 @@ export default function MemoryGridGame({
       </View>
 
       <Animated.View
-        style={[styles.grid, { transform: [{ translateX: wrongAnim }] }]}
+        style={[styles.grid, { width: GRID_SIZE, height: GRID_SIZE, transform: [{ translateX: wrongAnim }] }]}
+        onLayout={onLayout}
       >
         {[0, 1, 2, 3, 4, 5, 6, 7, 8].map((index) => {
           const isActive = activeCell === index;
@@ -114,6 +122,7 @@ export default function MemoryGridGame({
               onPress={() => handleCellTap(index)}
               style={[
                 styles.cell,
+                { width: CELL_SIZE, height: CELL_SIZE },
                 isActive && styles.cellActive,
                 isPicked && styles.cellPicked,
               ]}
@@ -128,6 +137,7 @@ export default function MemoryGridGame({
           );
         })}
       </Animated.View>
+      </View>
     </View>
   );
 }
@@ -140,7 +150,7 @@ const styles = StyleSheet.create({
     backgroundColor: "transparent",
   },
   header: {
-    width: GRID_SIZE,
+    width: FALLBACK_GRID,
     marginBottom: 40,
   },
   vsContainer: {
@@ -219,14 +229,14 @@ const styles = StyleSheet.create({
   grid: {
     flexDirection: "row",
     flexWrap: "wrap",
-    width: GRID_SIZE,
-    height: GRID_SIZE,
+    width: FALLBACK_GRID,
+    height: FALLBACK_GRID,
     justifyContent: "space-between",
     alignContent: "space-between",
   },
   cell: {
-    width: CELL_SIZE,
-    height: CELL_SIZE,
+    width: FALLBACK_CELL,
+    height: FALLBACK_CELL,
     backgroundColor: "rgba(31, 41, 55, 0.8)",
     borderRadius: 16,
     borderWidth: 2,

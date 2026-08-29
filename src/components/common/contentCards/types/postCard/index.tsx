@@ -13,20 +13,19 @@ export default function PostCardWrapper({
   ctx: RowCtx;
   index: number;
 }) {
-  // Use the clean data directly from the unified backend
   const post = {
     ...item.data,
-    id: item.id, // ensure envelope ID overrides if needed
     highlight_content: item.highlight?.content || (item.highlight as any)?.title,
   } as any;
   
   const contentId = resolveContentId(post);
+  const trackId = (item as any)._trackId || contentId;
 
   return (
     <PostCard
       post={post}
       index={index}
-      isActive={ctx.isFocused && contentId === ctx.activePostId}
+      isActive={ctx.isFocused && trackId === ctx.activeContentId}
       onLike={(id: string) => {
         ctx.toggleLike(id || post.id, post.isLiked);
         ctx.patchPost(id || post.id, { isLiked: !post.isLiked });

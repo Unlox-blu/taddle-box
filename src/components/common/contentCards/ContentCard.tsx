@@ -9,6 +9,11 @@ import CommunityCard from "./types/CommunityCard";
 import CommentCard from "./types/CommentCard";
 import TextCard from "./types/TextCard";
 import UnknownCard from "./types/UnknownCard";
+import GameCard from "./types/GameCard";
+import EventCard from "./types/EventCard";
+import NotificationCard from "./types/NotificationCard";
+import TransactionCard from "./types/TransactionCard";
+import HeaderCard, { type HeaderData } from "./types/HeaderCard";
 
 // ── Row Context ─────────────────────────────────────────────────────────────
 export type RowCtx = {
@@ -16,7 +21,7 @@ export type RowCtx = {
   colors: ColorPalette;
   navigation: any;
   isFocused: boolean;
-  activePostId: string | null;
+  activeContentId: string | null;
   currentUserId?: string;
   toggleLike: (id: string, isLiked: boolean) => void;
   toggleSave: (id: string, isSaved: boolean) => void;
@@ -29,8 +34,8 @@ export type RowCtx = {
   openComments: (post: any) => void;
   openUser: (user: any) => void;
   openCommunity: (slug: string) => void;
-  openGames: () => void;
-  openEvents: () => void;
+  openGames: (id?: string) => void;
+  openEvents: (id?: string) => void;
   openSettings: () => void;
   openNotifications: () => void;
   addHashtag: (tag: string) => void;
@@ -140,11 +145,37 @@ export type EventData = {
   description: string;
   cover_image_url?: string;
 };
+export type NotificationData = {
+  id: string;
+  title?: string;
+  message?: string;
+  type?: string;
+  isRead?: boolean;
+};
+export type TransactionData = {
+  id: string;
+  amount: number;
+  type: string;
+  currency: string;
+  description?: string;
+  ts?: number;
+};
 export type MessageData = { id: string; content: string };
 export type TextData = { text: string };
 
 export const getContentType = (item: any): string => {
-  return item?.itemType || "unknown";
+  const type = item?.itemType || "unknown";
+  if (type === "posts") return "post";
+  if (type === "headers") return "header";
+  if (type === "polls") return "poll";
+  if (type === "communities") return "community";
+  if (type === "events") return "event";
+  if (type === "games") return "game";
+  if (type === "people") return "person";
+  if (type === "comments") return "comment";
+  if (type === "notifications") return "notification";
+  if (type === "wallet_transactions" || type === "transactions") return "wallet_transaction";
+  return type;
 };
 
 // ── Main Export ─────────────────────────────────────────────────────────────
@@ -171,6 +202,8 @@ export default function ContentCard({
         />
       );
     case "person":
+    case "profile":
+    case "user":
       return <PersonCard item={item as FeedEnvelope<PersonData>} ctx={ctx} />;
     case "community":
       return (
@@ -180,6 +213,17 @@ export default function ContentCard({
       return <CommentCard item={item as FeedEnvelope<CommentData>} ctx={ctx} />;
     case "text":
       return <TextCard item={item as FeedEnvelope<TextData>} ctx={ctx} />;
+    case "header":
+      return <HeaderCard item={item as FeedEnvelope<HeaderData>} ctx={ctx} />;
+    case "game":
+      return <GameCard item={item as FeedEnvelope<GameData>} ctx={ctx} />;
+    case "event":
+      return <EventCard item={item as FeedEnvelope<EventData>} ctx={ctx} />;
+    case "notification":
+      return <NotificationCard item={item as FeedEnvelope<NotificationData>} ctx={ctx} />;
+    case "wallet_transaction":
+    case "transaction":
+      return <TransactionCard item={item as FeedEnvelope<TransactionData>} ctx={ctx} />;
     default:
       return <UnknownCard item={item} ctx={ctx} />;
   }

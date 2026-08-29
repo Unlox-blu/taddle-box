@@ -21,7 +21,6 @@
 import { useEffect, useRef, useState, useCallback } from "react";
 import { DeviceEventEmitter } from "react-native";
 import type { RoundContext } from "../types";
-import { preloadGameAssets as preloadManifestAssets } from "../games/assetManifest";
 import { warn } from "../utils/logger";
 
 interface RoundResult {
@@ -94,18 +93,6 @@ export function useRoundLifecycle({
       if (roundCtx.status === "ACTIVE" || roundCtx.status === "FINISHED") {
         setAssetsReady(true);
         return;
-      }
-
-      // Preload assets for this round
-      if (roundCtx.assetSetId) {
-        try {
-          await preloadManifestAssets(
-            roundCtx.assetSetId,
-            roundCtx.assetManifestVersion || 1
-          );
-        } catch (e) {
-          warn("[RoundLifecycle] Asset preload failed:", e);
-        }
       }
 
       setAssetsReady(true);

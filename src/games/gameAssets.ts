@@ -127,6 +127,7 @@ export const GAME_SOUND_NAMES = [
   "snake",
   "ladder",
   "hop",
+  "match_start",
 ] as const;
 
 // ─── On-demand download + cache layer ────────────────────────────────────────

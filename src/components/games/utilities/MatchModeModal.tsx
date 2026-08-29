@@ -320,19 +320,12 @@ export default function MatchModeModal({
     // Tear down any previous poll (interval + socket listeners).
     stopLobbyPollRef.current?.();
 
-    let backoffMs = 2000;
-    const BACKOFF_CAP_MS = 16000;
-    // A socket matchmaking event inside this window proves the push channel is
-    // alive → the poll stays quiet.
-    const SOCKET_STALE_MS = 8000;
-    let nextPollAt = Date.now(); // first poll fires immediately
+    let nextPollAt = Date.now() + 15000; // First safety poll 15s after joining
     let inFlight = false;
-    let lastSocketEvent = Date.now();
 
     const onSocketActivity = () => {
-      lastSocketEvent = Date.now();
-      backoffMs = 2000;
-      nextPollAt = Date.now();
+      // Any real-time event proves the connection is healthy, push back the safety net
+      nextPollAt = Date.now() + 15000;
     };
     accountSocket.events.on("matchmaking:lobbyUpdated", onSocketActivity);
     accountSocket.events.on("matchmaking:matched", onSocketActivity);
@@ -353,9 +346,10 @@ export default function MatchModeModal({
       if (AppState.currentState !== "active") return;
 
       const now = Date.now();
-      const socketHealthy =
-        !!accountSocket.socket?.connected && now - lastSocketEvent < SOCKET_STALE_MS;
-      if (socketHealthy || now < nextPollAt || inFlight) return;
+      const isConnected = !!accountSocket.socket?.connected;
+      const pollInterval = isConnected ? 15000 : 5000;
+
+      if (now < nextPollAt || inFlight) return;
 
       inFlight = true;
       try {
@@ -403,14 +397,11 @@ export default function MatchModeModal({
           });
           return;
         }
-        // The socket is still suspect after a poll → back off.
-        backoffMs = Math.min(backoffMs * 2, BACKOFF_CAP_MS);
-        nextPollAt = Date.now() + backoffMs;
+        // Prepare the next safety poll
+        nextPollAt = Date.now() + pollInterval;
       } catch {
-        // Lobby not found / offline — keep polling with backoff; the socket
-        // path or cancel handles it.
-        backoffMs = Math.min(backoffMs * 2, BACKOFF_CAP_MS);
-        nextPollAt = Date.now() + backoffMs;
+        // Lobby not found / offline — keep polling
+        nextPollAt = Date.now() + pollInterval;
       } finally {
         inFlight = false;
       }
@@ -1607,7 +1598,7 @@ function QueueStep({ colors, styles, mode, game, phase, statusText, countdown, b
         {/* Game logo above name, stacked vertically — pushed up from radar */}
         <View style={{ alignItems: "center", marginBottom: 20 }}>
           <GameLogo game={game} size={36} radius={10} />
-          <Text style={{ color: "#F8FAFC", fontSize: 15, fontWeight: "800", marginTop: 8 }}>{game.name}</Text>
+          <Text style={{ color: colors.text.primary, fontSize: 15, fontWeight: "800", marginTop: 8 }}>{game.name}</Text>
         </View>
         <MatchmakingRadar colors={colors} isActive={phase !== "matched"} players={players || []} initialCount={initialCount} />
       </View>
@@ -1753,16 +1744,16 @@ const MatchmakingRadar = React.memo(function MatchmakingRadar({
         <View style={{
           position: "absolute", width: DISC, height: DISC, borderRadius: DISC / 2,
           backgroundColor: colors.bg.surface,
-          borderWidth: 1.5, borderColor: colors.primaryLight + "38",
           overflow: "hidden",
         }}>
-          {/* Concentric rings */}
-          {[200, 150, 100, 56].map((d) => (
+          {/* Concentric rings (260 is the outer rim) */}
+          {[260, 200, 150, 100, 56].map((d) => (
             <View key={d} style={{
               position: "absolute",
               left: CENTER - d / 2, top: CENTER - d / 2,
               width: d, height: d, borderRadius: d / 2,
-              borderWidth: 1, borderColor: colors.primaryLight + "1A",
+              borderWidth: d === 260 ? 1.5 : 1, 
+              borderColor: d === 260 ? colors.primaryLight + "38" : colors.primaryLight + "1A",
             }} />
           ))}
 
@@ -1801,6 +1792,7 @@ const MatchmakingRadar = React.memo(function MatchmakingRadar({
           {/* Ripple 1 */}
           <Animated.View style={{
             position: "absolute",
+            left: CENTER - 32, top: CENTER - 32,
             width: 64, height: 64, borderRadius: 32,
             borderWidth: 1.5, borderColor: colors.primaryLight,
             opacity: ripple1.interpolate({ inputRange: [0, 0.5, 1], outputRange: [0.7, 0.2, 0] }),
@@ -1809,6 +1801,7 @@ const MatchmakingRadar = React.memo(function MatchmakingRadar({
           {/* Ripple 2 */}
           <Animated.View style={{
             position: "absolute",
+            left: CENTER - 32, top: CENTER - 32,
             width: 64, height: 64, borderRadius: 32,
             borderWidth: 1.5, borderColor: colors.primaryLight,
             opacity: ripple2.interpolate({ inputRange: [0, 0.5, 1], outputRange: [0.7, 0.2, 0] }),
@@ -1819,6 +1812,8 @@ const MatchmakingRadar = React.memo(function MatchmakingRadar({
               .lottie isn't cached yet). Clipped to the circle via the logo's
               own borderRadius so the parent's glow shadow isn't cut off. */}
           <Animated.View style={{
+            position: "absolute",
+            left: CENTER - 26, top: CENTER - 26,
             width: 52, height: 52, borderRadius: 26,
             backgroundColor: colors.bg.elevated,
             borderWidth: 2, borderColor: colors.primaryLight,
@@ -1829,14 +1824,14 @@ const MatchmakingRadar = React.memo(function MatchmakingRadar({
             transform: [{ scale: pulse.interpolate({ inputRange: [0, 1], outputRange: [0.97, 1.04] }) }],
           }}>
             {lottieSource ? (
-              <View style={{ width: "100%", height: "100%", borderRadius: 24, overflow: "hidden" }}>
+              <View style={{ width: "100%", height: "100%", borderRadius: 26, overflow: "hidden", alignItems: "center", justifyContent: "center" }}>
                 <LottieView
                   source={lottieSource}
                   autoPlay
                   loop
                   cacheComposition={false}
-                  resizeMode="cover"
-                  style={{ width: "100%", height: "100%" }}
+                  resizeMode="contain"
+                  style={{ width: "115%", height: "115%" }} // slightly scale up if it has built-in padding, or just 100%. "contain" will center it.
                 />
               </View>
             ) : (

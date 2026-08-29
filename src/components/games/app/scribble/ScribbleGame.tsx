@@ -12,10 +12,11 @@ import {
 } from "react-native";
 import { LinearGradient } from "expo-linear-gradient";
 import type { HtmlGameResult, PlayerContext } from "../../../../games/types";
+import { useGameContainer } from "../../../../games/useGameContainer";
 
 const { width, height } = Dimensions.get("window");
-const CANVAS_W = width - 24;
-const CANVAS_H = height * 0.36;
+const FALLBACK_CW = width - 24;
+const FALLBACK_CH = height * 0.36;
 
 type Stroke = { points: { x: number; y: number }[]; color: string; width: number };
 type ChatMsg = { userId: string; text: string; correct?: boolean; ts: number };
@@ -104,6 +105,11 @@ export default function ScribbleGame({
   clearCanvas,
   submitGuess,
 }: Props) {
+  const NATURAL_W = width;
+  const NATURAL_H = height - 60;
+  const { onLayout, scale } = useGameContainer({ naturalWidth: NATURAL_W, naturalHeight: NATURAL_H, paddingX: 24 });
+  const CANVAS_W = FALLBACK_CW;
+  const CANVAS_H = FALLBACK_CH;
   const flatRef = useRef<FlatList>(null);
 
   const panResponder = PanResponder.create({
@@ -185,7 +191,9 @@ export default function ScribbleGame({
       style={styles.container}
       behavior={Platform.OS === "ios" ? "padding" : undefined}
       keyboardVerticalOffset={Platform.OS === "ios" ? 90 : 0}
+      onLayout={onLayout}
     >
+      <View style={{ width: NATURAL_W, height: NATURAL_H, transform: [{ scale }], alignSelf: "center" }}>
       {showRoleCard && (
         <Animated.View style={[
           styles.roleOverlay,
@@ -227,7 +235,7 @@ export default function ScribbleGame({
         <Text style={styles.scorePill}>⭐ {myScore} pts</Text>
       </View>
 
-      <View style={styles.canvas} {...panResponder.panHandlers}>
+      <View style={[styles.canvas, { width: CANVAS_W, height: CANVAS_H }]} {...panResponder.panHandlers}>
         {renderStrokes(strokes, currentStroke)}
         {!isDrawer && strokes.length === 0 && (
           <View style={styles.canvasEmpty}>
@@ -319,6 +327,7 @@ export default function ScribbleGame({
           </TouchableOpacity>
         </View>
       )}
+      </View>
     </KeyboardAvoidingView>
   );
 }
@@ -368,7 +377,7 @@ const styles = StyleSheet.create({
   rolePill: { backgroundColor: "rgba(124,58,237,0.12)", borderRadius: 20, paddingHorizontal: 12, paddingVertical: 5, borderWidth: 1, borderColor: "rgba(124,58,237,0.25)" },
   rolePillText: { color: "#A78BFA", fontSize: 12, fontWeight: "800" },
   scorePill: { color: "#F8FAFC", fontSize: 13, fontWeight: "800" },
-  canvas: { width: CANVAS_W, height: CANVAS_H, backgroundColor: "#0F172A", borderRadius: 12, borderWidth: 1.5, borderColor: "rgba(124,58,237,0.25)", overflow: "hidden", position: "relative", justifyContent: "center", alignItems: "center", marginBottom: 8 },
+  canvas: { width: FALLBACK_CW, height: FALLBACK_CH, backgroundColor: "#0F172A", borderRadius: 12, borderWidth: 1.5, borderColor: "rgba(124,58,237,0.25)", overflow: "hidden", position: "relative", justifyContent: "center", alignItems: "center", marginBottom: 8 },
   canvasEmpty: { alignItems: "center", gap: 8 },
   canvasEmptyIcon: { fontSize: 32, opacity: 0.4 },
   canvasEmptyText: { color: "#334155", fontSize: 13, fontStyle: "italic" },

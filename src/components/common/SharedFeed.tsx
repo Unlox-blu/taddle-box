@@ -21,7 +21,7 @@ import { themedAlert } from "./ThemedAlert";
 import PullToRefreshWrapper from "./PullToRefreshWrapper";
 import ShareSheet from "./ShareSheet";
 import { useGlobalScroll } from "../../context/ScrollContext";
-import { useActivePostTracking } from "../../hooks/useActivePostTracking";
+import { useActiveContentTracker } from "../../hooks/useActiveContentTracker";
 import { resolveContentId } from "../../utils/content.util";
 import ContentCard, { type RowCtx } from "./contentCards/ContentCard";
 import { createRowStyles } from "./rowStyles";
@@ -136,22 +136,27 @@ export default function SharedFeed({
     [rows],
   );
 
-  // ── Active-post tracking (hybrid: viewability filter + layout.y + hysteresis) ─
+  // ── Active-content tracking (hybrid: viewability filter + layout.y + hysteresis) ─
   const {
-    activePostId,
+    activeContentId,
     viewabilityConfig,
     onViewableItemsChanged,
     trackLayout,
     handleScroll: handleScrollForTracking,
-  } = useActivePostTracking(rows, {
+    debugZone,
+  } = useActiveContentTracker(rows, {
     listHeaderOffset,
-    headerHeight,
+    // PullToRefreshWrapper overrides contentContainerStyle.paddingTop to
+    // (headerHeight + sectionH) when a sectionHeader is present — the tracker
+    // must use the same combined value so scroll-coords stay in sync.
+    // The debug zone, tracking math, and content layout all use this value.
+    headerHeight: headerHeight + (sectionHeaderH || 0),
     spotlightBoundary,
     // FlashList's data is FeedRow[], so viewability items arrive as
-    // { type, item } wrappers.  Unwrap to get the real post ID.
-    getPostId: (feedItem: any) => {
+    // { type, item } wrappers. Unwrap to get the real content ID.
+    getContentId: (feedItem: any) => {
       const inner = feedItem?.item ?? feedItem;
-      const id = resolveContentId(inner);
+      const id = inner._trackId || inner.data?.id || resolveContentId(inner);
       return id || null;
     },
   });
@@ -162,10 +167,10 @@ export default function SharedFeed({
   // is just "this post was seen".
   const viewedPostIdsRef = useRef(new Set<string>());
   useEffect(() => {
-    if (!activePostId || viewedPostIdsRef.current.has(activePostId)) return;
-    viewedPostIdsRef.current.add(activePostId);
-    postsService.recordView(activePostId).catch(() => {});
-  }, [activePostId]);
+    if (!activeContentId || viewedPostIdsRef.current.has(activeContentId) || activeContentId.startsWith("__row_")) return;
+    viewedPostIdsRef.current.add(activeContentId);
+    postsService.recordView(activeContentId).catch(() => {});
+  }, [activeContentId]);
 
   const [commentsVisible, setCommentsVisible] = useState(false);
   const [activeCommentPost, setActiveCommentPost] = useState<Post | null>(null);
@@ -208,8 +213,8 @@ export default function SharedFeed({
   const scrollDirRef = useRef<1 | -1>(1); // 1=down, -1=up
 
   const scrollYAnim = useRef(new Animated.Value(0)).current;  const preloadPostId = useMemo(() => {
-    if (!activePostId) return null;
-    const activeIdx = posts.findIndex((p) => p.id === activePostId);
+    if (!activeContentId) return null;
+    const activeIdx = posts.findIndex((p) => p.id === activeContentId);
     if (activeIdx < 0) return null;
 
     const dir = scrollDirRef.current;
@@ -233,7 +238,7 @@ export default function SharedFeed({
       if (media.some((m: any) => m.media_type === "video")) return p.id;
     }
     return null;
-  }, [posts, activePostId]);
+  }, [posts, activeContentId]);
 
   const handleComment = useCallback((post: Post) => {
     setActiveCommentPost(post);
@@ -296,7 +301,7 @@ export default function SharedFeed({
       colors,
       navigation,
       isFocused,
-      activePostId,
+      activeContentId,
       currentUserId: currentUser?.id,
       toggleLike: (id) => handleLikeInternal(id),
       toggleSave: (id) => handleSaveInternal(id),
@@ -314,11 +319,23 @@ export default function SharedFeed({
         }
       },
       openCommunity: (slug) => navigation.push("CommunityDetail", { communitySlug: slug }),
-      openGames: () => {},
-      openEvents: () => {},
+      openGames: (id?: string) => {
+        if (id) {
+          navigation.navigate("Games", { openGameId: id, autoPlay: true });
+        } else {
+          navigation.navigate("Games");
+        }
+      },
+      openEvents: (id?: string) => {
+        if (id) {
+          navigation.push("EventDetail", { eventId: id });
+        } else {
+          navigation.push("Events");
+        }
+      },
       openSettings: () => navigation.push("Settings"),
       openNotifications: () => {},
-      addHashtag: () => {},
+      addHashtag: (tag) => navigation.push("Search", { query: tag }),
       trackLayout,
       preloadPostId,
       feedPosts: feedPosts ?? posts,
@@ -326,7 +343,7 @@ export default function SharedFeed({
       feedContextId,
     }),
     [
-      rowStyles, colors, navigation, isFocused, activePostId,
+      rowStyles, colors, navigation, isFocused, activeContentId,
       currentUser?.id, handleLikeInternal, handleSaveInternal,
       handleShare, handleComment, onRefresh, trackLayout,
       preloadPostId, feedPosts, posts, feedContext, feedContextId,
@@ -345,7 +362,7 @@ export default function SharedFeed({
     },
     [
       isFocused,
-      activePostId,
+      activeContentId,
       showViews,
       handleAuthorPress,
       handleComment,
@@ -455,11 +472,10 @@ export default function SharedFeed({
               onLayout={(e) => {
                 // Only track layout for post rows (active-post tracker only
                 // cares about posts; other types return null ID).
-                const id = row.id || resolveContentId(row.data);
-                if (id) {
-                  const { y, height } = e.nativeEvent.layout;
-                  trackLayout(id, { top: y, bottom: y + height });
-                }
+                const id = (row as any)._trackId || row.data?.id || resolveContentId(row);
+                const trackId = id || `non-trackable-${index}`;
+                const { y, height } = e.nativeEvent.layout;
+                trackLayout(trackId, { top: y, bottom: y + height });
               }}
             >
               {renderRow(row, index)}
@@ -481,7 +497,27 @@ export default function SharedFeed({
         postTitle={(sharePost as any)?.title || sharePost?.content?.slice(0, 80)}
       />
 
-
+      {debugZone && (
+        <View
+          pointerEvents="none"
+          style={{
+            position: "absolute",
+            left: 0,
+            right: 0,
+            top: debugZone.top,
+            height: debugZone.height,
+            backgroundColor: "rgba(255, 0, 0, 0.2)",
+            borderTopWidth: 1,
+            borderBottomWidth: 1,
+            borderColor: "rgba(255, 0, 0, 0.8)",
+            zIndex: 9999,
+          }}
+        >
+          <Text style={{ color: "red", fontWeight: "bold", fontSize: 10, padding: 2 }}>
+            Active Tracker Zone
+          </Text>
+        </View>
+      )}
     </>
   );
 }

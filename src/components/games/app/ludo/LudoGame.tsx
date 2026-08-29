@@ -198,6 +198,41 @@ export default function LudoGame({
     ? chatPanelH > 0 ? chatPanelH : Math.min(280, CHAT_MAX_H)
     : 0;
 
+  // ── Re-seat tokens on board resize ─────────────────────────────────────
+  // When the chat panel opens or keyboard appears, the board shrinks via
+  // onLayout → setBoardSize. The SVG re-renders instantly at the new size,
+  // but token Animated.Values still hold positions computed for the OLD cell
+  // size. This effect immediately springs every token to its correct position
+  // at the new cell size, eliminating the "broken assets" visual glitch.
+  useEffect(() => {
+    if (!gameState?.tokens) return;
+    const tokens = gameState.tokens;
+    const order = gameState.turnOrder ?? [];
+    Object.entries(tokens).forEach(([uid, tks]: [string, any]) => {
+      const pi = order.indexOf(uid);
+      (tks || []).forEach((token: any) => {
+        const key = `${uid}-${token.id}`;
+        const a = tokenAnims[key];
+        if (!a) return; // not yet mounted — renderTokens will init
+        const { x, y } = getTokenRenderPos(pi, token.id, token.pos ?? -1);
+        Animated.parallel([
+          Animated.spring(a.x, {
+            toValue: x,
+            useNativeDriver: false,
+            speed: 20,
+            bounciness: 6,
+          }),
+          Animated.spring(a.y, {
+            toValue: y,
+            useNativeDriver: false,
+            speed: 20,
+            bounciness: 6,
+          }),
+        ]).start();
+      });
+    });
+  }, [boardSize]); // eslint-disable-line react-hooks/exhaustive-deps
+
   // Single merged map of player identity (name + avatar + level) so the corner
   // cards always show the real profile pic, name and level badge. Sources,
   // richest first:

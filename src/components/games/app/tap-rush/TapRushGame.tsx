@@ -15,10 +15,11 @@ import { LinearGradient } from "expo-linear-gradient";
 import { Ionicons } from "@expo/vector-icons";
 import type { HtmlGameResult, PlayerContext } from "../../../../games/types";
 import { getSessionAvatar } from "../../../../services/sessionAvatarCache";
+import { useGameContainer } from "../../../../games/useGameContainer";
 
-const { width } = Dimensions.get("window");
-const GAME_AREA_WIDTH = width - 40;
-const GAME_AREA_HEIGHT = GAME_AREA_WIDTH * 1.2;
+const { width, height } = Dimensions.get("window");
+const FALLBACK_W = width - 40;
+const FALLBACK_H = FALLBACK_W * 1.2;
 
 type Target = {
   seq: number;
@@ -62,13 +63,19 @@ export default function TapRushGame({
   handleTap,
   isMyTurn,
 }: Props) {
+  const NATURAL_W = width;
+  const NATURAL_H = height - 60;
+  const { onLayout, scale } = useGameContainer({ naturalWidth: NATURAL_W, naturalHeight: NATURAL_H, paddingX: 40 });
+  const GAME_AREA_WIDTH = FALLBACK_W;
+  const GAME_AREA_HEIGHT = FALLBACK_H;
   return (
-    <View style={styles.container}>
-      <View style={styles.header}>
+    <View style={styles.container} onLayout={onLayout}>
+      <View style={{ width: NATURAL_W, height: NATURAL_H, transform: [{ scale }], alignSelf: "center" }}>
+      <View style={[styles.header, { width: GAME_AREA_WIDTH }]}>
         <View style={styles.vsContainer}>
           <View style={styles.playerSide}>
             <Image
-              source={require("../../../assets/icon.png")}
+              source={require("../../../../../assets/icon.png")}
               style={styles.avatar}
             />
             <Text style={styles.playerName} numberOfLines={1}>You</Text>
@@ -82,7 +89,7 @@ export default function TapRushGame({
               source={
                 players?.[0]?.avatar
                   ? { uri: getSessionAvatar(players[0].avatar) }
-                  : require("../../../assets/icon.png")
+                  : require("../../../../../assets/icon.png")
               }
               style={styles.avatar}
             />
@@ -102,12 +109,12 @@ export default function TapRushGame({
         </View>
       </View>
 
-      <View style={styles.gameAreaWrapper}>
+      <View style={[styles.gameAreaWrapper, { width: GAME_AREA_WIDTH, height: GAME_AREA_HEIGHT }]}>
         <LinearGradient colors={["#1E1B4B", "#312E81"]} style={styles.gameArea}>
           {status === "connecting" || status === "waiting" || externalPhase !== "playing" ? (
-            <Text style={styles.overlayText}>Get Ready...</Text>
+            <Text style={[styles.overlayText, { marginTop: GAME_AREA_HEIGHT / 2 - 20 }]}>Get Ready...</Text>
           ) : status === "finished" ? (
-            <Text style={styles.overlayText}>Game Over!</Text>
+            <Text style={[styles.overlayText, { marginTop: GAME_AREA_HEIGHT / 2 - 20 }]}>Game Over!</Text>
           ) : activeTarget ? (
             <TouchableOpacity
               activeOpacity={0.7}
@@ -125,6 +132,7 @@ export default function TapRushGame({
           ) : null}
         </LinearGradient>
       </View>
+      </View>
     </View>
   );
 }
@@ -137,7 +145,7 @@ const styles = StyleSheet.create({
     backgroundColor: "transparent",
   },
   header: {
-    width: GAME_AREA_WIDTH,
+    width: FALLBACK_W,
     marginBottom: 20,
   },
   vsContainer: {
@@ -206,8 +214,8 @@ const styles = StyleSheet.create({
     fontWeight: "900",
   },
   gameAreaWrapper: {
-    width: GAME_AREA_WIDTH,
-    height: GAME_AREA_HEIGHT,
+    width: FALLBACK_W,
+    height: FALLBACK_H,
     borderRadius: 24,
     padding: 4,
     backgroundColor: "rgba(255,255,255,0.1)",
@@ -242,6 +250,6 @@ const styles = StyleSheet.create({
     fontSize: 24,
     fontWeight: "bold",
     textAlign: "center",
-    marginTop: GAME_AREA_HEIGHT / 2 - 20,
+    marginTop: FALLBACK_H / 2 - 20,
   },
 });

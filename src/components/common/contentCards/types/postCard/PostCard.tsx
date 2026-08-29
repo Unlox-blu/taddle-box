@@ -681,7 +681,7 @@ const resolveRootPost = async (
     let data: any = null;
     try {
       const config =
-        hop === 0 && wrapperId ? { viaRepostId: wrapperId } : undefined;
+        hop === 0 && wrapperId && !wrapperId.startsWith("__row_") ? { viaRepostId: wrapperId } : undefined;
       const res = await postsService.getPost(current, config);
       data = res?.data || null;
     } catch {

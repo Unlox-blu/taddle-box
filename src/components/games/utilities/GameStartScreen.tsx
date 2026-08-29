@@ -12,6 +12,7 @@ import {
 import { LinearGradient } from "expo-linear-gradient";
 import { Ionicons } from "@expo/vector-icons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { gameSound } from "../../../services/gameSound";
 import type { Game } from "../../../types";
 
 export type StartPlayer = {
@@ -35,13 +36,9 @@ type Props = {
   ready: boolean;
   onDone: () => void;
   onExit?: () => void;
-  /** Round number when multi-round match (shown above player slots). */
   roundNumber?: number;
-  /** Total rounds configured for the match. */
   roundTotal?: number;
 };
-
-// ─── Tips (single rotating tip, not two cards) ──────────────────────────────
 
 const GAME_TIPS: Record<string, string[]> = {
   chess: [
@@ -103,8 +100,6 @@ const GENERAL_TIPS = [
   "Take a deep breath, stay calm, and play your best.",
 ];
 
-// ─── Loading stages ──────────────────────────────────────────────────────────
-
 const STAGES = [
   { icon: "wifi" as const, label: "Connecting" },
   { icon: "download" as const, label: "Loading assets" },
@@ -112,38 +107,37 @@ const STAGES = [
   { icon: "checkmark-circle" as const, label: "All set" },
 ];
 
-// ─── Avatar ───────────────────────────────────────────────────────────────────
-
-function AvatarCircle({ player, size, isMe }: { player: StartPlayer; size: number; isMe?: boolean }) {
-  const inner = size * 0.82;
-  const borderColor = isMe ? "#22D3EE" : "rgba(255,255,255,0.35)";
-  if (player.avatar) {
-    return (
-      <View style={{ width: size, height: size, borderRadius: size / 2, padding: size * 0.06, backgroundColor: "rgba(255,255,255,0.1)" }}>
-        <Image source={{ uri: player.avatar }} style={{ width: inner, height: inner, borderRadius: inner / 2, borderWidth: 2, borderColor }} />
-      </View>
-    );
-  }
-  return (
-    <View style={{ width: size, height: size, borderRadius: size / 2, backgroundColor: isMe ? "rgba(34,211,238,0.15)" : "rgba(255,255,255,0.07)", alignItems: "center", justifyContent: "center", borderWidth: 1.5, borderColor }}>
-      <Text style={{ color: "#fff", fontSize: size * 0.42, fontWeight: "900" }}>
+function AvatarCircle({ player, size, isMe, isReady }: { player: StartPlayer & { filled?: boolean }; size: number; isMe?: boolean; isReady?: boolean }) {
+  const inner = size * 0.85;
+  const borderColor = isReady ? "#22C55E" : isMe ? "#22D3EE" : "rgba(255,255,255,0.2)";
+  
+  const content = player.avatar ? (
+    <Image source={{ uri: player.avatar }} style={{ width: inner, height: inner, borderRadius: inner / 2, borderWidth: 2, borderColor }} />
+  ) : (
+    <View style={{ width: inner, height: inner, borderRadius: inner / 2, backgroundColor: isMe ? "rgba(34,211,238,0.15)" : "rgba(255,255,255,0.07)", alignItems: "center", justifyContent: "center", borderWidth: 2, borderColor }}>
+      <Text style={{ color: "#fff", fontSize: inner * 0.45, fontWeight: "900" }}>
         {(player.name || "?")[0].toUpperCase()}
       </Text>
     </View>
   );
+
+  return (
+    <View style={{ width: size, height: size, borderRadius: size / 2, padding: (size - inner) / 2, backgroundColor: "rgba(255,255,255,0.05)" }}>
+      {content}
+    </View>
+  );
 }
 
-// ─── Player slot ───────────────────────────────────────────────────────────────
-
-function PlayerSlot({ player, index }: { player: StartPlayer & { filled: boolean }; index: number }) {
+function PlayerSlot({ player, index, phase }: { player: StartPlayer & { filled: boolean }; index: number; phase: string }) {
   const pulse = useRef(new Animated.Value(0)).current;
   const slideIn = useRef(new Animated.Value(30)).current;
   const fadeIn = useRef(new Animated.Value(0)).current;
+  const scale = useRef(new Animated.Value(1)).current;
 
   useEffect(() => {
     Animated.parallel([
-      Animated.spring(slideIn, { toValue: 0, friction: 8, tension: 100, delay: index * 120, useNativeDriver: true }),
-      Animated.timing(fadeIn, { toValue: 1, duration: 400, delay: index * 120, useNativeDriver: true }),
+      Animated.spring(slideIn, { toValue: 0, friction: 8, tension: 100, delay: index * 100, useNativeDriver: true }),
+      Animated.timing(fadeIn, { toValue: 1, duration: 400, delay: index * 100, useNativeDriver: true }),
     ]).start();
   }, []);
 
@@ -158,22 +152,33 @@ function PlayerSlot({ player, index }: { player: StartPlayer & { filled: boolean
     }
   }, [player.filled]);
 
+  useEffect(() => {
+    if (phase === "ready") {
+      Animated.spring(scale, {
+        toValue: 1.1,
+        friction: 5,
+        useNativeDriver: true,
+      }).start();
+    }
+  }, [phase]);
+
+  const isReady = player.filled && phase === "ready";
+
   return (
-    <Animated.View style={[ss.slot, { opacity: fadeIn, transform: [{ translateY: slideIn }] }]}>
+    <Animated.View style={[ss.slot, { opacity: fadeIn, transform: [{ translateY: slideIn }, { scale }] }]}>
       <Animated.View style={{ opacity: player.filled ? 1 : pulse.interpolate({ inputRange: [0, 1], outputRange: [0.3, 0.7] }) }}>
-        <AvatarCircle player={player} size={52} isMe={player.isMe} />
+        <AvatarCircle player={player} size={68} isMe={player.isMe} isReady={isReady} />
       </Animated.View>
       <Text style={ss.slotName} numberOfLines={1}>{player.filled ? player.name : "Waiting..."}</Text>
-      <View style={[ss.slotBadge, player.isMe && ss.slotBadgeMe, player.filled && !player.isMe && ss.slotBadgeReady]}>
-        <Text style={[ss.slotBadgeText, player.isMe && ss.slotBadgeTextMe, player.filled && !player.isMe && ss.slotBadgeTextReady]}>
-          {player.isMe ? "YOU" : player.filled ? "READY" : "..."}
+      
+      <View style={[ss.slotBadge, player.isMe && ss.slotBadgeMe, isReady && ss.slotBadgeReady]}>
+        <Text style={[ss.slotBadgeText, player.isMe && ss.slotBadgeTextMe, isReady && ss.slotBadgeTextReady]}>
+          {isReady ? "READY" : player.isMe ? "YOU" : "..."}
         </Text>
       </View>
     </Animated.View>
   );
 }
-
-// ─── Single rotating tip ───────────────────────────────────────────────────────
 
 function RotatingTip({ game }: { game: Game }) {
   const [index, setIndex] = useState(0);
@@ -201,8 +206,6 @@ function RotatingTip({ game }: { game: Game }) {
     </Animated.View>
   );
 }
-
-// ─── Loading progress stages ─────────────────────────────────────────────────
 
 function LoadingStages({ ready }: { ready: boolean }) {
   const [currentStage, setCurrentStage] = useState(0);
@@ -258,8 +261,6 @@ function LoadingStages({ ready }: { ready: boolean }) {
   );
 }
 
-// ─── Main component ───────────────────────────────────────────────────────────
-
 export default function GameStartScreen({
   game,
   myName,
@@ -281,109 +282,120 @@ export default function GameStartScreen({
   useEffect(() => { onDoneRef.current = onDone; }, [onDone]);
 
   const [phase, setPhase] = useState<"waiting" | "ready">("waiting");
+  const [showMatchStarting, setShowMatchStarting] = useState(false);
 
   useEffect(() => {
-    if (ready && phase === "waiting") setPhase("ready");
+    if (ready && phase === "waiting") {
+      setPhase("ready");
+      gameSound.playMatchStart();
+      setTimeout(() => setShowMatchStarting(true), 600);
+    }
   }, [ready, phase]);
 
   useEffect(() => {
     if (phase !== "ready") return;
-    const t = setTimeout(() => onDoneRef.current(), 1200);
+    const t = setTimeout(() => onDoneRef.current(), 2500);
     return () => clearTimeout(t);
   }, [phase]);
 
-  // Ambient glow
   const bgGlow = useRef(new Animated.Value(0)).current;
   useEffect(() => {
     Animated.loop(
       Animated.sequence([
-        Animated.timing(bgGlow, { toValue: 1, duration: 1400, useNativeDriver: false }),
-        Animated.timing(bgGlow, { toValue: 0, duration: 1400, useNativeDriver: false }),
+        Animated.timing(bgGlow, { toValue: 1, duration: 2500, useNativeDriver: false }),
+        Animated.timing(bgGlow, { toValue: 0, duration: 2500, useNativeDriver: false }),
       ]),
     ).start();
   }, []);
 
-  // Ready pulse
   const readyPulse = useRef(new Animated.Value(0)).current;
   useEffect(() => {
-    if (phase !== "ready") return;
-    const loop = Animated.loop(
-      Animated.sequence([
-        Animated.timing(readyPulse, { toValue: 1, duration: 350, useNativeDriver: true }),
-        Animated.timing(readyPulse, { toValue: 0.85, duration: 350, useNativeDriver: true }),
-      ]),
-    );
-    loop.start();
-    return () => loop.stop();
-  }, [phase]);
+    if (!showMatchStarting) return;
+    Animated.spring(readyPulse, {
+      toValue: 1,
+      friction: 4,
+      tension: 40,
+      useNativeDriver: true,
+    }).start();
+  }, [showMatchStarting]);
 
   const gradient: [string, string] =
     game.gradient?.length === 2 ? (game.gradient as [string, string]) : ["#7C3AED", "#0891B2"];
 
-  const bgGlowOpacity = bgGlow.interpolate({ inputRange: [0, 1], outputRange: [0.25, 0.55] });
+  const bgGlowOpacity = bgGlow.interpolate({ inputRange: [0, 1], outputRange: [0.15, 0.45] });
 
   const allSlots = useMemo(() => {
-    const me = { id: "me", name: myName, avatar: myAvatar, isMe: true, filled: true };
+    const me = { id: "me", name: myName, avatar: myAvatar, isMe: true, filled: true, team: myTeam };
     const opp = (opponents || []).map((p) => ({ ...p, filled: true }));
     return [me, ...opp] as Array<StartPlayer & { filled: boolean }>;
-  }, [myName, myAvatar, opponents]);
+  }, [myName, myAvatar, myTeam, opponents]);
+
+  const team1 = useMemo(() => allSlots.filter(p => !teamsLocked || p.team === 1), [allSlots, teamsLocked]);
+  const team2 = useMemo(() => allSlots.filter(p => teamsLocked && p.team === 2), [allSlots, teamsLocked]);
 
   return (
-    <View style={[ss.root, { paddingTop: 8 }]}>
-      {/* Ambient gradient */}
+    <View style={[ss.root, { paddingTop: insets.top || 16 }]}>
       <Animated.View pointerEvents="none" style={[StyleSheet.absoluteFill, { opacity: bgGlowOpacity }]}>
-        <LinearGradient colors={[gradient[0], "rgba(5,5,15,0)", gradient[1]]} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={StyleSheet.absoluteFill} />
+        <LinearGradient colors={[gradient[0], "#05050F", gradient[1]]} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={StyleSheet.absoluteFill} />
       </Animated.View>
 
-      {/* Mode pill — top center */}
-      <View style={ss.modePill}>
-        <Ionicons name="flash" size={11} color="#A5F3FC" />
-        <Text style={ss.modePillText}>{modeLabel || "AUTO MATCH"}</Text>
+      <View style={ss.topHeader}>
+        <View style={ss.modePill}>
+          <Ionicons name="flash" size={11} color="#A5F3FC" />
+          <Text style={ss.modePillText}>{modeLabel || "MATCHMAKING"}</Text>
+        </View>
+        {roundNumber != null && roundTotal != null && roundTotal > 1 && (
+          <View style={[ss.modePill, { backgroundColor: 'rgba(124,58,237,0.25)', marginTop: 8 }]}>
+            <Ionicons name="repeat" size={11} color="#A78BFA" />
+            <Text style={[ss.modePillText, { color: '#C4B5FD' }]}>Round {roundNumber} of {roundTotal}</Text>
+          </View>
+        )}
       </View>
 
-      {/* Round label — only shown for multi-round matches */}
-      {roundNumber != null && roundTotal != null && roundTotal > 1 && (
-        <View style={[ss.modePill, { backgroundColor: 'rgba(124,58,237,0.25)', marginTop: 8 }]}>
-          <Ionicons name="repeat" size={11} color="#A78BFA" />
-          <Text style={[ss.modePillText, { color: '#C4B5FD' }]}>Round {roundNumber} of {roundTotal}</Text>
-        </View>
-      )}
+      <View style={ss.slotsSection}>
 
-      {/* Loading progress stages */}
-      <LoadingStages ready={phase === "ready"} />
-
-      {/* Center: ready badge or player slots */}
-      {phase === "ready" ? (
-        <Animated.View style={[ss.readyBadge, {
-          opacity: readyPulse,
-          transform: [{ scale: readyPulse.interpolate({ inputRange: [0.85, 1], outputRange: [0.9, 1.05] }) }],
-        }]}>
-          <Ionicons name="checkmark-circle" size={32} color="#22C55E" />
-          <Text style={ss.readyText}>ALL READY!</Text>
-          <Text style={ss.readySubtext}>Starting game...</Text>
-        </Animated.View>
-      ) : (
-        <View style={ss.slotsSection}>
-          {allSlots.length <= 2 ? (
-            <View style={ss.vsRow}>
-              <PlayerSlot player={allSlots[0]} index={0} />
-              <View style={ss.vsBadge}>
-                <Text style={ss.vsText}>VS</Text>
-              </View>
-              <PlayerSlot player={allSlots[1] ?? { id: "opp", name: "Opponent", filled: false, isMe: false }} index={1} />
+        {teamsLocked && team2.length > 0 ? (
+          <View style={ss.teamVsLayout}>
+            <View style={ss.teamColumn}>
+              <Text style={ss.teamLabel}>TEAM 1</Text>
+              {team1.map((p, i) => <PlayerSlot key={p.id || i} player={p} index={i} phase={phase} />)}
             </View>
-          ) : (
-            <View style={ss.grid}>
-              {allSlots.map((p, i) => (
-                <PlayerSlot key={p.id || i} player={p} index={i} />
-              ))}
+            <View style={ss.vsCenterBadge}><Text style={ss.vsCenterText}>VS</Text></View>
+            <View style={ss.teamColumn}>
+              <Text style={ss.teamLabel}>TEAM 2</Text>
+              {team2.map((p, i) => <PlayerSlot key={p.id || i} player={p} index={i} phase={phase} />)}
             </View>
-          )}
-        </View>
-      )}
+          </View>
+        ) : team1.length === 2 ? (
+          <View style={ss.teamVsLayout}>
+            <PlayerSlot player={team1[0]} index={0} phase={phase} />
+            <View style={ss.vsCenterBadge}><Text style={ss.vsCenterText}>VS</Text></View>
+            <PlayerSlot player={team1[1]} index={1} phase={phase} />
+          </View>
+        ) : (
+          <View style={ss.gridWrap}>
+            {team1.map((p, i) => <PlayerSlot key={p.id || i} player={p} index={i} phase={phase} />)}
+          </View>
+        )}
+      </View>
 
-      {/* Single rotating tip — bottom */}
-      {phase === "waiting" && <RotatingTip game={game} />}
+      <View style={ss.bottomSection}>
+        {showMatchStarting ? (
+          <Animated.View style={[ss.matchStartingBanner, {
+            opacity: readyPulse,
+            transform: [{ scale: readyPulse.interpolate({ inputRange: [0, 1], outputRange: [0.5, 1] }) }]
+          }]}>
+            <LinearGradient colors={["rgba(34,197,94,0)", "rgba(34,197,94,0.4)", "rgba(34,197,94,0)"]} start={{ x: 0, y: 0 }} end={{ x: 1, y: 0 }} style={StyleSheet.absoluteFill} />
+            <Ionicons name="flash" size={24} color="#4ADE80" />
+            <Text style={ss.matchStartingText}>MATCH STARTING</Text>
+            <Ionicons name="flash" size={24} color="#4ADE80" />
+          </Animated.View>
+        ) : (
+          <LoadingStages ready={phase === "ready"} />
+        )}
+        <View style={{ height: 16 }} />
+        {phase === "waiting" && <RotatingTip game={game} />}
+      </View>
     </View>
   );
 }
@@ -394,47 +406,126 @@ const ss = StyleSheet.create({
     alignItems: "center",
     justifyContent: "space-between",
     paddingHorizontal: 20,
-    paddingBottom: 16,
+    paddingBottom: 32,
     overflow: "hidden",
-    backgroundColor: "#0A0F1E",
+    backgroundColor: "#05050F",
+  },
+  topHeader: {
+    alignItems: "center",
+    marginTop: 10,
+    zIndex: 10,
   },
   modePill: {
     flexDirection: "row", alignItems: "center", gap: 6,
-    paddingHorizontal: 14, paddingVertical: 6, borderRadius: 20,
+    paddingHorizontal: 16, paddingVertical: 8, borderRadius: 20,
     backgroundColor: "rgba(255,255,255,0.07)", borderWidth: 1, borderColor: "rgba(255,255,255,0.15)",
   },
-  modePillText: { color: "#A5F3FC", fontSize: 10, fontWeight: "900", letterSpacing: 1.5 },
-  stagesWrap: { width: "100%", marginTop: 8 },
-  progressBarBg: { height: 3, backgroundColor: "rgba(255,255,255,0.08)", borderRadius: 2, overflow: "hidden", marginBottom: 8 },
+  modePillText: { color: "#A5F3FC", fontSize: 11, fontWeight: "900", letterSpacing: 1.5 },
+  
+  slotsSection: { 
+    width: "100%", 
+    flex: 1, 
+    justifyContent: "center", 
+    alignItems: "center",
+    zIndex: 5,
+  },
+  matchStartingBanner: {
+    width: "120%",
+    alignSelf: "center",
+    paddingVertical: 18,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 12,
+    zIndex: 20,
+    marginBottom: 16,
+  },
+  matchStartingText: {
+    color: "#fff",
+    fontSize: 28,
+    fontWeight: "900",
+    letterSpacing: 4,
+    textShadowColor: "rgba(34,197,94,0.8)",
+    textShadowOffset: { width: 0, height: 0 },
+    textShadowRadius: 15,
+  },
+  teamVsLayout: { 
+    flexDirection: "row", 
+    alignItems: "center", 
+    justifyContent: "space-around",
+    width: "100%", 
+    maxWidth: 420,
+  },
+  teamColumn: {
+    alignItems: "center",
+    gap: 12,
+  },
+  teamLabel: {
+    color: "rgba(255,255,255,0.4)",
+    fontSize: 12,
+    fontWeight: "900",
+    letterSpacing: 2,
+    marginBottom: 4,
+  },
+  gridWrap: { 
+    flexDirection: "row", 
+    flexWrap: "wrap", 
+    justifyContent: "center", 
+    gap: 16, 
+    maxWidth: 420,
+  },
+  vsCenterBadge: { 
+    width: 48, 
+    height: 48, 
+    borderRadius: 24, 
+    alignItems: "center", 
+    justifyContent: "center", 
+    backgroundColor: "rgba(255,255,255,0.1)", 
+    borderWidth: 1.5, 
+    borderColor: "rgba(255,255,255,0.3)",
+    marginHorizontal: 12,
+  },
+  vsCenterText: { color: "#fff", fontSize: 16, fontWeight: "900", fontStyle: "italic" },
+  
+  slot: { 
+    alignItems: "center", 
+    paddingVertical: 16, 
+    paddingHorizontal: 12,
+    borderRadius: 20, 
+    backgroundColor: "rgba(255,255,255,0.03)", 
+    borderWidth: 1, 
+    borderColor: "rgba(255,255,255,0.1)", 
+    gap: 8, 
+    width: 110,
+  },
+  slotName: { color: "#F8FAFC", fontSize: 13, fontWeight: "800" },
+  slotBadge: { paddingHorizontal: 8, paddingVertical: 4, borderRadius: 8, backgroundColor: "rgba(255,255,255,0.06)" },
+  slotBadgeMe: { backgroundColor: "rgba(34,211,238,0.12)" },
+  slotBadgeReady: { backgroundColor: "rgba(34,197,94,0.15)", borderColor: "rgba(34,197,94,0.4)", borderWidth: 1 },
+  slotBadgeText: { color: "#64748B", fontSize: 9, fontWeight: "900", letterSpacing: 1.5 },
+  slotBadgeTextMe: { color: "#22D3EE" },
+  slotBadgeTextReady: { color: "#4ADE80" },
+
+  bottomSection: {
+    width: "100%",
+    zIndex: 10,
+  },
+  stagesWrap: { width: "100%" },
+  progressBarBg: { height: 4, backgroundColor: "rgba(255,255,255,0.08)", borderRadius: 2, overflow: "hidden", marginBottom: 12 },
   progressBarFill: { height: "100%", backgroundColor: "#7C3AED", borderRadius: 2 },
   stagesRow: { flexDirection: "row", justifyContent: "space-between" },
-  stageItem: { alignItems: "center", gap: 4, flex: 1 },
-  stageDot: { width: 20, height: 20, borderRadius: 10, backgroundColor: "rgba(255,255,255,0.08)", alignItems: "center", justifyContent: "center" },
+  stageItem: { alignItems: "center", gap: 6, flex: 1 },
+  stageDot: { width: 24, height: 24, borderRadius: 12, backgroundColor: "rgba(255,255,255,0.08)", alignItems: "center", justifyContent: "center" },
   stageDotActive: { backgroundColor: "rgba(124,58,237,0.4)" },
-  stageDotCurrent: { backgroundColor: "#7C3AED" },
-  stageLabel: { color: "rgba(255,255,255,0.25)", fontSize: 8, fontWeight: "700", letterSpacing: 0.5, textAlign: "center" },
-  stageLabelActive: { color: "rgba(255,255,255,0.6)" },
-  readyBadge: { alignItems: "center", gap: 8, backgroundColor: "rgba(34,197,94,0.1)", borderRadius: 24, paddingHorizontal: 28, paddingVertical: 20, borderWidth: 1.5, borderColor: "rgba(34,197,94,0.3)" },
-  readyText: { color: "#22C55E", fontSize: 20, fontWeight: "900", letterSpacing: 2 },
-  readySubtext: { color: "rgba(34,197,94,0.6)", fontSize: 11, fontWeight: "600" },
-  slotsSection: { width: "100%", flex: 1, justifyContent: "center", alignItems: "center" },
-  vsRow: { flexDirection: "row", alignItems: "center", gap: 10, width: "100%", maxWidth: 380 },
-  grid: { flexDirection: "row", flexWrap: "wrap", justifyContent: "center", gap: 10, maxWidth: 380 },
-  vsBadge: { width: 40, height: 40, borderRadius: 20, alignItems: "center", justifyContent: "center", backgroundColor: "rgba(124,58,237,0.2)", borderWidth: 1.5, borderColor: "rgba(124,58,237,0.5)" },
-  vsText: { color: "#C4B5FD", fontSize: 14, fontWeight: "900" },
-  slot: { flex: 1, alignItems: "center", paddingVertical: 12, borderRadius: 16, backgroundColor: "rgba(15,23,42,0.7)", borderWidth: 1, borderColor: "rgba(255,255,255,0.08)", gap: 4, maxWidth: 120 },
-  slotName: { color: "#F8FAFC", fontSize: 12, fontWeight: "800", maxWidth: "90%" },
-  slotBadge: { paddingHorizontal: 6, paddingVertical: 2, borderRadius: 8, backgroundColor: "rgba(255,255,255,0.06)" },
-  slotBadgeMe: { backgroundColor: "rgba(34,211,238,0.12)" },
-  slotBadgeReady: { backgroundColor: "rgba(34,197,94,0.12)" },
-  slotBadgeText: { color: "#64748B", fontSize: 8, fontWeight: "900", letterSpacing: 1.5 },
-  slotBadgeTextMe: { color: "#22D3EE" },
-  slotBadgeTextReady: { color: "#22C55E" },
+  stageDotCurrent: { backgroundColor: "#7C3AED", shadowColor: "#7C3AED", shadowOffset: { width: 0, height: 0 }, shadowOpacity: 0.8, shadowRadius: 8 },
+  stageLabel: { color: "rgba(255,255,255,0.3)", fontSize: 9, fontWeight: "700", letterSpacing: 0.5, textAlign: "center" },
+  stageLabelActive: { color: "rgba(255,255,255,0.8)" },
+  
   tipCard: {
-    flexDirection: "row", alignItems: "center", gap: 8,
+    flexDirection: "row", alignItems: "center", gap: 10,
     backgroundColor: "rgba(251,191,36,0.08)", borderRadius: 12,
-    paddingHorizontal: 14, paddingVertical: 10, borderWidth: 1, borderColor: "rgba(251,191,36,0.15)",
+    paddingHorizontal: 16, paddingVertical: 12, borderWidth: 1, borderColor: "rgba(251,191,36,0.15)",
     width: "100%",
   },
-  tipText: { color: "rgba(255,255,255,0.7)", fontSize: 12, fontWeight: "600", flex: 1, lineHeight: 17 },
+  tipText: { color: "rgba(255,255,255,0.75)", fontSize: 13, fontWeight: "600", flex: 1, lineHeight: 18 },
 });

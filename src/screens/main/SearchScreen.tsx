@@ -39,6 +39,7 @@ import { xpService } from "../../services/xp.service";
 import { postsService } from "../../services/posts.service";
 import type { HomeStackParamList, Post, Transaction } from "../../types";
 import StateBlock from "../../components/common/StateBlock";
+import BrandedLoader from "../../components/common/BrandedLoader";
 import CommentsModal from "../../components/home/CommentsModal";
 import Animated, {
   useSharedValue,
@@ -616,7 +617,7 @@ export default function SearchScreen({ navigation, route }: Props) {
       rows
         .filter((r: any) => !r.isHeader)
         .map((r: any, i: number) => {
-          const cid = resolveContentId(r.item);
+          const cid = resolveContentId(r.data);
           // `id` is the FlashList keyExtractor key — MUST be unique across all
           // result types. The same raw content_id can appear across different
           // types (e.g. a comment whose content_id is the parent post’s ID
@@ -1751,7 +1752,9 @@ export default function SearchScreen({ navigation, route }: Props) {
                     ))}
                   </ScrollView>
                 ) : loading || isTypesLoading ? (
-                  <ActivityIndicator color={colors.primary} style={{ marginLeft: 16, alignSelf: "flex-start" }} />
+                  <View style={{ flex: 1, alignItems: "center", justifyContent: "center" }}>
+                    <BrandedLoader size={24} />
+                  </View>
                 ) : null}
               </View>
             ) : null

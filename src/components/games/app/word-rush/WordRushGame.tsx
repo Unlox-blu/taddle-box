@@ -12,12 +12,13 @@ import {
 } from "react-native";
 import { LinearGradient } from "expo-linear-gradient";
 import type { HtmlGameResult, PlayerContext } from "../../../../games/types";
+import { useGameContainer } from "../../../../games/useGameContainer";
 
-const { width } = Dimensions.get("window");
+const { width, height } = Dimensions.get("window");
 const BOARD_PADDING = 20;
 const GRID_COLS = 4;
 const TILE_GAP = 8;
-const TILE_SIZE = Math.floor((width - BOARD_PADDING * 2 - TILE_GAP * (GRID_COLS - 1)) / GRID_COLS);
+const FALLBACK_TILE = Math.floor((width - BOARD_PADDING * 2 - TILE_GAP * (GRID_COLS - 1)) / GRID_COLS);
 
 type FoundWord = { word: string; path: number[]; score: number; userId?: string };
 
@@ -74,6 +75,11 @@ export default function WordRushGame({
   clearSelection,
   isMyTurn,
 }: Props) {
+  // The game renders at its natural size and is uniformly scaled down.
+  const NATURAL_W = width;
+  const NATURAL_H = height - 60;
+  const { onLayout, scale } = useGameContainer({ naturalWidth: NATURAL_W, naturalHeight: NATURAL_H, paddingX: BOARD_PADDING });
+  const TILE_SIZE = FALLBACK_TILE;
   const onTilePress = useCallback((idx: number) => {
     if (status !== "active") return;
     selectCell(idx);
@@ -133,7 +139,8 @@ export default function WordRushGame({
   }
 
   return (
-    <View style={styles.container}>
+    <View style={styles.container} onLayout={onLayout}>
+      <View style={{ width: NATURAL_W, height: NATURAL_H, transform: [{ scale }], alignSelf: "center" }}>
       <View style={styles.header}>
         <View>
           <Text style={styles.roundLabel}>ROUND {round} / {totalRounds}</Text>
@@ -192,7 +199,7 @@ export default function WordRushGame({
       </Animated.View>
 
       <View style={styles.gridContainer}>
-        <View style={styles.grid}>
+        <View style={[styles.grid, { width: TILE_SIZE * GRID_COLS + TILE_GAP * (GRID_COLS - 1) }]}>
           {(grid.length === 16 ? grid : Array(16).fill("?")).map((letter, idx) => {
             const isSelected = selectedIndices.includes(idx);
             const selOrder = selectedIndices.indexOf(idx);
@@ -205,6 +212,7 @@ export default function WordRushGame({
                 activeOpacity={0.7}
                 style={[
                   styles.tile,
+                  { width: TILE_SIZE, height: TILE_SIZE },
                   isSelected && styles.tileSelected,
                   isLast && styles.tileLast,
                   isAdjacent && !isSelected && styles.tileAdjacent,
@@ -265,6 +273,7 @@ export default function WordRushGame({
           </ScrollView>
         </View>
       )}
+      </View>
     </View>
   );
 }
@@ -321,8 +330,8 @@ const styles = StyleSheet.create({
   wordPreviewInvalidText: { fontSize: 18, fontWeight: "800", color: "#EF4444" },
   wordPreviewHint: { fontSize: 13, color: "#475569", fontStyle: "italic" },
   gridContainer: { alignItems: "center", marginBottom: 14 },
-  grid: { flexDirection: "row", flexWrap: "wrap", gap: TILE_GAP, width: TILE_SIZE * GRID_COLS + TILE_GAP * (GRID_COLS - 1) },
-  tile: { width: TILE_SIZE, height: TILE_SIZE, backgroundColor: "#1E293B", borderRadius: 14, justifyContent: "center", alignItems: "center", borderWidth: 1.5, borderColor: "rgba(255,255,255,0.06)", overflow: "hidden", position: "relative" },
+  grid: { flexDirection: "row", flexWrap: "wrap", gap: TILE_GAP, width: FALLBACK_TILE * GRID_COLS + TILE_GAP * (GRID_COLS - 1) },
+  tile: { width: FALLBACK_TILE, height: FALLBACK_TILE, backgroundColor: "#1E293B", borderRadius: 14, justifyContent: "center", alignItems: "center", borderWidth: 1.5, borderColor: "rgba(255,255,255,0.06)", overflow: "hidden", position: "relative" },
   tileSelected: { borderColor: "transparent", elevation: 10, shadowColor: "#7C3AED", shadowOpacity: 0.7, shadowRadius: 10, shadowOffset: { width: 0, height: 0 } },
   tileLast: { borderColor: "#A855F7", borderWidth: 2.5 },
   tileAdjacent: { borderColor: "rgba(124,58,237,0.4)", backgroundColor: "rgba(124,58,237,0.06)" },

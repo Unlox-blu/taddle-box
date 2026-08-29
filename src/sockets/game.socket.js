@@ -130,6 +130,14 @@ const setupGameSocket = (io, gameNs) => {
           latestState.pluginState, 'turn', currentPlayerId
         );
 
+        // Sync the actor's in-memory state with the timeout result
+        const { MatchManager: TimerSync } = require('../modules/game/engine/MatchManager');
+        const timerActor = TimerSync.getActor(matchId);
+        if (timerActor && timerActor.state) {
+          timerActor.state.pluginState = latestState.pluginState;
+          timerActor.state.currentRevision = latestState.currentRevision;
+        }
+
         if (plugin.isFinished(latestState.pluginState)) {
           latestState.status = MATCH_STATES.FINISHED;
           latestState.winner = latestState.pluginState?.winner || null;
@@ -137,6 +145,7 @@ const setupGameSocket = (io, gameNs) => {
           await EventStore.saveMatchSnapshot(matchId, latestState);
           gameNs.to(`match:${matchId}`).emit(EVENTS.SYNC, {
             state: latestState.pluginState,
+            revision: latestState.currentRevision,
             reason: 'turn_timeout',
             timedOutPlayer: currentPlayerId,
           });
@@ -152,6 +161,7 @@ const setupGameSocket = (io, gameNs) => {
           await EventStore.saveMatchSnapshot(matchId, latestState);
           gameNs.to(`match:${matchId}`).emit(EVENTS.SYNC, {
             state: latestState.pluginState,
+            revision: latestState.currentRevision,
             reason: 'turn_timeout',
             timedOutPlayer: currentPlayerId,
           });
@@ -183,6 +193,7 @@ const setupGameSocket = (io, gameNs) => {
             if (ps) {
               s.emit(EVENTS.SYNC, {
                 state: ps.pluginState,
+                revision: latestState.currentRevision,
                 reason: 'round_timeout',
               });
             }
@@ -357,6 +368,15 @@ const setupGameSocket = (io, gameNs) => {
             state.pausedAt = null;
             state.disconnectTimestamps = {};
             await EventStore.saveMatchSnapshot(matchId, state);
+            // Sync the actor's in-memory state so bot processing sees ACTIVE
+            const { MatchManager: ResumeSync } = require('../modules/game/engine/MatchManager');
+            const resumeActor = ResumeSync.getActor(matchId);
+            if (resumeActor && resumeActor.state) {
+              resumeActor.state.status = MATCH_STATES.ACTIVE;
+              resumeActor.state.pausedAt = null;
+              resumeActor.state.disconnectedPlayers = [];
+              resumeActor.state.disconnectTimestamps = {};
+            }
             gameNs.to(matchRoom).emit(EVENTS.RESUME, { userId });
             botHandler.handleResume(matchId, gameSlug, state);
             _startTurnTimer(gameNs, matchId, gameSlug, state);
@@ -619,6 +639,7 @@ const setupGameSocket = (io, gameNs) => {
               const ps = _getPlayerState(gameSlug, updatedState, s.userId);
               s.emit(EVENTS.SYNC, {
                 state: ps.pluginState,
+                revision: updatedState.currentRevision,
                 valid: true,
                 moveType: moveData.type,
                 userId,
@@ -822,6 +843,16 @@ const setupGameSocket = (io, gameNs) => {
       state.status = MATCH_STATES.PAUSED;
       state.pausedAt = Date.now();
       await EventStore.saveMatchSnapshot(matchId, state);
+      // Sync the actor's in-memory state so bot move processing sees PAUSED
+      // and doesn't advance turns while the match is paused.
+      const { MatchManager: PauseSync } = require('../modules/game/engine/MatchManager');
+      const pauseActor = PauseSync.getActor(matchId);
+      if (pauseActor && pauseActor.state) {
+        pauseActor.state.status = MATCH_STATES.PAUSED;
+        pauseActor.state.pausedAt = state.pausedAt;
+        pauseActor.state.disconnectedPlayers = state.disconnectedPlayers;
+        pauseActor.state.disconnectTimestamps = state.disconnectTimestamps;
+      }
       ns.to(matchRoom).emit(EVENTS.PAUSE, {
         reason: 'player_disconnected',
         userId,
@@ -1066,7 +1097,7 @@ const setupGameSocket = (io, gameNs) => {
       for (const s of sockets) {
         const sid = s.data?.userId || s.userId;
         const ps = _getPlayerState(gameSlug, state, sid);
-        s.emit(EVENTS.SYNC, { state: ps.pluginState, reason: 'player_removed', removedPlayer: userId });
+        s.emit(EVENTS.SYNC, { state: ps.pluginState, revision: state.currentRevision, reason: 'player_removed', removedPlayer: userId });
       }
       ns.to(`match:${matchId}`).emit(EVENTS.RESUME, { removedPlayer: userId });
       botHandler.handleResume(matchId, gameSlug, state);
@@ -1141,6 +1172,15 @@ const setupGameSocket = (io, gameNs) => {
 
   function _startTurnTimer(ns, matchId, gameSlug, state) {
     try {
+      // Always prefer the actor's in-memory state (source of truth) over the
+      // caller-provided state. The caller's state may be stale DB snapshot
+      // while the actor has already advanced via processed bot/human moves.
+      const { MatchManager } = require('../modules/game/engine/MatchManager');
+      const actor = MatchManager.getActor(matchId);
+      if (actor && actor.state) {
+        state = actor.state;
+      }
+
       // Pass configSnapshot from top-level state so the plugin gets correct timer durations
       const matchData = { ...(state.metadata || {}), configSnapshot: state.configSnapshot || state.metadata?.configSnapshot || {} };
       const plugin = GameRegistry.createInstance(gameSlug, matchData);
@@ -1262,6 +1302,7 @@ const setupGameSocket = (io, gameNs) => {
         // see the new colour assignment immediately, not on the first move SYNC.
         gameNs.to(`match:${matchId}`).emit(EVENTS.SYNC, {
           state: state.pluginState,
+          revision: state.currentRevision,
           reason: 'round_created',
         });
         console.info(`[GameEngine] Round ${nextRound.number} created for match ${matchId}`);

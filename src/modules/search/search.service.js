@@ -118,6 +118,7 @@ const SINGULAR_MAP = {
 
 const tagRows = (rows, type) =>
   rows.map((r) => {
+    if (r.itemType) return r; // already wrapped by the query (e.g. injected headers)
     const { total, score, highlight, highlight_content, ...rest } = r;
     // Some legacy highlight structure might use highlight_content, wrap it properly if so
     const finalHighlight = highlight || (highlight_content ? { content: highlight_content } : undefined);
@@ -343,10 +344,10 @@ class SearchService {
                 if (people.length) return { rows: [], total: 0 };
                 if (isDiscovery) {
                   const d = await this.discoverPeople({ userId, page, limit: lmt, offset: off });
-                  return { rows: d.data.map(UserModel.format), total: d.total };
+                  return { rows: d.data.map(r => r.itemType ? r : UserModel.format(r)), total: d.total };
                 }
                 const { rows, total } = await this.searchRepo.searchUser(query, lmt, off, userId, bm ? true : null);
-                return { rows: rows.map(UserModel.format), total };
+                return { rows: rows.map(r => r.itemType ? r : UserModel.format(r)), total };
               }
               case 'communities': {
                 if (communities.length) return { rows: [], total: 0 };
@@ -565,6 +566,19 @@ class SearchService {
         limit,
         offset,
       });
+      
+      // Inject mock header at the top for testing
+      if (page === 1) {
+        rows.unshift({
+          itemType: 'header',
+          id: 'people-you-may-know-header',
+          data: {
+            title: 'People You May Know',
+            subtitle: 'Based on your activity'
+          }
+        });
+      }
+
       return { dataType: 'people', data: rows, total };
     } catch (error) {
       throw error;

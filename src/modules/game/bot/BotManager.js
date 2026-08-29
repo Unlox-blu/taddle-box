@@ -128,15 +128,22 @@ class BotManager {
         const plugin = this._getPlugin(gameSlug);
         if (plugin && typeof plugin[method] === 'function') {
             try {
-                plugin[method](session, state);
+                const result = plugin[method](session, state);
+                // If the plugin method is async, catch unhandled rejections
+                if (result && typeof result.catch === 'function') {
+                    result.catch((e) => {
+                        console.error(`[BotManager] Async error in ${gameSlug} bot ${method} (match ${session.matchId}):`, e.message || e);
+                    });
+                }
             } catch (e) {
-                console.error(`[BotManager] Error in ${gameSlug} bot ${method}:`, e);
+                console.error(`[BotManager] Error in ${gameSlug} bot ${method} (match ${session.matchId}):`, e);
             }
         }
     }
 
     onMatchStart(matchId, gameSlug, state, botId, engineCallback) {
         const session = this._getOrCreateSession(matchId, gameSlug, botId, engineCallback);
+        console.info(`[BotManager] onMatchStart: ${gameSlug} bot ${botId} in match ${matchId}`);
         this._invokePlugin(gameSlug, 'onMatchStart', session, state);
     }
 
@@ -147,7 +154,10 @@ class BotManager {
         // previous action is still pending), drop the duplicate so the bot's
         // pacing (e.g. Ludo's 2s roll → move → roll cadence) never collapses
         // into simultaneous rolls + moves.
-        if (session.busy) return;
+        if (session.busy) {
+            console.info(`[BotManager] onTurn: ${botId} busy in match ${matchId}, dropping duplicate`);
+            return;
+        }
         session.busy = true;
         const timersBefore = session.timers.size;
         this._invokePlugin(gameSlug, 'onTurn', session, state);

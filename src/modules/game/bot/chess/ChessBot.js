@@ -1,76 +1,128 @@
 const { spawn } = require('child_process');
-const path = require('path');
 const readline = require('readline');
+
+const ENGINE_INIT_TIMEOUT_MS = 15000; // 15s to load WASM + NNUE networks
 
 module.exports = {
     onMatchStart: (session, state) => {
-        // Find the CLI script from the stockfish module
-        const stockfishCliPath = require.resolve('stockfish/scripts/cli.js');
-        
-        session.enginePromise = new Promise((resolve) => {
-            const process = spawn('node', [stockfishCliPath]);
-            
+        let stockfishCliPath;
+        try {
+            stockfishCliPath = require.resolve('stockfish/scripts/cli.js');
+        } catch (e) {
+            console.error('[ChessBot] stockfish CLI not found:', e.message);
+            session.enginePromise = Promise.reject(new Error('Stockfish CLI not installed'));
+            return;
+        }
+
+        session.enginePromise = new Promise((resolve, reject) => {
+            let resolved = false;
+            const rejectOnce = (err) => {
+                if (!resolved) {
+                    resolved = true;
+                    console.error(`[ChessBot] Engine init failed for match ${session.matchId}:`, err.message || err);
+                    reject(err);
+                }
+            };
+            const resolveOnce = (eng) => {
+                if (!resolved) {
+                    resolved = true;
+                    resolve(eng);
+                }
+            };
+
+            const childProc = spawn('node', [stockfishCliPath]);
+
+            // Handle spawn errors (e.g., node not found, permission denied)
+            childProc.on('error', (err) => {
+                console.error(`[ChessBot] Spawn error for match ${session.matchId}:`, err.message);
+                rejectOnce(err);
+            });
+
+            // Handle unexpected process exit before readyok
+            childProc.on('exit', (code, signal) => {
+                if (!resolved) {
+                    console.error(`[ChessBot] Engine exited unexpectedly for match ${session.matchId}: code=${code} signal=${signal}`);
+                    rejectOnce(new Error(`Stockfish exited with code ${code}, signal ${signal}`));
+                }
+            });
+
+            // Timeout: if engine doesn't initialize in time, reject
+            const initTimer = setTimeout(() => {
+                console.error(`[ChessBot] Engine init timeout for match ${session.matchId} after ${ENGINE_INIT_TIMEOUT_MS}ms`);
+                try { childProc.kill(); } catch (_) {}
+                rejectOnce(new Error('Stockfish init timeout'));
+            }, ENGINE_INIT_TIMEOUT_MS);
+
             // Create a line reader for stdout
             const rl = readline.createInterface({
-                input: process.stdout,
+                input: childProc.stdout,
                 terminal: false
             });
 
             let uciOk = false;
 
             const engine = {
-                process,
+                process: childProc,
                 sendCommand: (cmd) => {
-                    process.stdin.write(cmd + '\n');
+                    try {
+                        childProc.stdin.write(cmd + '\n');
+                    } catch (e) {
+                        console.error(`[ChessBot] sendCommand error for match ${session.matchId}:`, e.message);
+                    }
                 },
                 quit: () => {
-                    process.stdin.write('quit\n');
-                    process.kill();
+                    try {
+                        childProc.stdin.write('quit\n');
+                        childProc.kill();
+                    } catch (_) {}
                 }
             };
-            
+
             rl.on('line', (line) => {
                 const msg = line.trim();
-                
+
                 if (msg === 'uciok' && !uciOk) {
                     uciOk = true;
-                    // Configure difficulty, then send isready — engine will
-                    // finish loading NNUE networks and reply with readyok.
                     const { chessSkill } = session.difficulty;
                     engine.sendCommand(`setoption name Skill Level value ${chessSkill}`);
                     engine.sendCommand('isready');
                 }
 
                 if (msg === 'readyok') {
-                    // Engine is fully initialised — safe to send 'go' now.
-                    resolve(engine);
+                    clearTimeout(initTimer);
+                    console.info(`[ChessBot] Engine ready for match ${session.matchId}, bot ${session.botId}`);
+                    resolveOnce(engine);
                 }
 
                 if (msg.startsWith('bestmove')) {
                     const parts = msg.split(' ');
-                    const moveString = parts[1]; // e.g. "e2e4" or "e7e8q"
+                    const moveString = parts[1];
 
-                    // Always release the thinking lock — including "(none)" and
-                    // malformed output — so a stuck engine can never deadlock the
-                    // match. A later re-drive (or the guard in handleTurn) will
-                    // handle the next turn normally.
                     session.botThinking = false;
 
                     if (moveString && moveString !== '(none)') {
                         const from = moveString.substring(0, 2);
                         const to = moveString.substring(2, 4);
                         const promotion = moveString.length === 5 ? moveString[4] : undefined;
-                        
+
                         const move = { from, to };
                         if (promotion) move.promotion = promotion;
 
-                        // Add a tiny human delay using the difficulty profile
+                        console.info(`[ChessBot] Best move for match ${session.matchId}: ${moveString}`);
+
                         const delay = session.difficulty.reactionMs + (session.random() * 500);
                         session.setTimeout(() => {
                             session.submitMove(move);
                         }, delay);
+                    } else {
+                        console.warn(`[ChessBot] Engine returned no move for match ${session.matchId}: ${moveString}`);
                     }
                 }
+            });
+
+            rl.on('close', () => {
+                console.warn(`[ChessBot] Readline closed for match ${session.matchId}`);
+                rejectOnce(new Error('Stockfish readline closed unexpectedly'));
             });
 
             session.engine = engine;
@@ -79,43 +131,54 @@ module.exports = {
     },
 
     onTurn: async (session, state) => {
-        if (!session.enginePromise) return;
-        // Guard against double-driving the same bot (e.g. a delayed move from a
-        // previous drive firing after the turn already advanced). Stockfish can
-        // only produce one bestmove per `go` — a second `go` before the first
-        // resolves yields a stale move that gets rejected as "Not your turn".
-        if (session.botThinking) return;
-        const engine = await session.enginePromise;
-        if (!engine) return;
+        try {
+            if (!session.enginePromise) {
+                console.warn(`[ChessBot] No engine promise for match ${session.matchId}, bot ${session.botId}`);
+                return;
+            }
+            if (session.botThinking) {
+                console.info(`[ChessBot] Bot ${session.botId} already thinking in match ${session.matchId}, skipping`);
+                return;
+            }
+            const engine = await session.enginePromise;
+            if (!engine) {
+                console.warn(`[ChessBot] Engine resolved to null for match ${session.matchId}`);
+                return;
+            }
 
-        const ps = state.pluginState;
+            const ps = state.pluginState;
 
-        // Ensure it's actually the bot's turn
-        if (ps.turnOrder[ps.currentTurnIndex] !== session.botId) return;
+            if (ps.turnOrder[ps.currentTurnIndex] !== session.botId) {
+                console.info(`[ChessBot] Not bot's turn in match ${session.matchId}: currentTurnIndex=${ps.currentTurnIndex}, turnOrder=${JSON.stringify(ps.turnOrder)}, botId=${session.botId}`);
+                return;
+            }
 
-        session.botThinking = true;
+            session.botThinking = true;
+            console.info(`[ChessBot] Bot ${session.botId} thinking in match ${session.matchId}, fen=${ps.fen}`);
 
-        // Safety net: if stockfish never emits a bestmove (crash, hang), release
-        // the lock after the move-time budget + margin so a re-drive can happen.
-        const budgetMs = session.difficulty.chessMoveTime || 1000;
-        session.setTimeout(() => {
-            if (session.botThinking) session.botThinking = false;
-        }, budgetMs + 8000);
+            const budgetMs = session.difficulty.chessMoveTime || 1000;
+            session.setTimeout(() => {
+                if (session.botThinking) {
+                    console.warn(`[ChessBot] Safety timeout: releasing botThinking for match ${session.matchId}`);
+                    session.botThinking = false;
+                }
+            }, budgetMs + 8000);
 
-        // Tell stockfish the current board state
-        engine.sendCommand(`position fen ${ps.fen}`);
-        
-        // Tell it to think
-        const { chessDepth, chessMoveTime } = session.difficulty;
-        if (chessDepth) {
-            engine.sendCommand(`go depth ${chessDepth} movetime ${chessMoveTime}`);
-        } else {
-            engine.sendCommand(`go movetime ${chessMoveTime}`);
+            engine.sendCommand(`position fen ${ps.fen}`);
+
+            const { chessDepth, chessMoveTime } = session.difficulty;
+            if (chessDepth) {
+                engine.sendCommand(`go depth ${chessDepth} movetime ${chessMoveTime}`);
+            } else {
+                engine.sendCommand(`go movetime ${chessMoveTime}`);
+            }
+        } catch (err) {
+            console.error(`[ChessBot] onTurn error for match ${session.matchId}, bot ${session.botId}:`, err.message);
+            session.botThinking = false;
         }
     },
 
     onPause: (session) => {
-        // Release the thinking lock on pause so a resume/re-drive isn't blocked.
         session.botThinking = false;
     },
 
@@ -130,7 +193,7 @@ module.exports = {
     cleanup: (session) => {
         session.botThinking = false;
         if (session.engine) {
-            session.engine.quit();
+            try { session.engine.quit(); } catch (_) {}
             session.engine = null;
         }
     }

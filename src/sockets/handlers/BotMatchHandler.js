@@ -44,12 +44,14 @@ class BotMatchHandler {
 
   async handleBotMoveGenerated(matchId, gameSlug, botId, botMove) {
     try {
+      console.info(`[BotEngine] Bot ${botId} generated move in match ${matchId}: ${JSON.stringify(botMove)}`);
       // Use the actor to process the bot's move
       const commandId = require('crypto').randomUUID();
       const updatedState = await MatchManager.handlePlayerMove(
         matchId, gameSlug, botId, botMove, commandId
       );
       this.reDriveCounts.delete(matchId);
+      console.info(`[BotEngine] Bot ${botId} move applied in match ${matchId}, revision=${updatedState.currentRevision}`);
 
       if (updatedState.status === MATCH_STATES.FINISHED) {
         await TimerEngine.clearAllTimers(matchId);
@@ -81,7 +83,7 @@ class BotMatchHandler {
         } else {
           this.ns
             .to(`match:${matchId}`)
-            .emit(this.EVENTS.SYNC, { state: updatedState.pluginState, botMove: true });
+            .emit(this.EVENTS.SYNC, { state: updatedState.pluginState, revision: updatedState.currentRevision, botMove: true });
           if (gameSlug !== 'scribble' && gameSlug !== 'word-rush') {
             this.startTurnTimer(this.ns, matchId, gameSlug, updatedState);
           }
@@ -104,7 +106,10 @@ class BotMatchHandler {
       }
       this.reDriveCounts.set(matchId, attempts);
       try {
-        const fresh = await EventStore.loadMatchSnapshot(matchId);
+        // Prefer actor's in-memory state over DB snapshot (which may be stale)
+        const { MatchManager } = require('../../modules/game/engine/MatchManager');
+        const actor = MatchManager.getActor(matchId);
+        const fresh = (actor && actor.state) || await EventStore.loadMatchSnapshot(matchId);
         if (!fresh || fresh.status !== MATCH_STATES.ACTIVE) return;
         this.startTurnTimer(this.ns, matchId, gameSlug, fresh);
       } catch (err) {

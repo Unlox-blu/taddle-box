@@ -17,6 +17,7 @@
 
 
 const EventStore = require('./EventStore');
+const { botIdToUuid } = EventStore;
 const GameRegistry = require('./GameRegistry');
 
 // ── Match Lifecycle States ────────────────────────────────────────────────
@@ -167,12 +168,14 @@ class MatchActor {
       }
 
       // Append event atomically
+      // Convert bot IDs to deterministic UUIDs for the DB.
+      const dbUserId = userId ? botIdToUuid(userId) : null;
       await client.query(
         `INSERT INTO game_events (match_id, sequence_number, event_type, payload, user_id)
          VALUES ($1, $2, $3, $4::jsonb, $5)
          ON CONFLICT (match_id, sequence_number) DO UPDATE
            SET event_type = EXCLUDED.event_type, payload = EXCLUDED.payload`,
-        [matchId, seq, type, JSON.stringify(moveData || {}), userId]
+        [matchId, seq, type, JSON.stringify(moveData || {}), dbUserId]
       );
 
       // Update match revision + snapshot

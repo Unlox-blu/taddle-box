@@ -13,9 +13,30 @@
  * Redis is the accelerator, not the ultimate source of truth.
  */
 
+const crypto = require('crypto');
 const pool   = require('../../../config/database');
 const redis  = require('../../../config/redis');
 
+// ── Bot UUID mapping ────────────────────────────────────────────────────
+// Bot IDs (e.g. "bot_002_e3eb9a02_0") are not valid UUIDs, but the
+// game_commands.user_id column is UUID. This helper generates a
+// deterministic UUID from any bot ID string using SHA-256, so the same
+// bot always maps to the same UUID in the database.
+const BOT_UUID_NAMESPACE = '6ba7b810-9dad-11d1-80b4-00c04fd430c8';
+function botIdToUuid(botId) {
+  if (!botId) return null;
+  if (/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(botId)) {
+    return botId;
+  }
+  const hash = crypto.createHash('sha256').update(BOT_UUID_NAMESPACE + botId).digest('hex');
+  return [
+    hash.slice(0, 8),
+    hash.slice(8, 12),
+    '5' + hash.slice(13, 16),
+    hash.slice(16, 20),
+    hash.slice(20, 32),
+  ].join('-');
+}
 // ── Lua scripts ─────────────────────────────────────────────────────────
 // Atomic INCR + EXPIRE for rate limiting
 const RATE_LIMIT_LUA = `
@@ -85,13 +106,15 @@ class EventStore {
     }
 
     // Reserved — insert the command row in PG
+    // Convert bot IDs (non-UUID strings) to deterministic UUIDs for the DB.
+    const dbUserId = botIdToUuid(userId);
     const { rows } = await pool.query(
       `INSERT INTO game_commands (match_id, command_id, user_id, command_type, state_revision, status)
        VALUES ($1, $2, $3, $4, 0, 'PROCESSING')
        ON CONFLICT (match_id, command_id) DO UPDATE
          SET status = 'PROCESSING', updated_at = NOW()
        RETURNING id, state_revision`,
-      [matchId, commandId, userId, commandType]
+      [matchId, commandId, dbUserId, commandType]
     );
 
     return { status: 'RESERVED', commandDbId: rows[0]?.id };
@@ -216,13 +239,15 @@ class EventStore {
    * Returns the allocated sequence_number (allocated exclusively by the actor).
    */
   static async appendEvent(matchId, eventType, payload, userId = null, sequenceNumber) {
+    // Convert bot IDs to deterministic UUIDs for the DB.
+    const dbUserId = userId ? botIdToUuid(userId) : null;
     const { rows } = await pool.query(
       `INSERT INTO game_events (match_id, sequence_number, event_type, payload, user_id)
        VALUES ($1, $2, $3, $4::jsonb, $5)
        ON CONFLICT (match_id, sequence_number) DO UPDATE
          SET event_type = EXCLUDED.event_type, payload = EXCLUDED.payload
        RETURNING id, sequence_number`,
-      [matchId, sequenceNumber, eventType, JSON.stringify(payload || {}), userId]
+      [matchId, sequenceNumber, eventType, JSON.stringify(payload || {}), dbUserId]
     );
     return rows[0];
   }
@@ -373,3 +398,4 @@ class EventStore {
 }
 
 module.exports = EventStore;
+module.exports.botIdToUuid = botIdToUuid;

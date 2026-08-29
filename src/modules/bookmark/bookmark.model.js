@@ -12,6 +12,8 @@ const ITEM_TYPES = ['post', 'profile', 'community', 'comment', 'game', 'event'];
 const PostModel = require('../post/post.model');
 const UserModel = require('../user/user.model');
 const CommunityModel = require('../community/community.model');
+const GameModel = require('../game/game.model');
+const EventModel = require('../event/event.model');
 
 // Generic formatter that dispatches by item_type
 const format = (row, itemType) => {
@@ -20,6 +22,8 @@ const format = (row, itemType) => {
     case 'post':     return PostModel.format(row);
     case 'profile':  return UserModel.format(row);
     case 'community': return CommunityModel.format(row);
+    case 'game':     return GameModel.formatGame(row);
+    case 'event':    return EventModel.format(row);
     // Future types: return a lightweight shape so the UI can render something.
     default:
       return {

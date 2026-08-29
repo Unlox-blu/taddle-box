@@ -142,16 +142,33 @@ class GameService {
         teamsLocked: !!matchMeta.teamsLocked,
         ticket: { userMatchId: active.match_id, token: active.ws_token },
         reconnectWindowMs,
-        game: {
-          id: active.game_id,
-          name: active.game_name,
-          slug: active.game_slug,
-          // Canonical field: runtimeType ('app' | 'web'). Legacy DB field is
-          // metadata.runtime with value 'native' — map to 'app' for the client.
-          runtimeType: active.match_metadata?.runtimeType
-            || (active.match_metadata?.runtime === 'native' ? 'app' : active.match_metadata?.runtime)
-            || 'app',
-        }
+        game: (() => {
+          // Pull runtime contract from GameRegistry (SSOT) so the frontend
+          // can resolve the correct renderer on rejoin — matching the
+          // startGameSession response that fresh-match players get.
+          let registryMeta = {};
+          try {
+            const GameRegistry = require('./engine/GameRegistry');
+            registryMeta = GameRegistry.getMeta(active.game_slug) || {};
+          } catch { /* registry not loaded yet */ }
+          return {
+            id: active.game_id,
+            name: active.game_name,
+            slug: active.game_slug,
+            // Canonical field: runtimeType ('app' | 'web'). Legacy DB field is
+            // metadata.runtime with value 'native' — map to 'app' for the client.
+            runtimeType: registryMeta.runtimeType
+              || active.match_metadata?.runtimeType
+              || (active.match_metadata?.runtime === 'native' ? 'app' : active.match_metadata?.runtime)
+              || 'app',
+            runtime: registryMeta.runtime || active.game_slug,
+            runtimeVersion: registryMeta.runtimeVersion || 1,
+            protocolVersion: registryMeta.protocolVersion || 1,
+            minAppVersion: registryMeta.minAppVersion || '1.0.0',
+            assetSetId: registryMeta.assetSetId || `${active.game_slug}-v1`,
+            assetManifestVersion: registryMeta.assetManifestVersion || 1,
+          };
+        })()
       };
     } catch (error) {
       throw error;

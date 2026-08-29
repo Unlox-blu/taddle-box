@@ -65,6 +65,7 @@ router.post('/lobbies/:lobbyId/start', verifyToken, validateRequest({params: lob
 router.get('/trending',         verifyToken,                                                gameController.getTrendingGames);
 router.get('/',                 verifyToken,  validateRequest({query: paginationSchema}),   gameController.getGames);
 router.get('/search',           verifyToken,  validateRequest({query: searchSchema}),       gameController.searchGames);
+
 router.get('/:gameId',          verifyToken,  validateRequest({params: gameIdParamSchema}), gameController.getGameById);
 
 module.exports = router;

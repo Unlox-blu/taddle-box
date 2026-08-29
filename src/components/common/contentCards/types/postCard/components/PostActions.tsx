@@ -635,7 +635,6 @@ function PostActionsInner({
                   {post.repostedByMe ? (
                     <Animated.View style={{ flexDirection: "row", alignItems: "center", gap: 2, transform: [{ scale: repostLitScale }], opacity: Animated.add(1, repostLitAnim.interpolate({ inputRange: [0, 1], outputRange: [0, 0.5] })) }}>
                       <Ionicons name="repeat" size={19} color={colors.primaryLight} />
-                      <Ionicons name="checkmark-circle" size={10} color={colors.success} style={{ marginLeft: -6, marginTop: -8 }} />
                     </Animated.View>
                   ) : (
                     <Animated.View style={{ flexDirection: "row", alignItems: "center", transform: [{ scale: repostLitScale }], opacity: repostLitAnim.interpolate({ inputRange: [0, 1], outputRange: [1, 0.3] }) }}>

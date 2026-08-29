@@ -42,7 +42,7 @@ import { Image } from "expo-image";
 import { LinearGradient } from "expo-linear-gradient";
 import { Ionicons } from "@expo/vector-icons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { useNavigation } from "@react-navigation/native";
+import { useNavigation, useTheme } from "@react-navigation/native";
 import { useQueryClient } from "@tanstack/react-query";
 import { fontSizes, spacing, radii } from "../../theme";
 import { BlurView } from "expo-blur";
@@ -393,9 +393,10 @@ function RepostedReelPreview({
   onPress: (orig: Post) => void;
 }) {
   const [orig, setOrig] = useState<any>(null);
+  const [privateAuthor, setPrivateAuthor] = useState<any>(null);
   const [loading, setLoading] = useState(true);
+  const navigation = useNavigation<any>();
   const [mediaPage, setMediaPage] = useState(0);
-  const [isMuted, setIsMuted] = useState(true);
   const [pollData, setPollData] = useState<any>(null);
   const [myPollVote, setMyPollVote] = useState<number | null>(null);
 
@@ -415,8 +416,13 @@ function RepostedReelPreview({
           setLoading(false);
         }
       })
-      .catch(() => {
-        if (!cancelled) setLoading(false);
+      .catch((e: any) => {
+        if (!cancelled) {
+          if (e.response?.status === 403 && e.response?.data?.errors?.isPrivate) {
+            setPrivateAuthor(e.response.data.errors.author);
+          }
+          setLoading(false);
+        }
       });
     return () => {
       cancelled = true;
@@ -427,6 +433,23 @@ function RepostedReelPreview({
     setPollData((orig as any)?.pollData || null);
     setMyPollVote((orig as any)?.myPollVote ?? null);
   }, [(orig as any)?.id]);
+
+  const handlePollVote = useCallback(
+    async (optionIndex: number) => {
+      try {
+        const res = await postsService.castPollVote((orig as any)?.id, optionIndex);
+        const data = res?.data || res;
+        setMyPollVote(data?.myVote ?? null);
+        if (data?.pollData) setPollData(data.pollData);
+      } catch (e: any) {
+        themedAlert(
+          "Vote Error",
+          e?.response?.data?.message || "Could not record your vote."
+        );
+      }
+    },
+    [(orig as any)?.id]
+  );
 
   if (loading) {
     return (
@@ -442,6 +465,42 @@ function RepostedReelPreview({
   }
 
   if (!orig) {
+    if (privateAuthor) {
+      const author = {
+        id: privateAuthor.id || "",
+        name: privateAuthor.name || "Private User",
+        username: privateAuthor.username || "unknown",
+        avatarUrl: privateAuthor.avatar_url?.cloudfront_url || privateAuthor.avatar_url,
+        avatar: privateAuthor.avatar || "👾",
+      };
+      return (
+        <TouchableOpacity
+          activeOpacity={0.85}
+          onPress={() => navigation.push("Profile", { userId: author.id })}
+          style={styles.repostPreview}
+        >
+          <View style={{ flexDirection: "row", alignItems: "center", gap: 12 }}>
+            <View style={{ width: 44, height: 44, borderRadius: 22, backgroundColor: "rgba(124,58,237,0.3)", overflow: "hidden", alignItems: "center", justifyContent: "center" }}>
+              {author.avatarUrl ? (
+                <Image source={{ uri: author.avatarUrl }} style={{ width: 44, height: 44 }} contentFit="cover" />
+              ) : (
+                <Text style={{ fontSize: 18 }}>{author.avatar}</Text>
+              )}
+            </View>
+            <View style={{ flex: 1 }}>
+              <Text style={{ fontSize: 14, fontWeight: "700", color: "#F1F5F9" }}>{author.name}</Text>
+              <Text style={{ fontSize: 12, color: "rgba(255,255,255,0.55)" }}>@{author.username}</Text>
+            </View>
+          </View>
+          <View style={{ marginTop: 12, backgroundColor: "rgba(255,255,255,0.05)", padding: 12, borderRadius: 8, flexDirection: "row", alignItems: "center", gap: 8 }}>
+            <Ionicons name="lock-closed" size={16} color="rgba(255,255,255,0.6)" />
+            <Text style={{ flex: 1, fontSize: 12, color: "rgba(255,255,255,0.7)" }}>
+              This account is private. Tap to view profile and request to follow.
+            </Text>
+          </View>
+        </TouchableOpacity>
+      );
+    }
     return (
       <View style={styles.repostPreview}>
         <Text
@@ -496,7 +555,6 @@ function RepostedReelPreview({
     mediaH = Math.max(160, Math.min(previewW / ratio, 420));
   }
 
-  const handleOpen = () => onPress(orig as Post);
 
   // RollingText items matching PostCard exactly — all items must be <Text>
   const rollItems: React.ReactNode[] = [
@@ -541,7 +599,7 @@ function RepostedReelPreview({
             }}
             numberOfLines={1}
           >
-            📍{" "}
+            <Ionicons name="location" size={12} color="#fff" style={{ opacity: 0.8, marginRight: 2 }} />
             {origLoc.place ||
               `${(origLoc.lat ?? 0).toFixed(4)}, ${(origLoc.lon ?? 0).toFixed(4)}`}
           </Text>,
@@ -566,23 +624,9 @@ function RepostedReelPreview({
   return (
     <TouchableOpacity
       activeOpacity={0.85}
-      onPress={handleOpen}
+      onPress={() => onPress(orig)}
       style={styles.repostPreview}
     >
-      {/* Reposted by badge */}
-      <View
-        style={{
-          flexDirection: "row",
-          alignItems: "center",
-          gap: 6,
-          marginBottom: 8,
-        }}
-      >
-        <Ionicons name="repeat" size={14} color="#7C3AED" />
-        <Text style={{ fontSize: 11, fontWeight: "700", color: "#7C3AED" }}>
-          Reposted by {(post as any).author?.name || "someone"}
-        </Text>
-      </View>
       {/* Author row */}
       <View
         style={{
@@ -687,38 +731,12 @@ function RepostedReelPreview({
                   }}
                 >
                   {isVid ? (
-                    <>
-                      <Image
-                        source={{ uri: m.preview_url || url }}
-                        style={{ width: previewW, height: mediaH }}
-                        contentFit="cover"
-                      />
-                      <View
-                        style={{
-                          position: "absolute",
-                          bottom: 8,
-                          right: 8,
-                          backgroundColor: "rgba(0,0,0,0.6)",
-                          borderRadius: 12,
-                          paddingHorizontal: 8,
-                          paddingVertical: 4,
-                          flexDirection: "row",
-                          alignItems: "center",
-                          gap: 4,
-                        }}
-                      >
-                        <Ionicons name="play" size={12} color={"#fff"} />
-                        <Text
-                          style={{
-                            fontSize: 10,
-                            color: "#fff",
-                            fontWeight: "600",
-                          }}
-                        >
-                          Video
-                        </Text>
-                      </View>
-                    </>
+                    <ActiveVideo
+                      url={url}
+                      width={previewW}
+                      height={mediaH}
+                      muted={true}
+                    />
                   ) : (
                     <Image
                       source={{ uri: url }}
@@ -756,37 +774,11 @@ function RepostedReelPreview({
               ))}
             </View>
           )}
-          {(hasAudio || hasVideo) && (
-            <TouchableOpacity
-              activeOpacity={0.7}
-              onPress={(e) => {
-                e.stopPropagation?.();
-                setIsMuted(!isMuted);
-              }}
-              style={{
-                position: "absolute",
-                bottom: 8,
-                right: 8,
-                backgroundColor: "rgba(0,0,0,0.55)",
-                borderRadius: 13,
-                width: 26,
-                height: 26,
-                alignItems: "center",
-                justifyContent: "center",
-              }}
-            >
-              <Ionicons
-                name={isMuted ? "volume-mute" : "volume-high"}
-                size={14}
-                color={"#fff"}
-              />
-            </TouchableOpacity>
-          )}
         </View>
       )}
       {pollData ? (
         <View style={{ marginTop: 8 }}>
-          <PollBlock poll={pollData} myVote={myPollVote} embedded />
+          <PollBlock poll={pollData} myVote={myPollVote} onVote={handlePollVote} embedded />
         </View>
       ) : null}
       {((orig as any).likesCount ?? 0) +
@@ -829,29 +821,6 @@ function RepostedReelPreview({
           </View>
         </View>
       )}
-      <View
-        style={{
-          flexDirection: "row",
-          alignItems: "center",
-          gap: 4,
-          marginTop: 10,
-        }}
-      >
-        <Ionicons
-          name="play-circle-outline"
-          size={14}
-          color="rgba(255,255,255,0.4)"
-        />
-        <Text
-          style={{
-            fontSize: 11,
-            color: "rgba(255,255,255,0.4)",
-            fontWeight: "600",
-          }}
-        >
-          View original reel
-        </Text>
-      </View>
     </TouchableOpacity>
   );
 }
@@ -918,7 +887,9 @@ const AmbientBackground = ({
   children?: React.ReactNode;
   style?: any;
 }) => {
-  if (!url) {
+  const safeUrl = url && url !== "null" && url !== "undefined" ? url : null;
+  
+  if (!safeUrl) {
     return (
       <View
         style={[
@@ -926,6 +897,11 @@ const AmbientBackground = ({
           style,
         ]}
       >
+        <Image
+          source={require("../../../assets/icon.png")}
+          style={[StyleSheet.absoluteFill, { opacity: 0.1 }]}
+          contentFit="cover"
+        />
         {children}
       </View>
     );
@@ -933,7 +909,7 @@ const AmbientBackground = ({
   return (
     <View style={[{ width: SCREEN_W, height: SCREEN_H }, style]}>
       <Image
-        source={{ uri: url }}
+        source={{ uri: safeUrl }}
         style={StyleSheet.absoluteFill}
         contentFit="cover"
         blurRadius={40}
@@ -965,6 +941,14 @@ function ReelContent({
   onPinchStateChange,
   onRepostPress,
   overlayAnim,
+  onPress,
+  onPressIn,
+  onPressOut,
+  myPollVote,
+  onPollVote,
+  pollData,
+  activeIndex,
+  setActiveIndex,
 }: {
   post: Post;
   isActive: boolean;
@@ -973,6 +957,14 @@ function ReelContent({
   onPinchStateChange?: (pinching: boolean) => void;
   onRepostPress?: (orig: Post) => void;
   overlayAnim: Animated.Value;
+  onPress?: (e: any) => void;
+  onPressIn?: (e: any) => void;
+  onPressOut?: (e: any) => void;
+  myPollVote?: number | null;
+  onPollVote?: (optionIndex: number) => void;
+  pollData?: any;
+  activeIndex: number;
+  setActiveIndex: (index: number) => void;
 }) {
   const reelBg1 = "#000000";
   const reelBg2 = "#000000";
@@ -985,14 +977,26 @@ function ReelContent({
   const audioMedia = allMedia.filter(
     (m: any) => m.media_type === "audio" || m.type === "audio",
   );
+  const hasCommonAudio = audioMedia.length > 0;
   const firstMedia = visualMedia[0] || allMedia[0];
   const isVideo =
     firstMedia?.media_type === "video" ||
     firstMedia?.type === "video" ||
     post.type === "video";
-  const isAudio = firstMedia?.media_type === "audio";
+  const isAudio =
+    firstMedia?.media_type === "audio" || firstMedia?.type === "audio" || (post as any).type === "audio";
+
+  const rawMediaUrl = firstMedia?.media_url;
   const mediaUrl =
-    firstMedia?.media_url || (post as any).mediaUri || (post as any).image;
+    rawMediaUrl && rawMediaUrl !== "null" && rawMediaUrl !== "undefined"
+      ? rawMediaUrl
+      : undefined;
+
+  const rawPreviewUrl = firstMedia?.preview_url;
+  const safePreviewUrl =
+    rawPreviewUrl && rawPreviewUrl !== "null" && rawPreviewUrl !== "undefined"
+      ? rawPreviewUrl
+      : undefined;
 
   const getMediaDimensions = (m?: any) => {
     const w = m?.width || firstMedia?.width || 1080;
@@ -1010,19 +1014,26 @@ function ReelContent({
   // Repost → show embedded preview of the original post
   if (isRepost) {
     return (
-      <AmbientBackground
-        url={
-          (post as any).mediaUri ||
-          firstMedia?.preview_url ||
-          firstMedia?.media_url
-        }
+      <Pressable
+        onPress={onPress}
+        onPressIn={onPressIn}
+        onPressOut={onPressOut}
+        style={StyleSheet.absoluteFill}
       >
-        <RepostedReelPreview
-          post={post}
-          isActive={isActive}
-          onPress={(orig) => onRepostPress?.(orig)}
-        />
-      </AmbientBackground>
+        <AmbientBackground
+          url={
+            (post as any).mediaUri ||
+            firstMedia?.preview_url ||
+            firstMedia?.media_url
+          }
+        >
+          <RepostedReelPreview
+            post={post}
+            isActive={isActive}
+            onPress={(orig) => onRepostPress?.(orig)}
+          />
+        </AmbientBackground>
+      </Pressable>
     );
   }
 
@@ -1036,41 +1047,59 @@ function ReelContent({
           showsHorizontalScrollIndicator={false}
           snapToInterval={SCREEN_W}
           decelerationRate="fast"
+          onScroll={(e) => {
+            const newIdx = Math.round(e.nativeEvent.contentOffset.x / SCREEN_W);
+            setActiveIndex(newIdx);
+          }}
+          scrollEventThrottle={16}
         >
           {visualMedia.map((m: any, idx: number) => {
             const url = m.media_url;
             const isVid = m.media_type === "video" || m.type === "video";
             const dims = getMediaDimensions(m);
             return (
-              <AmbientBackground key={idx} url={url || m.preview_url}>
-                <MediaEdgeMask width={dims.width} height={dims.height}>
-                  {isVid && url ? (
-                    isActive ? (
-                      <ActiveVideo
-                        url={url}
-                        width={dims.width}
-                        height={dims.height}
-                        muted={!!isMuted}
-                        loop
-                        isPausedOverride={isPaused}
-                      />
-                    ) : (
-                      <Image
-                        source={{ uri: m.preview_url || url }}
-                        style={{ width: dims.width, height: dims.height }}
-                        contentFit="contain"
-                      />
-                    )
-                  ) : url ? (
-                    <Image
-                      source={{ uri: url }}
-                      style={{ width: dims.width, height: dims.height }}
-                      contentFit="contain"
-                      transition={200}
-                    />
-                  ) : null}
-                </MediaEdgeMask>
-              </AmbientBackground>
+              <Pressable
+                key={idx}
+                onPress={onPress}
+                onPressIn={onPressIn}
+                onPressOut={onPressOut}
+              >
+                <AmbientBackground url={url || m.preview_url}>
+                  <ZoomableMedia
+                    width={dims.width}
+                    height={dims.height}
+                    onPinchStateChange={onPinchStateChange}
+                  >
+                    <MediaEdgeMask width={dims.width} height={dims.height}>
+                      {isVid && url ? (
+                        isActive ? (
+                          <ActiveVideo
+                            url={url}
+                            width={dims.width}
+                            height={dims.height}
+                            muted={!!isMuted || idx !== activeIndex || hasCommonAudio}
+                            loop
+                            isPausedOverride={isPaused || idx !== activeIndex}
+                          />
+                        ) : (
+                          <Image
+                            source={{ uri: m.preview_url || url }}
+                            style={{ width: dims.width, height: dims.height }}
+                            contentFit="contain"
+                          />
+                        )
+                      ) : url ? (
+                        <Image
+                          source={{ uri: url }}
+                          style={{ width: dims.width, height: dims.height }}
+                          contentFit="contain"
+                          transition={200}
+                        />
+                      ) : null}
+                    </MediaEdgeMask>
+                  </ZoomableMedia>
+                </AmbientBackground>
+              </Pressable>
             );
           })}
         </ScrollView>
@@ -1092,7 +1121,8 @@ function ReelContent({
                 width: 6,
                 height: 6,
                 borderRadius: 3,
-                backgroundColor: i === 0 ? "#fff" : "rgba(255,255,255,0.4)",
+                backgroundColor:
+                  i === activeIndex ? "#fff" : "rgba(255,255,255,0.4)",
               }}
             />
           ))}
@@ -1105,134 +1135,125 @@ function ReelContent({
   if (isVideo && mediaUrl) {
     const dims = getMediaDimensions();
     return (
-      <AmbientBackground url={firstMedia?.preview_url || mediaUrl}>
-        <MediaEdgeMask width={dims.width} height={dims.height}>
+      <Pressable
+        onPress={onPress}
+        onPressIn={onPressIn}
+        onPressOut={onPressOut}
+        style={StyleSheet.absoluteFill}
+      >
+        <AmbientBackground url={safePreviewUrl || mediaUrl}>
           <ZoomableMedia
             width={dims.width}
             height={dims.height}
             onPinchStateChange={onPinchStateChange}
           >
-            {isActive ? (
-              <ActiveVideo
-                url={mediaUrl}
-                width={dims.width}
-                height={dims.height}
-                muted={!!isMuted}
-                loop
-                isPausedOverride={isPaused}
-              />
-            ) : (
-              <Image
-                source={{ uri: firstMedia?.preview_url || mediaUrl }}
-                style={{ width: dims.width, height: dims.height }}
-                contentFit="contain"
-              />
-            )}
+            <MediaEdgeMask width={dims.width} height={dims.height}>
+              {isActive ? (
+                <ActiveVideo
+                  url={mediaUrl}
+                  width={dims.width}
+                  height={dims.height}
+                  muted={!!isMuted}
+                  loop
+                  isPausedOverride={isPaused}
+                />
+              ) : (
+                <Image
+                  source={{ uri: safePreviewUrl || mediaUrl }}
+                  style={{ width: dims.width, height: dims.height }}
+                  contentFit="contain"
+                />
+              )}
+            </MediaEdgeMask>
           </ZoomableMedia>
-        </MediaEdgeMask>
-      </AmbientBackground>
+        </AmbientBackground>
+      </Pressable>
     );
   }
 
   if (isAudio && mediaUrl) {
     return (
-      <AmbientBackground url={firstMedia?.preview_url}>
-        <MediaEdgeMask width={SCREEN_W} height={SCREEN_W}>
-          <ZoomableMedia
-            width={SCREEN_W}
-            height={SCREEN_W}
-            onPinchStateChange={onPinchStateChange}
-          >
-            {firstMedia?.preview_url ? (
-              <Image
-                source={{ uri: firstMedia.preview_url }}
-                style={{ width: SCREEN_W, height: SCREEN_W }}
-                contentFit="cover"
-              />
-            ) : (
-              <LinearGradient
-                colors={[reelBg2, reelBg1]}
-                style={{
-                  width: SCREEN_W,
-                  height: SCREEN_H,
-                  justifyContent: "center",
-                  alignItems: "center",
-                }}
-              >
-                <Ionicons name="musical-notes" size={64} color="#7C3AED" />
-              </LinearGradient>
-            )}
-          </ZoomableMedia>
-        </MediaEdgeMask>
-      </AmbientBackground>
+      <Pressable
+        onPress={onPress}
+        onPressIn={onPressIn}
+        onPressOut={onPressOut}
+        style={StyleSheet.absoluteFill}
+      >
+        <AmbientBackground url={safePreviewUrl}>
+          {safePreviewUrl ? (
+            <ZoomableMedia
+              width={SCREEN_W}
+              height={SCREEN_W}
+              onPinchStateChange={onPinchStateChange}
+            >
+              <MediaEdgeMask width={SCREEN_W} height={SCREEN_W}>
+                <Image
+                  source={{ uri: safePreviewUrl }}
+                  style={{ width: SCREEN_W, height: SCREEN_W }}
+                  contentFit="cover"
+                />
+              </MediaEdgeMask>
+            </ZoomableMedia>
+          ) : null}
+        </AmbientBackground>
+      </Pressable>
     );
   }
 
   if (mediaUrl) {
     const dims = getMediaDimensions();
     return (
-      <AmbientBackground url={mediaUrl}>
-        <MediaEdgeMask width={dims.width} height={dims.height}>
+      <Pressable
+        onPress={onPress}
+        onPressIn={onPressIn}
+        onPressOut={onPressOut}
+        style={StyleSheet.absoluteFill}
+      >
+        <AmbientBackground url={mediaUrl}>
           <ZoomableMedia
             width={dims.width}
             height={dims.height}
             onPinchStateChange={onPinchStateChange}
           >
-            <Image
-              source={{ uri: mediaUrl }}
-              style={{ width: dims.width, height: dims.height }}
-              contentFit="contain"
-              transition={200}
-            />
+            <MediaEdgeMask width={dims.width} height={dims.height}>
+              <Image
+                source={{ uri: mediaUrl }}
+                style={{ width: dims.width, height: dims.height }}
+                contentFit="contain"
+                transition={200}
+              />
+            </MediaEdgeMask>
           </ZoomableMedia>
-        </MediaEdgeMask>
-      </AmbientBackground>
+        </AmbientBackground>
+      </Pressable>
     );
   }
 
   return (
-    <AmbientBackground
-      url={
-        (post as any).mediaUri ||
-        firstMedia?.preview_url ||
-        firstMedia?.media_url
-      }
+    <Pressable
+      onPress={onPress}
+      onPressIn={onPressIn}
+      onPressOut={onPressOut}
+      style={StyleSheet.absoluteFill}
     >
-      {(post as any).title ? (
-        <Text
-          style={[
-            styles.postTitle,
-            {
-              color: reelTextPrimary,
-              textAlign: "left",
-              paddingHorizontal: spacing.lg,
-            },
-          ]}
-          numberOfLines={4}
-        >
-          {(post as any).title}
-        </Text>
-      ) : null}
-      {post.type === "poll" && (post as any).pollData ? (
-        <View style={{ width: SCREEN_W - spacing.xl * 2 }}>
-          <PollBlock
-            poll={(post as any).pollData}
-            myVote={(post as any).myPollVote ?? null}
-          />
-        </View>
-      ) : (
-        <View
-          style={[
-            styles.textContent,
-            { alignItems: "flex-start", paddingHorizontal: spacing.lg },
-          ]}
-        >
-          <Text style={[styles.postText, { color: reelTextPrimary }]}>
-            {post.content}
-          </Text>
-        </View>
-      )}
-    </AmbientBackground>
+      <AmbientBackground
+        url={
+          (post as any).mediaUri ||
+          safePreviewUrl ||
+          mediaUrl
+        }
+      >
+        {post.type === "poll" && (pollData || (post as any).pollData) ? (
+          <View style={{ width: SCREEN_W - spacing.xl * 2 }}>
+            <PollBlock
+              poll={pollData || (post as any).pollData}
+              myVote={myPollVote ?? (post as any).myPollVote ?? null}
+              onVote={onPollVote}
+            />
+          </View>
+        ) : null}
+      </AmbientBackground>
+    </Pressable>
   );
 }
 
@@ -1253,6 +1274,7 @@ export default React.memo(function ReelItem({
 }: ReelItemProps) {
   const insets = useSafeAreaInsets();
   const navigation = useNavigation<any>();
+  const { colors } = useTheme();
   const queryClient = useQueryClient();
   const { user: currentUser } = useAuth();
 
@@ -1279,14 +1301,20 @@ export default React.memo(function ReelItem({
     !!(post as any).mediaUri ||
     (post.type === "image" && !!(post as any).image) ||
     post.type === "video";
-  const hasAudioContent =
-    allMedia.some(
-      (m: any) =>
-        m.media_type === "video" ||
-        m.type === "video" ||
-        m.media_type === "audio" ||
-        m.type === "audio",
-    ) || post.type === "video";
+  const [activeIndex, setActiveIndex] = useState(0);
+
+  const visualMedia = allMedia.filter(
+    (m: any) => m.media_type !== "audio" && m.type !== "audio",
+  );
+  const audioMedia = allMedia.filter(
+    (m: any) => m.media_type === "audio" || m.type === "audio",
+  );
+
+  const hasCommonAudio = audioMedia.length > 0;
+  const currentSlideMedia = visualMedia[activeIndex] || visualMedia[0] || allMedia[0];
+  const currentSlideHasAudio = currentSlideMedia?.media_type === "video" || currentSlideMedia?.type === "video";
+
+  const hasAudioContent = hasCommonAudio || currentSlideHasAudio || post.type === "video";
   const [isMuted, setIsMuted] = useState(true);
   const [isPinching, setIsPinching] = useState(false);
 
@@ -1460,6 +1488,33 @@ export default React.memo(function ReelItem({
   const handleToggleMute = useCallback(() => {
     setIsMuted((m) => !m);
   }, []);
+
+  const [pollData, setPollData] = useState<any>((post as any).pollData || null);
+  const [myPollVote, setMyPollVote] = useState<number | null>(
+    (post as any).myPollVote ?? null
+  );
+
+  useEffect(() => {
+    setPollData((post as any).pollData || null);
+    setMyPollVote((post as any).myPollVote ?? null);
+  }, [post.id, (post as any).pollData]);
+
+  const handlePollVote = useCallback(
+    async (optionIndex: number) => {
+      try {
+        const res = await postsService.castPollVote(post.id, optionIndex);
+        const data = res?.data || res;
+        setMyPollVote(data?.myVote ?? null);
+        if (data?.pollData) setPollData(data.pollData);
+      } catch (e: any) {
+        themedAlert(
+          "Vote Error",
+          e?.response?.data?.message || "Could not record your vote."
+        );
+      }
+    },
+    [post.id]
+  );
 
   // ── Computed post state (needed by callbacks defined below) ──
   const likes = (post as any).likes ?? (post as any).likesCount ?? 0;
@@ -1680,7 +1735,6 @@ export default React.memo(function ReelItem({
   );
 
   // ── Close poll handler ──────────────────────────────────────────────
-  const [pollData, setPollData] = useState((post as any)?.pollData || null);
   const handleClosePoll = useCallback(() => {
     if (!postId || !pollData) return;
     themedAlert(
@@ -1748,7 +1802,7 @@ export default React.memo(function ReelItem({
     if ((post as any).location && !(post as any).repostOfId) {
       items.push(
         <Text key="location" style={styles.rollSubText} numberOfLines={1}>
-          📍{" "}
+          <Ionicons name="location" size={12} color="#fff" style={{ opacity: 0.8, marginRight: 2 }} />
           {(post as any).location?.place ||
             `${((post as any).location?.lat ?? 0).toFixed(4)}, ${((post as any).location?.lon ?? 0).toFixed(4)}`}
         </Text>,
@@ -1848,23 +1902,25 @@ export default React.memo(function ReelItem({
   return (
     <View style={[styles.cell, { width: SCREEN_W, height: SCREEN_H }]}>
       {/* ── Layer 1: Content ── */}
-      <TouchableWithoutFeedback
-        onPress={isActive ? handleContentPress : undefined}
-        onPressIn={isActive ? handleContentPressIn : undefined}
-        onPressOut={isActive ? handleContentPressOut : undefined}
-      >
-        <View style={StyleSheet.absoluteFill}>
-          <ReelContent
-            post={post}
-            isActive={isActive}
-            isMuted={isMuted}
-            isPaused={isPaused}
-            onPinchStateChange={setIsPinching}
-            onRepostPress={handleRepostPress}
-            overlayAnim={overlayAnim}
-          />
-        </View>
-      </TouchableWithoutFeedback>
+      <View style={StyleSheet.absoluteFill}>
+        <ReelContent
+          post={post}
+          isActive={isActive}
+          isMuted={isMuted}
+          isPaused={isPaused}
+          onPinchStateChange={setIsPinching}
+          onRepostPress={handleRepostPress}
+          overlayAnim={overlayAnim}
+          onPress={isActive ? handleContentPress : undefined}
+          onPressIn={isActive ? handleContentPressIn : undefined}
+          onPressOut={isActive ? handleContentPressOut : undefined}
+          myPollVote={myPollVote}
+          onPollVote={handlePollVote}
+          pollData={pollData}
+          activeIndex={activeIndex}
+          setActiveIndex={setActiveIndex}
+        />
+      </View>
 
       {/* ── Layer 1.6: Heart burst animation (pointerEvents=none) ── */}
       <Animated.View
@@ -2253,7 +2309,7 @@ export default React.memo(function ReelItem({
         >
           <Ionicons
             name={isLiked ? "heart" : "heart-outline"}
-            size={24}
+            size={20}
             color={isLiked ? "#9F67F7" : "#fff"}
           />
           <TouchableOpacity
@@ -2272,7 +2328,7 @@ export default React.memo(function ReelItem({
           onPress={() => onCommentPress(post)}
           activeOpacity={0.7}
         >
-          <Ionicons name="chatbubble-outline" size={22} color={"#fff"} />
+          <Ionicons name="chatbubble-outline" size={20} color={"#fff"} />
           <Text style={styles.actionCount}>{formatCount(comments)}</Text>
         </TouchableOpacity>
 
@@ -2283,7 +2339,7 @@ export default React.memo(function ReelItem({
             onPress={() => setPollTrayVisible(true)}
             activeOpacity={0.7}
           >
-            <Ionicons name="bar-chart" size={22} color="#FBBF24" />
+            <Ionicons name="bar-chart" size={20} color="#FBBF24" />
           </TouchableOpacity>
         )}
 
@@ -2311,13 +2367,7 @@ export default React.memo(function ReelItem({
                   ),
                 }}
               >
-                <Ionicons name="repeat" size={22} color="#9F67F7" />
-                <Ionicons
-                  name="checkmark-circle"
-                  size={10}
-                  color="#22c55e"
-                  style={{ marginLeft: -6, marginTop: -8 }}
-                />
+                <Ionicons name="repeat" size={20} color="#9F67F7" />
               </Animated.View>
             ) : (
               <Animated.View
@@ -2331,7 +2381,7 @@ export default React.memo(function ReelItem({
                   }),
                 }}
               >
-                <Ionicons name="repeat-outline" size={22} color={"#fff"} />
+                <Ionicons name="repeat-outline" size={20} color={"#fff"} />
               </Animated.View>
             )}
           </TouchableOpacity>
@@ -2349,48 +2399,38 @@ export default React.memo(function ReelItem({
           )}
         </View>
 
-        {/* Save */}
-        <TouchableOpacity
-          style={styles.actionBtn}
-          onPress={() => onSave(post.id)}
-          activeOpacity={0.7}
-        >
-          <Ionicons
-            name={isSaved ? "bookmark" : "bookmark-outline"}
-            size={22}
-            color={isSaved ? "#FBBF24" : "#fff"}
-          />
-        </TouchableOpacity>
-
         {/* Share */}
         <TouchableOpacity
           style={styles.actionBtn}
           onPress={onShareProp || (() => handleShare())}
           activeOpacity={0.7}
         >
-          <Ionicons name="arrow-redo-outline" size={22} color={"#fff"} />
+          <Ionicons name="arrow-redo-outline" size={20} color={"#fff"} />
         </TouchableOpacity>
 
-        {/* ── Mute toggle (Bottom-Right, positioned absolutely above action bar) ── */}
+        {/* Save */}
+        <TouchableOpacity
+          style={[styles.actionBtn, { marginLeft: "auto" }]}
+          onPress={() => onSave(post.id)}
+          activeOpacity={0.7}
+        >
+          <Ionicons
+            name={isSaved ? "bookmark" : "bookmark-outline"}
+            size={20}
+            color={isSaved ? "#9F67F7" : "#fff"}
+          />
+        </TouchableOpacity>
+
+        {/* ── Mute toggle (Inline, right aligned) ── */}
         {hasAudioContent && (
           <TouchableOpacity
-            style={{
-              position: "absolute",
-              bottom: 60, // Above the action bar
-              right: 16,
-              width: 34,
-              height: 34,
-              borderRadius: 17,
-              backgroundColor: "rgba(0,0,0,0.5)",
-              alignItems: "center",
-              justifyContent: "center",
-            }}
+            style={styles.actionBtn}
             onPress={handleToggleMute}
             activeOpacity={0.7}
           >
             <Ionicons
               name={isMuted ? "volume-mute" : "volume-high"}
-              size={18}
+              size={20}
               color={"#fff"}
             />
           </TouchableOpacity>
@@ -2434,14 +2474,14 @@ export default React.memo(function ReelItem({
           onPress={() => setPollTrayVisible(false)}
           style={{
             flex: 1,
-            backgroundColor: reelSheetBg,
+            backgroundColor: "rgba(0,0,0,0.5)",
             justifyContent: "flex-end",
           }}
         >
           <View
             onStartShouldSetResponder={() => true}
             style={{
-              backgroundColor: "#1a1a2e",
+              backgroundColor: colors.card,
               borderTopLeftRadius: radii.xl,
               borderTopRightRadius: radii.xl,
               padding: spacing.lg,
@@ -2456,22 +2496,23 @@ export default React.memo(function ReelItem({
                 height: 4,
                 borderRadius: 2,
                 marginBottom: 12,
-                backgroundColor: "rgba(255,255,255,0.15)",
+                backgroundColor: colors.border,
               }}
             />
             <Text
               style={{
                 fontSize: fontSizes.lg,
                 fontWeight: "800",
-                color: "#F1F5F9",
+                color: colors.text,
                 marginBottom: 12,
               }}
             >
               Poll
             </Text>
             <PollBlock
-              poll={(post as any).pollData}
-              myVote={(post as any).myPollVote ?? null}
+              poll={pollData || (post as any).pollData}
+              myVote={myPollVote ?? (post as any).myPollVote ?? null}
+              onVote={handlePollVote}
               embedded
             />
           </View>

@@ -23,7 +23,7 @@ export function useToggleLike() {
     mutationFn: async ({ id, isCurrentlyLiked }: { id: string; isCurrentlyLiked: boolean }) => {
       await postsService.toggleLike(id, isCurrentlyLiked);
     },
-    onMutate: async ({ id, isCurrentlyLiked }) => {
+    onMutate: async ({ id }) => {
       await queryClient.cancelQueries({ queryKey: queryKeys.feed });
       await queryClient.cancelQueries({ queryKey: queryKeys.bookmarks });
       // Cancel all profile post queries (all authorIds + types)
@@ -31,7 +31,6 @@ export function useToggleLike() {
       const profileQueries = queryClient.getQueryCache().findAll({ predicate: (q) => q.queryKey[0] === 'profile' && q.queryKey[2] === 'posts' });
       await Promise.all(profileQueries.map((q) => queryClient.cancelQueries({ queryKey: q.queryKey })));
 
-      const nextLiked = !isCurrentlyLiked;
       const prevData: [readonly unknown[], unknown][] = [];
 
       // Patch all feed/bookmark/profile caches (all store FeedRow[] pages now)
@@ -49,8 +48,10 @@ export function useToggleLike() {
               page.map((row) => {
                 const data = row.data as any;
                 if (data && data.id === id) {
+                  const currentIsLiked = !!data.isLiked;
+                  const nextLiked = !currentIsLiked;
                   const currentLikes = data.likes ?? data.likesCount ?? 0;
-                  const newLikes = isCurrentlyLiked ? Math.max(0, currentLikes - 1) : currentLikes + 1;
+                  const newLikes = nextLiked ? currentLikes + 1 : Math.max(0, currentLikes - 1);
                   return { ...row, data: { ...data, isLiked: nextLiked, likes: newLikes, likesCount: newLikes } };
                 }
                 return row;

@@ -179,7 +179,8 @@ export default function SpotlightCarousel() {
           emoji: (bg as any).emoji || '🎮',
           gradient: ((bg as any).metadata?.gradient || (bg as any).gradient || ['#7C3AED', '#0891B2']) as [string, string],
           meta: (bg as any).metadata?.averageDurationLabel || (bg as any).averageDurationLabel || '',
-          imageUrl: (bg as any).thumbnail || (bg as any).imageUrl || '',
+          imageUrl: (bg as any).metadata?.cardUrl || (bg as any).thumbnail || (bg as any).imageUrl || '',
+          action: 'PLAY',
         };
       });
 

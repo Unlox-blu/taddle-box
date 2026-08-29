@@ -47,13 +47,12 @@ export function makeStyles(c: ColorPalette) {
     gameGridWrapper: {
       flexDirection: "row",
       flexWrap: "wrap",
-      paddingHorizontal: spacing.lg,
-      marginHorizontal: -spacing.sm,
+      marginHorizontal: -4,
     },
     gameGridItem: {
       width: "50%",
-      paddingHorizontal: spacing.sm,
-      marginBottom: spacing.md,
+      paddingHorizontal: 4,
+      marginBottom: 8,
     },
     gameArt: {
       width: "100%",
@@ -103,6 +102,7 @@ export function makeStyles(c: ColorPalette) {
     },
     tournamentBanner: {
       width: 100,
+      minHeight: 100,
       justifyContent: "center",
       alignItems: "center",
     },
@@ -161,7 +161,7 @@ export function makeStyles(c: ColorPalette) {
       borderBottomWidth: 1,
       borderBottomColor: c.border,
     },
-    matchIcon: { width: 40, height: 40, marginRight: 12 },
+    matchIcon: { width: 44, height: 44, marginRight: 12, borderRadius: 11, overflow: "hidden" },
     matchBody: { flex: 1 },
     matchTitle: { fontSize: 14, fontWeight: "600", color: c.text.primary },
     matchMeta: { fontSize: 12, color: c.text.secondary, marginTop: 2 },

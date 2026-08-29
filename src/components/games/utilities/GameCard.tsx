@@ -13,6 +13,7 @@ import {
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { LinearGradient } from "expo-linear-gradient";
+import { BlurView } from "expo-blur";
 import GameLogo from "./GameLogo";
 import { useThemeColors } from "../../../context/ThemeContext";
 import { makeStyles } from "../../../screens/main/GamesScreen.styles";
@@ -82,56 +83,57 @@ export default function GameCard({
   const colors = useThemeColors();
   const styles = useMemo(() => makeStyles(colors), [colors]);
 
-  return (
-    <View style={styles.gameCard}>
-      {(game.imageUrl || (game as any).thumbnail) ? (
-        <ImageBackground
-          source={{ uri: game.imageUrl || (game as any).thumbnail }}
-          style={styles.gameArt}
-          resizeMode="cover"
-        >
-          {game.isHot && <View style={{ position: "absolute", top: 8, right: 8 }}><Text style={styles.gameBadge}>TRENDING</Text></View>}
-        </ImageBackground>
-      ) : (
-        <LinearGradient
-          colors={(game.gradient?.length === 2 ? game.gradient : ["#7C3AED", "#0891B2"]) as [string, string]}
-          style={[styles.gameArt, { alignItems: "center", justifyContent: "center" }]}
-        >
-          <GameLogo game={game} size={64} radius={18} />
-          {game.isHot && (
-            <View style={{ position: "absolute", top: 8, right: 8 }}>
-              <Text style={styles.gameBadge}>TRENDING</Text>
-            </View>
-          )}
-        </LinearGradient>
-      )}
-      <View style={styles.gameBody}>
-        <Text style={styles.gameTitle} numberOfLines={1}>
-          {game.name}
-        </Text>
-        <Text style={styles.gameMeta}>Earn Up to {game.maxXp} XP</Text>
+  const bgImage = game.metadata?.cardUrl || game.imageUrl || (game as any).thumbnail;
+  const gradientColors = (game.gradient?.length === 2 ? game.gradient : ["#7C3AED", "#0891B2"]) as [string, string];
 
-        <TouchableOpacity
-          style={{ marginTop: 12 }}
-          onPress={onPlayClick}
-        >
+  return (
+    <View style={[localStyles.cardContainer, { borderColor: colors.border, backgroundColor: colors.bg.card }]}>
+      {/* Top Banner (Image or Gradient) */}
+      <View style={localStyles.bannerContainer}>
+        {bgImage ? (
+          <ImageBackground source={{ uri: bgImage }} style={localStyles.bannerImage} resizeMode="cover" />
+        ) : (
+          <LinearGradient colors={gradientColors} style={localStyles.bannerImage} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} />
+        )}
+        
+        {/* Trending Badge Top Right */}
+        {game.isHot && (
+          <View style={[localStyles.trendingBadge, { backgroundColor: colors.primary }]}>
+            <Text style={localStyles.trendingText}>HOT</Text>
+          </View>
+        )}
+      </View>
+
+      {/* Bottom Content Area */}
+      <View style={localStyles.contentContainer}>
+        
+        {/* Overlapping Logo */}
+        <View style={[localStyles.logoWrapper, { backgroundColor: colors.bg.card, borderColor: colors.border }]}>
+          <GameLogo game={game} size={50} radius={14} />
+        </View>
+
+        <View style={localStyles.textContainer}>
+          <Text style={[localStyles.title, { color: colors.text.primary }]} numberOfLines={1}>
+            {game.name}
+          </Text>
+          <Text style={[localStyles.meta, { color: colors.text.secondary }]}>
+            Up to {game.maxXp} XP
+          </Text>
+        </View>
+
+        {/* Play Button */}
+        <TouchableOpacity style={localStyles.buttonWrapper} onPress={onPlayClick} activeOpacity={0.85}>
           <LinearGradient
-            colors={
-              isRejoin
-                ? [colors.warning, "#FF8C00"]
-                : [colors.primary, colors.cyanDark]
-            }
-            style={styles.primaryButton}
+            colors={isRejoin ? [colors.warning, "#F59E0B"] : [colors.primary, colors.cyanDark]}
+            style={localStyles.actionBtn}
+            start={{ x: 0, y: 0 }}
+            end={{ x: 1, y: 0 }}
           >
-            {isRejoin ? (
-              <Ionicons name="play-forward" size={16} color="#fff" />
-            ) : (
-              <Ionicons name="play" size={16} color="#fff" />
-            )}
-            <Text style={styles.primaryButtonText}>
-              {isRejoin
-                ? `REJOIN MATCH ${timeLeft && timeLeft > 0 ? `(${formatTime(timeLeft)})` : ""}`
-                : `PLAY | ${game.entryFee || 0} XP`}
+            <Ionicons name={isRejoin ? "play-forward" : "play"} size={14} color="#fff" />
+            <Text style={localStyles.actionBtnText}>
+              {isRejoin 
+                ? (timeLeft != null && timeLeft > 0 ? `REJOIN (${formatTime(timeLeft)})` : "REJOIN")
+                : `PLAY  •  ${game.entryFee || 0} XP`}
             </Text>
           </LinearGradient>
         </TouchableOpacity>
@@ -139,3 +141,85 @@ export default function GameCard({
     </View>
   );
 }
+
+const localStyles = StyleSheet.create({
+  cardContainer: {
+    width: "100%",
+    borderRadius: 18,
+    borderWidth: 1,
+    overflow: "hidden",
+    elevation: 2,
+    shadowColor: "#000",
+    shadowOpacity: 0.1,
+    shadowRadius: 5,
+    shadowOffset: { width: 0, height: 2 },
+  },
+  bannerContainer: {
+    height: 85,
+    width: "100%",
+    position: "relative",
+  },
+  bannerImage: {
+    width: "100%",
+    height: "100%",
+  },
+  trendingBadge: {
+    position: "absolute",
+    top: 8,
+    right: 8,
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 8,
+  },
+  trendingText: {
+    color: "#fff",
+    fontSize: 9,
+    fontWeight: "900",
+    letterSpacing: 0.5,
+  },
+  contentContainer: {
+    paddingHorizontal: 12,
+    paddingBottom: 14,
+    alignItems: "center",
+  },
+  logoWrapper: {
+    marginTop: -25, // Pulls the logo up into the banner
+    padding: 3,
+    borderRadius: 17, // 14 + 3
+    borderWidth: 1,
+    marginBottom: 8,
+  },
+  textContainer: {
+    alignItems: "center",
+    marginBottom: 12,
+    width: "100%",
+  },
+  title: {
+    fontSize: 16,
+    fontWeight: "800",
+    textAlign: "center",
+    marginBottom: 2,
+  },
+  meta: {
+    fontSize: 12,
+    fontWeight: "600",
+    textAlign: "center",
+  },
+  buttonWrapper: {
+    width: "100%",
+  },
+  actionBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 6,
+    paddingVertical: 10,
+    borderRadius: 14,
+  },
+  actionBtnText: {
+    color: "#fff",
+    fontSize: 12,
+    fontWeight: "800",
+    letterSpacing: 0.2,
+  },
+});

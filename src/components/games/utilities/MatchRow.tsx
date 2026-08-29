@@ -12,7 +12,7 @@ import { makeStyles } from "../../../screens/main/GamesScreen.styles";
 import type { GameMatch } from "../../../context/GamesContext";
 import type { Game } from "../../../types";
 
-export default function MatchRow({ match }: { match: GameMatch }) {
+export default function MatchRow({ match, isLast }: { match: GameMatch; isLast?: boolean }) {
   const colors = useThemeColors();
   const styles = useMemo(() => makeStyles(colors), [colors]);
   const isWin = match.result === "win";
@@ -30,9 +30,9 @@ export default function MatchRow({ match }: { match: GameMatch }) {
   };
 
   return (
-    <View style={styles.matchRow}>
+    <View style={[styles.matchRow, isLast && { borderBottomWidth: 0 }]}>
       <View style={styles.matchIcon}>
-        <GameLogo game={logoGame} size={32} radius={9} />
+        <GameLogo game={logoGame} size={44} radius={11} />
       </View>
       <View style={styles.matchBody}>
         <Text style={styles.matchTitle}>{match.gameName}</Text>

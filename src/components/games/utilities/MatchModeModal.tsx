@@ -172,7 +172,21 @@ export default function MatchModeModal({
   const autoQueuedRef = useRef(false);
 
   // ── reset ─────────────────────────────────────────────────────────────────
-  useEffect(() => { if (!visible) _reset(); }, [visible]);
+  useEffect(() => {
+    let t: ReturnType<typeof setTimeout>;
+    if (!visible) {
+      // 1. Instantly kill all background polling/timers to prevent ghost state updates
+      if (fallbackTimerRef.current) clearInterval(fallbackTimerRef.current);
+      fallbackTimerRef.current = null;
+      stopLobbyPollRef.current?.();
+      if (matchBeatRef.current) clearTimeout(matchBeatRef.current);
+      matchBeatRef.current = null;
+
+      // 2. Delay massive UI state resets so we don't freeze the iOS modal dismiss animation
+      t = setTimeout(() => _reset(), 500);
+    }
+    return () => { if (t) clearTimeout(t); };
+  }, [visible]);
 
   function _reset() {
     autoQueuedRef.current = false;
@@ -190,11 +204,6 @@ export default function MatchModeModal({
     setBotFilling(false); setCancelling(false);
     matchedRef.current = false; cancelledRef.current = false;
     lobbyIdRef.current = null;
-    if (fallbackTimerRef.current) clearInterval(fallbackTimerRef.current);
-    fallbackTimerRef.current = null;
-    stopLobbyPollRef.current?.();
-    if (matchBeatRef.current) clearTimeout(matchBeatRef.current);
-    matchBeatRef.current = null;
   }
 
   // ── load mutual followers ─────────────────────────────────────────────────
@@ -252,6 +261,8 @@ export default function MatchModeModal({
       if (max) setLobbyMaxPlayers(max);
       const code = data?.settings?.inviteCode || data?.inviteCode;
       if (code) setLobbyInviteCode(code);
+      const serverRounds = data?.settings?.configuredRounds;
+      if (serverRounds !== undefined) setSelectedRounds(serverRounds);
       // When server confirms a player joined, remove them from pending invite list
       const joinedIds = new Set(players.map((p: any) => pid(p)));
       setPendingInviteIds((prev) => prev.filter((id) => !joinedIds.has(id)));
@@ -705,6 +716,15 @@ export default function MatchModeModal({
     }
   };
 
+  const changeLobbyRounds = async (rounds: number) => {
+    const id = lobbyIdRef.current;
+    setSelectedRounds(rounds);
+    if (id) {
+      try { await apiClient.patch(`/game/lobbies/${id}`, { rounds }); }
+      catch { /* optimistic — ignore */ }
+    }
+  };
+
   // Auto = game's max lobby size (stepper disabled). Custom = exact stepper.
   const toggleLobbyAuto = (auto: boolean) => {
     setLobbyAuto(auto);
@@ -897,7 +917,7 @@ export default function MatchModeModal({
 
   const headerTitle =
     step === "select"        ? "Choose Mode"
-    : step === "playerCount" ? "Player Count"
+    : step === "playerCount" ? "Match Settings"
     : step === "lobby"       ? "Custom Lobby"
     : initialTournamentId    ? "Tournament Queue"
     : "Matchmaking";
@@ -1014,6 +1034,7 @@ export default function MatchModeModal({
             displayPlayers={displayPlayers} filledCount={filledCount}
             allFilled={allFilled} maxP={maxP}
             lobbyAuto={lobbyAuto}
+            isHost={displayPlayers.some((p: any) => pid(p) === pid(user) && p.lobbyRole === "HOST")}
             followers={filteredFollowers} followersLoading={followersLoading}
             searchQuery={searchQuery} copyState={copyState}
             pendingInviteIds={pendingInviteIds}
@@ -1028,7 +1049,7 @@ export default function MatchModeModal({
             onProceed={proceedFromLobby}
             roundsConfig={game?.rounds}
             selectedRounds={selectedRounds}
-            onRoundsChange={setSelectedRounds}
+            onRoundsChange={changeLobbyRounds}
           />
         )}
 
@@ -1075,7 +1096,6 @@ function PlayerCountStep({ colors, styles, maxP, value, onChange, isPractice, on
 
   return (
     <ScrollView contentContainerStyle={styles.body} showsVerticalScrollIndicator={false}>
-      <Text style={styles.sectionLabel}>How many players?</Text>
       <Text style={styles.sectionHint}>
         {isPractice
           ? "Bots will fill every seat for a solo practice match. Entry fee applies, no XP rewards."
@@ -1116,7 +1136,9 @@ function PlayerCountStep({ colors, styles, maxP, value, onChange, isPractice, on
 
       {/* Custom count stepper */}
       {!isAuto && (
-        <View style={styles.countStepperCard}>
+        <>
+          <Text style={[styles.sectionLabel, { marginTop: 20, marginBottom: 10 }]}>Player Count</Text>
+          <View style={styles.countStepperCard}>
           <TouchableOpacity
             style={[styles.countStepBtn, count <= 2 && styles.stepBtnDisabled]}
             onPress={() => onChange(Math.max(2, count - 1))}
@@ -1138,10 +1160,11 @@ function PlayerCountStep({ colors, styles, maxP, value, onChange, isPractice, on
             <Ionicons name="add" size={22} color={count >= maxP ? colors.text.muted : colors.primaryLight} />
           </TouchableOpacity>
         </View>
+        </>
       )}
 
       {/* Rounds selector — only for multi-round games */}
-      {showRounds && (
+      {showRounds && !isAuto && (
         <>
           <Text style={[styles.sectionLabel, { marginTop: 20 }]}>Rounds</Text>
           <Text style={styles.sectionHint}>Number of rounds per match.</Text>
@@ -1360,7 +1383,7 @@ function SlotRing({
 
 function LobbyStep({
   colors, styles, game, lobbyCode, lobbyMaxPlayers, displayPlayers,
-  filledCount, allFilled, maxP, lobbyAuto, followers, followersLoading, searchQuery,
+  filledCount, allFilled, maxP, lobbyAuto, isHost, followers, followersLoading, searchQuery,
   copyState, pendingInviteIds, invitedAtMap, onSearchChange, onInviteFriend,
   onRemovePlayer, onInviteBot, onChangeLobbySize, onToggleLobbyAuto,
   onCopyCode, onProceed, roundsConfig, selectedRounds, onRoundsChange,
@@ -1368,7 +1391,7 @@ function LobbyStep({
   colors: ColorPalette; styles: ReturnType<typeof makeStyles>; game: Game;
   lobbyCode: string; lobbyMaxPlayers: number; displayPlayers: any[];
   filledCount: number; allFilled: boolean; maxP: number;
-  lobbyAuto: boolean;
+  lobbyAuto: boolean; isHost: boolean;
   followers: any[]; followersLoading: boolean; searchQuery: string;
   copyState: string; pendingInviteIds: string[];
   invitedAtMap: Record<string, number>;
@@ -1410,11 +1433,12 @@ function LobbyStep({
       <View style={styles.panel}>
         <Text style={styles.panelTitle}>Slots</Text>
         {/* Auto / Custom toggle */}
-        <View style={styles.countToggleRow}>
+        <View style={[styles.countToggleRow, !isHost && { opacity: 0.7 }]}>
           <TouchableOpacity
             style={[styles.countToggleBtn, lobbyAuto && styles.countToggleBtnActive]}
             onPress={() => onToggleLobbyAuto(true)}
             activeOpacity={0.8}
+            disabled={!isHost}
           >
             <Ionicons
               name="shuffle"
@@ -1429,6 +1453,7 @@ function LobbyStep({
             style={[styles.countToggleBtn, !lobbyAuto && styles.countToggleBtnActive]}
             onPress={() => onToggleLobbyAuto(false)}
             activeOpacity={0.8}
+            disabled={!isHost}
           >
             <Ionicons
               name="options"
@@ -1446,19 +1471,19 @@ function LobbyStep({
             <Text style={styles.slotCountText}>{filledCount} / {lobbyMaxPlayers} filled</Text>
             <View style={styles.stepper}>
               <TouchableOpacity
-                style={[styles.stepBtn, lobbyMaxPlayers <= 2 && styles.stepBtnDisabled]}
+                style={[styles.stepBtn, (!isHost || lobbyMaxPlayers <= 2) && styles.stepBtnDisabled]}
                 onPress={() => onChangeLobbySize(Math.max(2, lobbyMaxPlayers - 1))}
-                disabled={lobbyMaxPlayers <= 2}
+                disabled={!isHost || lobbyMaxPlayers <= 2}
               >
-                <Ionicons name="remove" size={16} color={lobbyMaxPlayers <= 2 ? colors.text.muted : colors.primaryLight} />
+                <Ionicons name="remove" size={16} color={!isHost || lobbyMaxPlayers <= 2 ? colors.text.muted : colors.primaryLight} />
               </TouchableOpacity>
               <Text style={styles.stepVal}>{lobbyMaxPlayers}</Text>
               <TouchableOpacity
-                style={[styles.stepBtn, lobbyMaxPlayers >= maxP && styles.stepBtnDisabled]}
+                style={[styles.stepBtn, (!isHost || lobbyMaxPlayers >= maxP) && styles.stepBtnDisabled]}
                 onPress={() => onChangeLobbySize(Math.min(maxP, lobbyMaxPlayers + 1))}
-                disabled={lobbyMaxPlayers >= maxP}
+                disabled={!isHost || lobbyMaxPlayers >= maxP}
               >
-                <Ionicons name="add" size={16} color={lobbyMaxPlayers >= maxP ? colors.text.muted : colors.primaryLight} />
+                <Ionicons name="add" size={16} color={!isHost || lobbyMaxPlayers >= maxP ? colors.text.muted : colors.primaryLight} />
               </TouchableOpacity>
             </View>
           </View>
@@ -1471,26 +1496,26 @@ function LobbyStep({
       </View>
 
       {/* ── Rounds selector ── */}
-      {showRounds && (
+      {showRounds && !lobbyAuto && (
         <View style={styles.panel}>
           <Text style={styles.panelTitle}>Rounds</Text>
           <Text style={styles.panelHint}>Number of rounds per match.</Text>
           <View style={styles.rowBetween}>
             <View style={styles.stepper}>
               <TouchableOpacity
-                style={[styles.stepBtn, rounds <= roundsConfig!.min && styles.stepBtnDisabled]}
+                style={[styles.stepBtn, (!isHost || rounds <= roundsConfig!.min) && styles.stepBtnDisabled]}
                 onPress={() => onRoundsChange?.(Math.max(roundsConfig!.min, rounds - 1))}
-                disabled={rounds <= roundsConfig!.min}
+                disabled={!isHost || rounds <= roundsConfig!.min}
               >
-                <Ionicons name="remove" size={16} color={rounds <= roundsConfig!.min ? colors.text.muted : colors.primaryLight} />
+                <Ionicons name="remove" size={16} color={!isHost || rounds <= roundsConfig!.min ? colors.text.muted : colors.primaryLight} />
               </TouchableOpacity>
               <Text style={styles.stepVal}>{rounds}</Text>
               <TouchableOpacity
-                style={[styles.stepBtn, rounds >= roundsConfig!.max && styles.stepBtnDisabled]}
+                style={[styles.stepBtn, (!isHost || rounds >= roundsConfig!.max) && styles.stepBtnDisabled]}
                 onPress={() => onRoundsChange?.(Math.min(roundsConfig!.max, rounds + 1))}
-                disabled={rounds >= roundsConfig!.max}
+                disabled={!isHost || rounds >= roundsConfig!.max}
               >
-                <Ionicons name="add" size={16} color={rounds >= roundsConfig!.max ? colors.text.muted : colors.primaryLight} />
+                <Ionicons name="add" size={16} color={!isHost || rounds >= roundsConfig!.max ? colors.text.muted : colors.primaryLight} />
               </TouchableOpacity>
             </View>
             <Text style={styles.slotCountText}>
@@ -1727,7 +1752,7 @@ const MatchmakingRadar = React.memo(function MatchmakingRadar({
         {/* ── Layer 1: disc + rings + sweep beam (clipped to circle) ── */}
         <View style={{
           position: "absolute", width: DISC, height: DISC, borderRadius: DISC / 2,
-          backgroundColor: "#040910",
+          backgroundColor: colors.bg.surface,
           borderWidth: 1.5, borderColor: colors.primaryLight + "38",
           overflow: "hidden",
         }}>
@@ -1899,7 +1924,7 @@ function RadarPin({
     }}>
       {/* Name tag */}
       <View style={{
-        backgroundColor: "rgba(2,6,20,0.95)",
+        backgroundColor: colors.bg.elevated,
         borderRadius: 8, paddingHorizontal: 8, paddingVertical: 4,
         borderWidth: 1,
         borderColor: isBot ? colors.text.muted + "40" : colors.primaryLight + "60",
@@ -1908,7 +1933,7 @@ function RadarPin({
         maxWidth: 110,
       }}>
         <Text style={{
-          color: isBot ? colors.text.muted : "#F8FAFC",
+          color: isBot ? colors.text.muted : colors.text.primary,
           fontSize: 10, fontWeight: "800",
           textAlign: "center",
         }} numberOfLines={1} ellipsizeMode="tail">

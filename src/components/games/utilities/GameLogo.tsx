@@ -93,7 +93,9 @@ export default function GameLogo({
         style={StyleSheet.absoluteFill}
       />
       <View style={styles.shine} />
-      <Text style={[styles.letters, { fontSize: size * 0.3 }]}>{letters}</Text>
+      <View style={{ flex: 1, justifyContent: "center", alignItems: "center", marginBottom: size * 0.1 }}>
+        <Text style={[styles.letters, { fontSize: size * 0.3 }]}>{letters}</Text>
+      </View>
       <View
         style={[
           styles.iconBadge,

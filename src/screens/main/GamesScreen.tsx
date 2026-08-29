@@ -795,7 +795,7 @@ export default function GamesScreen() {
                 subtitle="Check back soon for the next challenge."
               />
             ) : (
-              <View style={{ paddingHorizontal: 16, gap: 10 }}>
+              <View style={{ gap: 10 }}>
               {tournaments.map((tournament) => {
                 const game = findLocalGame(tournament.gameId);
                 if (!game) return null;
@@ -840,7 +840,9 @@ export default function GamesScreen() {
                 subtitle="Play a match to build your record."
               />
             ) : (
-              matches.map((match) => <MatchRow key={match.id} match={match} />)
+              <View style={{ paddingHorizontal: 16, backgroundColor: colors.bg.card, borderRadius: 16, borderWidth: 1, borderColor: colors.border }}>
+                {matches.map((match, idx) => <MatchRow key={match.id} match={match} isLast={idx === matches.length - 1} />)}
+              </View>
             )}
           </>
         )}

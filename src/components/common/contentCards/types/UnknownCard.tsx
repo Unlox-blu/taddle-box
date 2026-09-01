@@ -8,9 +8,9 @@ export default function UnknownCard({ item, ctx }: { item: any; ctx: RowCtx }) {
   const data = item?.data || item || {};
   
   // Heuristics to find displayable content across common data shapes
-  const title = data.title || data.name || data.header || data.subject;
-  const description = data.content || data.description || data.text || data.message || data.body || data.summary;
-  const image = data.imageUrl || data.cover_image_url || data.thumbnail || data.avatarUrl || data.image || (Array.isArray(data.media) && data.media[0]?.cloudfront_url);
+  const title = data.title || data.name || data.header || data.subject || data.username || data.slug || data.type;
+  const description = data.content || data.description || data.text || data.message || data.body || data.summary || data.bio;
+  const image = data.imageUrl || data.cover_image_url || data.thumbnail || data.avatarUrl || data.image || (Array.isArray(data.media) && data.media[0]?.cloudfront_url) || data.senderAvatarUrl;
 
   return (
     <View style={[styles.container, { backgroundColor: ctx.colors.bg?.card || "rgba(255,255,255,0.05)", borderColor: ctx.colors.border }]}>
@@ -33,9 +33,11 @@ export default function UnknownCard({ item, ctx }: { item: any; ctx: RowCtx }) {
         ) : null}
         
         {!title && !description && !image ? (
-          <Text style={[styles.description, { color: ctx.colors.text.muted, fontStyle: 'italic' }]}>
-            [Raw Data] {Object.keys(data).slice(0, 5).join(', ')}...
-          </Text>
+          <View style={{ backgroundColor: 'rgba(0,0,0,0.2)', padding: 12, borderRadius: 8 }}>
+            <Text style={[styles.description, { color: ctx.colors.text.muted, fontFamily: 'monospace', fontSize: 12 }]}>
+              {typeof data === 'string' ? data : JSON.stringify(data, null, 2).slice(0, 500) + (JSON.stringify(data).length > 500 ? '...' : '')}
+            </Text>
+          </View>
         ) : null}
       </View>
     </View>

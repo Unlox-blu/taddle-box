@@ -143,7 +143,6 @@ export default function SharedFeed({
     onViewableItemsChanged,
     trackLayout,
     handleScroll: handleScrollForTracking,
-    debugZone,
   } = useActiveContentTracker(rows, {
     listHeaderOffset,
     // PullToRefreshWrapper overrides contentContainerStyle.paddingTop to
@@ -497,27 +496,7 @@ export default function SharedFeed({
         postTitle={(sharePost as any)?.title || sharePost?.content?.slice(0, 80)}
       />
 
-      {debugZone && (
-        <View
-          pointerEvents="none"
-          style={{
-            position: "absolute",
-            left: 0,
-            right: 0,
-            top: debugZone.top,
-            height: debugZone.height,
-            backgroundColor: "rgba(255, 0, 0, 0.2)",
-            borderTopWidth: 1,
-            borderBottomWidth: 1,
-            borderColor: "rgba(255, 0, 0, 0.8)",
-            zIndex: 9999,
-          }}
-        >
-          <Text style={{ color: "red", fontWeight: "bold", fontSize: 10, padding: 2 }}>
-            Active Tracker Zone
-          </Text>
-        </View>
-      )}
+
     </>
   );
 }

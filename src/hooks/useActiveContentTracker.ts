@@ -21,7 +21,6 @@ export function useActiveContentTracker(
   options?: Options,
 ) {
   const [activeContentId, setActiveContentId] = useState<string | null>(null);
-  const [debugZone, setDebugZone] = useState<{ top: number; height: number } | null>(null);
 
   const viewportH = useRef(Dimensions.get("window").height).current;
 
@@ -59,10 +58,6 @@ export function useActiveContentTracker(
     const progress = Math.min(1, scrollY / transitionDistance);
     const currentPhysicalTop =
       startPhysicalTop + (targetPhysicalTop - startPhysicalTop) * progress;
-
-    if (__DEV__) {
-      setDebugZone({ top: currentPhysicalTop, height: focusHeight });
-    }
 
     const focusTop = viewportTop + currentPhysicalTop;
     const focusBottom = focusTop + focusHeight;
@@ -204,6 +199,5 @@ export function useActiveContentTracker(
     onViewableItemsChanged,
     trackLayout,
     handleScroll,
-    debugZone,
   };
 }

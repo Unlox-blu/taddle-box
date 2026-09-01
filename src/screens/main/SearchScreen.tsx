@@ -739,9 +739,9 @@ export default function SearchScreen({ navigation, route }: Props) {
           setServerTypes(res.types);
           setIsTypesLoading(false);
           const newRows: Row[] = (res.results || []).map((item: any) => ({
-            itemType: "notification_item",
+            itemType: "notification",
             id: item.id || `notif-${Math.random()}`,
-            data: mapNotificationRow(item),
+            data: mapNotificationRow(item.data || item),
           }));
           setRowsByTab((prev) => {
             const existing = prev[tab] || [];

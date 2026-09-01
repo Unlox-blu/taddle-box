@@ -1713,7 +1713,7 @@ export default function SharedProfile({
             )
           }
           ListFooterComponent={<View style={{ height: 100 }} />}
-          contentContainerStyle={{ gap: 12, flexGrow: 1 }}
+          contentContainerStyle={{ flexGrow: 1 }}
           // View counts are shown ONLY on the profile page, never in the
           // main feed / community feeds.
           showViews

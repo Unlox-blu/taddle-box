@@ -31,7 +31,8 @@ import { useAuth } from "../../context/AuthContext";
 import XPProgressBar from "../home/XPProgressBar";
 import { useNavigation, useFocusEffect } from "@react-navigation/native";
 import { WebView } from "react-native-webview";
-import SharedFeed, { type FeedRow } from "../common/SharedFeed";
+import SharedFeed from "../common/SharedFeed";
+import type { ContentItem } from "../common/contentCards/content";
 import PullToRefreshWrapper from "../common/PullToRefreshWrapper";
 import StateBlock from "../common/StateBlock";
 import { useGlobalScroll } from "../../context/ScrollContext";
@@ -551,7 +552,7 @@ export default function SharedProfile({
   const [browserUrl, setBrowserUrl] = useState<string | null>(null);
 
   const { user: currentUser } = useAuth();
-  const [posts, setPosts] = useState<FeedRow[]>([]);
+  const [posts, setPosts] = useState<ContentItem[]>([]);
   const [loadingPosts, setLoadingPosts] = useState(true);
   // Profile feed filter: "Posts" (originals), "Reposts" (Twitter-style), and
   // "Mentions" — @-mentions of this user, rendered like the notifications UI
@@ -1649,7 +1650,7 @@ export default function SharedProfile({
         </PullToRefreshWrapper>
       ) : (
         <SharedFeed
-          rows={posts}
+          items={posts}
           onDelete={handleDeletePost}
           onReposted={loadPosts}
           refreshing={refreshing}

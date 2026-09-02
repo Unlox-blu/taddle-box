@@ -42,12 +42,11 @@ import {
   LUDO_PATH, SAFE_CELLS, HOME_SLOTS, HOME_COLS, HOME_SPOTS,
   PLAYER_PATH_OFFSET, stackOffset, seededStars, getTokenPos, starPts,
   EVENTS, extractEnginePlayers, buildPlayerInfo,
-  type ChatMsg,
 } from "./shared";
 import { styles } from "./ludoStyles";
 import {
   ActiveCardGlow, DieGlow, CaptureBurst, LoadingDots,
-  CornerBubble, ChatSheet,
+  CornerBubble,
 } from "./LudoSubComponents";
 
 // Die face dot positions (only used by the die renderer, kept local)
@@ -99,12 +98,7 @@ type Props = {
   setNoMoveHold: (v: { playerIdx: number; face: number } | null) => void;
 
   // ── Chat state ──────────────────────────────────────────────────────
-  chatOpen: boolean;
-  setChatOpen: (v: boolean) => void;
-  messages: ChatMsg[];
-  setMessages: (fn: any) => void;
-  draft: string;
-  setDraft: (v: string) => void;
+
   chatPopups: Array<{ id: number; uid: string; name: string; text: string; color: string; cornerIdx: number }>;
   setChatPopups: (fn: any) => void;
 
@@ -128,7 +122,7 @@ type Props = {
   // ── Actions (callbacks to LudoRuntime) ──────────────────────────────
   onRoll: () => void;
   onTokenTap: (tokenId: number) => void;
-  onSendChat: (text: string) => void;
+
 
   // ── Dice tumble lifecycle ──────────────────────────────────────────
   // Called by LudoGame when a tumble animation finishes so LudoRuntime
@@ -160,12 +154,7 @@ export default function LudoGame({
   settledFace,
   noMoveHold,
   setNoMoveHold,
-  chatOpen,
-  setChatOpen,
-  messages,
-  setMessages,
-  draft,
-  setDraft,
+
   chatPopups,
   setChatPopups,
   bursts,
@@ -181,7 +170,7 @@ export default function LudoGame({
   pendingKeysRef,
   onRoll,
   onTokenTap,
-  onSendChat,
+
   onRollComplete,
   onRemoteRollComplete,
 }: Props) {
@@ -189,14 +178,11 @@ export default function LudoGame({
   // ── Rendering-only state (board layout, not game state) ──────────────
   const [boardSize, setBoardSize] = useState(BOARD_SIZE);
   const cell = boardSize / 15;
-  const [chatPanelH, setChatPanelH] = useState(0);
   const cellRef = useRef(cell);
   cellRef.current = cell;
   const cardWidthsRef = useRef<Record<string, number>>({});
   const dieLockRef = useRef<Record<string, any> | null>(null);
-  const chatInset = chatOpen
-    ? chatPanelH > 0 ? chatPanelH : Math.min(280, CHAT_MAX_H)
-    : 0;
+  const chatInset = 0;
 
   // ── Re-seat tokens on board resize ─────────────────────────────────────
   // When the chat panel opens or keyboard appears, the board shrinks via
@@ -509,8 +495,6 @@ export default function LudoGame({
   const prevRoundRef = useRef<number | null>(null);
   const prevTurnIdxRef = useRef<number | null>(null);
   const msgIdRef = useRef(0);
-  const chatScroll = useRef<ScrollView>(null);
-  const chatInputRef = useRef<TextInput>(null);
   const gameStateRef = useRef(gameState);
   gameStateRef.current = gameState;
   // The engine fires START only after every player's board is visible — READY
@@ -2131,22 +2115,6 @@ export default function LudoGame({
         </Animated.View>
       )}
 
-      {/* ─ Chat panel — inline bottom sheet, board compresses above it ─ */}
-      {chatOpen && (
-        <ChatSheet
-          messages={messages}
-          draft={draft}
-          onDraftChange={setDraft}
-          onSend={onSendChat}
-          onClose={() => setChatOpen(false)}
-          onPanelLayout={(h) => setChatPanelH(h)}
-          scrollRef={chatScroll}
-          inputRef={chatInputRef}
-          // The COMPACT decision is based on the real keyboard state (both
-          // platforms); only POSITION offsets use the iOS-only kbLift.
-          kbH={kbH}
-        />
-      )}
     </LinearGradient>
   );
 }

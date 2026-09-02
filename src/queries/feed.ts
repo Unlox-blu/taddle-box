@@ -3,7 +3,7 @@ import { queryKeys } from '../lib/queryKeys';
 import { postsService } from '../services/posts.service';
 import { communityService } from '../services/community.service';
 import { bookmarkService } from '../services/bookmark.service';
-import type { FeedRow } from '../components/common/SharedFeed';
+import type { ContentItem } from '../components/common/contentCards/content';
 
 const PAGE_SIZE = 20;
 
@@ -24,7 +24,7 @@ export function useFeed(hashtag?: string) {
 
 // ─── Bookmarks ────────────────────────────────────────────────────────────────
 export function useBookmarks() {
-  return useInfiniteQuery<FeedRow[]>({
+  return useInfiniteQuery<ContentItem[]>({
     queryKey: queryKeys.bookmarks,
     queryFn: async ({ pageParam = 1 }) => {
       const res = await bookmarkService.getBookmarks(pageParam as number, PAGE_SIZE);

@@ -1,5 +1,5 @@
 import React from "react";
-import type { RowCtx, FeedEnvelope, PostData } from "../../ContentCard";
+import type { FeedCtx, ContentItem, PostData } from "../../content";
 import type { Post } from "../../../../../types";
 import PostCard from "./PostCard";
 import { resolveContentId } from "../../../../../utils/content.util";
@@ -9,8 +9,8 @@ export default function PostCardWrapper({
   ctx,
   index,
 }: {
-  item: FeedEnvelope<PostData>;
-  ctx: RowCtx;
+  item: ContentItem;
+  ctx: FeedCtx;
   index: number;
 }) {
   const post = {

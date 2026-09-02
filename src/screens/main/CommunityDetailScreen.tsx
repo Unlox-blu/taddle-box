@@ -899,7 +899,7 @@ export default function CommunityDetailScreen() {
       <MainHeader showBack />
 
       <SharedFeed
-        rows={communityPosts}
+        items={communityPosts}
         onDelete={handleDeletePost}
         onReposted={loadData}
         isAdmin={isAdmin}

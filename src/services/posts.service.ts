@@ -9,8 +9,7 @@ export const postsService = {
     return { data: response.data?.data?.items || [] };
   },
 
-  /** User-personalized trending hashtags for the Home chips row
-      (feed-relevant — not the global search-page hashtag ranking). */
+  /** User-personalized trending hashtags for the Home chips row */
   getFeedHashtags: async (): Promise<{ data: string[] }> => {
     const response = await apiClient.get(`/feed/hashtags`);
     return { data: response.data?.data || [] };
@@ -21,7 +20,6 @@ export const postsService = {
     return { data: response.data?.data?.items || [] };
   },
 
-  // Multi-type bookmarks
   getBookmarksByType: async (type: string, page = 1, limit = 20) => {
     const response = await apiClient.get(`/bookmark?type=${type}&page=${page}&limit=${limit}`);
     return { data: response.data?.data?.items || [] };
@@ -42,8 +40,6 @@ export const postsService = {
     return response.data;
   },
 
-  // Cast (or move) the current user's vote on a post poll. The server enforces
-  // one vote per user; a re-vote on a different option moves the tally.
   castPollVote: async (
     postId: string,
     optionIndex: number,
@@ -52,7 +48,6 @@ export const postsService = {
     return response.data;
   },
 
-  // The poll author stops further votes (server enforces authorship).
   closePoll: async (
     postId: string,
   ): Promise<{ data: { pollData: Post['pollData']; closed: boolean } }> => {
@@ -69,15 +64,11 @@ export const postsService = {
     return response.data;
   },
 
-  // Record a post impression (thread opened). Fire-and-forget — the server
-  // never fails this for a deleted post, so the caller can ignore errors.
   recordView: async (postId: string) => {
     const response = await apiClient.post(`/posts/${postId}/view`);
     return response.data;
   },
 
-  // Paginated list of users who liked a post, each with the viewer's follow
-  // state (isFollowing / isFollower) for Follow/Unfollow buttons.
   getLikers: async (
     postId: string,
     page = 1,
@@ -90,8 +81,6 @@ export const postsService = {
     return response.data;
   },
 
-  // Paginated list of users who reposted a post — same shape as getLikers so
-  // the same users-list modal can render Follow/Unfollow buttons.
   getReposters: async (
     postId: string,
     page = 1,
@@ -104,10 +93,6 @@ export const postsService = {
     return response.data;
   },
 
-  // Paginated list of users who voted for ONE option of a post poll — same
-  // shape as getLikers so the same users-list modal renders it, with
-  // privacy + followRequested so the Follow button can become
-  // "Request to Follow" for private accounts.
   getPollVoters: async (
     postId: string,
     optionIndex: number,
@@ -121,7 +106,6 @@ export const postsService = {
     return response.data;
   },
 
-  // type: 'all' | 'posts' (originals only) | 'reposts' (repost rows only)
   getUserPosts: async (
     authorId: string,
     page = 1,
@@ -159,8 +143,6 @@ export const postsService = {
     }
   },
 
-  // Repost a post verbatim, or with the user's own thoughts (quote repost).
-  // Quote reposts support hashtags + mentions like a normal post.
   repostPost: async (
     postId: string,
     content?: string,
@@ -175,9 +157,96 @@ export const postsService = {
     return response.data;
   },
 
-  // Remove the current user's repost of a post (repost toggle off).
   unrepostPost: async (postId: string) => {
     const response = await apiClient.delete(`/posts/${postId}/repost`);
     return response.data;
+  },
+
+  // ── Cursor-based pagination methods ──────────────────────────────────────
+  // Cursor is an opaque base64 string encoding { createdAt, id }
+
+  getFeedCursor: async (
+    limit = 20,
+    cursor?: string | null,
+    hashtag?: string,
+    newerCursor?: string | null,
+  ): Promise<{ data: any[]; pagination: { nextCursor?: string | null; hasNext?: boolean } }> => {
+    let url = `/feed/home?limit=${limit}`;
+    if (cursor) url += `&cursor=${encodeURIComponent(cursor)}`;
+    if (hashtag && hashtag !== 'All') url += `&hashtag=${encodeURIComponent(hashtag)}`;
+    if (newerCursor) url += `&newerCursor=${encodeURIComponent(newerCursor)}`;
+    const response = await apiClient.get(url);
+    return {
+      data: response.data?.data?.items || [],
+      pagination: response.data?.data?.pagination || {},
+    };
+  },
+
+  getUserPostsCursor: async (
+    authorId: string,
+    limit = 20,
+    cursor?: string | null,
+    type: 'all' | 'posts' | 'reposts' = 'all',
+  ): Promise<{ data: any[]; pagination: { nextCursor?: string | null; hasNext?: boolean } }> => {
+    let url = `/feed/user/${authorId}?limit=${limit}&type=${type}`;
+    if (cursor) url += `&cursor=${encodeURIComponent(cursor)}`;
+    const response = await apiClient.get(url);
+    return {
+      data: response.data?.data?.items || [],
+      pagination: response.data?.data?.pagination || {},
+    };
+  },
+
+  // Check how many newer posts exist since a given cursor (for "X new reels" banner)
+  getNewerCount: async (cursor: string): Promise<{ count: number }> => {
+    const response = await apiClient.get(`/feed/newer-count?cursor=${encodeURIComponent(cursor)}`);
+    return response.data?.data || { count: 0 };
+  },
+
+  // ── Content Session methods (unified stable ranking pagination) ───────────
+
+  /** Create a new content session (feed or reels) */
+  createContentSession: async (options: {
+    sourceContext?: string;
+    presentation?: string;
+    seedContentIds?: string[];
+    initialContentId?: string;
+    feedContextId?: string;
+    hashtag?: string;
+  }): Promise<{
+    session: { id: string; sourceContext: string; presentation: string; createdAt: string; expiresAt: string };
+    posts: Post[];
+    startIndex: number;
+    skippedCount: number;
+  }> => {
+    const response = await apiClient.post('/content/sessions', options);
+    const data = response.data?.data;
+    return {
+      session: data.session,
+      posts: data.posts || [],
+      startIndex: data.startIndex || 0,
+      skippedCount: data.skippedCount || 0,
+    };
+  },
+
+  /** Load a page of posts from an existing content session (auto-extends) */
+  loadContentSessionPage: async (
+    sessionId: string,
+    offset: number,
+    limit: number,
+  ): Promise<{
+    posts: Post[];
+    nextOffset: number;
+    hasMore: boolean;
+  }> => {
+    const response = await apiClient.get(
+      `/content/sessions/${sessionId}?offset=${offset}&limit=${limit}`,
+    );
+    const data = response.data?.data;
+    return {
+      posts: data.items?.map((item: any) => item.data) || [],
+      nextOffset: data.pagination?.nextOffset || offset,
+      hasMore: data.pagination?.hasMore || false,
+    };
   },
 };

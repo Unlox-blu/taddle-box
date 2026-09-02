@@ -1892,7 +1892,7 @@ export default React.memo(function ReelItem({
       navigation.navigate("PostDetail", {
         post: orig,
         feedPosts: [orig],
-        feedContext: "feed",
+        feedContext: "home",
         isSinglePost: true,
       } as any);
     },

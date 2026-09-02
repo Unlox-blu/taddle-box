@@ -1,9 +1,9 @@
 import React from "react";
 import { View, Text, TouchableOpacity } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
-import type { RowCtx, FeedEnvelope, TextData } from "../ContentCard";
+import type { FeedCtx, ContentItem, TextData } from "../content";
 
-export default function TextCard({ item, ctx }: { item: FeedEnvelope<TextData>; ctx: RowCtx }) {
+export default function TextCard({ item, ctx }: { item: ContentItem; ctx: FeedCtx }) {
   const data = item.data;
   return (
     <TouchableOpacity style={ctx.styles.peopleRow} onPress={() => ctx.addHashtag(data.text.replace("#", ""))} activeOpacity={0.8}>

@@ -1,7 +1,7 @@
 import React from "react";
 import { View, Text, TouchableOpacity } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
-import type { RowCtx, FeedEnvelope, CommentData } from "../ContentCard";
+import type { FeedCtx, ContentItem, CommentData } from "../content";
 
 const HighlightedText = ({ text, style, numberOfLines, colors }: any) => {
   if (!text) return null;
@@ -32,8 +32,8 @@ export default function CommentCard({
   item,
   ctx,
 }: {
-  item: FeedEnvelope<CommentData>;
-  ctx: RowCtx;
+  item: ContentItem;
+  ctx: FeedCtx;
 }) {
   const data = item.data;
   return (

@@ -151,12 +151,7 @@ type Props = {
   lastLanded: number | null;
   playerInfo: Record<string, { name: string; username?: string; avatar?: string }>;
   autoRoll: null | { remaining: number; target: string; phase: "countdown" | "rolling" };
-  chatOpen: boolean;
-  setChatOpen: (v: boolean) => void;
   chatPopups: Array<{ id: number; uid: string; name: string; text: string; color: string }>;
-  messages: Array<{ id: number; uid?: string; name: string; color: string; text: string; time: string }>;
-  draft: string;
-  setDraft: (v: string) => void;
   kbH: number;
   kbLift: number;
   tokenAnims: Record<string, { x: Animated.Value; y: Animated.Value }>;
@@ -166,7 +161,7 @@ type Props = {
   toastAnim: Animated.Value;
   turnPulse: Animated.Value;
   rollDice: () => boolean;
-  sendChat: (text: string) => void;
+
   showToast: (msg: string) => void;
 };
 
@@ -174,10 +169,10 @@ export default function SnakeLadderGame({
   matchId, userId, players, myName, myAvatar, onComplete,
   status, state, isMyTurn, toast, rolling, remoteRolling,
   lastDice, dicePreview, lastLanded, playerInfo, autoRoll,
-  chatOpen, setChatOpen, chatPopups, messages, draft, setDraft,
+  chatPopups,
   kbH, kbLift, tokenAnims, getOrCreateTokenAnim,
   diceRotate, diceAnim, toastAnim, turnPulse,
-  rollDice, sendChat, showToast,
+  rollDice, showToast,
 }: Props) {
   // The game renders at its natural size and is uniformly scaled down when
   // the container shrinks. Everything shrinks together — board, cards, buttons.
@@ -564,7 +559,7 @@ export default function SnakeLadderGame({
         {renderCards()}
         {chatPopups.map((pop) => (
           <ChatBubble key={pop.id} pop={pop} cardCenterX={chatCardCenterX(pop.uid)}
-            onDone={(id) => setChatOpen(false)} />
+            onDone={() => {}} />
         ))}
       </View>
 
@@ -613,55 +608,6 @@ export default function SnakeLadderGame({
       )}
       </View>
 
-      <Modal visible={chatOpen} transparent animationType="slide" onRequestClose={() => setChatOpen(false)}>
-        <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : undefined} style={styles.chatWrap}>
-          <TouchableOpacity style={styles.chatDismiss} activeOpacity={1} onPress={() => setChatOpen(false)} />
-          <View style={styles.chatSheet}>
-            <View style={styles.chatHeader}>
-              <Text style={styles.chatTitle}>💬 Match Chat</Text>
-              <View style={styles.chatLiveTag}>
-                <View style={styles.chatLiveDot} />
-                <Text style={styles.chatLiveText}>live</Text>
-              </View>
-              <TouchableOpacity onPress={() => setChatOpen(false)} hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}>
-                <Ionicons name="close" size={22} color="#C4B5FD" />
-              </TouchableOpacity>
-            </View>
-            <ScrollView ref={chatScroll} style={styles.chatList} contentContainerStyle={styles.chatListContent}
-              onContentSizeChange={() => chatScroll.current?.scrollToEnd({ animated: true })}
-              keyboardShouldPersistTaps="handled">
-              {messages.length === 0 && <Text style={styles.chatEmpty}>No messages yet — say hi! 👋</Text>}
-              {messages.map((m) => (
-                <View key={m.id} style={styles.chatMsg}>
-                  <View style={styles.chatMsgMeta}>
-                    <Text style={[styles.chatMsgName, { color: m.color }]}>{m.name}</Text>
-                    <Text style={styles.chatMsgTime}>{m.time}</Text>
-                  </View>
-                  <View style={[styles.chatBubble, { borderLeftColor: m.color }]}>
-                    <Text style={styles.chatMsgText}>{m.text}</Text>
-                  </View>
-                </View>
-              ))}
-            </ScrollView>
-            <View style={styles.chatEmojiRow}>
-              {["😀", "😂", "😎", "🔥", "🎲", "🐍", "🪜", "🏆"].map((e) => (
-                <TouchableOpacity key={e} onPress={() => sendChat(e)} hitSlop={{ top: 6, bottom: 6, left: 6, right: 6 }}>
-                  <Text style={styles.chatEmoji}>{e}</Text>
-                </TouchableOpacity>
-              ))}
-            </View>
-            <View style={styles.chatInputRow}>
-              <TextInput style={styles.chatInput} value={draft} onChangeText={setDraft}
-                placeholder="Type a message…" placeholderTextColor="#8B84B8"
-                onSubmitEditing={() => sendChat(draft)} returnKeyType="send" maxLength={140} />
-              <TouchableOpacity style={[styles.chatSend, !draft.trim() && styles.chatSendDisabled]}
-                onPress={() => sendChat(draft)} disabled={!draft.trim()}>
-                <Ionicons name="send" size={16} color="#FFF" />
-              </TouchableOpacity>
-            </View>
-          </View>
-        </KeyboardAvoidingView>
-      </Modal>
 
       <Modal visible={helpOpen} transparent animationType="fade" onRequestClose={() => setHelpOpen(false)}>
         <View style={styles.helpWrap}>

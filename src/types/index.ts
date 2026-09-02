@@ -13,7 +13,7 @@ export type PostDetailParams = {
   feedPosts?: Post[];
   /** Which context opened the reel — used to fetch more posts when feedPosts
    *  runs out or was not provided by the caller. */
-  feedContext?: 'feed' | 'profile' | 'bookmarks' | 'community' | 'search';
+  feedContext?: 'home' | 'profile' | 'bookmarks' | 'community' | 'search';
   /** Scoped id for profile / community contexts (userId or communitySlug). */
   feedContextId?: string;
 };

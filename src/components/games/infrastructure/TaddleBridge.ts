@@ -73,7 +73,7 @@ export function validateBridgeMessage(
   }
 
   // Size check
-  const size = Buffer.byteLength(JSON.stringify(msg));
+  const size = new TextEncoder().encode(JSON.stringify(msg)).byteLength;
   if (size > MAX_MESSAGE_SIZE) {
     console.warn(`[TaddleBridge] Message too large: ${size} bytes`);
     return null;

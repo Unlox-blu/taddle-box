@@ -502,7 +502,7 @@ export default function NotificationsScreen({ navigation }: Props) {
               // Comment mentions carry the exact comment id → the detail page
               // auto-scrolls to (and highlights) that comment.
               const commentId = (notif as any)?.payload?.commentId;
-              navigation.push('PostDetail', { post: post as Post, commentId } as any);
+              navigation.push('PostDetail', { post: post as Post, commentId, feedContext: 'notifications' } as any);
               return;
             }
           } catch (e) {

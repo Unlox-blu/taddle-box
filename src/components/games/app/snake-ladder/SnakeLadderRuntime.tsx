@@ -113,10 +113,7 @@ export default function SnakeLadderRuntime({
   const [lastLanded, setLastLanded] = useState<number | null>(null);
   const [playerInfo, setPlayerInfo] = useState<Record<string, { name: string; username?: string; avatar?: string }>>({});
   const [autoRoll, setAutoRoll] = useState<null | { remaining: number; target: string; phase: "countdown" | "rolling" }>(null);
-  const [chatOpen, setChatOpen] = useState(false);
   const [chatPopups, setChatPopups] = useState<Array<{ id: number; uid: string; name: string; text: string; color: string }>>([]);
-  const [messages, setMessages] = useState<ChatMsg[]>([]);
-  const [draft, setDraft] = useState("");
   const [kbH, setKbH] = useState(0);
 
   const me = players?.find((p) => p.id === userId);
@@ -268,9 +265,12 @@ export default function SnakeLadderRuntime({
       const color = PLAYER_COLORS[(idx >= 0 ? idx : 0) % PLAYER_COLORS.length];
       const name = data?.name || (uid === userId ? myName : `Player ${idx + 1}`) || "Player";
       const id = Date.now() + Math.random();
-      setMessages((m) => [...m.slice(-50), { id, uid, name, color, text, time: new Date(data?.ts || Date.now()).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) }]);
       setChatPopups((p) => [...p.slice(-3), { id, uid, name, text, color, cornerIdx: idx >= 0 ? idx : 0 }]);
       setTimeout(() => { setChatPopups((p) => p.filter((pp) => pp.id !== id)); }, 4000);
+      
+      if (uid !== userId) {
+        require("react-native").DeviceEventEmitter.emit("GAME_ENGINE_CHAT", { name, text });
+      }
     },
   });
 
@@ -379,7 +379,13 @@ export default function SnakeLadderRuntime({
     return () => { showSub?.remove(); hideSub?.remove(); };
   }, []);
 
-  const sendChat = useCallback((text: string) => { const t = text.trim(); if (!t) return; socket?.emit(GAME_EVENTS.CHAT, { text: t }); setDraft(""); gameSound.playTap(); }, [socket]);
+  // Listen to the global GameChatPanel sending out messages
+  useEffect(() => {
+    const sub = require("react-native").DeviceEventEmitter.addListener("GAME_PANEL_OUTGOING_CHAT", (text: string) => {
+      socket?.emit(GAME_EVENTS.CHAT, { text });
+    });
+    return () => sub.remove();
+  }, [socket]);
   const kbLift = Platform.OS === "ios" ? kbH : 0;
 
   return (
@@ -388,12 +394,11 @@ export default function SnakeLadderRuntime({
       onComplete={onComplete} status={status} state={state} isMyTurn={isMyTurn}
       toast={toast} rolling={rolling} remoteRolling={remoteRolling} lastDice={lastDice}
       dicePreview={dicePreview} lastLanded={lastLanded} playerInfo={playerInfo}
-      autoRoll={autoRoll} chatOpen={chatOpen} setChatOpen={setChatOpen}
-      chatPopups={chatPopups} messages={messages} draft={draft} setDraft={setDraft}
+      autoRoll={autoRoll} chatPopups={chatPopups}
       kbH={kbH} kbLift={kbLift} tokenAnims={tokenAnims}
       getOrCreateTokenAnim={getOrCreateTokenAnim} diceRotate={diceRotate}
       diceAnim={diceAnim} toastAnim={toastAnim} turnPulse={turnPulse}
-      rollDice={rollDice} sendChat={sendChat} showToast={showToastFn}
+      rollDice={rollDice} showToast={showToastFn}
     />
   );
 }

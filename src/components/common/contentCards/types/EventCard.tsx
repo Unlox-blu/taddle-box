@@ -1,9 +1,9 @@
 import React from "react";
 import { View, Text, TouchableOpacity } from "react-native";
 import { Image } from "expo-image";
-import type { RowCtx, FeedEnvelope, EventData } from "../ContentCard";
+import type { FeedCtx, ContentItem, EventData } from "../content";
 
-export default function EventCard({ item, ctx }: { item: FeedEnvelope<EventData>; ctx: RowCtx }) {
+export default function EventCard({ item, ctx }: { item: ContentItem; ctx: FeedCtx }) {
   const data = item.data;
   return (
     <TouchableOpacity style={ctx.styles.peopleRow} onPress={() => ctx.openEvents(data.id)} activeOpacity={0.8}>

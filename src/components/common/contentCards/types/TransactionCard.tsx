@@ -1,9 +1,9 @@
 import React from "react";
 import { View, Text, TouchableOpacity } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
-import type { RowCtx, FeedEnvelope, TransactionData } from "../ContentCard";
+import type { FeedCtx, ContentItem, TransactionData } from "../content";
 
-export default function TransactionCard({ item, ctx }: { item: FeedEnvelope<TransactionData>; ctx: RowCtx }) {
+export default function TransactionCard({ item, ctx }: { item: ContentItem; ctx: FeedCtx }) {
   const data = item.data;
   
   const isCredit = data.type === "earn" || data.type === "topup";

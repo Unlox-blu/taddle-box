@@ -51,9 +51,7 @@ export default function LudoRuntime({
   const [noMoveHold, setNoMoveHold] = useState<{ playerIdx: number; face: number } | null>(null);
 
   // ── Chat state ─────────────────────────────────────────────────────
-  const [chatOpen, setChatOpen] = useState(false);
-  const [messages, setMessages] = useState<Array<{ id: number; uid?: string; name: string; color: string; text: string; time: string }>>([]);
-  const [draft, setDraft] = useState("");
+
   const [chatPopups, setChatPopups] = useState<Array<{ id: number; uid: string; name: string; text: string; color: string; cornerIdx: number }>>([]);
 
   // ── Effects ────────────────────────────────────────────────────────
@@ -165,16 +163,17 @@ export default function LudoRuntime({
       const info = playerInfoRef.current[data.uid] || playerInfoRef.current[data.userId];
       const senderName = info?.name || data.name || "Player";
       const senderColor = PLAYER_COLORS[(gameStateRef.current?.turnOrder || []).indexOf(data.userId || data.uid) % 4] || "#94A3B8";
-      setMessages((prev) => [...prev.slice(-50), {
-        id: Date.now() + Math.random(), uid: data.userId || data.uid,
-        name: senderName, color: senderColor, text: data.text,
-        time: new Date(data.ts || Date.now()).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
-      }]);
+
       const cornerIdx = (gameStateRef.current?.turnOrder || []).indexOf(data.userId || data.uid);
       if (cornerIdx >= 0) {
         const popupId = Date.now();
         setChatPopups((prev) => [...prev.slice(-3), { id: popupId, uid: data.userId || data.uid, name: senderName, text: data.text, color: senderColor, cornerIdx }]);
         setTimeout(() => setChatPopups((prev) => prev.filter((p) => p.id !== popupId)), 4000);
+      }
+      
+      const uid = data.userId || data.uid;
+      if (uid !== userId) {
+        require("react-native").DeviceEventEmitter.emit("GAME_ENGINE_CHAT", { name: senderName, text: data.text });
       }
     },
   });
@@ -197,9 +196,13 @@ export default function LudoRuntime({
     sendCommand(GAME_EVENTS.MOVE, { type: "MOVE_TOKEN", tokenId });
   }, [status, sendCommand]);
 
-  const sendChat = useCallback((text: string) => {
-    if (!text.trim() || !socket) return;
-    socket.emit(GAME_EVENTS.CHAT, { text: text.trim().slice(0, 200) });
+  // Listen to the global GameChatPanel sending out messages
+  useEffect(() => {
+    const sub = require("react-native").DeviceEventEmitter.addListener("GAME_PANEL_OUTGOING_CHAT", (text: string) => {
+      if (!text.trim() || !socket) return;
+      socket.emit(GAME_EVENTS.CHAT, { text: text.trim().slice(0, 200) });
+    });
+    return () => sub.remove();
   }, [socket]);
 
   // ── Keyboard listener ──────────────────────────────────────────────
@@ -254,14 +257,13 @@ export default function LudoRuntime({
       rolling={rolling} setRolling={setRolling} remoteRolling={remoteRolling}
       setRemoteRolling={setRemoteRolling} dicePreview={dicePreview}
       settledFace={settledFace} noMoveHold={noMoveHold} setNoMoveHold={setNoMoveHold}
-      chatOpen={chatOpen} setChatOpen={setChatOpen} messages={messages}
-      draft={draft} setDraft={setDraft} chatPopups={chatPopups}
-      setChatPopups={setChatPopups} setMessages={setMessages}
+      chatPopups={chatPopups}
+      setChatPopups={setChatPopups}
       bursts={bursts} setBursts={setBursts} burstIdRef={burstIdRef}
       toast={toast} setToast={setToast} kbH={kbH} kbLift={kbLift}
       pendingTurnRef={pendingTurnRef} revealTimerRef={revealTimerRef}
       activeWalksRef={activeWalksRef} pendingKeysRef={pendingKeysRef}
-      onRoll={handleRoll} onTokenTap={handleTokenTap} onSendChat={sendChat}
+      onRoll={handleRoll} onTokenTap={handleTokenTap}
       onRollComplete={onRollComplete} onRemoteRollComplete={onRemoteRollComplete}
     />
   );

@@ -1724,6 +1724,9 @@ function GamePlayModal({
             onUnread={() => {
               if (!chatOpen) setChatUnread(true);
             }}
+            onSend={(text) => {
+              DeviceEventEmitter.emit("GAME_PANEL_OUTGOING_CHAT", text);
+            }}
           />
         )}
       </View>

@@ -2,7 +2,7 @@ import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { queryKeys } from '../lib/queryKeys';
 import { postsService } from '../services/posts.service';
 import type { Post } from '../types';
-import type { FeedRow } from '../components/common/SharedFeed';
+import type { ContentItem } from '../components/common/contentCards/content';
 
 export function useCreatePost() {
   const queryClient = useQueryClient();
@@ -33,7 +33,7 @@ export function useToggleLike() {
 
       const prevData: [readonly unknown[], unknown][] = [];
 
-      // Patch all feed/bookmark/profile caches (all store FeedRow[] pages now)
+      // Patch all feed/bookmark/profile caches (all store ContentItem[] pages now)
       queryClient.getQueryCache().findAll({ predicate: (q) => 
         q.queryKey[0] === 'feed' || 
         q.queryKey[0] === 'bookmarks' || 
@@ -44,7 +44,7 @@ export function useToggleLike() {
           if (!old) return old;
           return {
             ...old,
-            pages: old.pages.map((page: FeedRow[]) =>
+            pages: old.pages.map((page: ContentItem[]) =>
               page.map((row) => {
                 const data = row.data as any;
                 if (data && data.id === id) {
@@ -81,7 +81,7 @@ function flipSavedInCache(queryClient: any, queryKey: any, id: string, nextSaved
     if (!old) return old;
     return {
       ...old,
-      pages: old.pages.map((page: FeedRow[]) =>
+      pages: old.pages.map((page: ContentItem[]) =>
         page.map((row) => {
           const data = row.data as any;
           if (data && data.id === id) {
@@ -113,7 +113,7 @@ export function useToggleSave() {
       queryClient.getQueryCache().findAll({ queryKey: queryKeys.feed })
         .forEach((query) => flipSavedInCache(queryClient, query.queryKey, id, nextSaved));
       flipSavedInCache(queryClient, BOOKMARKS_KEY, id, nextSaved);
-      // Profile post caches store FeedRow[] — patch item.isSaved
+      // Profile post caches store ContentItem[] — patch item.isSaved
       queryClient.getQueryCache().findAll({ predicate: (q) => q.queryKey[0] === 'profile' && q.queryKey[2] === 'posts' })
         .forEach((query) => flipSavedInCache(queryClient, query.queryKey, id, nextSaved));
       

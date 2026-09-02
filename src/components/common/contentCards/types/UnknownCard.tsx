@@ -1,9 +1,9 @@
 import React from "react";
 import { View, Text, Image, StyleSheet } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
-import type { RowCtx } from "../ContentCard";
+import type { FeedCtx } from "../content";
 
-export default function UnknownCard({ item, ctx }: { item: any; ctx: RowCtx }) {
+export default function UnknownCard({ item, ctx }: { item: any; ctx: FeedCtx }) {
   // Try to find the inner data object, or fall back to the outer envelope
   const data = item?.data || item || {};
   

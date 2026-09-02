@@ -96,7 +96,7 @@ export default function BookmarksScreen() {
       <MainHeader showBack />
 
       <SharedFeed
-        rows={rows}
+        items={rows}
         refreshing={isRefetching}
         onRefresh={() => refetch()}
         onEndReached={() => {

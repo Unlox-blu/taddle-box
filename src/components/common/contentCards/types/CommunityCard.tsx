@@ -1,9 +1,9 @@
 import React from "react";
 import { View, Text, TouchableOpacity } from "react-native";
 import { Image } from "expo-image";
-import type { RowCtx, FeedEnvelope, CommunityData } from "../ContentCard";
+import type { FeedCtx, ContentItem, CommunityData } from "../content";
 
-export default function CommunityCard({ item, ctx }: { item: FeedEnvelope<CommunityData>; ctx: RowCtx }) {
+export default function CommunityCard({ item, ctx }: { item: ContentItem; ctx: FeedCtx }) {
   const data = item.data;
   return (
     <TouchableOpacity style={ctx.styles.peopleRow} onPress={() => ctx.openCommunity(data.slug)} activeOpacity={0.8}>

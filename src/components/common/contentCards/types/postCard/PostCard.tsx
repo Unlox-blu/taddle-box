@@ -68,7 +68,7 @@ interface PostCardProps {
    *  user can swipe-next from within the detail view. Optional: existing
    *  callers that don't provide this fall back to server-fetch. */
   feedPosts?: Post[];
-  feedContext?: 'feed' | 'profile' | 'bookmarks' | 'community' | 'search';
+  feedContext?: 'home' | 'profile' | 'bookmarks' | 'community' | 'search';
   feedContextId?: string;
 }
 

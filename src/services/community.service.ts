@@ -34,6 +34,16 @@ export const communityService = {
     return { data: response.data?.data?.items || [] };
   },
 
+  getCommunityPostsCursor: async (id: string, limit = 20, cursor?: string | null): Promise<{ data: any[]; pagination: { nextCursor?: string | null; hasNext?: boolean } }> => {
+    let url = `/feed/community/${id}?limit=${limit}`;
+    if (cursor) url += `&cursor=${encodeURIComponent(cursor)}`;
+    const response = await apiClient.get(url);
+    return {
+      data: response.data?.data?.items || [],
+      pagination: response.data?.data?.pagination || {},
+    };
+  },
+
   joinCommunity: async (id: string) => {
     const response = await apiClient.post(`/communities/${id}/join`);
     return response.data;

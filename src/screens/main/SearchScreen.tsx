@@ -157,9 +157,9 @@ const SETTINGS_ITEMS = [
   },
 ];
 
-import type { FeedRow } from "../../components/common/SharedFeed";
+import type { ContentItem } from "../../components/common/contentCards/content";
 
-type Row = FeedRow;
+type Row = ContentItem;
 
 export default function SearchScreen({ navigation, route }: Props) {
   const insets = useSafeAreaInsets();
@@ -1697,7 +1697,7 @@ export default function SearchScreen({ navigation, route }: Props) {
         </View>
       ) : (
         <SharedFeed
-          rows={hookRows as any}
+          items={hookRows as any}
           refreshing={refreshing}
           onRefresh={onRefresh}
           onEndReached={loadMore}

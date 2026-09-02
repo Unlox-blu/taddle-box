@@ -226,6 +226,7 @@ export function NotificationProvider({
               (navigationRef.navigate as any)("PostDetail", {
                 post,
                 commentId: data.commentId,
+                feedContext: 'notifications',
               });
               return;
             }

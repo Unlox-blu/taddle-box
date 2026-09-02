@@ -437,7 +437,7 @@ export default function HomeScreen() {
         onScroll={(offsetY) => {
           scrollYRef.current = offsetY;
         }}
-        rows={filteredPosts}
+        items={filteredPosts}
         spotlightBoundary={spotlightBoundary}
         // Only the actual pull gesture (or the tab-double-tap refresh) should
         // show the refresh indicator. Feeding isRefetching in here made EVERY

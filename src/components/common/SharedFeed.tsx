@@ -23,26 +23,15 @@ import ShareSheet from "./ShareSheet";
 import { useGlobalScroll } from "../../context/ScrollContext";
 import { useActiveContentTracker } from "../../hooks/useActiveContentTracker";
 import { resolveContentId } from "../../utils/content.util";
-import ContentCard, { type RowCtx } from "./contentCards/ContentCard";
+import FeedCard from "./contentCards/FeedCard";
+import type { FeedCtx, ContentItem } from "./contentCards/content";
 import { createRowStyles } from "./rowStyles";
 import { useThemeColors } from "../../context/ThemeContext";
 
-// ── Mixed-content row type ───────────────────────────────────────────────────
-// Same shape as Search / Bookmarks hookRows.  Callers wrap their data:
-//   rows={posts.map(p => ({ type: 'posts', item: p }))}
-// New content types (people, communities, etc.) are added by injecting new
-// entries — SharedFeed dispatches through a renderer map.
-export type FeedRow = {
-  itemType: string;
-  id: string;
-  data: any;
-  score?: number;
-  highlight?: any;
-  isHeader?: boolean;
-};
+
 
 interface SharedFeedProps {
-  rows: FeedRow[];
+  items: ContentItem[];
   onLike?: (id: string) => void;
   onSave?: (id: string) => void;
   refreshing?: boolean;
@@ -79,12 +68,12 @@ interface SharedFeedProps {
   /** Adjacent posts to seed the reel when a card is tapped. Pass the full
    *  current post list so the reel can continue from the tapped position. */
   feedPosts?: Post[];
-  feedContext?: 'feed' | 'profile' | 'bookmarks' | 'community' | 'search';
+  feedContext?: 'home' | 'profile' | 'bookmarks' | 'community' | 'search';
   feedContextId?: string;
 }
 
 export default function SharedFeed({
-  rows,
+  items,
   onLike,
   onSave,
   refreshing,
@@ -130,10 +119,10 @@ export default function SharedFeed({
   // ── Derive posts-only list from rows for active tracking / preload ──────────
   const posts = useMemo(
     () =>
-      rows
+      items
         .filter((r) => r.itemType === "post" || r.itemType === "poll")
         .map((r) => r.data as Post),
-    [rows],
+    [items],
   );
 
   // ── Active-content tracking (hybrid: viewability filter + layout.y + hysteresis) ─
@@ -143,7 +132,7 @@ export default function SharedFeed({
     onViewableItemsChanged,
     trackLayout,
     handleScroll: handleScrollForTracking,
-  } = useActiveContentTracker(rows, {
+  } = useActiveContentTracker(items, {
     listHeaderOffset,
     // PullToRefreshWrapper overrides contentContainerStyle.paddingTop to
     // (headerHeight + sectionH) when a sectionHeader is present — the tracker
@@ -151,7 +140,7 @@ export default function SharedFeed({
     // The debug zone, tracking math, and content layout all use this value.
     headerHeight: headerHeight + (sectionHeaderH || 0),
     spotlightBoundary,
-    // FlashList's data is FeedRow[], so viewability items arrive as
+    // FlashList's data is ContentItem[], so viewability items arrive as
     // { type, item } wrappers. Unwrap to get the real content ID.
     getContentId: (feedItem: any) => {
       const inner = feedItem?.item ?? feedItem;
@@ -294,7 +283,7 @@ export default function SharedFeed({
   const colors = useThemeColors();
   const rowStyles = useMemo(() => createRowStyles(colors), [colors]);
 
-  const rowCtx: RowCtx = useMemo(
+  const feedCtx: FeedCtx = useMemo(
     () => ({
       styles: rowStyles as any,
       colors,
@@ -351,13 +340,13 @@ export default function SharedFeed({
 
   // ── Render a single row through the type dispatcher ────────────────
   const renderRow = useCallback(
-    (row: FeedRow, index: number) => {
+    (row: ContentItem, index: number) => {
       // Header rows render nothing (zero-height section dividers)
       if (row.isHeader) return null;
 
-      // Delegate ALL content rendering to ContentCard
+      // Delegate ALL content rendering to FeedCard
       // which acts as the SSOT dispatcher for the envelope architecture.
-      return <ContentCard item={row as any} ctx={rowCtx} index={index} />;
+      return <FeedCard item={row} ctx={feedCtx} index={index} />;
     },
     [
       isFocused,
@@ -382,7 +371,7 @@ export default function SharedFeed({
 
   // ── Row key extractor ──────────────────────────────────────────────
   const rowKeyExtractor = useCallback(
-    (row: FeedRow, index: number) =>
+    (row: ContentItem, index: number) =>
       row.id || resolveContentId(row.data) || `row-${index}`,
     [],
   );
@@ -396,9 +385,9 @@ export default function SharedFeed({
         ]}
       >
         {safeNode(ListHeaderComponent)}
-        {rows.length === 0
+        {items.length === 0
           ? safeNode(ListEmptyComponent)
-          : rows.map((row, index) => (
+          : items.map((row, index) => (
               <View key={rowKeyExtractor(row, index)}>
                 {renderRow(row, index)}
               </View>
@@ -425,8 +414,8 @@ export default function SharedFeed({
       >
         <FlashList
           ref={flatListRef}
-          data={rows}
-          extraData={rowCtx}
+          data={items}
+          extraData={feedCtx}
           keyExtractor={rowKeyExtractor}
           showsVerticalScrollIndicator={false}
           keyboardDismissMode="on-drag"

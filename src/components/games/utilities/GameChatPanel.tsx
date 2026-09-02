@@ -45,6 +45,8 @@ type Props = {
   incoming?: { name: string; text: string } | null;
   /** Called when a message arrives while the panel is closed (for unread badge). */
   onUnread?: () => void;
+  /** Called when the local player sends a message. */
+  onSend?: (text: string) => void;
 };
 
 export default function GameChatPanel({
@@ -54,6 +56,7 @@ export default function GameChatPanel({
   playerName = "You",
   incoming,
   onUnread,
+  onSend,
 }: Props) {
   const insets = useSafeAreaInsets();
   const [messages, setMessages] = useState<ChatMessage[]>([]);
@@ -114,6 +117,7 @@ export default function GameChatPanel({
     (text: string) => {
       const trimmed = text.trim();
       if (!trimmed) return;
+      onSend?.(trimmed);
       const now = new Date();
       const time = `${now.getHours().toString().padStart(2, "0")}:${now
         .getMinutes()
@@ -130,6 +134,7 @@ export default function GameChatPanel({
 
   const sendEmoji = useCallback(
     (emoji: string) => {
+      onSend?.(emoji);
       const now = new Date();
       const time = `${now.getHours().toString().padStart(2, "0")}:${now
         .getMinutes()
@@ -143,7 +148,6 @@ export default function GameChatPanel({
     [playerName],
   );
 
-  if (!open) return null;
 
   // iOS: keyboard overlays → lift the sheet by kbH
   // Android: window resizes → no manual lift needed
@@ -154,7 +158,7 @@ export default function GameChatPanel({
     <KeyboardAvoidingView
       behavior={Platform.OS === "ios" ? "padding" : undefined}
       keyboardVerticalOffset={0}
-      style={[styles.chatWrap, { paddingBottom: insets.bottom || 6 }]}
+      style={[styles.chatWrap, { paddingBottom: insets.bottom || 6 }, !open && { display: "none" }]}
     >
       <View
         style={[styles.chatSheet, { maxHeight: sheetMaxH }]}

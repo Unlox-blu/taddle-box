@@ -2,7 +2,7 @@ import React from "react";
 import { View, Text, TouchableOpacity, Image, StyleSheet } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { LinearGradient } from "expo-linear-gradient";
-import type { RowCtx, FeedEnvelope } from "../ContentCard";
+import type { FeedCtx, ContentItem } from "../content";
 import type { Notification } from "../../../../types";
 import { fontSizes, radii, spacing, type ColorPalette } from "../../../../theme";
 import ActiveStatusDot from "../../ActiveStatusDot";
@@ -21,7 +21,7 @@ function getNotifColor(c: ColorPalette): Record<string, string> {
   };
 }
 
-export default function NotificationCard({ item, ctx }: { item: FeedEnvelope<any>; ctx: RowCtx }) {
+export default function NotificationCard({ item, ctx }: { item: ContentItem; ctx: FeedCtx }) {
   const notif: Notification = item.data;
   const colors = ctx.colors;
   const notifColor = getNotifColor(colors);

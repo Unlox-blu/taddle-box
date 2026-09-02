@@ -1,6 +1,6 @@
 import React from "react";
 import { View, Text } from "react-native";
-import type { RowCtx, FeedEnvelope } from "../ContentCard";
+import type { FeedCtx, ContentItem } from "../content";
 
 export type HeaderData = {
   title: string;
@@ -12,8 +12,8 @@ export default function HeaderCard({
   item,
   ctx,
 }: {
-  item: FeedEnvelope<HeaderData>;
-  ctx: RowCtx;
+  item: ContentItem;
+  ctx: FeedCtx;
 }) {
   const data = item.data;
   return (

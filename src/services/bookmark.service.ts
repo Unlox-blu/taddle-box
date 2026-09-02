@@ -33,4 +33,14 @@ export const bookmarkService = {
       hasNext: response.data?.data?.pagination?.hasNext || false,
     };
   },
+
+  async getBookmarksCursor(limit = 20, cursor?: string | null, type = "all") {
+    const params: any = { limit, type };
+    if (cursor) params.cursor = cursor;
+    const response = await apiClient.get<any>("/bookmark", { params });
+    return {
+      data: response.data?.data?.items || [],
+      pagination: response.data?.data?.pagination || {},
+    };
+  },
 };

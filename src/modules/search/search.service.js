@@ -13,7 +13,7 @@ const GameModel = require('../game/game.model');
 
 const UNIVERSAL_TYPES = ['posts', 'people', 'communities', 'events', 'polls', 'comments', 'media', 'games', 'text'];
 
-const BOOKMARKED_TYPES = ['posts'];
+const BOOKMARKED_TYPES = ['posts', 'people', 'communities'];
 
 const MESSAGES_TYPES = ['messages'];
 
@@ -191,7 +191,7 @@ class SearchService {
             limit,
             offset,
           });
-          const selected = bookmarkResult.results.flatMap((group) => group.rows);
+          const selected = bookmarkResult.results.flatMap((group) => tagRows(group.rows, group.type));
           return {
             dataType: 'universal',
             data: {
@@ -211,7 +211,7 @@ class SearchService {
                 offset, 
                 unreadOnly: false, 
                 sourceType: requestedType, 
-                query: '', 
+                query: query, 
                 timeCutoff, 
                 sortBy, 
                 communities, 

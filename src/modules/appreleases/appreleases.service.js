@@ -58,15 +58,7 @@ class AppReleasesService {
         throw new Error('Failed to extract versionCode from APK');
       }
 
-      // 1.5. Prevent downgrades by checking the current live manifest
-      const existingManifest = await this.getManifest(track);
-      if (existingManifest && existingManifest.android && existingManifest.android.versionCode) {
-        const liveVersion = Number(existingManifest.android.versionCode);
-        const newVersion = Number(versionCode);
-        if (newVersion < liveVersion) {
-          throw new Error(`Upload rejected for track '${track}': The new APK has version code ${newVersion}, which is lower than the currently live version ${liveVersion}. Downgrading is not permitted.`);
-        }
-      }
+
 
       // 2. Generate security handshake
       const handshake = crypto.randomBytes(16).toString('hex');

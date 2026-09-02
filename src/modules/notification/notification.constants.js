@@ -149,19 +149,7 @@ const DEFAULT_NOTIFICATION_DEFINITIONS = {
   },
 };
 
-const TYPE_ALIASES = {
-  POST_LIKE: 'POST_LIKE',
-  POST_COMMENT: 'COMMENT',
-  COMMENT: 'COMMENT',
-  FOLLOW: 'FOLLOW',
-  MENTION: 'MENTION',
-  REPLY: 'REPLY',
-  PROMOTION: 'PROMOTION',
-  REQUEST_TO_FOLLOW: 'REQUEST_TO_FOLLOW',
-  REQUEST_TO_JOIN_COMMUNITY: 'REQUEST_TO_JOIN_COMMUNITY',
-  NEW_POST: 'NEW_POST',
-  REPOST: 'NEW_POST',
-};
+// Removed TYPE_ALIASES logic in favor of SSOT.
 
 // The three notification buckets used by the Search scope and the counts
 // endpoint. Each lists BOTH the canonical uppercase spelling
@@ -169,9 +157,9 @@ const TYPE_ALIASES = {
 // COMMENT, REPLY, MENTION, …) and the legacy lowercase job-processor
 // spelling uppercased (post_liked, post_comment, …). Filters match with
 // UPPER(n.type), so both pipelines land in the right bucket.
-const likes = ['POST_LIKE', 'POST_LIKED', 'LIKE_POST', 'LIKE_COMMENT'];
+const likes = ['POST_LIKE'];
 
-const comments = ['COMMENT', 'POST_COMMENT', 'REPLY', 'MENTION'];
+const comments = ['COMMENT', 'REPLY', 'MENTION'];
 
 const follows = ['FOLLOW', 'REQUEST_TO_FOLLOW', 'APPROVED_TO_FOLLOW'];
 
@@ -183,14 +171,13 @@ const NOTIFICATION_TYPE_BUCKETS = {
 };
 
 const normalizeType = (type) => {
-  if (!type) return 'COMMENT';
-  const normalized = String(type).trim().toUpperCase();
-  return TYPE_ALIASES[normalized] || normalized;
+  if (!type) return null;
+  return String(type).trim().toUpperCase();
 };
 
 const resolveNotificationPolicy = (event = {}) => {
     const type = normalizeType(event.type);
-    const baseDefinition = DEFAULT_NOTIFICATION_DEFINITIONS[type] || DEFAULT_NOTIFICATION_DEFINITIONS.COMMENT;
+    const baseDefinition = DEFAULT_NOTIFICATION_DEFINITIONS[type] || {};
 
     return {
       save: baseDefinition.save !== false,
@@ -211,7 +198,6 @@ module.exports = {
   QUEUES,
   PRIORITY,
   DEFAULT_NOTIFICATION_DEFINITIONS,
-  TYPE_ALIASES,
   NOTIFICATION_TYPE_BUCKETS,
   normalizeType,
   resolveNotificationPolicy

@@ -198,6 +198,7 @@ class CommunityController {
       const { communityId } = req.params;
       const userId = req.userId;
       const { limit, offset, page } = getPaginationParams(req.query);
+      const useCursor = !!req.query.cursor;
       const { posts, total } = await this.communitySvc.getCommunityPosts( {communityId, userId, limit, offset} );
       const { envelopeItem } = require('../../utils/envelope.util');
       res.json({
@@ -205,7 +206,7 @@ class CommunityController {
         message: 'Posts fetched',
         data: {
           items: posts.map(p => envelopeItem('post', p)),
-          pagination: paginationMeta(total, page, limit)
+          pagination: paginationMeta(total, page, limit, useCursor)
         }
       });
     } catch (error) {

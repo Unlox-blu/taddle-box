@@ -9,6 +9,7 @@ const { paginationQuerySchema } = require('../modules/feed/feed.validator');
 
 router.get('/hashtags', verifyToken,                                                        feedController.getTrendingHashtags);
 router.get('/home',     verifyToken,    validateRequest({query: paginationQuerySchema}),    feedController.getFeed);
+router.get('/newer-count', verifyToken,                                                     feedController.getNewerCount);
 router.get('/user/:authorId',    optionalAuth, (req, res, next) => require('../modules/post/post.container').postController.getUserPosts(req, res, next));
 router.get('/community/:communityId', optionalAuth, (req, res, next) => require('../modules/community/community.container').communityController.getCommunityPosts(req, res, next));
 

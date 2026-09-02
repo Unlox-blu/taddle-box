@@ -433,8 +433,8 @@ class NotificationService {
                 query,
                 timeCutoff,
                 sortBy,
-                communities: communities.length ? communities : null, 
-                people: people.length ? people : null
+                communities: communities?.length ? communities : null, 
+                people: people?.length ? people : null
               });
       return { notifications, total, filteredCount }
     } catch (error) {

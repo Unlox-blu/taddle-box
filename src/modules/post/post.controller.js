@@ -66,6 +66,7 @@ class PostController {
       const { authorId } = req.params;
       const userId = req.userId;
       const { limit, offset, page } = getPaginationParams(req.query);
+      const useCursor = !!req.query.cursor;
       const type = req.query.type || 'all';
       const { posts, total } = await this.postSvc.getUserPosts({authorId, userId, limit, offset, type});
       const { envelopeItem } = require('../../utils/envelope.util');
@@ -74,7 +75,7 @@ class PostController {
         message: 'Posts fetched successfully',
         data: {
           items: posts.map(p => envelopeItem('post', p)),
-          pagination: paginationMeta(total, page, limit)
+          pagination: paginationMeta(total, page, limit, useCursor)
         }
       });
     } catch (error) {

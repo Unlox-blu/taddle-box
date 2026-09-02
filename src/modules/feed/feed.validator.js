@@ -17,6 +17,10 @@ const paginationQuerySchema = z.object({
     .default(10).optional(),
     
   hashtag: z.string().optional(),
+
+  // Cursor-based pagination: opaque base64-encoded cursor.
+  // When provided, `page` is ignored and the cursor determines the offset.
+  cursor: z.string().optional(),
 });
 
 

@@ -33,6 +33,7 @@ router.use('/save',          require('./save.route'));
 router.use('/game',          require('./game.route'));
 router.use('/game',          require('./game.replay.route'));
 router.use('/leaderboards',  require('./leaderboard.route'));
+router.use('/content/sessions',  require('./contentSession.route'));
 
 // Expose auth-only router (used by app.js for stricter rate limiting)
 router.authOnly = authRoute;

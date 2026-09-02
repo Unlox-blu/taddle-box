@@ -2,74 +2,37 @@
 
 const pool = require('../../config/database');
 const PostModel = require('./feed.model');
-const FEED_ALGO = require('./feed.algorithm')
+const FEED_ALGO = require('./feed.algorithm');
 
-// const getPersonalizedPosts = async ({userId, followingIds, prefCategory, prefTags, seenIds, limit, offset, hashtag}) => {
-//   try {
-//     const { rows } = await pool.query(
-//       `SELECT ${PostModel.LIST_FIELDS},
-//        EXISTS(SELECT 1 FROM post_likes pl WHERE pl.post_id = p.id AND pl.user_id = $1) AS is_liked,
-//        EXISTS(SELECT 1 FROM bookmark bm WHERE bm.post_id = p.id AND bm.user_id = $1) AS is_bookmarked,
-//        EXISTS(
-//          SELECT 1 FROM xp_transactions xt
-//          WHERE xt.xp_id = (SELECT id FROM xp WHERE user_id = $1 LIMIT 1)
-//          AND xt.source_type = 'view_post_' || p.id
-//        ) AS is_xp_claimed,
-//        (CASE WHEN p.author_id = ANY($2::uuid[]) THEN 10 ELSE 0 END
-//         + EXTRACT(EPOCH FROM (NOW() - p.published_at)) / -3600.0 * 0.5
-//         + p.likes_count * 0.3 + p.comments_count * 0.5) AS score,
-//         COALESCE(
-//             json_agg(
-//                 json_build_object(
-//                     'id', m.id,
-//                     'media_type', m.media_type,
-//                     'cloudfront_url', m.cloudfront_url,
-//                     'width', m.width,
-//                     'height', m.height,
-//                     's3_key', m.s3_key,
-//                     'processing_status', m.processing_status
-//                 ) ORDER BY m.created_at ASC 
-//             ) FILTER (WHERE m.id IS NOT NULL AND m.deleted_at IS NULL), 
-//             '[]'::json
-//         ) AS media,
-//        COUNT(*) OVER() AS total
-//      FROM ${PostModel.TABLE} p
-//      JOIN users u ON u.id = p.author_id
-//      LEFT JOIN media AS ua ON u.avatar_url = ua.id
-//      LEFT JOIN communities AS c ON p.community_id = c.id
-//      LEFT JOIN media AS ca ON c.avatar_url = ca.id
-//      LEFT JOIN media m ON p.id = m.post_id
-//      WHERE p.deleted_at IS NULL
-//        AND p.status = 'published'
-//        AND p.visibility IN ('public', 'community_only')
-//        AND (
-//            p.community_id IS NULL 
-//            OR c.privacy = 'public' 
-//            OR EXISTS (SELECT 1 FROM community_members cm WHERE cm.community_id = p.community_id AND cm.user_id = $1 AND cm.status = 'active')
-//        )
-//        AND p.id <> ALL($3::uuid[])
-//        -- Private accounts: only show their posts to the author, followers, or the viewer
-//        AND (u.privacy = 'public' OR p.author_id = $1 OR p.author_id = ANY($2::uuid[]))
-//        AND (p.author_id = ANY($2::uuid[]) OR p.author_id != $1 OR p.category && $4 OR p.tags && $5)
-//        AND ($8::text IS NULL OR $8::text = ANY(p.tags))
-//      GROUP BY p.id, u.id, ua.id, c.id, ca.id
-//      ORDER BY score DESC
-//      LIMIT $6 OFFSET $7`,
-//       [userId, followingIds, seenIds, prefCategory, prefTags, limit, offset, hashtag]
-//     );
-//     const total = rows[0]?.total || 0;
-//     return { rows, total: parseInt(total, 10) };
-//   } catch (error) {
-//     throw error;
-//   }
-// };
-
-
-const getPersonalizedPosts = async ({userId, followingId, communityId, prefCategory, prefTags, interests, seenPostId, hashtag, limit, offset}) => {
+const getPersonalizedPosts = async ({userId, followingId, communityId, prefCategory, prefTags, interests, seenPostId, hashtag, limit, offset, cursorData, newerCursorData}) => {
   try {
+    // $11/$12/$13 = ranked cursor (total_score, published_at, id) — for scrolling down
+    // $14/$15 = newer cursor (published_at, id) — for refresh / pull-to-refresh
+    const cursorScore = cursorData?.score ?? null;
+    const cursorPublishedAt = cursorData?.publishedAt || cursorData?.createdAt || null;
+    const cursorId = cursorData?.id || null;
+    const newerCursorPublishedAt = newerCursorData?.createdAt || null;
+    const newerCursorId = newerCursorData?.id || null;
+
     const { rows } = await pool.query(
       FEED_ALGO.FEED_ALGORITHM,
-      [userId, followingId, communityId, prefCategory, prefTags, interests, seenPostId, hashtag, limit, offset]
+      [
+        userId,        // $1
+        followingId,   // $2
+        communityId,   // $3
+        prefCategory,  // $4
+        prefTags,      // $5
+        interests,     // $6
+        seenPostId,    // $7
+        hashtag,       // $8
+        limit,         // $9
+        offset,        // $10
+        cursorScore,          // $11
+        cursorPublishedAt,    // $12
+        cursorId,             // $13
+        newerCursorPublishedAt, // $14
+        newerCursorId,          // $15
+      ]
     );
     const total = rows[0]?.total || 0;
     return { rows, total: parseInt(total, 10) };
@@ -78,10 +41,7 @@ const getPersonalizedPosts = async ({userId, followingId, communityId, prefCateg
   }
 };
 
-// User-personalized trending hashtags (Home chips). Weighted toward the user's
-// feed (following / communities / prefs / interests) — see
-// TRENDING_HASHTAGS_ALGORITHM. Returns an array of tag strings, highest
-// relevance first.
+// User-personalized trending hashtags
 const getTrendingHashtags = async ({ userId, followingId, communityId, prefTags, interests, limit = 15 }) => {
   try {
     const { rows } = await pool.query(
@@ -144,14 +104,14 @@ const getUserPreferences = async (userId) => {
       WHERE user_id = $1
       `,
       [userId]
-    )
+    );
     const category = rows[0]?.category ?? [];
     const tags = rows[0]?.tags ?? [];
-    return {category, tags}
+    return {category, tags};
   } catch (error) {
-    throw error
+    throw error;
   }
-}
+};
 
 const getUserInterests = async (userId) => {
   try {
@@ -162,13 +122,13 @@ const getUserInterests = async (userId) => {
       WHERE id = $1
       `,
       [userId]
-    )
+    );
     const interests = rows[0]?.interests ?? [];
-    return interests
+    return interests;
   } catch (error) {
-    throw error
+    throw error;
   }
-}
+};
 
 const findFollowers = async (userId, limit, offset) => {
   try {
@@ -178,16 +138,15 @@ const findFollowers = async (userId, limit, offset) => {
       FROM followers 
       WHERE follower_id = $1 AND status = 'active'
       LIMIT $2 OFFSET $3
-      `,
-      [userId, limit, offset]
-    )
+      `
+    , [userId, limit, offset]);
     const total = rows[0]?.total || 0;
     const followings = rows.length > 0 ? rows : [];
-    return {total, followings}
+    return {total, followings};
   } catch (error) {
-    throw error
+    throw error;
   }
-}
+};
 
 const findFollowingCommunity = async (userId, limit, offset) => {
   try {
@@ -197,16 +156,15 @@ const findFollowingCommunity = async (userId, limit, offset) => {
       FROM community_members 
       WHERE user_id = $1 AND status = 'active'
       LIMIT $2 OFFSET $3
-      `,
-      [userId, limit, offset]
-    )
+      `
+    , [userId, limit, offset]);
     const total = rows[0]?.total || 0;
     const communities = rows.length > 0 ? rows : [];
-    return {total, communities}
+    return {total, communities};
   } catch (error) {
-    throw error
+    throw error;
   }
-}
+};
 
 module.exports = {
   getPersonalizedPosts,

@@ -384,7 +384,7 @@ const search = async ({ userId, query = '', communities = [], people = [], tags 
       const { rows } = await pool.query(queries[type].sql, params);
       return {
         type,
-        rows: rows.map((row) => ({ ...queries[type].format(row), itemType: type })),
+        rows: rows.map((row) => queries[type].format(row)),
         total: Number(rows[0]?.total || 0),
       };
     }));

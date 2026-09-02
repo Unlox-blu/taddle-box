@@ -11,7 +11,7 @@ class FeedService {
     this.followerRepo = followerRepository;
   }
 
-  async getPersonalizedFeed({userId, limit, offset, page, hashtag}) {
+  async getPersonalizedFeed({userId, limit, offset, page, hashtag, cursorData, newerCursorData}) {
     try {
       
       const followingId = await this.getFollowingUserIds({userId, page})
@@ -22,7 +22,7 @@ class FeedService {
         userId, followingId, communityId, 
         prefCategory, prefTags, interests, 
         seenPostId, hashtag: hashtag ? hashtag.replace(/^#/, '') : null, 
-        limit, offset
+        limit, offset, cursorData, newerCursorData
       });
       
       const posts = rows.map(PostModel.format);
@@ -32,9 +32,6 @@ class FeedService {
     }
   }
 
-  // Trending hashtags for the Home chips row — personalized to the user's
-  // feed (following / communities / preferred tags / interests), unlike the
-  // global search-page hashtag ranking.
   async getTrendingHashtags({ userId }) {
     try {
       const followingId = await this.getFollowingUserIds({ userId, page: 1 });
@@ -52,12 +49,9 @@ class FeedService {
     }
   }
 
-  
-
   async recordInteraction(userId, postId, interactionType) {
     try {
       await this.feedRepo.recordInteraction(userId, postId, interactionType);
-      // Invalidate cache on meaningful interaction
       if (['like', 'comment'].includes(interactionType)) {
         const keys = await redis.keys(`feed:${userId}:*`);
         if (keys.length) await redis.del(...keys);
@@ -70,7 +64,6 @@ class FeedService {
   async updatePreferences({userId, categories, tags}) {
     try {
       await this.feedRepo.upsertUserPreferences(userId, categories, tags);
-      
       const keys = await redis.keys(`feed:${userId}:*`);
       if (keys.length) await redis.del(...keys);
     } catch (error) {

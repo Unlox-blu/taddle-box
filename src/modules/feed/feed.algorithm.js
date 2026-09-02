@@ -1,6 +1,6 @@
 const PostModel = require('./feed.model');
 
-const FEED_ALGORITHM = `WITH ranked_posts AS (
+const FEED_ALGORITHM = `WITH scored_posts AS (
                                 SELECT
                                     ${PostModel.LIST_FIELDS},
 
@@ -27,10 +27,6 @@ const FEED_ALGORITHM = `WITH ranked_posts AS (
                                     ) AS is_xp_claimed,
 
                                     -- Whether the viewing user reposted this post
-                                    -- (drives the filled repeat icon + tick on
-                                    -- feed cards). Mirrors the post repository's
-                                    -- subquery — a repost by this user, any
-                                    -- audience, not deleted.
                                     EXISTS(
                                         SELECT 1 FROM posts rp
                                         WHERE rp.repost_of_id = p.id
@@ -39,8 +35,6 @@ const FEED_ALGORITHM = `WITH ranked_posts AS (
                                     ) AS is_reposted,
 
                                     -- Which poll option the viewing user voted for
-                                    -- (NULL for non-voters) so feed cards can
-                                    -- highlight their saved selection immediately.
                                     (
                                         SELECT pv.option_index FROM poll_votes pv
                                         WHERE pv.post_id = p.id AND pv.user_id = $1 LIMIT 1
@@ -121,7 +115,32 @@ const FEED_ALGORITHM = `WITH ranked_posts AS (
                                             WHEN p.id = ANY($7::uuid[]) THEN -4000
                                             ELSE 0
                                         END AS seen_penalty,
-                                
+
+                                -- Total score (for cursor-based pagination)
+                                (
+                                    CASE WHEN p.author_id = ANY($2::uuid[]) THEN 10000 ELSE 0 END
+                                    + CASE WHEN p.community_id = ANY($3::uuid[]) THEN 8000 ELSE 0 END
+                                    + (
+                                        p.likes_count + p.comments_count * 3 + p.shares_count * 5 + p.views_count * 0.05
+                                    ) / POWER(EXTRACT(EPOCH FROM (NOW() - p.published_at))/3600 + 2, 1.4)
+                                    + CASE WHEN p.category && $4 THEN 500 ELSE 0 END
+                                    + CASE WHEN p.tags && $5 THEN 450 ELSE 0 END
+                                    + CASE WHEN EXISTS (
+                                        SELECT 1 FROM unnest($6::text[]) i
+                                        WHERE LOWER(COALESCE(p.title,'')) LIKE '%' || LOWER(i) || '%'
+                                           OR LOWER(COALESCE(p.content,'')) LIKE '%' || LOWER(i) || '%'
+                                           OR LOWER(i) = ANY(ARRAY(SELECT LOWER(x) FROM unnest(p.tags) x))
+                                           OR LOWER(i) = ANY(ARRAY(SELECT LOWER(x) FROM unnest(p.category) x))
+                                    ) THEN 350 ELSE 0 END
+                                    + CASE
+                                        WHEN NOW() - p.published_at < interval '6 hour' THEN 250
+                                        WHEN NOW() - p.published_at < interval '1 day' THEN 150
+                                        WHEN NOW() - p.published_at < interval '2 day' THEN 75
+                                        ELSE 0
+                                    END
+                                    + CASE WHEN p.id = ANY($7::uuid[]) THEN -4000 ELSE 0 END
+                                ) AS total_score,
+
                                 COALESCE(
                                 json_agg(
                                     json_build_object(
@@ -140,10 +159,7 @@ const FEED_ALGORITHM = `WITH ranked_posts AS (
                                     '[]'::json
                                 ) AS media,
 
-                                -- Location: repost rows carry no place of their
-                                -- own, so fall back to the ORIGINAL post's
-                                -- lat/lon/place (the card's rolling text shows
-                                -- the original's tag on reposts).
+                                -- Location
                                 COALESCE(orig.latitude,  p.latitude)  AS latitude,
                                 COALESCE(orig.longitude, p.longitude) AS longitude,
                                 COALESCE(orig.place,     p.place)     AS place
@@ -178,8 +194,6 @@ const FEED_ALGORITHM = `WITH ranked_posts AS (
 
                                 AND p.status = 'published'
 
-                                -- Reposts whose ORIGINAL is gone (deleted /
-                                -- unpublished) are hidden — nothing to show.
                                 AND (
                                     p.repost_of_id IS NULL
                                     OR EXISTS (
@@ -193,9 +207,7 @@ const FEED_ALGORITHM = `WITH ranked_posts AS (
                                 AND (
 
                                     p.community_id IS NULL
-
                                     OR c.privacy = 'public'
-
                                     OR p.community_id = ANY($3::uuid[])
 
                                 )
@@ -203,9 +215,7 @@ const FEED_ALGORITHM = `WITH ranked_posts AS (
                                 AND (
 
                                     u.privacy='public'
-
                                     OR p.author_id=$1
-
                                     OR p.author_id = ANY($2::uuid[])
 
                                 )
@@ -215,42 +225,40 @@ const FEED_ALGORITHM = `WITH ranked_posts AS (
                                     $8::text IS NULL
                                     OR EXISTS (SELECT 1 FROM unnest(p.tags) AS tag WHERE tag ILIKE '%' || $8::text || '%')
                                 )
+
                                 GROUP BY p.id, u.id, ua.id, c.id, ca.id, s.user_id, orig.id
 
+                            ),
+                            ranked_posts AS (
+                                SELECT * FROM scored_posts
+                                WHERE
+                                -- CURSOR: ranked feed pagination (score-based)
+                                -- $11 = cursor total_score, $12 = cursor published_at, $13 = cursor id
+                                (
+                                    $11::float IS NULL
+                                    OR total_score < $11::float
+                                    OR (total_score = $11::float AND published_at < $12::timestamptz)
+                                    OR (total_score = $11::float AND published_at = $12::timestamptz AND id < $13::uuid)
+                                )
+
+                                -- CURSOR: newer posts (refresh / pull-to-refresh)
+                                -- $14 = newer_cursor published_at, $15 = newer_cursor id
+                                AND (
+                                    $14::timestamptz IS NULL
+                                    OR published_at > $14::timestamptz
+                                    OR (published_at = $14::timestamptz AND id > $15::uuid)
+                                )
                             )
 
                             SELECT ranked_posts.*, COUNT(*) OVER() AS total
                             FROM ranked_posts
                             ORDER BY
-                                (
-                                    following_score
-                                    +
-                                    community_score
-                                    +
-                                    trending_score
-                                    +
-                                    category_score
-                                    +
-                                    tag_score
-                                    +
-                                    interest_score
-                                    +
-                                    freshness_score
-                                    +
-                                    seen_penalty
-                                ) DESC,
+                                total_score DESC,
                             published_at DESC
                             LIMIT $9
                             OFFSET $10;`;
 
 // User-personalized trending hashtags for the Home trending-chips row.
-// Ranks hashtags by how relevant their posts are to THIS user (followed
-// authors / joined communities / preferred tags / interests) blended with
-// engagement velocity — NOT the global search-page ranking, which is just
-// "most recent posts carrying the tag". Visibility rules mirror the feed
-// query so chips only surface tags from posts the user could actually see.
-// Params: $1 userId, $2 followingId[], $3 communityId[], $4 prefTags[],
-//         $5 interests[], $6 limit
 const TRENDING_HASHTAGS_ALGORITHM = `WITH ranked_posts AS (
                                     SELECT
                                         p.id,
@@ -263,14 +271,14 @@ const TRENDING_HASHTAGS_ALGORITHM = `WITH ranked_posts AS (
                                         END AS following_score,
 
                                         CASE
-                                            WHEN p.community_id = ANY($3::uuid[])
-                                            THEN 8000
-                                            ELSE 0
+                                        WHEN p.community_id = ANY($3::uuid[])
+                                        THEN 8000
+                                        ELSE 0
                                         END AS community_score,
 
                                         CASE
-                                            WHEN p.tags && $4 THEN 450
-                                            ELSE 0
+                                        WHEN p.tags && $4 THEN 450
+                                        ELSE 0
                                         END AS tag_score,
 
                                         CASE
@@ -297,8 +305,6 @@ const TRENDING_HASHTAGS_ALGORITHM = `WITH ranked_posts AS (
                                             ELSE 0
                                         END AS interest_score,
 
-                                        -- Engagement velocity (same shape as the
-                                        -- feed's trending_score)
                                         (
                                             p.likes_count
                                             + p.comments_count * 3

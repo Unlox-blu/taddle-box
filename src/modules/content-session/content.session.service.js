@@ -136,7 +136,7 @@ class ContentSessionService {
 
       // Re-check after lock: is extension still needed?
       const currentLiveCount = await this.getLiveCountUnderLock(client, session.id);
-      const remainingCapacity = contentSessionRepo.MAX_SESSION_SIZE - currentLiveCount;
+      let remainingCapacity = contentSessionRepo.MAX_SESSION_SIZE - currentLiveCount;
       if (remainingCapacity <= 0) {
         await client.query('COMMIT');
         return { appended: 0, sourceExhausted: false, sessionLimitReached: true };

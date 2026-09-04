@@ -34,16 +34,16 @@ class ContentSessionController {
       } = req.body || {};
 
       // Validate enums
-      if (!FeedSessionController.VALID_SOURCE_CONTEXTS.includes(sourceContext)) {
+      if (!ContentSessionController.VALID_SOURCE_CONTEXTS.includes(sourceContext)) {
         return res.status(400).json({
           success: false,
-          error: `Invalid sourceContext: ${sourceContext}. Must be one of: ${FeedSessionController.VALID_SOURCE_CONTEXTS.join(', ')}`,
+          error: `Invalid sourceContext: ${sourceContext}. Must be one of: ${ContentSessionController.VALID_SOURCE_CONTEXTS.join(', ')}`,
         });
       }
-      if (!FeedSessionController.VALID_PRESENTATIONS.includes(presentation)) {
+      if (!ContentSessionController.VALID_PRESENTATIONS.includes(presentation)) {
         return res.status(400).json({
           success: false,
-          error: `Invalid presentation: ${presentation}. Must be one of: ${FeedSessionController.VALID_PRESENTATIONS.join(', ')}`,
+          error: `Invalid presentation: ${presentation}. Must be one of: ${ContentSessionController.VALID_PRESENTATIONS.join(', ')}`,
         });
       }
 

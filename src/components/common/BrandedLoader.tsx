@@ -37,11 +37,9 @@ export default function BrandedLottieLoader({ size = 52 }: { size?: number }) {
       style={{
         width: size,
         height: size,
-        borderRadius: size / 2,
+        borderRadius: 9999,
         overflow: "hidden",
         backgroundColor: colors.bg.elevated,
-        borderWidth: 1,
-        borderColor: colors.border,
       }}
     >
       <LottieView
@@ -50,7 +48,7 @@ export default function BrandedLottieLoader({ size = 52 }: { size?: number }) {
         loop
         cacheComposition={true}
         resizeMode="cover"
-        style={{ width: "100%", height: "100%" }}
+        style={{ width: size, height: size, borderRadius: 9999 }}
       />
     </View>
   );
@@ -68,13 +66,9 @@ export function BrandedStaticLoader({ size = 52 }: { size?: number }) {
       style={{
         width: size,
         height: size,
-        borderRadius: size / 2,
+        borderRadius: 9999,
         overflow: "hidden",
         backgroundColor: colors.bg.elevated,
-        borderWidth: 1,
-        borderColor: colors.border,
-        justifyContent: "center",
-        alignItems: "center",
       }}
     >
       <Image

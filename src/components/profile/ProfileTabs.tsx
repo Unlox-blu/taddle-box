@@ -57,7 +57,7 @@ export default function ProfileTabs({ userId }: ProfileTabsProps) {
             items={posts}
             scrollEnabled={false}
             contentContainerStyle={{ gap: 12, paddingHorizontal: spacing.lg }}
-            feedPosts={posts}
+            feedItems={posts}
             feedContext="profile"
             feedContextId={userId}
           />
@@ -73,7 +73,7 @@ export default function ProfileTabs({ userId }: ProfileTabsProps) {
               return (
                 <TouchableOpacity key={post.id} style={{ width: '33.33%', padding: 2, aspectRatio: 1 }} onPress={() => navigation.push('PostDetail', {
                   post,
-                  feedPosts: posts.filter((p: any) => !!p.mediaUri),
+                  feedItems: posts.filter((p: any) => !!p.mediaUri),
                   feedContext: 'profile',
                   feedContextId: userId,
                 })}>

@@ -21,7 +21,6 @@
  */
 import React, {
   useCallback,
-  useEffect,
   useMemo,
   useRef,
   useState,
@@ -48,6 +47,7 @@ import Animated, {
 } from "react-native-reanimated";
 
 import ReelCard from "./contentCards/types/ReelCard";
+import BrandedLottieLoader from "./BrandedLoader";
 import { useReelPreloader } from "../../hooks/useReelPreloader";
 import type { Post } from "../../types";
 import type { ContentItem } from "./contentCards/content";
@@ -67,7 +67,7 @@ export type ReelCtx = {
   openCommunity: (slug: string) => void;
   openGames: (id?: string) => void;
   openEvents: (id?: string) => void;
-  feedPosts?: any[];
+  feedItems?: any[];
   feedContext?: string;
   feedContextId?: string;
 };
@@ -89,6 +89,10 @@ interface SharedReelsProps {
   onDismiss?: () => void;
   /** View tracking callback. */
   onActiveItemChange?: (item: ContentItem, index: number) => void;
+  /** Whether more content is available. */
+  hasMore?: boolean;
+  /** Whether the next page is currently loading. */
+  isLoading?: boolean;
 }
 
 // ── SharedReels Component ────────────────────────────────────────────────────
@@ -101,9 +105,29 @@ export default function SharedReels({
   disableSwipeDown = false,
   onDismiss,
   onActiveItemChange,
+  hasMore = true,
+  isLoading = false,
 }: SharedReelsProps) {
   // FlashList ref
   const flashListRef = useRef<FlashListRef<ContentItem>>(null);
+
+  // Keep a ref to the latest onEndReached so the viewability callback
+  // never holds a stale closure (onEndReached changes once the session is created).
+  const onEndReachedRef = useRef(onEndReached);
+  onEndReachedRef.current = onEndReached;
+
+  // Keep a ref to the latest items length so the viewability callback
+  // always sees the current list size (not the initial seed count).
+  const itemsLengthRef = useRef(items.length);
+  itemsLengthRef.current = items.length;
+
+  // Keep a ref to the latest items array for the active-item callback.
+  const itemsRef = useRef(items);
+  itemsRef.current = items;
+
+  // Keep a ref to the latest onActiveItemChange callback.
+  const onActiveItemChangeRef = useRef(onActiveItemChange);
+  onActiveItemChangeRef.current = onActiveItemChange;
 
   // Active index for video preloading
   const [activeIndex, setActiveIndex] = useState(initialIndex);
@@ -133,13 +157,13 @@ export default function SharedReels({
     setActiveIndex(newIdx);
 
     // Notify parent of active item change
-    if (onActiveItemChange && items[newIdx]) {
-      onActiveItemChange(items[newIdx], newIdx);
+    if (onActiveItemChangeRef.current && itemsRef.current[newIdx]) {
+      onActiveItemChangeRef.current(itemsRef.current[newIdx], newIdx);
     }
 
     // Auto-load more when near end
-    if (newIdx >= items.length - 3) {
-      onEndReached?.();
+    if (newIdx >= itemsLengthRef.current - 3) {
+      onEndReachedRef.current?.();
     }
   }).current;
 
@@ -197,6 +221,16 @@ export default function SharedReels({
 
   const keyExtractor = useCallback((item: ContentItem) => item.id, []);
 
+  // ── List footer: small round branded loader ─────────────────────────────
+  const FOOTER_SIZE = 40;
+  const isLastReel = items.length > 0 && activeIndex === items.length - 1;
+  const showFooter = items.length > 0 && (isLoading || (!hasMore && isLastReel));
+  const listFooter = useMemo(() => (
+    <View style={[styles.footer, { opacity: showFooter ? 1 : 0, height: showFooter ? FOOTER_SIZE + 24 : 0 }]}>
+      <BrandedLottieLoader size={FOOTER_SIZE} />
+    </View>
+  ), [showFooter]);
+
   return (
     <GestureHandlerRootView style={styles.root}>
       <GestureDetector gesture={panGesture}>
@@ -214,6 +248,7 @@ export default function SharedReels({
             viewabilityConfig={viewabilityConfig.current}
             onEndReached={onEndReached}
             onEndReachedThreshold={0.5}
+            ListFooterComponent={listFooter}
           />
         </Animated.View>
       </GestureDetector>
@@ -227,5 +262,10 @@ const styles = StyleSheet.create({
   root: {
     flex: 1,
     backgroundColor: "#000",
+  },
+  footer: {
+    height: 200,
+    justifyContent: "center",
+    alignItems: "center",
   },
 });

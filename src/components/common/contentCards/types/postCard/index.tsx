@@ -18,14 +18,14 @@ export default function PostCardWrapper({
     highlight_content: item.highlight?.content || (item.highlight as any)?.title,
   } as any;
   
-  const contentId = resolveContentId(post);
-  const trackId = (item as any)._trackId || contentId;
+  // ContentItem.id is always the bare UUID (SSOT).
+  const contentId = item.id || resolveContentId(post);
 
   return (
     <PostCard
       post={post}
       index={index}
-      isActive={ctx.isFocused && trackId === ctx.activeContentId}
+      isActive={ctx.isFocused && contentId === ctx.activeContentId}
       onLike={(id: string) => {
         ctx.toggleLike(id || post.id, post.isLiked);
         ctx.patchPost(id || post.id, { isLiked: !post.isLiked });
@@ -44,7 +44,7 @@ export default function PostCardWrapper({
       }
       onReposted={() => ctx.refresh()}
       preloadVideo={post.id === ctx.preloadPostId}
-      feedPosts={ctx.feedPosts}
+      feedItems={ctx.feedItems}
       feedContext={ctx.feedContext}
     />
   );

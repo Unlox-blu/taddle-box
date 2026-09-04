@@ -67,7 +67,7 @@ interface PostCardProps {
   /** Adjacent posts from the parent feed — passed through to the reel so the
    *  user can swipe-next from within the detail view. Optional: existing
    *  callers that don't provide this fall back to server-fetch. */
-  feedPosts?: Post[];
+  feedItems?: any[];
   feedContext?: 'home' | 'profile' | 'bookmarks' | 'community' | 'search';
   feedContextId?: string;
 }
@@ -91,7 +91,7 @@ function PostCardInner({
   disableTapNavigation,
   fullBleed,
   preloadVideo,
-  feedPosts,
+  feedItems,
   feedContext,
   feedContextId,
 }: PostCardProps) {
@@ -249,11 +249,11 @@ function PostCardInner({
   const openPostDetail = React.useCallback(() => {
     navigation.push("PostDetail", {
       post,
-      feedPosts,
+      feedItems,
       feedContext,
       feedContextId,
     } as any);
-  }, [navigation, post, feedPosts, feedContext, feedContextId]);
+  }, [navigation, post, feedItems, feedContext, feedContextId]);
 
   const handleBodyTap = () => {
     registerTap(() => {
@@ -576,17 +576,6 @@ function PostCardInner({
           />
         )}
 
-        {/* Poll */}
-        {pollData ? (
-          <PollBlock
-            poll={pollData}
-            myVote={myPollVote}
-            onVote={handlePollVote}
-            embedded
-            inset
-          />
-        ) : null}
-
         {/* Actions */}
         <PostActions
           post={post}
@@ -611,6 +600,9 @@ function PostCardInner({
           showDelete={showDelete}
           onCloseMenu={() => setShowMenu(false)}
           onBodyTap={handleBodyTap}
+          pollData={pollData}
+          myPollVote={myPollVote}
+          onPollVote={handlePollVote}
         />
 
         {/* Double Tap Heart Overlay */}

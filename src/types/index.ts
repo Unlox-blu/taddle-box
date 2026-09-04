@@ -10,8 +10,8 @@ export type PostDetailParams = {
   commentId?: string;
   /** Reel mode: flat list of posts seeded by the caller to enable swipe-next.
    *  The reel starts at the index of `post` within this array. */
-  feedPosts?: Post[];
-  /** Which context opened the reel — used to fetch more posts when feedPosts
+  feedItems?: Post[];
+  /** Which context opened the reel — used to fetch more posts when feedItems
    *  runs out or was not provided by the caller. */
   feedContext?: 'home' | 'profile' | 'bookmarks' | 'community' | 'search';
   /** Scoped id for profile / community contexts (userId or communitySlug). */

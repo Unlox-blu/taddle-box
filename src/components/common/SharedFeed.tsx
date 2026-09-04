@@ -67,7 +67,7 @@ interface SharedFeedProps {
   initialScrollOffset?: number;
   /** Adjacent posts to seed the reel when a card is tapped. Pass the full
    *  current post list so the reel can continue from the tapped position. */
-  feedPosts?: Post[];
+  feedItems?: Post[];
   feedContext?: 'home' | 'profile' | 'bookmarks' | 'community' | 'search';
   feedContextId?: string;
 }
@@ -95,7 +95,7 @@ export default function SharedFeed({
   sectionHeaderH,
   onScroll,
   initialScrollOffset,
-  feedPosts,
+  feedItems,
   feedContext,
   feedContextId,
 }: SharedFeedProps) {
@@ -144,8 +144,8 @@ export default function SharedFeed({
     // { type, item } wrappers. Unwrap to get the real content ID.
     getContentId: (feedItem: any) => {
       const inner = feedItem?.item ?? feedItem;
-      const id = inner._trackId || inner.data?.id || resolveContentId(inner);
-      return id || null;
+      // ContentItem.id is always the bare UUID (SSOT).
+      return inner?.id || null;
     },
   });
 
@@ -326,7 +326,7 @@ export default function SharedFeed({
       addHashtag: (tag) => navigation.push("Search", { query: tag }),
       trackLayout,
       preloadPostId,
-      feedPosts: feedPosts ?? posts,
+      feedItems: feedItems ?? items,
       feedContext,
       feedContextId,
     }),
@@ -334,7 +334,7 @@ export default function SharedFeed({
       rowStyles, colors, navigation, isFocused, activeContentId,
       currentUser?.id, handleLikeInternal, handleSaveInternal,
       handleShare, handleComment, onRefresh, trackLayout,
-      preloadPostId, feedPosts, posts, feedContext, feedContextId,
+      preloadPostId, feedItems, items, posts, feedContext, feedContextId,
     ],
   );
 
@@ -362,7 +362,7 @@ export default function SharedFeed({
       onReport,
       canDelete,
       preloadPostId,
-      feedPosts,
+      feedItems,
       posts,
       feedContext,
       feedContextId,
@@ -372,7 +372,7 @@ export default function SharedFeed({
   // ── Row key extractor ──────────────────────────────────────────────
   const rowKeyExtractor = useCallback(
     (row: ContentItem, index: number) =>
-      row.id || resolveContentId(row.data) || `row-${index}`,
+      row.flashListKey || row.id || resolveContentId(row.data) || `row-${index}`,
     [],
   );
 
@@ -460,7 +460,8 @@ export default function SharedFeed({
               onLayout={(e) => {
                 // Only track layout for post rows (active-post tracker only
                 // cares about posts; other types return null ID).
-                const id = (row as any)._trackId || row.data?.id || resolveContentId(row);
+                // ContentItem.id is always the bare UUID (SSOT).
+                const id = row.id;
                 const trackId = id || `non-trackable-${index}`;
                 const { y, height } = e.nativeEvent.layout;
                 trackLayout(trackId, { top: y, bottom: y + height });

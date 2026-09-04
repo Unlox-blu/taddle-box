@@ -14,7 +14,13 @@ import type { SearchStyles } from "../../search/searchStyles";
 
 export type ContentItem = {
   itemType: string;
+  /** Bare content UUID — the single source of truth for this item's identity.
+   *  Never prefixed with a type string. */
   id: string;
+  /** FlashList key for uniqueness across mixed content types.
+   *  Format: `${itemType}:${id}`. Only used by keyExtractor — never by
+   *  business logic, API calls, or ID comparisons. */
+  flashListKey?: string;
   data: any;
   score?: number;
   highlight?: any;
@@ -48,7 +54,7 @@ export type FeedCtx = {
   addHashtag: (tag: string) => void;
   trackLayout?: (id: string, rect: { top: number; bottom: number }) => void;
   preloadPostId?: string | null;
-  feedPosts?: any[];
+  feedItems?: any[];
   feedContext?: "home" | "profile" | "bookmarks" | "community" | "search";
   feedContextId?: string;
 };
@@ -178,6 +184,7 @@ export const getContentType = (item: any): string => {
   if (type === "people") return "person";
   if (type === "comments") return "comment";
   if (type === "notifications") return "notification";
-  if (type === "wallet_transactions" || type === "transactions") return "wallet_transaction";
+  if (type === "wallet_transactions" || type === "transactions" || type === "transaction_item") return "wallet_transaction";
+  if (type === "messages" || type === "message") return "message";
   return type;
 };

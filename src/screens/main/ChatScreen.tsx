@@ -185,7 +185,7 @@ export default function ChatScreen() {
         const res = await postsService.getPost(postId);
         const post = res?.data;
         if (post) {
-          navigation.navigate("PostDetail", { post, feedPosts: [post], isSinglePost: true } as any);
+          navigation.navigate("PostDetail", { post, feedItems: [post], isSinglePost: true } as any);
         }
       } catch {
         // Fallback — navigate with minimal object

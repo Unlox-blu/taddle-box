@@ -15,7 +15,7 @@ import type { Post } from "../../../../../../types";
 import type { PostCardStyles } from "./shared";
 import {
   FeedVideo,
-  FeedAudio,
+  ContentAudio,
   ActiveVideo,
   VideoPoster,
   ZoomableMedia,
@@ -265,7 +265,7 @@ function PostMediaInner({
           {audioMedia.map((m: any, idx: number) => {
             const url = m.media_url;
             return url ? (
-              <FeedAudio
+              <ContentAudio
                 key={`bg-audio-${idx}`}
                 url={url}
                 active={isActive}

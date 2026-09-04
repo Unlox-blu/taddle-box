@@ -625,13 +625,14 @@ export default function SearchScreen({ navigation, route }: Props) {
           // to enter an infinite reconcile loop (“Maximum update depth exceeded”).
           // Prefixing with type guarantees uniqueness.
           //
-          // `_trackId` is the RAW content ID used for height tracking and the
-          // activePostId comparison in PostCard. Kept separate so the tracking
-          // layer (getPostId / trackLayout / heightMapRef) is consistent.
+          // `id` stays as the bare content UUID (SSOT) — never a synthetic
+          // key like __row_ which would crash UUID-casting backend queries.
+          // `flashListKey` adds a type prefix for FlashList key uniqueness.
+          const contentId = cid || r.id;
           return {
             ...r,
-            id: cid ? `${r.itemType}:${cid}` : `__row_${i}`,
-            _trackId: cid || null,
+            id: contentId,
+            flashListKey: contentId ? `${r.itemType}:${contentId}` : `${r.itemType || 'unknown'}:${i}`,
           };
         }),
     [rows],
@@ -675,6 +676,8 @@ export default function SearchScreen({ navigation, route }: Props) {
   // them all onto one shared key.
   const rowKey = (row: Row): string | null => {
     if (row.isHeader) return `header:${row.itemType}`;
+    // Use flashListKey if set (type-prefixed for uniqueness), else build one.
+    if ((row as any).flashListKey) return (row as any).flashListKey;
     const id =
       row.id ??
       row.data?.media_id ??

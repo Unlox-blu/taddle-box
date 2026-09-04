@@ -38,6 +38,7 @@ import type { RootStackParamList, Post } from "../../types";
 
 import SharedReels, { type ReelCtx } from "../../components/common/SharedReels";
 import type { ContentItem } from "../../components/common/contentCards/content";
+import { getContentType } from "../../components/common/contentCards/content";
 import CommentsBottomSheet from "../../components/home/CommentsBottomSheet";
 import ShareSheet from "../../components/common/ShareSheet";
 
@@ -46,7 +47,7 @@ type Props = NativeStackScreenProps<RootStackParamList, "PostDetail">;
 export default function ReelScreen({ navigation, route }: Props) {
   const {
     post: initialPost,
-    feedPosts = [],
+    feedItems = [],
     feedContext = "home",
     feedContextId,
     isSinglePost = false,
@@ -55,12 +56,26 @@ export default function ReelScreen({ navigation, route }: Props) {
   const { user: currentUser } = useAuth();
   const queryClient = useQueryClient();
 
-  // ── Seed posts ───────────────────────────────────────────────────────────
-  const seedPosts = useMemo<Post[]>(() => {
-    if (feedPosts.length === 0) return [initialPost];
-    const has = feedPosts.some((p: Post) => p.id === initialPost.id);
-    return has ? feedPosts : [initialPost, ...feedPosts];
-  }, [feedPosts, initialPost]);
+  // ── Seed items ──────────────────────────────────────────────────────────
+  // feedItems can be Post[] (legacy) or ContentItem[] (from SharedFeed).
+  // ContentItem.id is always a bare UUID — no prefix normalization needed.
+  const seedItems = useMemo<ContentItem[]>(() => {
+    const hasItems = feedItems.length > 0 && feedItems[0]?.itemType !== undefined;
+
+    if (hasItems) {
+      // Already ContentItem[] from SharedFeed.
+      const items = feedItems as ContentItem[];
+      const has = items.some((i) => i.id === initialPost?.id || i.data?.id === initialPost?.id);
+      if (has) return items;
+      return [{ itemType: "post", id: initialPost.id, data: initialPost }, ...items];
+    }
+
+    // Legacy Post[] — wrap each as ContentItem with itemType "post"
+    if (feedItems.length === 0) return [{ itemType: "post", id: initialPost.id, data: initialPost }];
+    const has = feedItems.some((p: Post) => p.id === initialPost.id);
+    const wrapped = feedItems.map((p: Post) => ({ itemType: "post", id: p.id, data: p } as ContentItem));
+    return has ? wrapped : [{ itemType: "post", id: initialPost.id, data: initialPost }, ...wrapped];
+  }, [feedItems, initialPost]);
 
   const isFocused = useIsFocused();
 
@@ -72,11 +87,7 @@ export default function ReelScreen({ navigation, route }: Props) {
     isLoading,
     patchItem,
   } = useContentSession({
-    initialItems: seedPosts.map((p) => ({
-      itemType: "post",
-      id: p.id,
-      data: p,
-    })),
+    initialItems: seedItems,
     initialContentId: initialPost.id,
     sourceContext: feedContext,
     presentation: "reels",
@@ -225,7 +236,7 @@ export default function ReelScreen({ navigation, route }: Props) {
   // ── Build ReelCtx ────────────────────────────────────────────────────────
   const reelCtx: ReelCtx = useMemo(
     () => ({
-      activeContentId: items[activeIndex]?.id || null,
+      activeContentId: isFocused ? (items[activeIndex]?.id || null) : null,
       toggleLike: handleLike,
       toggleSave: handleSave,
       sharePost: (post) => {
@@ -240,21 +251,56 @@ export default function ReelScreen({ navigation, route }: Props) {
         (navigation as any).push("UserProfile", { user });
       },
       openCommunity: (slug) => {
-        (navigation as any).push("CommunityDetail", { slug });
+        (navigation as any).push("CommunityDetail", { communitySlug: slug });
       },
-      openGames: (id) => {
-        (navigation as any).push("GameDetail", { id });
+      openGames: (id?: string) => {
+        if (id) {
+          (navigation as any).navigate("Main", {
+            screen: "Games",
+            params: { openGameId: id, autoPlay: true },
+          });
+        } else {
+          (navigation as any).navigate("Main", { screen: "Games" });
+        }
       },
-      openEvents: (id) => {
-        (navigation as any).push("EventDetail", { id });
+      openEvents: (id?: string) => {
+        if (id) {
+          // Find the event data from current items so EventDetail has
+          // a full event object (it reads route.params.event).
+          const eventItem = items.find(
+            (i) => i.itemType === "events" && i.data?.id === id,
+          );
+          const event = eventItem
+            ? {
+                id: eventItem.data.id,
+                title: eventItem.data.title ?? "",
+                description: eventItem.data.description ?? "",
+                cover_image_url: eventItem.data.cover_image_url,
+                type: eventItem.data.type ?? "meetup",
+                banner: eventItem.data.cover_image_url ?? "",
+                date: eventItem.data.date ?? "",
+                location: eventItem.data.location ?? "",
+                xpReward: eventItem.data.xpReward ?? 0,
+                registrations: eventItem.data.registrations ?? 0,
+                isLive: eventItem.data.isLive ?? false,
+                isFeatured: eventItem.data.isFeatured ?? false,
+                isRegistered: eventItem.data.isRegistered ?? false,
+                isFree: eventItem.data.isFree ?? true,
+              }
+            : { id };
+          (navigation as any).push("EventDetail", { event });
+        } else {
+          (navigation as any).navigate("Main", { screen: "Events" });
+        }
       },
-      feedPosts: items,
+      feedItems: items,
       feedContext,
       feedContextId,
     }),
     [
       items,
       activeIndex,
+      isFocused,
       handleLike,
       handleSave,
       navigation,
@@ -275,10 +321,20 @@ export default function ReelScreen({ navigation, route }: Props) {
         onEndReached={isSinglePost ? undefined : loadMore}
         disableSwipeDown={isSinglePost}
         onDismiss={goBack}
+        hasMore={hasMore}
+        isLoading={isLoading}
         onActiveItemChange={(_item, index) => {
           setActiveIndex(index);
-          if (items[index]) {
-            postsService.recordView(items[index].id).catch(() => {});
+          const current = items[index];
+          if (current) {
+            const type = getContentType(current);
+            // Only record views for post/poll content — community, event,
+            // game etc. have their own endpoints and would 400 here.
+            if (type === "post" || type === "poll") {
+              postsService.recordView(current.data?.id || current.id).catch(
+                () => {},
+              );
+            }
           }
         }}
       />

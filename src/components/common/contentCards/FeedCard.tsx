@@ -19,6 +19,7 @@ import GameCard from "./types/GameCard";
 import EventCard from "./types/EventCard";
 import NotificationCard from "./types/NotificationCard";
 import TransactionCard from "./types/TransactionCard";
+import MessageCard from "./types/MessageCard";
 import HeaderCard from "./types/HeaderCard";
 
 export default function FeedCard({
@@ -57,6 +58,8 @@ export default function FeedCard({
     case "wallet_transaction":
     case "transaction":
       return <TransactionCard item={item} ctx={ctx} />;
+    case "message":
+      return <MessageCard item={item} ctx={ctx} />;
     default:
       return <UnknownCard item={item} ctx={ctx} />;
   }

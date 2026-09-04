@@ -54,6 +54,7 @@ import { userService } from "../../services/user.service";
 import { queryKeys } from "../../lib/queryKeys";
 import {
   ActiveVideo,
+  ContentAudio,
   RollingText,
   formatInstagramTime,
   ZoomableMedia,
@@ -398,7 +399,8 @@ function RepostedReelPreview({
   const navigation = useNavigation<any>();
   const [mediaPage, setMediaPage] = useState(0);
   const [pollData, setPollData] = useState<any>(null);
-  const [myPollVote, setMyPollVote] = useState<number | null>(null);
+  const [pollSheetVisible, setPollSheetVisible] = useState(false);
+  const [repostMuted, setRepostMuted] = useState(true);
 
   useEffect(() => {
     let cancelled = false;
@@ -431,25 +433,7 @@ function RepostedReelPreview({
 
   useEffect(() => {
     setPollData((orig as any)?.pollData || null);
-    setMyPollVote((orig as any)?.myPollVote ?? null);
   }, [(orig as any)?.id]);
-
-  const handlePollVote = useCallback(
-    async (optionIndex: number) => {
-      try {
-        const res = await postsService.castPollVote((orig as any)?.id, optionIndex);
-        const data = res?.data || res;
-        setMyPollVote(data?.myVote ?? null);
-        if (data?.pollData) setPollData(data.pollData);
-      } catch (e: any) {
-        themedAlert(
-          "Vote Error",
-          e?.response?.data?.message || "Could not record your vote."
-        );
-      }
-    },
-    [(orig as any)?.id]
-  );
 
   if (loading) {
     return (
@@ -622,26 +606,38 @@ function RepostedReelPreview({
   ];
 
   return (
-    <TouchableOpacity
-      activeOpacity={0.85}
+    <>
+    <Pressable
       onPress={() => onPress(orig)}
-      style={styles.repostPreview}
+      style={[styles.repostPreview, { zIndex: 100 }]}
     >
+      {/* Top gradient scrim */}
+      <LinearGradient
+        colors={["rgba(0,0,0,0.6)", "rgba(0,0,0,0.3)", "rgba(0,0,0,0)"]}
+        style={styles.repostTopGradient}
+        pointerEvents="none"
+      />
+      {/* Bottom gradient scrim */}
+      <LinearGradient
+        colors={["rgba(0,0,0,0)", "rgba(0,0,0,0.3)", "rgba(0,0,0,0.6)"]}
+        style={styles.repostBottomGradient}
+        pointerEvents="none"
+      />
       {/* Author row */}
       <View
         style={{
           flexDirection: "row",
           alignItems: "center",
-          gap: 8,
-          marginBottom: 8,
+          gap: 10,
+          marginBottom: 10,
         }}
       >
         <View
           style={{
-            width: 28,
-            height: 28,
-            borderRadius: 14,
-            backgroundColor: "rgba(124,58,237,0.3)",
+            width: 32,
+            height: 32,
+            borderRadius: 16,
+            backgroundColor: "rgba(255,255,255,0.1)",
             overflow: "hidden",
             alignItems: "center",
             justifyContent: "center",
@@ -650,16 +646,16 @@ function RepostedReelPreview({
           {author.avatarUrl ? (
             <Image
               source={{ uri: author.avatarUrl }}
-              style={{ width: 28, height: 28 }}
+              style={{ width: 32, height: 32 }}
               contentFit="cover"
             />
           ) : (
-            <Text style={{ fontSize: 13 }}>{author.avatar}</Text>
+            <Text style={{ fontSize: 14 }}>{author.avatar}</Text>
           )}
         </View>
         <View style={{ flex: 1 }}>
           <Text
-            style={{ fontSize: 12, fontWeight: "700", color: "#F1F5F9" }}
+            style={{ fontSize: 13, fontWeight: "700", color: "#F1F5F9" }}
             numberOfLines={1}
           >
             {author.name}
@@ -674,7 +670,7 @@ function RepostedReelPreview({
             fontSize: fontSizes.md,
             fontWeight: "700",
             color: "#F1F5F9",
-            lineHeight: 21,
+            lineHeight: 22,
           }}
           numberOfLines={2}
         >
@@ -686,18 +682,18 @@ function RepostedReelPreview({
         <Text
           style={{
             fontSize: fontSizes.sm,
-            color: "rgba(255,255,255,0.65)",
-            lineHeight: 18,
-            marginTop: (orig as any).title ? 4 : 0,
+            color: "rgba(255,255,255,0.8)",
+            lineHeight: 19,
+            marginTop: (orig as any).title ? 6 : 0,
           }}
-          numberOfLines={3}
+          numberOfLines={4}
         >
           {(orig as any).content}
         </Text>
       ) : null}
       {/* Media carousel */}
       {visual.length > 0 && (
-        <View style={{ position: "relative", marginTop: 8 }}>
+        <View style={{ position: "relative", marginTop: 10 }}>
           <ScrollView
             horizontal
             showsHorizontalScrollIndicator={false}
@@ -719,15 +715,13 @@ function RepostedReelPreview({
               const url = m.media_url;
               const isVid = m.media_type === "video" || m.type === "video";
               if (!url) return null;
-              return (
-                <View
+              return (                  <View
                   key={idx}
                   style={{
                     width: previewW,
                     height: mediaH,
-                    borderRadius: radii.sm,
                     overflow: "hidden",
-                    backgroundColor: "#000",
+                    backgroundColor: "rgba(0,0,0,0.3)",
                   }}
                 >
                   {isVid ? (
@@ -735,7 +729,7 @@ function RepostedReelPreview({
                       url={url}
                       width={previewW}
                       height={mediaH}
-                      muted={true}
+                      muted={repostMuted}
                     />
                   ) : (
                     <Image
@@ -776,11 +770,7 @@ function RepostedReelPreview({
           )}
         </View>
       )}
-      {pollData ? (
-        <View style={{ marginTop: 8 }}>
-          <PollBlock poll={pollData} myVote={myPollVote} onVote={handlePollVote} embedded />
-        </View>
-      ) : null}
+      {/* Stats */}
       {((orig as any).likesCount ?? 0) +
         ((orig as any).commentsCount ?? 0) +
         ((orig as any).sharesCount ?? (orig as any).shares ?? 0) >
@@ -789,8 +779,11 @@ function RepostedReelPreview({
           style={{
             flexDirection: "row",
             alignItems: "center",
-            gap: 14,
-            marginTop: 8,
+            gap: 16,
+            marginTop: 12,
+            paddingTop: 10,
+            borderTopWidth: 1,
+            borderTopColor: "rgba(255,255,255,0.08)",
           }}
         >
           <View style={{ flexDirection: "row", alignItems: "center", gap: 2 }}>
@@ -819,11 +812,168 @@ function RepostedReelPreview({
               {(orig as any).sharesCount ?? (orig as any).shares ?? 0}
             </Text>
           </View>
+          {/* Poll icon — tap to view stats (read-only, vote in original reel) */}
+          {pollData ? (
+            <TouchableOpacity
+              onPress={() => setPollSheetVisible(true)}
+              style={{ flexDirection: "row", alignItems: "center", gap: 2 }}
+              activeOpacity={0.7}
+            >
+              <View style={{ position: "relative" }}>
+                <Ionicons name="bar-chart" size={12} color="rgba(255,255,255,0.4)" />
+                <View
+                  style={{
+                    position: "absolute",
+                    top: -2,
+                    right: -3,
+                    width: 6,
+                    height: 6,
+                    borderRadius: 3,
+                    backgroundColor: pollData.closed ? "#EF4444" : "#22C55E",
+                    borderWidth: 1,
+                    borderColor: "rgba(20,20,40,0.92)",
+                  }}
+                />
+              </View>
+            </TouchableOpacity>
+          ) : null}
+          {/* Mute toggle */}
+          {hasAudio && (
+            <TouchableOpacity
+              onPress={() => setRepostMuted((v) => !v)}
+              style={{ marginLeft: "auto" }}
+            >
+              <Ionicons
+                name={repostMuted ? "volume-mute" : "volume-high"}
+                size={14}
+                color="rgba(255,255,255,0.5)"
+              />
+            </TouchableOpacity>
+          )}
         </View>
       )}
-    </TouchableOpacity>
+    </Pressable>
+    {/* Audio playback for reposted original — renders nothing visible */}
+    {audioMedia.length > 0 && isActive &&
+      audioMedia.map((m: any, idx: number) => {
+        const url = m.media_url;
+        return url ? (
+          <ContentAudio
+            key={`repost-audio-${idx}`}
+            url={url}
+            active={!!isActive}
+            muted={repostMuted}
+            loop={false}
+          />
+        ) : null;
+      })}
+    <RepostPollSheet
+      visible={pollSheetVisible}
+      pollData={pollData}
+      onClose={() => setPollSheetVisible(false)}
+    />
+    </>);
+}
+
+// ─── Poll Bottom Sheet (for reposted cards — read-only, no voting) ─────────
+function RepostPollSheet({
+  visible,
+  pollData,
+  onClose,
+}: {
+  visible: boolean;
+  pollData: any;
+  onClose: () => void;
+}) {
+  if (!visible || !pollData) return null;
+  return (
+    <Modal transparent visible animationType="fade" onRequestClose={onClose}>
+      <TouchableOpacity
+        activeOpacity={1}
+        onPress={onClose}
+        style={{
+          flex: 1,
+          backgroundColor: "rgba(0,0,0,0.55)",
+          justifyContent: "flex-end",
+        }}
+      >
+        <View
+          onStartShouldSetResponder={() => true}
+          style={{
+            borderTopLeftRadius: radii.xl,
+            borderTopRightRadius: radii.xl,
+            borderWidth: 1,
+            paddingHorizontal: spacing.lg,
+            paddingTop: spacing.md,
+            paddingBottom: 32,
+            maxHeight: "60%",
+            backgroundColor: "#1a1a2e",
+            borderColor: "rgba(255,255,255,0.08)",
+          }}
+        >
+          {/* Handle */}
+          <View
+            style={{
+              alignSelf: "center",
+              width: 40,
+              height: 4,
+              borderRadius: 2,
+              marginBottom: 12,
+              backgroundColor: "rgba(255,255,255,0.15)",
+            }}
+          />
+          {/* Header */}
+          <View
+            style={{
+              flexDirection: "row",
+              alignItems: "center",
+              justifyContent: "space-between",
+              marginBottom: 12,
+            }}
+          >
+            <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
+              <Ionicons name="bar-chart" size={18} color="#7C3AED" />
+              <Text
+                style={{
+                  fontSize: 16,
+                  fontWeight: "800",
+                  color: "#F1F5F9",
+                }}
+              >
+                Poll
+              </Text>
+              <View
+                style={{
+                  width: 8,
+                  height: 8,
+                  borderRadius: 4,
+                  backgroundColor: pollData.closed ? "#EF4444" : "#22C55E",
+                }}
+              />
+            </View>
+            <TouchableOpacity onPress={onClose}>
+              <Ionicons name="close" size={22} color="rgba(255,255,255,0.5)" />
+            </TouchableOpacity>
+          </View>
+          {/* Poll stats — read-only, no onVote prop */}
+          <PollBlock poll={pollData} />
+          <Text
+            style={{
+              marginTop: 12,
+              fontSize: 12,
+              color: "rgba(255,255,255,0.4)",
+              fontStyle: "italic",
+              textAlign: "center",
+            }}
+          >
+            Open original post to vote
+          </Text>
+        </View>
+      </TouchableOpacity>
+    </Modal>
   );
 }
+
 
 const MediaEdgeMask = ({
   children,
@@ -902,7 +1052,14 @@ const AmbientBackground = ({
           style={[StyleSheet.absoluteFill, { opacity: 0.1 }]}
           contentFit="cover"
         />
-        {children}
+        <View
+          style={[
+            StyleSheet.absoluteFill,
+            { justifyContent: "center", alignItems: "center" },
+          ]}
+        >
+          {children}
+        </View>
       </View>
     );
   }
@@ -1013,19 +1170,13 @@ function ReelContent({
 
   // Repost → show embedded preview of the original post
   if (isRepost) {
+    // Only use visual media URLs for AmbientBackground — skip audio URLs
+    // so that audio-only reposts get the app-icon fallback
+    const repostBgUrl = visualMedia[0]?.preview_url || visualMedia[0]?.media_url;
     return (
-      <Pressable
-        onPress={onPress}
-        onPressIn={onPressIn}
-        onPressOut={onPressOut}
-        style={StyleSheet.absoluteFill}
-      >
+      <View style={StyleSheet.absoluteFill}>
         <AmbientBackground
-          url={
-            (post as any).mediaUri ||
-            firstMedia?.preview_url ||
-            firstMedia?.media_url
-          }
+          url={repostBgUrl}
         >
           <RepostedReelPreview
             post={post}
@@ -1033,7 +1184,7 @@ function ReelContent({
             onPress={(orig) => onRepostPress?.(orig)}
           />
         </AmbientBackground>
-      </Pressable>
+      </View>
     );
   }
 
@@ -1242,17 +1393,7 @@ function ReelContent({
           safePreviewUrl ||
           mediaUrl
         }
-      >
-        {post.type === "poll" && (pollData || (post as any).pollData) ? (
-          <View style={{ width: SCREEN_W - spacing.xl * 2 }}>
-            <PollBlock
-              poll={pollData || (post as any).pollData}
-              myVote={myPollVote ?? (post as any).myPollVote ?? null}
-              onVote={onPollVote}
-            />
-          </View>
-        ) : null}
-      </AmbientBackground>
+      />
     </Pressable>
   );
 }
@@ -1523,6 +1664,7 @@ export default React.memo(function ReelItem({
   const isLiked = !!post.isLiked;
   const isSaved = !!(post as any).isSaved;
   const isReposted = !!(post as any).repostedByMe;
+  const isRepost = !!(post as any).repostOfId;
 
   // ── Reset overlays when scrolling to this reel ──
   useEffect(() => {
@@ -1889,11 +2031,13 @@ export default React.memo(function ReelItem({
         .getFeed(1, 1)
         .then(() => {})
         .catch(() => {});
-      navigation.navigate("PostDetail", {
+      // Navigate to the original post as a full reel (same as home feed
+      // navigation) — gradient overlays, swipe-down dismiss, pagination
+      // all work identically.
+      navigation.push("PostDetail", {
         post: orig,
-        feedPosts: [orig],
+        feedItems: [orig],
         feedContext: "home",
-        isSinglePost: true,
       } as any);
     },
     [navigation],
@@ -1921,6 +2065,21 @@ export default React.memo(function ReelItem({
           setActiveIndex={setActiveIndex}
         />
       </View>
+
+      {/* ── Layer 1.1: Audio playback (renders nothing visible) ── */}
+      {!isRepost && audioMedia.length > 0 && isActive &&
+        audioMedia.map((m: any, idx: number) => {
+          const url = m.media_url;
+          return url ? (
+            <ContentAudio
+              key={`reel-audio-${idx}`}
+              url={url}
+              active={isActive}
+              muted={isMuted}
+              loop={false}
+            />
+          ) : null;
+        })}
 
       {/* ── Layer 1.6: Heart burst animation (pointerEvents=none) ── */}
       <Animated.View
@@ -2160,53 +2319,61 @@ export default React.memo(function ReelItem({
 
         {/* ── Text content area (Flows naturally below author row) ── */}
         {((post as any).title || post.content) && (
-          <View style={{ marginTop: 12 }} pointerEvents="box-none">
-            {(post as any).title ? (
-              <Text
-                style={{
-                  fontSize: fontSizes.lg,
-                  fontWeight: "800",
-                  color: "#F1F5F9",
-                  marginBottom: 4,
-                  lineHeight: 24,
-                }}
-                numberOfLines={isContentExpanded ? undefined : 2}
-              >
-                {(post as any).title}
-              </Text>
-            ) : null}
-            {post.content ? (
-              <>
-                <ParsedReelText
-                  text={post.content}
-                  onMentionPress={(name) =>
-                    navigation.push("UserProfile", { user: { username: name } })
-                  }
-                  onHashtagPress={(tag) =>
-                    navigation.navigate("Search", {
-                      query: tag,
-                      tab: "hashtags",
-                    })
-                  }
-                  onCommunityPress={(slug) =>
-                    navigation.navigate(
-                      "Community" as any,
-                      {
-                        screen: "CommunityDetail",
-                        params: { communitySlug: slug },
-                      } as any,
-                    )
-                  }
+          <View
+            style={{ marginTop: 12 }}
+            pointerEvents={isRepost ? "none" : "box-none"}
+          >
+            <TouchableOpacity
+              activeOpacity={0.9}
+              onPress={() => {
+                if (post.content && post.content.length > 80) {
+                  setIsContentExpanded((v) => !v);
+                }
+              }}
+              disabled={isRepost || !(post.content && post.content.length > 80)}
+            >
+              {(post as any).title ? (
+                <Text
+                  style={{
+                    fontSize: fontSizes.lg,
+                    fontWeight: "800",
+                    color: "#F1F5F9",
+                    marginBottom: 4,
+                    lineHeight: 24,
+                  }}
                   numberOfLines={isContentExpanded ? undefined : 2}
-                />
-                {!isContentExpanded && post.content.length > 80 && (
-                  <TouchableOpacity
-                    onPress={() => setIsContentExpanded(true)}
-                    activeOpacity={0.7}
-                    style={{ marginTop: 4 }}
-                  >
+                >
+                  {(post as any).title}
+                </Text>
+              ) : null}
+              {post.content ? (
+                <>
+                  <ParsedReelText
+                    text={post.content}
+                    onMentionPress={(name) =>
+                      navigation.push("UserProfile", { user: { username: name } })
+                    }
+                    onHashtagPress={(tag) =>
+                      navigation.navigate("Search", {
+                        query: tag,
+                        tab: "hashtags",
+                      })
+                    }
+                    onCommunityPress={(slug) =>
+                      navigation.navigate(
+                        "Community" as any,
+                        {
+                          screen: "CommunityDetail",
+                          params: { communitySlug: slug },
+                        } as any,
+                      )
+                    }
+                    numberOfLines={isContentExpanded ? undefined : 2}
+                  />
+                  {!isContentExpanded && post.content.length > 80 && (
                     <Text
                       style={{
+                        marginTop: 4,
                         fontSize: fontSizes.xs,
                         fontWeight: "700",
                         color: "rgba(255,255,255,0.5)",
@@ -2214,16 +2381,11 @@ export default React.memo(function ReelItem({
                     >
                       Read more
                     </Text>
-                  </TouchableOpacity>
-                )}
-                {isContentExpanded && post.content.length > 80 && (
-                  <TouchableOpacity
-                    onPress={() => setIsContentExpanded(false)}
-                    activeOpacity={0.7}
-                    style={{ marginTop: 4 }}
-                  >
+                  )}
+                  {isContentExpanded && post.content.length > 80 && (
                     <Text
                       style={{
+                        marginTop: 4,
                         fontSize: fontSizes.xs,
                         fontWeight: "700",
                         color: "rgba(255,255,255,0.5)",
@@ -2231,10 +2393,10 @@ export default React.memo(function ReelItem({
                     >
                       Show less
                     </Text>
-                  </TouchableOpacity>
-                )}
-              </>
-            ) : null}
+                  )}
+                </>
+              ) : null}
+            </TouchableOpacity>
           </View>
         )}
       </Animated.View>
@@ -2332,17 +2494,6 @@ export default React.memo(function ReelItem({
           <Text style={styles.actionCount}>{formatCount(comments)}</Text>
         </TouchableOpacity>
 
-        {/* Poll icon */}
-        {hasPoll && (
-          <TouchableOpacity
-            style={styles.actionBtn}
-            onPress={() => setPollTrayVisible(true)}
-            activeOpacity={0.7}
-          >
-            <Ionicons name="bar-chart" size={20} color="#FBBF24" />
-          </TouchableOpacity>
-        )}
-
         {/* Repost */}
         <View style={styles.actionBtn}>
           <TouchableOpacity
@@ -2408,6 +2559,32 @@ export default React.memo(function ReelItem({
           <Ionicons name="arrow-redo-outline" size={20} color={"#fff"} />
         </TouchableOpacity>
 
+        {/* Poll icon */}
+        {hasPoll && (
+          <TouchableOpacity
+            style={styles.actionBtn}
+            onPress={() => setPollTrayVisible(true)}
+            activeOpacity={0.7}
+          >
+            <View style={{ position: "relative" }}>
+              <Ionicons name="bar-chart" size={20} color="#7C3AED" />
+              <View
+                style={{
+                  position: "absolute",
+                  top: -2,
+                  right: -3,
+                  width: 8,
+                  height: 8,
+                  borderRadius: 4,
+                  backgroundColor: pollData?.closed ? "#EF4444" : "#22C55E",
+                  borderWidth: 1.5,
+                  borderColor: "#000",
+                }}
+              />
+            </View>
+          </TouchableOpacity>
+        )}
+
         {/* Save */}
         <TouchableOpacity
           style={[styles.actionBtn, { marginLeft: "auto" }]}
@@ -2421,8 +2598,8 @@ export default React.memo(function ReelItem({
           />
         </TouchableOpacity>
 
-        {/* ── Mute toggle (Inline, right aligned) ── */}
-        {hasAudioContent && (
+        {/* ── Mute toggle (not shown on reposts — preview card has its own) ── */}
+        {hasAudioContent && !isRepost && (
           <TouchableOpacity
             style={styles.actionBtn}
             onPress={handleToggleMute}
@@ -2435,6 +2612,7 @@ export default React.memo(function ReelItem({
             />
           </TouchableOpacity>
         )}
+
       </Animated.View>
 
       {/* ── Menu sheet ── */}
@@ -2499,16 +2677,26 @@ export default React.memo(function ReelItem({
                 backgroundColor: colors.border,
               }}
             />
-            <Text
-              style={{
-                fontSize: fontSizes.lg,
-                fontWeight: "800",
-                color: colors.text,
-                marginBottom: 12,
-              }}
-            >
-              Poll
-            </Text>
+            <View style={{ flexDirection: "row", alignItems: "center", gap: 8, marginBottom: 12 }}>
+              <Ionicons name="bar-chart" size={18} color="#7C3AED" />
+              <Text
+                style={{
+                  fontSize: fontSizes.lg,
+                  fontWeight: "800",
+                  color: colors.text,
+                }}
+              >
+                Poll
+              </Text>
+              <View
+                style={{
+                  width: 8,
+                  height: 8,
+                  borderRadius: 4,
+                  backgroundColor: (pollData || (post as any).pollData)?.closed ? "#EF4444" : "#22C55E",
+                }}
+              />
+            </View>
             <PollBlock
               poll={pollData || (post as any).pollData}
               myVote={myPollVote ?? (post as any).myPollVote ?? null}
@@ -2708,16 +2896,35 @@ const styles = StyleSheet.create({
     zIndex: 200,
   },
 
-  // Repost preview card
+  // Repost preview card — centered, reels glass style
   repostPreview: {
     width: SCREEN_W - 48,
     alignSelf: "center",
-    borderWidth: 1.5,
-    borderColor: "rgba(124,58,237,0.35)",
-    backgroundColor: "rgba(20,20,40,0.92)",
-    borderRadius: radii.lg,
-    padding: 14,
-    marginTop: 16,
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.1)",
+    backgroundColor: "rgba(255,255,255,0.06)",
+    borderRadius: radii.xl,
+    padding: 18,
+    overflow: "hidden",
+    // No marginTop — AmbientBackground centers children vertically
+  },
+  repostTopGradient: {
+    position: "absolute",
+    top: 0,
+    left: 0,
+    right: 0,
+    height: 60,
+    borderTopLeftRadius: radii.xl,
+    borderTopRightRadius: radii.xl,
+  },
+  repostBottomGradient: {
+    position: "absolute",
+    bottom: 0,
+    left: 0,
+    right: 0,
+    height: 60,
+    borderBottomLeftRadius: radii.xl,
+    borderBottomRightRadius: radii.xl,
   },
 
   // Top scrim + overlay

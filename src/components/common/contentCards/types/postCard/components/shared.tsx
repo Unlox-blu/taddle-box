@@ -387,9 +387,10 @@ export const ZoomableMedia = ({
   );
 };
 
-// ── FeedAudio: lightweight audio player using expo-audio ────────────────────
+// ── ContentAudio: lightweight audio player using expo-audio ────────────────────
 // Replaces the old FeedVideo(1×1) hack. Uses the proper audio API.
-export const FeedAudio = ({
+// Shared by both Feed and Reel screens.
+export const ContentAudio = ({
   url,
   active,
   muted,
@@ -405,6 +406,10 @@ export const FeedAudio = ({
   const player = useVideoPlayer({ uri: url }, (p) => {
     p.loop = loop;
   });
+
+  // Keep a ref to active so the readyToPlay handler can read it
+  const activeRef = useRef(active);
+  activeRef.current = active;
 
   // Pause when app goes to background
   useEffect(() => {
@@ -439,9 +444,18 @@ export const FeedAudio = ({
     status: player.status,
   });
   useEffect(() => {
-    if (status === "readyToPlay" && !reported.current) {
-      reported.current = true;
-      onDuration?.(Math.round(player.duration * 1000));
+    if (status === "readyToPlay") {
+      if (!reported.current) {
+        reported.current = true;
+        onDuration?.(Math.round(player.duration * 1000));
+      }
+      // (Re)start playback when the player finishes loading and is active.
+      // Handles the case where the initial play() call happened before
+      // the player was ready, e.g. when a reel mounts or the mute
+      // toggle is flipped.
+      if (activeRef.current) {
+        try { player.play(); } catch {}
+      }
     }
   }, [status, player]);
 

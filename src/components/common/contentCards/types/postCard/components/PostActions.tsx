@@ -28,6 +28,7 @@ import { AudiencePickerList } from "../../../../AudiencePicker";
 import { useMyCommunities } from "../../../../../../queries/communities";
 import { themedAlert } from "../../../../ThemedAlert";
 import PostMenuSheet from "../../../../../home/PostMenuSheet";
+import PollBlock from "../../../../PollBlock";
 import { RollingText } from "./shared";
 import type { PostHeaderAuthor } from "./PostHeader";
 import type { PostCardStyles } from "./shared";
@@ -60,6 +61,9 @@ interface PostActionsProps {
   showDelete?: boolean;
   onCloseMenu?: () => void;
   onBodyTap?: () => void;
+  pollData?: any;
+  myPollVote?: number | null;
+  onPollVote?: (optionIndex: number) => void;
 }
 
 // ── UsersModal ──────────────────────────────────────────────────────────────
@@ -279,6 +283,9 @@ function PostActionsInner({
   showDelete,
   onCloseMenu,
   onBodyTap,
+  pollData: pollDataProp,
+  myPollVote: myPollVoteProp,
+  onPollVote,
 }: PostActionsProps) {
   const { user: currentUser } = useAuth();
   const queryClient = useQueryClient();
@@ -293,6 +300,7 @@ function PostActionsInner({
   const [likersVisible, setLikersVisible] = useState(false);
   const [repostersVisible, setRepostersVisible] = useState(false);
   const [votersOption, setVotersOption] = useState<number | null>(null);
+  const [pollSheetVisible, setPollSheetVisible] = useState(false);
 
   // ── Repost state ────────────────────────────────────────────────────────
   const [repostSheetVisible, setRepostSheetVisible] = useState(false);
@@ -662,6 +670,36 @@ function PostActionsInner({
             </View>
           )}
 
+          {/* Poll icon */}
+          {pollDataProp && (
+            <TouchableOpacity
+              style={s.action}
+              onPress={() => setPollSheetVisible(true)}
+            >
+              <View style={{ position: "relative" }}>
+                <Ionicons
+                  name="bar-chart"
+                  size={19}
+                  color="#7C3AED"
+                />
+                {/* Status dot */}
+                <View
+                  style={{
+                    position: "absolute",
+                    top: -2,
+                    right: -3,
+                    width: 7,
+                    height: 7,
+                    borderRadius: 3.5,
+                    backgroundColor: pollDataProp.closed ? "#EF4444" : "#22C55E",
+                    borderWidth: 1,
+                    borderColor: colors.bg.card,
+                  }}
+                />
+              </View>
+            </TouchableOpacity>
+          )}
+
           <View style={s.spacer} />
 
           <TouchableOpacity onPress={() => onSave?.(postId)}>
@@ -825,6 +863,94 @@ function PostActionsInner({
           <PostMenuSheet visible onClose={() => onCloseMenu?.()} options={menuOptions} />
         </Modal>
       )}
+
+      {/* Poll bottom sheet */}
+      <Modal
+        transparent
+        visible={pollSheetVisible}
+        animationType="fade"
+        onRequestClose={() => setPollSheetVisible(false)}
+      >
+        <TouchableOpacity
+          activeOpacity={1}
+          onPress={() => setPollSheetVisible(false)}
+          style={{
+            flex: 1,
+            backgroundColor: "rgba(0,0,0,0.55)",
+            justifyContent: "flex-end",
+          }}
+        >
+          <View
+            onStartShouldSetResponder={() => true}
+            style={{
+              borderTopLeftRadius: radii.xl,
+              borderTopRightRadius: radii.xl,
+              borderWidth: 1,
+              paddingHorizontal: spacing.lg,
+              paddingTop: spacing.md,
+              paddingBottom: 32,
+              maxHeight: "60%",
+              backgroundColor: colors.bg.card,
+              borderColor: colors.border,
+            }}
+          >
+            {/* Handle */}
+            <View
+              style={{
+                alignSelf: "center",
+                width: 40,
+                height: 4,
+                borderRadius: 2,
+                marginBottom: 12,
+                backgroundColor: colors.borderHover,
+              }}
+            />
+            {/* Header */}
+            <View
+              style={{
+                flexDirection: "row",
+                alignItems: "center",
+                justifyContent: "space-between",
+                marginBottom: 12,
+              }}
+            >
+              <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
+                <Ionicons name="bar-chart" size={18} color="#7C3AED" />
+                <Text
+                  style={{
+                    fontSize: fontSizes.lg,
+                    fontWeight: "800",
+                    color: colors.text.primary,
+                  }}
+                >
+                  Poll
+                </Text>
+                <View
+                  style={{
+                    width: 8,
+                    height: 8,
+                    borderRadius: 4,
+                    backgroundColor: pollDataProp?.closed ? "#EF4444" : "#22C55E",
+                  }}
+                />
+              </View>
+              <TouchableOpacity onPress={() => setPollSheetVisible(false)}>
+                <Ionicons name="close" size={22} color={colors.text.muted} />
+              </TouchableOpacity>
+            </View>
+            {/* Poll content */}
+            {pollDataProp ? (
+              <PollBlock
+                poll={pollDataProp}
+                myVote={myPollVoteProp ?? null}
+                onVote={(idx) => {
+                  onPollVote?.(idx);
+                }}
+              />
+            ) : null}
+          </View>
+        </TouchableOpacity>
+      </Modal>
     </>
   );
 }

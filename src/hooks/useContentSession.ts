@@ -92,7 +92,12 @@ export function useContentSession({
         const options: any = { sourceContext, presentation };
 
         if (presentation === 'reels') {
-          options.seedContentIds = initialItems.map((item) => item.id);
+          // Only send real content UUIDs — feed arrays may contain header rows,
+          // suggestions, or synthetic keys that aren't valid content IDs.
+          const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+          options.seedContentIds = initialItems
+            .map((item) => item.id)
+            .filter((id) => id && UUID_RE.test(id));
           options.initialContentId = initialContentId;
         }
 
@@ -106,7 +111,8 @@ export function useContentSession({
 
         if (result.session && result.posts.length > 0) {
           setSessionId(result.session.id);
-          setItems(deduplicateItems(result.posts.map(toContentItem)));
+          // Don't replace items — the seed order is the user's scroll position.
+          // Server may reorder/validate, which shifts startIndex and breaks the initial scroll.
           setNextOffset(result.posts.length);
           setHasMore(result.posts.length >= PAGE_SIZE);
         }

@@ -55,7 +55,7 @@ export default function BookmarksScreen() {
     return (bookmarkPages?.pages.flat() as any[]) || [];
   }, [bookmarkPages]);
 
-  const feedPosts = useMemo(
+  const feedItems = useMemo(
     () =>
       rows
         .filter((r) => r.itemType === "post" || r.itemType === "poll")
@@ -106,7 +106,7 @@ export default function BookmarksScreen() {
         ListEmptyComponent={emptyState}
         sectionHeader={sectionHeader}
         sectionHeaderH={SECTION_HEADER_H}
-        feedPosts={feedPosts}
+        feedItems={feedItems}
         feedContext="bookmarks"
       />
     </View>

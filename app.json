@@ -67,7 +67,11 @@
       ],
       "expo-asset",
       "expo-secure-store",
-      "expo-video"
+      "expo-video",
+      "expo-image",
+      "expo-sharing",
+      "expo-web-browser",
+      "expo-status-bar"
     ],
     "extra": {
       "eas": {

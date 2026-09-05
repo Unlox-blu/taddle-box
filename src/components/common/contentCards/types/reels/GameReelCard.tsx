@@ -18,19 +18,31 @@ export default function GameReelCard({
   item: ContentItem;
   ctx: ReelCtx;
 }) {
-  const data = item.data;
+  const data = item.data || {};
+  const bannerUrl =
+    data.metadata?.cardUrl ||
+    data.cardUrl ||
+    data.bannerUrl ||
+    data.banner ||
+    data.imageUrl;
+  const logoUrl =
+    data.thumbnail ||
+    data.logoUrl ||
+    data.logo ||
+    data.metadata?.thumbnail;
+  const gameId = data.slug || data.id || item.id;
 
   return (
     <View style={styles.container}>
-      {/* Thumbnail */}
-      {data.thumbnail ? (
+      {/* Game Banner (Hero Card Artwork) */}
+      {bannerUrl ? (
         <Image
-          source={{ uri: data.thumbnail }}
-          style={styles.thumbnail}
+          source={{ uri: bannerUrl }}
+          style={styles.bannerImage}
           contentFit="cover"
         />
       ) : (
-        <View style={[styles.thumbnail, styles.thumbnailFallback]}>
+        <View style={[styles.bannerImage, styles.bannerFallback]}>
           <Ionicons name="game-controller" size={64} color="rgba(255,255,255,0.15)" />
         </View>
       )}
@@ -40,6 +52,21 @@ export default function GameReelCard({
 
       {/* Content */}
       <View style={styles.content}>
+        {/* Game Logo / Thumbnail */}
+        <View style={styles.logoWrap}>
+          {logoUrl ? (
+            <Image
+              source={{ uri: logoUrl }}
+              style={styles.logo}
+              contentFit="cover"
+            />
+          ) : (
+            <View style={[styles.logo, styles.logoFallback]}>
+              <Ionicons name="game-controller" size={30} color="#A78BFA" />
+            </View>
+          )}
+        </View>
+
         <View style={styles.badge}>
           <Ionicons name="game-controller" size={14} color="#A78BFA" />
           <Text style={styles.badgeText}>GAME</Text>
@@ -57,7 +84,7 @@ export default function GameReelCard({
 
         <TouchableOpacity
           style={styles.ctaButton}
-          onPress={() => ctx.openGames(data.id)}
+          onPress={() => ctx.openGames(gameId)}
           activeOpacity={0.8}
         >
           <Ionicons name="play" size={18} color="#fff" />
@@ -75,24 +102,40 @@ const styles = StyleSheet.create({
     backgroundColor: "#000",
     justifyContent: "flex-end",
   },
-  thumbnail: {
-    ...StyleSheet.absoluteFillObject,
+  bannerImage: {
+    ...StyleSheet.absoluteFill,
     width: SCREEN_W,
     height: SCREEN_H,
   },
-  thumbnailFallback: {
+  bannerFallback: {
     backgroundColor: "rgba(167,139,250,0.08)",
     alignItems: "center",
     justifyContent: "center",
   },
   gradientOverlay: {
-    ...StyleSheet.absoluteFillObject,
-    backgroundColor: "transparent",
+    ...StyleSheet.absoluteFill,
+    backgroundColor: "rgba(0,0,0,0.55)",
   },
   content: {
     padding: 32,
     paddingBottom: 48,
     gap: 12,
+  },
+  logoWrap: {
+    marginBottom: 4,
+  },
+  logo: {
+    width: 60,
+    height: 60,
+    borderRadius: 16,
+    backgroundColor: "rgba(167,139,250,0.2)",
+    borderWidth: 1.5,
+    borderColor: "rgba(167,139,250,0.4)",
+    overflow: "hidden",
+  },
+  logoFallback: {
+    alignItems: "center",
+    justifyContent: "center",
   },
   badge: {
     flexDirection: "row",

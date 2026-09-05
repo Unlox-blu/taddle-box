@@ -8,7 +8,6 @@ import {
   Text,
   Modal,
   View,
-  Alert,
   Image,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
@@ -185,7 +184,7 @@ export default function LockOverlay() {
       const status = e?.response?.status;
       // 401 = expired/invalid JWT — session is dead, force re-login
       if (status === 401 && !e?.response?.data?.message?.includes('PIN')) {
-        Alert.alert(
+        themedAlert(
           "Session Expired",
           "Your session has expired. Please log in again.",
           [{ text: "OK", onPress: () => signOut() }]

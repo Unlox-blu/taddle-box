@@ -6,30 +6,19 @@
  *
  * Architecture:
  *   - FlashList with pagingEnabled for vertical snap scroll
- *   - Gesture.Pan + Reanimated for swipe-down-to-dismiss
+ *   - Gesture.Pan + Reanimated for swipe-down-to-dismiss & elastic pull-up stretch
+ *   - Branded Lottie stretch indicator at bottom footer (springs back on release)
  *   - ReelCard dispatcher for type-specific rendering
  *   - Active content tracking for video preloading
- *
- * Usage:
- *   <SharedReels
- *     items={feedRows}
- *     reelCtx={reelCtx}
- *     initialIndex={startIndex}
- *     onEndReached={loadMore}
- *     ...
- *   />
  */
 import React, {
   useCallback,
+  useEffect,
   useMemo,
   useRef,
   useState,
 } from "react";
-import {
-  View,
-  StyleSheet,
-  Dimensions,
-} from "react-native";
+import { View, StyleSheet, Dimensions } from "react-native";
 import { FlashList, type FlashListRef } from "@shopify/flash-list";
 import {
   GestureHandlerRootView,
@@ -45,6 +34,7 @@ import Animated, {
   interpolate,
   Extrapolation,
 } from "react-native-reanimated";
+import * as Haptics from "expo-haptics";
 
 import ReelCard from "./contentCards/types/ReelCard";
 import BrandedLottieLoader from "./BrandedLoader";
@@ -66,7 +56,7 @@ export type ReelCtx = {
   openUser: (user: any) => void;
   openCommunity: (slug: string) => void;
   openGames: (id?: string) => void;
-  openEvents: (id?: string) => void;
+  openEvents: (id?: string, event?: any) => void;
   feedItems?: any[];
   feedContext?: string;
   feedContextId?: string;
@@ -148,6 +138,35 @@ export default function SharedReels({
     preloadCount: 2,
   });
 
+  // ── Swipe-down to dismiss & Bottom stretch ───────────────────────────────
+  const dismissY = useSharedValue(0);
+  const stretchY = useSharedValue(0);
+  const scrollOverscrollY = useSharedValue(0);
+  const thresholdHit = useSharedValue(false);
+  const isLastReelShared = useSharedValue(
+    items.length > 0 && initialIndex >= items.length - 1,
+  );
+  const isLoadingShared = useSharedValue(isLoading);
+
+  useEffect(() => {
+    isLastReelShared.value =
+      items.length > 0 && activeIndex >= items.length - 1;
+  }, [activeIndex, items.length, isLastReelShared]);
+
+  useEffect(() => {
+    isLoadingShared.value = isLoading;
+  }, [isLoading, isLoadingShared]);
+
+  const fireHaptic = useCallback(() => {
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
+  }, []);
+
+  const handleTriggerLoadMore = useCallback(() => {
+    if (hasMore && !isLoading) {
+      onEndReachedRef.current?.();
+    }
+  }, [hasMore, isLoading]);
+
   // ── Viewability ──────────────────────────────────────────────────────────
   const viewabilityConfig = useRef({ itemVisiblePercentThreshold: 60 });
   const onViewableItemsChanged = useRef(({ viewableItems }: any) => {
@@ -155,6 +174,8 @@ export default function SharedReels({
     const newIdx = viewableItems[0].index ?? 0;
     activeIndexRef.current = newIdx;
     setActiveIndex(newIdx);
+    isLastReelShared.value =
+      itemsLengthRef.current > 0 && newIdx >= itemsLengthRef.current - 1;
 
     // Notify parent of active item change
     if (onActiveItemChangeRef.current && itemsRef.current[newIdx]) {
@@ -167,90 +188,161 @@ export default function SharedReels({
     }
   }).current;
 
-  // ── Swipe-down to dismiss ────────────────────────────────────────────────
-  const dismissY = useSharedValue(0);
+  // ── Pan Gesture: Dismiss (down) & Stretch Lottie Footer (up) ─────────────
+  const panGesture = Gesture.Pan()
+    .activeOffsetY(disableSwipeDown ? [-10, 0] : [-10, 10])
+    .failOffsetX([-25, 25])
+    .onUpdate((e) => {
+      // 1. Swipe down: dismiss reel modal
+      if (e.translationY > 0 && !disableSwipeDown) {
+        dismissY.value = e.translationY * 0.6;
+        stretchY.value = 0;
+      }
+      // 2. Stretch up at the end of reels: elastic rubber-band pull
+      else if (e.translationY < 0 && isLastReelShared.value) {
+        dismissY.value = 0;
+        const offset = -e.translationY;
+        const tension = 120;
+        const maxStretch = 130;
+        stretchY.value = -maxStretch * (1 - Math.exp(-offset / tension));
 
-  const panGesture = disableSwipeDown
-    ? Gesture.Pan().enabled(false)
-    : Gesture.Pan()
-        .activeOffsetY(10)
-        .onUpdate((e) => {
-          if (e.translationY > 0) {
-            dismissY.value = e.translationY * 0.6;
-          }
-        })
-        .onEnd((e) => {
-          const shouldDismiss =
-            dismissY.value > SCREEN_H * 0.3 ||
-            (e.velocityY > 400 && dismissY.value > 40);
+        // Haptic feedback tick on threshold
+        if (stretchY.value < -45 && !thresholdHit.value) {
+          thresholdHit.value = true;
+          runOnJS(fireHaptic)();
+        } else if (stretchY.value >= -45 && thresholdHit.value) {
+          thresholdHit.value = false;
+        }
+      }
+    })
+    .onEnd((e) => {
+      // 1. Handle dismiss
+      if (dismissY.value > 0) {
+        const shouldDismiss =
+          dismissY.value > SCREEN_H * 0.3 ||
+          (e.velocityY > 400 && dismissY.value > 40);
 
-          if (shouldDismiss) {
-            dismissY.value = withTiming(
-              SCREEN_H * 1.1,
-              { duration: 200 },
-              () => runOnJS(onDismiss ?? (() => {}))()
-            );
-          } else {
-            dismissY.value = withSpring(0, { damping: 18, stiffness: 280 });
-          }
+        if (shouldDismiss) {
+          dismissY.value = withTiming(SCREEN_H * 1.1, { duration: 200 }, () =>
+            runOnJS(onDismiss ?? (() => {}))(),
+          );
+        } else {
+          dismissY.value = withSpring(0, { damping: 18, stiffness: 280 });
+        }
+      }
+
+      // 2. Handle stretch release
+      if (stretchY.value < 0) {
+        const didCrossThreshold = stretchY.value < -40;
+        stretchY.value = withSpring(0, {
+          damping: 18,
+          stiffness: 220,
+          mass: 0.8,
         });
+        thresholdHit.value = false;
 
-  const dismissStyle = useAnimatedStyle(() => ({
-    transform: [{ translateY: dismissY.value }],
+        if (didCrossThreshold) {
+          runOnJS(handleTriggerLoadMore)();
+        }
+      }
+    });
+
+  // Track native iOS scroll bounce overscroll at bottom
+  const handleScroll = useCallback(
+    (e: any) => {
+      const { contentOffset, contentSize, layoutMeasurement } = e.nativeEvent;
+      const maxScroll = Math.max(
+        0,
+        contentSize.height - layoutMeasurement.height,
+      );
+      if (contentOffset.y > maxScroll + 2) {
+        const overscroll = contentOffset.y - maxScroll;
+        scrollOverscrollY.value = Math.min(overscroll, 120);
+      } else if (scrollOverscrollY.value > 0) {
+        scrollOverscrollY.value = 0;
+      }
+    },
+    [scrollOverscrollY],
+  );
+
+  const containerAnimatedStyle = useAnimatedStyle(() => ({
+    transform: [{ translateY: dismissY.value + stretchY.value }],
     opacity: interpolate(
       dismissY.value,
       [0, SCREEN_H * 0.6],
       [1, 0],
-      Extrapolation.CLAMP
+      Extrapolation.CLAMP,
     ),
   }));
+
+  const lottieBubbleAnimatedStyle = useAnimatedStyle(() => {
+    const pull = Math.max(-stretchY.value, scrollOverscrollY.value);
+
+    // Height strictly matches the revealed black area at the bottom
+    const height = Math.max(0, pull);
+
+    const scale = interpolate(
+      pull,
+      [0, 15, 60],
+      [0, 0.4, 1],
+      Extrapolation.CLAMP,
+    );
+
+    const opacity = interpolate(
+      pull,
+      [0, 10, 40],
+      [0, 0.5, 1],
+      Extrapolation.CLAMP,
+    );
+
+    return {
+      height,
+      opacity,
+      transform: [{ scale }],
+    };
+  });
 
   // ── Render ───────────────────────────────────────────────────────────────
   const renderItem = useCallback(
     ({ item, index }: { item: ContentItem; index: number }) => {
-      return (
-        <ReelCard
-          item={item}
-          ctx={reelCtx}
-          index={index}
-        />
-      );
+      return <ReelCard item={item} ctx={reelCtx} index={index} />;
     },
-    [reelCtx]
+    [reelCtx],
   );
 
   const keyExtractor = useCallback((item: ContentItem) => item.id, []);
 
-  // ── List footer: small round branded loader ─────────────────────────────
-  const FOOTER_SIZE = 40;
-  const isLastReel = items.length > 0 && activeIndex === items.length - 1;
-  const showFooter = items.length > 0 && (isLoading || (!hasMore && isLastReel));
-  const listFooter = useMemo(() => (
-    <View style={[styles.footer, { opacity: showFooter ? 1 : 0, height: showFooter ? FOOTER_SIZE + 24 : 0 }]}>
-      <BrandedLottieLoader size={FOOTER_SIZE} />
-    </View>
-  ), [showFooter]);
-
   return (
     <GestureHandlerRootView style={styles.root}>
       <GestureDetector gesture={panGesture}>
-        <Animated.View style={[{ flex: 1 }, dismissStyle]}>
-          <FlashList
-            ref={flashListRef}
-            data={items}
-            keyExtractor={keyExtractor}
-            renderItem={renderItem}
-            pagingEnabled
-            showsVerticalScrollIndicator={false}
-            decelerationRate="fast"
-            initialScrollIndex={initialIndex}
-            onViewableItemsChanged={onViewableItemsChanged}
-            viewabilityConfig={viewabilityConfig.current}
-            onEndReached={onEndReached}
-            onEndReachedThreshold={0.5}
-            ListFooterComponent={listFooter}
-          />
-        </Animated.View>
+        <View style={styles.root}>
+          <Animated.View style={[{ flex: 1 }, containerAnimatedStyle]}>
+            <FlashList
+              ref={flashListRef}
+              data={items}
+              keyExtractor={keyExtractor}
+              renderItem={renderItem}
+              pagingEnabled
+              showsVerticalScrollIndicator={false}
+              decelerationRate="fast"
+              initialScrollIndex={initialIndex}
+              onViewableItemsChanged={onViewableItemsChanged}
+              viewabilityConfig={viewabilityConfig.current}
+              onEndReached={onEndReached}
+              onEndReachedThreshold={0.5}
+              onScroll={handleScroll}
+              scrollEventThrottle={16}
+            />
+          </Animated.View>
+
+          {/* Elastic Lottie stretch footer in black area */}
+          <Animated.View
+            style={[styles.stretchBubbleWrap, lottieBubbleAnimatedStyle]}
+            pointerEvents="none"
+          >
+            <BrandedLottieLoader size={44} />
+          </Animated.View>
+        </View>
       </GestureDetector>
     </GestureHandlerRootView>
   );
@@ -263,9 +355,14 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: "#000",
   },
-  footer: {
-    height: 200,
-    justifyContent: "center",
+  stretchBubbleWrap: {
+    position: "absolute",
+    bottom: 0,
+    left: 0,
+    right: 0,
     alignItems: "center",
+    justifyContent: "center",
+    overflow: "hidden",
+    zIndex: 999,
   },
 });

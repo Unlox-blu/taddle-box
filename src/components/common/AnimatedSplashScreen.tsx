@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from "react";
-import { View, StyleSheet, Dimensions, Animated, Image } from "react-native";
+import { View, StyleSheet, Animated, Image, useWindowDimensions } from "react-native";
 import { LinearGradient } from "expo-linear-gradient";
 import { StatusBar } from "expo-status-bar";
 import LottieView from "lottie-react-native";
@@ -11,18 +11,20 @@ import {
 import { colors, fontSizes } from "../../theme";
 import { useTheme } from "../../context/ThemeContext";
 
-const { height } = Dimensions.get("window");
-
 type Props = {
   onAnimationFinish: () => void;
   /** Called once the Lottie view has mounted and the next frame is available. */
   onReady?: () => void;
+  /** When true, the splash will not dismiss even if animation finishes — waits for auth. */
+  isAuthLoading?: boolean;
 };
 
 export default function AnimatedSplashScreen({
   onAnimationFinish,
   onReady,
+  isAuthLoading = false,
 }: Props) {
+  const { width, height } = useWindowDimensions();
   const { colors: themeColors, isDark } = useTheme();
   const scale = useRef(new Animated.Value(0.8)).current;
   const opacity = useRef(new Animated.Value(0)).current;
@@ -34,10 +36,54 @@ export default function AnimatedSplashScreen({
   );
   const [lottieMounted, setLottieMounted] = useState(false);
   const finishedRef = useRef(false);
+  const animDoneRef = useRef(false);
 
-  // Signal readiness when both the Lottie source is loaded AND the view
-  // has been laid out.  requestAnimationFrame gives the next frame a
-  // chance to paint before we hand off from the native splash.
+  const hardDeadlineRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const splashFade = useRef(new Animated.Value(1)).current;
+
+  const dismiss = () => {
+    if (finishedRef.current) return;
+    finishedRef.current = true;
+    if (hardDeadlineRef.current) {
+      clearTimeout(hardDeadlineRef.current);
+      hardDeadlineRef.current = null;
+    }
+    setTimeout(() => {
+      Animated.timing(splashFade, {
+        toValue: 0,
+        duration: 250,
+        useNativeDriver: true,
+      }).start(() => {
+        onAnimationFinish();
+      });
+    }, 200);
+  };
+
+  const handleFinish = () => {
+    animDoneRef.current = true;
+    // Wait for auth to finish before dismissing
+    if (!isAuthLoading) dismiss();
+  };
+
+  // When auth finishes after animation already done, dismiss now
+  useEffect(() => {
+    if (!isAuthLoading && animDoneRef.current) {
+      dismiss();
+    }
+  }, [isAuthLoading]);
+
+  // Hard deadline — never get stuck regardless of what happens
+  useEffect(() => {
+    hardDeadlineRef.current = setTimeout(() => {
+      hardDeadlineRef.current = null;
+      dismiss();
+    }, 7000);
+    return () => {
+      if (hardDeadlineRef.current) clearTimeout(hardDeadlineRef.current);
+    };
+  }, []);
+
+  // Signal readiness when both the Lottie source is loaded AND the view has been laid out.
   useEffect(() => {
     if (lottieSource && lottieMounted) {
       requestAnimationFrame(() => {
@@ -45,12 +91,6 @@ export default function AnimatedSplashScreen({
       });
     }
   }, [lottieSource, lottieMounted]);
-
-  const handleFinish = () => {
-    if (finishedRef.current) return;
-    finishedRef.current = true;
-    onAnimationFinish();
-  };
 
   useEffect(() => {
     getCachedLottie(S3_APP_ICON_LOTTIE_URL).then((animData) => {
@@ -84,54 +124,63 @@ export default function AnimatedSplashScreen({
         useNativeDriver: true,
       }),
     ]).start();
-
-    // Safety fallback: only used if Lottie totally fails to load or parse
-    const fallbackTimer = setTimeout(() => {
-      handleFinish();
-    }, 6000);
-
-    return () => clearTimeout(fallbackTimer);
   }, []);
 
-  // Track the exact duration of the Lottie animation directly from its JSON data
+  // Once Lottie source is known, tighten the hard deadline to actual duration + buffer.
+  // This ensures one full loop plays but doesn't wait longer than needed.
   useEffect(() => {
     if (lottieSource && lottieSource.op && lottieSource.fr) {
       const inFrame = lottieSource.ip || 0;
       const outFrame = lottieSource.op;
       const frameRate = lottieSource.fr;
-
-      // Use calculation + 1s buffer as a fallback if onAnimationFinish fails
-      const fallbackDurationMs =
-        ((outFrame - inFrame) / frameRate) * 1000 + 1000;
-
-      const timer = setTimeout(() => {
+      const durationMs = ((outFrame - inFrame) / frameRate) * 1000;
+      // Tighten the hard deadline to animation duration + 800ms buffer
+      const tightDeadline = durationMs + 800;
+      if (hardDeadlineRef.current) {
+        clearTimeout(hardDeadlineRef.current);
+      }
+      hardDeadlineRef.current = setTimeout(() => {
+        hardDeadlineRef.current = null;
         handleFinish();
-      }, fallbackDurationMs);
-
-      return () => clearTimeout(timer);
+      }, tightDeadline);
     }
   }, [lottieSource]);
 
   return (
-    <LinearGradient
-      colors={[
-        themeColors.bg.base,
-        themeColors.bg.surface,
-        themeColors.bg.base,
+    <Animated.View
+      style={[
+        styles.container,
+        {
+          width,
+          height,
+          backgroundColor: themeColors.bg.base,
+          opacity: splashFade,
+        },
       ]}
-      style={styles.container}
     >
+      <LinearGradient
+        colors={[
+          themeColors.bg.base,
+          themeColors.bg.surface,
+          themeColors.bg.base,
+        ]}
+        style={StyleSheet.absoluteFill}
+      />
       {/* Ensures the gradient background is fully opaque before the native splash hides */}
       <StatusBar style={isDark ? "light" : "dark"} />
 
-      {/* Background glow */}
-      <View style={styles.glow} />
+      {/* Full-width glow circle centered behind the logo */}
+      <View style={[styles.glow, { width: width, height: width, borderRadius: width / 2 }]} />
 
+      {/* Logo + glow as a single centered unit */}
       <Animated.View
         style={{
           opacity,
           transform: [{ scale }, { translateY: logoSlide }],
           alignItems: "center",
+          justifyContent: "center",
+          width: 180,
+          height: 180,
         }}
       >
         {lottieSource ? (
@@ -142,6 +191,7 @@ export default function AnimatedSplashScreen({
               borderRadius: 60,
               overflow: "hidden",
               backgroundColor: "transparent",
+              position: "absolute",
             }}
             onLayout={() => setLottieMounted(true)}
           >
@@ -151,7 +201,11 @@ export default function AnimatedSplashScreen({
               loop={false}
               cacheComposition={true}
               style={{ width: "100%", height: "100%" }}
-              onAnimationFinish={handleFinish}
+              onAnimationFinish={(isCancelled) => {
+                if (!isCancelled) {
+                  handleFinish();
+                }
+              }}
             />
           </View>
         ) : (
@@ -162,7 +216,7 @@ export default function AnimatedSplashScreen({
               height: 120,
               borderRadius: 60,
               resizeMode: "cover",
-              alignSelf: "center",
+              position: "absolute",
             }}
           />
         )}
@@ -171,31 +225,25 @@ export default function AnimatedSplashScreen({
       <Animated.Text style={[styles.tagline, { opacity: tagOpac }]}>
         Play · Earn · Connect
       </Animated.Text>
-    </LinearGradient>
+    </Animated.View>
   );
 }
 
 const styles = StyleSheet.create({
   container: {
-    ...StyleSheet.absoluteFillObject,
+    ...StyleSheet.absoluteFill,
     alignItems: "center",
     justifyContent: "center",
-    zIndex: 9999, // Ensure it sits on top of navigators
-    elevation: 9999, // Crucial for Android to render over native stack
+    zIndex: 9999,
+    elevation: 9999,
   },
   glow: {
     position: "absolute",
-    width: 400,
-    height: 400,
-    borderRadius: 200,
     backgroundColor: "rgba(124,58,237,0.12)",
-    top: "50%",
-    left: "50%",
-    transform: [{ translateX: -200 }, { translateY: -200 }],
   },
   tagline: {
     position: "absolute",
-    bottom: height * 0.18,
+    bottom: "12%",
     fontSize: fontSizes.sm,
     color: colors.text.muted,
     letterSpacing: 0.4,

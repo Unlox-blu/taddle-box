@@ -3,7 +3,7 @@ import {
   View,
   Text,
   TouchableOpacity,
-  TouchableWithoutFeedback,
+  Pressable,
   Animated,
   StyleSheet,
   Dimensions,
@@ -25,6 +25,7 @@ import { xpService } from "../../services/xp.service";
 import { getReferralRewards } from "../../services/appConfig.service";
 import XPProgressBar from "./XPProgressBar";
 import { themedAlert } from "../common/ThemedAlert";
+import { useThemedAlertModal } from "../common/ThemedAlert";
 import { useTheme } from "../../context/ThemeContext";
 import { chatService } from "../../services/chat.service";
 import { accountSocket } from "../../services/accountSocketClient";
@@ -72,6 +73,7 @@ export default function SideDrawer({
   } = useAuth();
   const insets = useSafeAreaInsets();
   const { isDark, colors } = useTheme();
+  useThemedAlertModal(visible, onClose);
   const { inactiveUnreadStatus } = useNotifications();
   const [accountsExpanded, setAccountsExpanded] = useState(false);
   const otherAccounts = accounts.filter(
@@ -275,21 +277,28 @@ export default function SideDrawer({
       onRequestClose={onClose}
       statusBarTranslucent
     >
-      <TouchableWithoutFeedback onPress={onClose}>
+      {/* Full-screen container so touches outside the panel dismiss */}
+      <View style={styles.modalRoot} pointerEvents="box-none">
+        {/* Dimmed backdrop */}
         <Animated.View style={[styles.backdrop, { opacity: backdrop }]} />
-      </TouchableWithoutFeedback>
 
-      <Animated.View
-        style={[
-          styles.panel,
-          {
-            transform: [{ translateX: slideX }],
-            paddingTop: insets.top + 8,
-            backgroundColor: colors.bg.surface,
-            borderRightColor: colors.borderHover,
-          },
-        ]}
-      >
+        {/* Tap zone to the right of the drawer — sits on top of everything */}
+        <Pressable
+          style={[styles.dismissZone, { left: DRAWER_W }]}
+          onPress={onClose}
+        />
+
+        <Animated.View
+          style={[
+            styles.panel,
+            {
+              transform: [{ translateX: slideX }],
+              paddingTop: insets.top + 8,
+              backgroundColor: colors.bg.surface,
+              borderRightColor: colors.borderHover,
+            },
+          ]}
+        >
         <ScrollView showsVerticalScrollIndicator={false} bounces={false}>
           {/* ── Profile header ── */}
           <View style={styles.profileContainer}>
@@ -724,7 +733,8 @@ export default function SideDrawer({
 
           <View style={{ height: insets.bottom + 24 }} />
         </ScrollView>
-      </Animated.View>
+        </Animated.View>
+      </View>
     </Modal>
   );
 }
@@ -819,8 +829,18 @@ function DrawerRow({
 
 const styles = StyleSheet.create({
   backdrop: {
-    ...StyleSheet.absoluteFillObject,
+    ...StyleSheet.absoluteFill,
     backgroundColor: "rgba(0,0,0,0.65)",
+  },
+  modalRoot: {
+    flex: 1,
+  },
+  dismissZone: {
+    position: "absolute",
+    top: 0,
+    bottom: 0,
+    right: 0,
+    // width is set inline via left: DRAWER_W so it covers everything to the right of the panel
   },
   panel: {
     position: "absolute",

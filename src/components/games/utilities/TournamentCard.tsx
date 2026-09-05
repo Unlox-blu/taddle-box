@@ -45,7 +45,7 @@ export default function TournamentCard({
       >
         <LinearGradient
           colors={['rgba(0,0,0,0.1)', 'rgba(0,0,0,0.8)']}
-          style={StyleSheet.absoluteFillObject}
+          style={StyleSheet.absoluteFill}
           start={{ x: 0, y: 0.2 }}
           end={{ x: 0, y: 1 }}
         />

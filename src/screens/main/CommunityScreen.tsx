@@ -9,11 +9,11 @@ import {
   Modal,
   KeyboardAvoidingView,
 
-  Image,
   Dimensions,
   Platform,
   DeviceEventEmitter,
 } from "react-native";
+import { Image } from "expo-image";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useNavigation, useFocusEffect } from "@react-navigation/native";
 import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
@@ -147,9 +147,16 @@ function makeStyles(c: ColorPalette) {
       shadowRadius: 20,
       elevation: 8,
     },
-    featBanner: { height: 100, justifyContent: "center", alignItems: "center" },
+    featBanner: {
+      height: 100,
+      width: "100%",
+      justifyContent: "center",
+      alignItems: "center",
+      overflow: "hidden",
+      position: "relative",
+    },
     featOverlay: {
-      ...StyleSheet.absoluteFillObject,
+      ...StyleSheet.absoluteFill,
       backgroundColor: "rgba(0,0,0,0.4)",
       justifyContent: "flex-start",
       alignItems: "flex-end",
@@ -783,6 +790,7 @@ const FeaturedCommunityCard = React.memo(function FeaturedCommunityCard({
   const gradient = BANNER_COLORS[c.category?.[0]] ?? BANNER_COLORS.All;
   const avGrad = AVATAR_COLORS[c.category?.[0]] ?? AVATAR_COLORS.All;
   const isJoined = c.isMember || c.isJoined;
+  const bannerUri = c.bannerUrl || (c as any).banner_url || (c as any).banner_media_url || (c as any).banner;
 
   return (
     <TouchableOpacity
@@ -791,11 +799,12 @@ const FeaturedCommunityCard = React.memo(function FeaturedCommunityCard({
       activeOpacity={0.9}
     >
       <LinearGradient colors={gradient} style={styles.featBanner}>
-        {c.bannerUrl ? (
+        {bannerUri ? (
           <Image
-            source={{ uri: c.bannerUrl }}
-            style={StyleSheet.absoluteFillObject}
-            resizeMode="cover"
+            source={{ uri: bannerUri }}
+            style={[StyleSheet.absoluteFill, { width: "100%", height: "100%" }]}
+            contentFit="cover"
+            transition={200}
           />
         ) : null}
         <View style={styles.featOverlay}>
@@ -814,7 +823,8 @@ const FeaturedCommunityCard = React.memo(function FeaturedCommunityCard({
             <Image
               source={{ uri: c.avatarUrl }}
               style={{ width: "100%", height: "100%" }}
-              resizeMode="cover"
+              contentFit="cover"
+              transition={200}
             />
           ) : (
             <Ionicons
@@ -907,7 +917,8 @@ const CompactCommunityCard = React.memo(function CompactCommunityCard({
           <Image
             source={{ uri: c.avatarUrl }}
             style={{ width: "100%", height: "100%" }}
-            resizeMode="cover"
+            contentFit="cover"
+            transition={200}
           />
         ) : (
           <Ionicons
@@ -1197,8 +1208,8 @@ const CreateCommunityModal = React.memo(function CreateCommunityModal({
               {bannerAsset ? (
                 <Image
                   source={{ uri: bannerAsset.uri }}
-                  style={StyleSheet.absoluteFillObject}
-                  resizeMode="cover"
+                  style={[StyleSheet.absoluteFill, { width: "100%", height: "100%" }]}
+                  contentFit="cover"
                 />
               ) : (
                 <View style={{ alignItems: "center", gap: 6 }}>
@@ -1233,7 +1244,7 @@ const CreateCommunityModal = React.memo(function CreateCommunityModal({
                 <Image
                   source={{ uri: avatarAsset.uri }}
                   style={{ width: "100%", height: "100%" }}
-                  resizeMode="cover"
+                  contentFit="cover"
                 />
               ) : (
                 <Ionicons

@@ -41,7 +41,7 @@ import { accountSocket } from "../../../services/accountSocketClient";
 import { userService } from "../../../services/user.service";
 import { fontSizes, radii, spacing, type ColorPalette } from "../../../theme";
 import type { Game, MatchmakingEventPayload } from "../../../types";
-import { themedAlert } from '../../common/ThemedAlert';
+import { themedAlert, useThemedAlertModal } from '../../common/ThemedAlert';
 
 export type MatchMode = "AUTO" | "CUSTOM" | "PRACTICE";
 
@@ -90,6 +90,7 @@ export default function MatchModeModal({
   const colors = useThemeColors();
   const { user } = useAuth();
   const styles = useMemo(() => makeStyles(colors), [colors]);
+  useThemedAlertModal(visible, onClose);
 
   // ── nav ───────────────────────────────────────────────────────────────────
   const [mode, setMode] = useState<MatchMode>("AUTO");

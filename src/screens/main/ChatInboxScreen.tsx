@@ -20,7 +20,7 @@ import { themedAlert } from "../../components/common/ThemedAlert";
 import StateBlock from "../../components/common/StateBlock";
 import MainHeader from "../../components/common/MainHeader";
 import { fontSizes, spacing, radii } from "../../theme";
-import { warn } from '../../utils/logger';
+import { warn } from "../../utils/logger";
 import { useActiveStatus } from "../../context/ActiveStatusContext";
 
 const formatTime = (dateStr: string | null) => {
@@ -38,67 +38,132 @@ const formatTime = (dateStr: string | null) => {
   return d.toLocaleDateString("en-US", { month: "short", day: "numeric" });
 };
 
-// --- Subcomponents for list items ---
+const getLastMessagePreview = (msg: string | null): string => {
+  if (!msg) return "Tap to start chatting";
+  if (msg === "__post__") return "📎 Shared a post";
+  if (msg === "__game_invite__") return "🎮 Game Invite";
+  return msg;
+};
 
-const ConversationRow = memo(({ item, openChat }: { item: Conversation, openChat: (id: string) => void }) => {
-  const colors = useThemeColors();
-  const activeStatus = useActiveStatus(item.other_user_id);
-  const isOnline = activeStatus?.online ?? false;
-  const isUnread = item.unread_count > 0;
+const ConversationRow = memo(
+  ({
+    item,
+    openChat,
+  }: {
+    item: Conversation;
+    openChat: (id: string) => void;
+  }) => {
+    const colors = useThemeColors();
+    const activeStatus = useActiveStatus(item.other_user_id);
+    const isOnline = activeStatus?.online ?? false;
+    const isUnread = item.unread_count > 0;
+    const preview = getLastMessagePreview(item.last_message);
 
-  return (
-    <TouchableOpacity
-      style={[
-        styles.convRow,
-        isUnread && { backgroundColor: colors.bg.elevated }
-      ]}
-      onPress={() => openChat(item.other_user_id)}
-      activeOpacity={0.7}
-    >
-      <View style={styles.avatarWrap}>
-        {item.other_user_avatar ? (
-          <Image source={{ uri: item.other_user_avatar }} style={styles.avatar} contentFit="cover" />
-        ) : (
-          <View style={[styles.avatar, styles.avatarFallback]}>
-            <Text style={{ fontSize: 20 }}>👾</Text>
-          </View>
+    return (
+      <TouchableOpacity
+        style={[styles.convRow, { backgroundColor: colors.bg.base }]}
+        onPress={() => openChat(item.other_user_id)}
+        activeOpacity={0.7}
+      >
+        {/* Unread accent bar */}
+        {isUnread && (
+          <View style={[styles.unreadBar, { backgroundColor: colors.primaryLight }]} />
         )}
-        {isOnline && (
-          <View style={[styles.onlineDot, { borderColor: isUnread ? colors.bg.elevated : colors.bg.base }]} />
-        )}
-      </View>
-      <View style={styles.convInfo}>
-        <View style={styles.convTopRow}>
-          <Text style={[styles.convName, { color: colors.text.primary }]} numberOfLines={1}>
-            {item.other_user_name}
-          </Text>
-          <Text style={[styles.convTime, { color: isUnread ? colors.primaryLight : colors.text.muted, fontWeight: isUnread ? '600' : '400' }]}>
-            {formatTime(item.last_message_at)}
-          </Text>
-        </View>
-        <View style={styles.convBottomRow}>
-          <Text
-            style={[
-              styles.convPreview, 
-              { 
-                color: isUnread ? colors.text.primary : colors.text.muted,
-                fontWeight: isUnread ? '600' : '400'
-              }
-            ]}
-            numberOfLines={1}
-          >
-            {item.last_message || "Tap to start chatting"}
-          </Text>
-          {isUnread && (
-            <View style={[styles.unreadBadge, { backgroundColor: colors.primaryLight }]}>
-              <Text style={styles.unreadText}>{item.unread_count > 99 ? "99+" : item.unread_count}</Text>
+
+        {/* Avatar */}
+        <View style={styles.avatarWrap}>
+          {item.other_user_avatar ? (
+            <Image
+              source={{ uri: item.other_user_avatar }}
+              style={styles.avatar}
+              contentFit="cover"
+            />
+          ) : (
+            <View style={[styles.avatar, styles.avatarFallback, { backgroundColor: colors.bg.elevated }]}>
+              <Text style={{ fontSize: 24 }}>👾</Text>
             </View>
           )}
+          {isOnline && (
+            <View
+              style={[
+                styles.onlineDot,
+                { borderColor: colors.bg.base, backgroundColor: "#10B981" },
+              ]}
+            />
+          )}
         </View>
-      </View>
-    </TouchableOpacity>
-  );
-});
+
+        {/* Content */}
+        <View style={styles.convContent}>
+          <View style={styles.convNameRow}>
+            <Text
+              style={[
+                styles.convName,
+                {
+                  color: colors.text.primary,
+                  fontWeight: isUnread ? "800" : "600",
+                },
+              ]}
+              numberOfLines={1}
+            >
+              {item.other_user_name}
+            </Text>
+          </View>
+
+          <Text
+            style={[styles.convUsername, { color: colors.primaryLight }]}
+            numberOfLines={1}
+          >
+            @{item.other_user_username}
+          </Text>
+
+          <View style={styles.convPreviewRow}>
+            <Text
+              style={[
+                styles.convPreview,
+                {
+                  color: isUnread ? colors.text.primary : colors.text.muted,
+                  fontWeight: isUnread ? "500" : "400",
+                },
+              ]}
+              numberOfLines={1}
+            >
+              {preview}
+            </Text>
+            {isUnread && (
+              <View
+                style={[
+                  styles.unreadBadge,
+                  { backgroundColor: colors.primaryLight },
+                ]}
+              >
+                <Text style={styles.unreadText}>
+                  {item.unread_count > 99 ? "99+" : item.unread_count}
+                </Text>
+              </View>
+            )}
+          </View>
+        </View>
+
+        {/* Right side: time + chevron, vertically centered on the row */}
+        <View style={styles.convRight}>
+          <Text
+            style={[
+              styles.convTime,
+              {
+                color: isUnread ? colors.primaryLight : colors.text.muted,
+                fontWeight: isUnread ? "600" : "400",
+              },
+            ]}
+          >
+            {formatTime(item.last_message_at)}
+          </Text>
+          <Ionicons name="chevron-forward" size={14} color={colors.text.muted} />
+        </View>
+      </TouchableOpacity>
+    );
+  }
+);
 
 export default function ChatInboxScreen() {
   const navigation = useNavigation<any>();
@@ -112,7 +177,7 @@ export default function ChatInboxScreen() {
 
   const fetchInbox = useCallback(async () => {
     try {
-      const res = await chatService.getInbox(1, 20);
+      const res = await chatService.getInbox(1, 30);
       setConversations(res.conversations || []);
     } catch (e) {
       warn("Failed to load inbox", e);
@@ -124,73 +189,116 @@ export default function ChatInboxScreen() {
   useFocusEffect(
     useCallback(() => {
       fetchInbox();
-      notificationBus.emit('chatScreenOpen');
-      return () => { notificationBus.emit('chatScreenClose'); };
+      notificationBus.emit("chatScreenOpen");
+      return () => {
+        notificationBus.emit("chatScreenClose");
+      };
     }, [fetchInbox])
   );
 
   useEffect(() => {
     const handleNewMessage = () => fetchInbox();
     accountSocket.events.on("chat:message" as any, handleNewMessage);
-    return () => { accountSocket.events.off("chat:message" as any, handleNewMessage); };
+    return () => {
+      accountSocket.events.off("chat:message" as any, handleNewMessage);
+    };
   }, [fetchInbox]);
 
-  const openChat = useCallback(async (otherUserId: string) => {
-    try {
-      const convId = await chatService.getOrCreateConversation(otherUserId);
-      const conv = conversations.find((c) => c.other_user_id === otherUserId);
-      navigation.navigate("Chat", {
-        conversationId: convId,
-        otherUserId,
-        otherUser: conv ? {
-          id: conv.other_user_id,
-          name: conv.other_user_name,
-          username: conv.other_user_username,
-          avatarUrl: conv.other_user_avatar,
-          handle: conv.other_user_username,
-        } : undefined,
-      });
-    } catch (e: any) {
-      themedAlert("Cannot Message", e?.response?.data?.message || "You can only message mutual followers.");
-    }
-  }, [navigation, conversations]);
+  const openChat = useCallback(
+    async (otherUserId: string) => {
+      try {
+        const convId = await chatService.getOrCreateConversation(otherUserId);
+        const conv = conversations.find((c) => c.other_user_id === otherUserId);
+        navigation.navigate("Chat", {
+          conversationId: convId,
+          otherUserId,
+          otherUser: conv
+            ? {
+                id: conv.other_user_id,
+                name: conv.other_user_name,
+                username: conv.other_user_username,
+                avatarUrl: conv.other_user_avatar,
+                handle: conv.other_user_username,
+              }
+            : undefined,
+        });
+      } catch (e: any) {
+        themedAlert(
+          "Cannot Message",
+          e?.response?.data?.message ||
+            "You can only message mutual followers."
+        );
+      }
+    },
+    [navigation, conversations]
+  );
 
   return (
     <View style={[styles.container, { backgroundColor: colors.bg.base }]}>
       <StatusBar style={isDark ? "light" : "dark"} />
       <MainHeader showBack />
 
-      <View style={{ flex: 1, paddingTop: insets.top + 50 }}>
-        {/* Heading */}
-        <View style={{ paddingHorizontal: spacing.lg, marginBottom: spacing.sm }}>
-          <Text style={{ fontSize: fontSizes.xxl, fontWeight: '800', color: colors.text.primary }}>Messages</Text>
-          <Text style={{ fontSize: fontSizes.sm, color: colors.text.muted, marginTop: 2 }}>Chat with mutuals & communities</Text>
+      <View style={{ flex: 1, paddingTop: insets.top + 64 }}>
+        {/* Heading row — title left, today's date right */}
+        <View style={styles.headingRow}>
+          <Text style={[styles.headingTitle, { color: colors.text.primary }]}>
+            Messages
+          </Text>
+          <Text style={[styles.headingDate, { color: colors.text.muted }]}>
+            {new Date().toLocaleDateString("en-US", {
+              weekday: "short",
+              month: "short",
+              day: "numeric",
+            })}
+          </Text>
         </View>
+        <Text style={[styles.headingSubtitle, { color: colors.text.muted }]}>
+          Chat with mutuals & communities
+        </Text>
 
         {loading ? (
-          <StateBlock inline loading loaderSize={32} style={{ flex: 1, justifyContent: 'center' }} />
+          <StateBlock
+            inline
+            loading
+            loaderSize={32}
+            style={{ flex: 1, justifyContent: "center" }}
+          />
         ) : conversations.length === 0 ? (
           <View style={styles.empty}>
-            <View style={[styles.emptyIconWrap, { backgroundColor: colors.bg.elevated }]}>
-              <Ionicons name="chatbubbles" size={42} color={colors.primaryLight} />
+            <View
+              style={[
+                styles.emptyIconWrap,
+                { backgroundColor: colors.bg.elevated },
+              ]}
+            >
+              <Ionicons
+                name="chatbubbles-outline"
+                size={42}
+                color={colors.primaryLight}
+              />
             </View>
             <Text style={[styles.emptyTitle, { color: colors.text.primary }]}>
               Your Inbox is Empty
             </Text>
             <Text style={[styles.emptyDesc, { color: colors.text.muted }]}>
-              Search for your mutual followers to start chatting, sharing posts, and sending game invites!
+              Search for your mutual followers to start chatting, sharing posts,
+              and sending game invites!
             </Text>
           </View>
         ) : (
-          <View style={{ flex: 1 }}>
-            <FlashList
-              data={conversations}
-              keyExtractor={(item) => item.id}
-              renderItem={({ item }) => <ConversationRow item={item} openChat={openChat} />}
-              keyboardDismissMode="on-drag"
-              contentContainerStyle={{ paddingBottom: insets.bottom + 100, paddingTop: 10 }}
-            />
-          </View>
+          <FlashList
+            data={conversations}
+            keyExtractor={(item) => item.id}
+            renderItem={({ item }) => (
+              <ConversationRow item={item} openChat={openChat} />
+            )}
+            keyboardDismissMode="on-drag"
+            estimatedItemSize={80}
+            contentContainerStyle={{
+              paddingBottom: insets.bottom + 100,
+              paddingTop: 4,
+            }}
+          />
         )}
       </View>
     </View>
@@ -199,38 +307,68 @@ export default function ChatInboxScreen() {
 
 const styles = StyleSheet.create({
   container: { flex: 1 },
+  headingRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    paddingHorizontal: spacing.lg,
+    marginBottom: 2,
+  },
+  headingTitle: { fontSize: fontSizes.xxl, fontWeight: "800" },
+  headingDate: { fontSize: fontSizes.sm, fontWeight: "500" },
+  headingSubtitle: {
+    fontSize: fontSizes.sm,
+    paddingHorizontal: spacing.lg,
+    marginBottom: spacing.sm,
+  },
+  // Conversation row
   convRow: {
     flexDirection: "row",
     alignItems: "center",
     paddingHorizontal: spacing.md,
-    paddingVertical: 12,
+    paddingVertical: 14,
     marginHorizontal: spacing.sm,
-    marginBottom: 4,
+    marginBottom: 2,
     borderRadius: radii.lg,
+    gap: 12,
   },
-  avatarWrap: { marginRight: 14, position: 'relative' },
-  avatar: { width: 56, height: 56, borderRadius: 28 },
-  avatarFallback: {
-    backgroundColor: "#e5e7eb",
-    alignItems: "center",
-    justifyContent: "center",
+  unreadBar: {
+    position: "absolute",
+    left: 0,
+    top: 12,
+    bottom: 12,
+    width: 3,
+    borderRadius: 2,
   },
+  avatarWrap: { position: "relative" },
+  avatar: { width: 60, height: 60, borderRadius: 30 },
+  avatarFallback: { alignItems: "center", justifyContent: "center" },
   onlineDot: {
-    position: 'absolute',
-    bottom: 0,
-    right: 2,
-    width: 14,
-    height: 14,
-    borderRadius: 7,
-    backgroundColor: '#10B981',
-    borderWidth: 2,
+    position: "absolute",
+    bottom: 1,
+    right: 1,
+    width: 16,
+    height: 16,
+    borderRadius: 8,
+    borderWidth: 2.5,
   },
-  convInfo: { flex: 1 },
-  convTopRow: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginBottom: 4 },
-  convName: { fontSize: fontSizes.md, fontWeight: "700", flex: 1 },
-  convTime: { fontSize: fontSizes.xs, marginLeft: 8 },
-  convBottomRow: { flexDirection: "row", justifyContent: "space-between", alignItems: "center" },
+  convContent: { flex: 1 },
+  convNameRow: { marginBottom: 2 },
+  convName: { fontSize: fontSizes.md },
+  convTime: { fontSize: fontSizes.xs },
+  convUsername: { fontSize: fontSizes.xs, fontWeight: "500", marginBottom: 3 },
+  convPreviewRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+  },
   convPreview: { fontSize: fontSizes.sm, flex: 1 },
+  convRight: {
+    flexDirection: "row",
+    alignItems: "center",
+    marginLeft: 8,
+    gap: 4,
+  },
   unreadBadge: {
     minWidth: 22,
     height: 22,
@@ -241,15 +379,31 @@ const styles = StyleSheet.create({
     marginLeft: 8,
   },
   unreadText: { color: "#fff", fontSize: 11, fontWeight: "700" },
-  empty: { flex: 1, alignItems: "center", justifyContent: "center", paddingHorizontal: 48, paddingBottom: 80 },
+  // Empty state
+  empty: {
+    flex: 1,
+    alignItems: "center",
+    justifyContent: "center",
+    paddingHorizontal: 48,
+    paddingBottom: 80,
+  },
   emptyIconWrap: {
-    width: 80,
-    height: 80,
-    borderRadius: 40,
+    width: 88,
+    height: 88,
+    borderRadius: 44,
     alignItems: "center",
     justifyContent: "center",
     marginBottom: 20,
   },
-  emptyTitle: { fontSize: fontSizes.lg, fontWeight: "700", textAlign: "center", marginBottom: 8 },
-  emptyDesc: { fontSize: fontSizes.sm, textAlign: "center", lineHeight: 22 },
+  emptyTitle: {
+    fontSize: fontSizes.lg,
+    fontWeight: "700",
+    textAlign: "center",
+    marginBottom: 8,
+  },
+  emptyDesc: {
+    fontSize: fontSizes.sm,
+    textAlign: "center",
+    lineHeight: 22,
+  },
 });

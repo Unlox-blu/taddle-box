@@ -14,12 +14,12 @@ import {
   StyleSheet,
   Share,
   FlatList,
-  Image,
   TextInput,
   Modal,
   KeyboardAvoidingView,
   Platform,
 } from "react-native";
+import { Image } from "expo-image";
 import { FlashList } from "@shopify/flash-list";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import {
@@ -100,10 +100,17 @@ function makeStyles(c: ColorPalette) {
 
     banner: {
       height: 160,
+      width: "100%",
       alignItems: "center",
       justifyContent: "center",
+      overflow: "hidden",
+      position: "relative",
     },
-    bannerImage: { ...StyleSheet.absoluteFillObject },
+    bannerImage: {
+      ...StyleSheet.absoluteFill,
+      width: "100%",
+      height: "100%",
+    },
     privateBadge: {
       position: "absolute",
       bottom: 28,
@@ -603,13 +610,21 @@ export default function CommunityDetailScreen() {
     "#4C1D95",
   ];
 
+  const bannerUri =
+    community.bannerUrl ||
+    (community as any).banner_url ||
+    (community as any).banner_media_url ||
+    (community as any).banner;
+
   const renderHeader = () => (
     <>
       <LinearGradient colors={bannerGradient} style={styles.banner}>
-        {community.bannerUrl ? (
+        {bannerUri ? (
           <Image
-            source={{ uri: community.bannerUrl }}
+            source={{ uri: bannerUri }}
             style={styles.bannerImage}
+            contentFit="cover"
+            transition={200}
           />
         ) : null}
         {/* Owner settings + share — anchored INSIDE the banner (top-right) so

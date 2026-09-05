@@ -4,7 +4,7 @@
  */
 import React from "react";
 import { View, Text, TouchableOpacity, StyleSheet, Dimensions } from "react-native";
-import { Ionicons } from "@expo/vector-icons";
+import { Feather, Ionicons } from "@expo/vector-icons";
 import type { ContentItem } from "../../content";
 import type { ReelCtx } from "../../../SharedReels";
 
@@ -21,7 +21,9 @@ export default function TextReelCard({
 
   return (
     <View style={styles.container}>
-      <Ionicons name="pricetag" size={48} color="rgba(245,158,11,0.3)" />
+      <View style={styles.hashBadge}>
+        <Feather name="hash" size={44} color="#F59E0B" />
+      </View>
       <Text style={styles.text} numberOfLines={4}>
         {data.text}
       </Text>
@@ -47,6 +49,16 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     alignItems: "center",
     padding: 32,
+  },
+  hashBadge: {
+    width: 80,
+    height: 80,
+    borderRadius: 40,
+    backgroundColor: "rgba(245, 158, 11, 0.15)",
+    borderWidth: 1.5,
+    borderColor: "rgba(245, 158, 11, 0.3)",
+    alignItems: "center",
+    justifyContent: "center",
   },
   text: {
     fontSize: 32,

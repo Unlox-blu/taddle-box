@@ -18,6 +18,7 @@ import { commentService, Comment } from '../../services/comment.service';
 import { postsService } from '../../services/posts.service';
 import { usePosts } from '../../context/PostsContext';
 import { themedAlert } from '../common/ThemedAlert';
+import { useThemedAlertModal } from '../common/ThemedAlert';
 import StateBlock from '../common/StateBlock';
 import { error } from '../../utils/logger';
 
@@ -169,6 +170,7 @@ export default function CommentsModal({ visible, onClose, post }: Props) {
   const styles = useMemo(() => makeStyles(colors), [colors]);
   const navigation = useNavigation<NativeStackNavigationProp<HomeStackParamList>>();
   const { updateCommentCount } = usePosts();
+  useThemedAlertModal(visible, onClose);
 
   const [text, setText] = useState('');
   const [comments, setComments] = useState<Comment[]>([]);

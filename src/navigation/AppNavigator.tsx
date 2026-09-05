@@ -125,7 +125,7 @@ const SuspenseLockScreen = (props: any) => (
 );
 
 export default function AppNavigator() {
-  const { isLoggedIn, needsForceUpdate } = useAuth();
+  const { isLoggedIn, needsForceUpdate, isLoading } = useAuth();
   const { isDark, colors } = useTheme();
 
   const navTheme = {
@@ -172,6 +172,12 @@ export default function AppNavigator() {
       <Stack.Navigator screenOptions={{ headerShown: false, animation: 'none' }}>
         {needsForceUpdate ? (
           <Stack.Screen name="ForceUpdate" component={ForceUpdateScreen} />
+        ) : isLoading ? (
+          // While auth is loading, render a blank screen — splash overlay covers
+          // this. We must NOT render AuthNavigator here because hasSeenOnboarding
+          // is false until checkToken completes, causing the onboarding screen to
+          // flash on every hot reload.
+          <Stack.Screen name="Loading" component={() => null} />
         ) : isLoggedIn ? (
           <>
             <Stack.Screen name="Main" component={MainNavigator} />

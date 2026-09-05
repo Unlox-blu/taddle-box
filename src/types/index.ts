@@ -254,6 +254,7 @@ export interface Event {
   isFeatured: boolean;
   isRegistered: boolean;
   isFree: boolean;
+  description?: string;
   priceCents?: number;
   /** Paid-event ticket price expressed in XP (server-computed). */
   xpPrice?: number;

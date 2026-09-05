@@ -48,7 +48,7 @@ export type FeedCtx = {
   openUser: (user: any) => void;
   openCommunity: (slug: string) => void;
   openGames: (id?: string) => void;
-  openEvents: (id?: string) => void;
+  openEvents: (id?: string, event?: any) => void;
   openSettings: () => void;
   openNotifications: () => void;
   addHashtag: (tag: string) => void;
@@ -92,6 +92,11 @@ export type PersonData = {
   name: string;
   username: string;
   avatarUrl?: string;
+  bannerUrl?: string;
+  banner_url?: string;
+  banner_media_url?: string;
+  banner?: string;
+  bio?: string;
   followerCount: number;
   followingCount: number;
 };
@@ -102,7 +107,15 @@ export type CommunityData = {
   slug: string;
   description: string;
   avatarUrl?: string;
+  avatar_url?: string;
+  avatar_media_url?: string;
+  avatar?: string;
+  bannerUrl?: string;
+  banner_url?: string;
+  banner_media_url?: string;
+  banner?: string;
   memberCount: number;
+  postCount?: number;
 };
 
 export type MediaData = {
@@ -139,9 +152,16 @@ export type CommentData = {
 
 export type GameData = {
   id: string;
+  slug?: string;
   name: string;
   description: string;
   thumbnail?: string;
+  logoUrl?: string;
+  bannerUrl?: string;
+  cardUrl?: string;
+  metadata?: any;
+  category?: string;
+  xpReward?: number;
 };
 
 export type EventData = {
@@ -149,6 +169,16 @@ export type EventData = {
   title: string;
   description: string;
   cover_image_url?: string;
+  coverImageUrl?: string;
+  bannerUrl?: string;
+  banner?: string;
+  logoUrl?: string;
+  location?: string;
+  startTime?: string;
+  start_time?: string;
+  attendeeCount?: number;
+  attendeesCount?: number;
+  category?: string;
 };
 
 export type NotificationData = {

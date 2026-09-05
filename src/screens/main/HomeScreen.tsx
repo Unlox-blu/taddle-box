@@ -66,7 +66,7 @@ export default function HomeScreen() {
   const [streakBannerVisible, setStreakBannerVisible] = useState(true);
   const [spotlightBoundary, setSpotlightBoundary] = useState(0);
 
-  const { user: CURRENT_USER, refreshUser } = useAuth();
+  const { user: CURRENT_USER, refreshUser, isSplashVisible } = useAuth();
   const { wallet, fetchWalletSummary } = useWallet();
   const navigation = useNavigation<HomeNavProp>();
   const isFocused = useIsFocused();
@@ -723,7 +723,7 @@ export default function HomeScreen() {
       />
 
       <StreakRewardModal
-        visible={showStreakRewardModal}
+        visible={showStreakRewardModal && !isSplashVisible}
         onClose={() => setShowStreakRewardModal(false)}
         day={rewardDay}
         xp={rewardXp}
@@ -1458,7 +1458,7 @@ const styles = StyleSheet.create({
 const sm = StyleSheet.create({
   wrap: { flex: 1, justifyContent: "flex-end" },
   backdrop: {
-    ...StyleSheet.absoluteFillObject,
+    ...StyleSheet.absoluteFill,
     backgroundColor: "rgba(0,0,0,0.55)",
   },
   sheet: {

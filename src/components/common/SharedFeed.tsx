@@ -25,6 +25,7 @@ import { useActiveContentTracker } from "../../hooks/useActiveContentTracker";
 import { resolveContentId } from "../../utils/content.util";
 import FeedCard from "./contentCards/FeedCard";
 import type { FeedCtx, ContentItem } from "./contentCards/content";
+import { getContentType } from "./contentCards/content";
 import { createRowStyles } from "./rowStyles";
 import { useThemeColors } from "../../context/ThemeContext";
 
@@ -156,9 +157,14 @@ export default function SharedFeed({
   const viewedPostIdsRef = useRef(new Set<string>());
   useEffect(() => {
     if (!activeContentId || viewedPostIdsRef.current.has(activeContentId) || activeContentId.startsWith("__row_")) return;
+    const activeItem = items.find((i) => i.id === activeContentId);
+    if (activeItem) {
+      const type = getContentType(activeItem);
+      if (type !== "post" && type !== "poll") return;
+    }
     viewedPostIdsRef.current.add(activeContentId);
     postsService.recordView(activeContentId).catch(() => {});
-  }, [activeContentId]);
+  }, [activeContentId, items]);
 
   const [commentsVisible, setCommentsVisible] = useState(false);
   const [activeCommentPost, setActiveCommentPost] = useState<Post | null>(null);
@@ -301,7 +307,7 @@ export default function SharedFeed({
       openComments: (post) => handleComment(post),
       openUser: (user) => {
         if (currentUser?.id && user?.id === currentUser.id) {
-          navigation.navigate("Profile");
+          navigation.navigate("Main", { screen: "Profile" });
         } else {
           navigation.push("UserProfile", { user });
         }
@@ -309,16 +315,22 @@ export default function SharedFeed({
       openCommunity: (slug) => navigation.push("CommunityDetail", { communitySlug: slug }),
       openGames: (id?: string) => {
         if (id) {
-          navigation.navigate("Games", { openGameId: id, autoPlay: true });
+          navigation.navigate("Main", {
+            screen: "Games",
+            params: { openGameId: id, autoPlay: true },
+          });
         } else {
-          navigation.navigate("Games");
+          navigation.navigate("Main", { screen: "Games" });
         }
       },
-      openEvents: (id?: string) => {
-        if (id) {
-          navigation.push("EventDetail", { eventId: id });
+      openEvents: (id?: string, event?: any) => {
+        if (id || event) {
+          navigation.navigate("EventDetail", {
+            eventId: id || event?.id,
+            event,
+          });
         } else {
-          navigation.push("Events");
+          navigation.navigate("Main", { screen: "Events" });
         }
       },
       openSettings: () => navigation.push("Settings"),

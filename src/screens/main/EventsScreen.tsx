@@ -767,7 +767,7 @@ export default function EventsScreen() {
                   >
                     <LinearGradient
                       colors={["transparent", "rgba(0,0,0,0.6)"]}
-                      style={StyleSheet.absoluteFillObject}
+                      style={StyleSheet.absoluteFill}
                     />
                     {featured.isLive && (
                       <View style={styles.livePill}>

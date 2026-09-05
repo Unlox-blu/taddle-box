@@ -81,22 +81,21 @@ function AppShell() {
 
           <AudioProvider>
           <LoaderProvider>
-          {/* Render navigators underneath so they are ready */}
-          {!isLoading && (
-            <>
-              <LocationTracker />
-              <AppNavigator />
-              <NotificationBanner />
-              <LockOverlay />
-              <ThemedAlertHost />
-            </>
-          )}
+          {/* Always render navigators — the splash overlay sits on top until ready.
+              This prevents a blank screen gap between splash dismissing and
+              the navigator mounting (especially noticeable on hot reload). */}
+          <LocationTracker />
+          <AppNavigator />
+          <NotificationBanner />
+          <LockOverlay />
+          <ThemedAlertHost />
 
           {/* Global Lottie Splash Screen Overlay */}
           {isSplashVisible && (
             <AnimatedSplashScreen
               onAnimationFinish={() => setLottieFinished(true)}
               onReady={() => setLottieReady(true)}
+              isAuthLoading={isLoading}
             />
           )}
           </LoaderProvider>

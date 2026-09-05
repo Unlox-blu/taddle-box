@@ -18,8 +18,11 @@ import { StatusBar } from 'expo-status-bar';
 import { useThemeColors, useTheme } from '../../context/ThemeContext';
 import { fontSizes, radii, spacing } from '../../theme';
 import Button from '../../components/common/Button';
+import StateBlock from '../../components/common/StateBlock';
 import { useToggleEventRegister } from '../../mutations/events';
 import { themedAlert } from '../../components/common/ThemedAlert';
+import { eventService, mapEvent } from '../../services/event.service';
+import type { Event } from '../../types';
 
 export default function EventDetailScreen() {
   const route = useRoute<any>();
@@ -29,21 +32,84 @@ export default function EventDetailScreen() {
   const { isDark } = useTheme();
   const styles = useMemo(() => makeStyles(colors, insets), [colors, insets]);
 
-  const event = route.params?.event;
+  const rawEvent = route.params?.event;
+  const eventId = route.params?.eventId || route.params?.id || rawEvent?.id;
+
+  const initialEvent = useMemo(() => {
+    return rawEvent ? mapEvent(rawEvent) : null;
+  }, [rawEvent]);
+
+  const [event, setEvent] = React.useState<Event | null>(initialEvent);
+  const [loading, setLoading] = React.useState<boolean>(!initialEvent && !!eventId);
+  const [error, setError] = React.useState<string | null>(null);
+
+  useEffect(() => {
+    if (initialEvent) {
+      setEvent(initialEvent);
+    }
+  }, [initialEvent]);
+
+  useEffect(() => {
+    // If event is not yet loaded or missing title/date, fetch from server
+    if ((!event || !event.title || !event.date) && eventId) {
+      setLoading(true);
+      setError(null);
+      eventService
+        .getEventById(eventId)
+        .then((fetched) => {
+          if (fetched) {
+            setEvent(fetched);
+          } else {
+            setError("Event not found");
+          }
+        })
+        .catch((err) => {
+          setError(err?.message || "Failed to load event details.");
+        })
+        .finally(() => {
+          setLoading(false);
+        });
+    }
+  }, [eventId]);
+
   const { mutate: toggleEventRegister } = useToggleEventRegister();
 
-
-  if (!event) return (
-    <View style={{ flex: 1, backgroundColor: colors.bg.base }}>
-      <StatusBar style={isDark ? 'light' : 'dark'} />
-      <View style={{ flexDirection: 'row', alignItems: 'center', paddingHorizontal: 12, paddingTop: insets.top + 8, paddingBottom: 8 }}>
-        <TouchableOpacity onPress={() => navigation.goBack()} style={{ width: 38, height: 38, borderRadius: 19, alignItems: 'center', justifyContent: 'center' }}>
-          <Ionicons name="arrow-back" size={23} color={colors.text.primary} />
-        </TouchableOpacity>
-
+  if (loading) {
+    return (
+      <View style={{ flex: 1, backgroundColor: colors.bg.base }}>
+        <StatusBar style={isDark ? 'light' : 'dark'} />
+        <View style={{ flexDirection: 'row', alignItems: 'center', paddingHorizontal: 12, paddingTop: insets.top + 8, paddingBottom: 8 }}>
+          <TouchableOpacity onPress={() => navigation.goBack()} style={{ width: 38, height: 38, borderRadius: 19, alignItems: 'center', justifyContent: 'center' }}>
+            <Ionicons name="arrow-back" size={23} color={colors.text.primary} />
+          </TouchableOpacity>
+        </View>
+        <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center' }}>
+          <StateBlock inline loading loaderSize={32} />
+        </View>
       </View>
-    </View>
-  );
+    );
+  }
+
+  if (!event || error) {
+    return (
+      <View style={{ flex: 1, backgroundColor: colors.bg.base }}>
+        <StatusBar style={isDark ? 'light' : 'dark'} />
+        <View style={{ flexDirection: 'row', alignItems: 'center', paddingHorizontal: 12, paddingTop: insets.top + 8, paddingBottom: 8 }}>
+          <TouchableOpacity onPress={() => navigation.goBack()} style={{ width: 38, height: 38, borderRadius: 19, alignItems: 'center', justifyContent: 'center' }}>
+            <Ionicons name="arrow-back" size={23} color={colors.text.primary} />
+          </TouchableOpacity>
+        </View>
+        <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', paddingHorizontal: 24 }}>
+          <StateBlock
+            title={error ? "Event Not Found" : "No Event Data"}
+            subtitle="We couldn't find the details for this event. It may have ended or been removed."
+            actionLabel="Go Back"
+            onAction={() => navigation.goBack()}
+          />
+        </View>
+      </View>
+    );
+  }
 
   const handleJoin = () => {
     if (event.isRegistered) {
@@ -55,7 +121,16 @@ export default function EventDetailScreen() {
           {
             text: "Yes",
             style: "destructive",
-            onPress: () => toggleEventRegister({ eventId: event.id, isCurrentlyRegistered: true }),
+            onPress: () => {
+              toggleEventRegister(
+                { eventId: event.id, isCurrentlyRegistered: true },
+                {
+                  onSuccess: () => {
+                    setEvent(prev => prev ? { ...prev, isRegistered: false, registrations: Math.max(0, (prev.registrations || 1) - 1) } : prev);
+                  }
+                }
+              );
+            },
           },
         ]
       );
@@ -68,20 +143,45 @@ export default function EventDetailScreen() {
             { text: "Cancel", style: "cancel" },
             {
               text: `Pay ${event.xpPrice.toLocaleString()} XP`,
-              onPress: () => toggleEventRegister({ eventId: event.id, isCurrentlyRegistered: false }),
+              onPress: () => {
+                toggleEventRegister(
+                  { eventId: event.id, isCurrentlyRegistered: false },
+                  {
+                    onSuccess: () => {
+                      setEvent(prev => prev ? { ...prev, isRegistered: true, registrations: (prev.registrations || 0) + 1 } : prev);
+                    }
+                  }
+                );
+              },
             },
           ]
         );
       } else {
-        toggleEventRegister({ eventId: event.id, isCurrentlyRegistered: false });
+        toggleEventRegister(
+          { eventId: event.id, isCurrentlyRegistered: false },
+          {
+            onSuccess: () => {
+              setEvent(prev => prev ? { ...prev, isRegistered: true, registrations: (prev.registrations || 0) + 1 } : prev);
+            }
+          }
+        );
       }
     }
   };
 
+  const locationStr =
+    typeof event.location === "string"
+      ? event.location
+      : typeof event.location === "object" && event.location !== null
+      ? (event.location as any).type === "virtual" || (event.location as any).type === "online"
+        ? "Online"
+        : (event.location as any).address || (event.location as any).name || "Online"
+      : "Online";
+
   const handleAddToCalendar = () => {
     const title = encodeURIComponent(event.title);
     const details = encodeURIComponent(event.description || '');
-    const location = encodeURIComponent(event.location || 'Online');
+    const location = encodeURIComponent(locationStr);
     
     // Google Calendar template works great on both platforms and opens the browser/app
     const url = `https://calendar.google.com/calendar/render?action=TEMPLATE&text=${title}&details=${details}&location=${location}`;
@@ -102,7 +202,7 @@ export default function EventDetailScreen() {
         >
           <LinearGradient
             colors={isDark ? ['rgba(0,0,0,0.7)', 'rgba(0,0,0,0)', 'rgba(0,0,0,0.8)'] : ['rgba(0,0,0,0.45)', 'rgba(0,0,0,0)', 'rgba(0,0,0,0.55)']}
-            style={StyleSheet.absoluteFillObject}
+            style={StyleSheet.absoluteFill}
           />
           <TouchableOpacity
             style={styles.backBtn}
@@ -139,7 +239,7 @@ export default function EventDetailScreen() {
               <Ionicons name="location" size={24} color={colors.primaryLight} />
               <View style={{ marginLeft: 12 }}>
                 <Text style={styles.metaLabel}>Location</Text>
-                <Text style={styles.metaValue}>{event.location || 'Online'}</Text>
+                <Text style={styles.metaValue}>{locationStr}</Text>
               </View>
             </View>
           </View>

@@ -6,7 +6,6 @@ import React, {
   useState,
 } from "react";
 import {
-  Alert,
   Animated,
   DeviceEventEmitter,
   Easing,
@@ -81,7 +80,7 @@ import {
   destroyGameSound,
   useGameSoundPrefs,
 } from "../../services/gameSound";
-import { themedAlert } from "../../components/common/ThemedAlert";
+import { themedAlert, ThemedAlertHost } from "../../components/common/ThemedAlert";
 import GamesMatchmakingModal from "../../components/games/utilities/GamesMatchmakingModal";
 import { useRoundLifecycle } from "../../hooks/useRoundLifecycle";
 import { warn } from '../../utils/logger';
@@ -231,14 +230,20 @@ export default function GamesScreen({ route }: any) {
 
   useEffect(() => {
     const openGameId = route?.params?.openGameId;
-    const autoPlay = route?.params?.autoPlay;
     if (openGameId && realGames.length > 0) {
-      const g = realGames.find(g => g.id === openGameId || g.slug === openGameId);
+      const raw = String(openGameId);
+      const clean = raw.replace(/^game-/, '').toLowerCase();
+      const g = realGames.find(
+        (game) =>
+          game.id === openGameId ||
+          game.slug === openGameId ||
+          game.id === clean ||
+          (game.slug && game.slug.toLowerCase() === clean) ||
+          (game.name && game.name.toLowerCase() === clean)
+      );
       if (g && !activeSession) {
         setSelectedGame(g);
-        if (autoPlay) {
-          setMatchModalVisible(true);
-        }
+        setMatchModalVisible(true);
         navigation.setParams({ openGameId: undefined, autoPlay: undefined } as any);
       }
     }
@@ -1519,11 +1524,13 @@ function GamePlayModal({
       presentationStyle="fullScreen"
       onRequestClose={onClose}
     >
+      {/* Local ThemedAlertHost so alerts render inside this fullscreen Modal's UIWindow */}
+      <ThemedAlertHost />
       <View style={[styles.playModal, { paddingTop: insets.top || 16 }]}>
         <View style={styles.playHeader}>
           <TouchableOpacity
             onPress={() => {
-              Alert.alert(
+              themedAlert(
                 "Leave Game?",
                 "Are you sure you want to leave? The game will continue with other players.",
                 [

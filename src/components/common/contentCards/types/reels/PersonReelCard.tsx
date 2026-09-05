@@ -19,10 +19,33 @@ export default function PersonReelCard({
   ctx: ReelCtx;
 }) {
   const data = item.data;
+  const bannerUrl =
+    data.bannerUrl ||
+    data.banner_url ||
+    data.banner ||
+    data.banner_media_url;
 
   return (
     <View style={styles.container}>
-      {/* Avatar */}
+      {/* Background Banner Image */}
+      {bannerUrl ? (
+        <Image
+          source={{ uri: bannerUrl }}
+          style={styles.backgroundImage}
+          contentFit="cover"
+          transition={200}
+        />
+      ) : null}
+
+      {/* Dark overlay for contrast */}
+      <View
+        style={[
+          styles.gradientOverlay,
+          bannerUrl ? styles.bannerOverlay : null,
+        ]}
+      />
+
+      {/* Avatar (Logo) */}
       <View style={styles.avatarWrap}>
         {data.avatarUrl ? (
           <Image
@@ -79,6 +102,18 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     alignItems: "center",
     padding: 32,
+  },
+  backgroundImage: {
+    ...StyleSheet.absoluteFill,
+    width: SCREEN_W,
+    height: SCREEN_H,
+  },
+  gradientOverlay: {
+    ...StyleSheet.absoluteFill,
+    backgroundColor: "transparent",
+  },
+  bannerOverlay: {
+    backgroundColor: "rgba(0,0,0,0.72)",
   },
   avatarWrap: {
     marginBottom: 20,

@@ -15,6 +15,7 @@ import { fontSizes, radii, spacing } from '../../theme';
 import { useEvents } from '../../queries/events';
 import { useToggleEventRegister } from '../../mutations/events';
 import { themedAlert } from '../common/ThemedAlert';
+import { useThemedAlertModal } from '../common/ThemedAlert';
 
 interface EventJoinModalProps {
   visible: boolean;
@@ -27,8 +28,7 @@ export default function EventJoinModal({
 }: EventJoinModalProps) {
   const colors = useThemeColors();
   const styles = useMemo(() => makeStyles(colors), [colors]);
-
-  // Fetch upcoming events
+  useThemedAlertModal(visible, onClose);
   const { data: allEventsData } = useEvents('', null, 'upcoming');
   const events = useMemo(() => allEventsData?.pages?.flatMap(p => p) || [], [allEventsData]);
   
@@ -93,13 +93,13 @@ export default function EventJoinModal({
                 >
                   <View style={styles.eventIconWrapper}>
                     {ev.banner ? (
-                      <ImageBackground source={{ uri: ev.banner }} style={StyleSheet.absoluteFillObject} imageStyle={{ borderRadius: radii.md }}>
+                      <ImageBackground source={{ uri: ev.banner }} style={StyleSheet.absoluteFill} imageStyle={{ borderRadius: radii.md }}>
                         <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.2)', borderRadius: radii.md }} />
                       </ImageBackground>
                     ) : (
                       <LinearGradient
                         colors={[colors.primary, colors.cyanDark]}
-                        style={[StyleSheet.absoluteFillObject, { borderRadius: radii.md, alignItems: 'center', justifyContent: 'center' }]}
+                        style={[StyleSheet.absoluteFill, { borderRadius: radii.md, alignItems: 'center', justifyContent: 'center' }]}
                       >
                         <Ionicons name="calendar" size={20} color="#fff" />
                       </LinearGradient>
@@ -132,7 +132,7 @@ const makeStyles = (c: any) => StyleSheet.create({
     justifyContent: 'flex-end',
   },
   backdrop: {
-    ...StyleSheet.absoluteFillObject,
+    ...StyleSheet.absoluteFill,
     backgroundColor: 'rgba(0,0,0,0.6)',
   },
   modalContent: {

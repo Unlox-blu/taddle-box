@@ -97,7 +97,7 @@ export function LoaderProvider({ children }: { children: React.ReactNode }) {
 
 const styles = StyleSheet.create({
   overlay: {
-    ...StyleSheet.absoluteFillObject,
+    ...StyleSheet.absoluteFill,
     backgroundColor: "#121216",
     zIndex: 9999,
     elevation: 9999,

@@ -14,6 +14,7 @@
     "ios": {
       "supportsTablet": false,
       "bundleIdentifier": "com.taddlebox.app",
+      "newArchEnabled": true,
       "infoPlist": {
         "NSFaceIDUsageDescription": "Taddlebox needs Face ID to securely unlock your wallet and app."
       }
@@ -25,7 +26,8 @@
       },
       "package": "com.taddlebox.app",
       "versionCode": 16,
-      "softwareKeyboardLayoutMode": "resize"
+      "softwareKeyboardLayoutMode": "resize",
+      "newArchEnabled": true
     },
     "plugins": [
       [

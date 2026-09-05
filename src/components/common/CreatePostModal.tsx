@@ -39,6 +39,7 @@ import SmartInput from "./SmartInput";
 import AudiencePicker from "./AudiencePicker";
 import { nativeBypass } from "../../utils/nativeBypass";
 import { themedAlert } from "./ThemedAlert";
+import { useThemedAlertModal } from "./ThemedAlert";
 import { log, warn, error } from "../../utils/logger";
 import { notificationBus } from "../../lib/notificationBus";
 
@@ -180,6 +181,7 @@ export default function CreatePostModal({
 }: Props) {
   const { user: CURRENT_USER } = useAuth();
   const [isPublishing, setIsPublishing] = useState(false);
+  useThemedAlertModal(visible, onClose);
   const { mutateAsync: createPostAsync } = useCreatePost();
   const { wallet } = useWallet();
   const insets = useSafeAreaInsets();

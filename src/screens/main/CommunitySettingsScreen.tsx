@@ -1,8 +1,9 @@
 import React, { useState, useRef, useEffect, useMemo } from 'react';
 import {
   View, Text, TextInput, TouchableOpacity, ScrollView,
-  StyleSheet, Image, Dimensions
+  StyleSheet, Dimensions
 } from 'react-native';
+import { Image } from 'expo-image';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
 import { useNavigation, useRoute, type RouteProp } from '@react-navigation/native';
@@ -252,9 +253,9 @@ export default function CommunitySettingsScreen() {
         <View>
           <TouchableOpacity style={styles.bannerWrap} onPress={() => pickImage('banner')}>
             {bannerAsset ? (
-              <Image source={{ uri: bannerAsset.uri }} style={{ width: '100%', height: '100%' }} />
-            ) : community.bannerUrl ? (
-              <Image source={{ uri: community.bannerUrl }} style={{ width: '100%', height: '100%' }} />
+              <Image source={{ uri: bannerAsset.uri }} style={{ width: '100%', height: '100%' }} contentFit="cover" />
+            ) : (community.bannerUrl || community.banner_url || community.banner) ? (
+              <Image source={{ uri: community.bannerUrl || community.banner_url || community.banner }} style={{ width: '100%', height: '100%' }} contentFit="cover" />
             ) : (
               <Ionicons name="image-outline" size={32} color={colors.text.muted} />
             )}
@@ -265,9 +266,9 @@ export default function CommunitySettingsScreen() {
 
           <TouchableOpacity style={styles.avatarWrap} onPress={() => pickImage('avatar')}>
             {avatarAsset ? (
-              <Image source={{ uri: avatarAsset.uri }} style={{ width: '100%', height: '100%' }} />
-            ) : community.avatarUrl ? (
-              <Image source={{ uri: community.avatarUrl }} style={{ width: '100%', height: '100%' }} />
+              <Image source={{ uri: avatarAsset.uri }} style={{ width: '100%', height: '100%' }} contentFit="cover" />
+            ) : (community.avatarUrl || community.avatar_url || community.avatar) ? (
+              <Image source={{ uri: community.avatarUrl || community.avatar_url || community.avatar }} style={{ width: '100%', height: '100%' }} contentFit="cover" />
             ) : (
               <Ionicons name="people-outline" size={32} color={colors.text.muted} />
             )}

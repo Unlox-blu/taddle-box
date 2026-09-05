@@ -51,7 +51,7 @@ function makeStyles(c: ColorPalette) {
       borderColor: c.border,
     },
     overlay: {
-      ...StyleSheet.absoluteFillObject,
+      ...StyleSheet.absoluteFill,
       backgroundColor: "rgba(0,0,0,0.4)",
     },
     tag: {
@@ -165,7 +165,8 @@ export default function SpotlightCarousel() {
         gradient: ['#1A1200', '#78350F'],
         meta: new Date(ev.startTime).toLocaleString(undefined, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }),
         imageUrl: ev.coverImageUrl,
-      }));
+        rawEvent: ev,
+      } as any));
 
       const gameHighlights: Highlight[] = (trendingGames || []).map(bg => {
         return {
@@ -174,6 +175,7 @@ export default function SpotlightCarousel() {
           subtitle: 'Trending Game · Play Now',
           type: 'game',
           sourceId: bg.id,
+          sourceSlug: bg.slug,
           tag: 'Trending Game',
           tagColor: '#EF4444',
           emoji: (bg as any).emoji || '🎮',
@@ -375,16 +377,23 @@ export default function SpotlightCarousel() {
     const handlePress = (item: Highlight) => {
       if (!item.type) return;
       if (item.type === "game") {
-        navigation.navigate("Games");
+        const gameId = item.sourceSlug || item.sourceId || item.id.replace(/^game-/, '');
+        navigation.navigate("Main", {
+          screen: "Games",
+          params: { openGameId: gameId, autoPlay: true },
+        });
       } else if (item.type === "event") {
-        navigation.navigate("Events");
+        const eventId = item.sourceId || item.id.replace(/^event-/, '');
+        navigation.navigate("EventDetail", {
+          eventId,
+          event: (item as any).rawEvent,
+        });
       } else if (item.type === "community") {
-        navigation.navigate("Community", {
-          screen: "CommunityDetail",
-          params: { communitySlug: item.sourceSlug || item.sourceId },
+        navigation.navigate("CommunityDetail", {
+          communitySlug: item.sourceSlug || item.sourceId,
         });
       } else if (item.type === "post") {
-        navigation.navigate("Community");
+        navigation.navigate("Main", { screen: "Community" });
       }
     };
 

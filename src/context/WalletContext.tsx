@@ -279,17 +279,16 @@ export function WalletProvider({ children }: { children: React.ReactNode }) {
   const { user } = useAuth();
   const summaryFetchedForRef = useRef<string | null>(null);
 
+  const fetchWalletDataRef = useRef<() => Promise<void>>(async () => {});
+
   useEffect(() => {
     const handleWalletUpdated = (data: WalletUpdatedPayload) => {
-      // balanceCents arrives in paise — convert to rupees so the hero balance
-      // doesn't flash 100x the real amount after an XP conversion.
       dispatch({ type: 'SET_DATA', payload: {
         cashBalance: (data.balanceCents || 0) / 100,
         heldBalance: (data.heldBalanceCents ?? 0) / 100,
       } });
-      
-      // Auto-refresh transaction history so "Pending" updates to "Completed"
-      fetchWalletData().catch(error);
+      // Use ref to always call the latest fetchWalletData, never a stale closure
+      fetchWalletDataRef.current().catch(error);
     };
     const handleXPUpdated = (data: XPUpdatedPayload) => {
       dispatch({ type: 'SET_DATA', payload: { xpBalance: data.xp } });
@@ -389,6 +388,12 @@ export function WalletProvider({ children }: { children: React.ReactNode }) {
       dispatch({ type: 'SET_LOADING', isLoading: false });
     }
   }, [mapCashTxn, mapXpTxn]);
+
+  // Keep the ref always pointing to the latest fetchWalletData so the
+  // socket handler (which has a [] dep closure) never calls a stale version.
+  useEffect(() => {
+    fetchWalletDataRef.current = fetchWalletData;
+  }, [fetchWalletData]);
 
   // Lightweight balance refresh — hits the summary endpoint only (cash, held,
   // XP counts) so Home/streak flows don't re-fetch transactions + settings.

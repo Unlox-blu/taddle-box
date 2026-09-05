@@ -130,7 +130,7 @@ export default function MemoryGridGame({
               {(isActive || isPicked) && (
                 <LinearGradient
                   colors={isPicked ? ["#7C3AED", "#A855F7"] : ["#10B981", "#34D399"]}
-                  style={StyleSheet.absoluteFillObject}
+                  style={StyleSheet.absoluteFill}
                 />
               )}
             </TouchableOpacity>

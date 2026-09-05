@@ -1,4 +1,5 @@
-import { Alert, Linking } from "react-native";
+import { Linking } from "react-native";
+import { themedAlert } from "../components/common/ThemedAlert";
 
 /**
  * Allowed URL patterns for opening externally.
@@ -44,7 +45,7 @@ export async function safeOpenURL(url: string): Promise<void> {
           console.warn(`[urlAllowlist] Blocked unknown host: ${host}`);
         }
         // Show a confirmation dialog for unknown HTTPS hosts
-        Alert.alert(
+        themedAlert(
           "Open External Link?",
           `Do you want to open ${host}?`,
           [

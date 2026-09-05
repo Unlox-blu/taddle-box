@@ -110,8 +110,12 @@ export default function ReelScreen({ navigation, route }: Props) {
 
   // ── Initial view record ──────────────────────────────────────────────────
   useEffect(() => {
-    postsService.recordView(initialPost.id).catch(() => {});
-  }, [initialPost.id]);
+    if (!initialPost) return;
+    const type = initialPost.itemType || "post";
+    if (type === "post" || type === "poll") {
+      postsService.recordView(initialPost.data?.id || initialPost.id).catch(() => {});
+    }
+  }, [initialPost]);
 
   // ── Centralized cache sync ───────────────────────────────────────────────
   const handleLike = useCallback(
@@ -263,32 +267,18 @@ export default function ReelScreen({ navigation, route }: Props) {
           (navigation as any).navigate("Main", { screen: "Games" });
         }
       },
-      openEvents: (id?: string) => {
-        if (id) {
-          // Find the event data from current items so EventDetail has
-          // a full event object (it reads route.params.event).
+      openEvents: (id?: string, eventData?: any) => {
+        if (id || eventData) {
           const eventItem = items.find(
-            (i) => i.itemType === "events" && i.data?.id === id,
+            (i) =>
+              (i.itemType === "events" || i.itemType === "event") &&
+              (i.data?.id === id || i.id === id),
           );
-          const event = eventItem
-            ? {
-                id: eventItem.data.id,
-                title: eventItem.data.title ?? "",
-                description: eventItem.data.description ?? "",
-                cover_image_url: eventItem.data.cover_image_url,
-                type: eventItem.data.type ?? "meetup",
-                banner: eventItem.data.cover_image_url ?? "",
-                date: eventItem.data.date ?? "",
-                location: eventItem.data.location ?? "",
-                xpReward: eventItem.data.xpReward ?? 0,
-                registrations: eventItem.data.registrations ?? 0,
-                isLive: eventItem.data.isLive ?? false,
-                isFeatured: eventItem.data.isFeatured ?? false,
-                isRegistered: eventItem.data.isRegistered ?? false,
-                isFree: eventItem.data.isFree ?? true,
-              }
-            : { id };
-          (navigation as any).push("EventDetail", { event });
+          const event = eventData || eventItem?.data || (id ? { id } : undefined);
+          (navigation as any).push("EventDetail", {
+            eventId: id || event?.id,
+            event,
+          });
         } else {
           (navigation as any).navigate("Main", { screen: "Events" });
         }

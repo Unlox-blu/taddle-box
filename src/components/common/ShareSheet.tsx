@@ -17,6 +17,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useThemeColors } from "../../context/ThemeContext";
 import { chatService, type ChatUser } from "../../services/chat.service";
 import { themedAlert } from "./ThemedAlert";
+import { useThemedAlertModal } from "./ThemedAlert";
 import * as Clipboard from 'expo-clipboard';
 import { fontSizes, spacing, radii } from "../../theme";
 
@@ -39,6 +40,7 @@ export default function ShareSheet({
 }: ShareSheetProps) {
   const insets = useSafeAreaInsets();
   const colors = useThemeColors();
+  useThemedAlertModal(visible, onClose);
   const [mutuals, setMutuals] = useState<ChatUser[]>([]);
   const [loading, setLoading] = useState(true);
   const [sentTo, setSentTo] = useState<Set<string>>(new Set());

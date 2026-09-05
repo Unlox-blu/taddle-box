@@ -65,6 +65,9 @@ export const postsService = {
   },
 
   recordView: async (postId: string) => {
+    if (!postId || typeof postId !== "string" || !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(postId)) {
+      return null;
+    }
     const response = await apiClient.post(`/posts/${postId}/view`);
     return response.data;
   },

@@ -305,7 +305,7 @@ function WaitDot({ delay }: { delay: number }) {
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: "#05050F", paddingHorizontal: 12, paddingTop: 8, justifyContent: "center" },
   fullCenter: { flex: 1, backgroundColor: "#05050F", justifyContent: "center", alignItems: "center", padding: 24 },
-  waitingOverlay: { ...StyleSheet.absoluteFillObject, backgroundColor: "rgba(5,5,15,0.92)", justifyContent: "center", alignItems: "center", zIndex: 40 },
+  waitingOverlay: { ...StyleSheet.absoluteFill, backgroundColor: "rgba(5,5,15,0.92)", justifyContent: "center", alignItems: "center", zIndex: 40 },
   connectCard: { backgroundColor: "#0F172A", borderRadius: 24, padding: 32, alignItems: "center", borderWidth: 1.5, borderColor: "rgba(124,58,237,0.25)", minWidth: 260 },
   connectIcon: { fontSize: 52, marginBottom: 16 },
   connectTitle: { fontSize: 22, fontWeight: "900", color: "#F8FAFC", marginBottom: 8 },
@@ -338,7 +338,7 @@ const styles = StyleSheet.create({
   boardWrapCheck: { borderColor: "#EF4444", shadowColor: "#EF4444" },
   checkBanner: { position: "absolute", top: 8, zIndex: 20, borderRadius: 20, paddingHorizontal: 14, paddingVertical: 5, backgroundColor: "rgba(239,68,68,0.9)", shadowColor: "#EF4444", shadowOpacity: 0.6, shadowRadius: 10 },
   checkText: { color: "#FFF", fontWeight: "900", fontSize: 12, letterSpacing: 1 },
-  gameOverOverlay: { ...StyleSheet.absoluteFillObject, backgroundColor: "rgba(5,5,15,0.88)", justifyContent: "center", alignItems: "center", zIndex: 50 },
+  gameOverOverlay: { ...StyleSheet.absoluteFill, backgroundColor: "rgba(5,5,15,0.88)", justifyContent: "center", alignItems: "center", zIndex: 50 },
   gameOverCard: { backgroundColor: "#0F172A", borderRadius: 24, padding: 36, alignItems: "center", borderWidth: 2, borderColor: "rgba(124,58,237,0.4)", minWidth: 260 },
   gameOverIcon: { fontSize: 64, marginBottom: 16 },
   gameOverTitle: { fontSize: 22, fontWeight: "900", color: "#F8FAFC", textAlign: "center", marginBottom: 8 },

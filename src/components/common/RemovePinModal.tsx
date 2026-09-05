@@ -20,6 +20,7 @@ import { fontSizes, spacing, radii } from "../../theme";
 import { authService } from "../../services/auth.service";
 import { useAuth } from "../../context/AuthContext";
 import { themedAlert } from "./ThemedAlert";
+import { useThemedAlertModal } from "./ThemedAlert";
 
 interface RemovePinModalProps {
   visible: boolean;
@@ -34,6 +35,7 @@ export default function RemovePinModal({
 }: RemovePinModalProps) {
   const colors = useThemeColors();
   const { user, signOut } = useAuth();
+  useThemedAlertModal(visible, onClose);
 
   const [step, setStep] = useState<"send-otp" | "verify">("send-otp");
   const [password, setPassword] = useState("");

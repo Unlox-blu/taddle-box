@@ -1,6 +1,5 @@
 import React, { useState, useCallback, useRef, useEffect } from 'react';
 import {
-  Modal,
   View,
   Text,
   TouchableOpacity,
@@ -8,9 +7,11 @@ import {
   StyleSheet,
   KeyboardAvoidingView,
   Platform,
-  Alert as RNAert,
+  Alert as RNAlert,
+  Animated,
+  useWindowDimensions,
+  BackHandler,
 } from 'react-native';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useThemeColors } from '../../context/ThemeContext';
 import { fontSizes, spacing, radii, type ColorPalette } from '../../theme';
 
@@ -46,6 +47,85 @@ interface AlertSpec {
 // the host mounted at the app root registers its render function here.
 let hostShow: ((spec: AlertSpec) => void) | null = null;
 let nextId = 1;
+// Track how many Modals are currently open in the app so we can queue
+// alerts on iOS when a Modal is already visible (stacking = freeze).
+let activeModalCount = 0;
+// Queued alerts waiting for all modals to close
+let pendingQueue: AlertSpec[] = [];
+// Registry of modal closers — each open modal registers a close callback
+let modalClosers: (() => void)[] = [];
+
+/** Register a closer function for an open modal. Returns an unregister fn. */
+export const registerModalCloser = (closer: () => void): (() => void) => {
+  modalClosers.push(closer);
+  return () => {
+    modalClosers = modalClosers.filter(c => c !== closer);
+  };
+};
+
+const closeAllModals = () => {
+  const closers = [...modalClosers];
+  modalClosers = [];
+  closers.forEach(c => { try { c(); } catch {} });
+};
+
+const flushQueue = () => {
+  if (activeModalCount > 0 || !hostShow) return;
+  const next = pendingQueue.shift();
+  if (next) {
+    setTimeout(() => {
+      if (hostShow) hostShow(next);
+      setTimeout(flushQueue, 300);
+    }, 350);
+  }
+};
+
+/** Call when a Modal becomes visible. */
+export const notifyModalOpen = () => {
+  activeModalCount++;
+};
+
+/** Call when a Modal is dismissed. */
+export const notifyModalClose = () => {
+  activeModalCount = Math.max(0, activeModalCount - 1);
+  if (activeModalCount === 0) {
+    flushQueue();
+  }
+};
+
+/**
+ * Hook for components that render a Modal and may trigger themedAlert inside.
+ * Pass `onClose` so themedAlert can close this modal before showing the alert.
+ */
+export function useThemedAlertModal(visible: boolean, onClose?: () => void) {
+  const wasVisibleRef = React.useRef(false);
+  React.useEffect(() => {
+    if (visible && !wasVisibleRef.current) {
+      wasVisibleRef.current = true;
+      notifyModalOpen();
+      // Register closer if provided
+      if (onClose) {
+        const unregister = registerModalCloser(onClose);
+        return () => {
+          unregister();
+          if (wasVisibleRef.current) {
+            wasVisibleRef.current = false;
+            notifyModalClose();
+          }
+        };
+      }
+    } else if (!visible && wasVisibleRef.current) {
+      wasVisibleRef.current = false;
+      notifyModalClose();
+    }
+    return () => {
+      if (wasVisibleRef.current) {
+        wasVisibleRef.current = false;
+        notifyModalClose();
+      }
+    };
+  }, [visible]);
+}
 
 /** Drop-in replacement for Alert.alert — themed in-app dialog. */
 export function themedAlert(
@@ -54,12 +134,29 @@ export function themedAlert(
   buttons?: ThemedAlertButton[],
   options?: ThemedAlertOptions,
 ) {
+  const spec: AlertSpec = {
+    id: nextId++,
+    title,
+    message,
+    buttons: buttons || [],
+    options,
+    prompt: false,
+  };
+
   if (!hostShow) {
-    // Host not mounted yet (early boot) — fall back to the native dialog.
-    RNAert.alert(title || '', message, buttons as any, options as any);
+    RNAlert.alert(title || '', message, buttons as any, options as any);
     return;
   }
-  hostShow({ id: nextId++, title, message, buttons: buttons || [], options, prompt: false });
+
+  // On iOS, if a Modal is open: close all modals first, then show alert
+  // after the close animation finishes.
+  if (Platform.OS === 'ios' && activeModalCount > 0) {
+    pendingQueue.push(spec);
+    closeAllModals();
+    return;
+  }
+
+  hostShow(spec);
 }
 
 /**
@@ -74,8 +171,8 @@ export function themedPrompt(
   defaultValue?: string,
   keyboardType?: 'default' | 'number-pad' | 'numeric' | 'email-address',
 ) {
-  if (!hostShow) {
-    RNAert.prompt(title, message, callbackOrButtons, type as any, defaultValue, keyboardType as any);
+  if ((Platform.OS === 'ios' && activeModalCount > 0) || !hostShow) {
+    RNAlert.prompt(title, message, callbackOrButtons, type as any, defaultValue, keyboardType as any);
     return;
   }
   let buttons: ThemedAlertButton[];
@@ -106,15 +203,25 @@ export function themedPrompt(
 
 function makeStyles(c: ColorPalette) {
   return StyleSheet.create({
-    wrap: { flex: 1, justifyContent: 'center', alignItems: 'center' },
+    // Root overlay — absolutely covers the whole screen, no Modal
+    root: {
+      position: 'absolute',
+      top: 0,
+      left: 0,
+      zIndex: 99999,
+      elevation: 99999,
+    },
+    // Dimmed backdrop fills the root
     backdrop: {
-      ...StyleSheet.absoluteFillObject,
+      ...StyleSheet.absoluteFill,
       backgroundColor: 'rgba(0,0,0,0.55)',
-      // The card is a child of this full-screen layer (not of the flex
-      // wrapper), so it must center itself here — otherwise it sits at the
-      // top of the screen instead of the middle.
+    },
+    // Centers the card vertically and horizontally
+    cardWrapper: {
+      flex: 1,
       justifyContent: 'center',
       alignItems: 'center',
+      // Prevent cardWrapper itself from eating touches when invisible
     },
     card: {
       width: '84%',
@@ -176,19 +283,31 @@ function makeStyles(c: ColorPalette) {
 /** Mount once at the app root (inside ThemeProvider) to power themedAlert(). */
 export function ThemedAlertHost() {
   const colors = useThemeColors();
-  const insets = useSafeAreaInsets();
   const styles = makeStyles(colors);
+  const { width, height } = useWindowDimensions();
+  const backdropOpacity = useRef(new Animated.Value(0)).current;
 
   const [spec, setSpec] = useState<AlertSpec | null>(null);
   const [input, setInput] = useState('');
   const [visible, setVisible] = useState(false);
   const inputRef = useRef<TextInput>(null);
-  // Guards the spec-clear after dismiss: a chained themedAlert() that opens
-  // within the 200ms window must cancel the pending clear, not get wiped.
   const clearTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
-    inputRef.current?.focus();
+    if (visible) {
+      Animated.timing(backdropOpacity, {
+        toValue: 1,
+        duration: 180,
+        useNativeDriver: true,
+      }).start();
+      inputRef.current?.focus();
+    } else {
+      Animated.timing(backdropOpacity, {
+        toValue: 0,
+        duration: 150,
+        useNativeDriver: true,
+      }).start();
+    }
   }, [visible]);
 
   useEffect(() => {
@@ -196,6 +315,19 @@ export function ThemedAlertHost() {
       if (clearTimer.current) clearTimeout(clearTimer.current);
     };
   }, []);
+
+  // Android back button support
+  useEffect(() => {
+    if (!visible) return;
+    const sub = BackHandler.addEventListener('hardwareBackPress', () => {
+      if (spec?.options?.cancelable !== false) {
+        spec?.options?.onDismiss?.();
+        dismiss();
+      }
+      return true;
+    });
+    return () => sub.remove();
+  }, [visible, spec]);
 
   const dismiss = useCallback(() => {
     setVisible(false);
@@ -213,13 +345,16 @@ export function ThemedAlertHost() {
     setVisible(true);
   }, []);
 
-  // Register the imperative entry point for the whole app.
   const showRef = useRef(open);
   showRef.current = open;
   useEffect(() => {
+    const previousHost = hostShow;
     hostShow = (s: AlertSpec) => showRef.current(s);
+    // Flush any alerts queued before this host mounted
+    flushQueue();
     return () => {
-      hostShow = null;
+      // Restore previous host when this instance unmounts (e.g. game modal closes)
+      hostShow = previousHost;
     };
   }, []);
 
@@ -227,47 +362,41 @@ export function ThemedAlertHost() {
     const value = spec?.prompt ? input : undefined;
     const cb = button.onPress;
     dismiss();
-    // Defer so the modal close state settles before a chained themedAlert().
     setTimeout(() => cb?.(value), 0);
   };
 
   const cancelable = spec?.options?.cancelable !== false;
   const hasButtons = !!spec && spec.buttons.length > 0;
 
+  if (!spec && !visible) return null;
+
   return (
-    <Modal
-      visible={visible}
-      transparent
-      animationType="fade"
-      onRequestClose={() => {
-        if (cancelable) {
-          spec?.options?.onDismiss?.();
-          dismiss();
-        }
-      }}
-      statusBarTranslucent
+    <View
+      style={[styles.root, { width, height }]}
+      pointerEvents={visible ? 'auto' : 'none'}
     >
-      <KeyboardAvoidingView
-        style={styles.wrap}
-        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-      >
+      <Animated.View style={[styles.backdrop, { opacity: backdropOpacity }]}>
         <TouchableOpacity
           activeOpacity={1}
-          style={[styles.backdrop, { paddingBottom: insets.bottom }]}
+          style={StyleSheet.absoluteFill}
           onPress={() => {
             if (cancelable) {
               spec?.options?.onDismiss?.();
               dismiss();
             }
           }}
-        >
+        />
+      </Animated.View>
+
+      <KeyboardAvoidingView
+        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+        style={styles.cardWrapper}
+        pointerEvents="box-none"
+      >
+        <Animated.View style={{ opacity: backdropOpacity, width: '100%', alignItems: 'center' }}>
           <TouchableOpacity activeOpacity={1} style={styles.card} onPress={() => {}}>
-            {spec?.title ? (
-              <Text style={styles.title}>{spec.title}</Text>
-            ) : null}
-            {spec?.message ? (
-              <Text style={styles.message}>{spec.message}</Text>
-            ) : null}
+            {spec?.title ? <Text style={styles.title}>{spec.title}</Text> : null}
+            {spec?.message ? <Text style={styles.message}>{spec.message}</Text> : null}
 
             {spec?.prompt ? (
               <TextInput
@@ -314,8 +443,8 @@ export function ThemedAlertHost() {
               </TouchableOpacity>
             )}
           </TouchableOpacity>
-        </TouchableOpacity>
+        </Animated.View>
       </KeyboardAvoidingView>
-    </Modal>
+    </View>
   );
 }

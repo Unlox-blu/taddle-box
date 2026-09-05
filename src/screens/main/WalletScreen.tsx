@@ -13,7 +13,6 @@ import {
   Switch,
   Animated,
   SafeAreaView,
-  Alert,
   Dimensions,
   DeviceEventEmitter,
 } from "react-native";
@@ -38,7 +37,7 @@ import { getReferralRewards } from "../../services/appConfig.service";
 import * as Clipboard from "expo-clipboard";
 import * as ScreenCapture from 'expo-screen-capture';
 import * as SecureStore from "expo-secure-store";
-import { themedAlert } from "../../components/common/ThemedAlert";
+import { themedAlert, notifyModalOpen, notifyModalClose, registerModalCloser } from "../../components/common/ThemedAlert";
 import RemovePinModal from "../../components/common/RemovePinModal";
 import { nativeBypass } from "../../utils/nativeBypass";
 import type { Transaction } from "../../types";
@@ -245,14 +244,14 @@ export default function WalletScreen() {
 
   const copyReferralCode = () => {
     if (!referralCode) {
-      Alert.alert(
+      themedAlert(
         "Referral Unavailable",
         "Your referral code isn't ready yet. Please try again in a moment.",
       );
       return;
     }
     Clipboard.setStringAsync(referralCode).then(() =>
-      Alert.alert(
+      themedAlert(
         "Code Copied",
         `Your referral code ${referralCode} was copied to the clipboard.`,
       ),
@@ -262,7 +261,7 @@ export default function WalletScreen() {
   const shareReferral = async () => {
     const code = referralCode;
     if (!code) {
-      Alert.alert(
+      themedAlert(
         "Referral Unavailable",
         "Your referral code isn't ready yet. Please try again in a moment.",
       );
@@ -282,8 +281,26 @@ export default function WalletScreen() {
     });
   };
 
-  const openModal = (m: ActiveModal) => setActiveModal(m);
-  const closeModal = () => setActiveModal("none");
+  const openModal = (m: ActiveModal) => {
+    setActiveModal(m);
+    notifyModalOpen();
+    registerModalCloser(closeModal);
+  };
+  const closeModal = () => {
+    setActiveModal("none");
+    notifyModalClose();
+  };
+
+  // Track handoffUrl and payuHtml modals for themedAlert iOS fallback
+  useEffect(() => {
+    if (handoffUrl) { notifyModalOpen(); }
+    else { notifyModalClose(); }
+  }, [!!handoffUrl]);
+
+  useEffect(() => {
+    if (payuHtml) { notifyModalOpen(); }
+    else { notifyModalClose(); }
+  }, [!!payuHtml]);
 
   // ── Wallet Lock Check ──
   // Wallet lock is now DB-backed (users.wallet_lock_enabled). Falls back to SecureStore for legacy installs.
@@ -552,7 +569,7 @@ export default function WalletScreen() {
                 onPress={() =>
                   wallet.xpBalance >= 500
                     ? openModal("convert")
-                    : Alert.alert(
+                    : themedAlert(
                         "Not enough XP",
                         "You need at least 500 XP to convert.",
                       )
@@ -842,7 +859,7 @@ export default function WalletScreen() {
               closeModal();
             }
           } catch (e: any) {
-            Alert.alert(
+            themedAlert(
               "Recharge Error",
               e?.response?.data?.message ||
                 e?.message ||
@@ -964,16 +981,19 @@ export default function WalletScreen() {
             <WebView
               source={{ html: payuHtml }}
               style={{ flex: 1 }}
-              originWhitelist={["https://payu.in", "https://secure.payu.in", "https://taddlebox.com"]}
+              // Allow all HTTPS origins — PayU redirects through multiple
+              // subdomains (test.payu.in, secure.payu.in, bank OTP pages).
+              // Without '*' the form POST gets blocked and falls to Safari.
+              originWhitelist={["*"]}
               allowUniversalAccessFromFileURLs={false}
               allowFileAccess={false}
-              // PayU's checkout needs DOM storage + third-party cookies (OTP
-              // screens, saved cards). Without these the page can render blank.
               javaScriptEnabled
               domStorageEnabled
               thirdPartyCookiesEnabled
               sharedCookiesEnabled
               startInLoadingState
+              // Keep ALL navigation inside the WebView — never open Safari
+              onShouldStartLoadWithRequest={() => true}
               renderLoading={() => (
                 <StateBlock
                   loading
@@ -987,29 +1007,42 @@ export default function WalletScreen() {
               )}
               onError={(syntheticEvent) => {
                 warn("PayU WebView error", syntheticEvent.nativeEvent);
-                Alert.alert(
+                themedAlert(
                   "Checkout Error",
                   "Could not load the payment page. Please try again.",
                 );
                 setPayuHtml(null);
               }}
               onNavigationStateChange={(state) => {
-                // Backend redirect target after PayU checkout — the result page
-                // also posts the outcome via the bridge (onMessage below), so
-                // this only serves as a fallback if the bridge never fires.
-                if (state.url.includes("/wallet/recharge/result")) {
-                  setPayuHtml(null);
-                  fetchWalletData();
+                // Do NOT close here — closing the WebView before onMessage
+                // fires will prevent the bridge payload from being received.
+                // onMessage handles the close + refresh instead.
+                // Only use this as a last-resort fallback for old result URLs
+                // that don't have the postMessage script.
+                if (
+                  state.url.includes("/wallet/recharge/result") &&
+                  !state.loading
+                ) {
+                  // Give onMessage 2s to fire first before falling back
+                  setTimeout(() => {
+                    setPayuHtml((current) => {
+                      if (current) {
+                        fetchWalletData();
+                        return null;
+                      }
+                      return current;
+                    });
+                  }, 2000);
                 }
               }}
               onMessage={(event) => {
                 try {
                   const msg = JSON.parse(event.nativeEvent.data);
                   if (msg?.kind === "rechargeResult") {
-                    // Close the checkout, refresh the balance, and confirm.
+                    // Close modal first, then fetch after animation settles
                     setPayuHtml(null);
-                    fetchWalletData();
-                    Alert.alert(
+                    setTimeout(() => fetchWalletData(), 600);
+                    themedAlert(
                       msg.ok ? "Payment Successful" : "Payment Failed",
                       msg.message ||
                         (msg.ok
@@ -1138,7 +1171,7 @@ const WithdrawModal = React.memo(function WithdrawModal({
       return;
     }
     if (error) {
-      Alert.alert("Invalid Amount", error);
+      themedAlert("Invalid Amount", error);
       return;
     }
 
@@ -1438,7 +1471,7 @@ const LinkUPIModal = React.memo(function LinkUPIModal({
 
   const handleVerify = () => {
     if (!isValidUPI) {
-      Alert.alert("Invalid UPI ID", "Enter a valid UPI ID like name@paytm");
+      themedAlert("Invalid UPI ID", "Enter a valid UPI ID like name@paytm");
       return;
     }
     setVerifying(true);
@@ -1598,7 +1631,7 @@ const ConvertModal = React.memo(function ConvertModal({
 
   const handleConvert = () => {
     if (!canConvert || error) return;
-    Alert.alert(
+    themedAlert(
       "Confirm Conversion",
       `Convert ${xpAmount.toLocaleString()} XP → ₹${cashResult.toFixed(2)}?\n\nThis cannot be undone.`,
       [
@@ -1831,7 +1864,7 @@ const RechargeModal = React.memo(function RechargeModal({
 
   const handleRecharge = () => {
     if (!canSubmit || busy) return;
-    Alert.alert(
+    themedAlert(
       "Add Money",
       `You'll be redirected to PayU to add ₹${amount.toLocaleString("en-IN")} to your wallet.`,
       [
@@ -2033,7 +2066,7 @@ const BuyXPModal = React.memo(function BuyXPModal({
 
   const handleBuy = () => {
     if (!canBuy || error) return;
-    Alert.alert(
+    themedAlert(
       "Buy XP",
       `Convert ₹${cashAmount.toLocaleString("en-IN")} → ${xpResult.toLocaleString()} XP?`,
       [
@@ -2494,7 +2527,7 @@ function SettingsModal({
       const hasHardware = await LocalAuthentication.hasHardwareAsync();
       const isEnrolled = await LocalAuthentication.isEnrolledAsync();
       if (!hasHardware || !isEnrolled) {
-        Alert.alert(
+        themedAlert(
           "Unavailable",
           "Biometric authentication is not set up on this device.",
         );
@@ -2731,7 +2764,7 @@ function SettingsModal({
                 </View>
                 <TouchableOpacity
                   onPress={() =>
-                    Alert.alert(
+                    themedAlert(
                       "Coming Soon",
                       "Bank account linking will be available in the next update.",
                     )
@@ -2757,7 +2790,7 @@ function SettingsModal({
                 value={globalAccountLock ? true : wallet.pinEnabled}
                 disabled={globalAccountLock}
                 onDisabledPress={() =>
-                  Alert.alert(
+                  themedAlert(
                     "Global Account Lock Active",
                     "Wallet PIN is automatically enabled because you have Global Account Lock turned on in your main Settings.",
                   )
@@ -2781,7 +2814,7 @@ function SettingsModal({
                   value={isGlobalAccountBiometricLock ? true : wallet.biometricEnabled}
                   disabled={isGlobalAccountBiometricLock}
                   onDisabledPress={() =>
-                    Alert.alert(
+                    themedAlert(
                       "Global Account Lock Active",
                       "Wallet Biometrics are automatically enabled because you have Biometric Global Account Lock turned on in your main Settings.",
                     )

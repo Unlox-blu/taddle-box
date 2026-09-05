@@ -187,10 +187,13 @@ const emitNotification = (userId, notification) => {
   ns.to(`user:${userId}`).emit('notification:new', notification);
 };
 
-const emitWalletUpdate = (userId, newBalanceCents) => {
+const emitWalletUpdate = (userId, newBalanceCents, heldBalanceCents) => {
   const ns = _getNs();
   if (!ns) return;
-  ns.to(`user:${userId}`).emit('wallet:updated', { balanceCents: newBalanceCents });
+  ns.to(`user:${userId}`).emit('wallet:updated', { 
+    balanceCents: newBalanceCents,
+    heldBalanceCents: heldBalanceCents ?? 0,
+  });
 };
 
 const emitFollowRequestCancelled = (userId, { followerId }) => {

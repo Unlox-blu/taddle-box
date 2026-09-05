@@ -18,5 +18,8 @@ router.post('/withdraw/initiate',verifyToken,  walletController.initiateWithdraw
 // public redirect target PayU bounces the WebView to.
 router.post('/recharge/init',    verifyToken,  walletController.initiateRecharge);
 router.all('/recharge/result',                 walletController.completeRecharge);
+// PayU server-to-server IPN — no auth, PayU POSTs directly to this endpoint.
+// Must be public (no verifyToken) so PayU can reach it without a user token.
+router.post('/recharge/ipn',                   walletController.handlePayuIPN);
 
 module.exports = router;

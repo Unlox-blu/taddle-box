@@ -249,6 +249,9 @@ class WalletService {
           [txn.id]
         );
         await client.query('COMMIT');
+        // Emit so the app refreshes the transaction list and shows 'Failed'
+        // status instead of leaving the entry stuck on 'Pending'.
+        emitWalletUpdate(wallet.userId, wallet.balanceCents, wallet.heldBalanceCents ?? 0);
         return { ok: false, html: rechargeResultHtml(false, 'Payment failed or was cancelled.') };
       }
 
@@ -263,7 +266,7 @@ class WalletService {
 
       await client.query('COMMIT');
 
-      emitWalletUpdate(wallet.userId, updatedWallet.balanceCents);
+      emitWalletUpdate(wallet.userId, updatedWallet.balanceCents, updatedWallet.heldBalanceCents ?? 0);
       return { ok: true, html: rechargeResultHtml(true, 'Payment successful!') };
     } catch (error) {
       await client.query('ROLLBACK');
@@ -332,6 +335,95 @@ class WalletService {
     } finally {
       client.release();
     }
+  }
+
+  /**
+   * Handle PayU server-to-server IPN (Instant Payment Notification).
+   * PayU POSTs this independently of the WebView redirect — it fires even
+   * if the user closes the app or the redirect fails. This is the safety net
+   * that resolves permanently-pending transactions.
+   */
+  async handlePayuIPN({ params }) {
+    const txnid = params.txnid;
+    if (!txnid) return { ok: false, reason: 'missing txnid' };
+
+    const valid = verifyResponseHash(params);
+    if (!valid) return { ok: false, reason: 'invalid hash' };
+
+    const success = String(params.status).toLowerCase() === 'success';
+    const client = await pool.connect();
+    try {
+      const txn = await this.walletRepo.findTransactionByRazorpayOrderId(txnid);
+      if (!txn) return { ok: false, reason: 'txn not found' };
+
+      await client.query('BEGIN');
+      const locked = await client.query(
+        `SELECT status FROM ${WalletModel.TRANSACTIONS_TABLE} WHERE id = $1 FOR UPDATE`,
+        [txn.id]
+      );
+      // Already resolved — idempotent, do nothing
+      if (locked.rows[0]?.status !== 'pending') {
+        await client.query('COMMIT');
+        return { ok: true, reason: 'already processed' };
+      }
+
+      const wallet = await this.walletRepo.findById(txn.walletId);
+      if (!wallet) throw createError('Wallet not found', 404);
+
+      if (!success) {
+        await client.query(
+          `UPDATE ${WalletModel.TRANSACTIONS_TABLE} SET status = 'failed' WHERE id = $1`,
+          [txn.id]
+        );
+        await client.query('COMMIT');
+        emitWalletUpdate(wallet.userId, wallet.balanceCents, wallet.heldBalanceCents ?? 0);
+        return { ok: true, reason: 'marked failed' };
+      }
+
+      const updatedWallet = await this.walletRepo.creditBalance(wallet.id, txn.amountCents, client);
+      await client.query(
+        `UPDATE ${WalletModel.TRANSACTIONS_TABLE}
+         SET status = 'completed', balance_after_cents = $2, razorpay_payment_id = $3
+         WHERE id = $1`,
+        [txn.id, updatedWallet.balanceCents, params.mihpayid || params.payuMoneyId || null]
+      );
+      await client.query('COMMIT');
+      emitWalletUpdate(wallet.userId, updatedWallet.balanceCents, updatedWallet.heldBalanceCents ?? 0);
+      return { ok: true, reason: 'credited' };
+    } catch (err) {
+      await client.query('ROLLBACK');
+      throw err;
+    } finally {
+      client.release();
+    }
+  }
+
+  /**
+   * Expire pending recharge transactions older than `thresholdMinutes`.
+   * Run this on a cron (e.g. every 30 min) to clean up transactions where
+   * PayU never sent a redirect or IPN — user abandoned payment, etc.
+   */
+  async expireStalePendingRecharges({ thresholdMinutes = 30 } = {}) {
+    const result = await pool.query(
+      `UPDATE ${WalletModel.TRANSACTIONS_TABLE}
+       SET status = 'failed'
+       WHERE status = 'pending'
+         AND category = 'topup'
+         AND created_at < NOW() - INTERVAL '${thresholdMinutes} minutes'
+       RETURNING wallet_id, id`
+    );
+
+    // Notify affected users so their app refreshes the transaction list
+    if (result.rows.length > 0) {
+      const walletIds = [...new Set(result.rows.map(r => r.wallet_id))];
+      for (const walletId of walletIds) {
+        const wallet = await this.walletRepo.findById(walletId);
+        if (wallet) {
+          emitWalletUpdate(wallet.userId, wallet.balanceCents, wallet.heldBalanceCents ?? 0);
+        }
+      }
+    }
+    return { expired: result.rows.length };
   }
 
   async initiateWithdrawal({ userId, amountCents }) {

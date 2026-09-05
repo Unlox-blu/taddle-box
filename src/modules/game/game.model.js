@@ -72,6 +72,8 @@ const formatGame = (row) => {
     slug: row.slug,
     description: row.description,
     thumbnail: row.thumbnail,
+    logoUrl: row.thumbnail,
+    bannerUrl: row.metadata?.cardUrl || row.metadata?.bannerUrl || null,
     category: row.category,
     difficulty: row.difficulty,
     isActive: row.is_active,

@@ -7,6 +7,8 @@ const SEARCH_USER_ALGORITHM = `SELECT
                                     ${SearchModel.USER_TABLE} u
                                 LEFT JOIN 
                                     media AS ua ON u.avatar_url = ua.id
+                                LEFT JOIN 
+                                    media AS ub ON u.banner_url = ub.id
                                 WHERE 
                                     u.deleted_at IS NULL 
                                     AND u.is_active = TRUE 
@@ -23,6 +25,8 @@ const SEARCH_COMMUNITY_ALGORITHM = `SELECT
                                         ${SearchModel.COMMUNITY_TABLE} c
                                     LEFT JOIN 
                                         media AS ca ON c.avatar_url = ca.id
+                                    LEFT JOIN 
+                                        media AS cb ON c.banner_url = cb.id
                                     WHERE 
                                         c.deleted_at IS NULL 
                                         AND c.is_active = TRUE 
@@ -162,7 +166,7 @@ const SEARCH_POSt_ALGORITHM = `SELECT
                             LEFT JOIN media ca
                                 ON ca.id = c.avatar_url
                             LEFT JOIN media m
-                                ON m.post_id = p.id
+                                ON m.post_id = COALESCE(orig.id, p.id)
                             WHERE
                                 p.deleted_at IS NULL
                                 AND p.status = 'published'
@@ -794,7 +798,7 @@ const DISCOVER_POSTS_ALGORITHM = `WITH ranked_posts AS (
                                                 ON c.avatar_url = ca.id
                                     
                                             LEFT JOIN media m 
-                                                ON p.id = m.post_id
+                                                ON COALESCE(orig.id, p.id) = m.post_id
                                     
                                             WHERE
                                     
@@ -897,6 +901,8 @@ const DISCOVER_COMMUNITY_ALGORITHM = `
                                         FROM ${SearchModel.COMMUNITY_TABLE} c
                                         LEFT JOIN media ca
                                             ON c.avatar_url = ca.id
+                                        LEFT JOIN media cb
+                                            ON c.banner_url = cb.id
 
                                         WHERE
                                             c.id != ALL($1::uuid[])
@@ -916,6 +922,7 @@ const DISCOVER_PEOPLE_ALGORITHM = `
                                     SELECT ${SearchModel.USER_FIELDS}, COUNT(*) OVER() AS total
                                     FROM ${SearchModel.USER_TABLE} u
                                     LEFT JOIN media AS ua ON u.avatar_url = ua.id
+                                    LEFT JOIN media AS ub ON u.banner_url = ub.id
                                     WHERE
                                         u.id != ALL($1::uuid[])
                                         AND u.id != $2::uuid

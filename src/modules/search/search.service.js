@@ -11,20 +11,39 @@ const CommentModel = require('../comment/comment.model');
 const EventModel = require('../event/event.model');
 const GameModel = require('../game/game.model');
 
-const UNIVERSAL_TYPES = ['posts', 'people', 'communities', 'events', 'polls', 'comments', 'media', 'games', 'text'];
+const UNIVERSAL_TYPES = [
+  'posts',
+  'people',
+  'communities',
+  'events',
+  'polls',
+  'comments',
+  'media',
+  'games',
+  'text',
+];
 
 const BOOKMARKED_TYPES = ['posts', 'people', 'communities'];
 
 const MESSAGES_TYPES = ['messages'];
 
-const DISCOVERY_TYPES = ['posts', 'people', 'communities', 'events', 'polls', 'comments', 'media', 'games', 'text'];
+const DISCOVERY_TYPES = [
+  'posts',
+  'people',
+  'communities',
+  'events',
+  'polls',
+  'comments',
+  'media',
+  'games',
+  'text',
+];
 
-const FILTER_TYPES = ['posts', 'media', 'comments', 'text']
+const FILTER_TYPES = ['posts', 'media', 'comments', 'text'];
 
 const NOTIFICATIONS_TYPES = ['likes', 'comments', 'follows'];
 
 const DISCOVERY_BOOKMARKED_TYPES = ['people', 'communities', 'posts', 'events'];
-
 
 const TYPE_LABELS = {
   all: 'All',
@@ -48,8 +67,6 @@ const pill = (type, count) => ({
   ...(count !== undefined ? { count } : {}),
 });
 
-
-
 const parseFilter = (filter = '') => {
   const raw = String(filter || '')
     .trim()
@@ -58,7 +75,8 @@ const parseFilter = (filter = '') => {
   const communities = [];
   const people = [];
   const tags = [];
-  raw.split(',')
+  raw
+    .split(',')
     .map((s) => s.trim())
     .filter(Boolean)
     .forEach((token) => {
@@ -75,7 +93,9 @@ const parseFilter = (filter = '') => {
 };
 
 const normalizeUniversalType = (type) => {
-  const t = String(type || '').trim().toLowerCase();
+  const t = String(type || '')
+    .trim()
+    .toLowerCase();
   if (!t || t === 'all') return 'all';
   return UNIVERSAL_TYPES.includes(t) ||
     DISCOVERY_TYPES.includes(t) ||
@@ -86,17 +106,35 @@ const normalizeUniversalType = (type) => {
 
 const interleave = (groups) => {
   const out = [];
-  let idx = 0;
-  let remaining = groups.filter((g) => g.rows.length > 0);
-  while (remaining.length) {
-    const keep = [];
-    for (const g of remaining) {
-      if (idx < g.rows.length) out.push(g.rows[idx]);
-      else continue;
-      keep.push(g);
+  const activeGroups = groups.filter((g) => g.rows.length > 0);
+  const cursors = activeGroups.map(() => 0);
+  let hasMore = true;
+
+  while (hasMore) {
+    hasMore = false;
+    for (let i = 0; i < activeGroups.length; i++) {
+      const g = activeGroups[i];
+      let pos = cursors[i];
+      if (pos < g.rows.length) {
+        hasMore = true;
+        const current = g.rows[pos];
+        if (current && current.itemType === 'header') {
+          // A section header must always directly introduce its following cards (e.g. "People You May Know"
+          // followed continuously by 2 people cards) rather than appearing orphaned before an unrelated card.
+          out.push(current);
+          pos += 1;
+          const count = Math.min(2, g.rows.length - pos);
+          for (let k = 0; k < count; k++) {
+            out.push(g.rows[pos]);
+            pos += 1;
+          }
+        } else {
+          out.push(current);
+          pos += 1;
+        }
+        cursors[i] = pos;
+      }
     }
-    remaining = keep;
-    idx += 1;
   }
   return out;
 };
@@ -113,7 +151,7 @@ const SINGULAR_MAP = {
   media: 'media',
   games: 'game',
   text: 'text',
-  messages: 'message'
+  messages: 'message',
 };
 
 const tagRows = (rows, type) =>
@@ -121,10 +159,11 @@ const tagRows = (rows, type) =>
     if (r.itemType) return r; // already wrapped by the query (e.g. injected headers)
     const { total, score, highlight, highlight_content, ...rest } = r;
     // Some legacy highlight structure might use highlight_content, wrap it properly if so
-    const finalHighlight = highlight || (highlight_content ? { content: highlight_content } : undefined);
-    return envelopeItem(SINGULAR_MAP[type] || type, rest, { 
+    const finalHighlight =
+      highlight || (highlight_content ? { content: highlight_content } : undefined);
+    return envelopeItem(SINGULAR_MAP[type] || type, rest, {
       ...(score !== undefined && { score }),
-      ...(finalHighlight && { highlight: finalHighlight }) 
+      ...(finalHighlight && { highlight: finalHighlight }),
     });
   });
 
@@ -135,382 +174,419 @@ class SearchService {
     this.notificationSvc = notificationService;
   }
 
-
   async universalSearch({
-      scope = 'global',
-      q,
-      sort = 'relevance',
-      time = 'all_time',
-      filter = '',
-      type = 'all',
-      page = 1,
-      limit = 10,
-      offset = 0,
-      userId = null,
-    }) {
-      try {
-        const query = String(q || '').trim();
-        const { communities, people, tags } = parseFilter(filter);
-        const sortBy = sort;
-        const timeCutoff = timeToCutoff(time);
-        const requestedType = normalizeUniversalType(type);
-        const isBookmarks = scope === 'bookmarks';
-        const isNotifications = scope === 'notifications';
-        const isMessages = scope === 'messages';
-        const bm = isBookmarks;
-        const isDiscovery =
-          !isNotifications &&
-          !isMessages &&
-          !bm &&
-          !query &&
-          communities.length === 0 &&
-          people.length === 0 &&
-          tags.length === 0;
-        const order = isNotifications
-          ? NOTIFICATIONS_TYPES
-          : isDiscovery
-            ? bm
-              ? BOOKMARKED_TYPES
-              : DISCOVERY_TYPES
-            : bm
-              ? BOOKMARKED_TYPES
-              : UNIVERSAL_TYPES;
-              
-        const perTypeLimit = limit;
+    scope = 'global',
+    q,
+    sort = 'relevance',
+    time = 'all_time',
+    filter = '',
+    type = 'all',
+    page = 1,
+    limit = 10,
+    offset = 0,
+    userId = null,
+  }) {
+    try {
+      const query = String(q || '').trim();
+      const { communities, people, tags } = parseFilter(filter);
+      const sortBy = sort;
+      const timeCutoff = timeToCutoff(time);
+      const requestedType = normalizeUniversalType(type);
+      const isBookmarks = scope === 'bookmarks';
+      const isNotifications = scope === 'notifications';
+      const isMessages = scope === 'messages';
+      const bm = isBookmarks;
+      const isDiscovery =
+        !isNotifications &&
+        !isMessages &&
+        !bm &&
+        !query &&
+        communities.length === 0 &&
+        people.length === 0 &&
+        tags.length === 0;
+      const order = isNotifications
+        ? NOTIFICATIONS_TYPES
+        : isDiscovery
+          ? bm
+            ? BOOKMARKED_TYPES
+            : DISCOVERY_TYPES
+          : bm
+            ? BOOKMARKED_TYPES
+            : UNIVERSAL_TYPES;
 
-        if(isBookmarks) {
-          const bookmarkResult = await this.bookmarkSvc.searchBookmark({
-            userId,
-            query,
-            communities,
-            people,
-            tags,
-            sortBy,
-            timeCutoff,
-            requestedType,
-            limit,
-            offset,
-          });
-          const selected = bookmarkResult.results.flatMap((group) => tagRows(group.rows, group.type));
-          return {
-            dataType: 'universal',
-            data: {
-              types: bookmarkResult.types.map((bookmarkType) => pill(bookmarkType)),
-              results: selected,
-              filter: { communities, people, tags },
-            },
-            total: bookmarkResult.total,
-            hasNext: selected.length === limit,
-          };
-        }
+      const perTypeLimit = limit;
 
-        if(isNotifications) {
-          const { notifications, total, filteredCount } = await this.notificationSvc.searchNotification({
-                userId, 
-                limit, 
-                offset, 
-                unreadOnly: false, 
-                sourceType: requestedType, 
-                query: query, 
-                timeCutoff, 
-                sortBy, 
-                communities, 
-                people
-              });
-              
-          return {
-            dataType: 'universal',
-            data: {
-              types: ['all', ...order].map((t) =>
-                pill(
-                  t,
-                  isNotifications
-                    ? filteredCount[t]
-                    : undefined
-                )
-              ),
-              results: tagRows(notifications, requestedType),
-              filter: { communities, people, tags },
-            },
-            total,
-            hasNext: total > page * limit,
-          };
-        }
-
-        if(isMessages) {
-          const { rows, total } = await this.searchRepo.searchMessages(
-            query, limit, offset, userId,
-            { people, sortBy, timeCutoff }
-          );
-          return {
-            dataType: 'universal',
-            data: {
-              types: ['all', ...MESSAGES_TYPES].map((t) => pill(t)),
-              results: tagRows(rows, 'messages'),
-              filter: { communities, people, tags },
-            },
-            total,
-            hasNext: total > page * limit,
-          };
-        }
-
-        const searchGroup = async (group, lmt, off) => {
-          try {
-            switch (group) {
-              case 'posts': {
-                if (isDiscovery) {
-                  const d = await this.discoverPost({
-                    userId,
-                    limit: lmt,
-                    offset: off,
-                    sortBy,
-                    timeCutoff,
-                  });
-                  return { rows: d.data.map(PostModel.format), total: d.total };
-                }
-                const { rows, total } = await this.searchRepo.searchPost(
-                  query,
-                  lmt,
-                  off,
-                  userId,
-                  communities,
-                  people,
-                  null,
-                  tags,
-                  bm ? true : null,
-                  null,
-                  sortBy,
-                  'contents',
-                  timeCutoff
-                );
-                return { rows: rows.map(PostModel.format), total };
-              }
-              case 'polls': {
-                if (isDiscovery) return { rows: [], total: 0 };
-                const { rows, total } = await this.searchRepo.searchPoll(
-                  query,
-                  lmt,
-                  off,
-                  userId,
-                  {
-                    community: communities,
-                    author: people,
-                    tag: tags,
-                    sortBy,
-                    timeCutoff,
-                  }
-                );
-                return { rows: rows.map(PostModel.format), total };
-              }
-              case 'comments': {
-                if (isDiscovery) return { rows: [], total: 0 };
-                const { rows, total } = await this.searchRepo.searchComment(
-                  query,
-                  lmt,
-                  off,
-                  userId,
-                  {
-                    community: communities,
-                    author: people,
-                    tag: tags,
-                    sortBy,
-                    bookmarked: bm ? true : null,
-                    timeCutoff,
-                  }
-                );
-                return { rows: rows.map(CommentModel.format), total };
-              }
-              case 'media': {
-                if (isDiscovery) return { rows: [], total: 0 };
-                const { rows, total } = await this.searchRepo.searchMedia(
-                  query,
-                  lmt,
-                  off,
-                  userId,
-                  {
-                    community: communities,
-                    author: people,
-                    tag: tags,
-                    sortBy,
-                    bookmarked: bm ? true : null,
-                    timeCutoff,
-                  }
-                );
-                // Media returns posts (its parent context) right now, but we just leave it as is if it doesn't match a model precisely.
-                // Wait, searchMedia returns rows that are mostly posts, so PostModel.format should be applied.
-                return { rows: rows.map(PostModel.format), total };
-              }
-              case 'people': {
-                if (people.length) return { rows: [], total: 0 };
-                if (isDiscovery) {
-                  const d = await this.discoverPeople({ userId, page, limit: lmt, offset: off });
-                  return { rows: d.data.map(r => r.itemType ? r : UserModel.format(r)), total: d.total };
-                }
-                const { rows, total } = await this.searchRepo.searchUser(query, lmt, off, userId, bm ? true : null);
-                return { rows: rows.map(r => r.itemType ? r : UserModel.format(r)), total };
-              }
-              case 'communities': {
-                if (communities.length) return { rows: [], total: 0 };
-                if (isDiscovery) {
-                  const d = await this.discoverCommunity({ userId, page, limit: lmt, offset: off });
-                  return { rows: d.data.map(CommunityModel.format), total: d.total };
-                }
-                const { rows, total } = await this.searchRepo.searchCommunity(
-                  query,
-                  null,
-                  lmt,
-                  off,
-                  userId,
-                  bm ? true : null
-                );
-                return { rows: rows.map(CommunityModel.format), total };
-              }
-              case 'events': {
-                if (isDiscovery) {
-                  const d = await this.discoverEvents({
-                    limit: lmt,
-                    offset: off,
-                    timeCutoff,
-                  });
-                  return { rows: d.data.map(EventModel.format), total: d.total };
-                }
-                
-                if (bm) {
-                  const { rows, total } = await this.searchRepo.searchEvent(
-                    query,
-                    null,
-                    lmt,
-                    off,
-                    true,
-                    userId,
-                    timeCutoff
-                  );
-                  return { rows: rows.map(EventModel.format), total };
-                }
-                return { rows: [], total: 0 };
-              }
-              case 'games': {
-                if (isDiscovery) {
-                  const d = await this.discoverGames({ limit: lmt, offset: off });
-                  return { rows: d.data.map(GameModel.formatGame || GameModel.format || (r => r)), total: d.total };
-                }
-                return { rows: [], total: 0 };
-              }
-              case 'text': {
-                if (isDiscovery) {
-                  const hashtags = await this.getHashtags();
-                  return {
-                      rows: hashtags.slice(0, lmt).map((h) => ({ text: h })),
-                      total: hashtags.length,
-                    }
-                }
-                const hashtags = await this.searchRepo.getHashtags(query);
-                return {
-                  rows: hashtags.slice(0, lmt).map((h) => ({ text: h })),
-                  total: hashtags.length,
-                };
-              }
-              default:
-                return { rows: [], total: 0 };
-            }
-          } catch (error) {
-            throw error;
-          }
-        };
-
-        // console.log(order)
-
-        if (requestedType !== 'all') {
-          const { rows, total } = await searchGroup(requestedType, limit, offset);
-          const probes = await Promise.all(
-            order
-              .filter((g) => g !== requestedType)
-              .map(async (g) => {
-                const probe = await searchGroup(g, 1, 0);
-                return { type: g, total: probe.total };
-              })
-          );
-          
-          return {
-            dataType: 'universal',
-            data: {
-              types: ['all', ...order.filter((g) => g === requestedType || probes.find((p) => p.type === g)?.total > 0)].map((t) =>
-                pill(
-                  t,
-                  isNotifications
-                    ? t === 'all'
-                      ? total
-                      : t === requestedType
-                        ? total
-                        : probes.find((p) => p.type === t)?.total
-                    : undefined
-                )
-              ),
-              results: tagRows(rows, requestedType),
-              filter: { communities, people, tags },
-            },
-            total,
-            hasNext: total > page * limit,
-          };
-        }
-
-        const groups = await Promise.all(
-          order.map(async (g) => {
-            const r = await searchGroup(g, perTypeLimit, offset);
-            return { type: g, rows: r.rows, total: r.total };
-          })
-        );
-        const nonEmpty = groups.filter((g) => g.rows.length > 0);
-        const results = interleave(
-          nonEmpty.map((g) => ({ type: g.type, rows: tagRows(g.rows, g.type) }))
-        );
-        const total = groups.reduce((sum, g) => sum + g.total, 0);
-        
-        const types = ['all', ...order].map((t) =>
-          pill(
-            t,
-            isNotifications
-              ? t === 'all'
-                ? total
-                : groups.find((g) => g.type === t)?.total
-              : undefined
-          )
-        );
-        
-        const hasNext = groups.some((g) => g.total > page * perTypeLimit);
+      if (isBookmarks) {
+        const bookmarkResult = await this.bookmarkSvc.searchBookmark({
+          userId,
+          query,
+          communities,
+          people,
+          tags,
+          sortBy,
+          timeCutoff,
+          requestedType,
+          limit,
+          offset,
+        });
+        const selected = bookmarkResult.results.flatMap((group) => tagRows(group.rows, group.type));
         return {
           dataType: 'universal',
           data: {
-            types,
-            results,
+            types: bookmarkResult.types.map((bookmarkType) => pill(bookmarkType)),
+            results: selected,
+            filter: { communities, people, tags },
+          },
+          total: bookmarkResult.total,
+          hasNext: selected.length === limit,
+        };
+      }
+
+      if (isNotifications) {
+        const { notifications, total, filteredCount } =
+          await this.notificationSvc.searchNotification({
+            userId,
+            limit,
+            offset,
+            unreadOnly: false,
+            sourceType: requestedType,
+            query: query,
+            timeCutoff,
+            sortBy,
+            communities,
+            people,
+          });
+
+        return {
+          dataType: 'universal',
+          data: {
+            types: ['all', ...order].map((t) =>
+              pill(t, isNotifications ? filteredCount[t] : undefined)
+            ),
+            results: tagRows(notifications, requestedType),
             filter: { communities, people, tags },
           },
           total,
-          hasNext,
+          hasNext: total > page * limit,
         };
-
-
-      } catch (error) {
-        throw error
       }
+
+      if (isMessages) {
+        const { rows, total } = await this.searchRepo.searchMessages(query, limit, offset, userId, {
+          people,
+          sortBy,
+          timeCutoff,
+        });
+        return {
+          dataType: 'universal',
+          data: {
+            types: ['all', ...MESSAGES_TYPES].map((t) => pill(t)),
+            results: tagRows(rows, 'messages'),
+            filter: { communities, people, tags },
+          },
+          total,
+          hasNext: total > page * limit,
+        };
+      }
+
+      const searchGroup = async (group, lmt, off) => {
+        try {
+          switch (group) {
+            case 'posts': {
+              if (isDiscovery) {
+                const d = await this.discoverPost({
+                  userId,
+                  page,
+                  limit: lmt,
+                  offset: off,
+                  sortBy,
+                  timeCutoff,
+                });
+                return {
+                  rows: d.data.map((r) => (r.itemType ? r : PostModel.format(r))),
+                  total: d.total,
+                };
+              }
+              const { rows, total } = await this.searchRepo.searchPost(
+                query,
+                lmt,
+                off,
+                userId,
+                communities,
+                people,
+                null,
+                tags,
+                bm ? true : null,
+                null,
+                sortBy,
+                'contents',
+                timeCutoff
+              );
+              const formatted = rows.map(PostModel.format);
+              if (page === 1) {
+                formatted.unshift({
+                  itemType: 'header',
+                  id: 'popular-posts-header',
+                  data: {
+                    title: 'Explore Posts',
+                    subtitle: 'Latest from the taddlers',
+                  },
+                });
+              }
+              return { rows: formatted, total };
+            }
+            case 'polls': {
+              if (isDiscovery) return { rows: [], total: 0 };
+              const { rows, total } = await this.searchRepo.searchPoll(query, lmt, off, userId, {
+                community: communities,
+                author: people,
+                tag: tags,
+                sortBy,
+                timeCutoff,
+              });
+              return { rows: rows.map(PostModel.format), total };
+            }
+            case 'comments': {
+              if (isDiscovery) return { rows: [], total: 0 };
+              const { rows, total } = await this.searchRepo.searchComment(query, lmt, off, userId, {
+                community: communities,
+                author: people,
+                tag: tags,
+                sortBy,
+                bookmarked: bm ? true : null,
+                timeCutoff,
+              });
+              return { rows: rows.map(CommentModel.format), total };
+            }
+            case 'media': {
+              if (isDiscovery) return { rows: [], total: 0 };
+              const { rows, total } = await this.searchRepo.searchMedia(query, lmt, off, userId, {
+                community: communities,
+                author: people,
+                tag: tags,
+                sortBy,
+                bookmarked: bm ? true : null,
+                timeCutoff,
+              });
+              // Media returns posts (its parent context) right now, but we just leave it as is if it doesn't match a model precisely.
+              // Wait, searchMedia returns rows that are mostly posts, so PostModel.format should be applied.
+              return { rows: rows.map(PostModel.format), total };
+            }
+            case 'people': {
+              if (people.length) return { rows: [], total: 0 };
+              if (isDiscovery) {
+                const d = await this.discoverPeople({ userId, page, limit: lmt, offset: off });
+                return {
+                  rows: d.data.map((r) => (r.itemType ? r : UserModel.format(r))),
+                  total: d.total,
+                };
+              }
+              const { rows, total } = await this.searchRepo.searchUser(
+                query,
+                lmt,
+                off,
+                userId,
+                bm ? true : null
+              );
+              return { rows: rows.map((r) => (r.itemType ? r : UserModel.format(r))), total };
+            }
+            case 'communities': {
+              if (communities.length) return { rows: [], total: 0 };
+              if (isDiscovery) {
+                const d = await this.discoverCommunity({ userId, page, limit: lmt, offset: off });
+                return {
+                  rows: d.data.map((r) => (r.itemType ? r : CommunityModel.format(r))),
+                  total: d.total,
+                };
+              }
+              const { rows, total } = await this.searchRepo.searchCommunity(
+                query,
+                null,
+                lmt,
+                off,
+                userId,
+                bm ? true : null
+              );
+              return { rows: rows.map((r) => (r.itemType ? r : CommunityModel.format(r))), total };
+            }
+            case 'events': {
+              if (isDiscovery) {
+                const d = await this.discoverEvents({
+                  page,
+                  limit: lmt,
+                  offset: off,
+                  timeCutoff,
+                });
+                return {
+                  rows: d.data.map((r) => (r.itemType ? r : EventModel.format(r))),
+                  total: d.total,
+                };
+              }
+
+              if (bm) {
+                const { rows, total } = await this.searchRepo.searchEvent(
+                  query,
+                  null,
+                  lmt,
+                  off,
+                  true,
+                  userId,
+                  timeCutoff
+                );
+                return { rows: rows.map((r) => (r.itemType ? r : EventModel.format(r))), total };
+              }
+              const { rows, total } = await this.searchRepo.searchEvent(
+                query,
+                null,
+                lmt,
+                off,
+                null,
+                userId,
+                timeCutoff
+              );
+              return { rows: rows.map((r) => (r.itemType ? r : EventModel.format(r))), total };
+            }
+            case 'games': {
+              if (isDiscovery) {
+                const d = await this.discoverGames({ page, limit: lmt, offset: off });
+                return {
+                  rows: d.data.map((r) =>
+                    r.itemType ? r : (GameModel.formatGame || GameModel.format || ((x) => x))(r)
+                  ),
+                  total: d.total,
+                };
+              }
+              const { rows, total } = await this.searchRepo.searchGame(query, lmt, off);
+              return {
+                rows: rows.map((r) =>
+                  r.itemType ? r : (GameModel.formatGame || GameModel.format || ((x) => x))(r)
+                ),
+                total,
+              };
+            }
+            case 'text': {
+              let hashtags;
+              if (isDiscovery) {
+                hashtags = await this.getHashtags();
+              } else {
+                hashtags = await this.searchRepo.getHashtags(query);
+              }
+              const rows = hashtags.slice(0, lmt).map((h) => ({ text: h }));
+              if (page === 1) {
+                rows.unshift({
+                  itemType: 'header',
+                  id: 'trending-hashtags-header',
+                  data: {
+                    title: 'Trending Hashtags',
+                    subtitle: 'Popular topics & discussions',
+                  },
+                });
+              }
+              return {
+                rows,
+                total: hashtags.length,
+              };
+            }
+            default:
+              return { rows: [], total: 0 };
+          }
+        } catch (error) {
+          throw error;
+        }
+      };
+
+      // console.log(order)
+
+      if (requestedType !== 'all') {
+        const { rows, total } = await searchGroup(requestedType, limit, offset);
+        const probes = await Promise.all(
+          order
+            .filter((g) => g !== requestedType)
+            .map(async (g) => {
+              const probe = await searchGroup(g, 1, 0);
+              return { type: g, total: probe.total };
+            })
+        );
+
+        return {
+          dataType: 'universal',
+          data: {
+            types: [
+              'all',
+              ...order.filter(
+                (g) => g === requestedType || probes.find((p) => p.type === g)?.total > 0
+              ),
+            ].map((t) =>
+              pill(
+                t,
+                isNotifications
+                  ? t === 'all'
+                    ? total
+                    : t === requestedType
+                      ? total
+                      : probes.find((p) => p.type === t)?.total
+                  : undefined
+              )
+            ),
+            results: tagRows(rows, requestedType),
+            filter: { communities, people, tags },
+          },
+          total,
+          hasNext: total > page * limit,
+        };
+      }
+
+      const groups = await Promise.all(
+        order.map(async (g) => {
+          const r = await searchGroup(g, perTypeLimit, offset);
+          return { type: g, rows: r.rows, total: r.total };
+        })
+      );
+      const nonEmpty = groups.filter((g) => g.rows.length > 0);
+      const results = interleave(
+        nonEmpty.map((g) => ({ type: g.type, rows: tagRows(g.rows, g.type) }))
+      );
+      const total = groups.reduce((sum, g) => sum + g.total, 0);
+
+      const types = ['all', ...order].map((t) =>
+        pill(
+          t,
+          isNotifications
+            ? t === 'all'
+              ? total
+              : groups.find((g) => g.type === t)?.total
+            : undefined
+        )
+      );
+
+      const hasNext = groups.some((g) => g.total > page * perTypeLimit);
+      return {
+        dataType: 'universal',
+        data: {
+          types,
+          results,
+          filter: { communities, people, tags },
+        },
+        total,
+        hasNext,
+      };
+    } catch (error) {
+      throw error;
+    }
   }
 
   // Mention-autocomplete suggestions — a DEDICATED people endpoint for the
   // composer's @mention autocomplete.
   async suggestPeople(query, limit = 10) {
     try {
-      const { rows } = await this.searchRepo.searchUser(
-        String(query || ''),
-        limit,
-        0
-      );
+      const { rows } = await this.searchRepo.searchUser(String(query || ''), limit, 0);
       return rows;
     } catch (error) {
       throw error;
     }
   }
 
-  async discoverPost({ userId, limit, offset, sortBy = 'relevance', timeCutoff = null }) {
+  async discoverPost({ userId, page = 1, limit, offset, sortBy = 'relevance', timeCutoff = null }) {
     try {
       const userInterests = await this.searchRepo.getUserInterests(userId);
       const interests = userInterests.map((item) =>
@@ -525,6 +601,19 @@ class SearchService {
         sortBy,
         timeCutoff,
       });
+
+      // Inject mock header at the top for testing
+      if (page === 1) {
+        rows.unshift({
+          itemType: 'header',
+          id: 'popular-posts-header',
+          data: {
+            title: 'Explore Posts',
+            subtitle: 'Latest from the taddlers',
+          },
+        });
+      }
+
       return { dataType: 'posts', data: rows, total };
     } catch (error) {
       throw error;
@@ -545,6 +634,19 @@ class SearchService {
         limit,
         offset,
       });
+
+      // Inject mock header at the top for testing
+      if (page === 1) {
+        rows.unshift({
+          itemType: 'header',
+          id: 'popular-communities-header',
+          data: {
+            title: 'Popular Communities',
+            subtitle: 'Spaces you might like',
+          },
+        });
+      }
+
       return { dataType: 'communities', data: rows, total };
     } catch (error) {
       throw error;
@@ -566,7 +668,7 @@ class SearchService {
         limit,
         offset,
       });
-      
+
       // Inject mock header at the top for testing
       if (page === 1) {
         rows.unshift({
@@ -574,8 +676,8 @@ class SearchService {
           id: 'people-you-may-know-header',
           data: {
             title: 'People You May Know',
-            subtitle: 'Based on your activity'
-          }
+            subtitle: 'Based on your activity',
+          },
         });
       }
 
@@ -585,7 +687,7 @@ class SearchService {
     }
   }
 
-  async discoverEvents({ limit, offset, timeCutoff = null }) {
+  async discoverEvents({ page = 1, limit, offset, timeCutoff = null }) {
     try {
       const { rows, total } = await this.searchRepo.searchEvent(
         '',
@@ -596,15 +698,41 @@ class SearchService {
         null,
         timeCutoff
       );
+
+      // Inject mock header at the top for testing
+      if (page === 1) {
+        rows.unshift({
+          itemType: 'header',
+          id: 'upcoming-events-header',
+          data: {
+            title: 'Upcoming Events',
+            subtitle: 'Happenings around you',
+          },
+        });
+      }
+
       return { dataType: 'events', data: rows, total };
     } catch (error) {
       throw error;
     }
   }
 
-  async discoverGames({ limit, offset }) {
+  async discoverGames({ page = 1, limit, offset }) {
     try {
       const { rows, total } = await this.searchRepo.searchGame('', limit, offset);
+
+      // Inject mock header at the top for testing
+      if (page === 1) {
+        rows.unshift({
+          itemType: 'header',
+          id: 'trending-games-header',
+          data: {
+            title: 'Trending Games',
+            subtitle: 'Play & earn XP',
+          },
+        });
+      }
+
       return { dataType: 'games', data: rows, total };
     } catch (error) {
       throw error;

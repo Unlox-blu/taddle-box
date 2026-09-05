@@ -131,6 +131,19 @@ const bootstrap = async () => {
       expireAbandonedSessions,
     } = resolutionJob;
 
+    // Expire stale pending recharges every 30 minutes
+    const { walletService } = require('./src/modules/wallet/wallet.container');
+    setInterval(async () => {
+      try {
+        const result = await walletService.expireStalePendingRecharges({ thresholdMinutes: 30 });
+        if (result.expired > 0) {
+          logger.info(`[WalletSweeper] Expired ${result.expired} stale pending recharge(s).`);
+        }
+      } catch (e) {
+        logger.warn(`[WalletSweeper] Stale recharge sweep failed: ${e.message}`);
+      }
+    }, 30 * 60 * 1000);
+
     // ── Circuit breakers: skip sweepers when the DB is unreachable ──────
     // Each sweeper group gets its own breaker so a fast-failing lobby sweep
     // doesn't block the slower 60s tournament sweep from probing.

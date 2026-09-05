@@ -4,7 +4,7 @@ const TABLE = 'communities';
 const MEMBERS_TABLE = 'community_members';
 
 const LIST_FIELDS = [
-  'c.id', 'c.name', 'c.slug', 'c.description', 'c.avatar_url',
+  'c.id', 'c.name', 'c.slug', 'c.description', 'c.avatar_url', 'c.banner_url',
   'c.privacy', 'c.category', 'c.owner_id', 'c.member_count', 'c.post_count', 'c.is_verified', 'c.allow_reposts', 'c.created_at',
 ].join(', ');
 
@@ -37,8 +37,8 @@ const format = (row) => {
     description: row.description,
     avatarMediaId: row.avatar_url,
     bannerMediaId: row.banner_url,
-    avatarUrl: row.avatar_media_url,
-    bannerUrl: row.banner_media_url,
+    avatarUrl: row.avatar_media_url || (typeof row.avatar_url === 'string' && (row.avatar_url.startsWith('http://') || row.avatar_url.startsWith('https://')) ? row.avatar_url : null),
+    bannerUrl: row.banner_media_url || (typeof row.banner_url === 'string' && (row.banner_url.startsWith('http://') || row.banner_url.startsWith('https://')) ? row.banner_url : null),
     privacy: row.privacy,
     category: row.category || [],
     rules: row.rules || [],

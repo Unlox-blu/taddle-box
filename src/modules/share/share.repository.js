@@ -96,8 +96,8 @@ const findCommunity = async (communityId) => {
       avatar_media.cloudfront_url AS avatar_media_url,
       banner_media.cloudfront_url AS banner_media_url 
       FROM ${ShareModel.COMMUNITY_TABLE} c
-      LEFT JOIN media AS avatar_media ON avatar_media.id = avatar_url
-      LEFT JOIN media AS banner_media ON banner_media.id = banner_url
+      LEFT JOIN media AS avatar_media ON avatar_media.id = c.avatar_url
+      LEFT JOIN media AS banner_media ON banner_media.id = c.banner_url
       WHERE c.id = $1 AND c.deleted_at IS NULL`,
       [communityId]
     );

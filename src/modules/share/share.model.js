@@ -29,7 +29,7 @@ const EVENT_FIELDS = [
 
 
 const COMMUNITY_FIELDS = [
-  'c.id', 'c.name', 'c.slug', 'c.description', 
+  'c.id', 'c.name', 'c.slug', 'c.description', 'c.avatar_url', 'c.banner_url',
   'c.privacy', 'c.category', 'c.rules', 'c.owner_id', 'c.member_count',
   'c.post_count', 'c.created_at', 'c.updated_at',
 ].join(', ');
@@ -113,8 +113,8 @@ const formatCommunity = (row) => {
     name: row.name,
     slug: row.slug,
     description: row.description,
-    avatarUrl: row.avatar_media_url,
-    bannerUrl: row.banner_media_url,
+    avatarUrl: row.avatar_media_url || (typeof row.avatar_url === 'string' && (row.avatar_url.startsWith('http://') || row.avatar_url.startsWith('https://')) ? row.avatar_url : null),
+    bannerUrl: row.banner_media_url || (typeof row.banner_url === 'string' && (row.banner_url.startsWith('http://') || row.banner_url.startsWith('https://')) ? row.banner_url : null),
     privacy: row.privacy,
     category: row.category || [],
     rules: row.rules || [],

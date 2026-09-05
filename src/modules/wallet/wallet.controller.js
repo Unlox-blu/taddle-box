@@ -81,6 +81,22 @@ class WalletController {
     }
   };
 
+  /**
+   * PayU server-to-server IPN — fires independently of the WebView redirect.
+   * Must return HTTP 200 quickly so PayU doesn't retry unnecessarily.
+   */
+  handlePayuIPN = async (req, res, next) => {
+    try {
+      const params = { ...req.query, ...req.body };
+      const result = await this.walletSvc.handlePayuIPN({ params });
+      // PayU expects a 200 response — always return it regardless of outcome
+      res.status(200).json({ status: 'ok', ...result });
+    } catch (error) {
+      // Still return 200 so PayU doesn't keep retrying
+      res.status(200).json({ status: 'error', message: error.message });
+    }
+  };
+
   convertCashToXp = async (req, res, next) => {
     try {
       const userId = req.userId;

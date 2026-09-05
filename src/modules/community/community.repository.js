@@ -16,8 +16,8 @@ const findById = async (communityId, userId = null) => {
         WHERE cm.community_id = c.id AND cm.user_id = $2 LIMIT 1) AS member_status,
       (SELECT role FROM ${CommunityModel.MEMBERS_TABLE} cm WHERE cm.community_id = c.id AND cm.user_id = $2 LIMIT 1) AS member_role
       FROM ${CommunityModel.TABLE} c
-      LEFT JOIN media AS avatar_media ON avatar_media.id = avatar_url
-      LEFT JOIN media AS banner_media ON banner_media.id = banner_url
+      LEFT JOIN media AS avatar_media ON avatar_media.id = c.avatar_url
+      LEFT JOIN media AS banner_media ON banner_media.id = c.banner_url
       WHERE c.id = $1 AND c.deleted_at IS NULL`,
       [communityId, userId]
     );
@@ -39,8 +39,8 @@ const findBySlug = async (slug, userId = null) => {
         WHERE cm.community_id = c.id AND cm.user_id = $2 LIMIT 1) AS member_status,
       (SELECT role FROM ${CommunityModel.MEMBERS_TABLE} cm WHERE cm.community_id = c.id AND cm.user_id = $2 LIMIT 1) AS member_role
       FROM ${CommunityModel.TABLE} c
-      LEFT JOIN media AS avatar_media ON avatar_media.id = avatar_url
-      LEFT JOIN media AS banner_media ON banner_media.id = banner_url 
+      LEFT JOIN media AS avatar_media ON avatar_media.id = c.avatar_url
+      LEFT JOIN media AS banner_media ON banner_media.id = c.banner_url 
       WHERE c.slug = $1 AND c.deleted_at IS NULL`,
       [slug, userId]
     );
@@ -71,8 +71,8 @@ const findManyCommunity = async ({limit, offset, userId = null, search = null, m
       (SELECT role FROM ${CommunityModel.MEMBERS_TABLE} cm WHERE cm.community_id = c.id AND cm.user_id = $3 LIMIT 1) AS member_role,
       COUNT(*) OVER() AS total 
       FROM ${CommunityModel.TABLE} c
-      LEFT JOIN media AS avatar_media ON avatar_media.id = avatar_url
-      LEFT JOIN media AS banner_media ON banner_media.id = banner_url
+      LEFT JOIN media AS avatar_media ON avatar_media.id = c.avatar_url
+      LEFT JOIN media AS banner_media ON banner_media.id = c.banner_url
       WHERE c.deleted_at IS NULL AND c.is_active = TRUE
         AND ($4::text IS NULL OR c.name ILIKE '%' || $4 || '%')
         AND ($6::text IS NULL OR $6 = ANY(c.category))

@@ -7,7 +7,6 @@ import React, {
   useCallback,
   useMemo,
 } from "react";
-import * as Notifications from "expo-notifications";
 import { useAuth } from "./AuthContext";
 import { accountSocket } from "../services/accountSocketClient";
 import { deviceSocketClient } from "../services/deviceSocketClient";
@@ -18,6 +17,7 @@ import {
   startTokenRefreshListener,
   stopTokenRefreshListener,
   setActiveUserIdForPush,
+  getNotificationsModule,
 } from "../services/pushNotification.service";
 import { notificationBus, NOTIF_EVENTS } from "../lib/notificationBus";
 import type { NotificationNewPayload } from "../types";
@@ -161,112 +161,113 @@ export function NotificationProvider({
     // renders, but clear it on failure so a retry is possible (e.g. user
     // grants permission after initially denying it).
     registeredRef.current = true;
-    registerForPushNotificationsAsync().catch(() => {
-      registeredRef.current = false;
-    });
 
-    // On Android, FCM tokens rotate periodically.  Listen for token changes
-    // and re-register so pushes keep landing on this device.
-    startTokenRefreshListener();
+    let responseSub: { remove: () => void } | null = null;
+    let notifSub: { remove: () => void } | null = null;
+    let isCancelled = false;
 
-    // Tapped from the system tray. Post-bound pushes (mention / reply / like /
-    // comment / new post) deep-link straight to the post's detail page — with
-    // the exact comment id when it's a comment mention, so the page auto-scrolls
-    // to that comment. Everything else falls back to the notifications list
-    // (same route the in-app banner uses).
-    const responseSub = Notifications.addNotificationResponseReceivedListener(
-      async (response) => {
-        clearUnread();
-        const data: Record<string, any> =
-          response.notification.request.content.data || {};
-        const { navigationRef } = require("../navigation/navigationRef");
+    (async () => {
+      await registerForPushNotificationsAsync();
+      await startTokenRefreshListener();
 
-        const recipientId = data?.recipientId;
-        if (recipientId && String(user?.id) !== String(recipientId)) {
-          try {
-            await switchAccount(recipientId);
-            // Give the app a small delay to unmount/remount the active session
-            await new Promise((res) => setTimeout(res, 500));
-          } catch (e) {
-            console.warn("Failed to switch account from notification", e);
-            return; // Stop deep linking if the switch failed
+      const Notifications = await getNotificationsModule();
+      if (!Notifications || isCancelled) return;
+
+      responseSub = Notifications.addNotificationResponseReceivedListener(
+        async (response) => {
+          clearUnread();
+          const data: Record<string, any> =
+            response.notification.request.content.data || {};
+          const { navigationRef } = require("../navigation/navigationRef");
+
+          const recipientId = data?.recipientId;
+          if (recipientId && String(user?.id) !== String(recipientId)) {
+            try {
+              await switchAccount(recipientId);
+              // Give the app a small delay to unmount/remount the active session
+              await new Promise((res) => setTimeout(res, 500));
+            } catch (e) {
+              console.warn("Failed to switch account from notification", e);
+              return; // Stop deep linking if the switch failed
+            }
           }
-        }
 
-        // ── Chat message deep-link ──────────────────────────────────────
-        if (
-          (data?.resourceType === "chat" || data?.type === "chat:message") &&
-          (data?.conversationId || data?.resourceId)
-        ) {
-          if (navigationRef?.isReady?.()) {
-            (navigationRef.navigate as any)("Chat", {
-              conversationId: data.conversationId || data.resourceId,
-              otherUserId: data.otherUserId || undefined,
-              otherUser: data.otherUser || undefined,
-            });
-            return;
-          }
-        }
-
-        // ── Chat invite deep-link (game invites inside chat) ────────────
-        if (data?.type === "chat:invite" && data?.conversationId) {
-          if (navigationRef?.isReady?.()) {
-            (navigationRef.navigate as any)("Chat", {
-              conversationId: data.conversationId,
-              otherUserId: data.otherUserId || undefined,
-              otherUser: data.otherUser || undefined,
-            });
-            return;
-          }
-        }
-
-        // ── Post deep-link (mentions, replies, likes, comments) ────────
-        if (data?.resourceType === "post" && data?.resourceId) {
-          try {
-            const { postsService } = require("../services/posts.service");
-            const res = await postsService.getPost(data.resourceId);
-            const post = res?.data;
-            if (post && navigationRef?.isReady?.()) {
-              (navigationRef.navigate as any)("PostDetail", {
-                post,
-                commentId: data.commentId,
-                feedContext: "notifications",
+          // ── Chat message deep-link ──────────────────────────────────────
+          if (
+            (data?.resourceType === "chat" || data?.type === "chat:message") &&
+            (data?.conversationId || data?.resourceId)
+          ) {
+            if (navigationRef?.isReady?.()) {
+              (navigationRef.navigate as any)("Chat", {
+                conversationId: data.conversationId || data.resourceId,
+                otherUserId: data.otherUserId || undefined,
+                otherUser: data.otherUser || undefined,
               });
               return;
             }
-          } catch (e) {
-            // Post gone / offline → fall through to the notifications list.
           }
-        }
 
-        // ── Follow / generic notification → notifications list ──────────
-        notificationBus.emit(NOTIF_EVENTS.OPEN, data);
-        if (navigationRef?.isReady?.()) {
-          (navigationRef.navigate as any)("Main", {
-            screen: "Home",
-            params: { screen: "Notifications" },
-          });
-        }
-      },
-    );
+          // ── Chat invite deep-link (game invites inside chat) ────────────
+          if (data?.type === "chat:invite" && data?.conversationId) {
+            if (navigationRef?.isReady?.()) {
+              (navigationRef.navigate as any)("Chat", {
+                conversationId: data.conversationId,
+                otherUserId: data.otherUserId || undefined,
+                otherUser: data.otherUser || undefined,
+              });
+              return;
+            }
+          }
 
-    // Foreground system notifications → render as an in-app banner.
-    const notifSub = Notifications.addNotificationReceivedListener(
-      (notification) => {
-        handleIncoming(
-          (notification.request.content.data || {
-            id: String(Date.now()),
-            title: notification.request.content.title,
-            message: notification.request.content.body,
-            type: "system",
-          }) as NotificationNewPayload,
-        );
-      },
-    );
+          // ── Post deep-link (mentions, replies, likes, comments) ────────
+          if (data?.resourceType === "post" && data?.resourceId) {
+            try {
+              const { postsService } = require("../services/posts.service");
+              const res = await postsService.getPost(data.resourceId);
+              const post = res?.data;
+              if (post && navigationRef?.isReady?.()) {
+                (navigationRef.navigate as any)("PostDetail", {
+                  post,
+                  commentId: data.commentId,
+                  feedContext: "notifications",
+                });
+                return;
+              }
+            } catch (e) {
+              // Post gone / offline → fall through to the notifications list.
+            }
+          }
+
+          // ── Follow / generic notification → notifications list ──────────
+          notificationBus.emit(NOTIF_EVENTS.OPEN, data);
+          if (navigationRef?.isReady?.()) {
+            (navigationRef.navigate as any)("Main", {
+              screen: "Home",
+              params: { screen: "Notifications" },
+            });
+          }
+        },
+      );
+
+      // Foreground system notifications → render as an in-app banner.
+      notifSub = Notifications.addNotificationReceivedListener(
+        (notification) => {
+          handleIncoming(
+            (notification.request.content.data || {
+              id: String(Date.now()),
+              title: notification.request.content.title,
+              message: notification.request.content.body,
+              type: "system",
+            }) as NotificationNewPayload,
+          );
+        },
+      );
+    })();
 
     return () => {
-      responseSub.remove();
-      notifSub.remove();
+      isCancelled = true;
+      responseSub?.remove();
+      notifSub?.remove();
       stopTokenRefreshListener();
     };
   }, [isLoggedIn, handleIncoming, clearUnread, user?.id, switchAccount]);
@@ -284,10 +285,6 @@ export function NotificationProvider({
   // ── Multi-account background unread checks ──────────────────────────────
   useEffect(() => {
     const handleDeviceUnreadStatus = (statusMap: Record<string, boolean>) => {
-      // Do NOT delete the active user from this map!
-      // The UI components (SideDrawer/MainHeader) explicitly filter out the active
-      // user when deciding whether to show a red dot. If we delete it here, switching
-      // accounts causes us to lose the previous account's state.
       setInactiveUnreadStatus(statusMap);
     };
     deviceSocketClient.events.on(
@@ -295,8 +292,6 @@ export function NotificationProvider({
       handleDeviceUnreadStatus,
     );
 
-    // When the active user changes (e.g. on account switch), immediately ask the
-    // device socket for fresh counts so the new "inactive" accounts reflect properly.
     if (user?.id) {
       deviceSocketClient.fetchUnread();
     }

@@ -10,7 +10,7 @@ import {
   Image,
   Platform,
 } from "react-native";
-import { MentionInput } from "react-native-controlled-mentions";
+import ControlledMentionsInput from "./ControlledMentionsInput";
 import { colors, fontSizes, radii, spacing } from "../../theme";
 import { hashtagService } from "../../services/hashtag.service";
 import { userService } from "../../services/user.service";
@@ -383,7 +383,7 @@ const SmartInput = React.forwardRef<any, SmartInputProps>(function SmartInput(
   return (
     <View style={[styles.container, containerStyle]}>
       {suggestionPosition === "top" && renderSuggestions()}
-      <MentionInput
+      <ControlledMentionsInput
         ref={ref}
         style={style}
         placeholder={placeholder}

@@ -1,6 +1,5 @@
 import { Platform } from "react-native";
 import * as Device from "expo-device";
-import * as Notifications from "expo-notifications";
 import * as SecureStore from "expo-secure-store";
 import Constants from "expo-constants";
 import { apiClient } from "./apiClient";
@@ -13,28 +12,53 @@ export function setActiveUserIdForPush(userId: string | null) {
   activeUserIdForPush = userId;
 }
 
-// Foreground notifications: we render our own in-app banner for the ACTIVE account,
-// so we don't double up with the OS alert. But if a push arrives for an INACTIVE
-// account, we show the standard OS banner so the user can see it and tap to switch.
-try {
-  Notifications.setNotificationHandler({
-    handleNotification: async (notification) => {
-      const data = notification.request.content.data || {};
-      const isForOtherUser = !!(
-        data.recipientId &&
-        String(data.recipientId) !== String(activeUserIdForPush)
-      );
+export const isExpoGo = Constants.expoGoConfig !== null;
+export const isSupportedNativeNotifications =
+  Platform.OS !== "web" && !isExpoGo;
 
-      return {
-        shouldShowBanner: isForOtherUser,
-        shouldShowList: true,
-        shouldPlaySound: isForOtherUser,
-        shouldSetBadge: false,
-      };
-    },
-  });
-} catch (e) {
-  warn("Failed to set notification handler", e);
+let notificationsModulePromise: Promise<
+  typeof import("expo-notifications") | null
+> | null = null;
+
+export async function getNotificationsModule() {
+  if (!isSupportedNativeNotifications) return null;
+  if (!notificationsModulePromise) {
+    notificationsModulePromise = import("expo-notifications")
+      .then((mod) => {
+        setupNotificationHandler(mod);
+        return mod;
+      })
+      .catch((e) => {
+        warn("Failed to load expo-notifications module dynamically", e);
+        return null;
+      });
+  }
+  return notificationsModulePromise;
+}
+
+function setupNotificationHandler(
+  Notifications: typeof import("expo-notifications"),
+) {
+  try {
+    Notifications.setNotificationHandler({
+      handleNotification: async (notification) => {
+        const data = notification.request.content.data || {};
+        const isForOtherUser = !!(
+          data.recipientId &&
+          String(data.recipientId) !== String(activeUserIdForPush)
+        );
+
+        return {
+          shouldShowBanner: isForOtherUser,
+          shouldShowList: true,
+          shouldPlaySound: isForOtherUser,
+          shouldSetBadge: false,
+        };
+      },
+    });
+  } catch (e) {
+    warn("Failed to set notification handler", e);
+  }
 }
 
 const isAndroid = Platform.OS === "android";
@@ -73,6 +97,9 @@ export async function rotateSessionId(): Promise<string> {
 // Creates the default Android notification channel (required on Android 8+).
 async function ensureAndroidChannel() {
   if (!isAndroid) return;
+  const Notifications = await getNotificationsModule();
+  if (!Notifications) return;
+
   try {
     await Notifications.setNotificationChannelAsync("default", {
       name: "Default",
@@ -98,6 +125,9 @@ export async function registerForPushNotificationsAsync(): Promise<
       warn("Push tokens only work on physical devices");
       return null;
     }
+
+    const Notifications = await getNotificationsModule();
+    if (!Notifications) return null;
 
     await ensureAndroidChannel();
 
@@ -145,12 +175,13 @@ export async function registerForPushNotificationsAsync(): Promise<
 }
 
 // ── Android token refresh listener ───────────────────────────────────────────
-let tokenRefreshSubscription: ReturnType<
-  typeof Notifications.addPushTokenListener
-> | null = null;
+let tokenRefreshSubscription: { remove: () => void } | null = null;
 
-export function startTokenRefreshListener() {
+export async function startTokenRefreshListener() {
   if (tokenRefreshSubscription) return;
+
+  const Notifications = await getNotificationsModule();
+  if (!Notifications) return;
 
   try {
     tokenRefreshSubscription = Notifications.addPushTokenListener(
@@ -188,6 +219,8 @@ export function stopTokenRefreshListener() {
 /** Clears the app icon badge (iOS). */
 export async function clearPushBadge() {
   try {
+    const Notifications = await getNotificationsModule();
+    if (!Notifications) return;
     await Notifications.setBadgeCountAsync(0);
   } catch {
     // not supported on all platforms

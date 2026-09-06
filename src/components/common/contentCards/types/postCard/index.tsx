@@ -13,9 +13,12 @@ export default function PostCardWrapper({
   ctx: FeedCtx;
   index: number;
 }) {
+  const itemData = item?.data || item;
+  if (!itemData || (!itemData.id && !item?.id)) return null;
+
   const post = {
-    ...item.data,
-    highlight_content: item.highlight?.content || (item.highlight as any)?.title,
+    ...itemData,
+    highlight_content: item?.highlight?.content || (item?.highlight as any)?.title,
   } as any;
   
   // ContentItem.id is always the bare UUID (SSOT).

@@ -4,8 +4,9 @@ import * as Notifications from "expo-notifications";
 import * as SecureStore from "expo-secure-store";
 import Constants from "expo-constants";
 import { apiClient } from "./apiClient";
-import { log, warn, info } from '../utils/logger';
+import { log, warn, info } from "../utils/logger";
 import * as Crypto from "expo-crypto";
+
 let activeUserIdForPush: string | null = null;
 
 export function setActiveUserIdForPush(userId: string | null) {
@@ -15,19 +16,26 @@ export function setActiveUserIdForPush(userId: string | null) {
 // Foreground notifications: we render our own in-app banner for the ACTIVE account,
 // so we don't double up with the OS alert. But if a push arrives for an INACTIVE
 // account, we show the standard OS banner so the user can see it and tap to switch.
-Notifications.setNotificationHandler({
-  handleNotification: async (notification) => {
-    const data = notification.request.content.data || {};
-    const isForOtherUser = !!(data.recipientId && String(data.recipientId) !== String(activeUserIdForPush));
-    
-    return {
-      shouldShowBanner: isForOtherUser,
-      shouldShowList: true,
-      shouldPlaySound: isForOtherUser,
-      shouldSetBadge: false,
-    };
-  },
-});
+try {
+  Notifications.setNotificationHandler({
+    handleNotification: async (notification) => {
+      const data = notification.request.content.data || {};
+      const isForOtherUser = !!(
+        data.recipientId &&
+        String(data.recipientId) !== String(activeUserIdForPush)
+      );
+
+      return {
+        shouldShowBanner: isForOtherUser,
+        shouldShowList: true,
+        shouldPlaySound: isForOtherUser,
+        shouldSetBadge: false,
+      };
+    },
+  });
+} catch (e) {
+  warn("Failed to set notification handler", e);
+}
 
 const isAndroid = Platform.OS === "android";
 
@@ -72,16 +80,19 @@ async function ensureAndroidChannel() {
       vibrationPattern: [0, 250, 250, 250],
       lightColor: "#7C3AED",
     });
-  } catch (e) {      warn("Failed to create notification channel", e);
+  } catch (e) {
+    warn("Failed to create notification channel", e);
   }
 }
 
 /**
  * Requests permission and registers this device with the backend so push
- * notifications can be delivered.  Returns the Expo push token (or null when
- * unavailable — e.g. simulator, permission denied, or web).
+ * notifications can be delivered. Returns the Expo push token (or null when
+ * unavailable — e.g. simulator, permission denied, or web/Expo Go).
  */
-export async function registerForPushNotificationsAsync(): Promise<string | null> {
+export async function registerForPushNotificationsAsync(): Promise<
+  string | null
+> {
   try {
     if (!Device.isDevice) {
       warn("Push tokens only work on physical devices");
@@ -90,7 +101,8 @@ export async function registerForPushNotificationsAsync(): Promise<string | null
 
     await ensureAndroidChannel();
 
-    const { status: existingStatus } = await Notifications.getPermissionsAsync();
+    const { status: existingStatus } =
+      await Notifications.getPermissionsAsync();
     let finalStatus = existingStatus;
     if (existingStatus !== "granted") {
       const { status } = await Notifications.requestPermissionsAsync();
@@ -140,24 +152,30 @@ let tokenRefreshSubscription: ReturnType<
 export function startTokenRefreshListener() {
   if (tokenRefreshSubscription) return;
 
-  tokenRefreshSubscription = Notifications.addPushTokenListener(
-    async (newToken) => {
-      try {
-        info("[PushNotification] Token refreshed, re-registering with backend");
-        const deviceId = await getOrCreateDeviceId();
-        const sessionId = await getOrCreateSessionId();
-        await apiClient.post("/push-notification/register", {
-          pushToken: newToken.data,
-          pushProvider: "expo",
-          deviceId,
-          sessionId,
-          platform: isAndroid ? "android" : "ios",
-        });
-      } catch (e) {
-        warn("Failed to re-register refreshed push token", e);
-      }
-    },
-  );
+  try {
+    tokenRefreshSubscription = Notifications.addPushTokenListener(
+      async (newToken) => {
+        try {
+          info(
+            "[PushNotification] Token refreshed, re-registering with backend",
+          );
+          const deviceId = await getOrCreateDeviceId();
+          const sessionId = await getOrCreateSessionId();
+          await apiClient.post("/push-notification/register", {
+            pushToken: newToken.data,
+            pushProvider: "expo",
+            deviceId,
+            sessionId,
+            platform: isAndroid ? "android" : "ios",
+          });
+        } catch (e) {
+          warn("Failed to re-register refreshed push token", e);
+        }
+      },
+    );
+  } catch (e) {
+    warn("Failed to add push token listener", e);
+  }
 }
 
 export function stopTokenRefreshListener() {

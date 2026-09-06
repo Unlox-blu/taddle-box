@@ -1,4 +1,4 @@
-import React, { useState, useCallback, useRef, useEffect, memo } from "react";
+import React, { useState, useCallback, useRef, useEffect, memo, useMemo } from "react";
 import {
   View,
   Text,
@@ -32,6 +32,8 @@ import {
 import { warn } from "../../utils/logger";
 import { notificationBus } from "../../lib/notificationBus";
 
+import * as Clipboard from 'expo-clipboard';
+
 const REACTION_EMOJIS = ["❤️", "😂", "😮", "😢", "🔥", "👍"];
 
 const formatMsgTime = (dateStr: string) => {
@@ -39,22 +41,138 @@ const formatMsgTime = (dateStr: string) => {
   return d.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" });
 };
 
-// ─── Floating Reaction Picker ─────────────────────────────────────────────────
+const formatInstagramTime = (dateStr?: string | null) => {
+  if (!dateStr) return "";
+  const d = new Date(dateStr);
+  const now = new Date();
+  const diffMs = now.getTime() - d.getTime();
+  if (isNaN(diffMs) || diffMs < 0) return "1m";
+  const diffMins = Math.floor(diffMs / 60000);
+  if (diffMins < 1) return "1m";
+  if (diffMins < 60) return `${diffMins}m`;
+  const diffHrs = Math.floor(diffMins / 60);
+  if (diffHrs < 24) return `${diffHrs}h`;
+  const diffDays = Math.floor(diffHrs / 24);
+  if (diffDays < 7) return `${diffDays}d`;
+  const diffWeeks = Math.floor(diffDays / 7);
+  return `${diffWeeks}w`;
+};
+
+const formatFullDateTime = (dateStr?: string | null) => {
+  if (!dateStr) return "";
+  const d = new Date(dateStr);
+  return d.toLocaleString("en-US", {
+    month: "short",
+    day: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+    hour12: true,
+  });
+};
+
+// ─── Rolling Header Subtitle Component ─────────────────────────────────────────
+const RollingSubtitle = memo(
+  ({
+    handle,
+    status,
+    colors,
+  }: {
+    handle?: string;
+    status?: string | null;
+    colors: any;
+  }) => {
+    const items = useMemo(() => {
+      const list: string[] = [];
+      if (handle) list.push(`@${handle.replace(/^@/, "")}`);
+      if (status) list.push(status);
+      return list;
+    }, [handle, status]);
+
+    const [currentIndex, setCurrentIndex] = useState(0);
+    const translateY = useRef(new Animated.Value(0)).current;
+    const opacity = useRef(new Animated.Value(1)).current;
+
+    useEffect(() => {
+      if (items.length <= 1) return;
+
+      const interval = setInterval(() => {
+        Animated.parallel([
+          Animated.timing(translateY, {
+            toValue: -12,
+            duration: 250,
+            useNativeDriver: true,
+          }),
+          Animated.timing(opacity, {
+            toValue: 0,
+            duration: 250,
+            useNativeDriver: true,
+          }),
+        ]).start(() => {
+          setCurrentIndex((prev) => (prev + 1) % items.length);
+          translateY.setValue(12);
+          Animated.parallel([
+            Animated.timing(translateY, {
+              toValue: 0,
+              duration: 250,
+              useNativeDriver: true,
+            }),
+            Animated.timing(opacity, {
+              toValue: 1,
+              duration: 250,
+              useNativeDriver: true,
+            }),
+          ]).start();
+        });
+      }, 3000);
+
+      return () => clearInterval(interval);
+    }, [items, translateY, opacity]);
+
+    if (items.length === 0) return null;
+
+    return (
+      <View style={{ height: 16, overflow: "hidden", justifyContent: "center" }}>
+        <Animated.Text
+          style={[
+            styles.headerSubtitle,
+            {
+              color: colors.text.secondary,
+              transform: [{ translateY }],
+              opacity,
+            },
+          ]}
+          numberOfLines={1}
+        >
+          {items[currentIndex] || ""}
+        </Animated.Text>
+      </View>
+    );
+  }
+);
+
+// ─── Floating Reaction & Message Action Picker ─────────────────────────────────
 const ReactionPicker = memo(
   ({
     visible,
     positionY,
+    isOwn,
+    createdAt,
     onReact,
+    onOptions,
     onDismiss,
     colors,
   }: {
     visible: boolean;
     positionY: number;
+    isOwn: boolean;
+    createdAt?: string;
     onReact: (emoji: string) => void;
+    onOptions: () => void;
     onDismiss: () => void;
     colors: any;
   }) => {
-    const { width, height } = useWindowDimensions();
+    const { height } = useWindowDimensions();
+    const insets = useSafeAreaInsets();
     const anim = useRef(new Animated.Value(0)).current;
 
     useEffect(() => {
@@ -66,7 +184,15 @@ const ReactionPicker = memo(
       }).start();
     }, [visible]);
 
-    // Always render — use pointerEvents to block touches when hidden
+    // Position floating picker directly above the long-pressed message bubble
+    const pickerTop = Math.max(
+      insets.top + 50,
+      Math.min(positionY - 70, height - 160)
+    );
+
+    const fullDate = formatFullDateTime(createdAt);
+    const dateLabel = fullDate ? (isOwn ? `Sent: ${fullDate}` : `Received: ${fullDate}`) : "";
+
     return (
       <View
         style={StyleSheet.absoluteFill}
@@ -81,36 +207,84 @@ const ReactionPicker = memo(
         )}
         <Animated.View
           style={[
-            styles.floatingPicker,
+            styles.floatingPickerWrap,
             {
-              backgroundColor: colors.bg.surface,
-              borderColor: colors.border,
-              // Center horizontally, position vertically in middle of screen
-              top: height / 2 - 30,
-              left: width / 2 - 156,
+              top: pickerTop,
+              ...(isOwn
+                ? { right: spacing.md, alignItems: "flex-end" }
+                : { left: spacing.md, alignItems: "flex-start" }),
               opacity: anim,
               transform: [{ scale: anim }],
             },
           ]}
           pointerEvents={visible ? "auto" : "none"}
         >
-          {REACTION_EMOJIS.map((emoji) => (
+          {/* Time Badge pill above floating bar */}
+          {dateLabel ? (
+            <View
+              style={[
+                styles.pickerTimeBadge,
+                {
+                  backgroundColor: colors.bg.surface,
+                  borderColor: colors.border,
+                },
+              ]}
+            >
+              <Ionicons name="time-outline" size={11} color={colors.text.muted} />
+              <Text style={[styles.pickerTimeText, { color: colors.text.secondary }]}>
+                {dateLabel}
+              </Text>
+            </View>
+          ) : null}
+
+          {/* Reaction & Action Bar */}
+          <View
+            style={[
+              styles.floatingPicker,
+              {
+                backgroundColor: colors.bg.surface,
+                borderColor: colors.border,
+              },
+            ]}
+          >
+            {REACTION_EMOJIS.map((emoji) => (
+              <TouchableOpacity
+                key={emoji}
+                style={styles.pickerEmoji}
+                onPress={() => onReact(emoji)}
+                activeOpacity={0.7}
+              >
+                <Text style={styles.pickerEmojiText}>{emoji}</Text>
+              </TouchableOpacity>
+            ))}
+
+            {/* Divider line */}
+            <View
+              style={{
+                width: 1,
+                height: 22,
+                backgroundColor: colors.border,
+                alignSelf: "center",
+                marginHorizontal: 3,
+              }}
+            />
+
+            {/* 3-Dot Action Button (Vertical) */}
             <TouchableOpacity
-              key={emoji}
               style={styles.pickerEmoji}
-              onPress={() => onReact(emoji)}
+              onPress={onOptions}
               activeOpacity={0.7}
             >
-              <Text style={styles.pickerEmojiText}>{emoji}</Text>
+              <Ionicons name="ellipsis-vertical" size={20} color={colors.text.primary} />
             </TouchableOpacity>
-          ))}
+          </View>
         </Animated.View>
       </View>
     );
   },
 );
 
-// ─── Shared Post Card ─────────────────────────────────────────────────────────
+// ─── Shared Post Card (Instagram Chat Feed Style) ──────────────────────────────
 const SharedPostCard = memo(
   ({
     item,
@@ -124,46 +298,97 @@ const SharedPostCard = memo(
     colors: any;
     cardWidth: number;
     onPress: () => void;
-  }) => (
-    <View
-      style={[
-        styles.sharedPostCard,
-        {
-          width: cardWidth,
-          backgroundColor: colors.bg.card,
-          borderColor: own ? "rgba(124,58,237,0.3)" : colors.border,
-          borderLeftColor: own ? colors.primaryLight : colors.primary,
-        },
-      ]}
-    >
-      {/* Author name */}
-      <View style={styles.sharedPostAuthorRow}>
-        <Text style={[styles.sharedPostAuthorName, { color: colors.text.primary }]}>
-          {item.shared_post_author_name || "Post"}
-        </Text>
+  }) => {
+    const isRepost = !!item.orig_post_id;
+
+    // Reposted Author (the person who reposted) or Direct Post Author
+    const reposterName = item.shared_post_author_name || "Post";
+    const reposterUsername = item.shared_post_author_username ? `@${item.shared_post_author_username}` : "";
+    const reposterAvatar = item.shared_post_author_avatar;
+
+    // Original Author (the creator of the original post being reposted)
+    const origAuthorName = item.orig_post_author_name || "Original Author";
+    const origAuthorUsername = item.orig_post_author_username ? `@${item.orig_post_author_username}` : "";
+    const origAuthorAvatar = item.orig_post_author_avatar;
+
+    // Post content & title
+    const postTitle = isRepost ? (item.orig_post_title || item.shared_post_title) : item.shared_post_title;
+    const postContent = isRepost ? (item.orig_post_content || item.shared_post_content) : item.shared_post_content;
+
+    return (
+      <View
+        style={[
+          styles.sharedPostCard,
+          {
+            width: cardWidth,
+            backgroundColor: colors.bg.card,
+            borderColor: own ? "rgba(124,58,237,0.35)" : colors.border,
+            borderLeftColor: own ? colors.primaryLight : colors.primary,
+          },
+        ]}
+      >
+        {/* Top Author Row: Reposted Author (UP) */}
+        <View style={styles.sharedPostAuthorRow}>
+          <View style={styles.sharedPostAvatarWrap}>
+            {reposterAvatar ? (
+              <Image source={{ uri: reposterAvatar }} style={styles.sharedPostAvatar} contentFit="cover" />
+            ) : (
+              <View style={[styles.sharedPostAvatar, { backgroundColor: colors.bg.elevated, alignItems: "center", justifyContent: "center" }]}>
+                <Text style={{ fontSize: 12 }}>👾</Text>
+              </View>
+            )}
+          </View>
+          <View style={{ flex: 1 }}>
+            <View style={{ flexDirection: "row", alignItems: "center", gap: 4 }}>
+              {isRepost && <Ionicons name="repeat" size={13} color={colors.primaryLight} />}
+              <Text style={[styles.sharedPostAuthorName, { color: colors.text.primary }]} numberOfLines={1}>
+                {reposterName}
+              </Text>
+            </View>
+            {reposterUsername ? (
+              <Text style={[styles.sharedPostAuthorUsername, { color: colors.text.secondary }]} numberOfLines={1}>
+                {reposterUsername}
+              </Text>
+            ) : null}
+          </View>
+        </View>
+
+        {/* Second Row: Original Author (DOWN) - only for reposts */}
+        {isRepost && (
+          <View style={[styles.repostedAuthorSubRow, { backgroundColor: colors.bg.elevated }]}>
+            {origAuthorAvatar ? (
+              <Image source={{ uri: origAuthorAvatar }} style={styles.repostMiniAvatar} contentFit="cover" />
+            ) : null}
+            <Text style={[styles.repostedAuthorSubText, { color: colors.text.secondary }]} numberOfLines={1}>
+              Original post by <Text style={{ fontWeight: "700", color: colors.text.primary }}>{origAuthorName}</Text>
+              {origAuthorUsername ? ` (${origAuthorUsername})` : ""}
+            </Text>
+          </View>
+        )}
+
+        {/* Title & Content */}
+        {postTitle ? (
+          <Text style={[styles.sharedPostTitle, { color: colors.text.primary }]} numberOfLines={2}>
+            {postTitle}
+          </Text>
+        ) : null}
+        {postContent ? (
+          <Text style={[styles.sharedPostContent, { color: colors.text.secondary }]} numberOfLines={3}>
+            {postContent}
+          </Text>
+        ) : null}
+
+        {/* Media Thumbnail */}
+        {item.shared_post_media_url && (
+          <Image
+            source={{ uri: item.shared_post_media_url }}
+            style={styles.sharedPostThumb}
+            contentFit="cover"
+          />
+        )}
       </View>
-
-      {/* Title or content */}
-      {item.shared_post_title ? (
-        <Text style={[styles.sharedPostTitle, { color: colors.text.primary }]} numberOfLines={2}>
-          {item.shared_post_title}
-        </Text>
-      ) : item.shared_post_content ? (
-        <Text style={[styles.sharedPostContent, { color: colors.text.secondary }]} numberOfLines={3}>
-          {item.shared_post_content}
-        </Text>
-      ) : null}
-
-      {/* Media thumbnail */}
-      {item.shared_post_media_url && (
-        <Image
-          source={{ uri: item.shared_post_media_url }}
-          style={styles.sharedPostThumb}
-          contentFit="cover"
-        />
-      )}
-    </View>
-  ),
+    );
+  },
 );
 
 // ─── Game Invite Card ─────────────────────────────────────────────────────────
@@ -180,73 +405,83 @@ const GameInviteCard = memo(
     colors: any;
     cardWidth: number;
     onPress: () => void;
-  }) => (
-    <View
-      style={[
-        styles.gameInviteCard,
-        {
-          width: cardWidth,
-          backgroundColor: own
-            ? "rgba(124,58,237,0.15)"
-            : "rgba(15,10,40,0.85)",
-          borderColor: own ? "rgba(124,58,237,0.4)" : "rgba(124,58,237,0.25)",
-        },
-      ]}
-    >
-      <View style={styles.gameInviteTop}>
-        <View
-          style={[
-            styles.gameInviteIcon,
-            { backgroundColor: "rgba(124,58,237,0.2)" },
-          ]}
-        >
-          <Ionicons name="game-controller" size={22} color="#A78BFA" />
-        </View>
-        <View style={{ flex: 1 }}>
-          <Text
+  }) => {
+    const gameLogo = item.game_thumbnail || item.game_banner_url;
+
+    return (
+      <View
+        style={[
+          styles.gameInviteCard,
+          {
+            width: cardWidth,
+            backgroundColor: own
+              ? "rgba(124,58,237,0.15)"
+              : "rgba(15,10,40,0.85)",
+            borderColor: own ? "rgba(124,58,237,0.4)" : "rgba(124,58,237,0.25)",
+          },
+        ]}
+      >
+        <View style={styles.gameInviteTop}>
+          <View
             style={[
-              styles.gameInviteName,
-              { color: own ? "#A78BFA" : "#C4B5FD" },
+              styles.gameInviteIcon,
+              { backgroundColor: "rgba(124,58,237,0.2)", overflow: "hidden" },
             ]}
           >
-            {item.game_name || "Game Invite"}
-          </Text>
-          <Text
-            style={[styles.gameInviteSub, { color: "rgba(196,181,253,0.6)" }]}
+            {gameLogo ? (
+              <Image source={{ uri: gameLogo }} style={{ width: "100%", height: "100%" }} contentFit="cover" />
+            ) : (
+              <Ionicons name="game-controller" size={22} color="#A78BFA" />
+            )}
+          </View>
+          <View style={{ flex: 1 }}>
+            <Text
+              style={[
+                styles.gameInviteName,
+                { color: own ? "#A78BFA" : "#C4B5FD" },
+              ]}
+              numberOfLines={1}
+            >
+              {item.game_name || "Game Invite"}
+            </Text>
+            <Text
+              style={[styles.gameInviteSub, { color: "rgba(196,181,253,0.6)" }]}
+              numberOfLines={1}
+            >
+              {own ? "You sent an invite" : "You've been invited to play!"}
+            </Text>
+          </View>
+        </View>
+        {item.game_invite_code && (
+          <View
+            style={[
+              styles.inviteCodePill,
+              { backgroundColor: "rgba(124,58,237,0.15)" },
+            ]}
           >
-            {own ? "You sent an invite" : "You've been invited to play!"}
+            <Text style={[styles.inviteCodeText, { color: "#A78BFA" }]}>
+              Code: {item.game_invite_code}
+            </Text>
+          </View>
+        )}
+        {!own && (
+          <TouchableOpacity
+            style={[styles.joinBtn, { backgroundColor: "#7C3AED" }]}
+            onPress={onPress}
+            activeOpacity={0.85}
+          >
+            <Ionicons name="play" size={14} color="#fff" />
+            <Text style={styles.joinBtnText}>Join Game</Text>
+          </TouchableOpacity>
+        )}
+        {own && (
+          <Text style={[styles.waitingText, { color: "rgba(196,181,253,0.5)" }]}>
+            Waiting for response...
           </Text>
-        </View>
+        )}
       </View>
-      {item.game_invite_code && (
-        <View
-          style={[
-            styles.inviteCodePill,
-            { backgroundColor: "rgba(124,58,237,0.15)" },
-          ]}
-        >
-          <Text style={[styles.inviteCodeText, { color: "#A78BFA" }]}>
-            Code: {item.game_invite_code}
-          </Text>
-        </View>
-      )}
-      {!own && (
-        <TouchableOpacity
-          style={[styles.joinBtn, { backgroundColor: "#7C3AED" }]}
-          onPress={onPress}
-          activeOpacity={0.85}
-        >
-          <Ionicons name="play" size={14} color="#fff" />
-          <Text style={styles.joinBtnText}>Join Game</Text>
-        </TouchableOpacity>
-      )}
-      {own && (
-        <Text style={[styles.waitingText, { color: "rgba(196,181,253,0.5)" }]}>
-          Waiting for response...
-        </Text>
-      )}
-    </View>
-  ),
+    );
+  },
 );
 
 // ─── Message Bubble ───────────────────────────────────────────────────────────
@@ -267,7 +502,7 @@ const MessageBubble = memo(
     colors: any;
     cardWidth: number;
     isLongPressed: boolean;
-    onLongPress: (id: string, y: number) => void;
+    onLongPress: (id: string, y: number, own: boolean) => void;
     onReact: (id: string, emoji: string) => void;
     onOpenPost: (id: string) => void;
     onJoinGame: () => void;
@@ -281,6 +516,17 @@ const MessageBubble = memo(
     const isCard =
       item.message_type === "post" || item.message_type === "game_invite";
     const rowYRef = useRef(0);
+    const bubbleRef = useRef<View>(null);
+
+    const handleLongPress = useCallback(() => {
+      if (bubbleRef.current && typeof bubbleRef.current.measureInWindow === "function") {
+        bubbleRef.current.measureInWindow((_x, y, _w, _h) => {
+          onLongPress(item.id, y > 0 ? y : rowYRef.current, own);
+        });
+      } else {
+        onLongPress(item.id, rowYRef.current, own);
+      }
+    }, [item.id, own, onLongPress]);
 
     const renderContent = () => {
       if (item.message_type === "post") {
@@ -326,6 +572,7 @@ const MessageBubble = memo(
         }}
       >
         <Pressable
+          ref={bubbleRef as any}
           onPress={
             item.message_type === "post" && postId
               ? () => onOpenPost(postId)
@@ -333,7 +580,7 @@ const MessageBubble = memo(
                 ? onJoinGame
                 : undefined
           }
-          onLongPress={() => onLongPress(item.id, rowYRef.current)}
+          onLongPress={handleLongPress}
           delayLongPress={350}
           style={[
             isCard ? styles.msgBubbleCard : styles.msgBubble,
@@ -430,7 +677,11 @@ export default function ChatScreen() {
   } = route.params || {};
 
   const activeStatus = useActiveStatus(otherUserId);
-  const statusLabel = activeStatusLabel(activeStatus);
+  const statusLabel =
+    activeStatusLabel(activeStatus) ||
+    (activeStatus?.lastSeen
+      ? `Active ${formatInstagramTime(activeStatus.lastSeen)} ago`
+      : null);
 
   useEffect(() => {
     notificationBus.emit("chatScreenOpen");
@@ -443,6 +694,7 @@ export default function ChatScreen() {
   const [loading, setLoading] = useState(true);
   const [pickerMsgId, setPickerMsgId] = useState<string | null>(null);
   const [pickerY, setPickerY] = useState(0);
+  const [pickerIsOwn, setPickerIsOwn] = useState(false);
   const flatListRef = useRef<any>(null);
 
   const fetchMessages = useCallback(async () => {
@@ -477,7 +729,9 @@ export default function ChatScreen() {
 
   useEffect(() => {
     const handleMessage = (msg: any) => {
-      if (msg.conversationId === conversationId && msg.sender_id !== user?.id) {
+      if (msg.type === "chat:message_deleted") {
+        setMessages((prev) => prev.filter((m) => m.id !== msg.messageId));
+      } else if (msg.conversationId === conversationId && msg.sender_id !== user?.id) {
         setMessages((prev) => [...prev, msg]);
       }
     };
@@ -520,9 +774,74 @@ export default function ChatScreen() {
     [],
   );
 
-  const handleLongPress = useCallback((id: string, y: number) => {
+  const handleDeleteMessage = useCallback(async (messageId: string) => {
+    setPickerMsgId(null);
+    themedAlert(
+      "Delete Message",
+      "Are you sure you want to delete this message?",
+      [
+        { text: "Cancel", style: "cancel" },
+        {
+          text: "Delete",
+          style: "destructive",
+          onPress: async () => {
+            try {
+              await chatService.deleteMessage(messageId);
+              setMessages((prev) => prev.filter((m) => m.id !== messageId));
+            } catch (e: any) {
+              themedAlert(
+                "Error",
+                e?.response?.data?.message || "Failed to delete message."
+              );
+            }
+          },
+        },
+      ]
+    );
+  }, []);
+
+  const handleMessageOptions = useCallback(
+    (message: ChatMessage) => {
+      setPickerMsgId(null);
+      const isOwn = message.sender_id === user?.id;
+      const timeStr = formatFullDateTime(message.created_at);
+
+      const options: any[] = [
+        {
+          text: "Copy Text",
+          onPress: () => {
+            if (message.content) {
+              Clipboard.setStringAsync(message.content);
+              themedAlert("Copied", "Text copied to clipboard");
+            }
+          },
+        },
+      ];
+
+      // Only show Delete option for SENT messages, not incoming!
+      if (isOwn) {
+        options.push({
+          text: "Delete Message",
+          style: "destructive",
+          onPress: () => handleDeleteMessage(message.id),
+        });
+      }
+
+      options.push({ text: "Cancel", style: "cancel" });
+
+      themedAlert(
+        "Message Options",
+        timeStr ? (isOwn ? `Sent: ${timeStr}` : `Received: ${timeStr}`) : undefined,
+        options
+      );
+    },
+    [user?.id, handleDeleteMessage]
+  );
+
+  const handleLongPress = useCallback((id: string, y: number, own: boolean) => {
     setPickerMsgId(id);
     setPickerY(y);
+    setPickerIsOwn(own);
   }, []);
 
   const openPost = useCallback(
@@ -647,16 +966,20 @@ export default function ChatScreen() {
                 ? communityName || "Community Chat"
                 : otherUser?.name || "Chat"}
             </Text>
-            <Text
-              style={[styles.headerSubtitle, { color: colors.text.secondary }]}
-              numberOfLines={1}
-            >
-              {isCommunityChat
-                ? "Community"
-                : otherUser?.handle
-                  ? `@${otherUser.handle}${statusLabel ? " · " + statusLabel : ""}`
-                  : statusLabel || ""}
-            </Text>
+            {isCommunityChat ? (
+              <Text
+                style={[styles.headerSubtitle, { color: colors.text.secondary }]}
+                numberOfLines={1}
+              >
+                Community
+              </Text>
+            ) : (
+              <RollingSubtitle
+                handle={otherUser?.handle || otherUser?.username || otherUser?.other_user_username}
+                status={statusLabel}
+                colors={colors}
+              />
+            )}
           </View>
         </TouchableOpacity>
 
@@ -760,7 +1083,13 @@ export default function ChatScreen() {
       <ReactionPicker
         visible={!!pickerMsgId}
         positionY={pickerY}
+        isOwn={pickerIsOwn}
+        createdAt={messages.find((m) => m.id === pickerMsgId)?.created_at}
         onReact={(emoji) => pickerMsgId && handleReaction(pickerMsgId, emoji)}
+        onOptions={() => {
+          const msg = messages.find((m) => m.id === pickerMsgId);
+          if (msg) handleMessageOptions(msg);
+        }}
         onDismiss={() => setPickerMsgId(null)}
         colors={colors}
       />
@@ -920,8 +1249,28 @@ const styles = StyleSheet.create({
   reactionCount: { fontSize: 11, fontWeight: "600" },
 
   // Floating picker
-  floatingPicker: {
+  floatingPickerWrap: {
     position: "absolute",
+    gap: 6,
+  },
+  pickerTimeBadge: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: 12,
+    borderWidth: 1,
+    shadowColor: "#000",
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+    elevation: 3,
+  },
+  pickerTimeText: {
+    fontSize: 11,
+    fontWeight: "600",
+  },
+  floatingPicker: {
     flexDirection: "row",
     paddingHorizontal: 12,
     paddingVertical: 10,
@@ -955,11 +1304,45 @@ const styles = StyleSheet.create({
   },
   sharedPostLabel: { fontSize: 11, fontWeight: "700" },
   sharedPostAuthorRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
     paddingHorizontal: 12,
     paddingTop: 8,
-    paddingBottom: 2,
+    paddingBottom: 6,
+  },
+  sharedPostAvatarWrap: {
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    overflow: "hidden",
+  },
+  sharedPostAvatar: {
+    width: "100%",
+    height: "100%",
   },
   sharedPostAuthorName: { fontSize: 13, fontWeight: "700" },
+  sharedPostAuthorUsername: { fontSize: 11, fontWeight: "500" },
+  repostedAuthorSubRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    marginHorizontal: 12,
+    marginBottom: 8,
+    paddingHorizontal: 8,
+    paddingVertical: 5,
+    borderRadius: radii.md,
+  },
+  repostMiniAvatar: {
+    width: 18,
+    height: 18,
+    borderRadius: 9,
+  },
+  repostedAuthorSubText: {
+    fontSize: 11,
+    fontWeight: "500",
+    flex: 1,
+  },
   sharedPostTitle: {
     fontSize: 13,
     fontWeight: "600",
@@ -990,7 +1373,6 @@ const styles = StyleSheet.create({
     borderRadius: radii.lg,
     borderWidth: 1,
     padding: 14,
-    maxWidth: 260,
     gap: 10,
   },
   gameInviteTop: { flexDirection: "row", alignItems: "center", gap: 12 },

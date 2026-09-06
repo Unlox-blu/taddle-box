@@ -229,9 +229,10 @@ export default function GamesScreen({ route }: any) {
   const [globalMatchModalVisible, setGlobalMatchModalVisible] = useState(false);
 
   useEffect(() => {
-    const openGameId = route?.params?.openGameId;
-    if (openGameId && realGames.length > 0) {
-      const raw = String(openGameId);
+    const openGameId = route?.params?.openGameId || route?.params?.gameName;
+    const inviteCode = route?.params?.inviteCode;
+    if ((openGameId || inviteCode) && realGames.length > 0) {
+      const raw = String(openGameId || "");
       const clean = raw.replace(/^game-/, '').toLowerCase();
       const g = realGames.find(
         (game) =>
@@ -240,14 +241,15 @@ export default function GamesScreen({ route }: any) {
           game.id === clean ||
           (game.slug && game.slug.toLowerCase() === clean) ||
           (game.name && game.name.toLowerCase() === clean)
-      );
+      ) || realGames[0];
       if (g && !activeSession) {
+        if (inviteCode) setIncomingInviteCode(inviteCode);
         setSelectedGame(g);
         setMatchModalVisible(true);
-        navigation.setParams({ openGameId: undefined, autoPlay: undefined } as any);
+        navigation.setParams({ openGameId: undefined, gameName: undefined, inviteCode: undefined, autoPlay: undefined } as any);
       }
     }
-  }, [route?.params?.openGameId, route?.params?.autoPlay, realGames, navigation, activeSession]);
+  }, [route?.params?.openGameId, route?.params?.gameName, route?.params?.inviteCode, realGames, navigation, activeSession]);
 
 
 
@@ -1601,7 +1603,7 @@ function GamePlayModal({
             countdown ends. During prestart the GameStartScreen overlays on top;
             during result the component unmounts immediately, freeing all native
             memory (video players, Animated values, PanResponder, intervals). */}
-        <View style={[styles.playStage, (chatOpen || (Platform.OS === 'ios' && kbHeight > 0)) && { paddingBottom: (chatOpen ? (chatPanelH || 280) : 0) + (Platform.OS === 'ios' ? kbHeight : 0) }]}>
+        <View style={[styles.playStage, (chatOpen || kbHeight > 0) && { paddingBottom: (chatOpen ? (chatPanelH || 280) : 0) + kbHeight }]}>
           {(phase === "playing" || phase === "prestart") && session.wsToken && (
             <View
               style={{ flex: 1 }}
@@ -1728,6 +1730,7 @@ function GamePlayModal({
             onPanelLayout={(h) => setChatPanelH(h)}
             playerName={user?.username || user?.name || "You"}
             incoming={chatIncoming}
+            kbHeight={kbHeight}
             onUnread={() => {
               if (!chatOpen) setChatUnread(true);
             }}

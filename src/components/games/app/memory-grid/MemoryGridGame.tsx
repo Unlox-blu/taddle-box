@@ -62,12 +62,12 @@ export default function MemoryGridGame({
 }: Props) {
   const NATURAL_W = width;
   const NATURAL_H = height - 60;
-  const { onLayout, scale } = useGameContainer({ naturalWidth: NATURAL_W, naturalHeight: NATURAL_H, paddingX: 60 });
+  const { onLayout, scale, scaledMarginV } = useGameContainer({ naturalWidth: NATURAL_W, naturalHeight: NATURAL_H, paddingX: 60 });
   const GRID_SIZE = FALLBACK_GRID;
   const CELL_SIZE = FALLBACK_CELL;
   return (
     <View style={styles.container} onLayout={onLayout}>
-      <View style={{ width: NATURAL_W, height: NATURAL_H, transform: [{ scale }], alignSelf: "center" }}>
+      <View style={{ width: NATURAL_W, height: NATURAL_H, transform: [{ scale }], alignSelf: "center", marginVertical: scaledMarginV }}>
       <View style={[styles.header, { width: GRID_SIZE }]}>
         <View style={styles.vsContainer}>
           <View style={styles.playerSide}>

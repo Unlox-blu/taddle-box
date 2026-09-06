@@ -18,7 +18,8 @@ import React, {
   useRef,
   useState,
 } from "react";
-import { View, StyleSheet, Dimensions } from "react-native";
+import { View, StyleSheet, Dimensions, Platform, StatusBar } from "react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { FlashList, type FlashListRef } from "@shopify/flash-list";
 import {
   GestureHandlerRootView,
@@ -83,6 +84,10 @@ interface SharedReelsProps {
   hasMore?: boolean;
   /** Whether the next page is currently loading. */
   isLoading?: boolean;
+  /** Callback for top pull-to-refresh. */
+  onRefresh?: () => void;
+  /** Whether top refresh is currently in progress. */
+  refreshing?: boolean;
 }
 
 // ── SharedReels Component ────────────────────────────────────────────────────
@@ -97,7 +102,16 @@ export default function SharedReels({
   onActiveItemChange,
   hasMore = true,
   isLoading = false,
+  onRefresh,
+  refreshing = false,
 }: SharedReelsProps) {
+  // Safe area top inset for notch / status bar offset
+  const insets = useSafeAreaInsets();
+  const topInset = Math.max(
+    insets.top,
+    Platform.OS === "android" ? StatusBar.currentHeight || 24 : 24,
+  );
+
   // FlashList ref
   const flashListRef = useRef<FlashListRef<ContentItem>>(null);
 
@@ -127,8 +141,8 @@ export default function SharedReels({
   // Extract posts from items for video preloading
   const postsForPreload = useMemo(() => {
     return items
-      .filter((r) => r.itemType === "post" || r.itemType === "poll")
-      .map((r) => r.data as Post);
+      .map((r) => (r?.data ? r.data : r))
+      .filter((p): p is Post => !!p && !!p.id && (p.itemType === "post" || p.itemType === "poll" || !p.itemType));
   }, [items]);
 
   // Video preloading
@@ -138,24 +152,37 @@ export default function SharedReels({
     preloadCount: 2,
   });
 
-  // ── Swipe-down to dismiss & Bottom stretch ───────────────────────────────
+  // ── Swipe-down to dismiss & Bottom/Top stretch ───────────────────────────
   const dismissY = useSharedValue(0);
   const stretchY = useSharedValue(0);
+  const topPullY = useSharedValue(0);
   const scrollOverscrollY = useSharedValue(0);
+  const topScrollOverscrollY = useSharedValue(0);
   const thresholdHit = useSharedValue(false);
+  const topThresholdHit = useSharedValue(false);
+  const isFirstReelShared = useSharedValue(initialIndex === 0);
   const isLastReelShared = useSharedValue(
     items.length > 0 && initialIndex >= items.length - 1,
   );
   const isLoadingShared = useSharedValue(isLoading);
 
   useEffect(() => {
+    isFirstReelShared.value = activeIndex === 0;
     isLastReelShared.value =
       items.length > 0 && activeIndex >= items.length - 1;
-  }, [activeIndex, items.length, isLastReelShared]);
+  }, [activeIndex, items.length, isFirstReelShared, isLastReelShared]);
 
   useEffect(() => {
     isLoadingShared.value = isLoading;
   }, [isLoading, isLoadingShared]);
+
+  useEffect(() => {
+    if (refreshing) {
+      topPullY.value = withSpring(50, { damping: 18, stiffness: 220 });
+    } else {
+      topPullY.value = withSpring(0, { damping: 18, stiffness: 220 });
+    }
+  }, [refreshing, topPullY]);
 
   const fireHaptic = useCallback(() => {
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
@@ -167,6 +194,12 @@ export default function SharedReels({
     }
   }, [hasMore, isLoading]);
 
+  const handleTriggerRefresh = useCallback(() => {
+    if (onRefresh && !refreshing) {
+      onRefresh();
+    }
+  }, [onRefresh, refreshing]);
+
   // ── Viewability ──────────────────────────────────────────────────────────
   const viewabilityConfig = useRef({ itemVisiblePercentThreshold: 60 });
   const onViewableItemsChanged = useRef(({ viewableItems }: any) => {
@@ -174,6 +207,7 @@ export default function SharedReels({
     const newIdx = viewableItems[0].index ?? 0;
     activeIndexRef.current = newIdx;
     setActiveIndex(newIdx);
+    isFirstReelShared.value = newIdx === 0;
     isLastReelShared.value =
       itemsLengthRef.current > 0 && newIdx >= itemsLengthRef.current - 1;
 
@@ -188,18 +222,37 @@ export default function SharedReels({
     }
   }).current;
 
-  // ── Pan Gesture: Dismiss (down) & Stretch Lottie Footer (up) ─────────────
+  // ── Pan Gesture: Top pull refresh, Dismiss (down) & Bottom stretch (up) ────
   const panGesture = Gesture.Pan()
     .activeOffsetY(disableSwipeDown ? [-10, 0] : [-10, 10])
     .failOffsetX([-25, 25])
     .onUpdate((e) => {
-      // 1. Swipe down: dismiss reel modal
-      if (e.translationY > 0 && !disableSwipeDown) {
+      // 1. Swipe down on first reel: top elastic pull-to-refresh
+      if (e.translationY > 0 && isFirstReelShared.value) {
+        dismissY.value = 0;
+        stretchY.value = 0;
+        const offset = e.translationY;
+        const tension = 120;
+        const maxStretch = 130;
+        topPullY.value = maxStretch * (1 - Math.exp(-offset / tension));
+
+        // Haptic feedback tick on threshold
+        if (topPullY.value > 45 && !topThresholdHit.value) {
+          topThresholdHit.value = true;
+          runOnJS(fireHaptic)();
+        } else if (topPullY.value <= 45 && topThresholdHit.value) {
+          topThresholdHit.value = false;
+        }
+      }
+      // 2. Swipe down anywhere else: dismiss reel modal
+      else if (e.translationY > 0 && !disableSwipeDown) {
+        topPullY.value = 0;
         dismissY.value = e.translationY * 0.6;
         stretchY.value = 0;
       }
-      // 2. Stretch up at the end of reels: elastic rubber-band pull
+      // 3. Stretch up at the end of reels: elastic rubber-band pull
       else if (e.translationY < 0 && isLastReelShared.value) {
+        topPullY.value = 0;
         dismissY.value = 0;
         const offset = -e.translationY;
         const tension = 120;
@@ -216,7 +269,24 @@ export default function SharedReels({
       }
     })
     .onEnd((e) => {
-      // 1. Handle dismiss
+      // 1. Handle top pull refresh release
+      if (topPullY.value > 0) {
+        const didCrossThreshold = topPullY.value > 40;
+        if (!refreshing) {
+          topPullY.value = withSpring(0, {
+            damping: 18,
+            stiffness: 220,
+            mass: 0.8,
+          });
+        }
+        topThresholdHit.value = false;
+
+        if (didCrossThreshold) {
+          runOnJS(handleTriggerRefresh)();
+        }
+      }
+
+      // 2. Handle dismiss
       if (dismissY.value > 0) {
         const shouldDismiss =
           dismissY.value > SCREEN_H * 0.3 ||
@@ -231,7 +301,7 @@ export default function SharedReels({
         }
       }
 
-      // 2. Handle stretch release
+      // 3. Handle bottom stretch release
       if (stretchY.value < 0) {
         const didCrossThreshold = stretchY.value < -40;
         stretchY.value = withSpring(0, {
@@ -247,7 +317,7 @@ export default function SharedReels({
       }
     });
 
-  // Track native iOS scroll bounce overscroll at bottom
+  // Track native iOS scroll bounce overscroll at bottom & top
   const handleScroll = useCallback(
     (e: any) => {
       const { contentOffset, contentSize, layoutMeasurement } = e.nativeEvent;
@@ -261,12 +331,19 @@ export default function SharedReels({
       } else if (scrollOverscrollY.value > 0) {
         scrollOverscrollY.value = 0;
       }
+
+      if (contentOffset.y < -2 && activeIndexRef.current === 0) {
+        const topOverscroll = -contentOffset.y;
+        topScrollOverscrollY.value = Math.min(topOverscroll, 120);
+      } else if (topScrollOverscrollY.value > 0) {
+        topScrollOverscrollY.value = 0;
+      }
     },
-    [scrollOverscrollY],
+    [scrollOverscrollY, topScrollOverscrollY],
   );
 
   const containerAnimatedStyle = useAnimatedStyle(() => ({
-    transform: [{ translateY: dismissY.value + stretchY.value }],
+    transform: [{ translateY: dismissY.value + stretchY.value + topPullY.value }],
     opacity: interpolate(
       dismissY.value,
       [0, SCREEN_H * 0.6],
@@ -274,6 +351,33 @@ export default function SharedReels({
       Extrapolation.CLAMP,
     ),
   }));
+
+  const topLottieBubbleAnimatedStyle = useAnimatedStyle(() => {
+    const pull = Math.max(topPullY.value, topScrollOverscrollY.value);
+
+    // Height matches revealed black pull area + status bar/notch inset
+    const height = pull > 0 ? pull + topInset : 0;
+
+    const scale = interpolate(
+      pull,
+      [0, 15, 60],
+      [0, 0.4, 1],
+      Extrapolation.CLAMP,
+    );
+
+    const opacity = interpolate(
+      pull,
+      [0, 10, 40],
+      [0, 0.5, 1],
+      Extrapolation.CLAMP,
+    );
+
+    return {
+      height,
+      opacity,
+      transform: [{ scale }],
+    };
+  });
 
   const lottieBubbleAnimatedStyle = useAnimatedStyle(() => {
     const pull = Math.max(-stretchY.value, scrollOverscrollY.value);
@@ -316,6 +420,18 @@ export default function SharedReels({
     <GestureHandlerRootView style={styles.root}>
       <GestureDetector gesture={panGesture}>
         <View style={styles.root}>
+          {/* Elastic Lottie stretch header in black area below status bar */}
+          <Animated.View
+            style={[
+              styles.topStretchBubbleWrap,
+              { paddingTop: topInset },
+              topLottieBubbleAnimatedStyle,
+            ]}
+            pointerEvents="none"
+          >
+            <BrandedLottieLoader size={44} />
+          </Animated.View>
+
           <Animated.View style={[{ flex: 1 }, containerAnimatedStyle]}>
             <FlashList
               ref={flashListRef}
@@ -354,6 +470,16 @@ const styles = StyleSheet.create({
   root: {
     flex: 1,
     backgroundColor: "#000",
+  },
+  topStretchBubbleWrap: {
+    position: "absolute",
+    top: 0,
+    left: 0,
+    right: 0,
+    alignItems: "center",
+    justifyContent: "center",
+    overflow: "hidden",
+    zIndex: 999,
   },
   stretchBubbleWrap: {
     position: "absolute",

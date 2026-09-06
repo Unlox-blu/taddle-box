@@ -79,7 +79,7 @@ export default function ChessGame({
   const NATURAL_BOARD = Math.min(SCREEN_W - 24, Math.floor(SCREEN_H * 0.62), 400);
   const NATURAL_W = SCREEN_W;
   const NATURAL_H = SCREEN_H - 60; // minus GamesScreen header
-  const { onLayout, scale } = useGameContainer({ naturalWidth: NATURAL_W, naturalHeight: NATURAL_H, paddingX: 12 });
+  const { onLayout, scale, scaledMarginV } = useGameContainer({ naturalWidth: NATURAL_W, naturalHeight: NATURAL_H, paddingX: 12 });
   const BOARD_SIZE = NATURAL_BOARD;
   const chessboardRef = useRef<ChessboardRef>(null);
   const pulseAnim = useRef(new Animated.Value(1)).current;
@@ -224,7 +224,7 @@ export default function ChessGame({
   return (
     <GestureHandlerRootView style={styles.container} onLayout={onLayout}>
       {/* Scale the entire game as one unit — board, player cards, everything shrinks together */}
-      <View style={{ width: NATURAL_W, height: NATURAL_H, transform: [{ scale }], alignSelf: "center" }}>
+      <View style={{ width: NATURAL_W, height: NATURAL_H, transform: [{ scale }], alignSelf: "center", marginVertical: scaledMarginV }}>
       {renderPlayerRow({
         label: opponentName, avatarUri: oppAvatarUri, colorKey: oppColor,
         caps: oppCaps, advantage: oppAdvantage, time: timers[oppColor],
@@ -252,7 +252,6 @@ export default function ChessGame({
         caps: myCaps, advantage: myAdvantage, time: timers[playerColor],
         isTurn: isMyTurn && status === "active",
       }      )}
-      </View>
 
       {status === "waiting" && (
         <View style={styles.waitingOverlay}>
@@ -284,6 +283,7 @@ export default function ChessGame({
           </View>
         </View>
       )}
+      </View>{/* end of scaled View */}
     </GestureHandlerRootView>
   );
 }

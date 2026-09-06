@@ -86,6 +86,8 @@ interface SnakeLadderRuntimeProps {
   externalPhase?: ExternalPhase; onComplete: (result: HtmlGameResult) => void;
   /** Resolved game assets from the asset manifest system (key → local URI). */
   assets?: Record<string, string>;
+  /** Keyboard height passed down from GamesScreen — eliminates the need for a local listener. */
+  kbH?: number;
 }
 
 function extractEnginePlayers(data: any): any[] {
@@ -101,6 +103,7 @@ function buildPlayerInfo(players: any[]): Record<string, { name: string; usernam
 
 export default function SnakeLadderRuntime({
   matchId, userId, wsToken, players, myName: myNameProp, myAvatar: myAvatarProp, externalPhase = "waiting", onComplete,
+  kbH: kbHProp = 0,
 }: SnakeLadderRuntimeProps) {
   const [status, setStatus] = useState<"connecting" | "waiting" | "active" | "finished">("connecting");
   const [state, setState] = useState<any>(null);
@@ -114,7 +117,8 @@ export default function SnakeLadderRuntime({
   const [playerInfo, setPlayerInfo] = useState<Record<string, { name: string; username?: string; avatar?: string }>>({});
   const [autoRoll, setAutoRoll] = useState<null | { remaining: number; target: string; phase: "countdown" | "rolling" }>(null);
   const [chatPopups, setChatPopups] = useState<Array<{ id: number; uid: string; name: string; text: string; color: string }>>([]);
-  const [kbH, setKbH] = useState(0);
+  // kbH is passed down from GamesScreen — no local listener needed.
+  const kbH = kbHProp;
 
   const me = players?.find((p) => p.id === userId);
   const myName = myNameProp || me?.name || "You";
@@ -374,19 +378,12 @@ export default function SnakeLadderRuntime({
   }, [status, state, socket, rolling, userId, rollDice, showToastFn]);
 
   useEffect(() => {
-    const showSub = Platform.OS === "ios" ? require("react-native").Keyboard.addListener("keyboardDidShow", (e: any) => setKbH(e.endCoordinates?.height || 0)) : null;
-    const hideSub = Platform.OS === "ios" ? require("react-native").Keyboard.addListener("keyboardDidHide", () => setKbH(0)) : null;
-    return () => { showSub?.remove(); hideSub?.remove(); };
-  }, []);
-
-  // Listen to the global GameChatPanel sending out messages
-  useEffect(() => {
     const sub = require("react-native").DeviceEventEmitter.addListener("GAME_PANEL_OUTGOING_CHAT", (text: string) => {
       socket?.emit(GAME_EVENTS.CHAT, { text });
     });
     return () => sub.remove();
   }, [socket]);
-  const kbLift = Platform.OS === "ios" ? kbH : 0;
+  const kbLift = kbH; // Both platforms overlay keyboard inside a Modal
 
   return (
     <SnakeLadderGame

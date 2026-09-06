@@ -60,21 +60,25 @@ export default function ReelScreen({ navigation, route }: Props) {
   // feedItems can be Post[] (legacy) or ContentItem[] (from SharedFeed).
   // ContentItem.id is always a bare UUID — no prefix normalization needed.
   const seedItems = useMemo<ContentItem[]>(() => {
-    const hasItems = feedItems.length > 0 && feedItems[0]?.itemType !== undefined;
+    const validFeedItems = (feedItems || []).filter((i: any) => !!i && (i.id || i.data?.id));
+    const targetId = initialPost?.id || initialPost?.data?.id;
 
-    if (hasItems) {
+    if (validFeedItems.length > 0 && validFeedItems[0]?.itemType !== undefined) {
       // Already ContentItem[] from SharedFeed.
-      const items = feedItems as ContentItem[];
-      const has = items.some((i) => i.id === initialPost?.id || i.data?.id === initialPost?.id);
-      if (has) return items;
-      return [{ itemType: "post", id: initialPost.id, data: initialPost }, ...items];
+      const items = validFeedItems as ContentItem[];
+      const has = items.some((i) => (i?.id || i?.data?.id) === targetId);
+      if (has || !targetId) return items;
+      return [{ itemType: "post", id: targetId, data: initialPost.data || initialPost }, ...items];
     }
 
     // Legacy Post[] — wrap each as ContentItem with itemType "post"
-    if (feedItems.length === 0) return [{ itemType: "post", id: initialPost.id, data: initialPost }];
-    const has = feedItems.some((p: Post) => p.id === initialPost.id);
-    const wrapped = feedItems.map((p: Post) => ({ itemType: "post", id: p.id, data: p } as ContentItem));
-    return has ? wrapped : [{ itemType: "post", id: initialPost.id, data: initialPost }, ...wrapped];
+    const validPosts = validFeedItems.map((p: any) => (p.data ? p.data : p)).filter((p: any) => !!p && !!p.id);
+    if (validPosts.length === 0) {
+      return targetId ? [{ itemType: "post", id: targetId, data: initialPost.data || initialPost }] : [];
+    }
+    const has = targetId ? validPosts.some((p: any) => p.id === targetId) : true;
+    const wrapped = validPosts.map((p: any) => ({ itemType: "post", id: p.id, data: p } as ContentItem));
+    return has ? wrapped : (targetId ? [{ itemType: "post", id: targetId, data: initialPost.data || initialPost }, ...wrapped] : wrapped);
   }, [feedItems, initialPost]);
 
   const isFocused = useIsFocused();
@@ -86,6 +90,7 @@ export default function ReelScreen({ navigation, route }: Props) {
     hasMore,
     isLoading,
     patchItem,
+    refresh: refreshSession,
   } = useContentSession({
     initialItems: seedItems,
     initialContentId: initialPost.id,
@@ -97,13 +102,19 @@ export default function ReelScreen({ navigation, route }: Props) {
 
   // ── Pull-to-refresh ──────────────────────────────────────────────────────
   const [refreshing, setRefreshing] = useState(false);
-  const handleRefresh = useCallback(() => {
+  const handleRefresh = useCallback(async () => {
     setRefreshing(true);
-    queryClient
-      .invalidateQueries({ queryKey: ["feed"] })
-      .then(() => setRefreshing(false))
-      .catch(() => setRefreshing(false));
-  }, [queryClient]);
+    try {
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ["feed"] }),
+        refreshSession?.(),
+      ]);
+    } catch {
+      // ignore
+    } finally {
+      setRefreshing(false);
+    }
+  }, [queryClient, refreshSession]);
 
   // ── Active index ─────────────────────────────────────────────────────────
   const [activeIndex, setActiveIndex] = useState(startIndex);
@@ -313,6 +324,8 @@ export default function ReelScreen({ navigation, route }: Props) {
         onDismiss={goBack}
         hasMore={hasMore}
         isLoading={isLoading}
+        onRefresh={handleRefresh}
+        refreshing={refreshing}
         onActiveItemChange={(_item, index) => {
           setActiveIndex(index);
           const current = items[index];

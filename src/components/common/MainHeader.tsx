@@ -21,13 +21,16 @@ import { chatService } from "../../services/chat.service";
 
 export default function MainHeader({
   showBack = false,
+  hideNotifIcon = false,
 }: {
   showBack?: boolean;
+  hideNotifIcon?: boolean;
 }) {
   const colors = useThemeColors();
   const { isDark } = useTheme();
   const navigation = useNavigation<NativeStackNavigationProp<any>>();
   const route = useRoute();
+  const shouldHideNotif = hideNotifIcon || route.name === "Notifications";
   const insets = useSafeAreaInsets();
   const [isDrawerOpen, setDrawerOpen] = useState(false);
   const { user: currentUser, accounts, switchAccount } = useAuth();
@@ -321,24 +324,26 @@ export default function MainHeader({
           />
         </TouchableOpacity>
 
-        <TouchableOpacity
-          style={styles.iconBtn}
-          onPress={() => navigation.navigate("Notifications")}
-          activeOpacity={0.7}
-        >
-          <Ionicons
-            name="notifications-outline"
-            size={22}
-            color={colors.text.secondary}
-          />
-          {unreadCount > 0 && (
-            <View style={[styles.notifDot, { borderColor: colors.bg.base }]}>
-              <Text style={styles.notifDotText}>
-                {unreadCount > 99 ? "99+" : unreadCount}
-              </Text>
-            </View>
-          )}
-        </TouchableOpacity>
+        {!shouldHideNotif && (
+          <TouchableOpacity
+            style={styles.iconBtn}
+            onPress={() => navigation.navigate("Notifications")}
+            activeOpacity={0.7}
+          >
+            <Ionicons
+              name="notifications-outline"
+              size={22}
+              color={colors.text.secondary}
+            />
+            {unreadCount > 0 && (
+              <View style={[styles.notifDot, { borderColor: colors.bg.base }]}>
+                <Text style={styles.notifDotText}>
+                  {unreadCount > 99 ? "99+" : unreadCount}
+                </Text>
+              </View>
+            )}
+          </TouchableOpacity>
+        )}
       </View>
 
       <SideDrawer

@@ -17,11 +17,15 @@ interface PostReelCardProps {
 }
 
 export default function PostReelCard({ item, ctx, index }: PostReelCardProps) {
-  const post = item.data;
+  const post = item?.data || item;
+
+  if (!post || !post.id) {
+    return null;
+  }
 
   const handleLike = useCallback(() => {
     ctx.toggleLike(post.id, post.isLiked);
-  }, [ctx, post.id, post.isLiked]);
+  }, [ctx, post?.id, post?.isLiked]);
 
   const handleSave = useCallback(() => {
     ctx.toggleSave(post.id, post.isSaved);

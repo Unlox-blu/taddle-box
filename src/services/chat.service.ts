@@ -39,8 +39,20 @@ export interface ChatMessage {
   shared_post_title: string | null;
   shared_post_content: string | null;
   shared_post_author_name: string | null;
+  shared_post_author_username: string | null;
+  shared_post_author_avatar: string | null;
+  shared_post_created_at: string | null;
   shared_post_media_url: string | null;
   shared_post_media_type: string | null;
+  orig_post_id: string | null;
+  orig_post_title: string | null;
+  orig_post_content: string | null;
+  orig_post_created_at: string | null;
+  orig_post_author_name: string | null;
+  orig_post_author_username: string | null;
+  orig_post_author_avatar: string | null;
+  game_thumbnail: string | null;
+  game_banner_url: string | null;
 }
 
 export const chatService = {
@@ -87,5 +99,15 @@ export const chatService = {
   async toggleReaction(messageId: string, emoji: string) {
     const res = await apiClient.post(`/chat/message/${messageId}/reaction`, { emoji });
     return res.data as { id: string; reactions: Record<string, string[]> };
+  },
+
+  async deleteMessage(messageId: string) {
+    const res = await apiClient.delete(`/chat/message/${messageId}`);
+    return res.data;
+  },
+
+  async deleteConversation(conversationId: string) {
+    const res = await apiClient.delete(`/chat/conversation/${conversationId}`);
+    return res.data;
   },
 };

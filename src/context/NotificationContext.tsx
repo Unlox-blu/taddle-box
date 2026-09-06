@@ -82,7 +82,9 @@ export function NotificationProvider({
 }) {
   const { isLoggedIn, user, switchAccount } = useAuth();
   const [unreadCount, setUnreadCount] = useState(0);
-  const [inactiveUnreadStatus, setInactiveUnreadStatus] = useState<Record<string, boolean>>({});
+  const [inactiveUnreadStatus, setInactiveUnreadStatus] = useState<
+    Record<string, boolean>
+  >({});
   const [banner, setBanner] = useState<InAppBanner>(null);
   const bannerTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const registeredRef = useRef(false);
@@ -127,7 +129,10 @@ export function NotificationProvider({
 
       // If the notification is for a different account, ignore it here.
       // The device socket's ping will automatically update the inactive red dots instead.
-      if (notif?.recipientId && String(notif.recipientId) !== String(user?.id)) {
+      if (
+        notif?.recipientId &&
+        String(notif.recipientId) !== String(user?.id)
+      ) {
         return;
       }
 
@@ -172,7 +177,8 @@ export function NotificationProvider({
     const responseSub = Notifications.addNotificationResponseReceivedListener(
       async (response) => {
         clearUnread();
-        const data: Record<string, any> = response.notification.request.content.data || {};
+        const data: Record<string, any> =
+          response.notification.request.content.data || {};
         const { navigationRef } = require("../navigation/navigationRef");
 
         const recipientId = data?.recipientId;
@@ -188,8 +194,6 @@ export function NotificationProvider({
         }
 
         // ── Chat message deep-link ──────────────────────────────────────
-        // Chat pushes carry conversationId + otherUser info so we can
-        // open the Chat screen directly (registered at root navigator).
         if (
           (data?.resourceType === "chat" || data?.type === "chat:message") &&
           (data?.conversationId || data?.resourceId)
@@ -226,7 +230,7 @@ export function NotificationProvider({
               (navigationRef.navigate as any)("PostDetail", {
                 post,
                 commentId: data.commentId,
-                feedContext: 'notifications',
+                feedContext: "notifications",
               });
               return;
             }
@@ -286,8 +290,11 @@ export function NotificationProvider({
       // accounts causes us to lose the previous account's state.
       setInactiveUnreadStatus(statusMap);
     };
-    deviceSocketClient.events.on("device:unread_status", handleDeviceUnreadStatus);
-    
+    deviceSocketClient.events.on(
+      "device:unread_status",
+      handleDeviceUnreadStatus,
+    );
+
     // When the active user changes (e.g. on account switch), immediately ask the
     // device socket for fresh counts so the new "inactive" accounts reflect properly.
     if (user?.id) {
@@ -295,7 +302,10 @@ export function NotificationProvider({
     }
 
     return () => {
-      deviceSocketClient.events.off("device:unread_status", handleDeviceUnreadStatus);
+      deviceSocketClient.events.off(
+        "device:unread_status",
+        handleDeviceUnreadStatus,
+      );
     };
   }, [user?.id]);
 

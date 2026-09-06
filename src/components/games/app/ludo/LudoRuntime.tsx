@@ -25,12 +25,15 @@ interface LudoRuntimeProps {
   onComplete: (result: HtmlGameResult) => void;
   /** Resolved game assets from the asset manifest system (key → local URI). */
   assets?: Record<string, string>;
+  /** Keyboard height passed down from GamesScreen — eliminates the need for a local listener. */
+  kbH?: number;
 }
 
 export default function LudoRuntime({
   matchId, userId, wsToken, players,
   myName: myNameProp, myAvatar: myAvatarProp, myLevel,
   externalPhase = "waiting", onComplete,
+  kbH: kbHProp = 0,
 }: LudoRuntimeProps) {
   const me = players?.find((p) => p.id === userId);
   const myName = myNameProp || me?.name || "You";
@@ -81,8 +84,11 @@ export default function LudoRuntime({
   const pendingDiceRef = useRef<{ face: number; turnIndex: number } | null>(null);
 
   // ── Keyboard ───────────────────────────────────────────────────────
-  const [kbH, setKbH] = useState(0);
-  const kbLift = Platform.OS === "ios" ? kbH : 0;
+  // kbH is passed down from GamesScreen which already tracks keyboard height.
+  // No local listener needed — avoids double-accounting with playStage layout.
+  // Both platforms overlay the keyboard inside a Modal, so kbLift = kbH always.
+  const kbH = kbHProp;
+  const kbLift = kbH;
 
   const showToast = useCallback((msg: string) => {
     setToast(msg);
@@ -205,13 +211,7 @@ export default function LudoRuntime({
     return () => sub.remove();
   }, [socket]);
 
-  // ── Keyboard listener ──────────────────────────────────────────────
-  useEffect(() => {
-    const { Keyboard } = require("react-native");
-    const showSub = Keyboard.addListener("keyboardDidShow", (e: any) => setKbH(e.endCoordinates?.height || 0));
-    const hideSub = Keyboard.addListener("keyboardDidHide", () => setKbH(0));
-    return () => { showSub?.remove(); hideSub?.remove(); };
-  }, []);
+
 
   useEffect(() => () => { if (revealTimerRef.current) clearTimeout(revealTimerRef.current); }, []);
 

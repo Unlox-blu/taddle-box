@@ -29,6 +29,8 @@ import { useThemeColors, useTheme } from "../../context/ThemeContext";
 import { userService } from "../../services/user.service";
 import { useAuth } from "../../context/AuthContext";
 import XPProgressBar from "../home/XPProgressBar";
+import LevelInfoModal from "../home/LevelInfoModal";
+import AchievementInfoModal from "./AchievementInfoModal";
 import { useNavigation, useFocusEffect } from "@react-navigation/native";
 import { WebView } from "react-native-webview";
 import SharedFeed from "../common/SharedFeed";
@@ -57,7 +59,113 @@ const BADGE_COLORS: Record<string, { bg: string; border: string }> = {
   green: { bg: "rgba(16,185,129,0.13)", border: "rgba(16,185,129,0.28)" },
 };
 
-function makeStyles(c: ColorPalette) {
+function getBadgeConfig(badge: any, c: ColorPalette): {
+  icon: keyof typeof Ionicons.glyphMap;
+  color: string;
+  bg: string;
+  border: string;
+} {
+  const name = (badge.name || "").toLowerCase();
+  const emoji = badge.emoji || "";
+
+  if (name.includes("active") || emoji === "🔥" || name.includes("fire")) {
+    return {
+      icon: "flame",
+      color: "#F59E0B",
+      bg: "rgba(245,158,11,0.14)",
+      border: "rgba(245,158,11,0.3)",
+    };
+  }
+  if (name.includes("creator") || name.includes("post") || emoji === "📝" || emoji === "🎨") {
+    return {
+      icon: "sparkles",
+      color: "#A855F7",
+      bg: "rgba(168,85,247,0.14)",
+      border: "rgba(168,85,247,0.3)",
+    };
+  }
+  if (name.includes("game") || name.includes("champion") || emoji === "🎮") {
+    return {
+      icon: "game-controller",
+      color: "#10B981",
+      bg: "rgba(16,185,129,0.14)",
+      border: "rgba(16,185,129,0.3)",
+    };
+  }
+  if (name.includes("pro") || name.includes("master") || emoji === "🏆") {
+    return {
+      icon: "trophy",
+      color: "#EAB308",
+      bg: "rgba(234,179,8,0.14)",
+      border: "rgba(234,179,8,0.3)",
+    };
+  }
+  if (name.includes("social") || name.includes("popular") || emoji === "👥" || emoji === "💬") {
+    return {
+      icon: "people",
+      color: "#3B82F6",
+      bg: "rgba(59,130,246,0.14)",
+      border: "rgba(59,130,246,0.3)",
+    };
+  }
+  if (name.includes("streak") || name.includes("xp") || emoji === "⚡") {
+    return {
+      icon: "flash",
+      color: "#EC4899",
+      bg: "rgba(236,72,153,0.14)",
+      border: "rgba(236,72,153,0.3)",
+    };
+  }
+  if (name.includes("diamond") || emoji === "💎") {
+    return {
+      icon: "diamond",
+      color: "#06B6D4",
+      bg: "rgba(6,182,212,0.14)",
+      border: "rgba(6,182,212,0.3)",
+    };
+  }
+  if (name.includes("early") || emoji === "🚀") {
+    return {
+      icon: "rocket",
+      color: "#6366F1",
+      bg: "rgba(99,102,241,0.14)",
+      border: "rgba(99,102,241,0.3)",
+    };
+  }
+  const colorKey = badge.color || "purple";
+  if (colorKey === "gold") {
+    return {
+      icon: "ribbon",
+      color: "#F59E0B",
+      bg: "rgba(251,191,36,0.14)",
+      border: "rgba(251,191,36,0.3)",
+    };
+  }
+  if (colorKey === "cyan") {
+    return {
+      icon: "shield-checkmark",
+      color: "#06B6D4",
+      bg: "rgba(6,182,212,0.14)",
+      border: "rgba(6,182,212,0.3)",
+    };
+  }
+  if (colorKey === "green") {
+    return {
+      icon: "checkmark-circle",
+      color: "#10B981",
+      bg: "rgba(16,185,129,0.14)",
+      border: "rgba(16,185,129,0.3)",
+    };
+  }
+  return {
+    icon: "medal",
+    color: c.primaryLight,
+    bg: "rgba(124,58,237,0.14)",
+    border: "rgba(124,58,237,0.3)",
+  };
+}
+
+function makeStyles(c: ColorPalette, isDark: boolean) {
   return StyleSheet.create({
     container: { flex: 1, backgroundColor: c.bg.base },
     bannerWrap: {
@@ -413,37 +521,71 @@ function makeStyles(c: ColorPalette) {
     },
     achievementsCard: {
       marginHorizontal: spacing.lg,
-      marginTop: spacing.md,
-      marginBottom: spacing.md,
-      backgroundColor: c.bg.card,
-      borderRadius: radii.lg,
-      borderWidth: 1,
-      borderColor: c.border,
-      paddingTop: spacing.sm,
-      paddingBottom: spacing.md,
-      overflow: "hidden",
-    },
-
-    badgeScroll: {
-      paddingHorizontal: spacing.xl,
-      gap: 12,
-      marginBottom: spacing.md,
-    },
-    badgeItem: { alignItems: "center", gap: 5 },
-    badgeWrap: {
-      width: 52,
-      height: 52,
+      marginBottom: spacing.sm,
+      marginTop: spacing.xs,
       borderRadius: radii.md,
+      padding: 12,
+      backgroundColor: isDark ? "rgba(124,58,237,0.06)" : "rgba(124,58,237,0.04)",
+      borderWidth: 1,
+      borderColor: isDark ? "rgba(124,58,237,0.2)" : "rgba(124,58,237,0.15)",
+    },
+    achievementsHeaderRow: {
+      flexDirection: "row",
+      alignItems: "center",
+      justifyContent: "space-between",
+      marginBottom: 10,
+    },
+    achievementsHeaderLeft: {
+      flexDirection: "row",
+      alignItems: "center",
+      gap: 8,
+    },
+    achievementsHeaderIconBg: {
+      width: 28,
+      height: 28,
+      borderRadius: 14,
+      alignItems: "center",
+      justifyContent: "center",
+    },
+    achievementsTitleText: {
+      fontSize: fontSizes.sm,
+      fontWeight: "700",
+      color: c.text.primary,
+    },
+    achievementsSubText: {
+      fontSize: fontSizes.xs - 1,
+      fontWeight: "600",
+      color: c.primaryLight,
+      marginTop: 1,
+    },
+    achievementsHeaderRightText: {
+      fontSize: fontSizes.xs - 1,
+      fontWeight: "600",
+      color: c.text.secondary,
+    },
+    badgeScroll: {
+      gap: 12,
+      paddingVertical: 2,
+    },
+    badgeItem: {
+      alignItems: "center",
+      gap: 6,
+      width: 60,
+    },
+    badgeWrap: {
+      width: 48,
+      height: 48,
+      borderRadius: 24,
       borderWidth: 1,
       alignItems: "center",
       justifyContent: "center",
     },
-    badgeEmoji: { fontSize: 24 },
     badgeName: {
-      fontSize: 9,
-      color: c.text.muted,
+      fontSize: fontSizes.xs - 1,
+      fontWeight: "600",
+      color: c.text.secondary,
       textAlign: "center",
-      maxWidth: 52,
+      lineHeight: 14,
     },
 
     modalContainer: {
@@ -530,7 +672,7 @@ export default function SharedProfile({
 }: SharedProfileProps) {
   const { isDark } = useTheme();
   const colors = useThemeColors();
-  const styles = useMemo(() => makeStyles(colors), [colors]);
+  const styles = useMemo(() => makeStyles(colors, isDark), [colors, isDark]);
   const navigation = useNavigation<any>();
   const { headerHeight } = useGlobalScroll();
 
@@ -543,6 +685,9 @@ export default function SharedProfile({
   const [refreshing, setRefreshing] = useState(false);
   const [qrModalVisible, setQrModalVisible] = useState(false);
   const [isBookmarked, setIsBookmarked] = useState(false);
+  const [levelInfoVisible, setLevelInfoVisible] = useState(false);
+  const [achievementModalVisible, setAchievementModalVisible] = useState(false);
+  const [selectedBadgeId, setSelectedBadgeId] = useState<string | null>(null);
 
   const [showFollowList, setShowFollowList] = useState(false);
   const [followListType, setFollowListType] = useState<
@@ -1042,7 +1187,6 @@ export default function SharedProfile({
                 ? "Reposts"
                 : "Mentions"}
           </Text>
-          {profileTab === tab && <View style={styles.postTabActiveBar} />}
         </TouchableOpacity>
       ))}
     </View>
@@ -1500,42 +1644,117 @@ export default function SharedProfile({
           rank={user?.rank || "Beginner"}
           currentXP={user?.totalXpEarned || user?.xp || 0}
           targetXP={user?.xpToNext || 1000}
+          onPress={() => setLevelInfoVisible(true)}
         />
       )}
 
       {/* Achievements are hidden on private accounts the viewer doesn't
           follow yet — they're part of the gated profile content. */}
-      {!isLocked && (user?.badges || []).length > 0 && (
-        <View style={styles.achievementsCard}>
-          <Text style={styles.sectionLabel}>Achievements 🏆</Text>
-          <ScrollView
-            horizontal
-            showsHorizontalScrollIndicator={false}
-            contentContainerStyle={styles.badgeScroll}
+      {!isLocked && (() => {
+        const rawBadges = user?.badges || [];
+        const totalXp = user?.totalXpEarned || user?.xp || 0;
+        const postCount = user?.postCount || 0;
+        const level = user?.level || 1;
+
+        // If backend provides custom badges, use them. Otherwise, generate a rich set of achievements based on user activity.
+        const displayBadges = rawBadges.length > 0 ? rawBadges : [
+          { id: "b1", name: "Early Creator", emoji: "🎨", color: "purple", isUnlocked: postCount > 0 || isOwnProfile },
+          { id: "b2", name: "XP Pioneer", emoji: "🔥", color: "gold", isUnlocked: totalXp >= 500 },
+          { id: "b3", name: "Community Star", emoji: "💬", color: "cyan", isUnlocked: ((user?.followerCount || 0) + (user?.followingCount || 0)) >= 1 },
+          { id: "b4", name: "Level Master", emoji: "🏆", color: "green", isUnlocked: level >= 5 },
+        ];
+
+        const unlockedCount = displayBadges.filter((b: any) =>
+          b.isUnlocked !== undefined ? b.isUnlocked : b.color !== "locked"
+        ).length;
+
+        return (
+          <TouchableOpacity
+            style={styles.achievementsCard}
+            activeOpacity={0.85}
+            onPress={() => {
+              setSelectedBadgeId(null);
+              setAchievementModalVisible(true);
+            }}
           >
-            {(user?.badges || []).map((b: any) => {
-              const bs = BADGE_COLORS[b.color] ?? {
-                bg: colors.bg.elevated,
-                border: colors.border,
-              };
-              return (
-                <View key={b.id} style={styles.badgeItem}>
-                  <View
-                    style={[
-                      styles.badgeWrap,
-                      { backgroundColor: bs.bg, borderColor: bs.border },
-                      b.color === "locked" && { opacity: 0.38 },
-                    ]}
-                  >
-                    <Text style={styles.badgeEmoji}>{b.emoji}</Text>
+            <View style={styles.achievementsHeaderRow}>
+              <View style={styles.achievementsHeaderLeft}>
+                <LinearGradient
+                  colors={[colors.primary, colors.cyanDark]}
+                  style={styles.achievementsHeaderIconBg}
+                >
+                  <Ionicons name="trophy" size={14} color="#fff" />
+                </LinearGradient>
+                <View>
+                  <View style={{ flexDirection: "row", alignItems: "center", gap: 4 }}>
+                    <Text style={styles.achievementsTitleText}>Achievements</Text>
+                    <Ionicons
+                      name="information-circle-outline"
+                      size={14}
+                      color={colors.primaryLight}
+                    />
                   </View>
-                  <Text style={styles.badgeName}>{b.name}</Text>
+                  <Text style={styles.achievementsSubText}>
+                    {unlockedCount} of {displayBadges.length} Unlocked
+                  </Text>
                 </View>
-              );
-            })}
-          </ScrollView>
-        </View>
-      )}
+              </View>
+              <Text style={styles.achievementsHeaderRightText}>
+                {unlockedCount}/{displayBadges.length} Badges
+              </Text>
+            </View>
+
+            <ScrollView
+              horizontal
+              showsHorizontalScrollIndicator={false}
+              showsVerticalScrollIndicator={false}
+              contentContainerStyle={styles.badgeScroll}
+            >
+              {displayBadges.map((b: any, idx: number) => {
+                const config = getBadgeConfig(b, colors);
+                const isUnlocked = b.isUnlocked !== undefined ? b.isUnlocked : b.color !== "locked";
+                return (
+                  <TouchableOpacity
+                    key={b.id || idx}
+                    style={styles.badgeItem}
+                    activeOpacity={0.8}
+                    onPress={() => {
+                      setSelectedBadgeId(b.id || `b${idx + 1}`);
+                      setAchievementModalVisible(true);
+                    }}
+                  >
+                    <View
+                      style={[
+                        styles.badgeWrap,
+                        {
+                          backgroundColor: isUnlocked ? config.bg : (isDark ? "rgba(255,255,255,0.04)" : "rgba(0,0,0,0.03)"),
+                          borderColor: isUnlocked ? config.border : (isDark ? "rgba(255,255,255,0.08)" : "rgba(0,0,0,0.06)"),
+                        },
+                        !isUnlocked && { opacity: 0.45 },
+                      ]}
+                    >
+                      <Ionicons
+                        name={config.icon}
+                        size={22}
+                        color={isUnlocked ? config.color : colors.text.muted}
+                      />
+                    </View>
+                    <Text
+                      style={[
+                        styles.badgeName,
+                        !isUnlocked && { color: colors.text.muted },
+                      ]}
+                      numberOfLines={2}
+                    >
+                      {b.name}
+                    </Text>
+                  </TouchableOpacity>
+                );
+              })}
+            </ScrollView>
+          </TouchableOpacity>
+        );
+      })()}
 
       {/* Posts / Reposts / Mentions — below the achievements card, at the
           bottom of the scrolling profile header. */}
@@ -1919,6 +2138,28 @@ export default function SharedProfile({
           />
         </View>
       )}
+
+      <LevelInfoModal
+        visible={levelInfoVisible}
+        onClose={() => setLevelInfoVisible(false)}
+        level={user?.level || 1}
+        rank={user?.rank || "Beginner"}
+        currentXP={user?.totalXpEarned || user?.xp || 0}
+      />
+
+      <AchievementInfoModal
+        visible={achievementModalVisible}
+        onClose={() => setAchievementModalVisible(false)}
+        selectedBadgeId={selectedBadgeId}
+        userBadges={user?.badges}
+        userStats={{
+          totalXp: user?.totalXpEarned || user?.xp || 0,
+          level: user?.level || 1,
+          postCount: user?.postCount || 0,
+          followerCount: user?.followerCount || 0,
+          followingCount: user?.followingCount || 0,
+        }}
+      />
     </View>
   );
 }

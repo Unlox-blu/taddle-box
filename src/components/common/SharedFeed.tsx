@@ -121,8 +121,8 @@ export default function SharedFeed({
   const posts = useMemo(
     () =>
       items
-        .filter((r) => r.itemType === "post" || r.itemType === "poll")
-        .map((r) => r.data as Post),
+        .map((r) => (r?.data ? r.data : r))
+        .filter((p): p is Post => !!p && !!p.id && (p.itemType === "post" || p.itemType === "poll" || !p.itemType)),
     [items],
   );
 

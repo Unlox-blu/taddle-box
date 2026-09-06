@@ -35,6 +35,7 @@ interface UseContentSessionReturn {
   hasMore: boolean;
   isLoading: boolean;
   patchItem: (contentId: string, patch: (item: ContentItem) => ContentItem) => void;
+  refresh: () => Promise<void>;
 }
 
 const PAGE_SIZE = 20;
@@ -159,6 +160,37 @@ export function useContentSession({
     }
   }, [hasMore, sessionId, nextOffset]);
 
+  const refresh = useCallback(async () => {
+    if (isFetchingRef.current) return;
+    isFetchingRef.current = true;
+    setIsLoading(true);
+
+    try {
+      const options: any = { sourceContext, presentation };
+      if (sourceContextId) {
+        options.sourceContextId = sourceContextId;
+      }
+      const result = await postsService.createContentSession(options);
+
+      if (!mountedRef.current) return;
+
+      if (result.session && result.posts.length > 0) {
+        setSessionId(result.session.id);
+        const freshItems = result.posts.map(toContentItem);
+        setItems(deduplicateItems(freshItems));
+        setNextOffset(result.posts.length);
+        setHasMore(result.posts.length >= PAGE_SIZE);
+      }
+    } catch {
+      // Silently ignore
+    } finally {
+      if (mountedRef.current) {
+        setIsLoading(false);
+      }
+      isFetchingRef.current = false;
+    }
+  }, [sourceContext, presentation, sourceContextId]);
+
   const patchItem = useCallback((contentId: string, patch: (item: ContentItem) => ContentItem) => {
     setItems((prev) => prev.map((item) => (item.id === contentId ? patch(item) : item)));
   }, []);
@@ -170,5 +202,6 @@ export function useContentSession({
     hasMore,
     isLoading,
     patchItem,
+    refresh,
   };
 }

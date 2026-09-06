@@ -8,6 +8,8 @@ import { useBookmarks } from "../../queries/feed";
 
 import StateBlock from "../../components/common/StateBlock";
 import SharedFeed from "../../components/common/SharedFeed";
+import type { ContentItem } from "../../components/common/contentCards/content";
+import type { Post } from "../../types";
 
 const SECTION_HEADER_H = 62;
 
@@ -51,15 +53,30 @@ export default function BookmarksScreen() {
     isLoading,
   } = useBookmarks();
 
-  const rows = useMemo(() => {
-    return (bookmarkPages?.pages.flat() as any[]) || [];
+  const rows = useMemo<ContentItem[]>(() => {
+    const rawPages = (bookmarkPages?.pages.flat() as any[]) || [];
+    return rawPages
+      .map((r) => {
+        if (!r) return null;
+        const itemData = r.data ? r.data : r;
+        if (!itemData || (!itemData.id && !itemData._id && !r.id)) return null;
+        const itemType = r.itemType || itemData.itemType || (itemData.pollData ? "poll" : "post");
+        const id = String(r.id || itemData.id || itemData._id);
+        return {
+          id,
+          itemType,
+          data: itemData,
+        } as ContentItem;
+      })
+      .filter((r): r is ContentItem => r !== null && !!r.data);
   }, [bookmarkPages]);
 
   const feedItems = useMemo(
     () =>
       rows
         .filter((r) => r.itemType === "post" || r.itemType === "poll")
-        .map((r) => r.data),
+        .map((r) => r.data)
+        .filter((p) => !!p && !!p.id),
     [rows],
   );
 

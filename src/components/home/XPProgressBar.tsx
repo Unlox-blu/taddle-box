@@ -1,5 +1,5 @@
 import React, { useMemo, useEffect, useRef } from 'react';
-import { View, Text, Animated, StyleSheet } from 'react-native';
+import { View, Text, Animated, StyleSheet, TouchableOpacity } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { radii, fontSizes, spacing, type ColorPalette } from '../../theme';
 import { useTheme } from '../../context/ThemeContext';
@@ -10,6 +10,7 @@ interface XPProgressBarProps {
   rank: string;
   currentXP: number;
   targetXP: number;
+  onPress?: () => void;
 }
 
 function makeStyles(c: ColorPalette, isDark: boolean) {
@@ -50,7 +51,15 @@ function makeStyles(c: ColorPalette, isDark: boolean) {
       color: c.primaryLight,
       marginTop: 1,
     },
+    headerRight: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 4,
+    },
     xpNext: { fontSize: fontSizes.xs - 1, fontWeight: '600', color: c.text.secondary },
+    infoIcon: {
+      marginLeft: 2,
+    },
     track: {
       height: 6,
       backgroundColor: isDark ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.06)',
@@ -75,7 +84,7 @@ function makeStyles(c: ColorPalette, isDark: boolean) {
   });
 }
 
-export default function XPProgressBar({ level, rank, currentXP, targetXP }: XPProgressBarProps) {
+export default function XPProgressBar({ level, rank, currentXP, targetXP, onPress }: XPProgressBarProps) {
   const { colors, isDark } = useTheme();
   const styles = useMemo(() => makeStyles(colors, isDark), [colors, isDark]);
 
@@ -97,7 +106,11 @@ export default function XPProgressBar({ level, rank, currentXP, targetXP }: XPPr
   });
 
   return (
-    <View style={styles.container}>
+    <TouchableOpacity
+      activeOpacity={onPress ? 0.75 : 1}
+      onPress={onPress}
+      style={styles.container}
+    >
       <View style={styles.header}>
         <View style={styles.levelRow}>
           <LinearGradient
@@ -107,11 +120,16 @@ export default function XPProgressBar({ level, rank, currentXP, targetXP }: XPPr
             <Text style={styles.levelNum}>{level}</Text>
           </LinearGradient>
           <View>
-            <Text style={styles.levelText}>Level {level}</Text>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
+              <Text style={styles.levelText}>Level {level}</Text>
+              <Ionicons name="information-circle-outline" size={14} color={colors.primaryLight} style={styles.infoIcon} />
+            </View>
             <Text style={styles.rankText}>{rank}</Text>
           </View>
         </View>
-        <Text style={styles.xpNext}>{targetXP - currentXP} XP to next</Text>
+        <View style={styles.headerRight}>
+          <Text style={styles.xpNext}>{targetXP - currentXP} XP to next</Text>
+        </View>
       </View>
 
       <View style={styles.track}>
@@ -129,6 +147,6 @@ export default function XPProgressBar({ level, rank, currentXP, targetXP }: XPPr
         <Text style={styles.footerEarned}>⚡ {currentXP.toLocaleString()} XP earned</Text>
         <Text style={styles.footerText}>{Math.round(pct * 100)}%</Text>
       </View>
-    </View>
+    </TouchableOpacity>
   );
 }

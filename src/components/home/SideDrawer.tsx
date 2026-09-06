@@ -24,6 +24,7 @@ import { useAuth } from "../../context/AuthContext";
 import { xpService } from "../../services/xp.service";
 import { getReferralRewards } from "../../services/appConfig.service";
 import XPProgressBar from "./XPProgressBar";
+import LevelInfoModal from "./LevelInfoModal";
 import { themedAlert } from "../common/ThemedAlert";
 import { useThemedAlertModal } from "../common/ThemedAlert";
 import { useTheme } from "../../context/ThemeContext";
@@ -86,6 +87,7 @@ export default function SideDrawer({
 
   const [localXP, setLocalXP] = useState(0);
   const [totalXP, setTotalXP] = useState(0);
+  const [levelInfoVisible, setLevelInfoVisible] = useState(false);
   // Backend-controlled referral reward (joiner side) — never hardcoded.
   const [referralXp, setReferralXp] = useState<number | null>(null);
 
@@ -532,6 +534,7 @@ export default function SideDrawer({
               rank={rank}
               currentXP={totalXP}
               targetXP={Math.floor(totalXP / 1000 + 1) * 1000}
+              onPress={() => setLevelInfoVisible(true)}
             />
           </View>
 
@@ -735,6 +738,14 @@ export default function SideDrawer({
         </ScrollView>
         </Animated.View>
       </View>
+
+      <LevelInfoModal
+        visible={levelInfoVisible}
+        onClose={() => setLevelInfoVisible(false)}
+        level={level}
+        rank={rank}
+        currentXP={totalXP}
+      />
     </Modal>
   );
 }

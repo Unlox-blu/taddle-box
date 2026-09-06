@@ -1,11 +1,11 @@
 /**
- * GameChatPanel — shared local-only chat panel for all game runtimes.
+ * GameChatPanel — compact in-game chat overlay.
  *
- * Keyboard-aware bottom sheet that lifts above the keyboard on iOS
- * (overlay keyboard) and lets Android's adjustResize handle the resize.
- * Reports its measured height so the parent can shrink the game content.
- *
- * Follows the same pattern as Ludo's ChatSheet.
+ * Design goals:
+ * - Minimal height: header + 2-message scrollable history + input row
+ * - No "local" indicator pill
+ * - Keyboard-aware on both platforms (inside Modal, no adjustResize)
+ * - Reports height via onPanelLayout so playStage can shrink the board
  */
 
 import React, { useCallback, useEffect, useRef, useState } from "react";
@@ -17,36 +17,28 @@ import {
   TouchableOpacity,
   StyleSheet,
   Keyboard,
-  KeyboardAvoidingView,
   Platform,
-  Dimensions,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
-
-const { height: SCREEN_H } = Dimensions.get("window");
-const CHAT_MAX_H = Math.max(196, Math.floor(SCREEN_H * 0.26));
 
 type ChatMessage = {
   id: number;
   name: string;
   text: string;
-  time: string;
+  isMe: boolean;
 };
-
-const QUICK_EMOJIS = ["👍", "😂", "🔥", "❤️", "😮", "😢"];
 
 type Props = {
   open: boolean;
   onClose: () => void;
   onPanelLayout?: (height: number) => void;
   playerName?: string;
-  /** Incoming message from another player (via socket). */
   incoming?: { name: string; text: string } | null;
-  /** Called when a message arrives while the panel is closed (for unread badge). */
   onUnread?: () => void;
-  /** Called when the local player sends a message. */
   onSend?: (text: string) => void;
+  /** Keyboard height from GamesScreen — used to lift the panel above the keyboard. */
+  kbHeight?: number;
 };
 
 export default function GameChatPanel({
@@ -57,59 +49,34 @@ export default function GameChatPanel({
   incoming,
   onUnread,
   onSend,
+  kbHeight = 0,
 }: Props) {
   const insets = useSafeAreaInsets();
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [draft, setDraft] = useState("");
-  const [kbH, setKbH] = useState(0);
   const scrollRef = useRef<ScrollView>(null);
   const inputRef = useRef<TextInput>(null);
   const idRef = useRef(0);
-
-  // ── Keyboard tracking (iOS overlay / Android adjustResize) ───────────
-  useEffect(() => {
-    if (!open) return;
-
-    const showEvt =
-      Platform.OS === "ios" ? "keyboardWillShow" : "keyboardDidShow";
-    const hideEvt =
-      Platform.OS === "ios" ? "keyboardWillHide" : "keyboardDidHide";
-
-    const onShow = (e: any) => setKbH(e.endCoordinates?.height || 0);
-    const onHide = () => setKbH(0);
-
-    const sub1 = Keyboard.addListener(showEvt, onShow);
-    const sub2 = Keyboard.addListener(hideEvt, onHide);
-
-    return () => {
-      sub1.remove();
-      sub2.remove();
-    };
-  }, [open]);
-
-  // Auto-scroll to bottom on new message
-  useEffect(() => {
-    if (messages.length > 0) {
-      setTimeout(() => scrollRef.current?.scrollToEnd({ animated: true }), 80);
-    }
-  }, [messages.length]);
 
   // Dismiss keyboard when panel closes
   useEffect(() => {
     if (!open) Keyboard.dismiss();
   }, [open]);
 
-  // Handle incoming messages from socket
+  // Auto-scroll to latest message
+  useEffect(() => {
+    if (messages.length > 0) {
+      setTimeout(() => scrollRef.current?.scrollToEnd({ animated: true }), 60);
+    }
+  }, [messages.length]);
+
+  // Handle incoming socket messages
   useEffect(() => {
     if (!incoming) return;
-    const now = new Date();
-    const time = `${now.getHours().toString().padStart(2, "0")}:${now
-      .getMinutes().toString().padStart(2, "0")}`;
     setMessages((prev) => [
       ...prev,
-      { id: ++idRef.current, name: incoming.name, text: incoming.text, time },
+      { id: ++idRef.current, name: incoming.name, text: incoming.text, isMe: false },
     ]);
-    // If panel is closed, signal unread
     if (!open) onUnread?.();
   }, [incoming]);
 
@@ -118,249 +85,178 @@ export default function GameChatPanel({
       const trimmed = text.trim();
       if (!trimmed) return;
       onSend?.(trimmed);
-      const now = new Date();
-      const time = `${now.getHours().toString().padStart(2, "0")}:${now
-        .getMinutes()
-        .toString()
-        .padStart(2, "0")}`;
       setMessages((prev) => [
         ...prev,
-        { id: ++idRef.current, name: playerName, text: trimmed, time },
+        { id: ++idRef.current, name: playerName, text: trimmed, isMe: true },
       ]);
       setDraft("");
     },
-    [playerName],
+    [playerName, onSend],
   );
 
-  const sendEmoji = useCallback(
-    (emoji: string) => {
-      onSend?.(emoji);
-      const now = new Date();
-      const time = `${now.getHours().toString().padStart(2, "0")}:${now
-        .getMinutes()
-        .toString()
-        .padStart(2, "0")}`;
-      setMessages((prev) => [
-        ...prev,
-        { id: ++idRef.current, name: playerName, text: emoji, time },
-      ]);
-    },
-    [playerName],
-  );
+  if (!open) return null;
 
-
-  // iOS: keyboard overlays → lift the sheet by kbH
-  // Android: window resizes → no manual lift needed
-  const kbLift = Platform.OS === "ios" ? kbH : 0;
-  const sheetMaxH = kbH > 0 ? 96 : CHAT_MAX_H;
+  // Lift the panel above the keyboard. When keyboard is up, ignore safeArea
+  // bottom inset (keyboard already sits above the home indicator).
+  const bottomOffset = kbHeight > 0 ? kbHeight : Math.max(insets.bottom, 6);
 
   return (
-    <KeyboardAvoidingView
-      behavior={Platform.OS === "ios" ? "padding" : undefined}
-      keyboardVerticalOffset={0}
-      style={[styles.chatWrap, { paddingBottom: insets.bottom || 6 }, !open && { display: "none" }]}
+    <View
+      style={[styles.wrap, { bottom: bottomOffset }]}
+      onLayout={(e) => onPanelLayout?.(e.nativeEvent.layout.height + bottomOffset)}
     >
-      <View
-        style={[styles.chatSheet, { maxHeight: sheetMaxH }]}
-        onLayout={(e) => onPanelLayout?.(e.nativeEvent.layout.height)}
-      >
-        {/* Header */}
-        <View style={styles.chatHeader}>
-          <Text style={styles.chatTitle}>💬 Chat</Text>
-          <View style={styles.chatLiveTag}>
-            <View style={styles.chatLiveDot} />
-            <Text style={styles.chatLiveText}>local</Text>
-          </View>
-          <TouchableOpacity
-            onPress={() => {
-              Keyboard.dismiss();
-              onClose();
-            }}
-            hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
-          >
-            <Ionicons name="close" size={22} color="#C4B5FD" />
-          </TouchableOpacity>
-        </View>
-
-        {/* Messages */}
-        <ScrollView
-          ref={scrollRef}
-          style={styles.chatList}
-          contentContainerStyle={styles.chatListContent}
-          onContentSizeChange={() =>
-            scrollRef.current?.scrollToEnd({ animated: true })
-          }
-          keyboardShouldPersistTaps="handled"
+      {/* Header */}
+      <View style={styles.header}>
+        <Ionicons name="chatbubble-ellipses" size={15} color="#A78BFA" />
+        <Text style={styles.headerTitle}>Chat</Text>
+        <TouchableOpacity
+          onPress={() => { Keyboard.dismiss(); onClose(); }}
+          hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+          style={styles.closeBtn}
         >
-          {messages.length === 0 && (
-            <Text style={styles.chatEmpty}>
-              No messages yet — say hi! 👋
-            </Text>
-          )}
-          {messages.map((m) => (
-            <View key={m.id} style={styles.chatRow}>
-              <Text style={styles.chatTime}>{m.time}</Text>
-              <Text style={styles.chatName}>{m.name}:</Text>
-              <Text style={styles.chatMsg}>{m.text}</Text>
-            </View>
-          ))}
-        </ScrollView>
-
-        {/* Quick emojis — hidden when keyboard is open to save space */}
-        {kbH === 0 && (
-          <View style={styles.emojiRow}>
-            {QUICK_EMOJIS.map((e) => (
-              <TouchableOpacity
-                key={e}
-                onPress={() => sendEmoji(e)}
-                style={styles.emojiBtn}
-              >
-                <Text style={styles.emojiText}>{e}</Text>
-              </TouchableOpacity>
-            ))}
-          </View>
-        )}
-
-        {/* Input */}
-        <View style={styles.chatInputRow}>
-          <TextInput
-            ref={inputRef}
-            style={styles.chatInput}
-            value={draft}
-            onChangeText={setDraft}
-            placeholder="Type a message…"
-            placeholderTextColor="#64748B"
-            maxLength={200}
-            returnKeyType="send"
-            onSubmitEditing={() => {
-              sendMessage(draft);
-              inputRef.current?.focus();
-            }}
-          />
-          <TouchableOpacity
-            onPress={() => {
-              sendMessage(draft);
-              inputRef.current?.focus();
-            }}
-            style={styles.sendBtn}
-            disabled={!draft.trim()}
-          >
-            <Ionicons
-              name="send"
-              size={18}
-              color={draft.trim() ? "#A78BFA" : "#475569"}
-            />
-          </TouchableOpacity>
-        </View>
+          <Ionicons name="close" size={18} color="#64748B" />
+        </TouchableOpacity>
       </View>
-    </KeyboardAvoidingView>
+
+      {/* Message history — fixed height showing ~2 rows, scrollable */}
+      <ScrollView
+        ref={scrollRef}
+        style={styles.msgList}
+        contentContainerStyle={styles.msgListContent}
+        onContentSizeChange={() => scrollRef.current?.scrollToEnd({ animated: true })}
+        keyboardShouldPersistTaps="handled"
+        showsVerticalScrollIndicator={false}
+      >
+        {messages.length === 0 ? (
+          <Text style={styles.emptyHint}>No messages yet — say hi! 👋</Text>
+        ) : (
+          messages.map((m) => (
+            <View key={m.id} style={[styles.msgRow, m.isMe && styles.msgRowMe]}>
+              {!m.isMe && (
+                <Text style={styles.msgName}>{m.name}: </Text>
+              )}
+              <Text style={[styles.msgText, m.isMe && styles.msgTextMe]} numberOfLines={2}>
+                {m.isMe ? `You: ${m.text}` : m.text}
+              </Text>
+            </View>
+          ))
+        )}
+      </ScrollView>
+
+      {/* Input row */}
+      <View style={styles.inputRow}>
+        <TextInput
+          ref={inputRef}
+          style={styles.input}
+          value={draft}
+          onChangeText={setDraft}
+          placeholder="Message…"
+          placeholderTextColor="#475569"
+          maxLength={200}
+          returnKeyType="send"
+          onSubmitEditing={() => { sendMessage(draft); inputRef.current?.focus(); }}
+        />
+        <TouchableOpacity
+          onPress={() => { sendMessage(draft); inputRef.current?.focus(); }}
+          style={[styles.sendBtn, !draft.trim() && styles.sendBtnDisabled]}
+          disabled={!draft.trim()}
+          activeOpacity={0.7}
+        >
+          <Ionicons name="send" size={16} color={draft.trim() ? "#fff" : "#475569"} />
+        </TouchableOpacity>
+      </View>
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
-  chatWrap: {
+  wrap: {
     position: "absolute",
     bottom: 0,
     left: 0,
     right: 0,
     zIndex: 100,
-    paddingHorizontal: 10,
+    backgroundColor: "rgba(10, 14, 26, 0.97)",
+    borderTopWidth: 1,
+    borderTopColor: "rgba(139, 92, 246, 0.25)",
+    paddingHorizontal: 12,
+    paddingTop: 8,
+    paddingBottom: 10,
   },
-  chatSheet: {
-    backgroundColor: "rgba(15, 23, 42, 0.96)",
-    borderRadius: 16,
-    borderTopLeftRadius: 16,
-    borderTopRightRadius: 16,
-    borderWidth: 1,
-    borderColor: "rgba(139, 92, 246, 0.3)",
-    overflow: "hidden",
-  },
-  chatHeader: {
+  header: {
     flexDirection: "row",
     alignItems: "center",
-    paddingHorizontal: 14,
-    paddingVertical: 10,
-    borderBottomWidth: 1,
-    borderBottomColor: "rgba(139, 92, 246, 0.15)",
+    marginBottom: 6,
+    gap: 6,
   },
-  chatTitle: { color: "#E2E8F0", fontSize: 15, fontWeight: "700", flex: 1 },
-  chatLiveTag: {
-    flexDirection: "row",
-    alignItems: "center",
-    backgroundColor: "rgba(34, 197, 94, 0.15)",
-    borderRadius: 8,
-    paddingHorizontal: 8,
-    paddingVertical: 3,
-    marginRight: 10,
-  },
-  chatLiveDot: {
-    width: 6,
-    height: 6,
-    borderRadius: 3,
-    backgroundColor: "#22C55E",
-    marginRight: 4,
-  },
-  chatLiveText: { color: "#22C55E", fontSize: 11, fontWeight: "600" },
-  chatList: { flex: 1, maxHeight: 120 },
-  chatListContent: { paddingHorizontal: 14, paddingVertical: 8 },
-  chatEmpty: {
-    color: "#64748B",
-    fontSize: 13,
-    textAlign: "center",
-    paddingVertical: 12,
-    fontStyle: "italic",
-  },
-  chatRow: { flexDirection: "row", marginBottom: 6, alignItems: "flex-start" },
-  chatTime: { color: "#64748B", fontSize: 11, marginRight: 6, marginTop: 1 },
-  chatName: {
-    color: "#A78BFA",
+  headerTitle: {
+    color: "#E2E8F0",
     fontSize: 13,
     fontWeight: "700",
-    marginRight: 4,
-  },
-  chatMsg: { color: "#E2E8F0", fontSize: 13, flex: 1 },
-  emojiRow: {
-    flexDirection: "row",
-    justifyContent: "center",
-    gap: 8,
-    paddingVertical: 6,
-    borderTopWidth: 1,
-    borderTopColor: "rgba(139, 92, 246, 0.1)",
-  },
-  emojiBtn: {
-    width: 32,
-    height: 32,
-    borderRadius: 16,
-    backgroundColor: "rgba(139, 92, 246, 0.12)",
-    justifyContent: "center",
-    alignItems: "center",
-  },
-  emojiText: { fontSize: 16 },
-  chatInputRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    paddingHorizontal: 10,
-    paddingBottom: Platform.OS === "ios" ? 20 : 10,
-    paddingTop: 6,
-    borderTopWidth: 1,
-    borderTopColor: "rgba(139, 92, 246, 0.15)",
-  },
-  chatInput: {
     flex: 1,
-    backgroundColor: "rgba(30, 41, 59, 0.8)",
-    borderRadius: 20,
-    paddingHorizontal: 14,
-    paddingVertical: 8,
+  },
+  closeBtn: {
+    padding: 2,
+  },
+  // ~2 messages tall (each row ~20px + padding)
+  msgList: {
+    height: 52,
+  },
+  msgListContent: {
+    paddingBottom: 2,
+  },
+  emptyHint: {
+    color: "#475569",
+    fontSize: 12,
+    fontStyle: "italic",
+    lineHeight: 20,
+  },
+  msgRow: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    marginBottom: 3,
+    flexWrap: "wrap",
+  },
+  msgRowMe: {},
+  msgName: {
+    color: "#A78BFA",
+    fontSize: 12,
+    fontWeight: "700",
+  },
+  msgText: {
+    color: "#CBD5E1",
+    fontSize: 12,
+    flex: 1,
+  },
+  msgTextMe: {
     color: "#E2E8F0",
-    fontSize: 14,
-    marginRight: 8,
+  },
+  inputRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    marginTop: 6,
+    gap: 8,
+  },
+  input: {
+    flex: 1,
+    height: 36,
+    backgroundColor: "rgba(30, 41, 59, 0.9)",
+    borderRadius: 18,
+    paddingHorizontal: 14,
+    color: "#F1F5F9",
+    fontSize: 13,
+    borderWidth: 1,
+    borderColor: "rgba(139, 92, 246, 0.2)",
   },
   sendBtn: {
     width: 36,
     height: 36,
     borderRadius: 18,
-    backgroundColor: "rgba(139, 92, 246, 0.15)",
+    backgroundColor: "#7C3AED",
     justifyContent: "center",
     alignItems: "center",
+  },
+  sendBtnDisabled: {
+    backgroundColor: "rgba(30, 41, 59, 0.9)",
   },
 });

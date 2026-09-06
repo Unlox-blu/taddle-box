@@ -8,7 +8,7 @@
 import React, { useEffect, useRef, useCallback } from "react";
 import {
   View, Text, StyleSheet, TextInput, TouchableOpacity,
-  Dimensions, PanResponder, FlatList, KeyboardAvoidingView, Platform, Animated, Image,
+  Dimensions, PanResponder, FlatList, Animated, Image,
 } from "react-native";
 import { LinearGradient } from "expo-linear-gradient";
 import type { HtmlGameResult, PlayerContext } from "../../../../games/types";
@@ -107,7 +107,7 @@ export default function ScribbleGame({
 }: Props) {
   const NATURAL_W = width;
   const NATURAL_H = height - 60;
-  const { onLayout, scale } = useGameContainer({ naturalWidth: NATURAL_W, naturalHeight: NATURAL_H, paddingX: 24 });
+  const { onLayout, scale, scaledMarginV } = useGameContainer({ naturalWidth: NATURAL_W, naturalHeight: NATURAL_H, paddingX: 24 });
   const CANVAS_W = FALLBACK_CW;
   const CANVAS_H = FALLBACK_CH;
   const flatRef = useRef<FlatList>(null);
@@ -187,13 +187,11 @@ export default function ScribbleGame({
   }
 
   return (
-    <KeyboardAvoidingView
+    <View
       style={styles.container}
-      behavior={Platform.OS === "ios" ? "padding" : undefined}
-      keyboardVerticalOffset={Platform.OS === "ios" ? 90 : 0}
       onLayout={onLayout}
     >
-      <View style={{ width: NATURAL_W, height: NATURAL_H, transform: [{ scale }], alignSelf: "center" }}>
+      <View style={{ width: NATURAL_W, height: NATURAL_H, transform: [{ scale }], alignSelf: "center", marginVertical: scaledMarginV }}>
       {showRoleCard && (
         <Animated.View style={[
           styles.roleOverlay,
@@ -328,7 +326,7 @@ export default function ScribbleGame({
         </View>
       )}
       </View>
-    </KeyboardAvoidingView>
+    </View>
   );
 }
 

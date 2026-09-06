@@ -78,7 +78,7 @@ export default function WordRushGame({
   // The game renders at its natural size and is uniformly scaled down.
   const NATURAL_W = width;
   const NATURAL_H = height - 60;
-  const { onLayout, scale } = useGameContainer({ naturalWidth: NATURAL_W, naturalHeight: NATURAL_H, paddingX: BOARD_PADDING });
+  const { onLayout, scale, scaledMarginV } = useGameContainer({ naturalWidth: NATURAL_W, naturalHeight: NATURAL_H, paddingX: BOARD_PADDING });
   const TILE_SIZE = FALLBACK_TILE;
   const onTilePress = useCallback((idx: number) => {
     if (status !== "active") return;
@@ -140,7 +140,7 @@ export default function WordRushGame({
 
   return (
     <View style={styles.container} onLayout={onLayout}>
-      <View style={{ width: NATURAL_W, height: NATURAL_H, transform: [{ scale }], alignSelf: "center" }}>
+      <View style={{ width: NATURAL_W, height: NATURAL_H, transform: [{ scale }], alignSelf: "center", marginVertical: scaledMarginV }}>
       <View style={styles.header}>
         <View>
           <Text style={styles.roundLabel}>ROUND {round} / {totalRounds}</Text>

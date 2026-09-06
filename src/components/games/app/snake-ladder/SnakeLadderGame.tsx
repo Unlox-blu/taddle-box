@@ -178,7 +178,7 @@ export default function SnakeLadderGame({
   // the container shrinks. Everything shrinks together — board, cards, buttons.
   const NATURAL_W = SCREEN_W;
   const NATURAL_H = SCREEN_H - 60; // minus GamesScreen header
-  const { onLayout, scale } = useGameContainer({ naturalWidth: NATURAL_W, naturalHeight: NATURAL_H, paddingX: 16 });
+  const { onLayout, scale, scaledMarginV } = useGameContainer({ naturalWidth: NATURAL_W, naturalHeight: NATURAL_H, paddingX: 16 });
   const BOARD_SIZE = Math.min(Math.floor(SCREEN_W - 24), 400, Math.floor(SCREEN_H - 340));
   const CELL = BOARD_SIZE / GRID;
   const [helpOpen, setHelpOpen] = useState(false);
@@ -529,7 +529,7 @@ export default function SnakeLadderGame({
       </View>
 
       {/* Scale entire game as one unit */}
-      <View style={{ width: NATURAL_W, height: NATURAL_H, transform: [{ scale }], alignSelf: "center" }}>
+      <View style={{ width: NATURAL_W, height: NATURAL_H, transform: [{ scale }], alignSelf: "center", marginVertical: scaledMarginV }}>
       <View style={styles.topBar}>
         <View style={{ width: 34 }} />
         <TouchableOpacity style={styles.logoRow} onPress={() => setHelpOpen(true)} activeOpacity={0.7}>
@@ -606,7 +606,8 @@ export default function SnakeLadderGame({
           </LinearGradient>
         </Animated.View>
       )}
-      </View>
+
+      </View>{/* end of scaled View */}
 
 
       <Modal visible={helpOpen} transparent animationType="fade" onRequestClose={() => setHelpOpen(false)}>

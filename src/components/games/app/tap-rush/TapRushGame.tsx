@@ -65,12 +65,12 @@ export default function TapRushGame({
 }: Props) {
   const NATURAL_W = width;
   const NATURAL_H = height - 60;
-  const { onLayout, scale } = useGameContainer({ naturalWidth: NATURAL_W, naturalHeight: NATURAL_H, paddingX: 40 });
+  const { onLayout, scale, scaledMarginV } = useGameContainer({ naturalWidth: NATURAL_W, naturalHeight: NATURAL_H, paddingX: 40 });
   const GAME_AREA_WIDTH = FALLBACK_W;
   const GAME_AREA_HEIGHT = FALLBACK_H;
   return (
     <View style={styles.container} onLayout={onLayout}>
-      <View style={{ width: NATURAL_W, height: NATURAL_H, transform: [{ scale }], alignSelf: "center" }}>
+      <View style={{ width: NATURAL_W, height: NATURAL_H, transform: [{ scale }], alignSelf: "center", marginVertical: scaledMarginV }}>
       <View style={[styles.header, { width: GAME_AREA_WIDTH }]}>
         <View style={styles.vsContainer}>
           <View style={styles.playerSide}>

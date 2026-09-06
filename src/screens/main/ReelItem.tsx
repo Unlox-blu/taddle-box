@@ -388,10 +388,12 @@ function RepostedReelPreview({
   post,
   isActive,
   onPress,
+  onDoubleTapLike,
 }: {
   post: Post;
   isActive?: boolean;
   onPress: (orig: Post) => void;
+  onDoubleTapLike?: (x: number, y: number) => void;
 }) {
   const [orig, setOrig] = useState<any>(null);
   const [privateAuthor, setPrivateAuthor] = useState<any>(null);
@@ -401,6 +403,35 @@ function RepostedReelPreview({
   const [pollData, setPollData] = useState<any>(null);
   const [pollSheetVisible, setPollSheetVisible] = useState(false);
   const [repostMuted, setRepostMuted] = useState(true);
+
+  const lastTapRef = useRef(0);
+  const tapTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const handleCardPress = useCallback(
+    (e: any) => {
+      const now = Date.now();
+      const locationX = e?.nativeEvent?.locationX ?? SCREEN_W / 2;
+      const locationY = e?.nativeEvent?.locationY ?? SCREEN_H / 2;
+
+      if (now - lastTapRef.current < 300) {
+        if (tapTimerRef.current) {
+          clearTimeout(tapTimerRef.current);
+          tapTimerRef.current = null;
+        }
+        lastTapRef.current = 0;
+        onDoubleTapLike?.(locationX, locationY);
+      } else {
+        lastTapRef.current = now;
+        if (tapTimerRef.current) clearTimeout(tapTimerRef.current);
+        tapTimerRef.current = setTimeout(() => {
+          lastTapRef.current = 0;
+          tapTimerRef.current = null;
+          onPress(orig);
+        }, 280);
+      }
+    },
+    [onPress, orig, onDoubleTapLike],
+  );
 
   useEffect(() => {
     let cancelled = false;
@@ -608,7 +639,7 @@ function RepostedReelPreview({
   return (
     <>
     <Pressable
-      onPress={() => onPress(orig)}
+      onPress={handleCardPress}
       style={[styles.repostPreview, { zIndex: 100 }]}
     >
       {/* Top gradient scrim */}
@@ -1101,6 +1132,7 @@ function ReelContent({
   onPress,
   onPressIn,
   onPressOut,
+  onDoubleTapLike,
   myPollVote,
   onPollVote,
   pollData,
@@ -1117,6 +1149,7 @@ function ReelContent({
   onPress?: (e: any) => void;
   onPressIn?: (e: any) => void;
   onPressOut?: (e: any) => void;
+  onDoubleTapLike?: (x: number, y: number) => void;
   myPollVote?: number | null;
   onPollVote?: (optionIndex: number) => void;
   pollData?: any;
@@ -1174,17 +1207,21 @@ function ReelContent({
     // so that audio-only reposts get the app-icon fallback
     const repostBgUrl = visualMedia[0]?.preview_url || visualMedia[0]?.media_url;
     return (
-      <View style={StyleSheet.absoluteFill}>
-        <AmbientBackground
-          url={repostBgUrl}
-        >
+      <Pressable
+        style={StyleSheet.absoluteFill}
+        onPress={onPress}
+        onPressIn={onPressIn}
+        onPressOut={onPressOut}
+      >
+        <AmbientBackground url={repostBgUrl}>
           <RepostedReelPreview
             post={post}
             isActive={isActive}
             onPress={(orig) => onRepostPress?.(orig)}
+            onDoubleTapLike={onDoubleTapLike}
           />
         </AmbientBackground>
-      </View>
+      </Pressable>
     );
   }
 
@@ -1688,8 +1725,8 @@ export default React.memo(function ReelItem({
   });
 
   const triggerHeartBurst = useCallback(
-    (x: number, y: number) => {
-      setHeartPos({ x, y });
+    (_x?: number, _y?: number) => {
+      setHeartPos({ x: SCREEN_W / 2, y: SCREEN_H / 2 });
       handleDoubleTapLike();
       Animated.sequence([
         Animated.parallel([
@@ -2058,6 +2095,7 @@ export default React.memo(function ReelItem({
           onPress={isActive ? handleContentPress : undefined}
           onPressIn={isActive ? handleContentPressIn : undefined}
           onPressOut={isActive ? handleContentPressOut : undefined}
+          onDoubleTapLike={isActive ? triggerHeartBurst : undefined}
           myPollVote={myPollVote}
           onPollVote={handlePollVote}
           pollData={pollData}

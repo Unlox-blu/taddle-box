@@ -8,16 +8,18 @@
  * + dice + everything) as one unit.
  *
  * Usage:
- *   const { onLayout, scale } = useGameContainer();
+ *   const { onLayout, scale, scaledMarginV } = useGameContainer();
  *   <View onLayout={onLayout} style={{ flex: 1, alignItems: "center", justifyContent: "center" }}>
- *     <View style={{ transform: [{ scale }], width: NATURAL_W, height: NATURAL_H }}>
+ *     <View style={{ transform: [{ scale }], width: NATURAL_W, height: NATURAL_H, marginVertical: scaledMarginV }}>
  *       ...entire game content at natural size...
  *     </View>
  *   </View>
  *
  * The game always renders at its full natural dimensions. When space is
- *充足的, scale = 1 (no change). When space shrinks, scale drops below 1
- * so everything fits proportionally.
+ * sufficient, scale = 1 (marginV = 0, no change). When space shrinks,
+ * scale drops below 1 and scaledMarginV becomes negative — collapsing
+ * the layout footprint to match the visual (scaled) size so the content
+ * doesn't overflow the container.
  */
 
 import { useState, useCallback } from "react";
@@ -59,5 +61,11 @@ export function useGameContainer(opts: Opts) {
   const scaleY = naturalHeight > 0 ? availH / naturalHeight : 1;
   const scale = Math.max(minScale, Math.min(1, scaleX, scaleY));
 
-  return { onLayout, scale, containerW: containerSize.w, containerH: containerSize.h };
+  // transform:scale doesn't change layout size — the inner view still
+  // occupies naturalHeight px even when visually scaled down. Apply a
+  // negative vertical margin equal to the "lost" space so the container
+  // doesn't overflow: marginV = -(naturalHeight * (1 - scale)) / 2
+  const scaledMarginV = scale < 1 ? -(naturalHeight * (1 - scale)) / 2 : 0;
+
+  return { onLayout, scale, scaledMarginV, containerW: containerSize.w, containerH: containerSize.h };
 }

@@ -49,9 +49,11 @@ const ConversationRow = memo(
   ({
     item,
     openChat,
+    onDelete,
   }: {
     item: Conversation;
     openChat: (id: string) => void;
+    onDelete: (id: string) => void;
   }) => {
     const colors = useThemeColors();
     const activeStatus = useActiveStatus(item.other_user_id);
@@ -145,7 +147,7 @@ const ConversationRow = memo(
           </View>
         </View>
 
-        {/* Right side: time + chevron, vertically centered on the row */}
+        {/* Right side: time + 3-dot options button */}
         <View style={styles.convRight}>
           <Text
             style={[
@@ -158,7 +160,16 @@ const ConversationRow = memo(
           >
             {formatTime(item.last_message_at)}
           </Text>
-          <Ionicons name="chevron-forward" size={14} color={colors.text.muted} />
+          <TouchableOpacity
+            style={{ padding: 6 }}
+            onPress={(e) => {
+              e.stopPropagation();
+              onDelete(item.id);
+            }}
+            hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+          >
+            <Ionicons name="ellipsis-vertical" size={18} color={colors.text.muted} />
+          </TouchableOpacity>
         </View>
       </TouchableOpacity>
     );
@@ -233,6 +244,36 @@ export default function ChatInboxScreen() {
     [navigation, conversations]
   );
 
+  const handleDeleteConversation = useCallback(
+    async (conversationId: string) => {
+      themedAlert(
+        "Delete Conversation",
+        "Are you sure you want to delete this conversation?",
+        [
+          { text: "Cancel", style: "cancel" },
+          {
+            text: "Delete",
+            style: "destructive",
+            onPress: async () => {
+              try {
+                await chatService.deleteConversation(conversationId);
+                setConversations((prev) =>
+                  prev.filter((c) => c.id !== conversationId)
+                );
+              } catch (e: any) {
+                themedAlert(
+                  "Error",
+                  e?.response?.data?.message || "Failed to delete conversation."
+                );
+              }
+            },
+          },
+        ]
+      );
+    },
+    []
+  );
+
   return (
     <View style={[styles.container, { backgroundColor: colors.bg.base }]}>
       <StatusBar style={isDark ? "light" : "dark"} />
@@ -290,10 +331,13 @@ export default function ChatInboxScreen() {
             data={conversations}
             keyExtractor={(item) => item.id}
             renderItem={({ item }) => (
-              <ConversationRow item={item} openChat={openChat} />
+              <ConversationRow
+                item={item}
+                openChat={openChat}
+                onDelete={handleDeleteConversation}
+              />
             )}
             keyboardDismissMode="on-drag"
-            estimatedItemSize={80}
             contentContainerStyle={{
               paddingBottom: insets.bottom + 100,
               paddingTop: 4,
@@ -379,6 +423,21 @@ const styles = StyleSheet.create({
     marginLeft: 8,
   },
   unreadText: { color: "#fff", fontSize: 11, fontWeight: "700" },
+  deleteActionBtn: {
+    backgroundColor: "#EF4444",
+    justifyContent: "center",
+    alignItems: "center",
+    width: 76,
+    marginVertical: 1,
+    marginRight: spacing.sm,
+    borderRadius: radii.lg,
+    gap: 3,
+  },
+  deleteActionText: {
+    color: "#fff",
+    fontSize: 11,
+    fontWeight: "700",
+  },
   // Empty state
   empty: {
     flex: 1,

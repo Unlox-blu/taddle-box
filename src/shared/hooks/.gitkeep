@@ -1,0 +1,13 @@
+# shared/hooks
+
+Generic, cross-domain hooks live here (e.g. `useDebounce`, `useIsMounted`,
+`usePrevious`) once a second domain needs them — shared code never imports
+features.
+
+Feature-specific hooks stay with their domain in `features/<domain>/hooks/`
+(games, gamification, reels, …). Queries/mutations that wrap react-query live in
+`features/<domain>/{queries,mutations}/` instead of here.
+
+There are currently no generic hooks in the codebase; this folder exists so the
+convention is locked before the first one appears. Do not move a feature hook
+here just to flatten the tree.

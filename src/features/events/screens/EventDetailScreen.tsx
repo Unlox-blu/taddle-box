@@ -1,0 +1,394 @@
+import React, { useMemo, useEffect } from 'react';
+import {
+  View,
+  Text,
+  StyleSheet,
+  ScrollView,
+  TouchableOpacity,
+  ImageBackground,
+  Linking,
+  Platform
+} from 'react-native';
+import { useRouter, useLocalSearchParams } from 'expo-router';
+import { safeOpenURL } from '../../../shared/utils/url-allowlist';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { Ionicons } from '@expo/vector-icons';
+import { LinearGradient } from 'expo-linear-gradient';
+import { StatusBar } from 'expo-status-bar';
+import { useThemeColors, useTheme } from '../../../design-system/theme/ThemeProvider';
+import { fontSizes, radii, spacing } from '../../../design-system';
+import Button from '../../../design-system/components/Button';
+import StateBlock from '../../../shell/components/StateBlock';
+import { useToggleEventRegister } from '../mutations/events.mutations';
+import { themedAlert } from '../../../design-system/components/ThemedAlert';
+import { eventService, mapEvent } from '../api/events.api';
+import type { Event } from '../../../shared/types';
+import { takeScreenParams } from '../../../shared/state/screen-params';
+
+export default function EventDetailScreen() {
+  const router = useRouter();
+  const { id } = useLocalSearchParams<{ id?: string }>();
+  const insets = useSafeAreaInsets();
+  const colors = useThemeColors();
+  const { isDark } = useTheme();
+  const styles = useMemo(() => makeStyles(colors, insets), [colors, insets]);
+
+  // Staged event object — consumed exactly once on mount; deep links fall
+  // back to fetching by id from the URL.
+  const [staged] = React.useState(() => takeScreenParams<{ event?: any }>('event'));
+  const rawEvent = staged?.event;
+  const eventId = id || rawEvent?.id;
+
+  const initialEvent = useMemo(() => {
+    return rawEvent ? mapEvent(rawEvent) : null;
+  }, [rawEvent]);
+
+  const [event, setEvent] = React.useState<Event | null>(initialEvent);
+  const [loading, setLoading] = React.useState<boolean>(!initialEvent && !!eventId);
+  const [error, setError] = React.useState<string | null>(null);
+
+  useEffect(() => {
+    if (initialEvent) {
+      setEvent(initialEvent);
+    }
+  }, [initialEvent]);
+
+  useEffect(() => {
+    // If event is not yet loaded or missing title/date, fetch from server
+    if ((!event || !event.title || !event.date) && eventId) {
+      setLoading(true);
+      setError(null);
+      eventService
+        .getEventById(eventId)
+        .then((fetched) => {
+          if (fetched) {
+            setEvent(fetched);
+          } else {
+            setError("Event not found");
+          }
+        })
+        .catch((err) => {
+          setError(err?.message || "Failed to load event details.");
+        })
+        .finally(() => {
+          setLoading(false);
+        });
+    }
+  }, [eventId]);
+
+  const { mutate: toggleEventRegister } = useToggleEventRegister();
+
+  if (loading) {
+    return (
+      <View style={{ flex: 1, backgroundColor: colors.bg.base }}>
+        <StatusBar style={isDark ? 'light' : 'dark'} />
+        <View style={{ flexDirection: 'row', alignItems: 'center', paddingHorizontal: 12, paddingTop: insets.top + 8, paddingBottom: 8 }}>
+          <TouchableOpacity onPress={() => router.back()} style={{ width: 38, height: 38, borderRadius: 19, alignItems: 'center', justifyContent: 'center' }}>
+            <Ionicons name="arrow-back" size={23} color={colors.text.primary} />
+          </TouchableOpacity>
+        </View>
+        <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center' }}>
+          <StateBlock inline loading loaderSize={32} />
+        </View>
+      </View>
+    );
+  }
+
+  if (!event || error) {
+    return (
+      <View style={{ flex: 1, backgroundColor: colors.bg.base }}>
+        <StatusBar style={isDark ? 'light' : 'dark'} />
+        <View style={{ flexDirection: 'row', alignItems: 'center', paddingHorizontal: 12, paddingTop: insets.top + 8, paddingBottom: 8 }}>
+          <TouchableOpacity onPress={() => router.back()} style={{ width: 38, height: 38, borderRadius: 19, alignItems: 'center', justifyContent: 'center' }}>
+            <Ionicons name="arrow-back" size={23} color={colors.text.primary} />
+          </TouchableOpacity>
+        </View>
+        <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', paddingHorizontal: 24 }}>
+          <StateBlock
+            title={error ? "Event Not Found" : "No Event Data"}
+            subtitle="We couldn't find the details for this event. It may have ended or been removed."
+            actionLabel="Go Back"
+            onAction={() => router.back()}
+          />
+        </View>
+      </View>
+    );
+  }
+
+  const handleJoin = () => {
+    if (event.isRegistered) {
+      themedAlert(
+        "Cancel Registration",
+        "Are you sure you want to cancel your registration?",
+        [
+          { text: "No", style: "cancel" },
+          {
+            text: "Yes",
+            style: "destructive",
+            onPress: () => {
+              toggleEventRegister(
+                { eventId: event.id, isCurrentlyRegistered: true },
+                {
+                  onSuccess: () => {
+                    setEvent(prev => prev ? { ...prev, isRegistered: false, registrations: Math.max(0, (prev.registrations || 1) - 1) } : prev);
+                  }
+                }
+              );
+            },
+          },
+        ]
+      );
+    } else {
+      if (!event.isFree && event.xpPrice) {
+        themedAlert(
+          "Join with XP",
+          `This event costs ${event.xpPrice.toLocaleString()} XP. Continue?`,
+          [
+            { text: "Cancel", style: "cancel" },
+            {
+              text: `Pay ${event.xpPrice.toLocaleString()} XP`,
+              onPress: () => {
+                toggleEventRegister(
+                  { eventId: event.id, isCurrentlyRegistered: false },
+                  {
+                    onSuccess: () => {
+                      setEvent(prev => prev ? { ...prev, isRegistered: true, registrations: (prev.registrations || 0) + 1 } : prev);
+                    }
+                  }
+                );
+              },
+            },
+          ]
+        );
+      } else {
+        toggleEventRegister(
+          { eventId: event.id, isCurrentlyRegistered: false },
+          {
+            onSuccess: () => {
+              setEvent(prev => prev ? { ...prev, isRegistered: true, registrations: (prev.registrations || 0) + 1 } : prev);
+            }
+          }
+        );
+      }
+    }
+  };
+
+  const locationStr =
+    typeof event.location === "string"
+      ? event.location
+      : typeof event.location === "object" && event.location !== null
+      ? (event.location as any).type === "virtual" || (event.location as any).type === "online"
+        ? "Online"
+        : (event.location as any).address || (event.location as any).name || "Online"
+      : "Online";
+
+  const handleAddToCalendar = () => {
+    const title = encodeURIComponent(event.title);
+    const details = encodeURIComponent(event.description || '');
+    const location = encodeURIComponent(locationStr);
+    
+    // Google Calendar template works great on both platforms and opens the browser/app
+    const url = `https://calendar.google.com/calendar/render?action=TEMPLATE&text=${title}&details=${details}&location=${location}`;
+    safeOpenURL(url).catch(() => {
+      themedAlert("Error", "Could not open calendar.", [{ text: "OK" }]);
+    });
+  };
+
+  return (
+    <View style={styles.container}>
+      <StatusBar style={isDark ? 'light' : 'dark'} />
+      <ScrollView showsVerticalScrollIndicator={false} bounces={false}>
+        
+        {/* Banner */}
+        <ImageBackground
+          source={{ uri: event.banner || 'https://via.placeholder.com/800x400' }}
+          style={styles.banner}
+        >
+          <LinearGradient
+            colors={isDark ? ['rgba(0,0,0,0.7)', 'rgba(0,0,0,0)', 'rgba(0,0,0,0.8)'] : ['rgba(0,0,0,0.45)', 'rgba(0,0,0,0)', 'rgba(0,0,0,0.55)']}
+            style={StyleSheet.absoluteFill}
+          />
+          <TouchableOpacity
+            style={styles.backBtn}
+            onPress={() => router.back()}
+          >
+            <Ionicons name="arrow-back" size={24} color="#fff" />
+          </TouchableOpacity>
+          
+          <View style={styles.bannerContent}>
+            {event.isLive && (
+              <View style={styles.livePill}>
+                <View style={styles.liveDot} />
+                <Text style={styles.livePillText}>LIVE NOW</Text>
+              </View>
+            )}
+            <Text style={styles.title}>{event.title}</Text>
+          </View>
+        </ImageBackground>
+
+        {/* Content */}
+        <View style={styles.content}>
+          <View style={styles.metaRow}>
+            <View style={styles.metaBox}>
+              <Ionicons name="calendar" size={24} color={colors.primaryLight} />
+              <View style={{ marginLeft: 12 }}>
+                <Text style={styles.metaLabel}>Date & Time</Text>
+                <Text style={styles.metaValue}>{event.date}</Text>
+              </View>
+            </View>
+          </View>
+
+          <View style={styles.metaRow}>
+            <View style={styles.metaBox}>
+              <Ionicons name="location" size={24} color={colors.primaryLight} />
+              <View style={{ marginLeft: 12 }}>
+                <Text style={styles.metaLabel}>Location</Text>
+                <Text style={styles.metaValue}>{locationStr}</Text>
+              </View>
+            </View>
+          </View>
+
+          <View style={styles.metaRow}>
+            <View style={styles.metaBox}>
+              <Ionicons name="ticket" size={24} color={colors.primaryLight} />
+              <View style={{ marginLeft: 12 }}>
+                <Text style={styles.metaLabel}>Entry Fee</Text>
+                <Text style={styles.metaValue}>{event.isFree || !event.xpPrice ? 'Free' : `${event.xpPrice} XP`}</Text>
+              </View>
+            </View>
+          </View>
+
+          <Text style={styles.sectionTitle}>About this Event</Text>
+          <Text style={styles.description}>
+            {event.description || 'No description provided.'}
+          </Text>
+          
+          <View style={{ height: 100 }} />
+        </View>
+      </ScrollView>
+
+      {/* Footer */}
+      <View style={styles.footer}>
+        <TouchableOpacity style={styles.calendarBtn} onPress={handleAddToCalendar}>
+          <Ionicons name="calendar-outline" size={24} color={colors.text.primary} />
+        </TouchableOpacity>
+        <View style={{ flex: 1, marginLeft: 16 }}>
+          <Button
+            label={event.isRegistered ? "✓ Participated" : "Join Event"}
+            onPress={handleJoin}
+            variant={event.isRegistered ? "ghost" : "primary"}
+            fullWidth
+          />
+        </View>
+      </View>
+    </View>
+  );
+}
+
+const makeStyles = (c: any, insets: any) => StyleSheet.create({
+  container: {
+    flex: 1,
+    backgroundColor: c.bg.base,
+  },
+  banner: {
+    width: '100%',
+    height: 320,
+    justifyContent: 'flex-end',
+  },
+  backBtn: {
+    position: 'absolute',
+    top: insets.top + 16,
+    left: 16,
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: 'rgba(0,0,0,0.4)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  bannerContent: {
+    padding: spacing.xl,
+  },
+  title: {
+    fontSize: fontSizes.xxl,
+    fontWeight: '900',
+    color: '#fff',
+    marginTop: 8,
+  },
+  livePill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: 'rgba(239,68,68,0.9)',
+    paddingVertical: 4,
+    paddingHorizontal: 12,
+    borderRadius: radii.full,
+    alignSelf: 'flex-start',
+  },
+  liveDot: {
+    width: 6,
+    height: 6,
+    borderRadius: 3,
+    backgroundColor: '#fff',
+    marginRight: 6,
+  },
+  livePillText: {
+    color: '#fff',
+    fontSize: fontSizes.xs,
+    fontWeight: '800',
+  },
+  content: {
+    padding: spacing.xl,
+  },
+  metaRow: {
+    marginBottom: 20,
+  },
+  metaBox: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  metaLabel: {
+    fontSize: fontSizes.sm,
+    color: c.text.muted,
+  },
+  metaValue: {
+    fontSize: fontSizes.md,
+    fontWeight: '700',
+    color: c.text.primary,
+    marginTop: 2,
+  },
+  sectionTitle: {
+    fontSize: fontSizes.lg,
+    fontWeight: '800',
+    color: c.text.primary,
+    marginTop: 16,
+    marginBottom: 12,
+  },
+  description: {
+    fontSize: fontSizes.md,
+    color: c.text.secondary,
+    lineHeight: 24,
+  },
+  footer: {
+    position: 'absolute',
+    bottom: 0,
+    left: 0,
+    right: 0,
+    backgroundColor: c.bg.surface,
+    borderTopWidth: 1,
+    borderTopColor: c.border,
+    padding: spacing.lg,
+    paddingBottom: Math.max(insets.bottom, spacing.lg),
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  calendarBtn: {
+    width: 54,
+    height: 54,
+    borderRadius: radii.lg,
+    backgroundColor: c.bg.card,
+    borderWidth: 1,
+    borderColor: c.border,
+    alignItems: 'center',
+    justifyContent: 'center',
+  }
+});

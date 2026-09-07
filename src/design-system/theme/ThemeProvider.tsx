@@ -1,0 +1,80 @@
+import React, {
+  createContext,
+  useContext,
+  useState,
+  useEffect,
+  useMemo,
+} from "react";
+import { Appearance, ColorSchemeName } from "react-native";
+// Theme persistence is the one place design-system touches storage; it imports
+// the bare package (metro aliases it to the web twin) rather than the
+// infrastructure abstraction to keep design-system independent of infra.
+import * as SecureStore from "expo-secure-store";
+import { DARK_COLORS, LIGHT_COLORS, type ColorPalette } from "../tokens/colors";
+
+export type ThemePreference = "system" | "light" | "dark";
+
+type ThemeContextType = {
+  isDark: boolean;
+  colors: ColorPalette;
+  themePreference: ThemePreference;
+  setThemePreference: (pref: ThemePreference) => Promise<void>;
+};
+
+const ThemeContext = createContext<ThemeContextType>({
+  isDark: true,
+  colors: DARK_COLORS,
+  themePreference: "system",
+  setThemePreference: async () => {},
+});
+
+const THEME_KEY = "app_themePreference";
+
+export function ThemeProvider({ children }: { children: React.ReactNode }) {
+  const [systemScheme, setSystemScheme] = useState<ColorSchemeName | null | undefined>(
+    Appearance.getColorScheme(),
+  );
+  const [themePreference, setPreference] = useState<ThemePreference>("system");
+
+  useEffect(() => {
+    // Listen for system theme changes instantly
+    const subscription = Appearance.addChangeListener(({ colorScheme }) => {
+      setSystemScheme(colorScheme);
+    });
+    // Load saved preference on mount
+    SecureStore.getItemAsync(THEME_KEY).then((saved) => {
+      if (saved === "light" || saved === "dark" || saved === "system") {
+        setPreference(saved);
+      }
+    });
+
+    return () => subscription.remove();
+  }, []);
+
+  const isDark =
+    themePreference === "system"
+      ? systemScheme === "dark"
+      : themePreference === "dark";
+
+  const setThemePreference = async (pref: ThemePreference) => {
+    await SecureStore.setItemAsync(THEME_KEY, pref);
+    setPreference(pref);
+  };
+
+  const ctxValue = useMemo(
+    () => ({
+      isDark,
+      colors: isDark ? DARK_COLORS : LIGHT_COLORS,
+      themePreference,
+      setThemePreference,
+    }),
+    [isDark, themePreference, setThemePreference],
+  );
+
+  return (
+    <ThemeContext.Provider value={ctxValue}>{children}</ThemeContext.Provider>
+  );
+}
+
+export const useTheme = () => useContext(ThemeContext);
+export const useThemeColors = () => useContext(ThemeContext).colors;

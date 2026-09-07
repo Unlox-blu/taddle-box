@@ -17,16 +17,16 @@ import { Ionicons } from "@expo/vector-icons";
 import { LinearGradient } from "expo-linear-gradient";
 import * as IntentLauncher from "expo-intent-launcher";
 import * as Application from "expo-application";
-import { useThemeColors } from "../src/context/ThemeContext";
-import { fontSizes, spacing, radii } from "../src/theme";
+import { useThemeColors } from "../src/design-system/theme/ThemeProvider";
+import { fontSizes, spacing, radii } from "../src/design-system";
 import {
   downloadApk,
   fetchUpdateManifest,
   hasUpdate,
   installApk,
   isUpdaterEnabled,
-} from "./updater";
-import type { AppUpdate } from "./types";
+} from "./app-updater";
+import type { AppUpdate } from "./app-updater.types";
 
 type UpdaterState =
   | { status: "idle" }

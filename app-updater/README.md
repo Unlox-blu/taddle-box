@@ -69,5 +69,6 @@ npm run publish:android:update:store
 ## Enabling / Disabling
 
 The feature is gated **at build time**:
-1. **Entry point:** `scripts/set-entry.js` switches `package.json#main` per build. `./entry.direct.js` includes the updater, while `./entry.store.js` does not. 
-2. **Permissions:** The `REQUEST_INSTALL_PACKAGES` permission is only injected when building with the `direct` profile. Store builds do not receive this permission.
+1. **Babel Plugin Gate:** `scripts/babel/babel-plugin-updater-gate.js` (registered in `babel.config.js`) erases the `AppUpdaterHost` import and component unless `APP_UPDATER_ENABLED=1`. Store bundles ship with zero `app-updater` code.
+2. **Permissions Gate:** In `app.config.js`, the `REQUEST_INSTALL_PACKAGES` permission is only injected when `APP_UPDATER_ENABLED=1` (e.g. in the `direct` profile). Store builds never receive this permission, ensuring full Google Play Store compliance.
+3. **Verification:** Validated via `npm run verify:updater-gate`.

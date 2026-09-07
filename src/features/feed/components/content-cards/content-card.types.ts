@@ -1,0 +1,220 @@
+/**
+ * Content types — Single source of truth.
+ *
+ * ContentItem, content data models, and getContentType.
+ * Imported by FeedCard, ReelCard, SharedFeed, SharedReels,
+ * queries, mutations, and all card components.
+ */
+import type { Post } from "../../../../shared/types";
+import type { ColorPalette } from "../../../../design-system";
+import type { SearchStyles } from "../../../search/screens/SearchScreen.styles";
+
+// ── Content Item ─────────────────────────────────────────────────────────────
+// Generic mixed-content type. SSOT for all feed/reel content.
+
+export type ContentItem = {
+  itemType: string;
+  /** Bare content UUID — the single source of truth for this item's identity.
+   *  Never prefixed with a type string. */
+  id: string;
+  /** FlashList key for uniqueness across mixed content types.
+   *  Format: `${itemType}:${id}`. Only used by keyExtractor — never by
+   *  business logic, API calls, or ID comparisons. */
+  flashListKey?: string;
+  data: any;
+  score?: number;
+  highlight?: any;
+  isHeader?: boolean;
+};
+
+// ── Feed Context ─────────────────────────────────────────────────────────────
+
+export type FeedCtx = {
+  styles: SearchStyles;
+  colors: ColorPalette;
+  isFocused: boolean;
+  activeContentId: string | null;
+  currentUserId?: string;
+  toggleLike: (id: string, isLiked: boolean) => void;
+  toggleSave: (id: string, isSaved: boolean) => void;
+  patchPost: (postId: string, patch: Partial<Post>) => void;
+  sharePost: (post: Post) => void;
+  reportPost: () => void;
+  onDeletePost?: (post: any) => void;
+  refresh: () => void;
+  openPost: (post: any) => void;
+  openComments: (post: any) => void;
+  openUser: (user: any) => void;
+  openCommunity: (slug: string) => void;
+  openGames: (id?: string) => void;
+  openEvents: (id?: string, event?: any) => void;
+  openSettings: () => void;
+  openNotifications: () => void;
+  openFollowRequests: () => void;
+  addHashtag: (tag: string) => void;
+  trackLayout?: (id: string, rect: { top: number; bottom: number }) => void;
+  preloadPostId?: string | null;
+  feedItems?: any[];
+  feedContext?: "home" | "profile" | "bookmarks" | "community" | "search";
+  feedContextId?: string;
+};
+
+// ── Content Data Models ──────────────────────────────────────────────────────
+
+export type PostData = {
+  id: string;
+  title?: string;
+  content: string;
+  author: { id: string; name: string; username: string; avatarUrl?: string };
+  community?: {
+    id: string;
+    name: string;
+    slug: string;
+    privacy: string;
+    avatarUrl?: string;
+  };
+  media?: any[];
+  tags?: string[];
+  likes: number;
+  comments: number;
+  shares: number;
+  isLiked: boolean;
+  isSaved: boolean;
+  repostedByMe: boolean;
+  publishedAt?: string;
+  createdAt: string;
+  pollData?: any;
+  myPollVote?: number;
+};
+
+export type PersonData = {
+  id: string;
+  name: string;
+  username: string;
+  avatarUrl?: string;
+  bannerUrl?: string;
+  banner_url?: string;
+  banner_media_url?: string;
+  banner?: string;
+  bio?: string;
+  followerCount: number;
+  followingCount: number;
+};
+
+export type CommunityData = {
+  id: string;
+  name: string;
+  slug: string;
+  description: string;
+  avatarUrl?: string;
+  avatar_url?: string;
+  avatar_media_url?: string;
+  avatar?: string;
+  bannerUrl?: string;
+  banner_url?: string;
+  banner_media_url?: string;
+  banner?: string;
+  memberCount: number;
+  postCount?: number;
+};
+
+export type MediaData = {
+  media_id: string;
+  media_type: string;
+  cloudfront_url?: string;
+  post_id: string;
+  post_title?: string;
+  author: { id: string; name: string; username: string; avatarUrl?: string };
+  community?: {
+    id: string;
+    name: string;
+    slug: string;
+    privacy: string;
+    avatarUrl?: string;
+  };
+};
+
+export type CommentData = {
+  id: string;
+  content: string;
+  postId: string;
+  postTitle?: string;
+  author: { id: string; name: string; username: string; avatarUrl?: string };
+  community?: {
+    id: string;
+    name: string;
+    slug: string;
+    privacy: string;
+    avatarUrl?: string;
+  };
+  createdAt?: string;
+};
+
+export type GameData = {
+  id: string;
+  slug?: string;
+  name: string;
+  description: string;
+  thumbnail?: string;
+  logoUrl?: string;
+  bannerUrl?: string;
+  cardUrl?: string;
+  metadata?: any;
+  category?: string;
+  xpReward?: number;
+};
+
+export type EventData = {
+  id: string;
+  title: string;
+  description: string;
+  cover_image_url?: string;
+  coverImageUrl?: string;
+  bannerUrl?: string;
+  banner?: string;
+  logoUrl?: string;
+  location?: string;
+  startTime?: string;
+  start_time?: string;
+  attendeeCount?: number;
+  attendeesCount?: number;
+  category?: string;
+};
+
+export type NotificationData = {
+  id: string;
+  title?: string;
+  message?: string;
+  type?: string;
+  isRead?: boolean;
+};
+
+export type TransactionData = {
+  id: string;
+  amount: number;
+  type: string;
+  currency: string;
+  description?: string;
+  ts?: number;
+};
+
+export type MessageData = { id: string; content: string };
+export type TextData = { text: string };
+
+// ── Content Type Resolution ──────────────────────────────────────────────────
+
+export const getContentType = (item: any): string => {
+  const type = item?.itemType || "unknown";
+  if (type === "posts") return "post";
+  if (type === "headers") return "header";
+  if (type === "polls") return "poll";
+  if (type === "communities") return "community";
+  if (type === "events") return "event";
+  if (type === "games") return "game";
+  if (type === "people") return "person";
+  if (type === "comments") return "comment";
+  if (type === "notifications") return "notification";
+  if (type === "wallet_transactions" || type === "transactions" || type === "transaction_item") return "wallet_transaction";
+  if (type === "messages" || type === "message") return "message";
+  return type;
+};

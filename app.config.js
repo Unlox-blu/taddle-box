@@ -41,10 +41,10 @@ module.exports = ({ config }) => {
 
   return {
     ...config,
-    // NOTE: the Metro entry point is NOT set here — it's read from
-    // package.json `main`, which `scripts/set-entry.js` switches per build
-    // (entry.direct.js for direct APKs, entry.store.js for store builds).
-    // That's what keeps updater code out of the Play/App Store bundle.
+    // NOTE: the Metro entry point is NOT set here — package.json `main` is
+    // `expo-router/entry`. Updater isolation is handled at build time instead:
+    // babel.config.js registers scripts/babel/babel-plugin-updater-gate unless
+    // APP_UPDATER_ENABLED=1, so store bundles contain zero app-updater code.
     extra: {
       ...(config.extra || {}),
       appUpdater: {

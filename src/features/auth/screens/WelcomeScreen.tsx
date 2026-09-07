@@ -76,7 +76,7 @@ export default function WelcomeScreen() {
     if (expiredAccountUsername) {
       router.push("/login");
     }
-  }, [expiredAccountUsername, navigation]);
+  }, [expiredAccountUsername]);
 
   const [featureIndex, setFeatureIndex] = useState(0);
   const fadeAnim = React.useRef(new Animated.Value(1)).current;

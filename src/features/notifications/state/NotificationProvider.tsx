@@ -12,6 +12,7 @@ import { router } from "expo-router";
 import { accountSocket } from "../../../infrastructure/websocket/account-socket";
 import { deviceSocketClient } from "../../../infrastructure/websocket/device-socket";
 import { notificationService } from "../api/notifications.api";
+import { chatService } from "../../chat/api/chat.api";
 import {
   registerForPushNotificationsAsync,
   clearPushBadge,
@@ -34,6 +35,8 @@ export type InAppBanner = {
 type NotificationContextType = {
   /** Number of unread notifications (live-updated via socket). */
   unreadCount: number;
+  /** Number of unread chat messages (live-updated via socket). */
+  unreadChatCount: number;
   /** Map of inactive userId to their unread status boolean. */
   inactiveUnreadStatus: Record<string, boolean>;
   /** The banner currently displayed in-app (top overlay). */
@@ -44,16 +47,20 @@ type NotificationContextType = {
   refreshUnread: () => Promise<void>;
   /** Sets unread to 0 (e.g. user opened the notifications screen). */
   clearUnread: () => void;
+  /** Sets chat unread to 0 (e.g. user opened a conversation). */
+  clearChatUnread: () => void;
 };
 
 const NotificationContext = createContext<NotificationContextType>({
   unreadCount: 0,
+  unreadChatCount: 0,
   inactiveUnreadStatus: {},
   banner: null,
   showBanner: () => {},
   hideBanner: () => {},
   refreshUnread: async () => {},
   clearUnread: () => {},
+  clearChatUnread: () => {},
 });
 
 export const useNotifications = () => useContext(NotificationContext);
@@ -83,6 +90,7 @@ export function NotificationProvider({
 }) {
   const { isLoggedIn, user, switchAccount } = useAuth();
   const [unreadCount, setUnreadCount] = useState(0);
+  const [unreadChatCount, setUnreadChatCount] = useState(0);
   const [inactiveUnreadStatus, setInactiveUnreadStatus] = useState<
     Record<string, boolean>
   >({});
@@ -118,6 +126,10 @@ export function NotificationProvider({
     setUnreadCount(0);
     clearPushBadge();
     notificationBus.emit(NOTIF_EVENTS.UNREAD_CHANGED, 0);
+  }, []);
+
+  const clearChatUnread = useCallback(() => {
+    setUnreadChatCount(0);
   }, []);
 
   // Handle an incoming notification (socket or system foreground) uniformly.
@@ -251,6 +263,38 @@ export function NotificationProvider({
     };
   }, [isLoggedIn, handleIncoming, refreshUnread]);
 
+  // ── Chat unread count — fetch once on login, socket keeps it live ─────────
+  useEffect(() => {
+    if (!isLoggedIn) {
+      setUnreadChatCount(0);
+      return;
+    }
+    // One-time fetch to seed the initial count.
+    chatService
+      .getInbox(1, 50)
+      .then((res) => {
+        const count: number =
+          res.conversations?.reduce(
+            (acc: number, c: any) => acc + (c.unread_count || 0),
+            0,
+          ) ?? 0;
+        setUnreadChatCount(count);
+      })
+      .catch(() => {});
+
+    // Socket keeps it live — increment on incoming, decrement handled by
+    // clearChatUnread when the user opens the conversation.
+    const handleChatMessage = (data: { senderId: string }) => {
+      if (data.senderId && data.senderId !== user?.id) {
+        setUnreadChatCount((prev) => prev + 1);
+      }
+    };
+    accountSocket.events.on('chat:message', handleChatMessage);
+    return () => {
+      accountSocket.events.off('chat:message', handleChatMessage);
+    };
+  }, [isLoggedIn, user?.id]);
+
   // ── Multi-account background unread checks ──────────────────────────────
   useEffect(() => {
     const handleDeviceUnreadStatus = (statusMap: Record<string, boolean>) => {
@@ -278,21 +322,25 @@ export function NotificationProvider({
       value={useMemo(
         () => ({
           unreadCount,
+          unreadChatCount,
           inactiveUnreadStatus,
           banner,
           showBanner,
           hideBanner,
           refreshUnread,
           clearUnread,
+          clearChatUnread,
         }),
         [
           unreadCount,
+          unreadChatCount,
           inactiveUnreadStatus,
           banner,
           showBanner,
           hideBanner,
           refreshUnread,
           clearUnread,
+          clearChatUnread,
         ],
       )}
     >

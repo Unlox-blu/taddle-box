@@ -21,6 +21,7 @@ import NotificationCard from "./types/NotificationCard";
 import TransactionCard from "./types/TransactionCard";
 import MessageCard from "./types/MessageCard";
 import HeaderCard from "./types/HeaderCard";
+import SettingsCard from "./types/SettingsCard";
 
 export default function FeedCard({
   item,
@@ -60,6 +61,8 @@ export default function FeedCard({
       return <TransactionCard item={item} ctx={ctx} />;
     case "message":
       return <MessageCard item={item} ctx={ctx} />;
+    case "settings_item":
+      return <SettingsCard item={item} ctx={ctx} />;
     default:
       return <UnknownCard item={item} ctx={ctx} />;
   }

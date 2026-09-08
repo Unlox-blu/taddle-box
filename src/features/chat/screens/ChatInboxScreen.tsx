@@ -1,10 +1,5 @@
 import React, { useState, useCallback, useEffect, memo } from "react";
-import {
-  View,
-  Text,
-  TouchableOpacity,
-  StyleSheet,
-} from "react-native";
+import { View, Text, TouchableOpacity, StyleSheet } from "react-native";
 import { notificationBus } from "../../../shared/state/notification-bus";
 import { FlashList } from "@shopify/flash-list";
 import { Image } from "expo-image";
@@ -12,10 +7,14 @@ import { Ionicons } from "@expo/vector-icons";
 import { useRouter, useFocusEffect } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { StatusBar } from "expo-status-bar";
-import { useTheme, useThemeColors } from "../../../design-system/theme/ThemeProvider";
+import {
+  useTheme,
+  useThemeColors,
+} from "../../../design-system/theme/ThemeProvider";
 import { useAuth } from "../../auth/state/AuthProvider";
 import { chatService, type Conversation } from "../api/chat.api";
 import { accountSocket } from "../../../infrastructure/websocket/account-socket";
+import type { ChatMessagePayload } from "../../../shared/types";
 import { themedAlert } from "../../../design-system/components/ThemedAlert";
 import StateBlock from "../../../shell/components/StateBlock";
 import MainHeader from "../../../shell/components/MainHeader";
@@ -70,7 +69,9 @@ const ConversationRow = memo(
       >
         {/* Unread accent bar */}
         {isUnread && (
-          <View style={[styles.unreadBar, { backgroundColor: colors.primaryLight }]} />
+          <View
+            style={[styles.unreadBar, { backgroundColor: colors.primaryLight }]}
+          />
         )}
 
         {/* Avatar */}
@@ -82,7 +83,13 @@ const ConversationRow = memo(
               contentFit="cover"
             />
           ) : (
-            <View style={[styles.avatar, styles.avatarFallback, { backgroundColor: colors.bg.elevated }]}>
+            <View
+              style={[
+                styles.avatar,
+                styles.avatarFallback,
+                { backgroundColor: colors.bg.elevated },
+              ]}
+            >
               <Text style={{ fontSize: 24 }}>👾</Text>
             </View>
           )}
@@ -169,12 +176,16 @@ const ConversationRow = memo(
             }}
             hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
           >
-            <Ionicons name="ellipsis-vertical" size={18} color={colors.text.muted} />
+            <Ionicons
+              name="ellipsis-vertical"
+              size={18}
+              color={colors.text.muted}
+            />
           </TouchableOpacity>
         </View>
       </TouchableOpacity>
     );
-  }
+  },
 );
 
 export default function ChatInboxScreen() {
@@ -182,12 +193,15 @@ export default function ChatInboxScreen() {
   const insets = useSafeAreaInsets();
   const { isDark } = useTheme();
   const colors = useThemeColors();
-  const { user } = useAuth();
+  const { user, isLoggedIn } = useAuth();
 
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [loading, setLoading] = useState(true);
 
+  // Load inbox once on mount — no re-fetch on every focus.
+  // The socket keeps the list live after that.
   const fetchInbox = useCallback(async () => {
+    if (!isLoggedIn) return;
     try {
       const res = await chatService.getInbox(1, 30);
       setConversations(res.conversations || []);
@@ -196,25 +210,61 @@ export default function ChatInboxScreen() {
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [isLoggedIn]);
+
+  useEffect(() => {
+    fetchInbox();
+  }, [fetchInbox]);
 
   useFocusEffect(
     useCallback(() => {
-      fetchInbox();
       notificationBus.emit("chatScreenOpen");
       return () => {
         notificationBus.emit("chatScreenClose");
       };
-    }, [fetchInbox])
+    }, []),
   );
 
+  // Socket-driven updates — update the conversation in-place when a new
+  // message arrives. Bump unread_count only if this isn't the active chat
+  // (the ChatScreen marks messages as read and resets unread via its own
+  // socket listener). No API call needed.
   useEffect(() => {
-    const handleNewMessage = () => fetchInbox();
-    accountSocket.events.on("chat:message" as any, handleNewMessage);
-    return () => {
-      accountSocket.events.off("chat:message" as any, handleNewMessage);
+    if (!isLoggedIn) return;
+    const handleNewMessage = (data: ChatMessagePayload) => {
+      setConversations((prev) => {
+        const idx = prev.findIndex((c) => c.id === data.conversationId);
+        if (idx === -1) {
+          // Unknown conversation — do a one-time fetch to get it.
+          fetchInbox();
+          return prev;
+        }
+        const updated = [...prev];
+        const conv = { ...updated[idx] };
+        conv.last_message =
+          data.messageType === 'post'
+            ? '__post__'
+            : data.messageType === 'game_invite'
+              ? '__game_invite__'
+              : data.content;
+        conv.last_message_at = data.createdAt;
+        conv.updated_at = data.createdAt;
+        // Only bump unread if the sender is not the current user.
+        if (data.senderId !== user?.id) {
+          conv.unread_count = (conv.unread_count || 0) + 1;
+        }
+        updated[idx] = conv;
+        // Bubble the updated conversation to the top.
+        updated.splice(idx, 1);
+        updated.unshift(conv);
+        return updated;
+      });
     };
-  }, [fetchInbox]);
+    accountSocket.events.on('chat:message', handleNewMessage);
+    return () => {
+      accountSocket.events.off('chat:message', handleNewMessage);
+    };
+  }, [isLoggedIn, user?.id, fetchInbox]);
 
   const openChat = useCallback(
     async (otherUserId: string) => {
@@ -238,11 +288,11 @@ export default function ChatInboxScreen() {
         themedAlert(
           "Cannot Message",
           e?.response?.data?.message ||
-            "You can only message mutual followers."
+            "You can only message mutual followers.",
         );
       }
     },
-    [router, conversations]
+    [router, conversations],
   );
 
   const handleDeleteConversation = useCallback(
@@ -259,20 +309,21 @@ export default function ChatInboxScreen() {
               try {
                 await chatService.deleteConversation(conversationId);
                 setConversations((prev) =>
-                  prev.filter((c) => c.id !== conversationId)
+                  prev.filter((c) => c.id !== conversationId),
                 );
               } catch (e: any) {
                 themedAlert(
                   "Error",
-                  e?.response?.data?.message || "Failed to delete conversation."
+                  e?.response?.data?.message ||
+                    "Failed to delete conversation.",
                 );
               }
             },
           },
-        ]
+        ],
       );
     },
-    []
+    [],
   );
 
   return (

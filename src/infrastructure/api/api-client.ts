@@ -46,6 +46,13 @@ export const clearForcedLogoutHandler = () => {
   _forcedLogoutHandler = null;
 };
 
+// Set to true during intentional logout so the 401 interceptor doesn't fire
+// "Session Expired" when in-flight requests fail after tokens are cleared.
+let _isIntentionalLogout = false;
+export const setIntentionalLogout = (val: boolean) => {
+  _isIntentionalLogout = val;
+};
+
 // Interceptor to inject Authorization header
 apiClient.interceptors.request.use(
   async (config) => {
@@ -144,9 +151,11 @@ apiClient.interceptors.response.use(
 
       if (refreshFailedWithAuth) {
         warn("Session revoked or refresh token expired — forcing logout");
-        setTimeout(() => {
-          _forcedLogoutHandler?.();
-        }, 0);
+        if (!_isIntentionalLogout) {
+          setTimeout(() => {
+            _forcedLogoutHandler?.();
+          }, 0);
+        }
       } else {
         logError("Refresh token failed (transient):", error?.message || error);
       }

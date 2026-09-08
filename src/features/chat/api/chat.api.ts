@@ -62,7 +62,9 @@ export const chatService = {
   },
 
   async searchMutuals(q = "", page = 1, limit = 20) {
-    const res = await apiClient.get("/chat/mutuals", { params: { q, page, limit } });
+    const res = await apiClient.get("/chat/mutuals", {
+      params: { q, page, limit },
+    });
     return res.data as ChatUser[];
   },
 
@@ -72,9 +74,12 @@ export const chatService = {
   },
 
   async getMessages(conversationId: string, page = 1, limit = 50) {
-    const res = await apiClient.get(`/chat/conversation/${conversationId}/messages`, {
-      params: { page, limit },
-    });
+    const res = await apiClient.get(
+      `/chat/conversation/${conversationId}/messages`,
+      {
+        params: { page, limit },
+      },
+    );
     return res.data as ChatMessage[];
   },
 
@@ -87,17 +92,19 @@ export const chatService = {
       gameName?: string;
       gameInviteCode?: string;
       gameLobbyId?: string;
-    }
+    },
   ) {
     const res = await apiClient.post(
       `/chat/conversation/${conversationId}/messages`,
-      payload
+      payload,
     );
     return res.data as ChatMessage;
   },
 
   async toggleReaction(messageId: string, emoji: string) {
-    const res = await apiClient.post(`/chat/message/${messageId}/reaction`, { emoji });
+    const res = await apiClient.post(`/chat/message/${messageId}/reaction`, {
+      emoji,
+    });
     return res.data as { id: string; reactions: Record<string, string[]> };
   },
 

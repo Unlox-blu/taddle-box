@@ -108,6 +108,15 @@ export interface MatchmakingEventPayload {
   [key: string]: any;
 }
 
+/** Socket `chat:message` — a new message arrived in a conversation. */
+export interface ChatMessagePayload {
+  conversationId: string;
+  senderId: string;
+  content: string | null;
+  messageType: 'text' | 'post' | 'game_invite';
+  createdAt: string;
+}
+
 /**
  * Registry of every event bridged through `accountSocket.events`. Each key is a
  * socket event name; each value is its listener signature. Feeding this to
@@ -128,4 +137,5 @@ export type SocketEventMap = {
   'activeStatus:changed': (payload: ActiveStatusChangedPayload) => void;
   'activeStatus:snapshot': (payload: ActiveStatusSnapshotPayload) => void;
   SESSION_EXPIRED: (payload: SessionExpiredPayload) => void;
+  'chat:message': (payload: ChatMessagePayload) => void;
 };

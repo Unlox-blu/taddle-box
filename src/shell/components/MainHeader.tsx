@@ -4,15 +4,16 @@ import { notificationBus } from "../../shared/state/notification-bus";
 import { Ionicons } from "@expo/vector-icons";
 import { useRouter, usePathname, useFocusEffect } from "expo-router";
 import { fontSizes, spacing, radii } from "../../design-system";
-import { useTheme, useThemeColors } from "../../design-system/theme/ThemeProvider";
+import {
+  useTheme,
+  useThemeColors,
+} from "../../design-system/theme/ThemeProvider";
 import { useNotifications } from "../../features/notifications/state/NotificationProvider";
 import { useAuth } from "../../features/auth/state/AuthProvider";
 import { useGlobalScroll } from "../../shared/state/ScrollProvider";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import SideDrawer from "./SideDrawer";
 import Animated, { useAnimatedStyle } from "react-native-reanimated";
-import { accountSocket } from "../../infrastructure/websocket/account-socket";
-import { chatService } from "../../features/chat/api/chat.api";
 
 export default function MainHeader({
   showBack = false,
@@ -64,41 +65,8 @@ export default function MainHeader({
     (a) => inactiveUnreadStatus[String(a.userId)],
   );
 
-  // ── Chat Unread Logic ──
-  const [unreadChatCount, setUnreadChatCount] = useState(0);
-  useEffect(() => {
-    const fetchInbox = () => {
-      chatService
-        .getInbox(1, 10)
-        .then((res) => {
-          const count =
-            res.conversations?.reduce(
-              (acc: number, c: any) => acc + (c.unread_count || 0),
-              0,
-            ) || 0;
-          setUnreadChatCount(count);
-        })
-        .catch(() => {});
-    };
-    fetchInbox();
-
-    // Listen to real-time chat messages
-    const handleChatMessage = (data: any) => {
-      if (data.sender_id && data.sender_id !== currentUser?.id) {
-        setUnreadChatCount((prev) => prev + 1);
-      }
-    };
-    accountSocket.events.on("chat:message" as any, handleChatMessage);
-    const unsubscribe = notificationBus.on("chat_inbox_updated", fetchInbox);
-    // @ts-ignore
-    window._mainHeaderSubCleanup = unsubscribe;
-
-    return () => {
-      accountSocket.events.off("chat:message" as any, handleChatMessage);
-      // @ts-ignore
-      if (window._mainHeaderSubCleanup) window._mainHeaderSubCleanup();
-    };
-  }, [currentUser?.id]);
+  // ── Chat Unread — read from NotificationProvider (socket-driven, no API call here) ──
+  const { unreadChatCount } = useNotifications();
 
   const lastTapRef = useRef<number>(0);
   const singleTapTimerRef = useRef<NodeJS.Timeout | null>(null);
@@ -330,10 +298,7 @@ export default function MainHeader({
         )}
       </View>
 
-      <SideDrawer
-        visible={isDrawerOpen}
-        onClose={() => setDrawerOpen(false)}
-      />
+      <SideDrawer visible={isDrawerOpen} onClose={() => setDrawerOpen(false)} />
     </Animated.View>
   );
 }

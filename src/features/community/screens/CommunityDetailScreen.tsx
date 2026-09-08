@@ -18,6 +18,7 @@ import {
   Modal,
   KeyboardAvoidingView,
   Platform,
+  DeviceEventEmitter,
 } from "react-native";
 import { Image } from "expo-image";
 import { FlashList } from "@shopify/flash-list";
@@ -482,7 +483,14 @@ export default function CommunityDetailScreen() {
   useFocusEffect(
     useCallback(() => {
       loadData();
-    }, [loadData]),
+      // Tell the FAB which community is active so pressing + opens
+      // Create Post with this community pre-selected.
+      DeviceEventEmitter.emit('communityDetailFocused', { slug: communitySlug });
+      return () => {
+        // Clear when navigating away so the list screen gets Create Community.
+        DeviceEventEmitter.emit('communityDetailFocused', { slug: null });
+      };
+    }, [loadData, communitySlug]),
   );
 
   // While a join request is pending on a private community, poll the detail

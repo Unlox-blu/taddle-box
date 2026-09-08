@@ -420,13 +420,14 @@ export default function HomeScreen() {
   };
 
   return (
-    <View style={styles.container}>
+    <View style={[styles.container, { backgroundColor: colors.bg.base }]}>
       <StatusBar style={isDark ? "light" : "dark"} />
 
       {/* ── Header ────────────────────────────────── */}
       <MainHeader />
 
       <SharedFeed
+        key={activeTrend}
         onScroll={(offsetY) => {
           scrollYRef.current = offsetY;
         }}

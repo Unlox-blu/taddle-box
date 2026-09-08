@@ -194,4 +194,4 @@ import { colors, spacing, radii } from "../design-system";
   ```bash
   npm run build:android:store:cloud
   ```
-  Babel strips updater code from store builds to remain 100% Google Play Store policy compliant.
+  Babel strips updater code from store builds to remain 100% Store policy compliant.

@@ -29,7 +29,6 @@ import { themedAlert } from "../../design-system/components/ThemedAlert";
 import { useThemedAlertModal } from "../../design-system/components/ThemedAlert";
 import { useTheme } from "../../design-system/theme/ThemeProvider";
 import { chatService } from "../../features/chat/api/chat.api";
-import { accountSocket } from "../../infrastructure/websocket/account-socket";
 import { error } from "../../infrastructure/logging/logger";
 
 import { useNotifications } from "../../features/notifications/state/NotificationProvider";
@@ -81,8 +80,8 @@ export default function SideDrawer({ visible, onClose }: Props) {
   // Backend-controlled referral reward (joiner side) — never hardcoded.
   const [referralXp, setReferralXp] = useState<number | null>(null);
 
-  // ── Chat Unread Logic ──
-  const [unreadChatCount, setUnreadChatCount] = useState(0);
+  // Chat unread count — socket-driven via NotificationProvider, no local fetch.
+  const { unreadChatCount } = useNotifications();
 
   const slideX = useRef(new Animated.Value(-DRAWER_W)).current;
   const backdrop = useRef(new Animated.Value(0)).current;
@@ -121,46 +120,13 @@ export default function SideDrawer({ visible, onClose }: Props) {
       getReferralRewards()
         .then((rewards) => setReferralXp(rewards?.joinerXp ?? null))
         .catch(() => setReferralXp(null));
-
-      // Fetch chat unread count when drawer opens
-      const fetchInbox = () => {
-        chatService
-          .getInbox(1, 10)
-          .then((res) => {
-            const count =
-              res.conversations?.reduce(
-                (acc: number, c: any) => acc + (c.unread_count || 0),
-                0,
-              ) || 0;
-            setUnreadChatCount(count);
-          })
-          .catch(() => {});
-      };
-      fetchInbox();
-
-      // Ensure we listen to chat read events while drawer is visible or mounted
-      const sub = notificationBus.on("chat_inbox_updated", fetchInbox);
-      // @ts-ignore
-      window._sideDrawerSubCleanup = sub;
     }
   }, [visible]);
 
-  useEffect(() => {
-    const handleChatMessage = (data: any) => {
-      if (data.sender_id && data.sender_id !== user?.id) {
-        setUnreadChatCount((prev) => prev + 1);
-      }
-    };
-    accountSocket.events.on("chat:message" as any, handleChatMessage);
-    return () => {
-      accountSocket.events.off("chat:message" as any, handleChatMessage);
-      // @ts-ignore
-      if (window._sideDrawerSubCleanup) window._sideDrawerSubCleanup();
-    };
-  }, [user?.id]);
-
   // Delay navigation until after the close animation finishes — prevents flicker.
-  const go = (href: string | { pathname: string; params?: Record<string, string> }) => {
+  const go = (
+    href: string | { pathname: string; params?: Record<string, string> },
+  ) => {
     onClose();
     setTimeout(() => router.push(href as never), CLOSE_DELAY);
   };
@@ -200,7 +166,10 @@ export default function SideDrawer({ visible, onClose }: Props) {
       purple: true,
       onPress: () => {
         if (user?.globalAccountLockEnabled) {
-          go({ pathname: "/lock", params: { mode: "app", returnScreen: "/wallet" } });
+          go({
+            pathname: "/lock",
+            params: { mode: "app", returnScreen: "/wallet" },
+          });
         } else {
           go("/wallet");
         }
@@ -265,441 +234,456 @@ export default function SideDrawer({ visible, onClose }: Props) {
             },
           ]}
         >
-        <ScrollView showsVerticalScrollIndicator={false} bounces={false}>
-          {/* ── Profile header ── */}
-          <View style={styles.profileContainer}>
-            <View style={styles.profileRow}>
-              <TouchableOpacity
-                style={{
-                  flex: 1,
-                  flexDirection: "row",
-                  alignItems: "center",
-                  gap: 12,
-                }}
-                onPress={() => go("/profile")}
-                activeOpacity={0.75}
-              >
-                <LinearGradient
-                  colors={["#4C1D95", "#7C3AED"]}
-                  style={styles.avatar}
+          <ScrollView showsVerticalScrollIndicator={false} bounces={false}>
+            {/* ── Profile header ── */}
+            <View style={styles.profileContainer}>
+              <View style={styles.profileRow}>
+                <TouchableOpacity
+                  style={{
+                    flex: 1,
+                    flexDirection: "row",
+                    alignItems: "center",
+                    gap: 12,
+                  }}
+                  onPress={() => go("/profile")}
+                  activeOpacity={0.75}
                 >
-                  {user?.avatarUrl ? (
-                    <Image
-                      source={{ uri: user.avatarUrl }}
-                      style={styles.avatarImage}
-                    />
-                  ) : (
-                    <Text style={styles.avatarText}>👾</Text>
-                  )}
-                </LinearGradient>
-                <View style={styles.profileInfo}>
-                  <Text
-                    style={[styles.profileName, { color: colors.text.primary }]}
+                  <LinearGradient
+                    colors={["#4C1D95", "#7C3AED"]}
+                    style={styles.avatar}
                   >
-                    {user?.name || "Taddle User"}
-                  </Text>
-                  <Text
-                    style={[
-                      styles.profileHandle,
-                      { color: colors.primaryLight },
-                    ]}
-                  >
-                    @{user?.username || "user"}
-                  </Text>
-                </View>
-              </TouchableOpacity>
+                    {user?.avatarUrl ? (
+                      <Image
+                        source={{ uri: user.avatarUrl }}
+                        style={styles.avatarImage}
+                      />
+                    ) : (
+                      <Text style={styles.avatarText}>👾</Text>
+                    )}
+                  </LinearGradient>
+                  <View style={styles.profileInfo}>
+                    <Text
+                      style={[
+                        styles.profileName,
+                        { color: colors.text.primary },
+                      ]}
+                    >
+                      {user?.name || "Taddle User"}
+                    </Text>
+                    <Text
+                      style={[
+                        styles.profileHandle,
+                        { color: colors.primaryLight },
+                      ]}
+                    >
+                      @{user?.username || "user"}
+                    </Text>
+                  </View>
+                </TouchableOpacity>
 
-              <TouchableOpacity
-                style={{
-                  padding: 8,
-                  marginLeft: 4,
-                  backgroundColor: "rgba(124,58,237,0.1)",
-                  borderRadius: 20,
-                  borderWidth: 1,
-                  borderColor: "rgba(124,58,237,0.2)",
-                  position: "relative",
-                }}
-                onPress={() => setAccountsExpanded(!accountsExpanded)}
-                activeOpacity={0.6}
-              >
-                <Ionicons
-                  name={accountsExpanded ? "chevron-up" : "swap-horizontal"}
-                  size={18}
-                  color={colors.primaryLight}
-                />
-                {hasInactiveUnread && (
-                  <View
-                    style={{
-                      position: "absolute",
-                      top: -2,
-                      right: -2,
-                      width: 10,
-                      height: 10,
-                      borderRadius: 5,
-                      backgroundColor: colors.danger,
-                      borderWidth: 1.5,
-                      borderColor: colors.bg.surface,
-                    }}
+                <TouchableOpacity
+                  style={{
+                    padding: 8,
+                    marginLeft: 4,
+                    backgroundColor: "rgba(124,58,237,0.1)",
+                    borderRadius: 20,
+                    borderWidth: 1,
+                    borderColor: "rgba(124,58,237,0.2)",
+                    position: "relative",
+                  }}
+                  onPress={() => setAccountsExpanded(!accountsExpanded)}
+                  activeOpacity={0.6}
+                >
+                  <Ionicons
+                    name={accountsExpanded ? "chevron-up" : "swap-horizontal"}
+                    size={18}
+                    color={colors.primaryLight}
                   />
-                )}
-              </TouchableOpacity>
-            </View>
+                  {hasInactiveUnread && (
+                    <View
+                      style={{
+                        position: "absolute",
+                        top: -2,
+                        right: -2,
+                        width: 10,
+                        height: 10,
+                        borderRadius: 5,
+                        backgroundColor: colors.danger,
+                        borderWidth: 1.5,
+                        borderColor: colors.bg.surface,
+                      }}
+                    />
+                  )}
+                </TouchableOpacity>
+              </View>
 
-            {/* ── Account Switcher Dropdown ── */}
-            {accountsExpanded && (
-              <View
-                style={[
-                  styles.expandedAccountsWrapper,
-                  {
-                    backgroundColor: isDark
-                      ? "rgba(255,255,255,0.03)"
-                      : "rgba(0,0,0,0.03)",
-                  },
-                ]}
-              >
-                {otherAccounts.map((account) => (
+              {/* ── Account Switcher Dropdown ── */}
+              {accountsExpanded && (
+                <View
+                  style={[
+                    styles.expandedAccountsWrapper,
+                    {
+                      backgroundColor: isDark
+                        ? "rgba(255,255,255,0.03)"
+                        : "rgba(0,0,0,0.03)",
+                    },
+                  ]}
+                >
+                  {otherAccounts.map((account) => (
+                    <TouchableOpacity
+                      key={String(account.userId)}
+                      style={styles.expandedAccountRow}
+                      activeOpacity={0.7}
+                      onPress={() => {
+                        onClose();
+                        setTimeout(
+                          () => switchAccount(account.userId),
+                          CLOSE_DELAY,
+                        );
+                      }}
+                    >
+                      <View style={{ position: "relative" }}>
+                        <View style={styles.expandedAvatarRing}>
+                          {account.avatarUrl ? (
+                            <Image
+                              source={{ uri: account.avatarUrl }}
+                              style={styles.avatarImage}
+                            />
+                          ) : (
+                            <View
+                              style={[
+                                styles.avatarFallback,
+                                { backgroundColor: colors.bg.card },
+                              ]}
+                            >
+                              <Text
+                                style={[
+                                  styles.avatarInitial,
+                                  { color: colors.text.primary },
+                                ]}
+                              >
+                                {(account.name || "U").charAt(0).toUpperCase()}
+                              </Text>
+                            </View>
+                          )}
+                        </View>
+                        {inactiveUnreadStatus[String(account.userId)] && (
+                          <View
+                            style={{
+                              position: "absolute",
+                              top: -2,
+                              right: -2,
+                              width: 10,
+                              height: 10,
+                              borderRadius: 5,
+                              backgroundColor: colors.danger,
+                              borderWidth: 1.5,
+                              borderColor: colors.bg.surface,
+                            }}
+                          />
+                        )}
+                      </View>
+                      <View style={{ flex: 1, justifyContent: "center" }}>
+                        <Text
+                          numberOfLines={1}
+                          style={{
+                            color: colors.text.primary,
+                            fontSize: 13,
+                            fontWeight: "600",
+                          }}
+                        >
+                          {account.name || account.username}
+                        </Text>
+                        <Text
+                          numberOfLines={1}
+                          style={{
+                            color: colors.text.muted,
+                            fontSize: 11,
+                            marginTop: 1,
+                          }}
+                        >
+                          @{account.username}
+                        </Text>
+                      </View>
+                      <TouchableOpacity
+                        style={styles.expandedRemoveBtn}
+                        onPress={() => removeAccountFromDevice(account.userId)}
+                        hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                      >
+                        <Ionicons
+                          name="close-circle"
+                          size={18}
+                          color={colors.text.muted}
+                        />
+                      </TouchableOpacity>
+                    </TouchableOpacity>
+                  ))}
+
                   <TouchableOpacity
-                    key={String(account.userId)}
-                    style={styles.expandedAccountRow}
+                    style={[styles.expandedAddRow, { marginTop: 4 }]}
                     activeOpacity={0.7}
                     onPress={() => {
                       onClose();
-                      setTimeout(
-                        () => switchAccount(account.userId),
-                        CLOSE_DELAY,
-                      );
+                      setTimeout(() => goToAddAccount(), CLOSE_DELAY);
                     }}
                   >
-                    <View style={{ position: "relative" }}>
-                      <View style={styles.expandedAvatarRing}>
-                        {account.avatarUrl ? (
-                          <Image
-                            source={{ uri: account.avatarUrl }}
-                            style={styles.avatarImage}
-                          />
-                        ) : (
-                          <View
-                            style={[
-                              styles.avatarFallback,
-                              { backgroundColor: colors.bg.card },
-                            ]}
-                          >
-                            <Text
-                              style={[
-                                styles.avatarInitial,
-                                { color: colors.text.primary },
-                              ]}
-                            >
-                              {(account.name || "U").charAt(0).toUpperCase()}
-                            </Text>
-                          </View>
-                        )}
-                      </View>
-                      {inactiveUnreadStatus[String(account.userId)] && (
-                        <View
-                          style={{
-                            position: "absolute",
-                            top: -2,
-                            right: -2,
-                            width: 10,
-                            height: 10,
-                            borderRadius: 5,
-                            backgroundColor: colors.danger,
-                            borderWidth: 1.5,
-                            borderColor: colors.bg.surface,
-                          }}
-                        />
-                      )}
-                    </View>
-                    <View style={{ flex: 1, justifyContent: "center" }}>
-                      <Text
-                        numberOfLines={1}
-                        style={{
-                          color: colors.text.primary,
-                          fontSize: 13,
-                          fontWeight: "600",
-                        }}
-                      >
-                        {account.name || account.username}
-                      </Text>
-                      <Text
-                        numberOfLines={1}
-                        style={{
-                          color: colors.text.muted,
-                          fontSize: 11,
-                          marginTop: 1,
-                        }}
-                      >
-                        @{account.username}
-                      </Text>
-                    </View>
-                    <TouchableOpacity
-                      style={styles.expandedRemoveBtn}
-                      onPress={() => removeAccountFromDevice(account.userId)}
-                      hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                    <View
+                      style={{
+                        width: 32,
+                        height: 32,
+                        borderRadius: 16,
+                        borderWidth: 1.5,
+                        borderStyle: "dashed",
+                        borderColor: isDark
+                          ? "rgba(124,58,237,0.5)"
+                          : "rgba(124,58,237,0.4)",
+                        alignItems: "center",
+                        justifyContent: "center",
+                      }}
                     >
                       <Ionicons
-                        name="close-circle"
-                        size={18}
-                        color={colors.text.muted}
+                        name="add"
+                        size={16}
+                        color={colors.primaryLight}
                       />
-                    </TouchableOpacity>
+                    </View>
+                    <Text
+                      style={[
+                        styles.expandedAccountName,
+                        {
+                          color: colors.primaryLight,
+                          fontWeight: "600",
+                          fontSize: fontSizes.sm - 1,
+                        },
+                      ]}
+                    >
+                      Add Account
+                    </Text>
                   </TouchableOpacity>
-                ))}
-
-                <TouchableOpacity
-                  style={[styles.expandedAddRow, { marginTop: 4 }]}
-                  activeOpacity={0.7}
-                  onPress={() => {
-                    onClose();
-                    setTimeout(() => goToAddAccount(), CLOSE_DELAY);
-                  }}
-                >
-                  <View
-                    style={{
-                      width: 32,
-                      height: 32,
-                      borderRadius: 16,
-                      borderWidth: 1.5,
-                      borderStyle: "dashed",
-                      borderColor: isDark
-                        ? "rgba(124,58,237,0.5)"
-                        : "rgba(124,58,237,0.4)",
-                      alignItems: "center",
-                      justifyContent: "center",
-                    }}
-                  >
-                    <Ionicons
-                      name="add"
-                      size={16}
-                      color={colors.primaryLight}
-                    />
-                  </View>
-                  <Text
-                    style={[
-                      styles.expandedAccountName,
-                      {
-                        color: colors.primaryLight,
-                        fontWeight: "600",
-                        fontSize: fontSizes.sm - 1,
-                      },
-                    ]}
-                  >
-                    Add Account
-                  </Text>
-                </TouchableOpacity>
-              </View>
-            )}
-          </View>
-
-          <View style={{ paddingBottom: spacing.sm }}>
-            <XPProgressBar
-              level={level}
-              rank={rank}
-              currentXP={totalXP}
-              targetXP={Math.floor(totalXP / 1000 + 1) * 1000}
-              onPress={() => setLevelInfoVisible(true)}
-            />
-          </View>
-
-          {/* ── Messages Button ── */}
-          <TouchableOpacity
-            activeOpacity={0.85}
-            onPress={() => go("/chat")}
-            style={{ marginHorizontal: spacing.lg, marginBottom: spacing.sm }}
-          >
-            <View
-              style={{
-                borderRadius: radii.md,
-                borderWidth: 1,
-                borderColor: isDark
-                  ? "rgba(124,58,237,0.3)"
-                  : "rgba(124,58,237,0.4)",
-                backgroundColor: isDark
-                  ? "rgba(124,58,237,0.1)"
-                  : "rgba(124,58,237,0.08)",
-                paddingVertical: 12,
-                paddingHorizontal: 12,
-                flexDirection: "row",
-                alignItems: "center",
-              }}
-            >
-              <View
-                style={{
-                  width: 32,
-                  height: 32,
-                  borderRadius: 16,
-                  backgroundColor: colors.primary,
-                  alignItems: "center",
-                  justifyContent: "center",
-                  marginRight: 12,
-                }}
-              >
-                <Ionicons name="chatbubbles" size={16} color="#fff" />
-              </View>
-              <View style={{ flex: 1 }}>
-                <Text
-                  style={{
-                    fontSize: fontSizes.sm,
-                    fontWeight: "700",
-                    color: colors.primaryLight,
-                  }}
-                >
-                  Messages
-                </Text>
-                <Text
-                  style={{
-                    fontSize: fontSizes.xs - 1,
-                    color: colors.text.secondary,
-                    marginTop: 2,
-                  }}
-                >
-                  Taddle with mutuals & communities
-                </Text>
-              </View>
-              {unreadChatCount > 0 && (
-                <View
-                  style={{
-                    backgroundColor: colors.danger,
-                    borderRadius: 12,
-                    paddingHorizontal: 8,
-                    paddingVertical: 4,
-                    marginRight: 10,
-                  }}
-                >
-                  <Text
-                    style={{ color: "#fff", fontSize: 11, fontWeight: "bold" }}
-                  >
-                    {unreadChatCount > 99 ? "99+" : unreadChatCount}
-                  </Text>
                 </View>
               )}
+            </View>
+
+            <View style={{ paddingBottom: spacing.sm }}>
+              <XPProgressBar
+                level={level}
+                rank={rank}
+                currentXP={totalXP}
+                targetXP={Math.floor(totalXP / 1000 + 1) * 1000}
+                onPress={() => setLevelInfoVisible(true)}
+              />
+            </View>
+
+            {/* ── Messages Button ── */}
+            <TouchableOpacity
+              activeOpacity={0.85}
+              onPress={() => go("/chat")}
+              style={{ marginHorizontal: spacing.lg, marginBottom: spacing.sm }}
+            >
               <View
                 style={{
-                  width: 24,
-                  height: 24,
-                  borderRadius: 12,
+                  borderRadius: radii.md,
+                  borderWidth: 1,
+                  borderColor: isDark
+                    ? "rgba(124,58,237,0.3)"
+                    : "rgba(124,58,237,0.4)",
                   backgroundColor: isDark
-                    ? "rgba(124,58,237,0.15)"
-                    : "rgba(124,58,237,0.2)",
+                    ? "rgba(124,58,237,0.1)"
+                    : "rgba(124,58,237,0.08)",
+                  paddingVertical: 12,
+                  paddingHorizontal: 12,
+                  flexDirection: "row",
                   alignItems: "center",
-                  justifyContent: "center",
                 }}
               >
-                <Ionicons
-                  name="chevron-forward"
-                  size={14}
-                  color={colors.primaryLight}
-                />
+                <View
+                  style={{
+                    width: 32,
+                    height: 32,
+                    borderRadius: 16,
+                    backgroundColor: colors.primary,
+                    alignItems: "center",
+                    justifyContent: "center",
+                    marginRight: 12,
+                  }}
+                >
+                  <Ionicons name="chatbubbles" size={16} color="#fff" />
+                </View>
+                <View style={{ flex: 1 }}>
+                  <Text
+                    style={{
+                      fontSize: fontSizes.sm,
+                      fontWeight: "700",
+                      color: colors.primaryLight,
+                    }}
+                  >
+                    Messages
+                  </Text>
+                  <Text
+                    style={{
+                      fontSize: fontSizes.xs - 1,
+                      color: colors.text.secondary,
+                      marginTop: 2,
+                    }}
+                  >
+                    Taddle with mutuals & communities
+                  </Text>
+                </View>
+                {unreadChatCount > 0 && (
+                  <View
+                    style={{
+                      backgroundColor: colors.danger,
+                      borderRadius: 12,
+                      paddingHorizontal: 8,
+                      paddingVertical: 4,
+                      marginRight: 10,
+                    }}
+                  >
+                    <Text
+                      style={{
+                        color: "#fff",
+                        fontSize: 11,
+                        fontWeight: "bold",
+                      }}
+                    >
+                      {unreadChatCount > 99 ? "99+" : unreadChatCount}
+                    </Text>
+                  </View>
+                )}
+                <View
+                  style={{
+                    width: 24,
+                    height: 24,
+                    borderRadius: 12,
+                    backgroundColor: isDark
+                      ? "rgba(124,58,237,0.15)"
+                      : "rgba(124,58,237,0.2)",
+                    alignItems: "center",
+                    justifyContent: "center",
+                  }}
+                >
+                  <Ionicons
+                    name="chevron-forward"
+                    size={14}
+                    color={colors.primaryLight}
+                  />
+                </View>
               </View>
-            </View>
-          </TouchableOpacity>
+            </TouchableOpacity>
 
-          <TouchableOpacity
-            activeOpacity={0.85}
-            onPress={() => go("/leaderboards")}
-            style={{ marginHorizontal: spacing.lg, marginBottom: spacing.sm }}
-          >
-            <LinearGradient
-              colors={
-                isDark
-                  ? ["rgba(251,191,36,0.12)", "rgba(245,158,11,0.03)"]
-                  : ["rgba(251,191,36,0.15)", "rgba(245,158,11,0.05)"]
-              }
-              start={{ x: 0, y: 0 }}
-              end={{ x: 1, y: 1 }}
-              style={{
-                borderRadius: radii.md,
-                borderWidth: 1,
-                borderColor: isDark
-                  ? "rgba(251,191,36,0.25)"
-                  : "rgba(251,191,36,0.4)",
-                paddingVertical: 10,
-                paddingHorizontal: 12,
-                flexDirection: "row",
-                alignItems: "center",
-              }}
+            <TouchableOpacity
+              activeOpacity={0.85}
+              onPress={() => go("/leaderboards")}
+              style={{ marginHorizontal: spacing.lg, marginBottom: spacing.sm }}
             >
               <LinearGradient
-                colors={["#FBBF24", "#D97706"]}
+                colors={
+                  isDark
+                    ? ["rgba(251,191,36,0.12)", "rgba(245,158,11,0.03)"]
+                    : ["rgba(251,191,36,0.15)", "rgba(245,158,11,0.05)"]
+                }
+                start={{ x: 0, y: 0 }}
+                end={{ x: 1, y: 1 }}
                 style={{
-                  width: 32,
-                  height: 32,
-                  borderRadius: 16,
+                  borderRadius: radii.md,
+                  borderWidth: 1,
+                  borderColor: isDark
+                    ? "rgba(251,191,36,0.25)"
+                    : "rgba(251,191,36,0.4)",
+                  paddingVertical: 10,
+                  paddingHorizontal: 12,
+                  flexDirection: "row",
                   alignItems: "center",
-                  justifyContent: "center",
-                  marginRight: 12,
                 }}
               >
-                <Ionicons name="trophy" size={16} color="#fff" />
+                <LinearGradient
+                  colors={["#FBBF24", "#D97706"]}
+                  style={{
+                    width: 32,
+                    height: 32,
+                    borderRadius: 16,
+                    alignItems: "center",
+                    justifyContent: "center",
+                    marginRight: 12,
+                  }}
+                >
+                  <Ionicons name="trophy" size={16} color="#fff" />
+                </LinearGradient>
+                <View style={{ flex: 1 }}>
+                  <Text
+                    style={{
+                      fontSize: fontSizes.sm,
+                      fontWeight: "800",
+                      color: isDark ? "#FBBF24" : "#B45309",
+                    }}
+                  >
+                    Weekly Leaderboards
+                  </Text>
+                  <Text
+                    style={{
+                      fontSize: fontSizes.xs - 1,
+                      fontWeight: "600",
+                      color: colors.text.secondary,
+                      marginTop: 1,
+                    }}
+                  >
+                    Rise the ranks & win rewards
+                  </Text>
+                </View>
+                <View
+                  style={{
+                    width: 24,
+                    height: 24,
+                    borderRadius: 12,
+                    backgroundColor: isDark
+                      ? "rgba(251,191,36,0.15)"
+                      : "rgba(251,191,36,0.2)",
+                    alignItems: "center",
+                    justifyContent: "center",
+                  }}
+                >
+                  <Ionicons
+                    name="chevron-forward"
+                    size={14}
+                    color={isDark ? "#FBBF24" : "#B45309"}
+                  />
+                </View>
               </LinearGradient>
-              <View style={{ flex: 1 }}>
-                <Text
-                  style={{
-                    fontSize: fontSizes.sm,
-                    fontWeight: "800",
-                    color: isDark ? "#FBBF24" : "#B45309",
-                  }}
-                >
-                  Weekly Leaderboards
-                </Text>
-                <Text
-                  style={{
-                    fontSize: fontSizes.xs - 1,
-                    fontWeight: "600",
-                    color: colors.text.secondary,
-                    marginTop: 1,
-                  }}
-                >
-                  Rise the ranks & win rewards
-                </Text>
-              </View>
-              <View
-                style={{
-                  width: 24,
-                  height: 24,
-                  borderRadius: 12,
-                  backgroundColor: isDark
-                    ? "rgba(251,191,36,0.15)"
-                    : "rgba(251,191,36,0.2)",
-                  alignItems: "center",
-                  justifyContent: "center",
-                }}
+            </TouchableOpacity>
+
+            <View
+              style={[styles.divider, { backgroundColor: colors.border }]}
+            />
+
+            {mainMenu.map((row) => (
+              <DrawerRow key={row.label} colors={colors} {...row} />
+            ))}
+
+            <View
+              style={[styles.divider, { backgroundColor: colors.border }]}
+            />
+
+            {moreMenu.map((row) => (
+              <DrawerRow key={row.label} colors={colors} {...row} />
+            ))}
+
+            <View
+              style={[styles.divider, { backgroundColor: colors.border }]}
+            />
+
+            <View style={styles.footer}>
+              <Text style={[styles.footerApp, { color: colors.text.muted }]}>
+                TADDLEBOX
+              </Text>
+              <Text
+                style={[styles.footerVersion, { color: colors.text.muted }]}
               >
-                <Ionicons
-                  name="chevron-forward"
-                  size={14}
-                  color={isDark ? "#FBBF24" : "#B45309"}
-                />
-              </View>
-            </LinearGradient>
-          </TouchableOpacity>
+                v1.0.0
+              </Text>
+            </View>
 
-          <View style={[styles.divider, { backgroundColor: colors.border }]} />
-
-          {mainMenu.map((row) => (
-            <DrawerRow key={row.label} colors={colors} {...row} />
-          ))}
-
-          <View style={[styles.divider, { backgroundColor: colors.border }]} />
-
-          {moreMenu.map((row) => (
-            <DrawerRow key={row.label} colors={colors} {...row} />
-          ))}
-
-          <View style={[styles.divider, { backgroundColor: colors.border }]} />
-
-          <View style={styles.footer}>
-            <Text style={[styles.footerApp, { color: colors.text.muted }]}>
-              TADDLEBOX
-            </Text>
-            <Text style={[styles.footerVersion, { color: colors.text.muted }]}>
-              v1.0.0
-            </Text>
-          </View>
-
-          <View style={{ height: insets.bottom + 24 }} />
-        </ScrollView>
+            <View style={{ height: insets.bottom + 24 }} />
+          </ScrollView>
         </Animated.View>
       </View>
 

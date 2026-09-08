@@ -4,7 +4,7 @@ import React, { useEffect, useState } from 'react';
 import { StatusBar as RNStatusBar, AppState } from 'react-native';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
-import { Stack, Redirect, usePathname } from 'expo-router';
+import { Stack, Redirect, usePathname, router } from 'expo-router';
 import * as SplashScreen from 'expo-splash-screen';
 import { useTheme } from '../design-system/theme/ThemeProvider';
 import { useAuth } from '../features/auth/state/AuthProvider';
@@ -50,7 +50,7 @@ function LocationTracker() {
 // overlays (banner, lock, alerts, splash) that sit above navigation.
 function AppShell() {
   const { colors, isDark } = useTheme();
-  const { isLoading, isSplashVisible, setLottieFinished, needsForceUpdate } =
+  const { isLoading, isLoggedIn, isSplashVisible, setLottieFinished, needsForceUpdate } =
     useAuth();
   const [lottieReady, setLottieReady] = useState(false);
   const pathname = usePathname();
@@ -71,6 +71,15 @@ function AppShell() {
       }, 250);
     }
   }, [lottieReady]);
+
+  // When isLoggedIn flips to false (logout or forced logout), navigate to
+  // auth from anywhere in the stack — pushed screens like /settings or /chat
+  // won't redirect on their own since they're outside (main)/_layout.
+  useEffect(() => {
+    if (!isLoading && !isLoggedIn) {
+      router.replace('/(auth)');
+    }
+  }, [isLoggedIn, isLoading]);
 
   // Hard-gate: when the backend mandates an update, only the force-update
   // screen is reachable.

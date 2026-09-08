@@ -6,22 +6,39 @@ import {
   TouchableOpacity,
   ScrollView,
   Switch,
-
+  Platform,
   Linking,
   Image,
   Modal,
 } from "react-native";
-import { useSafeAreaInsets, SafeAreaView } from "react-native-safe-area-context";
+import {
+  useSafeAreaInsets,
+  SafeAreaView,
+} from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
-import { fontSizes, spacing, radii, type ColorPalette } from "../../design-system";
+import {
+  fontSizes,
+  spacing,
+  radii,
+  type ColorPalette,
+} from "../../design-system";
 import { useWallet } from "../../features/wallet/state/WalletProvider";
-import { useTheme, useThemeColors } from "../../design-system/theme/ThemeProvider";
+import {
+  useTheme,
+  useThemeColors,
+} from "../../design-system/theme/ThemeProvider";
 import { useAuth } from "../../features/auth/state/AuthProvider";
-import { useGlobalScroll, useGlobalScrollHandler } from "../../shared/state/ScrollProvider";
+import {
+  useGlobalScroll,
+  useGlobalScrollHandler,
+} from "../../shared/state/ScrollProvider";
 import { stageScreenParams } from "../../shared/state/screen-params";
 import MainHeader from "../components/MainHeader";
-import SectionChrome, { useSectionChrome, SectionHeader } from "../../shared/components/SectionChrome";
+import SectionChrome, {
+  useSectionChrome,
+  SectionHeader,
+} from "../../shared/components/SectionChrome";
 import { userService } from "../../features/users/api/users.api";
 import { authService } from "../../features/auth/api/auth.api";
 import { appConfigService } from "../../infrastructure/config/app-config";
@@ -30,10 +47,13 @@ import { useGameSoundPrefs } from "../../features/games/media/game-sound";
 import * as SecureStore from "../../infrastructure/storage/secure-store";
 import * as LocalAuthentication from "expo-local-authentication";
 import { useFocusEffect } from "expo-router";
-import { themedAlert, themedPrompt } from '../../design-system/components/ThemedAlert';
+import {
+  themedAlert,
+  themedPrompt,
+} from "../../design-system/components/ThemedAlert";
 import PinPad from "../../design-system/components/PinPad";
 import { nativeBypass } from "../../shared/utils/native-bypass";
-import { log, error } from '../../infrastructure/logging/logger';
+import { log, error } from "../../infrastructure/logging/logger";
 
 const maskEmail = (email?: string) => {
   if (!email) return "Not linked";
@@ -51,11 +71,11 @@ const maskPhone = (phone?: string, countryCode?: string) => {
   if (full.length <= 4) return full;
   const start = full.substring(0, 3);
   const end = full.substring(full.length - 2);
-  const stars = '*'.repeat(Math.max(1, full.length - 5));
+  const stars = "*".repeat(Math.max(1, full.length - 5));
   return `${start}${stars}${end}`;
 };
 
-  export default function SettingsScreen() {
+export default function SettingsScreen() {
   const { user: CURRENT_USER, signOut, updateUser } = useAuth();
   const insets = useSafeAreaInsets();
   const router = useRouter();
@@ -64,18 +84,14 @@ const maskPhone = (phone?: string, countryCode?: string) => {
   const section = useSectionChrome(76);
   const { wallet, toggleSetting, fetchWalletData } = useWallet();
   const { isDark, colors, themePreference, setThemePreference } = useTheme();
-  const {
-    soundEnabled,
-    hapticsEnabled,
-    setSoundEnabled,
-    setHapticsEnabled,
-  } = useGameSoundPrefs();
+  const { soundEnabled, hapticsEnabled, setSoundEnabled, setHapticsEnabled } =
+    useGameSoundPrefs();
   const { storeUrl } = useAuth();
 
   const [checkingVersion, setCheckingVersion] = useState(false);
 
   const [publicAccount, setPublicAccount] = useState(
-    CURRENT_USER?.privacy !== "private"
+    CURRENT_USER?.privacy !== "private",
   );
   const [activityStatus, setActivityStatus] = useState(true);
   const [allowTagging, setAllowTagging] = useState(true);
@@ -87,7 +103,9 @@ const maskPhone = (phone?: string, countryCode?: string) => {
   const [verifyPinVisible, setVerifyPinVisible] = useState(false);
   const [verifyPinError, setVerifyPinError] = useState("");
   const [isVerifyingPin, setIsVerifyingPin] = useState(false);
-  const [pendingBiometricAction, setPendingBiometricAction] = useState<"enable" | "disable" | null>(null);
+  const [pendingBiometricAction, setPendingBiometricAction] = useState<
+    "enable" | "disable" | null
+  >(null);
 
   useFocusEffect(
     useCallback(() => {
@@ -120,11 +138,13 @@ const maskPhone = (phone?: string, countryCode?: string) => {
         "PIN Required",
         "Please enable Global Account Lock (PIN) before turning on biometric authentication.",
         [
-          { text: "Cancel", style: "cancel" },              { text: "Set Up PIN",
-                onPress: () => {
-                  stageScreenParams("lock", { mode: "app", isSetup: true });
-                  router.push("/lock" as never);
-                },
+          { text: "Cancel", style: "cancel" },
+          {
+            text: "Set Up PIN",
+            onPress: () => {
+              stageScreenParams("lock", { mode: "app", isSetup: true });
+              router.push("/lock" as never);
+            },
           },
         ],
       );
@@ -156,7 +176,7 @@ const maskPhone = (phone?: string, countryCode?: string) => {
       setIsVerifyingPin(true);
       setVerifyPinError("");
       await authService.verifyPin(pin);
-      
+
       if (pendingBiometricAction === "enable") {
         nativeBypass.beginNativeFlow();
         const result = await LocalAuthentication.authenticateAsync({
@@ -164,7 +184,7 @@ const maskPhone = (phone?: string, countryCode?: string) => {
           cancelLabel: "Cancel",
         });
         nativeBypass.endNativeFlow();
-        
+
         if (result.success) {
           await SecureStore.setItemAsync("app_biometricEnabled", "true");
           setAppBiometric(true);
@@ -176,7 +196,9 @@ const maskPhone = (phone?: string, countryCode?: string) => {
       setVerifyPinVisible(false);
       setPendingBiometricAction(null);
     } catch (e: any) {
-      setVerifyPinError(e?.response?.data?.message || e?.message || "Invalid PIN");
+      setVerifyPinError(
+        e?.response?.data?.message || e?.message || "Invalid PIN",
+      );
     } finally {
       setIsVerifyingPin(false);
     }
@@ -184,9 +206,9 @@ const maskPhone = (phone?: string, countryCode?: string) => {
 
   const handleThemePicker = () => {
     const options = [
-      { label: "📱 System Default", value: "system" as const },
-      { label: "🌙 Dark", value: "dark" as const },
-      { label: "☀️ Light", value: "light" as const },
+      { label: "System Default", value: "system" as const },
+      { label: "Dark", value: "dark" as const },
+      { label: "Light", value: "light" as const },
     ];
     const current =
       options.find((o) => o.value === themePreference)?.label ??
@@ -207,17 +229,22 @@ const maskPhone = (phone?: string, countryCode?: string) => {
       { label: "Auto", value: "auto" },
       { label: "Off", value: "off" },
     ];
-    const current = options.find((o) => o.value === safeSearch)?.label ?? "Moderate";
-    themedAlert("Content Preference", `Currently: ${current}\n\nControls whether potentially sensitive or explicit content is filtered from your searches and feeds.`, [
-      ...options.map((o) => ({
-        text: o.label,
-        onPress: async () => {
-          setSafeSearch(o.value);
-          await SecureStore.setItemAsync("app_safeSearch", o.value);
-        },
-      })),
-      { text: "Cancel", style: "cancel" as const },
-    ]);
+    const current =
+      options.find((o) => o.value === safeSearch)?.label ?? "Moderate";
+    themedAlert(
+      "Content Preference",
+      `Currently: ${current}\n\nControls whether potentially sensitive or explicit content is filtered from your searches and feeds.`,
+      [
+        ...options.map((o) => ({
+          text: o.label,
+          onPress: async () => {
+            setSafeSearch(o.value);
+            await SecureStore.setItemAsync("app_safeSearch", o.value);
+          },
+        })),
+        { text: "Cancel", style: "cancel" as const },
+      ],
+    );
   };
 
   // Applies a privacy change. Going private → public auto-accepts all pending
@@ -244,23 +271,19 @@ const maskPhone = (phone?: string, countryCode?: string) => {
   };
 
   const handleLogout = () => {
-    themedAlert(
-      "Log Out",
-      "Choose how you want to log out:",
-      [
-        { text: "Cancel", style: "cancel" },
-        {
-          text: "Log Out from This Device",
-          style: "default" as any,
-          onPress: () => signOut(),
-        },
-        {
-          text: "Log Out from All Devices",
-          style: "destructive",
-          onPress: () => signOut({ allDevices: true }),
-        },
-      ],
-    );
+    themedAlert("Log Out", "Choose how you want to log out:", [
+      { text: "Cancel", style: "cancel" },
+      {
+        text: "Log Out from This Device",
+        style: "default" as any,
+        onPress: () => signOut(),
+      },
+      {
+        text: "Log Out from All Devices",
+        style: "destructive",
+        onPress: () => signOut({ allDevices: true }),
+      },
+    ]);
   };
 
   const handleDeleteAccount = () => {
@@ -324,7 +347,7 @@ const maskPhone = (phone?: string, countryCode?: string) => {
         );
       } else {
         themedAlert(
-          "Up to Date ✅",
+          "Already Up to Date!",
           "You are running the latest version of Taddle.",
         );
       }
@@ -346,12 +369,7 @@ const maskPhone = (phone?: string, countryCode?: string) => {
   };
 
   return (
-    <View
-      style={[
-        styles.container,
-        { backgroundColor: colors.bg.base },
-      ]}
-    >
+    <View style={[styles.container, { backgroundColor: colors.bg.base }]}>
       {/* Main header — logo, global search, notifications; back arrow instead
           of the drawer menu on this pushed screen. */}
       <MainHeader showBack />
@@ -359,7 +377,10 @@ const maskPhone = (phone?: string, countryCode?: string) => {
       {/* Pinned section chrome — the page heading hides and shows IN LOCKSTEP
           with the main header (same treatment as the other screens'), instead
           of scrolling away with the list. */}
-      <SectionChrome sectionY={section.sectionY} setSectionH={section.setSectionH}>
+      <SectionChrome
+        sectionY={section.sectionY}
+        setSectionH={section.setSectionH}
+      >
         <SectionHeader
           title="Settings"
           subtitle="Manage your account & preferences"
@@ -373,7 +394,10 @@ const maskPhone = (phone?: string, countryCode?: string) => {
           section.handleScroll(e);
         }}
         scrollEventThrottle={16}
-        contentContainerStyle={{ paddingBottom: 60, paddingTop: headerHeight + section.sectionH }}
+        contentContainerStyle={{
+          paddingBottom: 60,
+          paddingTop: headerHeight + section.sectionH,
+        }}
       >
         {/* Account info strip */}
         <View
@@ -382,9 +406,12 @@ const maskPhone = (phone?: string, countryCode?: string) => {
             { backgroundColor: colors.bg.card, borderColor: colors.border },
           ]}
         >
-          <View style={[styles.accountAvatar, { overflow: 'hidden' }]}>
+          <View style={[styles.accountAvatar, { overflow: "hidden" }]}>
             {CURRENT_USER?.avatarUrl ? (
-              <Image source={{ uri: CURRENT_USER.avatarUrl }} style={{ width: '100%', height: '100%' }} />
+              <Image
+                source={{ uri: CURRENT_USER.avatarUrl }}
+                style={{ width: "100%", height: "100%" }}
+              />
             ) : (
               <Text style={{ fontSize: 28 }}>👾</Text>
             )}
@@ -416,7 +443,7 @@ const maskPhone = (phone?: string, countryCode?: string) => {
             icon="shield-checkmark-outline"
             label="Global Account Lock"
             description="Require PIN to access your account"
-            value={CURRENT_USER?.globalAccountLockEnabled }
+            value={!!CURRENT_USER?.globalAccountLockEnabled}
             onToggle={() => {
               if (CURRENT_USER?.globalAccountLockEnabled) {
                 stageScreenParams("lock", { mode: "app", isDisable: true });
@@ -449,13 +476,22 @@ const maskPhone = (phone?: string, countryCode?: string) => {
           <SettingsRow
             icon="call-outline"
             label="Phone"
-            value={(CURRENT_USER?.phone || CURRENT_USER?.phoneNumber) ? maskPhone((CURRENT_USER?.phone || CURRENT_USER?.phoneNumber), CURRENT_USER.countryCode) : "Not linked"}
+            value={
+              CURRENT_USER?.phone || CURRENT_USER?.phoneNumber
+                ? maskPhone(
+                    CURRENT_USER?.phone || CURRENT_USER?.phoneNumber,
+                    CURRENT_USER.countryCode,
+                  )
+                : "Not linked"
+            }
             onPress={() => router.push("/settings/change-phone")}
           />
           <SettingsRow
             icon="mail-outline"
             label="Email"
-            value={CURRENT_USER?.email ? maskEmail(CURRENT_USER.email) : "Not linked"}
+            value={
+              CURRENT_USER?.email ? maskEmail(CURRENT_USER.email) : "Not linked"
+            }
             onPress={() => router.push("/settings/change-email")}
             last
           />
@@ -639,10 +675,10 @@ const maskPhone = (phone?: string, countryCode?: string) => {
             label="App Theme"
             value={
               themePreference === "system"
-                ? "📱 System"
+                ? "System"
                 : themePreference === "dark"
-                  ? "🌙 Dark"
-                  : "☀️ Light"
+                  ? "Dark"
+                  : "Light"
             }
             onPress={handleThemePicker}
           />
@@ -718,13 +754,39 @@ const maskPhone = (phone?: string, countryCode?: string) => {
       </ScrollView>
 
       {verifyPinVisible && (
-        <Modal visible={verifyPinVisible} animationType="slide" presentationStyle="pageSheet" onRequestClose={() => setVerifyPinVisible(false)}>
+        <Modal
+          visible={verifyPinVisible}
+          animationType="slide"
+          presentationStyle="pageSheet"
+          onRequestClose={() => setVerifyPinVisible(false)}
+        >
           <SafeAreaView style={{ flex: 1, backgroundColor: colors.bg.base }}>
-            <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', padding: spacing.md, borderBottomWidth: 1, borderBottomColor: colors.border }}>
+            <View
+              style={{
+                flexDirection: "row",
+                alignItems: "center",
+                justifyContent: "space-between",
+                padding: spacing.md,
+                borderBottomWidth: 1,
+                borderBottomColor: colors.border,
+              }}
+            >
               <TouchableOpacity onPress={() => setVerifyPinVisible(false)}>
-                <Ionicons name="arrow-back" size={24} color={colors.text.secondary} />
+                <Ionicons
+                  name="arrow-back"
+                  size={24}
+                  color={colors.text.secondary}
+                />
               </TouchableOpacity>
-              <Text style={{ fontSize: fontSizes.lg, fontWeight: '700', color: colors.text.primary }}>Verify PIN</Text>
+              <Text
+                style={{
+                  fontSize: fontSizes.lg,
+                  fontWeight: "700",
+                  color: colors.text.primary,
+                }}
+              >
+                Verify PIN
+              </Text>
               <View style={{ width: 24 }} />
             </View>
             <PinPad
@@ -744,16 +806,24 @@ const maskPhone = (phone?: string, countryCode?: string) => {
 
 // ─── Sub-components (each reads theme independently) ─────────────────────────
 
-const ContentSectionHeader = React.memo(function ContentSectionHeader({ title }: { title: string }) {
+const ContentSectionHeader = React.memo(function ContentSectionHeader({
+  title,
+}: {
+  title: string;
+}) {
   const colors = useThemeColors();
   return (
     <Text style={[shared.sectionHeader, { color: colors.text.muted }]}>
       {title}
     </Text>
   );
-})
+});
 
-const SettingsGroup = React.memo(function SettingsGroup({ children }: { children: React.ReactNode }) {
+const SettingsGroup = React.memo(function SettingsGroup({
+  children,
+}: {
+  children: React.ReactNode;
+}) {
   const colors = useThemeColors();
   return (
     <View
@@ -765,7 +835,7 @@ const SettingsGroup = React.memo(function SettingsGroup({ children }: { children
       {children}
     </View>
   );
-})
+});
 
 type RowProps = {
   icon: keyof typeof Ionicons.glyphMap;
@@ -776,7 +846,14 @@ type RowProps = {
   last?: boolean;
 };
 
-const SettingsRow = React.memo(function SettingsRow({ icon, label, value, description, onPress, last }: RowProps) {
+const SettingsRow = React.memo(function SettingsRow({
+  icon,
+  label,
+  value,
+  description,
+  onPress,
+  last,
+}: RowProps) {
   const colors = useThemeColors();
   return (
     <>
@@ -816,7 +893,8 @@ const SettingsRow = React.memo(function SettingsRow({ icon, label, value, descri
       )}
     </>
   );
-})
+});
+
 
 type ToggleProps = {
   icon: keyof typeof Ionicons.glyphMap;
@@ -836,6 +914,7 @@ const SettingsToggle = React.memo(function SettingsToggle({
   last,
 }: ToggleProps) {
   const colors = useThemeColors();
+  const { isDark } = useTheme();
   return (
     <>
       <TouchableOpacity
@@ -855,13 +934,20 @@ const SettingsToggle = React.memo(function SettingsToggle({
           </Text>
         </View>
         <Switch
-          value={value}
+          value={!!value}
           onValueChange={onToggle}
           trackColor={{
-            false: colors.bg.elevated,
-            true: "rgba(124,58,237,0.55)",
+            false: isDark ? "#2A2A4A" : "#E2E8F0",
+            true: colors.primary,
           }}
-          thumbColor={value ? colors.primaryLight : colors.text.muted}
+          thumbColor={
+            Platform.OS === "android"
+              ? value
+                ? "#FFFFFF"
+                : "#94A3B8"
+              : "#FFFFFF"
+          }
+          ios_backgroundColor={isDark ? "#2A2A4A" : "#E2E8F0"}
         />
       </TouchableOpacity>
       {!last && (
@@ -869,7 +955,7 @@ const SettingsToggle = React.memo(function SettingsToggle({
       )}
     </>
   );
-})
+});
 
 // ─── Styles ───────────────────────────────────────────────────────────────────
 
@@ -966,9 +1052,10 @@ const shared = StyleSheet.create({
     backgroundColor: "rgba(124,58,237,0.12)",
     alignItems: "center",
     justifyContent: "center",
+    alignSelf: "center",
   },
-  rowLabel: { flex: 1, fontSize: fontSizes.md, fontWeight: "600" },
+  rowLabel: { fontSize: fontSizes.md, fontWeight: "600" },
   rowDesc: { fontSize: fontSizes.xs, marginTop: 2 },
   rowValue: { fontSize: fontSizes.sm, marginRight: 6 },
-  rowRight: { flexDirection: "row", alignItems: "center", gap: 4 },
+  rowRight: { flexDirection: "row", alignItems: "center", gap: 4, alignSelf: "center" },
 });

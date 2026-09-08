@@ -15,6 +15,7 @@ import type {
   FollowStateChangedPayload,
   SessionExpiredPayload,
   MatchmakingEventPayload,
+  ChatMessagePayload,
   SocketEventMap,
 } from "../../shared/types";
 
@@ -143,10 +144,10 @@ class AccountSocketService {
       this.socket.on("notification:new", (data: NotificationNewPayload) =>
         this.events.emit("notification:new", data),
       );
-      // chat:message listener kept on account socket for badge count
-      // (always connected while logged in, even when chat screen is closed)
-      this.socket.on("chat:message", (data: any) =>
-        this.events.emit("chat:message" as any, data),
+      // chat:message — kept on account socket so badge counts update
+      // even when the chat screen is closed.
+      this.socket.on("chat:message", (data: ChatMessagePayload) =>
+        this.events.emit("chat:message", data),
       );
       this.socket.on(
         "follow:requestCancelled",

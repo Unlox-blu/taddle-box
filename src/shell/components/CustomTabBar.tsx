@@ -139,14 +139,36 @@ export default function CustomTabBar({ state, navigation }: BottomTabBarProps) {
   };
 
   const handleFabPress = () => {
+    // Context comes from the ACTIVE TAB, not the deepest leaf route.
+    // getActiveRouteState descends into nested stacks, so on community/[slug]
+    // it returns '[slug]' and on the community tab root it returns 'index' —
+    // neither matches the tab name. The tab navigator's own state always
+    // names the active tab ('index' | 'community' | 'games/index' | …);
+    // strip the '/index' suffix so 'games/index' → 'games'.
+    const activeTabName = (state.routes[state.index]?.name || '').replace(/\/index$/, '');
     const activeRoute = getActiveRouteState(navigation.getState());
-    
-    if (activeRoute?.name.startsWith('community')) {
-      DeviceEventEmitter.emit('openCreateCommunity');
-    } else if (activeRoute?.name === 'games') {
+
+    if (activeTabName === 'community') {
+      // On a community DETAIL page → open the post composer pre-targeted at
+      // that community instead of the create-community modal. The leaf route
+      // is '[slug]' and carries { slug }, which CreatePostModal's
+      // preselectedCommunityId prop expects (it resolves slug → id itself).
+      const isDetailPage = activeRoute?.name === '[slug]' || activeRoute?.name === 'community/[slug]';
+      const slug = isDetailPage ? (activeRoute?.params as any)?.slug : undefined;
+      if (slug) {
+        setPreselectedCommunityId(String(slug));
+        setCreateVisible(true);
+      } else {
+        DeviceEventEmitter.emit('openCreateCommunity');
+      }
+    } else if (activeTabName === 'games') {
       DeviceEventEmitter.emit('openGamesMatchmaking');
-    } else if (activeRoute?.name === 'events') {
+    } else if (activeTabName === 'events') {
       DeviceEventEmitter.emit('openEventMatchmaking');
+    } else if (activeRoute?.name === 'community/[slug]' || activeRoute?.name === '[slug]') {
+      // Unreachable in practice (handled in the community branch above) —
+      // kept as a safety net for future nested-stack shape changes.
+      DeviceEventEmitter.emit('openCreateCommunity');
     } else {
       setPreselectedCommunityId(undefined);
       setCreateVisible(true);

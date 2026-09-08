@@ -26,12 +26,18 @@ import { LinearGradient } from "expo-linear-gradient";
 import { StatusBar } from "expo-status-bar";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import Svg, { Circle } from "react-native-svg";
-import { useRouter, useLocalSearchParams, useFocusEffect } from "expo-router";
+import { useRouter, useLocalSearchParams } from "expo-router";
+import { useRefreshOnFocus } from "../../../shared/hooks/useRefreshOnFocus";
 import type {
   NotificationNewPayload,
   SessionExpiredPayload,
 } from "../../../shared/types";
-import { fontSizes, radii, spacing, type ColorPalette } from "../../../design-system";
+import {
+  fontSizes,
+  radii,
+  spacing,
+  type ColorPalette,
+} from "../../../design-system";
 import { useThemeColors } from "../../../design-system/theme/ThemeProvider";
 import PullToRefreshWrapper from "../../../shell/components/PullToRefreshWrapper";
 import {
@@ -61,14 +67,30 @@ import GameSettingsModal from "../components/GameSettingsModal";
 import { makeStyles } from "./GamesScreen.styles";
 
 import LottieView from "lottie-react-native";
-import { getCachedLottieSync, getCachedLottie, S3_APP_ICON_LOTTIE_URL } from "../../../infrastructure/media/lottie";
+import {
+  getCachedLottieSync,
+  getCachedLottie,
+  S3_APP_ICON_LOTTIE_URL,
+} from "../../../infrastructure/media/lottie";
 
 import type { Game } from "../../../shared/types";
-import type { HtmlGameResult, PlayerContext } from "../runtime/game-runtime.types";
-import { preloadGameThumbnails, getCachedThumbnail, warmThumbnailCache, pruneOldAssetVersions } from "../runtime/asset-manifest";
+import type {
+  HtmlGameResult,
+  PlayerContext,
+} from "../runtime/game-runtime.types";
+import {
+  preloadGameThumbnails,
+  getCachedThumbnail,
+  warmThumbnailCache,
+  pruneOldAssetVersions,
+} from "../runtime/asset-manifest";
 const MatchModeModal = React.lazy(() => import("../components/MatchModeModal"));
-const GameResultOverlay = React.lazy(() => import("../components/GameResultOverlay"));
-const RoundResultOverlay = React.lazy(() => import("../components/RoundResultOverlay"));
+const GameResultOverlay = React.lazy(
+  () => import("../components/GameResultOverlay"),
+);
+const RoundResultOverlay = React.lazy(
+  () => import("../components/RoundResultOverlay"),
+);
 import { accountSocket } from "../../../infrastructure/websocket/account-socket";
 import type { User } from "../../../shared/types";
 import { useAuth } from "../../auth/state/AuthProvider";
@@ -78,14 +100,16 @@ import {
   destroyGameSound,
   useGameSoundPrefs,
 } from "../media/game-sound";
-import { themedAlert, ThemedAlertHost } from "../../../design-system/components/ThemedAlert";
+import {
+  themedAlert,
+  ThemedAlertHost,
+} from "../../../design-system/components/ThemedAlert";
 import GamesMatchmakingModal from "../components/GamesMatchmakingModal";
 import { useRoundLifecycle } from "../../progression/hooks/useRoundLifecycle";
-import { warn } from '../../../infrastructure/logging/logger';
+import { warn } from "../../../infrastructure/logging/logger";
 
 type ActiveTab = "games" | "tournaments" | "history";
 type ScreenModal = "none" | "history";
-
 
 type ActiveSession = {
   game: Game;
@@ -164,7 +188,8 @@ export default function GamesScreen() {
         // All visual fields are SSOT from the backend game object.
         // No hardcoded fallbacks — the backend returns emoji, gradient,
         // thumbnail, entryFee, prize, and averageDurationLabel.
-        imageUrl: getCachedThumbnail(bg.slug || '') || bg.thumbnail || bg.imageUrl,
+        imageUrl:
+          getCachedThumbnail(bg.slug || "") || bg.thumbnail || bg.imageUrl,
         entryFee: bg.metadata?.entryFee || bg.entryFee,
         prize: bg.metadata?.prize || bg.prize,
         averageDurationLabel:
@@ -235,25 +260,36 @@ export default function GamesScreen() {
     const inviteCode = params.inviteCode;
     if ((openGameId || inviteCode) && realGames.length > 0) {
       const raw = String(openGameId || "");
-      const clean = raw.replace(/^game-/, '').toLowerCase();
-      const g = realGames.find(
-        (game) =>
-          game.id === openGameId ||
-          game.slug === openGameId ||
-          game.id === clean ||
-          (game.slug && game.slug.toLowerCase() === clean) ||
-          (game.name && game.name.toLowerCase() === clean)
-      ) || realGames[0];
+      const clean = raw.replace(/^game-/, "").toLowerCase();
+      const g =
+        realGames.find(
+          (game) =>
+            game.id === openGameId ||
+            game.slug === openGameId ||
+            game.id === clean ||
+            (game.slug && game.slug.toLowerCase() === clean) ||
+            (game.name && game.name.toLowerCase() === clean),
+        ) || realGames[0];
       if (g && !activeSession) {
         if (inviteCode) setIncomingInviteCode(inviteCode);
         setSelectedGame(g);
         setMatchModalVisible(true);
-        router.setParams({ openGameId: "", gameName: "", inviteCode: "", autoPlay: "" });
+        router.setParams({
+          openGameId: "",
+          gameName: "",
+          inviteCode: "",
+          autoPlay: "",
+        });
       }
     }
-  }, [params.openGameId, params.gameName, params.inviteCode, realGames, router, activeSession]);
-
-
+  }, [
+    params.openGameId,
+    params.gameName,
+    params.inviteCode,
+    realGames,
+    router,
+    activeSession,
+  ]);
 
   // No-op: asset preload now happens in handleMatched after matchmaking,
   // using the backend-decided runtime + asset contract.
@@ -271,7 +307,7 @@ export default function GamesScreen() {
       if (!user || user.xp < (game.entryFee || 0)) {
         themedAlert(
           "Insufficient XP",
-          `You need ${game.entryFee || 0} XP to play ${game.name}.`
+          `You need ${game.entryFee || 0} XP to play ${game.name}.`,
         );
         return;
       }
@@ -286,7 +322,9 @@ export default function GamesScreen() {
   );
 
   const backendGamesRef = useRef(backendGames);
-  useEffect(() => { backendGamesRef.current = backendGames; }, [backendGames]);
+  useEffect(() => {
+    backendGamesRef.current = backendGames;
+  }, [backendGames]);
 
   const loadGamesData = useCallback(async () => {
     setLoading(true);
@@ -360,28 +398,27 @@ export default function GamesScreen() {
   // re-entering the tab keeps your place (like Communities/Events).
   const gamesScrollRef = useRef<any>(null);
   const gamesScrollOffsetRef = useRef(0);
-  useFocusEffect(
-    useCallback(() => {
+  // Focus refresh via the shared useRefreshOnFocus hook. The first focus is
+  // handled by mount's loadGamesData — the refetch callback gates on
+  // hasLoadedRef so only RE-focuses trigger the refresh.
+  useRefreshOnFocus({
+    refetch: () => {
       // Warm the thumbnail cache from disk so previously downloaded
       // thumbnails appear instantly without waiting for preloadGameThumbnails.
       warmThumbnailCache().catch(() => {});
       if (!hasLoadedRef.current) {
         hasLoadedRef.current = true;
         loadGamesData();
-      } else {
-        const t = setTimeout(() => {
-          refreshForActiveTab();
-          setTimeout(() => {
-            gamesScrollRef.current?.scrollTo({
-              y: gamesScrollOffsetRef.current,
-              animated: false,
-            });
-          }, 80);
-        }, 300);
-        return () => clearTimeout(t);
+        return;
       }
-    }, [loadGamesData, refreshForActiveTab]),
-  );
+      refreshForActiveTab();
+    },
+    restoreScroll: () =>
+      gamesScrollRef.current?.scrollTo({
+        y: gamesScrollOffsetRef.current,
+        animated: false,
+      }),
+  });
 
   // Tab-bar single-tap → scroll to top; double-tap → scroll to top + refresh
   // the active pill (same as Home's double-tap behavior).
@@ -434,9 +471,13 @@ export default function GamesScreen() {
       setReconnectSession(null);
     };
 
-    const subGamesModal = require("react-native").DeviceEventEmitter.addListener("openGamesMatchmaking", () => {
-      setGlobalMatchModalVisible(true);
-    });
+    const subGamesModal =
+      require("react-native").DeviceEventEmitter.addListener(
+        "openGamesMatchmaking",
+        () => {
+          setGlobalMatchModalVisible(true);
+        },
+      );
 
     accountSocket.events.on("notification:new", handleNewNotif);
     accountSocket.events.on("SESSION_EXPIRED", handleSessionExpired);
@@ -558,12 +599,18 @@ export default function GamesScreen() {
           // the backend-decided manifest (per-match aware).
           const sessionRuntime = {
             runtime: res.data?.runtime || request.game.runtime,
-            runtimeType: res.data?.runtimeType || request.game.runtimeType || 'app',
-            runtimeVersion: res.data?.runtimeVersion || request.game.runtimeVersion || 1,
-            protocolVersion: res.data?.protocolVersion || request.game.protocolVersion || 1,
-            minAppVersion: res.data?.minAppVersion || request.game.minAppVersion,
+            runtimeType:
+              res.data?.runtimeType || request.game.runtimeType || "app",
+            runtimeVersion:
+              res.data?.runtimeVersion || request.game.runtimeVersion || 1,
+            protocolVersion:
+              res.data?.protocolVersion || request.game.protocolVersion || 1,
+            minAppVersion:
+              res.data?.minAppVersion || request.game.minAppVersion,
             assetSetId: res.data?.assetSetId || request.game.assetSetId,
-            assetManifestVersion: res.data?.assetManifestVersion || request.game.assetManifestVersion,
+            assetManifestVersion:
+              res.data?.assetManifestVersion ||
+              request.game.assetManifestVersion,
           };
 
           setActiveSession({
@@ -587,7 +634,8 @@ export default function GamesScreen() {
             tournamentId: request.tournamentId,
             teamsLocked: !!(response as any).matchMetadata?.teamsLocked,
             myTeam,
-            configuredRounds: res.data?.configuredRounds || request.game.rounds?.default || 1,
+            configuredRounds:
+              res.data?.configuredRounds || request.game.rounds?.default || 1,
           });
 
           // ── Kick off manifest + runtime preload DURING countdown ────────
@@ -595,7 +643,7 @@ export default function GamesScreen() {
           // these fire-and-forget downloads run while the countdown ticks.
           // By the time phase switches to "playing", the bundle and critical
           // assets are already cached.
-          const rSlug = sessionRuntime.runtime || request.game.slug || '';
+          const rSlug = sessionRuntime.runtime || request.game.slug || "";
           const rVer = sessionRuntime.runtimeVersion || 1;
           preloadRuntime(rSlug, rVer);
         })
@@ -619,11 +667,14 @@ export default function GamesScreen() {
     try {
       // Prune is non-blocking — runs in background, never blocks UI.
       const currentId = activeSession?.game?.assetSetId || "";
-      const currentVer = (activeSession?.game as any)?.assetManifestVersion || 1;
+      const currentVer =
+        (activeSession?.game as any)?.assetManifestVersion || 1;
       pruneOldAssetVersions(currentId, currentVer).catch(() => {});
-    } catch { /* best-effort */ }
+    } catch {
+      /* best-effort */
+    }
     setReconnectSession(null);
-    
+
     // Defer the heavy WebView/DOM unmount to let the iOS Modal closing animation finish,
     // preventing the JS thread from locking up and freezing the app.
     setTimeout(() => {
@@ -650,7 +701,6 @@ export default function GamesScreen() {
     <View style={styles.container}>
       <StatusBar style="light" />
       <MainHeader />
-
 
       <PullToRefreshWrapper
         refreshing={refreshing}
@@ -680,15 +730,25 @@ export default function GamesScreen() {
               {
                 icon: "trophy-outline",
                 onPress: () =>
-                  router.push({ pathname: "/leaderboards", params: { initialTab: "Games" } } as never),
+                  router.push({
+                    pathname: "/leaderboards",
+                    params: { initialTab: "Games" },
+                  } as never),
               },
             ]}
-            pills={(["games", "tournaments", "history"] as ActiveTab[]).map((tab) => ({
-              key: tab,
-              label: tab === "games" ? "Games" : tab === "tournaments" ? "Tournaments" : "History",
-              active: activeTab === tab,
-              onPress: () => setActiveTab(tab),
-            }))}
+            pills={(["games", "tournaments", "history"] as ActiveTab[]).map(
+              (tab) => ({
+                key: tab,
+                label:
+                  tab === "games"
+                    ? "Games"
+                    : tab === "tournaments"
+                      ? "Tournaments"
+                      : "History",
+                active: activeTab === tab,
+                onPress: () => setActiveTab(tab),
+              }),
+            )}
           />
         }
         sectionHeaderH={144}
@@ -702,169 +762,187 @@ export default function GamesScreen() {
           }}
           scrollEventThrottle={16}
         >
+          {incomingInvite && (
+            <View style={styles.inviteBanner}>
+              <View style={styles.inviteBannerRow}>
+                {/* Sender avatar + live active-status dot on the custom-match invite */}
+                <View style={{ position: "relative", width: 36, height: 36 }}>
+                  <View style={styles.inviteAvatar}>
+                    {incomingInvite.senderAvatarUrl ? (
+                      <Image
+                        source={{ uri: incomingInvite.senderAvatarUrl }}
+                        style={{ width: 36, height: 36, borderRadius: 18 }}
+                      />
+                    ) : (
+                      <Ionicons name="person" size={16} color="#fff" />
+                    )}
+                  </View>
+                  <ActiveStatusDot
+                    userId={incomingInvite.senderId}
+                    size={11}
+                    style={{ bottom: -1, right: -1 }}
+                  />
+                </View>
+                <Text style={styles.inviteBannerText}>
+                  {(incomingInvite.message || "You have a new game invite!")
+                    .split("|")[0]
+                    .trim()}
+                </Text>
+              </View>
+              <View style={styles.inviteBannerActions}>
+                <TouchableOpacity
+                  style={styles.inviteJoinBtn}
+                  onPress={() => {
+                    // Message format: "<text> | <lobbyId> | <inviteCode>"
+                    const parts = (incomingInvite.message || "")
+                      .split("|")
+                      .map((s: string) => s.trim());
+                    const inviteCode = parts[2] || parts[1];
+                    const gameId = incomingInvite.resourceId;
+                    const game = realGamesRef.current.find(
+                      (g) => g.id === gameId || g.slug === gameId,
+                    );
 
-            {incomingInvite && (
-              <View style={styles.inviteBanner}>
-                <View style={styles.inviteBannerRow}>
-                  {/* Sender avatar + live active-status dot on the custom-match invite */}
-                  <View style={{ position: "relative", width: 36, height: 36 }}>
-                    <View style={styles.inviteAvatar}>
-                      {incomingInvite.senderAvatarUrl ? (
-                        <Image
-                          source={{ uri: incomingInvite.senderAvatarUrl }}
-                          style={{ width: 36, height: 36, borderRadius: 18 }}
+                    if (inviteCode && game) {
+                      setActiveTab("games");
+                      setSelectedGame(game);
+                      // Pre-fill the join code and open modal at select step
+                      // The user will see the modal with join code pre-filled
+                      setIncomingInviteCode(inviteCode);
+                      setMatchModalVisible(true);
+                      setIncomingInvite(null);
+                    }
+                  }}
+                >
+                  <Text style={styles.inviteJoinBtnText}>Accept</Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={styles.inviteDenyBtn}
+                  onPress={() => setIncomingInvite(null)}
+                >
+                  <Text style={styles.inviteDenyBtnText}>Decline</Text>
+                </TouchableOpacity>
+              </View>
+            </View>
+          )}
+          {activeTab === "games" && (
+            <>
+              <ContentSectionHeader title="Available Games" />
+              {loading && realGames.length === 0 ? (
+                <View style={{ minHeight: 300, justifyContent: "center" }}>
+                  <StateBlock card loading label="Loading games" />
+                </View>
+              ) : (
+                <View style={styles.gameGridWrapper}>
+                  {realGames.map((game) => {
+                    const isRejoin =
+                      !!reconnectSession && reconnectSession.gameId === game.id;
+                    const rejoinWindowMs = isRejoin
+                      ? reconnectSession.reconnectWindowMs
+                      : null;
+                    return (
+                      <View key={game.id} style={styles.gameGridItem}>
+                        <GameCard
+                          game={{
+                            ...game,
+                            isHot:
+                              backendTrending?.includes(game.id) ||
+                              backendTrending?.includes(game.slug || ""),
+                          }}
+                          isRejoin={isRejoin}
+                          rejoinWindowMs={rejoinWindowMs}
+                          onRejoinExpired={() => {
+                            setReconnectSession(null);
+                            loadGamesData();
+                          }}
+                          onPlayClick={() => handleGamePlay(game, isRejoin)}
                         />
-                      ) : (
-                        <Ionicons name="person" size={16} color="#fff" />
-                      )}
-                    </View>
-                    <ActiveStatusDot
-                      userId={incomingInvite.senderId}
-                      size={11}
-                      style={{ bottom: -1, right: -1 }}
-                    />
-                  </View>
-                  <Text style={styles.inviteBannerText}>
-                    {(incomingInvite.message || "You have a new game invite!")
-                      .split("|")[0]
-                      .trim()}
-                  </Text>
+                      </View>
+                    );
+                  })}
                 </View>
-                <View style={styles.inviteBannerActions}>
-                  <TouchableOpacity
-                    style={styles.inviteJoinBtn}
-                    onPress={() => {
-                      // Message format: "<text> | <lobbyId> | <inviteCode>"
-                      const parts = (incomingInvite.message || "")
-                        .split("|")
-                        .map((s: string) => s.trim());
-                      const inviteCode = parts[2] || parts[1];
-                      const gameId = incomingInvite.resourceId;
-                      const game = realGamesRef.current.find(
-                        (g) => g.id === gameId || g.slug === gameId,
-                      );
+              )}
+            </>
+          )}
 
-                      if (inviteCode && game) {
-                        setActiveTab("games");
-                        setSelectedGame(game);
-                        // Pre-fill the join code and open modal at select step
-                        // The user will see the modal with join code pre-filled
-                        setIncomingInviteCode(inviteCode);
-                        setMatchModalVisible(true);
-                        setIncomingInvite(null);
-                      }
-                    }}
-                  >
-                    <Text style={styles.inviteJoinBtnText}>Accept</Text>
-                  </TouchableOpacity>
-                  <TouchableOpacity
-                    style={styles.inviteDenyBtn}
-                    onPress={() => setIncomingInvite(null)}
-                  >
-                    <Text style={styles.inviteDenyBtnText}>Decline</Text>
-                  </TouchableOpacity>
+          {activeTab === "tournaments" && (
+            <>
+              <ContentSectionHeader title="Active Tournaments" />
+              {loading && tournaments.length === 0 ? (
+                <StateBlock card loading label="Loading tournaments" />
+              ) : tournaments.length === 0 ? (
+                <StateBlock
+                  card
+                  title="No active tournaments"
+                  subtitle="Check back soon for the next challenge."
+                />
+              ) : (
+                <View style={{ gap: 10 }}>
+                  {tournaments.map((tournament) => {
+                    const game = findLocalGame(tournament.gameId);
+                    if (!game) return null;
+                    return (
+                      <TouchableOpacity
+                        key={tournament.id}
+                        activeOpacity={0.9}
+                        onPress={() => {
+                          setSelectedTournament(tournament);
+                          setLeaderboardModalVisible(true);
+                        }}
+                      >
+                        <TournamentCard
+                          tournament={tournament}
+                          game={game}
+                          onJoin={() => joinTournament(tournament)}
+                          onPlay={() => {
+                            setSelectedGame(game);
+                            setSelectedTournamentId(tournament.id);
+                            setMatchModalVisible(true);
+                          }}
+                        />
+                      </TouchableOpacity>
+                    );
+                  })}
                 </View>
-              </View>
-            )}
-        {activeTab === "games" && (
-          <>
-            <ContentSectionHeader title="Available Games" />
-            {loading && realGames.length === 0 ? (
-              <View style={{ minHeight: 300, justifyContent: 'center' }}><StateBlock card loading label="Loading games" /></View>
-            ) : (
-              <View style={styles.gameGridWrapper}>
-                {realGames.map(game => {
-                  const isRejoin = !!reconnectSession && reconnectSession.gameId === game.id;
-                  const rejoinWindowMs = isRejoin ? reconnectSession.reconnectWindowMs : null;
-                return (
-                  <View key={game.id} style={styles.gameGridItem}>
-                    <GameCard
-                      game={{
-                        ...game,
-                        isHot:
-                          backendTrending?.includes(game.id) ||
-                          backendTrending?.includes(game.slug || "") ,
-                      }}
-                      isRejoin={isRejoin}
-                      rejoinWindowMs={rejoinWindowMs}
-                      onRejoinExpired={() => {
-                        setReconnectSession(null);
-                        loadGamesData();
-                      }}
-                      onPlayClick={() => handleGamePlay(game, isRejoin)}
-                    />
-                  </View>
-                );
-              })}
-              </View>
-            )}
-          </>
-        )}
+              )}
+            </>
+          )}
 
-        {activeTab === "tournaments" && (
-          <>
-            <ContentSectionHeader title="Active Tournaments" />
-            {loading && tournaments.length === 0 ? (
-              <StateBlock card loading label="Loading tournaments" />
-            ) : tournaments.length === 0 ? (
-              <StateBlock
-                card
-                title="No active tournaments"
-                subtitle="Check back soon for the next challenge."
+          {activeTab === "history" && (
+            <>
+              <ContentSectionHeader
+                title="Recent Matches"
+                action="Open"
+                onPress={() => setScreenModal("history")}
               />
-            ) : (
-              <View style={{ gap: 10 }}>
-              {tournaments.map((tournament) => {
-                const game = findLocalGame(tournament.gameId);
-                if (!game) return null;
-                return (
-                  <TouchableOpacity
-                    key={tournament.id}
-                    activeOpacity={0.9}
-                    onPress={() => {
-                      setSelectedTournament(tournament);
-                      setLeaderboardModalVisible(true);
-                    }}
-                  >
-                    <TournamentCard
-                      tournament={tournament}
-                      game={game}
-                      onJoin={() => joinTournament(tournament)}
-                      onPlay={() => {
-                        setSelectedGame(game);
-                        setSelectedTournamentId(tournament.id);
-                        setMatchModalVisible(true);
-                      }}
+              {matches.length === 0 ? (
+                <StateBlock
+                  card
+                  title="No matches yet"
+                  subtitle="Play a match to build your record."
+                />
+              ) : (
+                <View
+                  style={{
+                    paddingHorizontal: 16,
+                    backgroundColor: colors.bg.card,
+                    borderRadius: 16,
+                    borderWidth: 1,
+                    borderColor: colors.border,
+                  }}
+                >
+                  {matches.map((match, idx) => (
+                    <MatchRow
+                      key={match.id}
+                      match={match}
+                      isLast={idx === matches.length - 1}
                     />
-                  </TouchableOpacity>
-                );
-              })}
-              </View>
-            )}
-          </>
-        )}
-
-        {activeTab === "history" && (
-          <>
-            <ContentSectionHeader
-              title="Recent Matches"
-              action="Open"
-              onPress={() => setScreenModal("history")}
-            />
-            {matches.length === 0 ? (
-              <StateBlock
-                card
-                title="No matches yet"
-                subtitle="Play a match to build your record."
-              />
-            ) : (
-              <View style={{ paddingHorizontal: 16, backgroundColor: colors.bg.card, borderRadius: 16, borderWidth: 1, borderColor: colors.border }}>
-                {matches.map((match, idx) => <MatchRow key={match.id} match={match} isLast={idx === matches.length - 1} />)}
-              </View>
-            )}
-          </>
-        )}
-      </ScrollView>
+                  ))}
+                </View>
+              )}
+            </>
+          )}
+        </ScrollView>
       </PullToRefreshWrapper>
 
       <GamesMatchmakingModal
@@ -876,22 +954,22 @@ export default function GamesScreen() {
       />
 
       <React.Suspense fallback={null}>
-      <MatchModeModal
-        visible={matchModalVisible}
-        game={selectedGame}
-        initialInviteCode={incomingInviteCode}
-        initialTournamentId={selectedTournamentId}
-        autoQueue={rematchAutoQueue}
-        initialMode={rematchInitialMode}
-        onClose={() => {
-          setMatchModalVisible(false);
-          setIncomingInviteCode(null);
-          setSelectedTournamentId(null);
-          setRematchAutoQueue(false);
-          setRematchInitialMode("AUTO");
-        }}
-        onMatched={handleMatched}
-      />
+        <MatchModeModal
+          visible={matchModalVisible}
+          game={selectedGame}
+          initialInviteCode={incomingInviteCode}
+          initialTournamentId={selectedTournamentId}
+          autoQueue={rematchAutoQueue}
+          initialMode={rematchInitialMode}
+          onClose={() => {
+            setMatchModalVisible(false);
+            setIncomingInviteCode(null);
+            setSelectedTournamentId(null);
+            setRematchAutoQueue(false);
+            setRematchInitialMode("AUTO");
+          }}
+          onMatched={handleMatched}
+        />
       </React.Suspense>
 
       {activeSession && (
@@ -950,27 +1028,31 @@ function ContentSectionHeader({
 
 /** Branded Lottie loader shown while React.lazy resolves a game bundle. */
 function BrandedGameLoader() {
-  const [lottieSource, setLottieSource] = useState<any>(getCachedLottieSync(S3_APP_ICON_LOTTIE_URL));
+  const [lottieSource, setLottieSource] = useState<any>(
+    getCachedLottieSync(S3_APP_ICON_LOTTIE_URL),
+  );
   useEffect(() => {
     if (lottieSource) return;
-    getCachedLottie(S3_APP_ICON_LOTTIE_URL).then((animData) => {
-      if (animData) setLottieSource(animData);
-    }).catch(() => {});
+    getCachedLottie(S3_APP_ICON_LOTTIE_URL)
+      .then((animData) => {
+        if (animData) setLottieSource(animData);
+      })
+      .catch(() => {});
   }, []);
   return (
-    <View style={{ alignItems: 'center', gap: 16 }}>
+    <View style={{ alignItems: "center", gap: 16 }}>
       {lottieSource ? (
         <LottieView
           source={lottieSource}
           autoPlay
           loop
           style={{ width: 80, height: 80 }}
-          colorFilters={[{ keypath: '*', color: '#7C3AED' }]}
+          colorFilters={[{ keypath: "*", color: "#7C3AED" }]}
         />
       ) : (
         <StateBlock inline loading loaderSize={44} />
       )}
-      <Text style={{ color: '#7C3AED', fontSize: 14, fontWeight: '700' }}>
+      <Text style={{ color: "#7C3AED", fontSize: 14, fontWeight: "700" }}>
         Loading game...
       </Text>
     </View>
@@ -1028,8 +1110,16 @@ function DisconnectOverlay({
   useEffect(() => {
     const loop = Animated.loop(
       Animated.sequence([
-        Animated.timing(pulse, { toValue: 1.06, duration: 800, useNativeDriver: true }),
-        Animated.timing(pulse, { toValue: 1, duration: 800, useNativeDriver: true }),
+        Animated.timing(pulse, {
+          toValue: 1.06,
+          duration: 800,
+          useNativeDriver: true,
+        }),
+        Animated.timing(pulse, {
+          toValue: 1,
+          duration: 800,
+          useNativeDriver: true,
+        }),
       ]),
     );
     loop.start();
@@ -1048,9 +1138,17 @@ function DisconnectOverlay({
   const tipFade = useRef(new Animated.Value(1)).current;
   useEffect(() => {
     const interval = setInterval(() => {
-      Animated.timing(tipFade, { toValue: 0, duration: 300, useNativeDriver: true }).start(() => {
+      Animated.timing(tipFade, {
+        toValue: 0,
+        duration: 300,
+        useNativeDriver: true,
+      }).start(() => {
         setTipIdx((i) => (i + 1) % tips.length);
-        Animated.timing(tipFade, { toValue: 1, duration: 300, useNativeDriver: true }).start();
+        Animated.timing(tipFade, {
+          toValue: 1,
+          duration: 300,
+          useNativeDriver: true,
+        }).start();
       });
     }, 4000);
     return () => clearInterval(interval);
@@ -1064,13 +1162,17 @@ function DisconnectOverlay({
   const ringSize = count <= 2 ? 140 : count <= 4 ? 120 : 100;
   const ringR = ringSize / 2 - 8;
   const ringCirc = 2 * Math.PI * ringR;
-  const dashOffset = ringProgress.interpolate({ inputRange: [0, 1], outputRange: [ringCirc, 0] });
+  const dashOffset = ringProgress.interpolate({
+    inputRange: [0, 1],
+    outputRange: [ringCirc, 0],
+  });
 
-  const statusText = count === 1
-    ? `Waiting for ${players[0]?.name || 'Player'} to reconnect...`
-    : count <= 4
-    ? `Waiting for ${count} players to reconnect...`
-    : `Waiting for ${count} players to reconnect...`;
+  const statusText =
+    count === 1
+      ? `Waiting for ${players[0]?.name || "Player"} to reconnect...`
+      : count <= 4
+        ? `Waiting for ${count} players to reconnect...`
+        : `Waiting for ${count} players to reconnect...`;
 
   return (
     <View
@@ -1085,25 +1187,62 @@ function DisconnectOverlay({
       ]}
     >
       {/* Player avatars — grid for multiple players */}
-      <Animated.View style={{ transform: [{ scale: pulse }], flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'center', gap: 12, maxWidth: 300 }}>
+      <Animated.View
+        style={{
+          transform: [{ scale: pulse }],
+          flexDirection: "row",
+          flexWrap: "wrap",
+          justifyContent: "center",
+          gap: 12,
+          maxWidth: 300,
+        }}
+      >
         {players.map((p) => (
-          <View key={p.userId} style={{ alignItems: 'center', width: avatarSize + 20 }}>
+          <View
+            key={p.userId}
+            style={{ alignItems: "center", width: avatarSize + 20 }}
+          >
             <View
               style={{
-                width: avatarSize, height: avatarSize, borderRadius: avatarSize / 2,
+                width: avatarSize,
+                height: avatarSize,
+                borderRadius: avatarSize / 2,
                 backgroundColor: "rgba(239,68,68,0.15)",
-                borderWidth: 2, borderColor: "rgba(239,68,68,0.4)",
-                alignItems: "center", justifyContent: "center",
+                borderWidth: 2,
+                borderColor: "rgba(239,68,68,0.4)",
+                alignItems: "center",
+                justifyContent: "center",
               }}
             >
-              <Text style={{ color: "#fff", fontSize: avatarFontSize, fontWeight: "900" }}>
+              <Text
+                style={{
+                  color: "#fff",
+                  fontSize: avatarFontSize,
+                  fontWeight: "900",
+                }}
+              >
                 {p.name[0]?.toUpperCase() || "?"}
               </Text>
             </View>
-            <Text style={{ color: "#F8FAFC", fontSize: 11, fontWeight: "700", marginTop: 4 }} numberOfLines={1}>
+            <Text
+              style={{
+                color: "#F8FAFC",
+                fontSize: 11,
+                fontWeight: "700",
+                marginTop: 4,
+              }}
+              numberOfLines={1}
+            >
               {p.name}
             </Text>
-            <Text style={{ color: "#EF4444", fontSize: 10, fontWeight: "600", marginTop: 2 }}>
+            <Text
+              style={{
+                color: "#EF4444",
+                fontSize: 10,
+                fontWeight: "600",
+                marginTop: 2,
+              }}
+            >
               {formatTime(p.remainingMs)}
             </Text>
           </View>
@@ -1111,12 +1250,29 @@ function DisconnectOverlay({
       </Animated.View>
 
       {/* Overall countdown ring */}
-      <View style={{ marginTop: 20, alignItems: "center", justifyContent: "center" }}>
+      <View
+        style={{
+          marginTop: 20,
+          alignItems: "center",
+          justifyContent: "center",
+        }}
+      >
         <Svg width={ringSize} height={ringSize}>
-          <Circle cx={ringSize / 2} cy={ringSize / 2} r={ringR} stroke="rgba(255,255,255,0.08)" strokeWidth={6} fill="none" />
+          <Circle
+            cx={ringSize / 2}
+            cy={ringSize / 2}
+            r={ringR}
+            stroke="rgba(255,255,255,0.08)"
+            strokeWidth={6}
+            fill="none"
+          />
           <AnimatedCircle
-            cx={ringSize / 2} cy={ringSize / 2} r={ringR}
-            stroke="#EF4444" strokeWidth={6} strokeLinecap="round"
+            cx={ringSize / 2}
+            cy={ringSize / 2}
+            r={ringR}
+            stroke="#EF4444"
+            strokeWidth={6}
+            strokeLinecap="round"
             strokeDasharray={`${ringCirc} ${ringCirc}`}
             strokeDashoffset={dashOffset}
             fill="none"
@@ -1124,29 +1280,77 @@ function DisconnectOverlay({
           />
         </Svg>
         <View style={{ position: "absolute", alignItems: "center" }}>
-          <Text style={{ color: "#fff", fontSize: 32, fontWeight: "900" }}>{minSeconds}</Text>
-          <Text style={{ color: "rgba(255,255,255,0.4)", fontSize: 10, fontWeight: "700", letterSpacing: 1 }}>SECONDS</Text>
+          <Text style={{ color: "#fff", fontSize: 32, fontWeight: "900" }}>
+            {minSeconds}
+          </Text>
+          <Text
+            style={{
+              color: "rgba(255,255,255,0.4)",
+              fontSize: 10,
+              fontWeight: "700",
+              letterSpacing: 1,
+            }}
+          >
+            SECONDS
+          </Text>
         </View>
       </View>
 
       {/* Status text */}
-      <Text style={{ color: colors.text.secondary, fontSize: 14, textAlign: "center", marginTop: 12, marginHorizontal: 40 }}>
+      <Text
+        style={{
+          color: colors.text.secondary,
+          fontSize: 14,
+          textAlign: "center",
+          marginTop: 12,
+          marginHorizontal: 40,
+        }}
+      >
         {statusText}
       </Text>
 
       {/* Rotating tip */}
-      <Animated.View style={{ opacity: tipFade, marginTop: 10, backgroundColor: "rgba(139,92,246,0.1)", borderRadius: 12, paddingHorizontal: 16, paddingVertical: 10, marginHorizontal: 32, borderWidth: 1, borderColor: "rgba(139,92,246,0.2)" }}>
-        <Text style={{ color: "rgba(255,255,255,0.5)", fontSize: 12, fontWeight: "600", textAlign: "center" }}>
+      <Animated.View
+        style={{
+          opacity: tipFade,
+          marginTop: 10,
+          backgroundColor: "rgba(139,92,246,0.1)",
+          borderRadius: 12,
+          paddingHorizontal: 16,
+          paddingVertical: 10,
+          marginHorizontal: 32,
+          borderWidth: 1,
+          borderColor: "rgba(139,92,246,0.2)",
+        }}
+      >
+        <Text
+          style={{
+            color: "rgba(255,255,255,0.5)",
+            fontSize: 12,
+            fontWeight: "600",
+            textAlign: "center",
+          }}
+        >
           {tips[tipIdx]}
         </Text>
       </Animated.View>
 
       {/* Exit button */}
       <TouchableOpacity
-        style={{ marginTop: 24, backgroundColor: "rgba(239,68,68,0.15)", paddingHorizontal: 28, paddingVertical: 12, borderRadius: 20, borderWidth: 1, borderColor: "rgba(239,68,68,0.3)" }}
+        style={{
+          marginTop: 24,
+          backgroundColor: "rgba(239,68,68,0.15)",
+          paddingHorizontal: 28,
+          paddingVertical: 12,
+          borderRadius: 20,
+          borderWidth: 1,
+          borderColor: "rgba(239,68,68,0.3)",
+        }}
         onPress={onExit}
       >
-        <Text style={{ color: "#EF4444", fontSize: 14, fontWeight: "700" }}>Exit Match</Text>
+        <Text style={{ color: "#EF4444", fontSize: 14, fontWeight: "700" }}>
+          Exit Match
+        </Text>
       </TouchableOpacity>
     </View>
   );
@@ -1186,7 +1390,11 @@ function GamePlayModal({
   // Full reward rankings from backend — frontend auto-adopts to whatever
   // the backend returns. Each entry: { userId, result, rank, xpEarned, isBot }.
   const [rewardRankings, setRewardRankings] = useState<Array<{
-    userId: string; result: string; rank: number; xpEarned: number; isBot?: boolean;
+    userId: string;
+    result: string;
+    rank: number;
+    xpEarned: number;
+    isBot?: boolean;
   }> | null>(null);
   // Per-game breakdown (accuracy / longest streak) surfaced on the result overlay
   const [gameStats, setGameStats] = useState<{
@@ -1198,7 +1406,10 @@ function GamePlayModal({
   const [chatOpen, setChatOpen] = useState(false);
   const [chatPanelH, setChatPanelH] = useState(0);
   const [chatUnread, setChatUnread] = useState(false);
-  const [chatIncoming, setChatIncoming] = useState<{ name: string; text: string } | null>(null);
+  const [chatIncoming, setChatIncoming] = useState<{
+    name: string;
+    text: string;
+  } | null>(null);
   // Game readiness — becomes true when the runtime is mounted, the socket
   // is connected, and critical assets are downloaded. The start screen uses
   // this to transition from "Loading game…" to "ALL READY!" instead of a
@@ -1209,11 +1420,18 @@ function GamePlayModal({
   const [kbHeight, setKbHeight] = useState(0);
 
   useEffect(() => {
-    const showEvt = Platform.OS === 'ios' ? 'keyboardWillShow' : 'keyboardDidShow';
-    const hideEvt = Platform.OS === 'ios' ? 'keyboardWillHide' : 'keyboardDidHide';
-    const sub1 = Keyboard.addListener(showEvt, (e) => setKbHeight(e.endCoordinates?.height || 0));
+    const showEvt =
+      Platform.OS === "ios" ? "keyboardWillShow" : "keyboardDidShow";
+    const hideEvt =
+      Platform.OS === "ios" ? "keyboardWillHide" : "keyboardDidHide";
+    const sub1 = Keyboard.addListener(showEvt, (e) =>
+      setKbHeight(e.endCoordinates?.height || 0),
+    );
     const sub2 = Keyboard.addListener(hideEvt, () => setKbHeight(0));
-    return () => { sub1.remove(); sub2.remove(); };
+    return () => {
+      sub1.remove();
+      sub2.remove();
+    };
   }, []);
 
   // Multi-round lifecycle — only active when configuredRounds > 1.
@@ -1249,7 +1467,9 @@ function GamePlayModal({
         const details = event.data.disconnectDetails;
         if (Array.isArray(details) && details.length > 0) {
           const resolved = details.map((d: any) => {
-            const p = (session.players || []).find((pl: any) => pl.id === d.userId);
+            const p = (session.players || []).find(
+              (pl: any) => pl.id === d.userId,
+            );
             return {
               userId: d.userId,
               name: p?.name || "Player",
@@ -1259,13 +1479,18 @@ function GamePlayModal({
           setDisconnectedPlayers(resolved);
         } else {
           // Legacy single-player fallback
-          const disconnectedId = event.data?.disconnectedPlayers?.[0] || event.data?.userId;
-          const match = (session.players || []).find((p: any) => p.id === disconnectedId);
-          setDisconnectedPlayers([{
-            userId: disconnectedId || 'unknown',
-            name: match?.name || "Opponent",
-            remainingMs: event.data.reconnectWindowMs || 60000,
-          }]);
+          const disconnectedId =
+            event.data?.disconnectedPlayers?.[0] || event.data?.userId;
+          const match = (session.players || []).find(
+            (p: any) => p.id === disconnectedId,
+          );
+          setDisconnectedPlayers([
+            {
+              userId: disconnectedId || "unknown",
+              name: match?.name || "Opponent",
+              remainingMs: event.data.reconnectWindowMs || 60000,
+            },
+          ]);
         }
         setPhase((prev) => (prev === "result" ? prev : "playing"));
       }
@@ -1318,18 +1543,28 @@ function GamePlayModal({
     const sub2 = DeviceEventEmitter.addListener("GAME_ENGINE_RESUME", onResume);
     const sub3 = DeviceEventEmitter.addListener("GAME_ENGINE_OVER", onResume);
     const sub4 = DeviceEventEmitter.addListener("GAME_ENGINE_ACTIVE", onActive);
-    const sub5 = DeviceEventEmitter.addListener("GAME_ENGINE_CONNECT", onConnect);
+    const sub5 = DeviceEventEmitter.addListener(
+      "GAME_ENGINE_CONNECT",
+      onConnect,
+    );
     // Games (Ludo, SnakeLadder, Scribble) can request the chat panel to open
-    const sub6 = DeviceEventEmitter.addListener("OPEN_GAME_CHAT", () => setChatOpen(true));
-    const sub7 = DeviceEventEmitter.addListener("GAME_ENGINE_CHAT", (event: any) => {
-      if (event.matchId !== session.matchId) return;
-      const d = event.data;
-      const info = (session.players || []).find((p: any) => p.id === (d.userId || d.uid));
-      setChatIncoming({
-        name: info?.name || d.name || "Player",
-        text: d.text || "",
-      });
-    });
+    const sub6 = DeviceEventEmitter.addListener("OPEN_GAME_CHAT", () =>
+      setChatOpen(true),
+    );
+    const sub7 = DeviceEventEmitter.addListener(
+      "GAME_ENGINE_CHAT",
+      (event: any) => {
+        if (event.matchId !== session.matchId) return;
+        const d = event.data;
+        const info = (session.players || []).find(
+          (p: any) => p.id === (d.userId || d.uid),
+        );
+        setChatIncoming({
+          name: info?.name || d.name || "Player",
+          text: d.text || "",
+        });
+      },
+    );
 
     return () => {
       sub1.remove();
@@ -1356,7 +1591,10 @@ function GamePlayModal({
     const timer = setInterval(() => {
       setDisconnectedPlayers((prev) =>
         prev
-          .map((p) => ({ ...p, remainingMs: Math.max(0, p.remainingMs - 1000) }))
+          .map((p) => ({
+            ...p,
+            remainingMs: Math.max(0, p.remainingMs - 1000),
+          }))
           .filter((p) => p.remainingMs > 0),
       );
     }, 1000);
@@ -1382,7 +1620,9 @@ function GamePlayModal({
   // the listener to re-register on every render (since result is set inside
   // the listener itself), and the stale closure can miss the "pending" check.
   const resultRef = useRef(result);
-  useEffect(() => { resultRef.current = result; }, [result]);
+  useEffect(() => {
+    resultRef.current = result;
+  }, [result]);
 
   useEffect(() => {
     const onNotif = (notif: NotificationNewPayload) => {
@@ -1480,7 +1720,9 @@ function GamePlayModal({
         // closure still sees the old 'pending' snapshot.
         if (resultRef.current === "pending") {
           setScore(gameResult.score || 0);
-          setResult(gameResult.won ? "win" : gameResult.won === false ? "loss" : "draw");
+          setResult(
+            gameResult.won ? "win" : gameResult.won === false ? "loss" : "draw",
+          );
           setXpEarned(gameResult.xpEarned || 0);
           setGameStats({
             accuracy: gameResult.accuracy,
@@ -1543,28 +1785,48 @@ function GamePlayModal({
                     text: "Leave Game",
                     style: "destructive",
                     onPress: () => {
-                  // Tell the socket layer to send LEAVE to server (forfeit)
-                  // BEFORE closing. This prevents the server from pausing
-                  // and offering a "resume" on next entry.
-                  DeviceEventEmitter.emit("GAME_LEAVE");
-                  onClose();
-                },
+                      // Tell the socket layer to send LEAVE to server (forfeit)
+                      // BEFORE closing. This prevents the server from pausing
+                      // and offering a "resume" on next entry.
+                      DeviceEventEmitter.emit("GAME_LEAVE");
+                      onClose();
+                    },
                   },
                 ],
               );
             }}
             style={styles.iconButton}
           >
-            <Ionicons name="log-out" size={22} color={colors.text.secondary} style={{ transform: [{ scaleX: -1 }] }} />
+            <Ionicons
+              name="log-out"
+              size={22}
+              color={colors.text.secondary}
+              style={{ transform: [{ scaleX: -1 }] }}
+            />
           </TouchableOpacity>
           <View style={styles.playHeaderCenter}>
             <View style={styles.playHeaderTitleRow}>
               <GameLogo game={session.game} size={26} radius={8} />
               <Text style={styles.playTitle}>{session.game.name}</Text>
               {roundLifecycle.showRoundLabel && (
-                <View style={{ backgroundColor: 'rgba(124,58,237,0.2)', borderRadius: 8, paddingHorizontal: 8, paddingVertical: 2, marginLeft: 8 }}>
-                  <Text style={{ color: '#A78BFA', fontSize: 11, fontWeight: '700' }}>
-                    R{roundLifecycle.currentRoundNumber}/{roundLifecycle.totalRounds}
+                <View
+                  style={{
+                    backgroundColor: "rgba(124,58,237,0.2)",
+                    borderRadius: 8,
+                    paddingHorizontal: 8,
+                    paddingVertical: 2,
+                    marginLeft: 8,
+                  }}
+                >
+                  <Text
+                    style={{
+                      color: "#A78BFA",
+                      fontSize: 11,
+                      fontWeight: "700",
+                    }}
+                  >
+                    R{roundLifecycle.currentRoundNumber}/
+                    {roundLifecycle.totalRounds}
                   </Text>
                 </View>
               )}
@@ -1577,7 +1839,10 @@ function GamePlayModal({
                 setChatOpen((p) => !p);
                 setChatUnread(false);
               }}
-              style={[styles.iconButton, chatOpen && { backgroundColor: "rgba(139, 92, 246, 0.25)" }]}
+              style={[
+                styles.iconButton,
+                chatOpen && { backgroundColor: "rgba(139, 92, 246, 0.25)" },
+              ]}
             >
               <View>
                 <Ionicons
@@ -1586,7 +1851,17 @@ function GamePlayModal({
                   color={chatOpen ? "#A78BFA" : colors.text.secondary}
                 />
                 {chatUnread && !chatOpen && (
-                  <View style={{ position: "absolute", top: -3, right: -3, width: 8, height: 8, borderRadius: 4, backgroundColor: "#EF4444" }} />
+                  <View
+                    style={{
+                      position: "absolute",
+                      top: -3,
+                      right: -3,
+                      width: 8,
+                      height: 8,
+                      borderRadius: 4,
+                      backgroundColor: "#EF4444",
+                    }}
+                  />
                 )}
               </View>
             </TouchableOpacity>
@@ -1605,7 +1880,14 @@ function GamePlayModal({
             countdown ends. During prestart the GameStartScreen overlays on top;
             during result the component unmounts immediately, freeing all native
             memory (video players, Animated values, PanResponder, intervals). */}
-        <View style={[styles.playStage, (chatOpen || kbHeight > 0) && { paddingBottom: (chatOpen ? (chatPanelH || 280) : 0) + kbHeight }]}>
+        <View
+          style={[
+            styles.playStage,
+            (chatOpen || kbHeight > 0) && {
+              paddingBottom: (chatOpen ? chatPanelH || 280 : 0) + kbHeight,
+            },
+          ]}
+        >
           {(phase === "playing" || phase === "prestart") && session.wsToken && (
             <View
               style={{ flex: 1 }}
@@ -1666,58 +1948,66 @@ function GamePlayModal({
                 ready={gameReady}
                 onDone={() => setPhase("playing")}
                 onExit={onClose}
-                roundNumber={roundLifecycle.showRoundLabel ? roundLifecycle.currentRoundNumber : undefined}
-                roundTotal={roundLifecycle.showRoundLabel ? roundLifecycle.totalRounds : undefined}
+                roundNumber={
+                  roundLifecycle.showRoundLabel
+                    ? roundLifecycle.currentRoundNumber
+                    : undefined
+                }
+                roundTotal={
+                  roundLifecycle.showRoundLabel
+                    ? roundLifecycle.totalRounds
+                    : undefined
+                }
               />
             </View>
           )}
 
           {disconnectedPlayers.length > 0 && phase !== "result" && (
-            <DisconnectOverlay
-              players={disconnectedPlayers}
-              onExit={onClose}
-            />
+            <DisconnectOverlay players={disconnectedPlayers} onExit={onClose} />
           )}
 
-          {phase === "result" && roundLifecycle.showRoundLabel && roundLifecycle.roundResult && !roundLifecycle.isMatchFinished && (
-            <React.Suspense fallback={null}>
-            <RoundResultOverlay
-              roundResult={roundLifecycle.roundResult}
-              userId={user?.id || ''}
-              roundNumber={roundLifecycle.currentRoundNumber}
-              totalRounds={roundLifecycle.totalRounds}
-              playerNames={Object.fromEntries(
-                (session.players || []).map((p) => [p.id, p.name])
-              )}
-            />
-            </React.Suspense>
-          )}
+          {phase === "result" &&
+            roundLifecycle.showRoundLabel &&
+            roundLifecycle.roundResult &&
+            !roundLifecycle.isMatchFinished && (
+              <React.Suspense fallback={null}>
+                <RoundResultOverlay
+                  roundResult={roundLifecycle.roundResult}
+                  userId={user?.id || ""}
+                  roundNumber={roundLifecycle.currentRoundNumber}
+                  totalRounds={roundLifecycle.totalRounds}
+                  playerNames={Object.fromEntries(
+                    (session.players || []).map((p) => [p.id, p.name]),
+                  )}
+                />
+              </React.Suspense>
+            )}
 
           {phase === "result" && (
             <React.Suspense fallback={null}>
-            <GameResultOverlay
-              key={result}
-              result={result}
-              score={score}
-              xpEarned={xpEarned}
-              rewardRankings={rewardRankings}
-              accuracy={gameStats.accuracy}
-              longestStreak={gameStats.longestStreak}
-              gameName={session.game.name}
-              modeLabel={
-                session.mode === "tournament"
-                  ? "TOURNAMENT"
-                  : session.mode === "practice"
-                    ? "PRACTICE"
-                    : session.mode === "custom"
-                      ? "CUSTOM LOBBY"
-                      : "AUTO MATCH"
-              }
-              opponentName={session.players?.[0]?.name}
-              isPractice={session.mode === "practice"}
-              onRematch={onRematch}
-              onClose={onClose}
-            />
+              <GameResultOverlay
+                key={result}
+                result={result}
+                score={score}
+                xpEarned={xpEarned}
+                rewardRankings={rewardRankings}
+                accuracy={gameStats.accuracy}
+                longestStreak={gameStats.longestStreak}
+                gameName={session.game.name}
+                modeLabel={
+                  session.mode === "tournament"
+                    ? "TOURNAMENT"
+                    : session.mode === "practice"
+                      ? "PRACTICE"
+                      : session.mode === "custom"
+                        ? "CUSTOM LOBBY"
+                        : "AUTO MATCH"
+                }
+                opponentName={session.players?.[0]?.name}
+                isPractice={session.mode === "practice"}
+                onRematch={onRematch}
+                onClose={onClose}
+              />
             </React.Suspense>
           )}
         </View>
@@ -1745,4 +2035,3 @@ function GamePlayModal({
     </Modal>
   );
 }
-

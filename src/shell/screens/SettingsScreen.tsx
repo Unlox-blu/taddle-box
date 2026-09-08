@@ -55,6 +55,7 @@ import PinPad from "../../design-system/components/PinPad";
 import { nativeBypass } from "../../shared/utils/native-bypass";
 import { log, error } from "../../infrastructure/logging/logger";
 import Constants from "expo-constants";
+import { appVersion, appBuildType } from "../../infrastructure/app-version";
 import { checkAndTriggerStoreUpdate, isStoreUpdateEnabled } from "../../infrastructure/updates/store-update";
 
 // Numeric semver compare — same logic as AuthProvider.
@@ -435,8 +436,11 @@ export default function SettingsScreen() {
 
   const handleRateApp = async () => {
     try {
+      // Backend returns the correct storeUrl for this platform (Android/iOS).
       const res = await appConfigService.getAppConfig();
-      await Linking.openURL(res.data.storeUrl);
+      const { storeUrl: url } = res.data;
+
+      await Linking.openURL(url);
     } catch {
       themedAlert("Error", "Could not open the store. Please try again.");
     }
@@ -792,7 +796,13 @@ export default function SettingsScreen() {
           <SettingsRow
             icon="information-circle-outline"
             label="App Version"
-            value={checkingVersion ? "Checking..." : (Constants.expoConfig?.version || "1.0.0")}
+            value={
+              checkingVersion
+                ? "Checking..."
+                : `${appVersion}${
+                    appBuildType === "store" ? "" : ` (${appBuildType})`
+                  }`
+            }
             onPress={handleAppVersionCheck}
             last
           />

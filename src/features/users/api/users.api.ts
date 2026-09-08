@@ -16,7 +16,7 @@ export const userService = {
 
   getProfile: async (username: string) => {
     const res = await apiClient.get(`/users/${username}`);
-    return res.data;
+    return res.data.data;
   },
 
   updatePrivacy: async (privacy: 'public' | 'private') => {

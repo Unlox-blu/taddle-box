@@ -6,13 +6,14 @@ export const xpService = {
     return response.data;
   },
 
-  creditXP: async (xp: number, transactionType: string, sourceType: string) => {
-    const response = await apiClient.post('/xp/credit', { xp, transactionType, sourceType });
-    return response.data;
-  },
-  
-  debitXP: async (xp: number, transactionType: string, sourceType: string) => {
-    const response = await apiClient.post('/xp/debit', { xp, transactionType, sourceType });
+  /**
+   * Claim a platform XP reward by EVENT NAME. The client sends only the
+   * event (e.g. 'daily_login', 'post_view') plus the minimal identifying
+   * payload (e.g. { postId }). The backend computes the amount, builds the
+   * source string, and verifies the claim — never send an amount here.
+   */
+  claimReward: async (event: string, payload?: Record<string, unknown>) => {
+    const response = await apiClient.post('/xp/claim', { event, payload });
     return response.data;
   },
 
@@ -28,10 +29,10 @@ export const xpService = {
     return response.data;
   },
 
-  // Cheap per-day check (no full history fetch): true if the login reward for
-  // the given local date (YYYY-MM-DD) has already been credited.
-  getDailyLoginStatus: async (date: string) => {
-    const response = await apiClient.get(`/xp/daily-login-status?date=${date}`);
+  // Cheap per-day check (no full history fetch): true if the login reward
+  // for today (server-local date) has already been credited.
+  getDailyLoginStatus: async () => {
+    const response = await apiClient.get('/xp/daily-login-status');
     return response.data;
   },
-};
+};

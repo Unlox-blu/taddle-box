@@ -15,7 +15,8 @@ import {
 } from "react-native";
 import { Image } from "expo-image";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { useRouter, useFocusEffect } from "expo-router";
+import { useRouter } from "expo-router";
+import { useRefreshOnFocus } from "../../../shared/hooks/useRefreshOnFocus";
 import { Ionicons } from "@expo/vector-icons";
 import { LinearGradient } from "expo-linear-gradient";
 import { StatusBar } from "expo-status-bar";
@@ -457,23 +458,16 @@ export default function CommunityScreen() {
   const communityScrollOffsetRef = React.useRef(0);
 
   // Re-fetch the ACTIVE pill's data whenever the tab regains focus (the
-  // react-query cache was serving first-fetched data on re-entry). Debounced:
-  // a blur during the 300ms window cancels the pending refetch, so rapid tab
-  // switching doesn't fire one API call per hop.
-  useFocusEffect(
-    React.useCallback(() => {
-      const t = setTimeout(() => {
-        refetch();
-        setTimeout(() => {
-          communitiesScrollRef.current?.scrollTo({
-            y: communityScrollOffsetRef.current,
-            animated: false,
-          });
-        }, 80);
-      }, 300);
-      return () => clearTimeout(t);
-    }, [refetch]),
-  );
+  // react-query cache was serving first-fetched data on re-entry). Debounced
+  // + scroll-restoring via the shared useRefreshOnFocus hook.
+  useRefreshOnFocus({
+    refetch,
+    restoreScroll: () =>
+      communitiesScrollRef.current?.scrollTo({
+        y: communityScrollOffsetRef.current,
+        animated: false,
+      }),
+  });
 
   // Tab-bar single-tap → scroll to top; double-tap → scroll to top + refresh
   // the active pill, dropping the pull bubble in like a real pull.

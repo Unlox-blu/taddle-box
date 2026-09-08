@@ -23,6 +23,9 @@ export interface Game {
   imageUrl?: string;
   /** Backend thumbnail URL from games table */
   thumbnail?: string;
+  /** Backend banner/cover URLs (game detail hero) — optional until set. */
+  bannerUrl?: string;
+  coverUrl?: string;
   /** Branded logo asset (require'd PNG) — takes precedence over monogram tile */
   logo?: any;
   /** Cached card image from disk — takes precedence over remote imageUrl */

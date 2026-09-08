@@ -20,7 +20,7 @@ import { useAuth } from "../../features/auth/state/AuthProvider";
 import { useWallet } from "../../features/wallet/state/WalletProvider";
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 import { takeScreenParams } from "../../shared/state/screen-params";
-import { themedAlert } from '../../design-system/components/ThemedAlert';
+import { themedAlert, ThemedAlertHost } from '../../design-system/components/ThemedAlert';
 import { log } from '../../infrastructure/logging/logger';
 
 export default function LockScreen() {
@@ -218,6 +218,13 @@ export default function LockScreen() {
     <SafeAreaView
       style={[styles.container, { backgroundColor: colors.bg.base }]}
     >
+      {/* Local alert host — this screen is a fullScreenModal (native layer
+          above the root view), so the root ThemedAlertHost renders BENEATH
+          it and any themedAlert fired here is invisible. Mounting a local
+          host puts the alert in this screen's own native window (same
+          pattern as GamesScreen's fullscreen modal). The host registers
+          itself on mount and restores the previous host on unmount. */}
+      <ThemedAlertHost />
       {router.canGoBack() && (
         <TouchableOpacity
           style={[styles.backBtnWrapper, { top: insets.top + spacing.sm }]}

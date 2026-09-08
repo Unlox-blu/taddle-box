@@ -1,4 +1,4 @@
-import React, { useMemo } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import {
   Modal,
   View,
@@ -13,6 +13,10 @@ import { LinearGradient } from "expo-linear-gradient";
 import { Ionicons } from "@expo/vector-icons";
 import { useTheme } from "../../../design-system/theme/ThemeProvider";
 import { fontSizes, spacing, radii, type ColorPalette } from "../../../design-system";
+import {
+  getPostCreateRewards,
+  type PostTierRewards,
+} from "../../../infrastructure/config/app-config";
 
 const { height: SH } = Dimensions.get("window");
 
@@ -37,6 +41,12 @@ export default function LevelInfoModal({
   const targetXP = Math.floor(currentXP / 1000 + 1) * 1000;
   const xpNeeded = Math.max(0, targetXP - currentXP);
   const pct = Math.min(Math.round((currentXP / targetXP) * 100), 100);
+
+  // Post-creation XP range comes from the backend tiers — no hardcoded amounts.
+  const [postTiers, setPostTiers] = useState<PostTierRewards | null>(null);
+  useEffect(() => {
+    getPostCreateRewards().then(setPostTiers).catch(() => {});
+  }, []);
 
   const tiers = [
     {
@@ -82,7 +92,10 @@ export default function LevelInfoModal({
     {
       icon: "create-outline",
       title: "Create Posts & Reels",
-      reward: "+2 to +10 XP",
+      // Backend tiers (server SSOT) — generic phrasing when unavailable.
+      reward: postTiers
+        ? `+${postTiers.singleType} to +${postTiers.threeTypes} XP`
+        : "Earn XP",
       desc: "Share text, images, video, or audio content.",
       color: "#3B82F6",
     },
@@ -96,7 +109,8 @@ export default function LevelInfoModal({
     {
       icon: "trophy-outline",
       title: "Games & Tournaments",
-      reward: "+10 to +50 XP",
+      // Game XP is score-derived per game (server-computed) — no static range.
+      reward: "Win XP",
       desc: "Play games and win community challenges.",
       color: "#F59E0B",
     },

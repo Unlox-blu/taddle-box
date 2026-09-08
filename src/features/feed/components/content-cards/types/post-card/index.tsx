@@ -49,6 +49,7 @@ export default function PostCardWrapper({
       preloadVideo={post.id === ctx.preloadPostId}
       feedItems={ctx.feedItems}
       feedContext={ctx.feedContext}
+      feedContextId={ctx.feedContextId}
     />
   );
 }

@@ -867,7 +867,11 @@ export default function CommunityDetailScreen() {
                 communityName: community.name,
                 communityAvatar: community.avatarUrl,
               });
-              router.push(`/chat/${community.id}`);
+              // Use the SLUG — chat's header links back to /community/[slug],
+              // and the conversation id here is the community UUID, which the
+              // slug route can't resolve (it 404'd before the backend gained
+              // an id-fallback in getBySlug).
+              router.push(`/chat/${community.slug || community.id}`);
             }}
           >
             <View

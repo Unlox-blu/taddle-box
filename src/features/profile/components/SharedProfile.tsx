@@ -853,22 +853,20 @@ export default function SharedProfile({
     const username = initialUser?.username || "";
     if (!username) return;
     try {
-      const profileRes = await userService.getProfile(username);
-      if (profileRes?.data) {
-        setUser(profileRes.data);
-        setFollowed(!!profileRes.data.isFollowing);
-        setFollowStatus(profileRes.data.followStatus || null);
+      const profile = await userService.getProfile(username);
+      setUser(profile);
+      setFollowed(!!profile.isFollowing);
+      setFollowStatus(profile.followStatus || null);
 
-        // Check if this profile is bookmarked by the current user
-        try {
-          const bookmarkRes = await postsService.checkBookmark(
-            "profile",
-            profileRes.data.id,
-          );
-          setIsBookmarked(!!bookmarkRes?.data?.bookmarked);
-        } catch (err) {
-          // Ignore bookmark check failures
-        }
+      // Check if this profile is bookmarked by the current user
+      try {
+        const bookmarkRes = await postsService.checkBookmark(
+          "profile",
+          profile.id,
+        );
+        setIsBookmarked(!!bookmarkRes?.data?.bookmarked);
+      } catch (err) {
+        // Ignore bookmark check failures
       }
     } catch (e) {
       warn("Failed to load profile", e);

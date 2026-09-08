@@ -23,6 +23,7 @@ import { useThemeColors } from "../../design-system/theme/ThemeProvider";
 import { useAuth } from "../../features/auth/state/AuthProvider";
 import { xpService } from "../../features/progression/api/xp.api";
 import { getReferralRewards } from "../../infrastructure/config/app-config";
+import { appVersionLabel } from "../../infrastructure/app-version";
 import XPProgressBar from "../../features/progression/components/XPProgressBar";
 import LevelInfoModal from "../../features/progression/components/LevelInfoModal";
 import { themedAlert } from "../../design-system/components/ThemedAlert";
@@ -678,7 +679,7 @@ export default function SideDrawer({ visible, onClose }: Props) {
               <Text
                 style={[styles.footerVersion, { color: colors.text.muted }]}
               >
-                v1.0.0
+                {appVersionLabel}
               </Text>
             </View>
 

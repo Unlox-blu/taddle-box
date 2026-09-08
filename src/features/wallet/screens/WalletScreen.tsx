@@ -18,7 +18,8 @@ import {
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { WebView } from "react-native-webview";
-import { useRouter, useFocusEffect } from "expo-router";
+import { useRouter } from "expo-router";
+import { useRefreshOnFocus } from "../../../shared/hooks/useRefreshOnFocus";
 import { Ionicons } from "@expo/vector-icons";
 import { LinearGradient } from "expo-linear-gradient";
 import { StatusBar } from "expo-status-bar";
@@ -42,6 +43,7 @@ import RemovePinModal from "../../posts/components/RemovePinModal";
 import { nativeBypass } from "../../../shared/utils/native-bypass";
 import type { Transaction } from "../../../shared/types";
 import { log, warn } from '../../../infrastructure/logging/logger';
+import { getXpRate } from '../../../infrastructure/config/app-config';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -128,6 +130,12 @@ export default function WalletScreen() {
   }, []);
 
   const [txnFilter, setTxnFilter] = useState<TxnFilter>("All");
+  // XP↔cash conversion rate from the backend — every rate display and the
+  // modals' live previews use this, never a hardcoded 100.
+  const [xpPerRupee, setXpPerRupee] = useState<number | null>(null);
+  useEffect(() => {
+    getXpRate().then(setXpPerRupee).catch(() => {});
+  }, []);
   const [activeModal, setActiveModal] = useState<ActiveModal>("none");
   const [handoffUrl, setHandoffUrl] = useState<string | null>(null);
   const [payuHtml, setPayuHtml] = useState<string | null>(null);
@@ -167,21 +175,18 @@ export default function WalletScreen() {
 
 
 
-  useFocusEffect(
-    React.useCallback(() => {
+  // Focus fetch via the shared debounced hook. The wallet-lock re-arm runs
+  // with it (it must re-apply on every focus, not just after refetches).
+  useRefreshOnFocus({
+    refetch: () => {
       fetchWalletData();
       const walletLockOn = user?.walletLockEnabled ?? false;
-      if (walletLockOn && !(user?.globalAccountLockEnabled)) {
+      if (walletLockOn && !user?.globalAccountLockEnabled) {
         setWalletUnlocked(false);
         setUnlockError("");
       }
-    }, [
-      user?.walletLockEnabled,
-      user?.globalAccountLockEnabled,
-      user?.globalAccountLockEnabled,
-      fetchWalletData,
-    ]),
-  );
+    },
+  });
 
   // ── Computed stats ──
   // Earned this month = INR 'earn'/'topup' credits within the current calendar
@@ -208,21 +213,12 @@ export default function WalletScreen() {
     return true;
   });
 
-  // ── Earn-more actions (navigate to relevant tab) ──
+  // ── Earn-more actions (navigate to relevant tab) — no hardcoded XP
+  // amounts; the server owns every reward value.
   const earnActions = [
-    {
-      icon: "game-controller",
-      label: "Win Games",
-      xp: "+50–150 XP",
-      tab: "Games",
-    },
-    {
-      icon: "document-text",
-      label: "Post Content",
-      xp: "+10–75 XP",
-      tab: "Home",
-    },
-    { icon: "flame", label: "Daily Streak", xp: "+25–100 XP", tab: "Home" },
+    { icon: "game-controller", label: "Win Games", tab: "Games" },
+    { icon: "document-text", label: "Post Content", tab: "Home" },
+    { icon: "flame", label: "Daily Streak", tab: "Home" },
   ];
 
   const referralCode =
@@ -635,7 +631,6 @@ export default function WalletScreen() {
                     style={{ marginBottom: 8 }}
                   />
                   <Text style={styles.earnLabel}>{e.label}</Text>
-                  <Text style={styles.earnXp}>{e.xp}</Text>
                 </TouchableOpacity>
               ))}
             </View>
@@ -725,7 +720,9 @@ export default function WalletScreen() {
               style={styles.rateCardInner}
             >
               <View style={styles.rateLeft}>
-                <Text style={styles.rateTitle}>100 XP = ₹1.00</Text>
+                <Text style={styles.rateTitle}>
+                  {xpPerRupee != null ? `${xpPerRupee} XP = ₹1.00` : "XP ⇄ Cash"}
+                </Text>
                 <Text style={styles.rateSub}>
                   Buy XP with cash · Convert XP to cash · Instant
                 </Text>
@@ -839,12 +836,14 @@ export default function WalletScreen() {
       <ConvertModal
         visible={activeModal === "convert"}
         xpBalance={wallet.xpBalance}
+        xpPerRupee={xpPerRupee}
         onConvert={convertXP}
         onClose={closeModal}
       />
       <BuyXPModal
         visible={activeModal === "buyXP"}
         cashBalance={wallet.cashBalance}
+        xpPerRupee={xpPerRupee}
         onBuy={convertCashToXP}
         onClose={closeModal}
       />
@@ -882,6 +881,7 @@ export default function WalletScreen() {
       <SettingsModal
         visible={activeModal === "settings"}
         wallet={wallet}
+        xpPerRupee={xpPerRupee}
         onToggle={toggleSetting}
         onLinkUPI={() => {
           closeModal();
@@ -1603,11 +1603,14 @@ const LinkUPIModal = React.memo(function LinkUPIModal({
 const ConvertModal = React.memo(function ConvertModal({
   visible,
   xpBalance,
+  xpPerRupee,
   onConvert,
   onClose,
 }: {
   visible: boolean;
   xpBalance: number;
+  /** Backend rate (XP per ₹1) — null phrased generically. */
+  xpPerRupee: number | null;
   onConvert: (xp: number) => void;
   onClose: () => void;
 }) {
@@ -1616,7 +1619,7 @@ const ConvertModal = React.memo(function ConvertModal({
   const styles = useMemo(() => makeStyles(colors), [colors]);
   const [xpStr, setXpStr] = useState("");
   const xpAmount = parseInt(xpStr, 10) || 0;
-  const cashResult = Math.floor(xpAmount / 100);
+  const cashResult = xpPerRupee != null ? Math.floor(xpAmount / xpPerRupee) : null;
 
   const error =
     xpAmount > 0 && xpAmount < 500
@@ -1630,7 +1633,7 @@ const ConvertModal = React.memo(function ConvertModal({
   const reset = () => setXpStr("");
 
   const handleConvert = () => {
-    if (!canConvert || error) return;
+    if (!canConvert || error || cashResult == null) return;
     themedAlert(
       "Confirm Conversion",
       `Convert ${xpAmount.toLocaleString()} XP → ₹${cashResult.toFixed(2)}?\n\nThis cannot be undone.`,
@@ -1717,7 +1720,9 @@ const ConvertModal = React.memo(function ConvertModal({
 
           {/* Rate banner */}
           <View style={styles.rateBanner}>
-            <Text style={styles.rateBannerText}>100 XP = ₹1.00</Text>
+            <Text style={styles.rateBannerText}>
+              {xpPerRupee != null ? `${xpPerRupee} XP = ₹1.00` : "XP ⇄ Cash"}
+            </Text>
             <Text style={styles.rateBannerSub}>
               Instant credit to your cash balance
             </Text>
@@ -1786,7 +1791,7 @@ const ConvertModal = React.memo(function ConvertModal({
           </View>
 
           {/* Preview */}
-          {xpAmount >= 500 && !error && (
+          {xpAmount >= 500 && !error && cashResult != null && (
             <LinearGradient
               colors={["rgba(251,191,36,0.12)", "rgba(249,115,22,0.08)"]}
               style={styles.convertPreview}
@@ -2038,11 +2043,14 @@ const RechargeModal = React.memo(function RechargeModal({
 const BuyXPModal = React.memo(function BuyXPModal({
   visible,
   cashBalance,
+  xpPerRupee,
   onBuy,
   onClose,
 }: {
   visible: boolean;
   cashBalance: number;
+  /** Backend rate (XP per ₹1) — null phrased generically. */
+  xpPerRupee: number | null;
   onBuy: (amount: number) => void;
   onClose: () => void;
 }) {
@@ -2051,7 +2059,7 @@ const BuyXPModal = React.memo(function BuyXPModal({
   const styles = useMemo(() => makeStyles(colors), [colors]);
   const [cashStr, setCashStr] = useState("");
   const cashAmount = parseInt(cashStr, 10) || 0;
-  const xpResult = Math.floor(cashAmount * 100); // 100 XP = ₹1
+  const xpResult = xpPerRupee != null ? Math.floor(cashAmount * xpPerRupee) : null;
 
   const error =
     cashAmount > 0 && cashAmount < 10
@@ -2065,7 +2073,7 @@ const BuyXPModal = React.memo(function BuyXPModal({
   const reset = () => setCashStr("");
 
   const handleBuy = () => {
-    if (!canBuy || error) return;
+    if (!canBuy || error || xpResult == null) return;
     themedAlert(
       "Buy XP",
       `Convert ₹${cashAmount.toLocaleString("en-IN")} → ${xpResult.toLocaleString()} XP?`,
@@ -2146,7 +2154,9 @@ const BuyXPModal = React.memo(function BuyXPModal({
           </View>
 
           <View style={styles.rateBanner}>
-            <Text style={styles.rateBannerText}>₹1.00 = 100 XP</Text>
+            <Text style={styles.rateBannerText}>
+              {xpPerRupee != null ? `₹1.00 = ${xpPerRupee} XP` : "₹1.00 ⇄ XP"}
+            </Text>
             <Text style={styles.rateBannerSub}>
               Instant credit to your XP balance
             </Text>
@@ -2207,7 +2217,7 @@ const BuyXPModal = React.memo(function BuyXPModal({
             </TouchableOpacity>
           </View>
 
-          {canBuy && (
+          {canBuy && xpResult != null && (
             <LinearGradient
               colors={["rgba(251,191,36,0.12)", "rgba(249,115,22,0.08)"]}
               style={styles.convertPreview}
@@ -2457,6 +2467,7 @@ function SettingsModal({
   onToggle,
   onLinkUPI,
   onClose,
+  xpPerRupee,
   toggleWalletLock: toggleWalletLockFn,
 }: {
   visible: boolean;
@@ -2471,6 +2482,8 @@ function SettingsModal({
   ) => void;
   onLinkUPI: () => void;
   onClose: () => void;
+  /** Backend rate (XP per ₹1) — null phrased generically. */
+  xpPerRupee: number | null;
   toggleWalletLock: (pin: string, isEnabled: boolean) => Promise<void>;
 }) {
   const insets = useSafeAreaInsets();
@@ -2877,7 +2890,10 @@ function SettingsModal({
             <Section title="About" styles={styles} />
             <View style={styles.settingsCard}>
               {[
-                { label: "Conversion Rate", value: "100 XP = ₹1.00" },
+                {
+                  label: "Conversion Rate",
+                  value: xpPerRupee != null ? `${xpPerRupee} XP = ₹1.00` : "—",
+                },
                 { label: "Min Withdrawal", value: "₹100" },
                 { label: "Min Conversion", value: "500 XP" },
                 { label: "Payout Time", value: "1–2 business days" },

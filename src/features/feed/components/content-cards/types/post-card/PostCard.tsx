@@ -246,9 +246,12 @@ function PostCardInner({
   );
 
   const openPostDetail = React.useCallback(() => {
-    stageScreenParams("reel", { post, feedContext, feedContextId });
+    // Stage the tapped post + the parent feed deck so the reel viewer seeds
+    // instantly and supports swipe-next (same as SharedFeed.openPost). Without
+    // feedItems the reel opens in single-reel mode — no further swipes.
+    stageScreenParams("reel", { post, feedItems, feedContext, feedContextId });
     router.push({ pathname: `/post/${post?.id}` } as never);
-  }, [router, post, feedContext, feedContextId]);
+  }, [router, post, feedItems, feedContext, feedContextId]);
 
   const handleBodyTap = () => {
     registerTap(() => {

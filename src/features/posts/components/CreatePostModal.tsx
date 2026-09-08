@@ -42,6 +42,11 @@ import { themedAlert } from "../../../design-system/components/ThemedAlert";
 import { useThemedAlertModal } from "../../../design-system/components/ThemedAlert";
 import { log, warn, error } from "../../../infrastructure/logging/logger";
 import { notificationBus } from "../../../shared/state/notification-bus";
+import {
+  getPostCreateRewards,
+  postCreateRewardFor,
+  type PostTierRewards,
+} from "../../../infrastructure/config/app-config";
 
 const SCREEN_W = Dimensions.get("window").width;
 
@@ -1033,9 +1038,17 @@ export default function CreatePostModal({
       await createPostAsync(postPayload);
 
       // Show success alert globally after a delay to prevent iOS multiple-modal 
-      // conflict (wait for this modal's slide-out animation to finish)
+      // conflict (wait for this modal's slide-out animation to finish). The
+      // amount comes from the backend tiers (server SSOT) — phrased
+      // generically when the config is unavailable.
+      const earnedXp = await postCreateRewardFor({ content, media: mediaItems });
       setTimeout(() => {
-        themedAlert("Success", `Post published successfully! +${xpReward} XP earned.`);
+        themedAlert(
+          "Success",
+          earnedXp != null
+            ? `Post published successfully! +${earnedXp} XP earned.`
+            : "Post published successfully!",
+        );
       }, 400);
 
       // Reset state after successful submit
@@ -1093,19 +1106,13 @@ export default function CreatePostModal({
     }
   }
 
-  const xpReward = React.useMemo(() => {
-    const hasText = content.trim().length > 0;
-    const visualMedia = mediaItems.filter((m) => m.mimeType !== "audio");
-    const audioMedia = mediaItems.filter((m) => m.mimeType === "audio");
-
-    const typesCount =
-      (hasText ? 1 : 0) +
-      (visualMedia.length > 0 ? 1 : 0) +
-      (audioMedia.length > 0 ? 1 : 0);
-    if (typesCount >= 3) return 10;
-    if (typesCount === 2) return 5;
-    return 2;
-  }, [content, mediaItems]);
+  // Post-creation XP tiers come from the backend (/app-config) — the badge
+  // only ever shows server-provided values, never hardcoded amounts. Null
+  // while unavailable (or on error) → phrase generically.
+  const [createTiers, setCreateTiers] = useState<PostTierRewards | null>(null);
+  useEffect(() => {
+    getPostCreateRewards().then(setCreateTiers).catch(() => {});
+  }, []);
 
   return (
     <Modal
@@ -1149,7 +1156,7 @@ export default function CreatePostModal({
                   fontWeight: "700",
                 }}
               >
-                up to 100 XP
+                {createTiers ? `up to ${createTiers.threeTypes} XP` : "earn XP"}
               </Text>
             </View>
             <View style={{ position: "relative", zIndex: 200, elevation: 20 }}>

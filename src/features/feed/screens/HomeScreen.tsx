@@ -16,7 +16,8 @@ import {
 import { Ionicons } from "@expo/vector-icons";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { StatusBar } from "expo-status-bar";
-import { useRouter, useIsFocused, useFocusEffect } from "expo-router";
+import { useRouter, useIsFocused } from "expo-router";
+import { useRefreshOnFocus } from "../../../shared/hooks/useRefreshOnFocus";
 import { fontSizes, spacing, radii } from "../../../design-system";
 import { useTheme, useThemeColors } from "../../../design-system/theme/ThemeProvider";
 import PostCard from "../components/content-cards/types/post-card/PostCard";
@@ -85,15 +86,15 @@ export default function HomeScreen() {
   // must NOT refetch it: that's the third redundant path that doubled the
   // startup feed call).
   const firstFocusRef = useRef(true);
-  useFocusEffect(
-    useCallback(() => {
+  useRefreshOnFocus({
+    refetch: () => {
       if (firstFocusRef.current) {
         firstFocusRef.current = false;
         return;
       }
       refetchFeed();
-    }, [refetchFeed]),
-  );
+    },
+  });
 
   const posts = feedData?.pages.flat() || [];
 
@@ -117,6 +118,9 @@ export default function HomeScreen() {
   const [nextRewardXp, setNextRewardXp] = useState(100);
   const [restoring, setRestoring] = useState(false);
   const [hasDailyReward, setHasDailyReward] = useState(false);
+  // Authoritative daily-login reward amount — comes from the backend status
+  // endpoint, never hardcoded.
+  const [dailyRewardXp, setDailyRewardXp] = useState<number>(50);
 
   const [now, setNow] = useState(Date.now());
   useEffect(() => {
@@ -232,25 +236,20 @@ export default function HomeScreen() {
       // Unread badge is handled by NotificationContext/MainHeader (socket-driven,
       // synced on login + reconnect) — no need to re-fetch here on every focus.
 
-      const todayKey = getTodayKey();
-      let localClaimedToday = false;
-      try {
-        localClaimedToday =
-          (await AsyncStorage.getItem("lastDailyClaim")) === todayKey;
-      } catch (e) {}
-
       let serverClaimedToday = false;
       try {
         // Cheap dedicated status endpoint — avoids fetching the whole XP
         // transaction history just to know if today's reward is claimed.
-        const dailyRes = await xpService.getDailyLoginStatus(todayKey);
+        // The server derives the day from its own clock; the response also
+        // carries the authoritative reward amount for the card display.
+        const dailyRes = await xpService.getDailyLoginStatus();
         serverClaimedToday = !!dailyRes?.data?.claimed;
-        if (serverClaimedToday) {
-          AsyncStorage.setItem("lastDailyClaim", todayKey).catch(() => {});
+        if (dailyRes?.data?.rewardXp != null) {
+          setDailyRewardXp(dailyRes.data.rewardXp);
         }
       } catch (e) {}
 
-      setHasDailyReward(!localClaimedToday && !serverClaimedToday);
+      setHasDailyReward(!serverClaimedToday);
 
       // No refetchFeed() here: useFeed fetches on mount and the useFocusEffect
       // above refreshes on every re-focus — a third call here doubled the
@@ -333,13 +332,9 @@ export default function HomeScreen() {
   const handleRewardClaim = useCallback(
     async (fromX: number, fromY: number) => {
       try {
-        const todayKey = getTodayKey();
-        const res = await xpService.creditXP(
-          50,
-          "bonus",
-          `Daily Login - ${todayKey}`,
-        );
-        AsyncStorage.setItem("lastDailyClaim", todayKey).catch(() => {});
+        // Event-only claim — the backend owns the amount, the date, and the
+        // dedup. It answers 409 when today's reward is already claimed.
+        const res = await xpService.claimReward("daily_login");
 
         if (res?.data?.alreadyClaimed || res?.alreadyClaimed) {
           setHasDailyReward(false);
@@ -413,7 +408,10 @@ export default function HomeScreen() {
     // server-side. Previously the feed query was never refetched here — the
     // list kept its stale contents and only the profile/streak APIs were hit.
     try {
-      await Promise.all([refetchFeed(), initHomeData(), refreshUser()]);
+      // fetchWalletSummary refreshes wallet.xpBalance (the XP card + streak
+      // restore balance) — previously the pull only hit feed/streak/profile,
+      // so XP stayed stale until a socket event or cold boot.
+      await Promise.all([refetchFeed(), initHomeData(), refreshUser(), fetchWalletSummary()]);
     } finally {
       setRefreshing(false);
     }
@@ -588,7 +586,7 @@ export default function HomeScreen() {
 
             {/* Daily reward */}
             {hasDailyReward && (
-              <DailyRewardCard onClaimPos={handleRewardClaim} />
+              <DailyRewardCard onClaimPos={handleRewardClaim} rewardXp={dailyRewardXp} />
             )}
 
             <View
@@ -735,7 +733,7 @@ export default function HomeScreen() {
         ]}
       >
         <View style={styles.xpParticleInner}>
-          <Text style={styles.xpParticleText}>⚡ +50 XP</Text>
+          <Text style={styles.xpParticleText}>⚡ +{dailyRewardXp} XP</Text>
         </View>
       </Animated.View>
     </View>
@@ -746,8 +744,11 @@ export default function HomeScreen() {
 
 const DailyRewardCard = React.memo(function DailyRewardCard({
   onClaimPos,
+  rewardXp,
 }: {
   onClaimPos?: (x: number, y: number) => void;
+  /** Backend-authoritative daily-login amount (from the status endpoint). */
+  rewardXp: number;
 }) {
   const colors = useThemeColors();
   const [claimed, setClaimed] = useState(false);
@@ -783,7 +784,7 @@ const DailyRewardCard = React.memo(function DailyRewardCard({
       }),
     ]).start();
 
-    // 2 — floating "+50 XP" text rises and fades
+    // 2 — floating "+{dailyRewardXp} XP" text rises and fades
     Animated.parallel([
       Animated.timing(floatOpac, {
         toValue: 1,
@@ -846,7 +847,7 @@ const DailyRewardCard = React.memo(function DailyRewardCard({
         ]}
         pointerEvents="none"
       >
-        🎁 +50 XP
+        🎁 +{rewardXp} XP
       </Animated.Text>
 
       <Animated.View

@@ -59,28 +59,25 @@ function PostHeaderInner({
     new Animated.Value(claimedPosts.has(postId) ? 1 : 0),
   ).current;
   const isPillVisible = useRef(true);
-  const rewardXp = useMemo(() => {
-    const hasText = !!post.content && post.content.trim().length > 0;
-    const allMedia = (post as any).media || [];
-    const visualMedia = allMedia.filter(
-      (m: any) => m.media_type !== "audio" && m.type !== "audio",
-    );
-    const audioMedia = allMedia.filter(
-      (m: any) => m.media_type === "audio" || m.type === "audio",
-    );
-    const typesCount =
-      (hasText ? 1 : 0) +
-      (visualMedia.length > 0 ? 1 : 0) +
-      (audioMedia.length > 0 ? 1 : 0);
-    if (typesCount >= 3) return 10;
-    if (typesCount === 2) return 5;
-    return 2;
-  }, [post]);
+  // Server-authoritative reward: every post response carries xpReward,
+  // computed by the backend from XP_REWARDS. The pill only ever displays
+  // this value — the client never computes or sends an amount.
+  const rewardXp = (post as any).xpReward ?? 2;
 
-  // Reset on card recycle
+  // Reset on card recycle — must reset EVERY piece of pill state, not just
+  // isClaimed. FlatList reuses this component for a different post while
+  // showPill=false / pillOpacity=0 / progressAnim=1 linger from the previous
+  // post's claim cycle: the pill then never appears for the new post, and
+  // the progress bar "finishes" instantly (1→1) so the green claimed pill
+  // pops up out of nowhere.
   useEffect(() => {
-    setIsClaimed((post as any).isXpClaimed || claimedPosts.has(postId));
-  }, [postId]);
+    const claimed = (post as any).isXpClaimed || claimedPosts.has(postId);
+    setIsClaimed(claimed);
+    setShowPill(true);
+    isPillVisible.current = true;
+    pillOpacity.setValue(1);
+    progressAnim.setValue(claimed ? 1 : 0);
+  }, [postId, pillOpacity, progressAnim]);
 
   // View time tracking — requiredTimeMs grows with media count + video duration
   const requiredTimeMs = useMemo(() => {
@@ -115,9 +112,8 @@ function PostHeaderInner({
         if (finished) {
           setIsClaimed(true);
           claimedPosts.add(postId);
-          xpService
-            .creditXP(rewardXp, "earned", `view_post_${postId}`)
-            .catch(() => {});
+          // Event-only claim — the backend owns the amount and dedup.
+          xpService.claimReward("post_view", { postId }).catch(() => {});
         }
       });
     } else {

@@ -12,7 +12,8 @@ import {
   Dimensions,
 } from "react-native";
 import { FlashList } from '@shopify/flash-list';
-import { useRouter, useIsFocused, useFocusEffect } from "expo-router";
+import { useRouter, useIsFocused } from "expo-router";
+import { useRefreshOnFocus } from "../../../shared/hooks/useRefreshOnFocus";
 import { Ionicons } from "@expo/vector-icons";
 import PullToRefreshWrapper from "../../../shell/components/PullToRefreshWrapper";
 import StateBlock from "../../../shell/components/StateBlock";
@@ -495,24 +496,16 @@ export default function EventsScreen() {
   const eventsScrollOffsetRef = useRef(0);
 
   // Refresh whenever the tab regains focus so live status, registrations and
-  // XP prices stay current without a manual pull-to-refresh. Debounced: a
-  // blur during the 300ms window cancels the pending refetch so rapid tab
-  // switching doesn't fire one API call per hop. Restores the scroll offset
-  // after the refetch instead of resetting to the top.
-  useFocusEffect(
-    React.useCallback(() => {
-      const t = setTimeout(() => {
-        refetch();
-        setTimeout(() => {
-          eventsListRef.current?.scrollToOffset({
-            offset: eventsScrollOffsetRef.current,
-            animated: false,
-          });
-        }, 80);
-      }, 300);
-      return () => clearTimeout(t);
-    }, [refetch]),
-  );
+  // XP prices stay current without a manual pull-to-refresh. Debounced +
+  // scroll-restoring via the shared useRefreshOnFocus hook.
+  useRefreshOnFocus({
+    refetch,
+    restoreScroll: () =>
+      eventsListRef.current?.scrollToOffset({
+        offset: eventsScrollOffsetRef.current,
+        animated: false,
+      }),
+  });
 
   // Tab-bar single-tap → scroll to top; double-tap → scroll to top + refresh
   // the active scope, dropping the pull bubble in like a real pull.

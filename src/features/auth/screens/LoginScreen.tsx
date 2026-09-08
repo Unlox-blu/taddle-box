@@ -204,6 +204,7 @@ export default function LoginScreen() {
           accessToken,
           refreshToken,
           sessionId,
+          tokenExpiresAt,
           error,
         } = urlParams.queryParams || {};
 
@@ -234,6 +235,7 @@ export default function LoginScreen() {
               accessToken as string,
               refreshToken as string,
               sessionId as string | undefined,
+              tokenExpiresAt ? Number(tokenExpiresAt) : undefined,
             );
           } finally {
             setIsAuthenticating(false);
@@ -289,8 +291,10 @@ export default function LoginScreen() {
               resultData.sessionData?.refreshToken || resultData.refreshToken;
             const sessionId =
               resultData.sessionData?.sessionId || resultData.sessionId;
+            const tokenExpiresAtApi =
+              resultData.sessionData?.tokenExpiresAt || resultData.tokenExpiresAt;
             if (!accessToken) throw new Error("Could not extract access token");
-            await signIn(accessToken, refreshToken, sessionId);
+            await signIn(accessToken, refreshToken, sessionId, tokenExpiresAtApi ? Number(tokenExpiresAtApi) : undefined);
           } catch (e: any) {
             alert(
               e instanceof Error ? e.message : "Apple Login failed on backend",
@@ -338,6 +342,7 @@ export default function LoginScreen() {
             accessToken,
             refreshToken,
             sessionId,
+            tokenExpiresAt,
             error,
           } = urlParams.queryParams || {};
 
@@ -368,6 +373,7 @@ export default function LoginScreen() {
                 accessToken as string,
                 refreshToken as string,
                 sessionId as string | undefined,
+                tokenExpiresAt ? Number(tokenExpiresAt) : undefined,
               );
             } finally {
               setIsAuthenticating(false);

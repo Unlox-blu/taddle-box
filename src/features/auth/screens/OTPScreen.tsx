@@ -172,9 +172,10 @@ export default function OtpScreen() {
       const accessToken = res.data?.sessionData?.accessToken || res.sessionData?.accessToken || res.data?.accessToken;
       const refreshToken = res.data?.sessionData?.refreshToken || res.sessionData?.refreshToken || res.data?.refreshToken;
       const sessionId = res.data?.sessionData?.sessionId || res.sessionData?.sessionId || res.data?.sessionId;
-      
+      const tokenExpiresAt = res.data?.sessionData?.tokenExpiresAt || res.sessionData?.tokenExpiresAt || res.data?.tokenExpiresAt;
+
       setTimeout(() => {
-        signIn(accessToken, refreshToken, sessionId);
+        signIn(accessToken, refreshToken, sessionId, tokenExpiresAt ? Number(tokenExpiresAt) : undefined);
       }, 1200);
 
     } catch (e: any) {

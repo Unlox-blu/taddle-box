@@ -1565,23 +1565,10 @@ export default React.memo(function ReelItem({
   ).current;
   const isPillVisible = useRef(true);
 
-  const rewardXp = useMemo(() => {
-    const hasText = !!post.content && post.content.trim().length > 0;
-    const allMediaItems = (post as any).media || [];
-    const visualMedia = allMediaItems.filter(
-      (m: any) => m.media_type !== "audio" && m.type !== "audio",
-    );
-    const audioMedia = allMediaItems.filter(
-      (m: any) => m.media_type === "audio" || m.type === "audio",
-    );
-    const typesCount =
-      (hasText ? 1 : 0) +
-      (visualMedia.length > 0 ? 1 : 0) +
-      (audioMedia.length > 0 ? 1 : 0);
-    if (typesCount >= 3) return 10;
-    if (typesCount === 2) return 5;
-    return 2;
-  }, [post]);
+  // Server-authoritative reward: every post response carries xpReward,
+  // computed by the backend from XP_REWARDS. The pill only ever displays
+  // this value — the client never computes or sends an amount.
+  const rewardXp = (post as any).xpReward ?? 2;
 
   const requiredTimeMs = useMemo(() => {
     let time = 3000;
@@ -1616,9 +1603,8 @@ export default React.memo(function ReelItem({
         if (finished) {
           setIsClaimed(true);
           claimedPosts.add(postId);
-          xpService
-            .creditXP(rewardXp, "earned", `view_post_${postId}`)
-            .catch(() => {});
+          // Event-only claim — the backend owns the amount and dedup.
+          xpService.claimReward("post_view", { postId }).catch(() => {});
         }
       });
     } else {

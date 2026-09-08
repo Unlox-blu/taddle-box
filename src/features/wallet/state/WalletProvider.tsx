@@ -349,12 +349,17 @@ export function WalletProvider({ children }: { children: React.ReactNode }) {
   const fetchWalletData = useCallback(async () => {
     dispatch({ type: 'SET_LOADING', isLoading: true });
     try {
-      const [walletRes, cashTxnsRes, xpTxnsRes, settingsRes, biometricRes] = await Promise.all([
+      const [walletRes, cashTxnsRes, xpTxnsRes, settingsRes, biometricRes, summaryRes] = await Promise.all([
         walletService.getWallet(),
         walletService.getTransactions(1, 50),
         xpService.getTransactions(1, 50),
         settingsService.getSettings(),
         SecureStore.getItemAsync('wallet_biometricEnabled'),
+        // Summary carries the authoritative xpBalance — fetchWalletData's
+        // SET_DATA previously never set it, so pull-to-refresh updated
+        // cash/settings/transactions but left XP stale until the next socket
+        // event or cold boot (where the once-per-login summary ran).
+        walletService.getWalletSummary(),
       ]);
 
       const cashTxns = (cashTxnsRes.data || []).map(mapCashTxn);
@@ -380,7 +385,8 @@ export function WalletProvider({ children }: { children: React.ReactNode }) {
         notifPromos: settingsRes.data?.notifPromos ?? false,
         hasMoreTxns: hasMoreRef.current,
         biometricEnabled: biometricRes === 'true',
-        pinEnabled: user?.walletLockEnabled ?? false
+        pinEnabled: user?.walletLockEnabled ?? false,
+        xpBalance: summaryRes?.data?.xpBalance ?? wallet.xpBalance
       }});
       dispatch({ type: 'SET_TRANSACTIONS', transactions: combinedTxns });
     } catch (e) {

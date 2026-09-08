@@ -148,6 +148,7 @@ export default function WelcomeScreen() {
           accessToken,
           refreshToken,
           sessionId,
+          tokenExpiresAt,
           error,
         } = urlParams.queryParams || {};
 
@@ -178,6 +179,7 @@ export default function WelcomeScreen() {
               accessToken as string,
               refreshToken as string,
               sessionId as string | undefined,
+              tokenExpiresAt ? Number(tokenExpiresAt) : undefined,
             );
           } finally {
             setIsAuthenticating(false);
@@ -282,6 +284,7 @@ export default function WelcomeScreen() {
             accessToken,
             refreshToken,
             sessionId,
+            tokenExpiresAt,
             error,
           } = urlParams.queryParams || {};
 
@@ -312,6 +315,7 @@ export default function WelcomeScreen() {
                 accessToken as string,
                 refreshToken as string,
                 sessionId as string | undefined,
+                tokenExpiresAt ? Number(tokenExpiresAt) : undefined,
               );
             } finally {
               setIsAuthenticating(false);

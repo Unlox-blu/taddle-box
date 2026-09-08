@@ -32,6 +32,8 @@ export interface Post {
   isLiked: boolean;
   isSaved?: boolean;
   isXpClaimed?: boolean;
+  /** Server-computed post-view XP reward (backend SSOT). */
+  xpReward?: number;
   /** Whether the current user already reposted this post. */
   repostedByMe?: boolean;
   repostOfId?: string | null;

@@ -110,7 +110,6 @@ import { destroyGameSound } from "../../games/media/game-sound";
 import { clearSessionAvatars } from "../../../infrastructure/storage/session-avatar-cache";
 import { validateStoredAccounts } from "../logic/session-validator";
 import { checkAndTriggerStoreUpdate } from "../../../infrastructure/updates/store-update";
-import { recordSession, maybeRequestReview } from "../../../infrastructure/review/store-review";
 
 // Real installed version comes from the Expo build config (app.json version).
 // In dev builds, return a high version so the force-update gate never blocks
@@ -238,17 +237,47 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   /**
    * Store the token expiry timestamp. The backend includes `tokenExpiresAt`
    * (epoch ms) in the login / refresh response. If the backend doesn't
-   * include it, we log a warning and fall back to reactive-only refresh.
+   * include it, fall back to decoding the JWT's `exp` claim from the access
+   * token itself — proactive refresh stays enabled either way.
    */
-  const persistTokenExpiry = useCallback(async (expiresAt?: number) => {
-    if (!expiresAt) {
-      warn(
-        "[Auth] Backend did not provide tokenExpiresAt — proactive refresh disabled for this token. The backend MUST include tokenExpiresAt in login and refresh responses.",
-      );
-      return;
-    }
-    await SecureStore.setItemAsync(TOKEN_EXPIRY_KEY, String(expiresAt));
-  }, []);
+  const persistTokenExpiry = useCallback(
+    async (expiresAt?: number, accessToken?: string) => {
+      let resolved = expiresAt;
+
+      if (!resolved && accessToken) {
+        // Fallback: decode the JWT payload and read `exp` (epoch seconds).
+        // Pure base64url decode — no Buffer in Hermes. If the token isn't a
+        // parseable JWT (opaque token), `resolved` stays undefined and we
+        // drop to the warning below.
+        try {
+          const [, payloadPart] = accessToken.split(".");
+          if (payloadPart) {
+            const b64 = payloadPart.replace(/-/g, "+").replace(/_/g, "/");
+            const padded = b64 + "=".repeat((4 - (b64.length % 4)) % 4);
+            const decoded = JSON.parse(atob(padded));
+            if (typeof decoded?.exp === "number") {
+              resolved = decoded.exp * 1000;
+              log(
+                "[Auth] tokenExpiresAt missing from response — using JWT exp claim:",
+                new Date(resolved).toISOString(),
+              );
+            }
+          }
+        } catch {
+          // Not a decodable JWT — fall through to the warning.
+        }
+      }
+
+      if (!resolved) {
+        warn(
+          "[Auth] tokenExpiresAt missing and JWT exp could not be decoded — proactive refresh disabled for this token.",
+        );
+        return;
+      }
+      await SecureStore.setItemAsync(TOKEN_EXPIRY_KEY, String(resolved));
+    },
+    [],
+  );
 
   /** Cancel the proactive timer (called on logout / account switch). */
   const cancelProactiveRefresh = useCallback(() => {
@@ -518,16 +547,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         await accountSocket.connect();
         // Schedule proactive refresh for the existing session
         scheduleProactiveRefresh();
-        // Record session for the organic review prompt eligibility tracker.
-        recordSession();
         // Only trigger the native store update check if our backend didn't
         // already detect an update — avoids showing two prompts at once.
-        if (!updateDetected) {
-          checkAndTriggerStoreUpdate();
-          // Show the native rating dialog if the user is eligible.
-          // Delayed so it doesn't compete with the update check UI.
-          setTimeout(() => maybeRequestReview(), 3000);
-        }
+        if (!updateDetected) checkAndTriggerStoreUpdate();
       } else {
         setIsLoggedIn(false);
       }
@@ -582,8 +604,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     if (sessionId) {
       await SecureStore.setItemAsync("sessionId", sessionId);
     }
-    // Persist token expiry for proactive refresh
-    await persistTokenExpiry(tokenExpiresAt);
+    // Persist token expiry for proactive refresh — falls back to the JWT's
+    // own exp claim when the response didn't carry tokenExpiresAt.
+    await persistTokenExpiry(tokenExpiresAt, token);
     // Fetch user after signing in
     try {
       // Also check app config on fresh login — returns true if update detected.
@@ -614,14 +637,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       await accountSocket.connect();
       // Start proactive refresh for the new session
       scheduleProactiveRefresh();
-      // Record session for the organic review prompt eligibility tracker.
-      recordSession();
       // Only trigger the native store update check if our backend didn't
       // already detect an update — avoids showing two prompts at once.
-      if (!updateDetected) {
-        checkAndTriggerStoreUpdate();
-        setTimeout(() => maybeRequestReview(), 3000);
-      }
+      if (!updateDetected) checkAndTriggerStoreUpdate();
     } catch (e) {
       error("Error fetching user after sign in", e);
       // Clean up the invalid tokens we just saved

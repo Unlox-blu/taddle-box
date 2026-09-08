@@ -1,6 +1,7 @@
 'use strict';
 
 const { createError } = require("../../utils/error.util");
+const { XP_REWARDS } = require("../xp/xp.rewards");
 
 class TaskService {
   constructor({ taskRepository, xpService }) {
@@ -38,7 +39,8 @@ class TaskService {
           const postCount = parseInt(task.postCount, 10)
 
           if(postCount === 1 || postCount % 5 === 0){
-            const xp = 5
+            // Amount from XP_REWARDS — the single source of truth for XP.
+            const xp = XP_REWARDS.taskBonus
             const transactionType = "bonus"
             const sourceType = "Post"
             await this.xpSvc.creditXP({ userId, xp, transactionType, sourceType })
@@ -57,7 +59,8 @@ class TaskService {
         const shareCount = parseInt(task.shareCount, 10)
 
         if(shareCount % 5 === 0){
-          const xp = 5
+          // Amount from XP_REWARDS — the single source of truth for XP.
+          const xp = XP_REWARDS.taskBonus
           const transactionType = "bonus"
           const sourceType = "Post share"
           await this.xpSvc.creditXP({ userId, xp, transactionType, sourceType })
@@ -85,7 +88,8 @@ class TaskService {
         const profileCompletionPercentage  = parseInt(profileCompletion, 10)
 
         if(profileCompletionPercentage === 60 || profileCompletionPercentage === 100){
-          const xp = 5
+          // Amount from XP_REWARDS — the single source of truth for XP.
+          const xp = XP_REWARDS.taskBonus
           const transactionType = "bonus"
           const sourceType = "profile Completion"
           await this.xpSvc.creditXP({ userId, xp, transactionType, sourceType })

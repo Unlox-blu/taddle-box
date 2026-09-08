@@ -4,6 +4,7 @@ const { createError } = require('../../utils/error.util');
 const config  = require('../../config/app.config');
 const { generateEventInvite } = require('../../integrations/calendar/calendar.service');
 const { addJob } = require('../../jobs/queues/job.queue');
+const { XP_REWARDS } = require('../xp/xp.rewards');
 
 class EventService {
   constructor({ eventRepository, walletRepository, userRepository, saveRepository, xpService }) {
@@ -109,11 +110,11 @@ class EventService {
         emitLeaderboardsChanged(userId, 'event_registration');
       }
 
-      // Award XP for joining a free event
+      // Award XP for joining a free event — amount from XP_REWARDS.
       if (event.isFree && this.xpSvc) {
         this.xpSvc.creditXP({
           userId,
-          xp: 50,
+          xp: XP_REWARDS.eventJoin,
           transactionType: 'earned',
           sourceType: `event_register_${eventId}`,
         }).catch(e => console.error('Failed to award event registration XP:', e));

@@ -2,10 +2,14 @@
 
 const { createError } = require('../../utils/error.util');
 const { emitXPUpdate } = require('../../sockets/account.socket');
+const { CLAIM_EVENTS } = require('./xp.claim');
+const { XP_REWARDS } = require('./xp.rewards');
 
 class XpService {
-  constructor({ xpRepository }) {
+  constructor({ xpRepository, postRepository }) {
     this.xpRepo = xpRepository;
+    // Optional — only needed to resolve view-post rewards from the post row.
+    this.postRepo = postRepository || null;
   }
 
   async createXPwallet({ userId }) {
@@ -51,21 +55,55 @@ class XpService {
     }
   }
 
-  // Lightweight check so the Home tab doesn't have to fetch the whole
-  // transaction history just to know whether today's login reward is claimed.
-  // The client sends its local date so the check is timezone-safe (the credit
-  // call uses the same `Daily Login - YYYY-MM-DD` source string).
-  async getDailyLoginStatus({ userId, date }) {
+  // Daily-login claim status for the app's Home card. The day key is
+  // derived from the SERVER's clock (same derivation as the daily_login
+  // claim event), so the client can never probe arbitrary dates.
+  async getDailyLoginStatus({ userId }) {
     try {
       let xpWallet = await this.xpRepo.findByUserId(userId);
       if (!xpWallet) {
         xpWallet = await this.xpRepo.create(userId);
       }
-      const sourceType = date ? `Daily Login - ${date}` : null;
-      const claimed = sourceType
-        ? await this.xpRepo.checkDailyTransactionBySource(xpWallet.id, sourceType)
-        : false;
-      return { claimed, date: date || null };
+      const today = new Date();
+      const dayKey = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
+      const sourceType = `Daily Login - ${dayKey}`;
+      const claimed = await this.xpRepo.checkDailyTransactionBySource(xpWallet.id, sourceType);
+      return { claimed, date: dayKey, rewardXp: XP_REWARDS.dailyLogin };
+    } catch (error) {
+      throw error;
+    }
+  }
+
+  /**
+   * Claim a platform reward by EVENT NAME. The client sends only the event
+   * (e.g. 'daily_login', 'post_view') plus the minimal identifying payload
+   * (e.g. { postId }). The amount, sourceType, transaction type, and all
+   * verification live in the CLAIM_EVENTS registry — the request body is
+   * never trusted for any of it.
+   */
+  async claimReward({ userId, event, payload }) {
+    try {
+      const handler = CLAIM_EVENTS[event];
+      if (!handler) throw createError(`Unknown XP claim event: ${event}`, 400);
+
+      const resolved = await handler({
+        userId,
+        payload: payload || {},
+        xpRepo: this.xpRepo,
+        postRepo: this.postRepo,
+        xpService: this,
+      });
+
+      // Idempotent claim: a handler may return null to signal "already
+      // claimed" without erroring the client.
+      if (!resolved) return { alreadyClaimed: true };
+
+      return await this.creditXP({
+        userId,
+        xp: resolved.xp,
+        transactionType: resolved.transactionType,
+        sourceType: resolved.sourceType,
+      });
     } catch (error) {
       throw error;
     }
@@ -76,22 +114,6 @@ class XpService {
       let xpWallet = await this.xpRepo.findByUserId(userId);
       if (!xpWallet) {
         xpWallet = await this.xpRepo.create(userId);
-      }
-
-      // Prevent duplicate daily login
-      if (sourceType?.startsWith('Daily Login')) {
-        const recent = await this.xpRepo.checkDailyTransactionBySource(xpWallet.id, sourceType);
-        if (recent) {
-          return { alreadyClaimed: true, message: 'Daily Login already claimed today' };
-        }
-      }
-
-      // Prevent duplicate post views
-      if (sourceType && sourceType.startsWith('view_post_')) {
-        const existing = await this.xpRepo.getTransactionsBySource(xpWallet.id, sourceType);
-        if (existing && existing.length > 0) {
-          return { alreadyClaimed: true, message: 'XP already claimed for this post view' };
-        }
       }
 
       const balanceBefore = xpWallet.Xp;
@@ -117,7 +139,7 @@ class XpService {
 
       if (levelAfter > levelBefore && transactionType !== 'bonus') {
         const bonusAmount = levelAfter * 100;
-        
+
         // Emit Notification
         const { notificationService } = require('../notification/notification.container');
         if (notificationService && typeof notificationService.create === 'function') {

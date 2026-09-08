@@ -82,7 +82,14 @@ class WalletService {
       const wallet = await this.walletRepo.findByUserId(userId);
       if (!wallet) throw createError('Cash wallet not found', 404);
 
-      const updatedWallet = await this.walletRepo.updateUPI(userId, upiId);
+      // Basic UPI format gate — payouts go to this handle, so garbage (or a
+      // second user's handle typo'd in) must be rejected before it can be
+      // used as a withdrawal destination.
+      if (typeof upiId !== 'string' || !/^[a-zA-Z0-9.\-_]{2,64}@[a-zA-Z]{2,32}$/.test(upiId.trim())) {
+        throw createError('Invalid UPI ID format', 400);
+      }
+
+      const updatedWallet = await this.walletRepo.updateUPI(userId, upiId.trim());
       return updatedWallet;
     } catch (error) {
       throw error;
@@ -90,6 +97,20 @@ class WalletService {
   }
 
   async convertXpToCash({ userId, xpAmount }) {
+    // Amount hygiene BEFORE anything touches a balance: the client sends
+    // xpAmount, so a negative value here would pass the "insufficient"
+    // check below (Xp < negative is false) and INCREASE XP while also
+    // crediting cash — a double mint. Only positive integers convert.
+    if (!Number.isInteger(xpAmount) || xpAmount <= 0) {
+      throw createError('Invalid XP amount', 400);
+    }
+    // Server-side minimum — matches the app's ConvertModal floor so a
+    // scripted client can't bypass the UI restriction.
+    const MIN_CONVERT_XP = 500;
+    if (xpAmount < MIN_CONVERT_XP) {
+      throw createError(`Minimum ${MIN_CONVERT_XP} XP to convert`, 400);
+    }
+
     const client = await pool.connect();
     try {
       await client.query('BEGIN');
@@ -103,9 +124,10 @@ class WalletService {
       if (!wallet) throw createError('Cash wallet not found', 404);
       await this.walletRepo.lockForUpdate(wallet.id, client);
 
-      // Hardcoded conversion rate: 100 XP = 1 Cash Unit (₹1 = 100 cents)
-      // So 100 XP = 100 cents. Or simply 1 XP = 1 cent. 
-      const cashAmountCents = xpAmount;
+      // Conversion rate comes from XP_PER_RUPEE (XP per ₹1) — the SAME rate
+      // convertCashToXp uses, so the two directions can never drift apart
+      // when the env config changes. 100 XP/₹1 → 1 XP = 1 paisa.
+      const cashAmountCents = Math.floor((xpAmount / config.XP_PER_RUPEE) * 100);
 
       const balanceBeforeXp = xpWallet.Xp;
       const updatedXp = await this.xpRepo.decrementXp(userId, xpAmount, client);
@@ -283,7 +305,15 @@ class WalletService {
   async convertCashToXp({ userId, amountCents }) {
     const client = await pool.connect();
     try {
-      if (!amountCents || amountCents <= 0) throw createError('Invalid amount', 400);
+      // Integer + sanity cap: amountCents comes from the client, so reject
+      // non-integers/negatives and absurd purchases in one gate.
+      if (!Number.isInteger(amountCents) || amountCents <= 0) {
+        throw createError('Invalid amount', 400);
+      }
+      if (amountCents > 10000000) {
+        // ₹1,00,000 — no legit in-app XP purchase is larger.
+        throw createError('Amount too large', 400);
+      }
 
       await client.query('BEGIN');
 
@@ -465,8 +495,6 @@ class WalletService {
       client.release();
     }
   }
-
-
 
 }
 

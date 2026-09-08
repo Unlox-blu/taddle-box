@@ -216,14 +216,15 @@ const setupGameSocket = (io, gameNs) => {
 
     try {
       const { rows } = await pool.query(
-        `SELECT mm.user_id, mm.ws_token, mm.player_color, g.slug as game_slug, gm.metadata as match_metadata,
-                u.name, u.username, m.cloudfront_url AS avatar
-         FROM match_members mm
-         JOIN users u ON u.id = mm.user_id
+        `SELECT gp.user_id, gp.ws_token, gp.player_color, g.slug as game_slug, gs.metadata as match_metadata,
+                u.name, u.username, m.cloudfront_url AS avatar,
+                gp.player_type, gp.bot_id, gp.snapshot
+         FROM game_participants gp
+         LEFT JOIN users u ON u.id = gp.user_id
          LEFT JOIN media m ON m.id = u.avatar_url
-         JOIN game_matches gm ON mm.match_id = gm.id
-         JOIN game g ON gm.game_id = g.id
-         WHERE mm.match_id = $1`,
+         JOIN game_sessions gs ON gp.game_session_id = gs.id
+         JOIN game g ON gs.game_id = g.id
+         WHERE gp.game_session_id = $1`,
         [matchId]
       );
 
@@ -295,7 +296,7 @@ const setupGameSocket = (io, gameNs) => {
         try {
           const { rows } = await pool.query(
             `SELECT status, metadata->>'finalState' AS final_state
-             FROM game_matches WHERE id = $1`,
+             FROM game_sessions WHERE id = $1`,
             [matchId]
           );
           if (rows[0] && rows[0].status === 'COMPLETED' && rows[0].final_state) {
@@ -1318,7 +1319,7 @@ const setupGameSocket = (io, gameNs) => {
   async function _archiveMatch(matchId, finalState) {
     try {
       await pool.query(
-        `UPDATE game_matches SET status = 'COMPLETED', metadata = metadata || $1, ended_at = NOW()
+        `UPDATE game_sessions SET status = 'COMPLETED', metadata = metadata || $1, ended_at = NOW()
          WHERE id = $2`,
         [
           JSON.stringify({

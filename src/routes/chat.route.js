@@ -12,5 +12,7 @@ router.post('/conversation', chatCtrl.getOrCreateConversation);
 router.get('/conversation/:conversationId/messages', chatCtrl.getMessages);
 router.post('/conversation/:conversationId/messages', chatCtrl.sendMessage);
 router.post('/message/:messageId/reaction', chatCtrl.toggleReaction);
+router.delete('/message/:messageId', chatCtrl.deleteMessage);
+router.delete('/conversation/:conversationId', chatCtrl.deleteConversation);
 
 module.exports = router;

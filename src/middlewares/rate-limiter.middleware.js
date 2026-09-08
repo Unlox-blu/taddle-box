@@ -5,7 +5,8 @@ const { rateLimit, ipKeyGenerator } = require('express-rate-limit');
 const { RedisStore } = require('rate-limit-redis');
 const redis = require('../config/redis');
 
-const makeStore = (prefix) =>  new RedisStore({ sendCommand: (...args) => redis.call(...args), prefix });
+const makeStore = (prefix) =>
+  new RedisStore({ sendCommand: (...args) => redis.call(...args), prefix });
 
 // Shared key strategy for every limiter that can see an authenticated caller:
 // a per-account budget when verifyToken has run (it sets req.userId), otherwise
@@ -18,11 +19,13 @@ const accountOrIpKey = (req) => req.userId || ipKeyGenerator(req.ip) || 'anon';
 // For pre-auth routes (no token can exist) — normalized IP only.
 const ipOnlyKey = (req) => ipKeyGenerator(req.ip) || 'anon';
 
-// 100 requests per 15 min — applied globally (currently DISABLED in app.js;
-// kept hardened so enabling it is a one-line change).
+// 300 requests per 15 min (20/min) — applied globally across /api/v1 in
+// app.js. Per-account when authenticated, normalized-IP otherwise. Budgets
+// a real app session (feed pages, profile, wallet, search paging) with head-
+// room while capping scripted abuse.
 const globalRateLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
-  max: 100,
+  max: 3000,
   standardHeaders: true,
   legacyHeaders: false,
   store: makeStore('rl:global:'),
@@ -46,7 +49,7 @@ const authRateLimiter = rateLimit({
 // from hammering the endpoint, but alone it can't stop a distributed attacker
 // from spamming OTP texts to one victim (see otpTargetRateLimiter below).
 const otpRateLimiter = rateLimit({
-  windowMs:  30 * 1000,
+  windowMs: 30 * 1000,
   max: 1,
   standardHeaders: true,
   legacyHeaders: false,
@@ -72,11 +75,18 @@ const otpTargetRateLimiter = rateLimit({
   keyGenerator: (req) => {
     const { email, phone } = req.body || {};
     if (email || phone) {
-      return crypto.createHash('sha256').update(`${email || ''}|${phone || ''}`).digest('hex').slice(0, 24);
+      return crypto
+        .createHash('sha256')
+        .update(`${email || ''}|${phone || ''}`)
+        .digest('hex')
+        .slice(0, 24);
     }
     return ipOnlyKey(req);
   },
-  message: { success: false, message: 'Too many OTP requests for this account. Please try again later.' },
+  message: {
+    success: false,
+    message: 'Too many OTP requests for this account. Please try again later.',
+  },
 });
 
 // 100 requests per min per ACCOUNT — search runs the heaviest queries in the
@@ -150,6 +160,37 @@ const postViewLimiter = rateLimit({
   message: { success: false, message: 'Too many post views. Please try again later.' },
 });
 
+// 20 wallet actions per 10 min per ACCOUNT — applied on the money-movement
+// endpoints (convert XP→cash, cash→XP, withdrawal initiate). Each is a
+// balance-changing transaction, so a scripted client must not be able to
+// sweep the balance in tiny increments at wire speed.
+const walletActionRateLimiter = rateLimit({
+  windowMs: 10 * 60 * 1000,
+  max: 20,
+  standardHeaders: true,
+  legacyHeaders: false,
+  store: makeStore('rl:wallet:'),
+  skipFailedRequests: true,
+  keyGenerator: accountOrIpKey,
+  message: { success: false, message: 'Too many wallet actions. Please try again later.' },
+});
+
+// 30 claim attempts per 10 min per ACCOUNT — applied on POST /xp/claim.
+// Claims are the ONLY client-driven earn path, so a scripted client must not
+// be able to sweep every post id (or brute-force other events) at wire speed.
+// 30/10min is far above any legit session (a heavy scroller claims a handful
+// of post views per minute at most) and far below script speed.
+const xpClaimRateLimiter = rateLimit({
+  windowMs: 10 * 60 * 1000,
+  max: 30,
+  standardHeaders: true,
+  legacyHeaders: false,
+  store: makeStore('rl:xp-claim:'),
+  skipFailedRequests: true,
+  keyGenerator: accountOrIpKey,
+  message: { success: false, message: 'Too many XP claim attempts. Please try again later.' },
+});
+
 // 5 attempts per 15 min per ACCOUNT — applied on PIN verify. Stops brute
 // forcing a 4-digit PIN (10k combos). bcrypt is slow but not slow enough
 // against a distributed attack; this caps the total attempts.
@@ -174,7 +215,10 @@ const pinRemoveRateLimiter = rateLimit({
   legacyHeaders: false,
   store: makeStore('rl:pin-remove:'),
   keyGenerator: accountOrIpKey,
-  message: { success: false, message: 'Too many remove PIN attempts. Please try again in 15 minutes.' },
+  message: {
+    success: false,
+    message: 'Too many remove PIN attempts. Please try again in 15 minutes.',
+  },
 });
 
 module.exports = {
@@ -189,4 +233,6 @@ module.exports = {
   postViewLimiter,
   pinVerifyRateLimiter,
   pinRemoveRateLimiter,
+  xpClaimRateLimiter,
+  walletActionRateLimiter,
 };

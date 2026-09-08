@@ -80,7 +80,7 @@ class RoundManager {
 
     // Update match pointer
     await pool.query(`
-      UPDATE game_matches 
+      UPDATE game_sessions 
       SET current_round_number = $1, current_round_id = $2, updated_at = NOW()
       WHERE id = $3
     `, [nextNumber, roundId, matchId]);
@@ -196,7 +196,7 @@ class RoundManager {
    */
   static async getCurrentRoundNumber(matchId) {
     const { rows } = await pool.query(`
-      SELECT current_round_number FROM game_matches WHERE id = $1
+      SELECT current_round_number FROM game_sessions WHERE id = $1
     `, [matchId]);
     return rows[0]?.current_round_number || 1;
   }
@@ -234,7 +234,7 @@ class RoundManager {
    */
   static async getRoundContext(matchId) {
     const match = await pool.query(
-      'SELECT configured_rounds, current_round_number FROM game_matches WHERE id = $1',
+      'SELECT configured_rounds, current_round_number FROM game_sessions WHERE id = $1',
       [matchId]
     );
     if (!match.rows[0]) return null;

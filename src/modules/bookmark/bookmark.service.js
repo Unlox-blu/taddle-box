@@ -44,10 +44,11 @@ class BookmarkService {
           .catch(() => []),
       ),
     );
-    // Flatten, sort by bookmark date (newest first), apply pagination.
+    // Flatten, filter out null/deleted items, sort by bookmark date (newest first), apply pagination.
     const all = results
       .flat()
-      .sort((a, b) => new Date(b.bookmarkedAt || b.publishedAt || 0) - new Date(a.bookmarkedAt || a.publishedAt || 0));
+      .filter((b) => !!b && (b.id || b._id))
+      .sort((a, b) => new Date(b.bookmarkedAt || b.publishedAt || b.createdAt || 0) - new Date(a.bookmarkedAt || a.publishedAt || a.createdAt || 0));
     const total = all.length;
     const bookmark = all.slice(offset, offset + limit);
     return { bookmark, total };

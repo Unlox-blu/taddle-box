@@ -41,7 +41,7 @@ const findBySlug = async (slug, userId = null) => {
       FROM ${CommunityModel.TABLE} c
       LEFT JOIN media AS avatar_media ON avatar_media.id = c.avatar_url
       LEFT JOIN media AS banner_media ON banner_media.id = c.banner_url 
-      WHERE c.slug = $1 AND c.deleted_at IS NULL`,
+      WHERE (c.slug = $1 OR c.id::text = $1) AND c.deleted_at IS NULL`,
       [slug, userId]
     );
     return rows[0] ? CommunityModel.format(rows[0]) : null;

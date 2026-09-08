@@ -51,35 +51,26 @@ class XpController {
 
   getDailyLoginStatus = async (req, res, next) => {
     try {
-      const { date } = req.query;
-      const status = await this.xpSvc.getDailyLoginStatus({ userId: req.userId, date });
+      const status = await this.xpSvc.getDailyLoginStatus({ userId: req.userId });
       res.json(apiResponse(status, 'Daily login status fetched'));
     } catch (error) {
       next(error);
     }
   };
 
-  creditXP = async (req, res, next) => {
+  // The ONLY client-driven earn path. The client sends an event name plus a
+  // minimal payload; the backend owns the amount, source string, and
+  // verification (see xp.claim.js).
+  claimReward = async (req, res, next) => {
     try {
       const userId = req.userId;
-      const { xp, transactionType, sourceType } = req.body;
-      const order = await this.xpSvc.creditXP({userId, xp, transactionType, sourceType});
-      res.json(apiResponse(order, 'Order created. Open Razorpay checkout.'));
-    } catch (error) {
-      next(error);
-    }
-  };
-
-  debitXP = async (req, res, next) => {
-    try {
-      const userId = req.userId;
-      const { xp, transactionType, sourceType } = req.body;
-      const order = await this.xpSvc.debitXP({userId, xp, transactionType, sourceType});
-      res.json(apiResponse(order, 'Order created. Open Razorpay checkout.'));
+      const { event, payload } = req.body;
+      const order = await this.xpSvc.claimReward({ userId, event, payload });
+      res.json(apiResponse(order, 'XP claimed successfully'));
     } catch (error) {
       next(error);
     }
   };
 }
 
-module.exports = XpController;
+module.exports = XpController;

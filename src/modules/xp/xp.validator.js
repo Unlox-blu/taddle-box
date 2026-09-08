@@ -3,10 +3,9 @@
 const { z } = require('zod');
 
 
-const creditOrdebitXPSchema = z.object({
-  xp: z.number({ required_error: 'Amount is required' }),
-  transactionType: z.enum(['earned', 'spent', 'bonus'], { errorMap: () => ({ message: 'Invalid transaction type' }) }),
-  sourceType: z.string().min(1, { message: 'Source type cannot be empty' }).max(50, { message: 'Source type must be at most 50 characters' })
+const claimXPSchema = z.object({
+  event: z.enum(['daily_login', 'post_view', 'event_join', 'community_join'], { errorMap: () => ({ message: 'Invalid claim event' }) }),
+  payload: z.record(z.string(), z.unknown()).optional(),
 }).strict();
 
 
@@ -32,4 +31,4 @@ const paginationQuerySchema = z.object({
 }).strict();
 
 
-module.exports = { paginationQuerySchema, creditOrdebitXPSchema };
+module.exports = { paginationQuerySchema, claimXPSchema };

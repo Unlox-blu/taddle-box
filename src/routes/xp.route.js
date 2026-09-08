@@ -1,17 +1,17 @@
 'use strict';
 
-// ─── src/routes/wallet.route.js ──────────────────────────────────────────────
+// ─── src/routes/xp.route.js ──────────────────────────────────────────────
 const router = require('express').Router();
 const { xpController } = require('../modules/xp/xp.container');
 const { verifyToken }      = require('../middlewares/auth.middleware');
 const { validateRequest }         = require('../middlewares/validator.middleware');
-const { creditOrdebitXPSchema, paginationQuerySchema } = require('../modules/xp/xp.validator');
+const { xpClaimRateLimiter }   = require('../middlewares/rate-limiter.middleware');
+const { claimXPSchema, paginationQuerySchema } = require('../modules/xp/xp.validator');
 
 router.post('/',                 verifyToken,                                                       xpController.createXPwallet);
 router.get('/',                  verifyToken,                                                       xpController.getXP);
 router.get('/transactions',      verifyToken, validateRequest({ query: paginationQuerySchema }),   xpController.getTransactions);
 router.get('/daily-login-status', verifyToken, xpController.getDailyLoginStatus);
-router.post('/credit',           verifyToken, validateRequest({ body: creditOrdebitXPSchema }),     xpController.creditXP);
-router.post('/debit',            verifyToken, validateRequest({ body: creditOrdebitXPSchema }),     xpController.debitXP);
+router.post('/claim',            verifyToken, xpClaimRateLimiter, validateRequest({ body: claimXPSchema }), xpController.claimReward);
 
-module.exports = router;
+module.exports = router;

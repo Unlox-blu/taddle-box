@@ -180,7 +180,7 @@ class MatchActor {
 
       // Update match revision + snapshot
       await client.query(
-        `UPDATE game_matches
+        `UPDATE game_sessions
          SET state_snapshot = $1::jsonb, current_revision = $2, updated_at = NOW()
          WHERE id = $3`,
         [JSON.stringify(this.state), seq, matchId]
@@ -197,7 +197,7 @@ class MatchActor {
       this.eventCount += 1;
       if (this.eventCount % CHECKPOINT_INTERVAL === 0) {
         await client.query(
-          `UPDATE game_matches
+          `UPDATE game_sessions
            SET snapshot_revision = $1
            WHERE id = $2`,
           [seq, matchId]

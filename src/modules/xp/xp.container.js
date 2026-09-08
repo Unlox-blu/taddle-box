@@ -1,5 +1,6 @@
 // Repository
 const xpRepository = require('./xp.repository')
+const postRepository = require('../post/post.repository')
 
 // Service
 const XPService = require('./xp.service')
@@ -9,10 +10,10 @@ const XPController = require('./xp.controller')
 
 
 // Instantiate Service
-const xpService = new XPService({ xpRepository })
+const xpService = new XPService({ xpRepository, postRepository })
 
 // Instantiate Controller
 const xpController = new XPController({ xpService })
 
 // Export controller as default, but also export service and repository for other modules
-module.exports = {xpController, xpService}
+module.exports = {xpController, xpService}

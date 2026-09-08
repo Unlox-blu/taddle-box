@@ -81,19 +81,69 @@ class ChatService {
       const { emitChatReaction } = require('../../sockets/chat.socket');
       const pool = require('../../config/database');
       const { rows } = await pool.query(
-        `SELECT conversation_id FROM messages WHERE id = $1`, [messageId]
+        `SELECT conversation_id, sender_id FROM messages WHERE id = $1`, [messageId]
       );
       if (rows.length) {
+        const convId = rows[0].conversation_id;
+        const messageSenderId = rows[0].sender_id;
+
         const { rows: participants } = await pool.query(
           `SELECT user_id FROM conversation_participants WHERE conversation_id = $1`,
-          [rows[0].conversation_id]
+          [convId]
         );
         for (const p of participants) {
           emitChatReaction(p.user_id, { messageId, reactions: result.reactions });
         }
+
+        // Send push notification to the original message sender if the reactor added a reaction and is not the sender
+        const hasAdded = result.reactions && result.reactions[emoji] && result.reactions[emoji].includes(userId);
+        if (hasAdded && messageSenderId && messageSenderId !== userId) {
+          const userRepo = require('../user/user.repository');
+          const { addJob } = require('../../jobs/queues/job.queue');
+          const reactor = await userRepo.findByIdPrivate(userId);
+          const reactorName = reactor ? reactor.name : 'Someone';
+
+          addJob('push', {
+            recipientId: messageSenderId,
+            senderId: userId,
+            type: 'chat:reaction',
+            title: `${reactorName} reacted to your message`,
+            message: `Reacted ${emoji} to your message`,
+            resourceId: convId,
+            resourceType: 'chat'
+          }).catch(err => console.error('[ChatService] addJob push reaction error:', err));
+        }
       }
     } catch (e) { /* socket emit is best-effort */ }
     return result;
+  }
+
+  // ── Delete message ──
+  async deleteMessage(messageId, userId) {
+    const deleted = await chatRepo.deleteMessage(messageId, userId);
+    if (deleted) {
+      try {
+        const { emitChatMessage } = require('../../sockets/chat.socket');
+        const pool = require('../../config/database');
+        const { rows: participants } = await pool.query(
+          `SELECT user_id FROM conversation_participants WHERE conversation_id = $1`,
+          [deleted.conversation_id]
+        );
+        for (const p of participants) {
+          emitChatMessage(p.user_id, {
+            type: 'chat:message_deleted',
+            messageId,
+            conversationId: deleted.conversation_id,
+          });
+        }
+      } catch (e) { /* socket emit is best-effort */ }
+    }
+    return deleted;
+  }
+
+  // ── Delete conversation ──
+  async deleteConversation(conversationId, userId) {
+    return chatRepo.deleteConversation(conversationId, userId);
   }
 
   // ── Mutual followers ──

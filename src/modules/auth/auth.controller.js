@@ -226,7 +226,7 @@ class AuthController {
         return;
       }
       
-      const redirectUri = `${returnUrl}${separator}accessToken=${result.sessionData.accessToken}&refreshToken=${result.sessionData.refreshToken}&sessionId=${result.sessionData.sessionId || ''}`;
+      const redirectUri = `${returnUrl}${separator}accessToken=${result.sessionData.accessToken}&refreshToken=${result.sessionData.refreshToken}&sessionId=${result.sessionData.sessionId || ''}&tokenExpiresAt=${result.sessionData.tokenExpiresAt || ''}`;
       res.redirect(redirectUri);
     } catch (error) {
       const separator = returnUrl ? (returnUrl.includes('?') ? '&' : '?') : '?';
@@ -295,7 +295,7 @@ class AuthController {
         return;
       }
       
-      const redirectUri = `${returnUrl}${separator}accessToken=${result.sessionData.accessToken}&refreshToken=${result.sessionData.refreshToken}&sessionId=${result.sessionData.sessionId || ''}`;
+      const redirectUri = `${returnUrl}${separator}accessToken=${result.sessionData.accessToken}&refreshToken=${result.sessionData.refreshToken}&sessionId=${result.sessionData.sessionId || ''}&tokenExpiresAt=${result.sessionData.tokenExpiresAt || ''}`;
       res.redirect(redirectUri);
     } catch (error) {
       const separator = returnUrl ? (returnUrl.includes('?') ? '&' : '?') : '?';

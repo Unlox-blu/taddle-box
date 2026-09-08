@@ -3,6 +3,7 @@
 const { createError } = require('../../utils/error.util');
 const PostModel = require('../post/post.model');
 const { notificationService } = require('../notification/notification.container');
+const { XP_REWARDS } = require('../xp/xp.rewards');
 
 class CommunityService {
   constructor({ communityRepository, postService, userRepository, mediaService, xpService}) {
@@ -186,11 +187,11 @@ class CommunityService {
           message: `${user.name} joined the community`,
         })
         
-        // Award XP for joining a community
+        // Award XP for joining a community — amount from XP_REWARDS.
         if (this.xpSvc) {
           this.xpSvc.creditXP({
             userId,
-            xp: 20,
+            xp: XP_REWARDS.communityJoin,
             transactionType: 'earned',
             sourceType: `community_join_${communityId}`,
           }).catch(e => console.error('Failed to award community join XP:', e));

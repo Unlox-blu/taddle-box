@@ -1,5 +1,7 @@
 'use strict';
 
+const { XP_REWARDS, postRewardFor } = require('../xp/xp.rewards');
+
 const TABLE = 'posts';
 const LIKES_TABLE = 'post_likes';
 const VIEWS_TABLE = 'post_views';
@@ -40,6 +42,14 @@ const sanitize = (row) => {
 // format() maps snake_case → camelCase. No rebuilding nested objects.
 const format = (row) => {
   if (!row) return null;
+  // Server-computed post-view XP reward — tiered from XP_REWARDS by the
+  // post's content types. Attached to EVERY post response so the app's
+  // XP pill always shows the backend's authoritative amount instead of
+  // recomputing it client-side.
+  const xpReward = postRewardFor(XP_REWARDS.postView, {
+    content: row.content,
+    media: row.media,
+  });
   return {
     id: row.id,
     title: row.title,
@@ -59,6 +69,7 @@ const format = (row) => {
     isLiked: !!row.is_liked,
     isSaved: !!row.is_bookmarked,
     isXpClaimed: !!row.is_xp_claimed,
+    xpReward,
     pollData: row.poll_data || null,
     myPollVote: row.my_poll_vote ?? null,
     linkData: row.link_data || null,

@@ -3,6 +3,7 @@
 const { createError } = require('../../utils/error.util');
 const PostModel = require('./post.model');
 const { notificationService } = require('../notification/notification.container');
+const { XP_REWARDS, postRewardFor } = require('../xp/xp.rewards');
 
 class PostService {
   constructor({ postRepository, communityRepository, followerRepository, bookmarkRepository, notificationService, feedService, userRepository, taskService, xpService, settingsRepository }) {
@@ -52,20 +53,13 @@ class PostService {
         emitLeaderboardsChanged(authorId, 'community_activity');
       }
 
-      // Calculate and credit XP for creating post
-      const hasText = !!data.content && data.content.trim().length > 0;
-      const allMedia = data.media || [];
-      const visualMedia = allMedia.filter(m => m.media_type !== "audio" && m.type !== "audio");
-      const audioMedia = allMedia.filter(m => m.media_type === "audio" || m.type === "audio");
-      
-      const typesCount = (hasText ? 1 : 0) + (visualMedia.length > 0 ? 1 : 0) + (audioMedia.length > 0 ? 1 : 0);
-      let xpReward = 2;
-      if (typesCount >= 3) xpReward = 10;
-      else if (typesCount === 2) xpReward = 5;
+      // Calculate and credit XP for creating post — the amount comes from
+      // XP_REWARDS (tiered by content types), never hardcoded here.
+      const postXpReward = postRewardFor(XP_REWARDS.postCreate, data);
 
       this.xpSvc.creditXP({
         userId: authorId,
-        xp: xpReward,
+        xp: postXpReward,
         transactionType: 'earned',
         sourceType: `create_post_${post.id}`
       }).catch(err => console.error('XP credit failed:', err));

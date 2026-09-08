@@ -143,9 +143,77 @@ class UserService {
         const gamesRes = await pool.query(`SELECT games_played FROM game_stats WHERE user_id = $1`, [finalUser.id]);
         finalUser.gamesPlayedCount = gamesRes.rows[0] ? parseInt(gamesRes.rows[0].games_played, 10) : 0;
         
-        // Badges placeholder (could query from a badges table if it exists)
-        finalUser.badges = [];
-        if (finalUser.xp > 500) finalUser.badges.push({ id: 1, name: 'Active User', emoji: '🔥', color: 'purple' });
+        // Dynamic achievements based on user activity & stats
+        const postCount = parseInt(finalUser.postCount || 0, 10);
+        const followerCount = parseInt(finalUser.followerCount || 0, 10);
+        const followingCount = parseInt(finalUser.followingCount || 0, 10);
+        const totalXpEarned = finalUser.totalXpEarned || 0;
+        const level = finalUser.level || 1;
+        const gamesCount = finalUser.gamesPlayedCount || 0;
+        const commsCount = finalUser.communitiesJoinedCount || 0;
+
+        finalUser.badges = [
+          {
+            id: 'b1',
+            name: 'Early Creator',
+            desc: 'Create and publish original posts or reels on TaddleBox.',
+            criteria: 'Post 1+ items',
+            reward: '+100 XP Bonus',
+            emoji: '🎨',
+            color: 'purple',
+            isUnlocked: postCount > 0,
+          },
+          {
+            id: 'b2',
+            name: 'XP Pioneer',
+            desc: 'Earn 500+ cumulative XP by logging in, posting, and playing.',
+            criteria: 'Accumulate 500+ total XP',
+            reward: '+250 XP Bonus',
+            emoji: '🔥',
+            color: 'gold',
+            isUnlocked: totalXpEarned >= 500,
+          },
+          {
+            id: 'b3',
+            name: 'Community Star',
+            desc: 'Build your network by following creators and gaining followers.',
+            criteria: 'Connect with 1+ member',
+            reward: '+150 XP Bonus',
+            emoji: '💬',
+            color: 'cyan',
+            isUnlocked: (followerCount + followingCount) >= 1,
+          },
+          {
+            id: 'b4',
+            name: 'Level Master',
+            desc: 'Reach Level 5 to unlock intermediate creator perks.',
+            criteria: 'Reach Profile Level 5',
+            reward: '+500 XP Bonus',
+            emoji: '🏆',
+            color: 'gold',
+            isUnlocked: level >= 5,
+          },
+          {
+            id: 'b5',
+            name: 'Game Challenger',
+            desc: 'Participate in community game matches and challenges.',
+            criteria: 'Play 1+ game match',
+            reward: '+200 XP Bonus',
+            emoji: '🎮',
+            color: 'green',
+            isUnlocked: gamesCount > 0,
+          },
+          {
+            id: 'b6',
+            name: 'Guild Member',
+            desc: 'Join an official TaddleBox community group.',
+            criteria: 'Join 1+ community',
+            reward: '+150 XP Bonus',
+            emoji: '🛡️',
+            color: 'cyan',
+            isUnlocked: commsCount > 0,
+          },
+        ];
         
       } catch (err) {
         console.error('Error fetching aggregated profile stats:', err);

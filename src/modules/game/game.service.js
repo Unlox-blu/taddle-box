@@ -87,7 +87,7 @@ class GameService {
       // in-game boards show real profiles and level badges instead of generic
       // "P1/P2" labels — the fresh-match flow gets these from the matchmaking
       // response, but a rejoin path only has this endpoint. The snapshots live
-      // in game_matches.metadata.playerSnapshots (written by the lobby fill).
+      // in game_sessions.metadata.playerSnapshots (written by the lobby fill).
       const matchMeta = active.match_metadata || {};
       const snapshots = Array.isArray(matchMeta.playerSnapshots)
         ? matchMeta.playerSnapshots
@@ -615,7 +615,7 @@ class GameService {
       // 2. Mark match COMPLETED / ABANDONED
       if (matchId) {
         await pool.query(
-          `UPDATE game_matches
+          `UPDATE game_sessions
            SET status = 'COMPLETED',
                metadata = metadata || $1,
                ended_at = NOW()

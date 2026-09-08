@@ -628,7 +628,7 @@ async function expireAbandonedSessions() {
 
     await client.query(
       `UPDATE ${gameModel.GAME_SESSION_TABLE}
-       SET status = 'EXPIRED', completed_at = NOW()
+       SET status = 'EXPIRED', ended_at = NOW()
        WHERE id = ANY($1::uuid[]) AND status = 'ACTIVE'`,
       [toExpire.map(s => s.id)]
     );

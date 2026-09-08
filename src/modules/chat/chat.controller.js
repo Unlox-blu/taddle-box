@@ -66,6 +66,30 @@ class ChatController {
     }
   }
 
+  async deleteMessage(req, res) {
+    try {
+      const userId = req.userId;
+      const { messageId } = req.params;
+      const result = await chatService.deleteMessage(messageId, userId);
+      res.json({ success: !!result });
+    } catch (e) {
+      console.error('[chat] deleteMessage error:', e.message);
+      res.status(400).json({ message: e.message });
+    }
+  }
+
+  async deleteConversation(req, res) {
+    try {
+      const userId = req.userId;
+      const { conversationId } = req.params;
+      await chatService.deleteConversation(conversationId, userId);
+      res.json({ success: true });
+    } catch (e) {
+      console.error('[chat] deleteConversation error:', e.message);
+      res.status(400).json({ message: e.message });
+    }
+  }
+
   async searchMutuals(req, res) {
     try {
       const userId = req.userId;

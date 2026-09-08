@@ -160,7 +160,7 @@ class EventStore {
 
     // PostgreSQL: durable SSOT
     await clientOrPool.query(
-      `UPDATE game_matches
+      `UPDATE game_sessions
        SET state_snapshot = $1::jsonb, current_revision = $2, updated_at = NOW()
        WHERE id = $3`,
       [serialized, revision, matchId]
@@ -183,7 +183,7 @@ class EventStore {
     // Slow path: PostgreSQL
     const { rows } = await pool.query(
       `SELECT state_snapshot, current_revision
-       FROM game_matches
+       FROM game_sessions
        WHERE id = $1`,
       [matchId]
     );
@@ -205,7 +205,7 @@ class EventStore {
   static async loadForRecovery(matchId) {
     const { rows: matchRows } = await pool.query(
       `SELECT state_snapshot, snapshot_revision, current_revision
-       FROM game_matches
+       FROM game_sessions
        WHERE id = $1`,
       [matchId]
     );
@@ -355,7 +355,7 @@ class EventStore {
    */
   static async writeCheckpoint(matchId, snapshot, currentRevision, clientOrPool = pool) {
     await clientOrPool.query(
-      `UPDATE game_matches
+      `UPDATE game_sessions
        SET state_snapshot = $1::jsonb,
            snapshot_revision = $2,
            current_revision = $2,

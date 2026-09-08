@@ -27,7 +27,7 @@ router.get('/match/:matchId/replay', verifyToken, async (req, res, next) => {
 
     // 1. Fetch match
     const matchResult = await pool.query(
-      `SELECT id, game_id, status, metadata FROM game_matches WHERE id = $1`,
+      `SELECT id, game_id, status, metadata FROM game_sessions WHERE id = $1`,
       [matchId]
     );
     if (!matchResult.rows.length) {

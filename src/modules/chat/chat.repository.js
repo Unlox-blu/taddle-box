@@ -73,22 +73,41 @@ class ChatRepository {
               m.reactions, m.created_at,
               u.name AS sender_name, u.username AS sender_username,
               au.cloudfront_url AS sender_avatar,
-              -- Shared post preview (simplified)
-              p.id AS shared_post_id, p.title AS shared_post_title,
+              -- Main Shared Post (repost row if reposted, or direct post)
+              p.id AS shared_post_id,
+              p.title AS shared_post_title,
               p.content AS shared_post_content,
+              p.created_at AS shared_post_created_at,
               pu.name AS shared_post_author_name,
+              pu.username AS shared_post_author_username,
+              (SELECT au_p.cloudfront_url FROM media au_p WHERE au_p.id = pu.avatar_url) AS shared_post_author_avatar,
+              -- Original Post (if main post is a repost)
+              orig_p.id AS orig_post_id,
+              orig_p.title AS orig_post_title,
+              orig_p.content AS orig_post_content,
+              orig_p.created_at AS orig_post_created_at,
+              orig_pu.name AS orig_post_author_name,
+              orig_pu.username AS orig_post_author_username,
+              (SELECT au_op.cloudfront_url FROM media au_op WHERE au_op.id = orig_pu.avatar_url) AS orig_post_author_avatar,
               -- First media of shared post for thumbnail
               (SELECT pm.cloudfront_url FROM media pm
-               WHERE pm.post_id = p.id AND pm.deleted_at IS NULL
+               WHERE pm.post_id = COALESCE(p.repost_of_id, p.id) AND pm.deleted_at IS NULL
                ORDER BY pm.created_at LIMIT 1) AS shared_post_media_url,
               (SELECT pm.media_type FROM media pm
-               WHERE pm.post_id = p.id AND pm.deleted_at IS NULL
-               ORDER BY pm.created_at LIMIT 1) AS shared_post_media_type
+               WHERE pm.post_id = COALESCE(p.repost_of_id, p.id) AND pm.deleted_at IS NULL
+               ORDER BY pm.created_at LIMIT 1) AS shared_post_media_type,
+              -- Game thumbnail / banner
+              (SELECT g.thumbnail FROM game g
+               WHERE g.name ILIKE m.game_name OR g.slug ILIKE m.game_name LIMIT 1) AS game_thumbnail,
+              (SELECT g.metadata->>'cardUrl' FROM game g
+               WHERE g.name ILIKE m.game_name OR g.slug ILIKE m.game_name LIMIT 1) AS game_banner_url
        FROM messages m
        JOIN users u ON u.id = m.sender_id
        LEFT JOIN media au ON au.id = u.avatar_url
        LEFT JOIN posts p ON p.id = m.post_id AND p.deleted_at IS NULL
        LEFT JOIN users pu ON pu.id = p.author_id
+       LEFT JOIN posts orig_p ON orig_p.id = p.repost_of_id AND orig_p.deleted_at IS NULL
+       LEFT JOIN users orig_pu ON orig_pu.id = orig_p.author_id
        WHERE m.conversation_id = $1 AND m.deleted_at IS NULL
        ORDER BY m.created_at ASC
        LIMIT $2 OFFSET $3`,
@@ -111,13 +130,84 @@ class ChatRepository {
 
   // ── Send a message ──
   async sendMessage({ conversationId, senderId, messageType, content, postId, gameName, gameInviteCode, gameLobbyId }) {
-    const { rows } = await pool.query(
+    const { rows: inserted } = await pool.query(
       `INSERT INTO messages (conversation_id, sender_id, message_type, content, post_id, game_name, game_invite_code, game_lobby_id)
        VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
-       RETURNING id, sender_id, message_type, content, post_id, game_name, game_invite_code, game_lobby_id, reactions, created_at`,
+       RETURNING id`,
       [conversationId, senderId, messageType || 'text', content || null, postId || null, gameName || null, gameInviteCode || null, gameLobbyId || null]
     );
-    return rows[0];
+    const messageId = inserted[0].id;
+
+    // Fetch the enriched message row so shared post/author/avatar info is included
+    const { rows: enriched } = await pool.query(
+      `SELECT m.id, m.sender_id, m.message_type, m.content, m.post_id,
+              m.game_name, m.game_invite_code, m.game_lobby_id,
+              m.reactions, m.created_at,
+              u.name AS sender_name, u.username AS sender_username,
+              au.cloudfront_url AS sender_avatar,
+              p.id AS shared_post_id,
+              p.title AS shared_post_title,
+              p.content AS shared_post_content,
+              p.created_at AS shared_post_created_at,
+              pu.name AS shared_post_author_name,
+              pu.username AS shared_post_author_username,
+              (SELECT au_p.cloudfront_url FROM media au_p WHERE au_p.id = pu.avatar_url) AS shared_post_author_avatar,
+              orig_p.id AS orig_post_id,
+              orig_p.title AS orig_post_title,
+              orig_p.content AS orig_post_content,
+              orig_p.created_at AS orig_post_created_at,
+              orig_pu.name AS orig_post_author_name,
+              orig_pu.username AS orig_post_author_username,
+              (SELECT au_op.cloudfront_url FROM media au_op WHERE au_op.id = orig_pu.avatar_url) AS orig_post_author_avatar,
+              (SELECT pm.cloudfront_url FROM media pm
+               WHERE pm.post_id = COALESCE(p.repost_of_id, p.id) AND pm.deleted_at IS NULL
+               ORDER BY pm.created_at LIMIT 1) AS shared_post_media_url,
+              (SELECT pm.media_type FROM media pm
+               WHERE pm.post_id = COALESCE(p.repost_of_id, p.id) AND pm.deleted_at IS NULL
+               ORDER BY pm.created_at LIMIT 1) AS shared_post_media_type,
+              (SELECT g.thumbnail FROM game g
+               WHERE g.name ILIKE m.game_name OR g.slug ILIKE m.game_name LIMIT 1) AS game_thumbnail,
+              (SELECT g.metadata->>'cardUrl' FROM game g
+               WHERE g.name ILIKE m.game_name OR g.slug ILIKE m.game_name LIMIT 1) AS game_banner_url
+       FROM messages m
+       JOIN users u ON u.id = m.sender_id
+       LEFT JOIN media au ON au.id = u.avatar_url
+       LEFT JOIN posts p ON p.id = m.post_id AND p.deleted_at IS NULL
+       LEFT JOIN users pu ON pu.id = p.author_id
+       LEFT JOIN posts orig_p ON orig_p.id = p.repost_of_id AND orig_p.deleted_at IS NULL
+       LEFT JOIN users orig_pu ON orig_pu.id = orig_p.author_id
+       WHERE m.id = $1`,
+      [messageId]
+    );
+    return enriched[0];
+  }
+
+  // ── Soft delete message (only by sender) ──
+  async deleteMessage(messageId, userId) {
+    const { rows } = await pool.query(
+      `UPDATE messages
+       SET deleted_at = NOW()
+       WHERE id = $1 AND sender_id = $2
+       RETURNING id, conversation_id`,
+      [messageId, userId]
+    );
+    return rows[0] || null;
+  }
+
+  // ── Delete conversation for a user ──
+  async deleteConversation(conversationId, userId) {
+    await pool.query(
+      `DELETE FROM conversation_participants WHERE conversation_id = $1 AND user_id = $2`,
+      [conversationId, userId]
+    );
+    // Cleanup conversation if no participants left
+    const { rows } = await pool.query(
+      `SELECT COUNT(*)::int AS count FROM conversation_participants WHERE conversation_id = $1`,
+      [conversationId]
+    );
+    if (rows[0].count === 0) {
+      await pool.query(`DELETE FROM conversations WHERE id = $1`, [conversationId]);
+    }
   }
 
   // ── Add/remove reaction ──

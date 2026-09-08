@@ -32,8 +32,10 @@ app.use(express.json({ limit: '10kb' }));
 app.use(express.urlencoded({ extended: true, limit: '10kb' }));
 app.use(cookieParser());
 
-// Global rate limiter
-// app.use(globalRateLimiter);
+// Global rate limiter — per-account (falls back to normalized IP) budget
+// across ALL /api/v1 routes. Re-enabled: a scripted client can no longer
+// hammer any endpoint (incl. /xp/claim) at wire speed.
+app.use(globalRateLimiter);
 
 // Request logger
 app.use(loggerMiddleware);

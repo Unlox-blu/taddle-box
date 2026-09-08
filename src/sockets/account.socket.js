@@ -111,6 +111,14 @@ const setupAccountSocket = (accountNs) => {
   accountNs.on('connection', async (socket) => {
     if (!socket.userId) return;
 
+    // Join the user's personal room — every emit in this file targets
+    // `user:${userId}` (xp:updated, wallet:updated, notification:new, follow
+    // events, leaderboards). Without this join the room is always empty and
+    // ALL of those events silently vanish: the app's XP/wallet balances
+    // never update live and only refresh via fetches (pull-to-refresh,
+    // screen focus, cold boot).
+    socket.join(`user:${socket.userId}`);
+
     const statusKey = `user:status:${socket.userId}`;
 
     // Register synchronously so the registry is consistent

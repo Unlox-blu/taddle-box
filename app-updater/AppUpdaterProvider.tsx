@@ -12,6 +12,7 @@ import {
   TouchableOpacity,
   View,
   Linking,
+  DeviceEventEmitter,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { LinearGradient } from "expo-linear-gradient";
@@ -78,7 +79,17 @@ export function AppUpdaterProvider({
         runCheck();
       }
     });
-    return () => sub.remove();
+    // Manual trigger from the Settings screen version check button.
+    const manualSub = DeviceEventEmitter.addListener(
+      "manualUpdateCheck",
+      ({ update }: { update: AppUpdate }) => {
+        if (update) setState({ status: "available", update });
+      },
+    );
+    return () => {
+      sub.remove();
+      manualSub.remove();
+    };
   }, [runCheck]);
 
   const startDownload = useCallback(async (update: AppUpdate) => {

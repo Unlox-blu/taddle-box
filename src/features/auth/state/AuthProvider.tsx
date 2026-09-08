@@ -109,6 +109,8 @@ import { deviceSocketClient } from "../../../infrastructure/websocket/device-soc
 import { destroyGameSound } from "../../games/media/game-sound";
 import { clearSessionAvatars } from "../../../infrastructure/storage/session-avatar-cache";
 import { validateStoredAccounts } from "../logic/session-validator";
+import { checkAndTriggerStoreUpdate } from "../../../infrastructure/updates/store-update";
+import { recordSession, maybeRequestReview } from "../../../infrastructure/review/store-review";
 
 // Real installed version comes from the Expo build config (app.json version).
 // In dev builds, return a high version so the force-update gate never blocks
@@ -372,27 +374,33 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   // Compare installed version against app_config: below minimum → force
   // update (app is unusable); below latest → soft update popup.
-  const checkAppConfig = useCallback(async () => {
+  // Returns true if an update condition was detected (so callers can skip
+  // the store native check to avoid showing two update prompts).
+  const checkAppConfig = useCallback(async (): Promise<boolean> => {
     try {
       const configRes = await appConfigService.getAppConfig();
       const config = configRes.data;
       const current = getAppVersion();
-      if (!config || (!config.minimumVersion && !config.latestVersion)) return;
+      if (!config || (!config.minimumVersion && !config.latestVersion)) return false;
       if (
         config.minimumVersion &&
         compareVersions(current, config.minimumVersion) < 0
       ) {
         setNeedsForceUpdate(true);
-        setStoreUrl(config.storeUrl || "https://play.google.com/store");
+        setStoreUrl(config.storeUrl);
+        return true;
       } else if (
         config.latestVersion &&
         compareVersions(current, config.latestVersion) < 0
       ) {
         setUpdateAvailable(true);
-        setStoreUrl(config.storeUrl || "https://play.google.com/store");
+        setStoreUrl(config.storeUrl);
+        return true;
       }
+      return false;
     } catch (err) {
       warn("Failed to fetch app config", err);
+      return false;
     }
   }, []);
 
@@ -493,8 +501,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const checkToken = async () => {
     try {
-      // First check for updates
-      await checkAppConfig();
+      // First check for updates — returns true if an update condition was found.
+      const updateDetected = await checkAppConfig();
 
       const seen = await SecureStore.getItemAsync("hasSeenOnboarding");
       setHasSeenOnboarding(!!seen);
@@ -510,6 +518,16 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         await accountSocket.connect();
         // Schedule proactive refresh for the existing session
         scheduleProactiveRefresh();
+        // Record session for the organic review prompt eligibility tracker.
+        recordSession();
+        // Only trigger the native store update check if our backend didn't
+        // already detect an update — avoids showing two prompts at once.
+        if (!updateDetected) {
+          checkAndTriggerStoreUpdate();
+          // Show the native rating dialog if the user is eligible.
+          // Delayed so it doesn't compete with the update check UI.
+          setTimeout(() => maybeRequestReview(), 3000);
+        }
       } else {
         setIsLoggedIn(false);
       }
@@ -568,8 +586,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     await persistTokenExpiry(tokenExpiresAt);
     // Fetch user after signing in
     try {
-      // Also check app config on fresh login
-      await checkAppConfig();
+      // Also check app config on fresh login — returns true if update detected.
+      const updateDetected = await checkAppConfig();
 
       const res = await authService.getMe();
       const newUser = res.data.user;
@@ -596,6 +614,14 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       await accountSocket.connect();
       // Start proactive refresh for the new session
       scheduleProactiveRefresh();
+      // Record session for the organic review prompt eligibility tracker.
+      recordSession();
+      // Only trigger the native store update check if our backend didn't
+      // already detect an update — avoids showing two prompts at once.
+      if (!updateDetected) {
+        checkAndTriggerStoreUpdate();
+        setTimeout(() => maybeRequestReview(), 3000);
+      }
     } catch (e) {
       error("Error fetching user after sign in", e);
       // Clean up the invalid tokens we just saved

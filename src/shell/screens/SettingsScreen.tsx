@@ -54,6 +54,21 @@ import {
 import PinPad from "../../design-system/components/PinPad";
 import { nativeBypass } from "../../shared/utils/native-bypass";
 import { log, error } from "../../infrastructure/logging/logger";
+import Constants from "expo-constants";
+import { checkAndTriggerStoreUpdate, isStoreUpdateEnabled } from "../../infrastructure/updates/store-update";
+
+// Numeric semver compare — same logic as AuthProvider.
+const compareVersions = (a: string, b: string): number => {
+  const pa = String(a).split(".").map((n) => parseInt(n, 10) || 0);
+  const pb = String(b).split(".").map((n) => parseInt(n, 10) || 0);
+  const len = Math.max(pa.length, pb.length);
+  for (let i = 0; i < len; i++) {
+    const x = pa[i] || 0;
+    const y = pb[i] || 0;
+    if (x !== y) return x > y ? 1 : -1;
+  }
+  return 0;
+};
 
 const maskEmail = (email?: string) => {
   if (!email) return "Not linked";
@@ -326,11 +341,66 @@ export default function SettingsScreen() {
   const handleAppVersionCheck = async () => {
     try {
       setCheckingVersion(true);
+      const currentVersion = __DEV__
+        ? "999.0.0"
+        : Constants.expoConfig?.version || "1.0.0";
+
+      // ── Direct APK build: use the custom APK self-updater ──────────────
+      // Lazy-require so the Babel gate strips this in store builds and the
+      // import never reaches non-direct bundles.
+      const extra = Constants.expoConfig?.extra as
+        | { appUpdater?: { enabled?: boolean } }
+        | undefined;
+      const isDirectBuild = !!extra?.appUpdater?.enabled;
+
+      if (isDirectBuild) {
+        try {
+          const { fetchUpdateManifest, hasUpdate } = require("../../../app-updater/app-updater");
+          const update = await fetchUpdateManifest();
+          if (update && hasUpdate(update)) {
+            // Emit to AppUpdaterProvider so it shows its native download UI.
+            const { DeviceEventEmitter } = require("react-native");
+            DeviceEventEmitter.emit("manualUpdateCheck", { update });
+            themedAlert(
+              "Update Available",
+              `Version ${update.versionName || update.versionCode} is available. The update will start downloading.`,
+              [{ text: "OK" }],
+            );
+          } else {
+            themedAlert(
+              "Already Up to Date",
+              `You're running the latest direct build (${currentVersion}).`,
+            );
+          }
+        } catch {
+          themedAlert("Error", "Failed to check for updates. Please try again.");
+        }
+        return;
+      }
+
+      // ── Store / Expo Go build: backend check first, then native ────────
       const res = await appConfigService.getAppConfig();
       const config = res.data;
-      const currentVersion = "1.0.0"; // Hardcoded for now
 
-      if (config.latestVersion && config.latestVersion > currentVersion) {
+      if (
+        config.minimumVersion &&
+        compareVersions(currentVersion, config.minimumVersion) < 0
+      ) {
+        themedAlert(
+          "Update Required",
+          `Version ${config.minimumVersion} is required. Please update to continue.`,
+          [
+            { text: "Cancel", style: "cancel" },
+            {
+              text: "Update",
+              onPress: () => Linking.openURL(config.storeUrl),
+            },
+          ],
+        );
+      } else if (
+        config.latestVersion &&
+        compareVersions(currentVersion, config.latestVersion) < 0
+      ) {
         themedAlert(
           "Update Available",
           `Version ${config.latestVersion} is available. Would you like to update now?`,
@@ -338,18 +408,20 @@ export default function SettingsScreen() {
             { text: "Later", style: "cancel" },
             {
               text: "Update",
-              onPress: () =>
-                Linking.openURL(
-                  config.storeUrl || "https://play.google.com/store",
-                ),
+              onPress: () => Linking.openURL(config.storeUrl),
             },
           ],
         );
       } else {
-        themedAlert(
-          "Already Up to Date!",
-          "You are running the latest version of Taddle.",
-        );
+        // Backend says up to date — try native store check as a fallback.
+        if (isStoreUpdateEnabled()) {
+          await checkAndTriggerStoreUpdate();
+        } else {
+          themedAlert(
+            "Already Up to Date",
+            `You're running the latest version of Taddlebox (${currentVersion}).`,
+          );
+        }
       }
     } catch (err) {
       themedAlert(
@@ -361,11 +433,13 @@ export default function SettingsScreen() {
     }
   };
 
-  const handleRateApp = () => {
-    Linking.openURL(storeUrl || "https://play.google.com/store");
-    setTimeout(() => {
-      themedAlert("Thank you! ⭐", "Your support means a lot to us.");
-    }, 1000);
+  const handleRateApp = async () => {
+    try {
+      const res = await appConfigService.getAppConfig();
+      await Linking.openURL(res.data.storeUrl);
+    } catch {
+      themedAlert("Error", "Could not open the store. Please try again.");
+    }
   };
 
   return (
@@ -718,7 +792,7 @@ export default function SettingsScreen() {
           <SettingsRow
             icon="information-circle-outline"
             label="App Version"
-            value={checkingVersion ? "Checking..." : "1.0.0"}
+            value={checkingVersion ? "Checking..." : (Constants.expoConfig?.version || "1.0.0")}
             onPress={handleAppVersionCheck}
             last
           />

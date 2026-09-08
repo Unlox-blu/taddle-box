@@ -1,4 +1,6 @@
 import { apiClient } from '../api/api-client';
+import { Platform } from 'react-native';
+import Constants from 'expo-constants';
 import { warn } from '../logging/logger';
 
 export interface ReferralRewards {
@@ -16,9 +18,26 @@ export interface AppConfig {
   };
 }
 
+/** Resolves the build channel so the backend can return the right config/URL.
+ *  - dev       → expo start / Expo Go
+ *  - direct    → EAS internal / sideloaded APK (APP_UPDATER_ENABLED=1)
+ *  - production → Play Store / App Store build
+ */
+function getBuildChannel(): 'dev' | 'direct' | 'store' {
+  if (__DEV__) return 'dev';
+  const extra = Constants.expoConfig?.extra as { appUpdater?: { enabled?: boolean } } | undefined;
+  if (extra?.appUpdater?.enabled) return 'direct';
+  return 'store';
+}
+
 export const appConfigService = {
   getAppConfig: async (): Promise<{ data: AppConfig }> => {
-    const response = await apiClient.get('/app-config');
+    const response = await apiClient.get('/app-config', {
+      params: {
+        platform: Platform.OS,       // 'android' | 'ios'
+        channel: getBuildChannel(),  // 'dev' | 'direct' | 'production'
+      },
+    });
     return response.data;
   },
 };

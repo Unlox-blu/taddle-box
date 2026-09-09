@@ -172,9 +172,14 @@ async function resolveExpiredLobbies() {
           const lobbyMode = String(lobby.settings?.mode || 'AUTO').toUpperCase();
           let handled = false;
 
-          // AUTO/PRACTICE queues: fill empty slots with bots so the match starts
-          // and flows completely. fillMatchmakingLobby manages its own transaction
-          // (FOR UPDATE + WAITING check), so no cross-connection lock waits occur here.
+          // AUTO/PRACTICE queues: the gradual bot-fill sweep (resolveBotFillingLobbies)
+          // is responsible for filling slots one-at-a-time and creating the match.
+          // This backstop only intervenes when the gradual sweep never started
+          // (game_lobby_participants is empty — a completely cold/stalled lobby).
+          //
+          // If bots are already joining gradually (game_lobby_participants has rows
+          // or botFillNextAt is set in settings), we extend expires_at by one fill
+          // cycle (5s) so the gradual sweep gets another tick to finish.
           if (lobbyMode === 'AUTO' || lobbyMode === 'PRACTICE') {
             try {
               const ticketCount = await client.query(
@@ -183,20 +188,37 @@ async function resolveExpiredLobbies() {
                 [lobby.id]
               );
               if ((ticketCount.rows[0]?.c || 0) > 0) {
-                const result = await gameRepository.fillMatchmakingLobby({
-                  userId: lobby.host_user_id,
-                  ticketId: null,
-                  overrideLobbyId: lobby.id,
-                  fillBots: true,
-                });
-                const realPlayers = (result?.players || []).filter(p => !p.isBot);
-                // MATCHED (players present, or lobby already full/processed) means the
-                // lobby is taken care of — don't mark it TIMED_OUT or notify timeouts.
-                if (result && result.status === 'MATCHED') {
-                  for (const p of realPlayers) {
-                    io.to(`user:${p.id}`).emit('matchmaking:matched', result);
-                  }
+                const { rows: botCountRows } = await client.query(
+                  'SELECT COUNT(*)::int AS c FROM game_lobby_participants WHERE lobby_id = $1',
+                  [lobby.id]
+                );
+                const fillInProgress = (botCountRows[0]?.c || 0) > 0 || !!lobby.settings?.botFillNextAt;
+
+                if (fillInProgress) {
+                  // Gradual fill is active — give it one more cycle to finish.
+                  console.info(`[Backstop] lobby=${lobby.id} gradual fill in progress (${botCountRows[0]?.c || 0} bots so far), extending expires_at by 5s`);
+                  await client.query(
+                    `UPDATE game_lobby SET expires_at = NOW() + INTERVAL '5 seconds', updated_at = NOW()
+                     WHERE id = $1 AND status = 'WAITING'`,
+                    [lobby.id]
+                  );
                   handled = true;
+                } else {
+                  // No bots at all — cold stall. Bulk-fill immediately as a true backstop.
+                  console.info(`[Backstop] lobby=${lobby.id} cold stall (0 bots), bulk-filling now`);
+                  const result = await gameRepository.fillMatchmakingLobby({
+                    userId: lobby.host_user_id,
+                    ticketId: null,
+                    overrideLobbyId: lobby.id,
+                    fillBots: true,
+                  });
+                  const realPlayers = (result?.players || []).filter(p => !p.isBot);
+                  if (result && result.status === 'MATCHED') {
+                    for (const p of realPlayers) {
+                      io.to(`user:${p.id}`).emit('matchmaking:matched', result);
+                    }
+                    handled = true;
+                  }
                 }
               }
             } catch (fillErr) {
@@ -264,7 +286,8 @@ async function resolveExpiredMatches() {
         AND NOT EXISTS (
           SELECT 1 FROM ${gameModel.GAME_SESSION_TABLE} gs
           WHERE gs.metadata->>'matchGroupId' = gm.metadata->>'matchGroupId'
-            AND gs.status = 'PENDING'
+            AND gs.user_id IS NOT NULL
+            AND gs.status IN ('PENDING', 'ACTIVE')
         )
       ORDER BY gm.created_at ASC
       LIMIT 50
@@ -429,11 +452,18 @@ async function resolveBotFillingLobbies() {
 
         // Emit lobby update so real players see this bot join gradually
         const lobbyData = await gameRepository.getLobby({ userId: lobby.host_user_id, lobbyId: lobby.id });
-        const realPlayers = (lobbyData.players || []).filter(p => !p.isBot);
+        const realPlayers = lobbyData.players.filter(p => !p.isBot);
+        // Fall back to the lobby row's max_players when targetPlayers is missing
+        // (legacy lobbies created before settings.targetPlayers existed) —
+        // otherwise `currentPlayers >= undefined` is always false and the
+        // match is never created even when the lobby is full.
+        // (formatLobbyDTO exposes size via settings.targetPlayers only, and the
+        // getLobby DTO has no top-level maxPlayers — hence the raw lobby row.)
+        const targetMax = Number(lobbyData.settings?.targetPlayers) || lobby.max_players;
         const payload = {
           ...lobbyData,
           lobbyId: lobby.id,
-          maxPlayers: lobbyData.settings?.targetPlayers || lobby.max_players,
+          maxPlayers: targetMax,
           status: 'WAITING',
         };
         for (const p of realPlayers) {
@@ -441,8 +471,8 @@ async function resolveBotFillingLobbies() {
         }
 
         // Lobby is full now → create the match and notify everyone
-        const targetMax = lobbyData.settings?.targetPlayers || lobby.max_players;
-        if ((lobbyData.state?.currentPlayers || 0) >= targetMax) {
+        console.info(`[BotFill] lobby=${lobby.id} currentPlayers=${lobbyData.state.currentPlayers} targetMax=${targetMax}`);
+        if (lobbyData.state.currentPlayers >= targetMax) {
           const result = await gameRepository.fillMatchmakingLobby({
             userId: lobby.host_user_id,
             ticketId: null,

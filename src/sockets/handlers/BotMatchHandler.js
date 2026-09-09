@@ -177,9 +177,19 @@ class BotMatchHandler {
   setupBotPlayer(socket, players) {
     const lobbyBots = Array.isArray(socket.lobbyBots) ? socket.lobbyBots : [];
     for (const bot of lobbyBots) {
-      if (!players.find(p => String(p.userId) === String(bot.id))) {
+      // game_participants is the SSOT and ALREADY contains every bot (auth maps
+      // gp.bot_id → userId, e.g. 'bot_008'). Only inject a bot that is genuinely
+      // missing — match on BOTH the base bot id and the per-lobby instance id,
+      // otherwise the base-id check never matches the instance id and the same
+      // bot is pushed twice (engine ends up with a 7-player roster in a
+      // 4-player game).
+      const alreadyPresent = players.some(
+        (p) => String(p.userId) === String(bot.id)
+          || String(p.userId) === String(bot.instanceId)
+      );
+      if (!alreadyPresent) {
         players.push({
-          userId: bot.id,
+          userId: bot.instanceId,
           color: this._assignBotColor(socket, players),
           isBot: true,
           name: bot.name || bot.username,

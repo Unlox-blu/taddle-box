@@ -105,6 +105,9 @@ class GameService {
           team: p.team,
           seat: p.seat,
           level: p.level ?? (typeof p.xp === 'number' ? Math.floor(p.xp / 1000) + 1 : undefined),
+          // Keep the bot flag so a rejoined bot match still renders bots as
+          // bots (muted 🤖 avatar / BOT badge) instead of generic opponents.
+          isBot: !!(p.isBot || String(p.id || p.userId || '').startsWith('bot_')),
         }));
 
       // Legacy matches created before playerSnapshots existed have no roster —
@@ -667,18 +670,32 @@ class GameService {
       const game = await this.gameRepo.findGameById({ gameId });
       if (!game) throw createError("Game not found", 404);
 
-      // Auto-abandon: if the user already has an active session (e.g. they
-      // left a game and started another from the lobby), silently clean it up
-      // instead of blocking with a 409.
+      // Auto-abandon: if the user already has an active session for a DIFFERENT
+      // match (e.g. they left a game and started another from the lobby),
+      // silently clean it up instead of blocking with a 409.
+      //
+      // NOTE: findActiveSession returns { session_id, match_id, match_metadata, ... }
+      // — it has no `.id` field. Comparing `.id` (undefined) against matchGroupId
+      // was ALWAYS unequal, so re-entering the SAME match (client retry, app
+      // reload replaying matchmaking:matched) abandoned the user's own live
+      // session: phantom LOSS in history, entry fee re-debited, and the live
+      // engine state destroyed for every other player in the match.
+      // Compare the existing session's matchGroupId (its metadata) instead.
       const existingActive = await this.gameRepo.findActiveSession({ userId });
-      if (existingActive && existingActive.id !== matchGroupId) {
+      const existingGroupId = existingActive?.match_metadata?.matchGroupId || null;
+      const isSameMatchRetry = !!(
+        existingActive && matchGroupId && existingGroupId === matchGroupId
+      );
+      if (existingActive && !isSameMatchRetry) {
         await this._abandonSession(existingActive, userId);
       }
 
       // Deduct XP (tournaments are paid upfront). Use the database
       // entryFee so the server always matches the client's display and
       // the fee is tunable without redeploying the server.
-      if (mode !== 'TOURNAMENT' && mode !== 'tournament') {
+      // A same-match retry must NOT debit again — the fee was already
+      // taken on the first startGameSession call for this match.
+      if (!isSameMatchRetry && mode !== 'TOURNAMENT' && mode !== 'tournament') {
         const entryFee = Number(game.metadata?.entryFee) || 5;
         await this.xpSvc.debitXP({
           userId, xp: entryFee,
@@ -704,15 +721,35 @@ class GameService {
 
       await this.gameRepo.setupMatchSession({ matchId: effectiveMatchId, gameId, userId, wsToken, mode, gameSlug: game.slug });
 
+      // Same-match retry: expire the previous per-user session row first so
+      // only ONE ACTIVE row per (user, matchGroupId) exists — otherwise
+      // resolution helpers would resolve the newest row and leave the older
+      // one ACTIVE until the TTL sweep kills it.
+      if (isSameMatchRetry && existingActive?.session_id) {
+        try {
+          await this.gameRepo.updateGameSessionStatus({
+            sessionId: existingActive.session_id,
+            status: 'EXPIRED',
+            completedAt: new Date().toISOString(),
+          });
+        } catch { /* best-effort */ }
+      }
+
+      const normalizedMode = gameModel.normalizeMatchMode(mode);
       const session = await this.gameRepo.createGameSession({
         sessionData: { 
           userId, 
           gameId, 
           seed, 
           expiresAt,
+          // Any matchmaking-driven session (AUTO/CUSTOM/TOURNAMENT/PRACTICE,
+          // i.e. one that carries a matchGroupId) is a multiplayer session.
+          // The per-user session row MUST be session_type='MULTIPLAYER' —
+          // findActiveSession (rejoin/reconnect) filters on it.
+          isMultiplayer: !!matchGroupId || ['AUTO', 'CUSTOM', 'TOURNAMENT', 'PRACTICE'].includes(normalizedMode),
           // Normalize to the canonical uppercase mode set so session metadata and
           // match-history inserts are consistent (game_match CHECK constraint).
-          metadata: { mode: gameModel.normalizeMatchMode(mode), matchGroupId: effectiveMatchId }
+          metadata: { mode: normalizedMode, matchGroupId: effectiveMatchId }
         }
       });
 
@@ -722,10 +759,26 @@ class GameService {
       const GameRegistry = require('./engine/GameRegistry');
       const registryMeta = GameRegistry.getMeta(game.slug) || {};
 
+      // Multi-round: report the actually-configured round count (persisted in
+      // the lobby settings by the lobby fill) so the client's round lifecycle
+      // shows R{n}/R{total} correctly instead of falling back to the game's
+      // default. matchGroupId IS the lobby id in the new lobby flow.
+      let configuredRounds = 1;
+      if (matchGroupId) {
+        try {
+          const { rows: cfgRows } = await pool.query(
+            `SELECT settings->>'configuredRounds' AS rounds FROM game_lobby WHERE id = $1`,
+            [effectiveMatchId]
+          );
+          configuredRounds = Number(cfgRows[0]?.rounds) || 1;
+        } catch { /* best-effort — default to 1 */ }
+      }
+
       return {
         sessionId: session.id,
         wsToken,
         expiresAt: session.expires_at,
+        configuredRounds,
         ticket: { userMatchId: effectiveMatchId, token: wsToken },
         // Runtime + asset contract (SSOT from GameRegistry)
         runtime: registryMeta.runtime || game.slug,

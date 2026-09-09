@@ -721,23 +721,29 @@ const joinMatchmaking = async ({ userId, game, mode, tournamentId, targetPlayers
       level: Math.floor((Number(r.xp) || 0) / 1000) + 1
     }));
 
-    // Mid-fill joins: the gradual bot-fill sweep may have already added bots to
-    // settings.bots during the 15s+ window. Include them in the match payload so
-    // they don't silently disappear when this real player fills the last slot.
-    const midFillBots = Array.isArray(lobby.settings?.bots) ? lobby.settings.bots : [];
-    for (const bot of midFillBots) {
+    // Mid-fill joins: bots already assigned via the gradual sweep live in
+    // game_lobby_participants — query them directly instead of settings.bots.
+    const { rows: midFillBotRows } = await client.query(
+      `SELECT glp.bot_id, glp.instance_id, glp.seat, glp.snapshot
+       FROM game_lobby_participants glp
+       WHERE glp.lobby_id = $1
+       ORDER BY glp.seat ASC`,
+      [lobby.id]
+    );
+    for (const row of midFillBotRows) {
       playerSnapshots.push({
-        id: bot.id,
-        username: bot.username,
-        displayName: bot.name,
-        avatar: bot.avatar,
-        isBot: true,
-        team: bot.team,
-        seat: bot.seat,
-        status: 'JOINED',
-        rating: bot.rating,
-        level: bot.level,
-        badge: bot.badge,
+        id:          row.bot_id,
+        instanceId:  row.instance_id,
+        username:    row.snapshot.username,
+        displayName: row.snapshot.name,
+        avatar:      row.snapshot.avatar,
+        isBot:       true,
+        team:        row.snapshot.team,
+        seat:        row.seat,
+        status:      'JOINED',
+        rating:      row.snapshot.rating,
+        level:       row.snapshot.level,
+        badge:       row.snapshot.badge,
       });
     }
 
@@ -745,6 +751,11 @@ const joinMatchmaking = async ({ userId, game, mode, tournamentId, targetPlayers
       const startedAt = new Date().toISOString();
       // Randomize who sits where (corner/color) for this match.
       playerSnapshots = _rotatePlayerOrder(playerSnapshots, !!(lobby.settings?.teamsLocked));
+      // Re-index seats: rotation preserves original seat values, and human
+      // seats (join index) can collide with bot seats (lobby participants) —
+      // duplicate seats would silently drop a game_participants row via the
+      // (game_session_id, seat) unique constraint.
+      playerSnapshots.forEach((p, idx) => { p.seat = idx; });
       const matchMetadata = {
         lobbyId: lobby.id,
         matchGroupId: lobby.id,
@@ -777,6 +788,42 @@ const joinMatchmaking = async ({ userId, game, mode, tournamentId, targetPlayers
            WHERE id = $2`,
           [matchRes.rows[0].id, playersRes.rows.find(r => r.user_id === p.id).ticket_id]
         );
+      }
+
+      // Create the game_sessions row (id = lobby.id) + game_participants.
+      // The socket layer's auth query joins game_participants → game_sessions
+      // on THIS id and validates the player's ws_token against the participant
+      // row — without these rows every player's game-socket handshake fails
+      // with 'Invalid match credentials' and the client sits on the match-start
+      // screen forever. (startGameSession later stamps ws_token onto the human
+      // participant rows via setupMatchSession.)
+      await client.query(
+        `INSERT INTO game_sessions (id, game_id, session_type, status, max_players, mode, metadata)
+         VALUES ($1, $2, 'MULTIPLAYER', 'ACTIVE', $3, $4, $5::jsonb)
+         ON CONFLICT (id) DO NOTHING`,
+        [lobby.id, game.id, lobby.max_players, gameModel.normalizeMatchMode(mode), JSON.stringify(matchMetadata)]
+      );
+      for (const p of playerSnapshots) {
+        if (p.isBot) {
+          await client.query(
+            `INSERT INTO game_participants
+               (game_session_id, player_type, user_id, bot_id, instance_id, seat, snapshot)
+             VALUES ($1, 'BOT', NULL, $2, $3, $4, $5::jsonb)
+             ON CONFLICT (game_session_id, seat) DO NOTHING`,
+            [lobby.id, p.id, p.instanceId, p.seat, JSON.stringify(p)]
+          );
+        } else {
+          // Un-targeted ON CONFLICT also guards the (game_session_id, user_id)
+          // unique constraint — a user holding two WAITING tickets yields two
+          // snapshot rows (different seats, same user_id).
+          await client.query(
+            `INSERT INTO game_participants
+               (game_session_id, player_type, user_id, bot_id, seat, snapshot)
+             VALUES ($1, 'HUMAN', $2, NULL, $3, $4::jsonb)
+             ON CONFLICT DO NOTHING`,
+            [lobby.id, p.id, p.seat, JSON.stringify(p)]
+          );
+        }
       }
 
       await client.query(
@@ -876,8 +923,6 @@ const fillMatchmakingLobby = async ({ userId, ticketId, overrideLobbyId, fillBot
       }
     }
 
-    const remaining = lobby.max_players - lobby.current_players;
-
     const playersRes = await client.query(
       `SELECT t.user_id, u.name, u.username, m.cloudfront_url AS avatar, t.id as ticket_id
        FROM game_matchmaking_ticket t
@@ -899,85 +944,90 @@ const fillMatchmakingLobby = async ({ userId, ticketId, overrideLobbyId, fillBot
       status: 'JOINED'
     }));
 
-    // Add bots from settings.bots[] first (already added via fillLobbyBots)
-    const existingBots = Array.isArray(lobby.settings?.bots) ? lobby.settings.bots : [];
-    for (const bot of existingBots) {
-      playerSnapshots.push({
-        id: bot.id,
-        username: bot.username,
-        displayName: bot.name,
-        avatar: bot.avatar,
-        isBot: true,
-        team: bot.team,
-        seat: bot.seat,
-        status: 'JOINED',
-        rating: bot.rating,
-        level: bot.level,
-        badge: bot.badge,
-      });
-    }
-
-    // Fill any remaining empty slots with new bots stored in settings.bots[]
-    const stillNeeded = remaining - existingBots.length;
-    const updatedSettings = { ...(lobby.settings || {}) };
-    updatedSettings.bots = [...existingBots];
-
-    if (stillNeeded > 0) {
-      // Query bots from database
-      const { rows: dbBots } = await client.query(
-        "SELECT * FROM bots WHERE is_active = true AND (game_type = $1 OR game_type = 'all') ORDER BY RANDOM() LIMIT $2",
-        [game.slug || 'all', stillNeeded]
-      );
-      
-      const usedSeats = new Set(playerSnapshots.map(p => p.seat));
-      
-      for (let i = 0; i < stillNeeded; i++) {
+    // Bot roster comes from game_lobby_participants — the pre-session SSOT.
+    // When fillBots=true (backstop expiry bulk-fill), top up any seats the
+    // gradual sweep didn't get to BEFORE reading the roster — otherwise the
+    // match would be created with whatever partial bot roster existed (e.g.
+    // exactly one bot) and start short-handed.
+    if (fillBots) {
+      const missingBots = Math.max(0, lobby.max_players - lobby.current_players);
+      for (let i = 0; i < missingBots; i++) {
+        // Seats already taken by tickets + bots already assigned
+        const { rows: tRows } = await client.query(
+          `SELECT metadata->>'seat' AS seat FROM game_matchmaking_ticket
+           WHERE lobby_id = $1 AND status != 'CANCELLED'`,
+          [lobby.id]
+        );
+        const { rows: bRows } = await client.query(
+          'SELECT seat, bot_id FROM game_lobby_participants WHERE lobby_id = $1',
+          [lobby.id]
+        );
+        const usedSeats = new Set([
+          ...tRows.map(r => parseInt(r.seat, 10)).filter(s => !isNaN(s)),
+          ...bRows.map(r => r.seat),
+        ]);
+        const usedBotIds = new Set(bRows.map(r => r.bot_id).filter(Boolean));
         let seat = 0;
         while (usedSeats.has(seat)) seat++;
-        usedSeats.add(seat);
 
-        // Fallback profile if DB doesn't have enough bots
-        const profile = dbBots[i] || { 
-          id: `bot_fallback_${seat}`, 
-          username: `bot_${seat}`, 
-          name: `Bot ${seat}`, 
-          rating: 1200, level: 1, difficulty: 'medium' 
-        };
-        
-        const newBot = {
-          id: profile.id,
-          username: profile.username,
-          name: profile.name,
-          avatar: profile.avatar,
-          rating: profile.rating,
-          level: profile.level,
-          badge: 'bronze',
+        const { rows: avail } = await client.query(
+          `SELECT * FROM bots
+           WHERE is_active = true
+             AND id != ALL(COALESCE($1::varchar[], ARRAY[]::varchar[]))
+           ORDER BY id ASC
+           LIMIT 1`,
+          [usedBotIds.size > 0 ? Array.from(usedBotIds) : ['__none__']]
+        );
+        if (avail.length === 0) break; // no bots left — fill with what we have
+
+        const profile = avail[0];
+        const instanceId = `${profile.id}_${lobby.id.replace(/-/g, '').slice(0, 8)}_${seat}`;
+        const snapshot = {
+          username:   profile.username,
+          name:       profile.username,
+          avatar:     profile.avatar,
+          rating:     profile.rating,
+          level:      profile.level,
+          badge:      'bronze',
           difficulty: profile.difficulty,
-          seat,
-          team: seat % 2,
-          isBot: true,
-          isReady: true,
+          team:       seat % 2,
         };
-        updatedSettings.bots.push(newBot);
-        playerSnapshots.push({
-          id: profile.id,
-          username: profile.username,
-          displayName: profile.name,
-          avatar: profile.avatar,
-          isBot: true,
-          team: seat % 2,
-          seat,
-          status: 'JOINED',
-          rating: profile.rating,
-          level: profile.level,
-          badge: 'bronze',
-        });
+        await client.query(
+          `INSERT INTO game_lobby_participants (lobby_id, bot_id, instance_id, seat, snapshot)
+           VALUES ($1, $2, $3, $4, $5::jsonb)
+           ON CONFLICT DO NOTHING`,
+          [lobby.id, profile.id, instanceId, seat, JSON.stringify(snapshot)]
+        );
+        await client.query(
+          `UPDATE game_lobby SET current_players = LEAST(max_players, current_players + 1), updated_at = NOW() WHERE id = $1`,
+          [lobby.id]
+        );
       }
-      
-      await client.query(
-        "UPDATE game_lobby SET settings = $1::jsonb WHERE id = $2",
-        [JSON.stringify(updatedSettings), lobby.id]
-      );
+    }
+
+    const { rows: lobbyBotRows } = await client.query(
+      `SELECT glp.bot_id, glp.instance_id, glp.seat, glp.snapshot
+       FROM game_lobby_participants glp
+       WHERE glp.lobby_id = $1
+       ORDER BY glp.seat ASC`,
+      [lobby.id]
+    );
+
+    for (const row of lobbyBotRows) {
+      playerSnapshots.push({
+        id:          row.bot_id,
+        instanceId:  row.instance_id,
+        username:    row.snapshot.username,
+        displayName: row.snapshot.name,
+        avatar:      row.snapshot.avatar,
+        isBot:       true,
+        team:        row.snapshot.team,
+        seat:        row.seat,
+        status:      'JOINED',
+        rating:      row.snapshot.rating,
+        level:       row.snapshot.level,
+        badge:       row.snapshot.badge,
+      });
     }
 
     await client.query(
@@ -987,6 +1037,9 @@ const fillMatchmakingLobby = async ({ userId, ticketId, overrideLobbyId, fillBot
 
     // Randomize who sits where (corner/color) for this match.
     playerSnapshots = _rotatePlayerOrder(playerSnapshots, !!(lobby.settings?.teamsLocked));
+    // Re-index seats (see joinMatchmaking) — rotated snapshots keep their
+    // original seats, which can collide between humans and lobby bots.
+    playerSnapshots.forEach((p, idx) => { p.seat = idx; });
 
     const matchMetadata = {
       lobbyId: lobby.id,
@@ -1001,32 +1054,40 @@ const fillMatchmakingLobby = async ({ userId, ticketId, overrideLobbyId, fillBot
       tournamentId: initialTicket.tournament_id
     };
 
-    // 1. Create game_sessions row explicitly
+    // 1. Create game_sessions row explicitly (id = lobby.id — the socket
+    // layer's auth joins game_participants → game_sessions on this id).
+    // session_type MUST be 'MULTIPLAYER' — findActiveSession (the rejoin /
+    // reconnect leg) filters on it, so a match-making session left at the
+    // default 'SINGLE_PLAYER' can never be resumed after a disconnect.
+    // NOTE: game_sessions has NO game_type column — it takes game_id.
     await client.query(
-      `INSERT INTO game_sessions (id, game_type, status, max_players, metadata)
-       VALUES ($1, $2, 'ACTIVE', $3, $4::jsonb)
+      `INSERT INTO game_sessions (id, game_id, session_type, status, max_players, mode, metadata)
+       VALUES ($1, $2, 'MULTIPLAYER', 'ACTIVE', $3, $4, $5::jsonb)
        ON CONFLICT (id) DO NOTHING`,
-      [lobby.id, game.slug || 'game', lobby.max_players, JSON.stringify(matchMetadata)]
+      [lobby.id, game.id, lobby.max_players, gameModel.normalizeMatchMode(initialTicket.mode), JSON.stringify(matchMetadata)]
     );
 
     // 2. Insert game_participants
     for (const p of playerSnapshots) {
-      await client.query(
-        `INSERT INTO game_participants 
-          (game_session_id, player_type, user_id, bot_id, seat, snapshot)
-         VALUES ($1, $2, $3, $4, $5, $6::jsonb)`,
-        [
-          lobby.id, 
-          p.isBot ? 'BOT' : 'HUMAN',
-          p.isBot ? null : p.id,
-          p.isBot ? p.id : null,
-          p.seat,
-          JSON.stringify(p)
-        ]
-      );
-
-      // Update matchmaking ticket for human players
-      if (!p.isBot) {
+      if (p.isBot) {
+        await client.query(
+          `INSERT INTO game_participants
+             (game_session_id, player_type, user_id, bot_id, instance_id, seat, snapshot)
+           VALUES ($1, 'BOT', NULL, $2, $3, $4, $5::jsonb)
+           ON CONFLICT (game_session_id, seat) DO NOTHING`,
+          [lobby.id, p.id, p.instanceId, p.seat, JSON.stringify(p)]
+        );
+      } else {
+        // Guarded: a user holding two tickets (re-queue race) yields two
+        // snapshots with the same user_id — the (game_session_id, user_id)
+        // unique constraint must not crash the whole fill transaction.
+        await client.query(
+          `INSERT INTO game_participants
+             (game_session_id, player_type, user_id, bot_id, seat, snapshot)
+           VALUES ($1, 'HUMAN', $2, NULL, $3, $4::jsonb)
+           ON CONFLICT DO NOTHING`,
+          [lobby.id, p.id, p.seat, JSON.stringify(p)]
+        );
         await client.query(
           `UPDATE game_matchmaking_ticket
            SET status = 'MATCHED', match_group_id = $1, matched_at = NOW(), updated_at = NOW()
@@ -1220,13 +1281,18 @@ const setupMatchSession = async ({ matchId, gameId, userId, wsToken, mode, gameS
 const createGameSession = async ({ sessionData }) => {
   try {
     const { rows } = await pool.query(
-      `INSERT INTO game_sessions (user_id, game_id, seed, expires_at, metadata)
-       VALUES ($1, $2, $3, $4, $5::jsonb) RETURNING *`,
+      `INSERT INTO game_sessions (user_id, game_id, seed, expires_at, session_type, mode, metadata)
+       VALUES ($1, $2, $3, $4, $5, $6, $7::jsonb) RETURNING *`,
       [
         sessionData.userId,
         sessionData.gameId,
         sessionData.seed,
         sessionData.expiresAt,
+        // Matchmaking-created sessions are always MULTIPLAYER (the rejoin
+        // query filters on this); the per-user session row must carry the
+        // same type or getActiveSession can never find it.
+        sessionData.isMultiplayer ? 'MULTIPLAYER' : 'SINGLE_PLAYER',
+        sessionData.metadata?.mode || null,
         JSON.stringify(sessionData.metadata || {}),
       ]
     );
@@ -1520,22 +1586,28 @@ const getLobby = async ({ userId, lobbyId }) => {
     status: p.metadata?.status || 'CONNECTED'
   }));
 
-  // Merge bots stored in settings.bots[] — they are never in game_matchmaking_ticket
-  const settingsBots = Array.isArray(rows[0].settings?.bots) ? rows[0].settings.bots : [];
-  for (const bot of settingsBots) {
+  // Merge bots from game_lobby_participants — the pre-session roster SSOT
+  const { rows: lobbyBotRows } = await pool.query(
+    `SELECT glp.bot_id, glp.instance_id, glp.seat, glp.snapshot
+     FROM game_lobby_participants glp
+     WHERE glp.lobby_id = $1
+     ORDER BY glp.seat ASC`,
+    [lobbyId]
+  );
+  for (const row of lobbyBotRows) {
     players.push({
-      userId: bot.id,
-      displayName: bot.name,
-      avatar: bot.avatar,
-      seat: bot.seat,
-      team: bot.team,
+      userId:    row.instance_id,
+      displayName: row.snapshot.name,
+      avatar:    row.snapshot.avatar,
+      seat:      row.seat,
+      team:      row.snapshot.team,
       lobbyRole: 'PLAYER',
-      isReady: true,
-      isBot: true,
-      status: 'BOT',
-      rating: bot.rating,
-      level: bot.level,
-      badge: bot.badge,
+      isReady:   true,
+      isBot:     true,
+      status:    'BOT',
+      rating:    row.snapshot.rating,
+      level:     row.snapshot.level,
+      badge:     row.snapshot.badge,
     });
   }
 
@@ -1714,23 +1786,24 @@ const removeLobbyPlayer = async ({ userId, lobbyId, targetUserId }) => {
     }
 
     const currentSettings = { ...(lobby.settings || {}) };
-    const existingBots = Array.isArray(currentSettings.bots) ? currentSettings.bots : [];
     const pendingInvites = Array.isArray(currentSettings.pendingInvites) ? currentSettings.pendingInvites : [];
 
-    // Check if this is a bot (stored in settings.bots, not in tickets)
-    const isBot = existingBots.some(b => b.id === targetUserId);
-    // A pending invite has NO ticket — the friend never joined. Removing it just
-    // drops the invite from settings.pendingInvites (current_players unchanged).
-    // Previously this fell through to the "real player" branch, decrementing
-    // current_players for a player who was never in the lobby.
+    // Check if this is a bot (stored in game_lobby_participants, not in tickets)
+    const { rows: botRows } = await client.query(
+      'SELECT id FROM game_lobby_participants WHERE lobby_id = $1 AND instance_id = $2',
+      [lobbyId, targetUserId]
+    );
+    const isBot = botRows.length > 0;
     const isPendingInvite = !isBot && pendingInvites.some(inv => inv.userId === targetUserId);
 
     if (isBot) {
-      // Remove from settings.bots[]
-      currentSettings.bots = existingBots.filter(b => b.id !== targetUserId);
       await client.query(
-        'UPDATE game_lobby SET settings = $1::jsonb, current_players = current_players - 1, updated_at = NOW() WHERE id = $2',
-        [JSON.stringify(currentSettings), lobbyId]
+        'DELETE FROM game_lobby_participants WHERE lobby_id = $1 AND instance_id = $2',
+        [lobbyId, targetUserId]
+      );
+      await client.query(
+        'UPDATE game_lobby SET current_players = current_players - 1, updated_at = NOW() WHERE id = $1',
+        [lobbyId]
       );
     } else if (isPendingInvite) {
       // Remove the pending invite (host cancelled it / friend declined)
@@ -1919,59 +1992,11 @@ const shrinkLobby = async ({ userId, lobbyId }) => {
   }
 };
 
-// Bots look like real players: human names, normal-looking usernames and
-// profile photos (never "bot" prefixes or robot avatars) so auto-match fills
-// read as real opponents. The internal id keeps the bot_ prefix so backend
-// result handling (game.service.js) can still detect them.
-//
-// `difficulty` maps the profile's rating to a gameplay skill tier used by the
-// bot engine (BotManager) — weak bots make realistic mistakes, strong ones
-// genuinely win more. Keep in sync with PROFILE_DIFFICULTY in BotManager.js.
-const BOT_PROFILES = [
-  { id: 'bot_001', username: 'alpha_001',   name: 'Aarav Singh',      avatar: 'https://i.pravatar.cc/150?img=12',   rating: 1250, level: 10, badge: 'silver',   difficulty: 'Easy'   },
-  { id: 'bot_002', username: 'beta_002',    name: 'Trisha',           avatar: 'https://imgtree.co/direct/zdoNE3sg', rating: 1420, level: 15, badge: 'gold',     difficulty: 'Medium' },
-  { id: 'bot_003', username: 'gamma_003',   name: 'Kabir Mehta',      avatar: 'https://i.pravatar.cc/150?img=59',   rating: 1600, level: 20, badge: 'platinum', difficulty: 'Medium' },
-  { id: 'bot_004', username: 'delta_004',   name: 'Ananya Iyer',      avatar: 'https://i.pravatar.cc/150?img=32',   rating: 1100, level:  8, badge: 'bronze',   difficulty: 'Easy'   },
-  { id: 'bot_005', username: 'epsilon_005', name: 'Rohan Khanna',     avatar: 'https://i.pravatar.cc/150?img=68',   rating: 1350, level: 12, badge: 'silver',   difficulty: 'Medium' },
-  { id: 'bot_006', username: 'kappa_006',   name: 'Sara Khan',        avatar: 'https://i.pravatar.cc/150?img=25',   rating: 1550, level: 18, badge: 'gold',     difficulty: 'Medium' },
-  { id: 'bot_007', username: 'epsilon_007', name: 'Arjun Reddy',      avatar: 'https://i.pravatar.cc/150?img=53',   rating: 1800, level: 25, badge: 'diamond',  difficulty: 'Hard'   },
-  { id: 'bot_008', username: 'sigma_008',   name: 'Thalapathy Vijay', avatar: 'https://imgtree.co/direct/yZfKfhS8', rating: 1950, level: 30, badge: 'master',   difficulty: 'Hard'   },
-];
-
-// Deterministic per-lobby shuffle of BOT_PROFILES (seeded by lobby id) so the
-// same seats get different-looking opponents in different lobbies, while the
-// order stays stable within one lobby (bots join one at a time during the
-// gradual bot-fill sweep and must never repeat). Uses FNV-1a hashing + a tiny
-// LCG, so a 4-player lobby can't always pick the same first 4 bots.
-const _hashSeed = (str) => {
-  let h = 2166136261;
-  for (let i = 0; i < str.length; i++) {
-    h ^= str.charCodeAt(i);
-    h = Math.imul(h, 16777619);
-  }
-  return h >>> 0;
-};
-
-const _shuffledBotProfiles = (lobbyId) => {
-  const arr = [...BOT_PROFILES];
-  let seed = _hashSeed(String(lobbyId || 'lobby'));
-  for (let i = arr.length - 1; i > 0; i--) {
-    seed = (Math.imul(seed, 1664525) + 1013904223) >>> 0;
-    const j = seed % (i + 1);
-    [arr[i], arr[j]] = [arr[j], arr[i]];
-  }
-  return arr;
-};
-
-const botProfileForSeat = (lobbyId, seat) => {
-  const profiles = _shuffledBotProfiles(lobbyId);
-  return profiles[seat % profiles.length];
-};
-
 /**
- * Adds bot(s) to a lobby by storing them in game_lobby.settings.bots[].
- * Bots are never inserted into game_matchmaking_ticket (which requires real user UUIDs).
- * current_players is incremented so slot counts remain accurate.
+ * Adds one or more bots to a CUSTOM lobby (host-triggered manual add).
+ *
+ * Selects bots from the bots table and inserts them into game_lobby_participants.
+ * No bot data is written to settings.
  */
 const fillLobbyBots = async ({ userId, lobbyId, count = 1 }) => {
   const client = await pool.connect();
@@ -1992,57 +2017,64 @@ const fillLobbyBots = async ({ userId, lobbyId, count = 1 }) => {
       return await getLobby({ userId, lobbyId });
     }
 
-    // Current bots already in settings
-    const currentSettings = { ...(lobby.settings || {}) };
-    const existingBots = Array.isArray(currentSettings.bots) ? currentSettings.bots : [];
-
-    // Collect seats already taken by real players (from tickets)
+    // Seats occupied by real players and already-assigned bots
     const { rows: ticketSeatRows } = await client.query(
       `SELECT metadata->>'seat' AS seat FROM game_matchmaking_ticket
        WHERE lobby_id = $1 AND status != 'CANCELLED'`,
       [lobbyId]
     );
+    const { rows: botRows } = await client.query(
+      'SELECT seat, bot_id FROM game_lobby_participants WHERE lobby_id = $1',
+      [lobbyId]
+    );
     const usedSeats = new Set([
       ...ticketSeatRows.map(r => parseInt(r.seat, 10)).filter(s => !isNaN(s)),
-      ...existingBots.map(b => b.seat),
+      ...botRows.map(r => r.seat),
     ]);
+    const usedBotIds = new Set(botRows.map(r => r.bot_id).filter(Boolean));
 
-    const newBots = [];
+    // Pick enough unused bots in deterministic order.
+    // COALESCE guards the exclusion array against NULL poisoning.
+    const { rows: available } = await client.query(
+      `SELECT * FROM bots
+       WHERE is_active = true
+         AND id != ALL(COALESCE($1::varchar[], ARRAY[]::varchar[]))
+       ORDER BY id ASC
+       LIMIT $2`,
+      [usedBotIds.size > 0 ? Array.from(usedBotIds) : ['__none__'], slotsToFill]
+    );
+    if (available.length < slotsToFill) throw require('../../utils/error.util').createError('Not enough active bots available', 400);
+
     for (let i = 0; i < slotsToFill; i++) {
       let seat = 0;
       while (usedSeats.has(seat)) seat++;
       usedSeats.add(seat);
 
-      const profile = botProfileForSeat(lobbyId, seat);
-      // Give each bot a unique id scoped to this lobby+seat so the frontend can key on it
-      const botId = `${profile.id}_${lobbyId.replace(/-/g, '').slice(0, 8)}_${seat}`;
-      newBots.push({
-        id: botId,
-        username: profile.username,
-        name: profile.name,
-        avatar: profile.avatar,
-        rating: profile.rating,
-        level: profile.level,
-        badge: profile.badge,
+      const profile = available[i];
+      const instanceId = `${profile.id}_${lobbyId.replace(/-/g, '').slice(0, 8)}_${seat}`;
+      const snapshot = {
+        username:   profile.username,
+        name:       profile.username,
+        avatar:     profile.avatar,
+        rating:     profile.rating,
+        level:      profile.level,
+        badge:      'bronze',
         difficulty: profile.difficulty,
-        seat,
-        team: seat % 2,
-        isBot: true,
-        isReady: true,
-        lobbyRole: 'PLAYER',
-        status: 'BOT',
-      });
-    }
+        team:       seat % 2,
+      };
 
-    currentSettings.bots = [...existingBots, ...newBots];
+      await client.query(
+        `INSERT INTO game_lobby_participants (lobby_id, bot_id, instance_id, seat, snapshot)
+         VALUES ($1, $2, $3, $4, $5::jsonb)`,
+        [lobbyId, profile.id, instanceId, seat, JSON.stringify(snapshot)]
+      );
+    }
 
     await client.query(
       `UPDATE game_lobby
-       SET settings = $1::jsonb,
-           current_players = current_players + $2,
-           updated_at = NOW()
-       WHERE id = $3`,
-      [JSON.stringify(currentSettings), slotsToFill, lobbyId]
+       SET current_players = current_players + $1, updated_at = NOW()
+       WHERE id = $2`,
+      [slotsToFill, lobbyId]
     );
 
     await client.query('COMMIT');
@@ -2058,10 +2090,10 @@ const fillLobbyBots = async ({ userId, lobbyId, count = 1 }) => {
 /**
  * Adds exactly ONE bot to a WAITING lobby (gradual bot-fill).
  *
- * Used by the matchmaking sweep (resolveBotFillingLobbies) so that, after the
- * 15s real-player window, bots join one at a time — spaced by botFillPacingMs
- * — just like real players trickling in. Bots live in settings.bots[] and
- * current_players is incremented so slot counts stay accurate.
+ * Selects the next available bot from the bots table and inserts it directly
+ * into game_lobby_participants — the pre-session roster SSOT. settings only
+ * retains botFillNextAt (pacing config) and the count of occupied seats for
+ * the pacing gate. No bot profile data lives in settings.
  *
  * Returns { added: true } when a bot was added, or { added: false } when the
  * lobby is not fillable (not WAITING, full, or still pacing).
@@ -2078,13 +2110,12 @@ const addOneBotToLobby = async ({ lobbyId }) => {
     const lobby = lobbyRows[0];
     if (!lobby) throw require('../../utils/error.util').createError('Lobby not found', 404);
 
-    const currentSettings = { ...(lobby.settings || {}) };
-    const existingBots = Array.isArray(currentSettings.bots) ? currentSettings.bots : [];
-
     if (lobby.status !== 'WAITING' || lobby.current_players >= lobby.max_players) {
       await client.query('COMMIT');
       return { added: false };
     }
+
+    const currentSettings = { ...(lobby.settings || {}) };
 
     // Pacing: at most one bot per window so they join gradually, like real players.
     const nextFillAt = Number(currentSettings.botFillNextAt) || 0;
@@ -2093,42 +2124,66 @@ const addOneBotToLobby = async ({ lobbyId }) => {
       return { added: false };
     }
 
-    // Collect seats already taken by real players (from tickets) and existing bots
+    // Seats already taken by real players (tickets) and bots already assigned
     const { rows: ticketSeatRows } = await client.query(
       `SELECT metadata->>'seat' AS seat FROM game_matchmaking_ticket
        WHERE lobby_id = $1 AND status != 'CANCELLED'`,
       [lobbyId]
     );
+    // bot_id MUST be selected here — usedBotIds is built from it below. (This
+    // query previously selected only `seat`, so every bot_id was undefined →
+    // serialized as NULL in the array → `id != ALL(ARRAY[NULL,...])` evaluates
+    // to NULL for every row → no bot was ever "available" after the first one
+    // joined, and the gradual fill stalled at exactly one bot.)
+    const { rows: botSeatRows } = await client.query(
+      'SELECT seat, bot_id FROM game_lobby_participants WHERE lobby_id = $1',
+      [lobbyId]
+    );
     const usedSeats = new Set([
       ...ticketSeatRows.map(r => parseInt(r.seat, 10)).filter(s => !isNaN(s)),
-      ...existingBots.map(b => b.seat),
+      ...botSeatRows.map(r => r.seat),
     ]);
+    const usedBotIds = new Set(botSeatRows.map(r => r.bot_id).filter(Boolean));
 
     let seat = 0;
     while (usedSeats.has(seat)) seat++;
-    usedSeats.add(seat);
 
-    const profile = botProfileForSeat(lobbyId, seat);
-    const botId = `${profile.id}_${lobbyId.replace(/-/g, '').slice(0, 8)}_${seat}`;
-    const newBot = {
-      id: botId,
-      username: profile.username,
-      name: profile.name,
-      avatar: profile.avatar,
-      rating: profile.rating,
-      level: profile.level,
-      badge: profile.badge,
+    // Pick the next unused bot from the bots table (deterministic order by id
+    // so the same lobby always sees the same sequence of bots).
+    // COALESCE guards the sentinel array so the exclusion can never be NULL-poisoned.
+    const { rows: available } = await client.query(
+      `SELECT * FROM bots
+       WHERE is_active = true
+         AND id != ALL(COALESCE($1::varchar[], ARRAY[]::varchar[]))
+       ORDER BY id ASC
+       LIMIT 1`,
+      [usedBotIds.size > 0 ? Array.from(usedBotIds) : ['__none__']]
+    );
+    if (available.length === 0) {
+      await client.query('COMMIT');
+      return { added: false };
+    }
+
+    const profile = available[0];
+    const instanceId = `${profile.id}_${lobbyId.replace(/-/g, '').slice(0, 8)}_${seat}`;
+    const snapshot = {
+      username:   profile.username,
+      name:       profile.username, // bots table has username as display name
+      avatar:     profile.avatar,
+      rating:     profile.rating,
+      level:      profile.level,
+      badge:      'bronze',
       difficulty: profile.difficulty,
-      seat,
-      team: seat % 2,
-      isBot: true,
-      isReady: true,
-      lobbyRole: 'PLAYER',
-      status: 'BOT',
+      team:       seat % 2,
     };
 
-    // Stagger the next bot ~2.5–5s out, with a little randomness so it feels human
-    currentSettings.bots = [...existingBots, newBot];
+    await client.query(
+      `INSERT INTO game_lobby_participants (lobby_id, bot_id, instance_id, seat, snapshot)
+       VALUES ($1, $2, $3, $4, $5::jsonb)`,
+      [lobbyId, profile.id, instanceId, seat, JSON.stringify(snapshot)]
+    );
+
+    // Advance pacing gate and increment slot count — no bot roster in settings
     currentSettings.botFillNextAt = Date.now() + 2500 + Math.floor(Math.random() * 2500);
 
     await client.query(
@@ -2252,23 +2307,36 @@ const startLobby = async ({ userId, lobbyId }) => {
 };
 
 const cancelMatchmaking = async (userId) => {
-  // Find any waiting ticket
+  // Find any waiting ticket(s) — a user can accumulate more than one WAITING
+  // ticket for the same lobby (e.g. a re-queue raced the cancel), so decrement
+  // the lobby count per cancelled ticket, not just once.
   const client = await pool.connect();
   try {
     await client.query('BEGIN');
     const { rows } = await client.query(
-      `UPDATE game_matchmaking_ticket SET status = 'CANCELLED' WHERE user_id = $1 AND status = 'WAITING' RETURNING lobby_id`,
+      `UPDATE game_matchmaking_ticket SET status = 'CANCELLED', updated_at = NOW() WHERE user_id = $1 AND status = 'WAITING' RETURNING lobby_id`,
       [userId]
     );
     if (rows[0] && rows[0].lobby_id) {
-       await client.query('UPDATE game_lobby SET current_players = current_players - 1 WHERE id = $1', [rows[0].lobby_id]);
+       const lobbyId = rows[0].lobby_id;
+       if (rows.length > 1) {
+         await client.query(
+           `UPDATE game_matchmaking_ticket SET status = 'CANCELLED', updated_at = NOW()
+            WHERE user_id = $1 AND status = 'WAITING' AND lobby_id = $2`,
+           [userId, lobbyId]
+         );
+       }
+       await client.query(
+         'UPDATE game_lobby SET current_players = GREATEST(0, current_players - $1), updated_at = NOW() WHERE id = $2',
+         [rows.length, lobbyId]
+       );
        // Check if 0 players, cancel lobby
-       const lobbyRows = await client.query('SELECT current_players FROM game_lobby WHERE id = $1', [rows[0].lobby_id]);
+       const lobbyRows = await client.query('SELECT current_players FROM game_lobby WHERE id = $1', [lobbyId]);
        if (lobbyRows[0] && lobbyRows[0].current_players <= 0) {
-           await client.query('UPDATE game_lobby SET status = \'CANCELLED\' WHERE id = $1', [rows[0].lobby_id]);
+           await client.query('UPDATE game_lobby SET status = \'CANCELLED\', updated_at = NOW() WHERE id = $1', [lobbyId]);
        }
        await client.query('COMMIT');
-       return { lobbyState: await getLobby({ userId, lobbyId: rows[0].lobby_id }) };
+       return { lobbyState: await getLobby({ userId, lobbyId }) };
     }
     await client.query('COMMIT');
     return { success: true };

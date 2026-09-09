@@ -6,10 +6,10 @@ const seedrandom = require('seedrandom');
 
 const difficulties = { Easy, Medium, Hard };
 
-// Maps each bot profile id (embedded in bot ids like bot_alpha_<hash>_<seat>)
-// to its gameplay skill tier, matching the `difficulty` field on BOT_PROFILES
-// in game.repository.js. Weak bots (bronze/silver) are Easy and make realistic
-// mistakes; strong ones (diamond/master) are Hard and genuinely dominate.
+// Maps each bot_id (from the bots table, e.g. 'bot_001') to its gameplay
+// skill tier. Matches the `difficulty` column in the bots table.
+// Weak bots (bot_001–bot_004) are Easy/Medium and make realistic mistakes;
+// strong ones (bot_007–bot_008) are Hard and genuinely dominate.
 const PROFILE_DIFFICULTY = {
   bot_001: 'Easy',
   bot_002: 'Easy',

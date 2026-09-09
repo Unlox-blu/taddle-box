@@ -122,8 +122,9 @@ const lobbyIdParamSchema = z.object({
   lobbyId: z.string().uuid({ message: 'Invalid lobby ID format' })
 }).strict();
 
-// playerId may be a real user UUID or a bot id (bots live in settings.bots[]
-// with ids like "bot_alpha_<lobbyHash>_<seat>", never in game_matchmaking_ticket).
+// playerId may be a real user UUID or a bot instance_id (bots live in
+// game_lobby_participants, never in game_matchmaking_ticket).
+// instance_id format: "bot_001_<lobbyHash>_<seat>"
 const lobbyPlayerIdSchema = z.string().refine(
   (v) => /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(v)
       || /^bot_[a-z0-9_]+$/i.test(v),

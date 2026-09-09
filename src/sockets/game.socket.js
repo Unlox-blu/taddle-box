@@ -156,6 +156,11 @@ const setupGameSocket = (io, gameNs) => {
           });
           botHandler.handleMatchEnd(matchId, gameSlug, latestState);
           await _archiveMatch(matchId, latestState);
+          // Resolve every real player's session from the engine outcome —
+          // without this the timed-out loser's session stayed ACTIVE until
+          // the TTL sweep EXPIRED it (no LOSS row, no entry-fee redistribution)
+          // and the winner was never credited/told.
+          await _resolveSessionsFromEngineOutcome(matchId, gameSlug, latestState);
           _notifySessionExpired(gameNs, matchId, latestState);
         } else {
           await EventStore.saveMatchSnapshot(matchId, latestState);
@@ -182,6 +187,9 @@ const setupGameSocket = (io, gameNs) => {
           });
           botHandler.handleMatchEnd(matchId, gameSlug, latestState);
           await _archiveMatch(matchId, latestState);
+          // Same session-resolution gap as the turn-timeout path — the round
+          // timeout can finish the whole match (all rounds exhausted).
+          await _resolveSessionsFromEngineOutcome(matchId, gameSlug, latestState);
           _notifySessionExpired(gameNs, matchId, latestState);
         } else {
           await EventStore.saveMatchSnapshot(matchId, latestState);
@@ -235,23 +243,41 @@ const setupGameSocket = (io, gameNs) => {
       socket.userId = userId;
       socket.gameSlug = myRow.game_slug;
       socket.matchPlayers = rows.map(r => ({
-        userId: r.user_id,
+        userId: r.user_id ?? r.bot_id,
         color: r.player_color,
         name: r.name,
         username: r.username,
         avatar: r.avatar,
+        isBot: r.player_type === 'BOT',
       }));
       socket.matchMetadata = myRow.match_metadata || {};
 
       socket.lobbyBots = [];
       try {
-        const lobbyRes = await pool.query(
-          `SELECT settings FROM game_lobby WHERE id = $1`,
+        // game_participants is the SSOT once the session exists. Read bot roster
+        // from there so the socket layer never queries game_lobby_participants
+        // during gameplay — that table is lobby-phase only.
+        const { rows: participantBotRows } = await pool.query(
+          `SELECT gp.bot_id, gp.snapshot
+           FROM game_participants gp
+           WHERE gp.game_session_id = $1
+             AND gp.player_type = 'BOT'
+           ORDER BY gp.seat ASC`,
           [matchId]
         );
-        const settings = lobbyRes.rows[0]?.settings || {};
-        if (Array.isArray(settings.bots)) socket.lobbyBots = settings.bots;
-      } catch (e) { /* matchId may not be a lobby id */ }
+        socket.lobbyBots = participantBotRows.map(r => ({
+          id:         r.bot_id,
+          instanceId: r.snapshot.instanceId,
+          name:       r.snapshot.displayName || r.snapshot.name,
+          username:   r.snapshot.username,
+          avatar:     r.snapshot.avatar,
+          level:      r.snapshot.level,
+          badge:      r.snapshot.badge,
+          difficulty: r.snapshot.difficulty,
+          seat:       r.snapshot.seat,
+          team:       r.snapshot.team,
+        }));
+      } catch (e) { /* non-fatal */ }
 
       next();
     } catch (e) {
@@ -962,8 +988,21 @@ const setupGameSocket = (io, gameNs) => {
       let drawXp = 0;
       try {
         const gameRepo = require('../modules/game/game.repository');
-        const gameRow = await gameRepo.findGameById({ id: state.game_id || matchId });
-        drawXp = Number(gameRow?.metadata?.entryFee) || 5;
+        // findGameById's signature is ({ gameId }) — the old call passed { id },
+        // so gameRow was always undefined and the refund silently fell back to
+        // the default 5 XP instead of the game's actual entry fee. The engine
+        // snapshot doesn't carry game_id, so resolve it from the session row.
+        const { rows: sessRows } = await pool.query(
+          `SELECT game_id FROM game_sessions WHERE metadata->>'matchGroupId' = $1 LIMIT 1`,
+          [matchId]
+        );
+        const gid = sessRows[0]?.game_id;
+        if (gid) {
+          const gameRow = await gameRepo.findGameById({ gameId: gid });
+          drawXp = Number(gameRow?.metadata?.entryFee) || 5;
+        } else {
+          drawXp = 5;
+        }
       } catch {}
       for (const rid of realIds) {
         await _resolvePlayerSession({ matchId, userId: rid, result: 'DRAW', score: 0, xpEarned: drawXp });
@@ -1124,6 +1163,92 @@ const setupGameSocket = (io, gameNs) => {
           remainingMs: Math.max(0, RECONNECT_TIMEOUT_MS - (now - ((state.disconnectTimestamps || {})[pid] || state.pausedAt || now))),
         })),
       });
+    }
+  }
+
+  /**
+   * Resolve every real player's session from the engine's final outcome.
+   * Used by the timer-worker finish paths (turn timeout / round timeout) and
+   * any other server-driven GAME_OVER where the player's client is not the
+   * one completing the session. Without this, a server-finished match left
+   * player sessions ACTIVE until the TTL sweep expired them: the loser got
+   * no LOSS row, the winner no credit, and tournament entries were never
+   * updated. Rewards follow the same pool-split rules as
+   * game.service.completeGameSession's bot-match branch (via RewardCalculator).
+   */
+  async function _resolveSessionsFromEngineOutcome(matchId, gameSlug, finalState) {
+    try {
+      const repo = require('../modules/game/game.repository');
+      const ps = finalState.pluginState || {};
+      const players = finalState.metadata?.players || finalState.players || [];
+      const realPlayers = players.filter(
+        (p) => p && !p.isBot && !String(p.userId || p.id || '').startsWith('bot_')
+      );
+      if (realPlayers.length === 0) return;
+
+      const winnerId = finalState.winner || ps.winner || null;
+      const isDraw = !!ps.drawReason && !winnerId;
+
+      // Discover each player's session (gameId + mode) from their session row.
+      const { rows: sessions } = await pool.query(
+        `SELECT id, user_id, game_id, metadata FROM game_sessions
+         WHERE metadata->>'matchGroupId' = $1
+           AND user_id = ANY($2::uuid[])
+           AND status IN ('ACTIVE','PENDING')`,
+        [matchId, realPlayers.map((p) => p.userId || p.id)]
+      );
+      if (sessions.length === 0) return;
+
+      // Entry fee comes from the game row resolved via the session's gameId
+      // (the engine snapshot does not carry game_id).
+      let game = null;
+      try { game = await repo.findGameById({ gameId: sessions[0].game_id }); } catch { /* best-effort */ }
+      const entryFee = Number(game?.metadata?.entryFee) || 5;
+
+      // Practice mode: no XP is ever awarded.
+      const firstMeta = sessions[0]?.metadata || {};
+      const isPractice = String(firstMeta.mode || '').toUpperCase() === 'PRACTICE';
+
+      const { calculateRewards } = require('../modules/game/engine/RewardCalculator');
+      const rewardPlayers = sessions.map((s) => {
+        const uid = s.user_id;
+        const result = isDraw ? 'DRAW' : (String(winnerId) === String(uid) ? 'WIN' : 'LOSS');
+        return { userId: uid, result, score: result === 'WIN' ? 1 : 0, isBot: false };
+      });
+      const reward = calculateRewards({ players: rewardPlayers, entryFee, gameMetadata: game?.metadata || {}, isPractice });
+
+      for (const s of sessions) {
+        const uid = s.user_id;
+        const myResult = isDraw ? 'DRAW' : (String(winnerId) === String(uid) ? 'WIN' : 'LOSS');
+        const myXp = reward.rankings?.find((r) => r.userId === uid)?.xpEarned || 0;
+        try {
+          await repo.updateGameSessionStatus({
+            sessionId: s.id, status: 'COMPLETED', completedAt: new Date().toISOString(),
+          });
+          await repo.recordMatchHistory({
+            userId: uid, gameId: s.game_id, mode: s.metadata?.mode,
+            result: myResult, score: myResult === 'WIN' ? 1 : 0,
+            duration: 60, xpEarned: myXp, matchGroupId: matchId,
+          });
+          if (myXp > 0) {
+            try {
+              const xpSvc = require('../modules/xp/xp.service');
+              await xpSvc.creditXP({ userId: uid, xp: myXp, transactionType: 'earned', sourceType: `game_timeout_${matchId}` });
+            } catch (xpErr) {
+              console.error(`[GameEngine] Failed to credit XP for ${uid}:`, xpErr.message);
+            }
+          }
+          // Tournament scoring: +1 win on the player's entry when this match
+          // group belongs to a tournament (no-op otherwise).
+          await repo.recordTournamentEntryResult({
+            matchGroupId: matchId, userId: uid, isWin: myResult === 'WIN', xpEarned: myXp,
+          });
+        } catch (err) {
+          console.error(`[GameEngine] Failed to resolve session for ${uid} (timeout finish):`, err.message);
+        }
+      }
+    } catch (e) {
+      console.error(`[GameEngine] _resolveSessionsFromEngineOutcome failed for ${matchId}:`, e.message);
     }
   }
 

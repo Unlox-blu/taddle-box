@@ -4,7 +4,7 @@ CREATE TABLE IF NOT EXISTS media (
   uploader_id         UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
   media_type          VARCHAR(20) NOT NULL CHECK (media_type IN ('image','video','audio','document')),
   s3_key              TEXT,
-  cloudfront_url      TEXT,
+  media_url           TEXT,
   vimeo_uri           TEXT,
   vimeo_player_url    TEXT,
   vimeo_thumbnail_url TEXT,

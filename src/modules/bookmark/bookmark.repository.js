@@ -92,7 +92,7 @@ const findPostBookmarks = async ({ userId, limit, offset }) => {
               'avatar_url',
                   CASE
                       WHEN u.avatar_url IS NULL THEN NULL
-                      ELSE json_build_object('cloudfront_url', ua.cloudfront_url)
+                      ELSE json_build_object('media_url', ua.media_url)
                   END
           ) AS author,
 
@@ -107,7 +107,7 @@ const findPostBookmarks = async ({ userId, limit, offset }) => {
                   'avatar_url',
                   CASE
                       WHEN c.avatar_url IS NULL THEN NULL
-                      ELSE json_build_object('cloudfront_url', ca.cloudfront_url)
+                      ELSE json_build_object('media_url', ca.media_url)
                   END
               )
           END AS community,
@@ -119,7 +119,7 @@ const findPostBookmarks = async ({ userId, limit, offset }) => {
                       ELSE json_build_object(
                           'media_id', pm.id,
                           'media_type', pm.media_type,
-                          'media_url', pm.cloudfront_url,
+                          'media_url', pm.media_url,
                           'preview_url', pm.preview_url,
                           'width', pm.width,
                           'height', pm.height,
@@ -198,7 +198,7 @@ const findProfileBookmarks = async ({ userId, limit, offset }) => {
           u.bio,
           u.privacy,
           u.avatar_url,
-          um.cloudfront_url AS avatar_cloudfront_url,
+          um.media_url AS avatar_media_url,
           (SELECT COUNT(*) FROM followers f WHERE f.following_id = u.id) AS follower_count,
           (SELECT COUNT(*) FROM posts p WHERE p.author_id = u.id AND p.deleted_at IS NULL AND p.status = 'published') AS post_count,
           EXISTS(SELECT 1 FROM followers f WHERE f.follower_id = $1 AND f.following_id = u.id) AS is_following,
@@ -243,7 +243,7 @@ const findCommunityBookmarks = async ({ userId, limit, offset }) => {
           c.category,
           c.privacy,
           c.avatar_url,
-          cm.avatar_cloudfront_url,
+          cm.avatar_media_url,
           (SELECT COUNT(*) FROM community_members cm2 WHERE cm2.community_id = c.id) AS member_count,
           (SELECT COUNT(*) FROM posts p WHERE p.community_id = c.id AND p.deleted_at IS NULL AND p.status = 'published') AS post_count,
           EXISTS(SELECT 1 FROM community_members cm3 WHERE cm3.community_id = c.id AND cm3.user_id = $1) AS is_member,
@@ -255,7 +255,7 @@ const findCommunityBookmarks = async ({ userId, limit, offset }) => {
       JOIN ${BookmarkModel.COMMUNITY_TABLE} c
           ON c.id = b.source_id
 
-      LEFT JOIN (SELECT id, cloudfront_url AS avatar_cloudfront_url FROM ${BookmarkModel.MEDIA_TABLE}) cm
+      LEFT JOIN (SELECT id, media_url AS avatar_media_url FROM ${BookmarkModel.MEDIA_TABLE}) cm
           ON cm.id = c.avatar_url
 
       WHERE b.user_id = $1
@@ -292,9 +292,9 @@ const search = async ({ userId, query = '', communities = [], people = [], tags 
             AND xt.source_type = 'view_post_' || p.id
           ) AS is_xp_claimed,
             EXISTS(SELECT 1 FROM posts rp WHERE rp.repost_of_id = p.id AND rp.author_id = $1 AND rp.deleted_at IS NULL) AS is_reposted,
-            COALESCE(json_agg(json_build_object('media_id', m.id, 'media_type', m.media_type, 'media_url', m.cloudfront_url, 'preview_url', m.preview_url, 'width', m.width, 'height', m.height, 'duration_seconds', m.duration_seconds, 'file_size_bytes', m.size_bytes, 'mime_type', m.mime_type, 'has_audio', (m.media_type = 'video' AND m.mime_type NOT LIKE '%audio-only%')) ORDER BY m.created_at) FILTER (WHERE m.id IS NOT NULL), '[]'::json) AS media,
-            json_build_object('id', u.id, 'name', u.name, 'username', u.username, 'avatar_url', CASE WHEN u.avatar_url IS NULL THEN NULL ELSE json_build_object('cloudfront_url', ua.cloudfront_url) END) AS author,
-            CASE WHEN c.id IS NULL THEN NULL ELSE json_build_object('id', c.id, 'name', c.name, 'slug', c.slug, 'privacy', c.privacy, 'avatar_url', CASE WHEN c.avatar_url IS NULL THEN NULL ELSE json_build_object('cloudfront_url', ca.cloudfront_url) END) END AS community,
+            COALESCE(json_agg(json_build_object('media_id', m.id, 'media_type', m.media_type, 'media_url', m.media_url, 'preview_url', m.preview_url, 'width', m.width, 'height', m.height, 'duration_seconds', m.duration_seconds, 'file_size_bytes', m.size_bytes, 'mime_type', m.mime_type, 'has_audio', (m.media_type = 'video' AND m.mime_type NOT LIKE '%audio-only%')) ORDER BY m.created_at) FILTER (WHERE m.id IS NOT NULL), '[]'::json) AS media,
+            json_build_object('id', u.id, 'name', u.name, 'username', u.username, 'avatar_url', CASE WHEN u.avatar_url IS NULL THEN NULL ELSE json_build_object('media_url', ua.media_url) END) AS author,
+            CASE WHEN c.id IS NULL THEN NULL ELSE json_build_object('id', c.id, 'name', c.name, 'slug', c.slug, 'privacy', c.privacy, 'avatar_url', CASE WHEN c.avatar_url IS NULL THEN NULL ELSE json_build_object('media_url', ca.media_url) END) END AS community,
             COUNT(*) OVER() AS total
           FROM bookmark b
           JOIN posts p ON p.id = b.source_id
@@ -317,7 +317,7 @@ const search = async ({ userId, query = '', communities = [], people = [], tags 
       },
       people: {
         sql: `
-          SELECT u.*, b.created_at AS bookmarked_at, um.cloudfront_url AS avatar_cloudfront_url,
+          SELECT u.*, b.created_at AS bookmarked_at, um.media_url AS avatar_media_url,
             (SELECT COUNT(*) FROM followers f WHERE f.following_id = u.id) AS follower_count,
             (SELECT COUNT(*) FROM posts p WHERE p.author_id = u.id AND p.deleted_at IS NULL AND p.status = 'published') AS post_count,
             EXISTS(SELECT 1 FROM followers f WHERE f.follower_id = $1 AND f.following_id = u.id) AS is_following,
@@ -336,7 +336,7 @@ const search = async ({ userId, query = '', communities = [], people = [], tags 
       },
       communities: {
         sql: `
-          SELECT c.*, b.created_at AS bookmarked_at, cm.cloudfront_url AS avatar_cloudfront_url,
+          SELECT c.*, b.created_at AS bookmarked_at, cm.media_url AS avatar_media_url,
             (SELECT COUNT(*) FROM community_members cm2 WHERE cm2.community_id = c.id) AS member_count,
             (SELECT COUNT(*) FROM posts p WHERE p.community_id = c.id AND p.deleted_at IS NULL AND p.status = 'published') AS post_count,
             EXISTS(SELECT 1 FROM community_members cm3 WHERE cm3.community_id = c.id AND cm3.user_id = $1) AS is_member,

@@ -11,8 +11,8 @@ const findByFollowingId = async (userId, limit, offset, search = '') => {
     const { rows } = await pool.query(
       `
         SELECT ${UserModel.PUBLIC_FIELDS}, 
-               avatar_media.cloudfront_url AS avatar_media_url,
-               banner_media.cloudfront_url AS banner_media_url,
+               avatar_media.media_url AS avatar_media_url,
+               banner_media.media_url AS banner_media_url,
                COUNT(*) OVER() AS total 
         FROM ${FollowersModel.TABLE} f
         JOIN ${UserModel.TABLE} u ON u.id = f.follower_id
@@ -59,8 +59,8 @@ const findByFollowerId = async (userId, limit, offset, search = '') => {
     const { rows } = await pool.query(
       `
         SELECT ${UserModel.PUBLIC_FIELDS}, 
-               avatar_media.cloudfront_url AS avatar_media_url,
-               banner_media.cloudfront_url AS banner_media_url,
+               avatar_media.media_url AS avatar_media_url,
+               banner_media.media_url AS banner_media_url,
                COUNT(*) OVER() AS total 
         FROM ${FollowersModel.TABLE} f
         JOIN ${UserModel.TABLE} u ON u.id = f.following_id
@@ -133,8 +133,8 @@ const findPendingByFollowingId = async (followingId, limit, offset) => {
     const { rows } = await pool.query(
       `
         SELECT ${UserModel.PUBLIC_FIELDS}, 
-               avatar_media.cloudfront_url AS avatar_media_url,
-               banner_media.cloudfront_url AS banner_media_url,
+               avatar_media.media_url AS avatar_media_url,
+               banner_media.media_url AS banner_media_url,
                COUNT(*) OVER() AS total 
         FROM ${FollowersModel.TABLE} f
         JOIN ${UserModel.TABLE} u ON u.id = f.follower_id

@@ -19,6 +19,15 @@ const ensureMigrationsTable = async (client) => {
       applied_at TIMESTAMPTZ  NOT NULL DEFAULT NOW()
     );
   `);
+  // Self-heal the id SERIAL sequence: if rows were ever inserted with explicit
+  // ids (restore, manual seed, idempotent replay), the sequence can lag behind
+  // MAX(id) and every new bookkeeping INSERT fails with a duplicate-key error
+  // on _migrations_pkey — even though the migration SQL itself succeeded.
+  await client.query(
+    `SELECT setval(pg_get_serial_sequence('_migrations', 'id'),
+                   COALESCE((SELECT MAX(id) FROM _migrations), 0) + 1,
+                   false)`,
+  );
 };
 
 const getApplied = async (client) => {
@@ -37,6 +46,7 @@ const runMigrations = async () => {
       .sort();
 
     let count = 0;
+    const failed = [];
     for (const file of files) {
       if (applied.has(file)) {
         console.log(`  ⏭  Skipping: ${file}`);
@@ -52,12 +62,20 @@ const runMigrations = async () => {
         count++;
       } catch (err) {
         await client.query('ROLLBACK');
+        failed.push(file);
         console.error(`Failed: ${file} — ${err.message}`);
         // Continue to next migration instead of crashing
       }
     }
 
-    console.log(`\nMigrations complete. ${count} new migration(s) applied.`);
+    if (failed.length > 0) {
+      console.error(`\nMigrations finished with ${count} applied, ${failed.length} FAILED:`);
+      failed.forEach((f) => console.error(`  ✗ ${f}`));
+      // Non-zero exit so CI / deploy pipelines catch silent migration failures.
+      process.exitCode = 1;
+    } else {
+      console.log(`\nMigrations complete. ${count} new migration(s) applied.`);
+    }
   } finally {
     client.release();
     await pool.end();

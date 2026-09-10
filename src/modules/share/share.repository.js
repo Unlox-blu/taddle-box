@@ -23,8 +23,8 @@ const findUser = async (userId) => {
   try {
     const { rows } = await pool.query(
       `SELECT ${ShareModel.USER_FIELDS}, 
-      avatar_media.cloudfront_url AS avatar_media_url,
-      banner_media.cloudfront_url AS banner_media_url
+      avatar_media.media_url AS avatar_media_url,
+      banner_media.media_url AS banner_media_url
       FROM ${ShareModel.USER_TABLE} u 
       LEFT JOIN media AS avatar_media ON avatar_media.id = avatar_url
       LEFT JOIN media AS banner_media ON banner_media.id = banner_url
@@ -47,7 +47,7 @@ const findPost = async (postId) => {
                 json_build_object(
                     'id', m.id,
                     'media_type', m.media_type,
-                    'cloudfront_url', m.cloudfront_url,
+                    'media_url', m.media_url,
                     'width', m.width,
                     'height', m.height,
                     's3_key', m.s3_key,
@@ -93,8 +93,8 @@ const findCommunity = async (communityId) => {
   try {
     const { rows } = await pool.query(
       `SELECT ${ShareModel.COMMUNITY_FIELDS},
-      avatar_media.cloudfront_url AS avatar_media_url,
-      banner_media.cloudfront_url AS banner_media_url 
+      avatar_media.media_url AS avatar_media_url,
+      banner_media.media_url AS banner_media_url 
       FROM ${ShareModel.COMMUNITY_TABLE} c
       LEFT JOIN media AS avatar_media ON avatar_media.id = c.avatar_url
       LEFT JOIN media AS banner_media ON banner_media.id = c.banner_url

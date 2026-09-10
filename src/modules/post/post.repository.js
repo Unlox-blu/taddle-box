@@ -16,7 +16,7 @@ const findLikers = async (postId, currentUserId, limit, offset, search = '') => 
           u.name,
           u.username,
           u.privacy,
-          avatar_media.cloudfront_url AS avatar_url,
+          avatar_media.media_url AS avatar_url,
           EXISTS(
             SELECT 1 FROM followers f
             WHERE f.follower_id = $2 AND f.following_id = u.id AND f.status = 'active'
@@ -63,7 +63,7 @@ const findReposters = async (postId, currentUserId, limit, offset, search = '') 
           sub.name,
           sub.username,
           sub.privacy,
-          avatar_media.cloudfront_url AS avatar_url,
+          avatar_media.media_url AS avatar_url,
           EXISTS(
             SELECT 1 FROM followers f
             WHERE f.follower_id = $2 AND f.following_id = sub.id AND f.status = 'active'
@@ -115,7 +115,7 @@ const findPollVoters = async (postId, optionIndex, currentUserId, limit, offset,
           u.name,
           u.username,
           u.privacy,
-          avatar_media.cloudfront_url AS avatar_url,
+          avatar_media.media_url AS avatar_url,
           EXISTS(
             SELECT 1 FROM followers f
             WHERE f.follower_id = $3 AND f.following_id = u.id AND f.status = 'active'
@@ -150,7 +150,7 @@ const findById = async (postId, currentUserId = null) => {
   try {
     const { rows } = await pool.query(
       `SELECT 
-        p.id, p.author_id, p.community_id, p.repost_of_id, p.title, p.content, p.tags, p.status, p.visibility, p.likes_count, p.comments_count, p.shares_count, p.views_count, p.is_pinned, p.poll_data, p.latitude, p.longitude, p.place, p.published_at, p.created_at, json_build_object('id', u.id, 'name', u.name, 'username', u.username, 'avatar_url', CASE WHEN u.avatar_url IS NULL THEN NULL ELSE json_build_object('cloudfront_url', ua.cloudfront_url) END) AS author, CASE WHEN c.id IS NULL THEN NULL ELSE json_build_object('id', c.id, 'name', c.name, 'slug', c.slug, 'privacy', c.privacy, 'avatar_url', CASE WHEN c.avatar_url IS NULL THEN NULL ELSE json_build_object('cloudfront_url', ca.cloudfront_url) END) END AS community,
+        p.id, p.author_id, p.community_id, p.repost_of_id, p.title, p.content, p.tags, p.status, p.visibility, p.likes_count, p.comments_count, p.shares_count, p.views_count, p.is_pinned, p.poll_data, p.latitude, p.longitude, p.place, p.published_at, p.created_at, json_build_object('id', u.id, 'name', u.name, 'username', u.username, 'avatar_url', CASE WHEN u.avatar_url IS NULL THEN NULL ELSE json_build_object('media_url', ua.media_url) END) AS author, CASE WHEN c.id IS NULL THEN NULL ELSE json_build_object('id', c.id, 'name', c.name, 'slug', c.slug, 'privacy', c.privacy, 'avatar_url', CASE WHEN c.avatar_url IS NULL THEN NULL ELSE json_build_object('media_url', ca.media_url) END) END AS community,
         EXISTS(SELECT 1 FROM post_likes pl WHERE pl.post_id = p.id AND pl.user_id = $2) AS is_liked,
         EXISTS(SELECT 1 FROM bookmark bm WHERE bm.source_id = p.id AND bm.source_type = 'post' AND bm.user_id = $2) AS is_bookmarked,
         EXISTS(
@@ -175,7 +175,7 @@ const findById = async (postId, currentUserId = null) => {
                 json_build_object(
                     'media_id', m.id,
                     'media_type', m.media_type,
-                    'media_url', m.cloudfront_url,
+                    'media_url', m.media_url,
                     'preview_url', m.preview_url,
                     'width', m.width,
                     'height', m.height,
@@ -221,7 +221,7 @@ const findManyByUser = async (authorId, limit, offset, currentUserId = null, typ
       : '';
     const { rows } = await pool.query(
       `SELECT 
-        p.id, p.author_id, p.community_id, p.repost_of_id, p.title, p.content, p.tags, p.status, p.visibility, p.likes_count, p.comments_count, p.shares_count, p.views_count, p.is_pinned, p.poll_data, p.latitude, p.longitude, p.place, p.published_at, p.created_at, json_build_object('id', u.id, 'name', u.name, 'username', u.username, 'avatar_url', CASE WHEN u.avatar_url IS NULL THEN NULL ELSE json_build_object('cloudfront_url', ua.cloudfront_url) END) AS author, CASE WHEN c.id IS NULL THEN NULL ELSE json_build_object('id', c.id, 'name', c.name, 'slug', c.slug, 'privacy', c.privacy, 'avatar_url', CASE WHEN c.avatar_url IS NULL THEN NULL ELSE json_build_object('cloudfront_url', ca.cloudfront_url) END) END AS community,
+        p.id, p.author_id, p.community_id, p.repost_of_id, p.title, p.content, p.tags, p.status, p.visibility, p.likes_count, p.comments_count, p.shares_count, p.views_count, p.is_pinned, p.poll_data, p.latitude, p.longitude, p.place, p.published_at, p.created_at, json_build_object('id', u.id, 'name', u.name, 'username', u.username, 'avatar_url', CASE WHEN u.avatar_url IS NULL THEN NULL ELSE json_build_object('media_url', ua.media_url) END) AS author, CASE WHEN c.id IS NULL THEN NULL ELSE json_build_object('id', c.id, 'name', c.name, 'slug', c.slug, 'privacy', c.privacy, 'avatar_url', CASE WHEN c.avatar_url IS NULL THEN NULL ELSE json_build_object('media_url', ca.media_url) END) END AS community,
         EXISTS(SELECT 1 FROM post_likes pl WHERE pl.post_id = p.id AND pl.user_id = $4) AS is_liked,
         EXISTS(SELECT 1 FROM bookmark bm WHERE bm.source_id = p.id AND bm.source_type = 'post' AND bm.user_id = $4) AS is_bookmarked,
         EXISTS(
@@ -246,7 +246,7 @@ const findManyByUser = async (authorId, limit, offset, currentUserId = null, typ
                 json_build_object(
                     'media_id', m.id,
                     'media_type', m.media_type,
-                    'media_url', m.cloudfront_url,
+                    'media_url', m.media_url,
                     'preview_url', m.preview_url,
                     'width', m.width,
                     'height', m.height,
@@ -289,7 +289,7 @@ const findManyByUser = async (authorId, limit, offset, currentUserId = null, typ
 const findManyByCommunity = async (communityId, limit, offset, currentUserId = null) => {
   try {
     const { rows } = await pool.query(
-      `SELECT p.id, p.author_id, p.community_id, p.repost_of_id, p.title, p.content, p.tags, p.status, p.visibility, p.likes_count, p.comments_count, p.shares_count, p.views_count, p.is_pinned, p.poll_data, p.latitude, p.longitude, p.place, p.published_at, p.created_at, json_build_object('id', u.id, 'name', u.name, 'username', u.username, 'avatar_url', CASE WHEN u.avatar_url IS NULL THEN NULL ELSE json_build_object('cloudfront_url', ua.cloudfront_url) END) AS author, CASE WHEN c.id IS NULL THEN NULL ELSE json_build_object('id', c.id, 'name', c.name, 'slug', c.slug, 'privacy', c.privacy, 'avatar_url', CASE WHEN c.avatar_url IS NULL THEN NULL ELSE json_build_object('cloudfront_url', ca.cloudfront_url) END) END AS community, 
+      `SELECT p.id, p.author_id, p.community_id, p.repost_of_id, p.title, p.content, p.tags, p.status, p.visibility, p.likes_count, p.comments_count, p.shares_count, p.views_count, p.is_pinned, p.poll_data, p.latitude, p.longitude, p.place, p.published_at, p.created_at, json_build_object('id', u.id, 'name', u.name, 'username', u.username, 'avatar_url', CASE WHEN u.avatar_url IS NULL THEN NULL ELSE json_build_object('media_url', ua.media_url) END) AS author, CASE WHEN c.id IS NULL THEN NULL ELSE json_build_object('id', c.id, 'name', c.name, 'slug', c.slug, 'privacy', c.privacy, 'avatar_url', CASE WHEN c.avatar_url IS NULL THEN NULL ELSE json_build_object('media_url', ca.media_url) END) END AS community, 
         EXISTS(SELECT 1 FROM post_likes pl WHERE pl.post_id = p.id AND pl.user_id = $4) AS is_liked,
         EXISTS(SELECT 1 FROM bookmark bm WHERE bm.source_id = p.id AND bm.source_type = 'post' AND bm.user_id = $4) AS is_bookmarked,
         EXISTS(
@@ -314,7 +314,7 @@ const findManyByCommunity = async (communityId, limit, offset, currentUserId = n
                 json_build_object(
                     'media_id', m.id,
                     'media_type', m.media_type,
-                    'media_url', m.cloudfront_url,
+                    'media_url', m.media_url,
                     'preview_url', m.preview_url,
                     'width', m.width,
                     'height', m.height,
@@ -621,7 +621,7 @@ const search = async (query, limit, offset, currentUserId = null) => {
   try {
     const q = query || '';
     const { rows } = await pool.query(
-      `SELECT p.id, p.author_id, p.community_id, p.repost_of_id, p.title, p.content, p.tags, p.status, p.visibility, p.likes_count, p.comments_count, p.shares_count, p.views_count, p.is_pinned, p.poll_data, p.latitude, p.longitude, p.place, p.published_at, p.created_at, json_build_object('id', u.id, 'name', u.name, 'username', u.username, 'avatar_url', CASE WHEN u.avatar_url IS NULL THEN NULL ELSE json_build_object('cloudfront_url', ua.cloudfront_url) END) AS author, CASE WHEN c.id IS NULL THEN NULL ELSE json_build_object('id', c.id, 'name', c.name, 'slug', c.slug, 'privacy', c.privacy, 'avatar_url', CASE WHEN c.avatar_url IS NULL THEN NULL ELSE json_build_object('cloudfront_url', ca.cloudfront_url) END) END AS community, COUNT(*) OVER() AS total,
+      `SELECT p.id, p.author_id, p.community_id, p.repost_of_id, p.title, p.content, p.tags, p.status, p.visibility, p.likes_count, p.comments_count, p.shares_count, p.views_count, p.is_pinned, p.poll_data, p.latitude, p.longitude, p.place, p.published_at, p.created_at, json_build_object('id', u.id, 'name', u.name, 'username', u.username, 'avatar_url', CASE WHEN u.avatar_url IS NULL THEN NULL ELSE json_build_object('media_url', ua.media_url) END) AS author, CASE WHEN c.id IS NULL THEN NULL ELSE json_build_object('id', c.id, 'name', c.name, 'slug', c.slug, 'privacy', c.privacy, 'avatar_url', CASE WHEN c.avatar_url IS NULL THEN NULL ELSE json_build_object('media_url', ca.media_url) END) END AS community, COUNT(*) OVER() AS total,
         EXISTS(SELECT 1 FROM post_likes pl WHERE pl.post_id = p.id AND pl.user_id = $4) AS is_liked,
         EXISTS(SELECT 1 FROM bookmark bm WHERE bm.source_id = p.id AND bm.source_type = 'post' AND bm.user_id = $4) AS is_bookmarked,
         EXISTS(
@@ -644,7 +644,7 @@ const search = async (query, limit, offset, currentUserId = null) => {
                 json_build_object(
                     'media_id', m.id,
                     'media_type', m.media_type,
-                    'media_url', m.cloudfront_url,
+                    'media_url', m.media_url,
                     'preview_url', m.preview_url,
                     'width', m.width,
                     'height', m.height,

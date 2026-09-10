@@ -134,7 +134,7 @@ const findByUser = async ({userId, limit, offset, unreadOnly = false, types = nu
 
     u.name AS sender_name,
     u.username AS sender_username,
-    avatar_media.cloudfront_url AS sender_avatar_url,
+    avatar_media.media_url AS sender_avatar_url,
 
     COUNT(*) OVER() AS total,
     (

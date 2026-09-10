@@ -7,8 +7,8 @@ const LIKES_TABLE = 'post_likes';
 const VIEWS_TABLE = 'post_views';
 
 // SSOT: author and community are nested json_build_object, not flat columns.
-const AUTHOR_EXPR = `json_build_object('id', u.id, 'name', u.name, 'username', u.username, 'avatar_url', CASE WHEN u.avatar_url IS NULL THEN NULL ELSE json_build_object('cloudfront_url', ua.cloudfront_url) END) AS author`;
-const COMMUNITY_EXPR = `CASE WHEN c.id IS NULL THEN NULL ELSE json_build_object('id', c.id, 'name', c.name, 'slug', c.slug, 'privacy', c.privacy, 'avatar_url', CASE WHEN c.avatar_url IS NULL THEN NULL ELSE json_build_object('cloudfront_url', ca.cloudfront_url) END) END AS community`;
+const AUTHOR_EXPR = `json_build_object('id', u.id, 'name', u.name, 'username', u.username, 'avatar_url', CASE WHEN u.avatar_url IS NULL THEN NULL ELSE json_build_object('media_url', ua.media_url) END) AS author`;
+const COMMUNITY_EXPR = `CASE WHEN c.id IS NULL THEN NULL ELSE json_build_object('id', c.id, 'name', c.name, 'slug', c.slug, 'privacy', c.privacy, 'avatar_url', CASE WHEN c.avatar_url IS NULL THEN NULL ELSE json_build_object('media_url', ca.media_url) END) END AS community`;
 
 const DETAIL_FIELDS = [
   'p.id', 'p.author_id', 'p.community_id', 'p.repost_of_id', 'p.title', 'p.content',

@@ -10,7 +10,7 @@ const GAME_SESSION_TABLE = 'game_sessions';
 
 const GAME_FIELDS = [
     'id', 'name', 'slug', 'description', 'thumbnail', 'category', 
-    'difficulty', 'is_active', 'metadata', 'created_at', 'updated_at'
+    'difficulty', 'is_active', 'metadata', 'tips', 'created_at', 'updated_at'
 ].join(', ');
 
 const GAME_MATCH_FIELDS = [
@@ -78,6 +78,8 @@ const formatGame = (row) => {
     difficulty: row.difficulty,
     isActive: row.is_active,
     metadata: row.metadata,
+    // Per-game tips (backend SSOT for the match-start screen pill).
+    tips: Array.isArray(row.tips) ? row.tips : [],
     maxXp: Number(row.metadata?.maxXp || 25),
     entryFee: Number(row.metadata?.entryFee) || 0,
     maxPlayers: resolveNaturalMaxPlayers(row),

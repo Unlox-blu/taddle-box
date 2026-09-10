@@ -146,7 +146,7 @@ const FEED_ALGORITHM = `WITH scored_posts AS (
                                     json_build_object(
                                         'media_id', m.id,
                                         'media_type', m.media_type,
-                                        'media_url', m.cloudfront_url,
+                                        'media_url', m.media_url,
                                         'preview_url', m.preview_url,
                                         'width', m.width,
                                         'height', m.height,

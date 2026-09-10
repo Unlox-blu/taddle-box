@@ -225,7 +225,7 @@ const setupGameSocket = (io, gameNs) => {
     try {
       const { rows } = await pool.query(
         `SELECT gp.user_id, gp.ws_token, gp.player_color, g.slug as game_slug, gs.metadata as match_metadata,
-                u.name, u.username, m.cloudfront_url AS avatar,
+                u.name, u.username, m.media_url AS avatar,
                 gp.player_type, gp.bot_id, gp.snapshot
          FROM game_participants gp
          LEFT JOIN users u ON u.id = gp.user_id
@@ -252,7 +252,12 @@ const setupGameSocket = (io, gameNs) => {
       }));
       socket.matchMetadata = myRow.match_metadata || {};
 
-      socket.lobbyBots = [];
+      // sessionBots — bot roster for THIS session, read from game_participants
+      // (the durable post-formation SSOT). Named sessionBots, not lobbyBots,
+      // to make the phase boundary explicit: lobby-phase rosters live in
+      // game_lobby_participants; once a session exists, only session tables
+      // are read.
+      socket.sessionBots = [];
       try {
         // game_participants is the SSOT once the session exists. Read bot roster
         // from there so the socket layer never queries game_lobby_participants
@@ -265,7 +270,7 @@ const setupGameSocket = (io, gameNs) => {
            ORDER BY gp.seat ASC`,
           [matchId]
         );
-        socket.lobbyBots = participantBotRows.map(r => ({
+        socket.sessionBots = participantBotRows.map(r => ({
           id:         r.bot_id,
           instanceId: r.snapshot.instanceId,
           name:       r.snapshot.displayName || r.snapshot.name,

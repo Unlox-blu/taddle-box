@@ -136,14 +136,14 @@ class NotificationService {
       if (postRows.length > 0) {
         const ids = [...new Set(postRows.map((n) => n.resourceId))];
         const { rows } = await pool.query(
-          `SELECT DISTINCT ON (m.post_id) m.post_id, m.cloudfront_url
+          `SELECT DISTINCT ON (m.post_id) m.post_id, m.media_url
            FROM media m
            WHERE m.post_id = ANY($1::uuid[]) AND (m.media_type IS NULL OR m.media_type <> 'audio')
            ORDER BY m.post_id, m.created_at ASC`,
           [ids]
         );
         const thumbByPost = Object.fromEntries(
-          rows.map((r) => [r.post_id, r.cloudfront_url])
+          rows.map((r) => [r.post_id, r.media_url])
         );
         postRows.forEach((n) => { n.thumbnailUrl = thumbByPost[n.resourceId] || null; });
       }
@@ -155,8 +155,8 @@ class NotificationService {
         const ids = [...new Set(communityRows.map((n) => n.resourceId))];
         const { rows } = await pool.query(
           `SELECT c.id, c.name,
-                  av.cloudfront_url AS avatar_url,
-                  bm.cloudfront_url AS banner_url
+                  av.media_url AS avatar_url,
+                  bm.media_url AS banner_url
            FROM communities c
            LEFT JOIN media av ON av.id = c.avatar_url
            LEFT JOIN media bm ON bm.id = c.banner_url

@@ -19,7 +19,7 @@ const getSpotLight = async (limit, offset) => {
              c.slug AS source_slug, s.created_at, s.updated_at,
              CASE
                WHEN s.type = 'event' THEN e.cover_image_url
-               WHEN s.type = 'community' THEN banner_media.cloudfront_url
+               WHEN s.type = 'community' THEN banner_media.media_url
                ELSE NULL
              END AS image_url,
              COUNT(*) OVER() AS total

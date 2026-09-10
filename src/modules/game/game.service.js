@@ -780,6 +780,8 @@ class GameService {
         expiresAt: session.expires_at,
         configuredRounds,
         ticket: { userMatchId: effectiveMatchId, token: wsToken },
+        // Per-game tips (backend SSOT) for the match-start screen's tips pill.
+        tips: Array.isArray(game.tips) ? game.tips : [],
         // Runtime + asset contract (SSOT from GameRegistry)
         runtime: registryMeta.runtime || game.slug,
         runtimeType: registryMeta.runtimeType || 'app',

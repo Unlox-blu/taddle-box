@@ -301,7 +301,7 @@ const findTournamentLeaderboard = async ({ tournamentId, limit, offset }) => {
         gte.user_id,
         u.name,
         u.username,
-        avatar_media.cloudfront_url AS avatar_url,
+        avatar_media.media_url AS avatar_url,
         gte.score AS best_score,
         COUNT(*) OVER() AS total
       FROM ${gameModel.GAME_TOURNAMENT_ENTRY_TABLE} gte
@@ -335,7 +335,7 @@ const findLeaderboard = async ({ limit, offset }) => {
         gs.user_id,
         u.name,
         u.username,
-        avatar_media.cloudfront_url AS avatar_url,
+        avatar_media.media_url AS avatar_url,
         gs.games_played,
         gs.wins,
         gs.current_streak,
@@ -696,7 +696,7 @@ const joinMatchmaking = async ({ userId, game, mode, tournamentId, targetPlayers
     lobby = updatedLobbyRes.rows[0];
 
     const playersRes = await client.query(
-      `SELECT t.user_id, u.name, u.username, m.cloudfront_url AS avatar, t.id as ticket_id,
+      `SELECT t.user_id, u.name, u.username, m.media_url AS avatar, t.id as ticket_id,
               COALESCE(x.total_xp_earned, 0) AS xp
        FROM ${gameModel.GAME_MATCHMAKING_TICKET_TABLE} t
        JOIN users u ON u.id = t.user_id
@@ -924,7 +924,7 @@ const fillMatchmakingLobby = async ({ userId, ticketId, overrideLobbyId, fillBot
     }
 
     const playersRes = await client.query(
-      `SELECT t.user_id, u.name, u.username, m.cloudfront_url AS avatar, t.id as ticket_id
+      `SELECT t.user_id, u.name, u.username, m.media_url AS avatar, t.id as ticket_id
        FROM game_matchmaking_ticket t
        JOIN users u ON u.id = t.user_id
        LEFT JOIN media m ON m.id = u.avatar_url
@@ -1161,7 +1161,7 @@ const cancelMatchmakingTicket = async ({ userId, ticketId }) => {
         await client.query(`UPDATE game_lobby SET status = 'CANCELLED', updated_at = NOW() WHERE id = $1`, [lobby.id]);
       } else {
         const playersRes = await client.query(
-          `SELECT t.user_id, u.name, u.username, m.cloudfront_url AS avatar, t.id as ticket_id
+          `SELECT t.user_id, u.name, u.username, m.media_url AS avatar, t.id as ticket_id
            FROM ${gameModel.GAME_MATCHMAKING_TICKET_TABLE} t
            JOIN users u ON u.id = t.user_id
            LEFT JOIN media m ON m.id = u.avatar_url
@@ -1407,7 +1407,7 @@ const getMatchArchivedState = async ({ matchId }) => {
 
 const getMatchRoster = async ({ matchId, excludeUserId }) => {
   const { rows } = await pool.query(
-    `SELECT gp.user_id, u.name, u.username, m.cloudfront_url AS avatar,
+    `SELECT gp.user_id, u.name, u.username, m.media_url AS avatar,
             COALESCE(x.total_xp_earned, 0) AS xp, gp.player_color,
             gp.player_type, gp.bot_id, gp.snapshot
      FROM game_participants gp
@@ -1567,7 +1567,7 @@ const getLobby = async ({ userId, lobbyId }) => {
   if (!rows[0]) throw require('../../utils/error.util').createError('Lobby not found', 404);
   
   const playersRes = await pool.query(
-    `SELECT t.user_id as "userId", u.name as "displayName", m.cloudfront_url AS avatar, t.id as ticket_id, t.metadata
+    `SELECT t.user_id as "userId", u.name as "displayName", m.media_url AS avatar, t.id as ticket_id, t.metadata
      FROM game_matchmaking_ticket t
      JOIN users u ON u.id = t.user_id
      LEFT JOIN media m ON m.id = u.avatar_url

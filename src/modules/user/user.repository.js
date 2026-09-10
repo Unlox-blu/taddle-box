@@ -8,8 +8,8 @@ const findByUsername = async (username) => {
   try {
     const { rows } = await pool.query(
       `SELECT ${UserModel.PUBLIC_FIELDS}, 
-      avatar_media.cloudfront_url AS avatar_media_url,
-      banner_media.cloudfront_url AS banner_media_url
+      avatar_media.media_url AS avatar_media_url,
+      banner_media.media_url AS banner_media_url
       FROM ${UserModel.TABLE} u 
       LEFT JOIN media AS avatar_media ON avatar_media.id = avatar_url
       LEFT JOIN media AS banner_media ON banner_media.id = banner_url
@@ -26,8 +26,8 @@ const findByIdPrivate = async (id) => {
   try {
     const { rows } = await pool.query(
       `SELECT ${UserModel.PRIVATE_FIELDS}, 
-      avatar_media.cloudfront_url AS avatar_media_url,
-      banner_media.cloudfront_url AS banner_media_url
+      avatar_media.media_url AS avatar_media_url,
+      banner_media.media_url AS banner_media_url
       FROM ${UserModel.TABLE} u 
       LEFT JOIN media AS avatar_media ON avatar_media.id = avatar_url
       LEFT JOIN media AS banner_media ON banner_media.id = banner_url
@@ -145,8 +145,8 @@ const findById = async (id) => {
   try {
     const { rows } = await pool.query(
       `SELECT ${UserModel.PUBLIC_FIELDS},
-      avatar_media.cloudfront_url AS avatar_media_url,
-      banner_media.cloudfront_url AS banner_media_url
+      avatar_media.media_url AS avatar_media_url,
+      banner_media.media_url AS banner_media_url
       FROM ${UserModel.TABLE} u 
       LEFT JOIN media AS avatar_media ON avatar_media.id = avatar_url
       LEFT JOIN media AS banner_media ON banner_media.id = banner_url

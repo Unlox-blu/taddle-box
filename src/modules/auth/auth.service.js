@@ -515,7 +515,7 @@ class AuthService {
             // Upload to S3
             const s3Key = this.storageSvc.generateS3Key('avatars', userId, contentType);
             await this.storageSvc.uploadBuffer(s3Key, buffer, contentType);
-            const cloudfrontUrl = `${config.CLOUDFRONT_DOMAIN}/${s3Key}`; // or rely on confirmUpload
+            const mediaUrl = `${config.CLOUDFRONT_DOMAIN}/${s3Key}`; // or rely on confirmUpload
 
             // Insert into media table
             const media = await this.mediaRepo.create({
@@ -529,8 +529,8 @@ class AuthService {
 
             // Update user with media ID
             await this.authUserRepo.updateAvatar(userId, media.id);
-            // Optionally update cloudfrontUrl if needed
-            await this.mediaRepo.updateStatus(media.id, 'ready', cloudfrontUrl);
+            // Optionally update mediaUrl if needed
+            await this.mediaRepo.updateStatus(media.id, 'ready', mediaUrl);
           }
         } catch (err) {
           console.error('Failed to download/upload social avatar:', err);

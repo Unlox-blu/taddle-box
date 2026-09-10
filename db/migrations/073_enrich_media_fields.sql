@@ -8,9 +8,9 @@ BEGIN;
 ALTER TABLE media ADD COLUMN IF NOT EXISTS preview_url TEXT;
 
 -- 2. Backfill preview_url from vimeo_thumbnail_url (videos get Vimeo poster)
---    For images, preview_url = cloudfront_url (same file serves as preview)
+--    For images, preview_url = media_url (same file serves as preview)
 UPDATE media
-SET preview_url = COALESCE(vimeo_thumbnail_url, cloudfront_url)
+SET preview_url = COALESCE(vimeo_thumbnail_url, media_url)
 WHERE preview_url IS NULL;
 
 -- 3. Verify

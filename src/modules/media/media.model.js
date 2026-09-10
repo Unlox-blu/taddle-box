@@ -6,7 +6,7 @@ const POST_TABLE = 'posts';
 
 const MEDIA_FIELDS = [
   'id', 'post_id', 'uploader_id', 'media_type',
-  's3_key', 'cloudfront_url', 'vimeo_uri', 'vimeo_player_url', 'vimeo_thumbnail_url',
+  's3_key', 'media_url', 'vimeo_uri', 'vimeo_player_url', 'vimeo_thumbnail_url',
   'mime_type', 'size_bytes', 'width', 'height',
   'duration_seconds', 'processing_status', 'deleted_at', 'created_at', 'updated_at'
 ].join(', ');
@@ -23,7 +23,7 @@ const format = (row) => {
     uploaderId: row.uploader_id,
     mediaType: row.media_type,
     s3Key: row.s3_key,
-    cloudfrontUrl: row.cloudfront_url,
+    mediaUrl: row.media_url,
     vimeoUri: row.vimeo_uri,
     vimeoPlayerUrl: row.vimeo_player_url,
     vimeoThumbnailUrl: row.vimeo_thumbnail_url,

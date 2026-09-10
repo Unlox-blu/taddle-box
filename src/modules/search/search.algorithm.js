@@ -75,7 +75,7 @@ const SEARCH_POSt_ALGORITHM = `SELECT
                                         json_build_object(
                                             'media_id', m.id,
                                             'media_type', m.media_type,
-                                            'media_url', m.cloudfront_url,
+                                            'media_url', m.media_url,
                                             'preview_url', m.preview_url,
                                             'width', m.width,
                                             'height', m.height,
@@ -766,7 +766,7 @@ const DISCOVER_POSTS_ALGORITHM = `WITH ranked_posts AS (
                                             json_build_object(
                                                 'media_id', m.id,
                                                 'media_type', m.media_type,
-                                                'media_url', m.cloudfront_url,
+                                                'media_url', m.media_url,
                                                 'preview_url', m.preview_url,
                                                 'width', m.width,
                                                 'height', m.height,
@@ -955,7 +955,7 @@ const SEARCH_COMMENT_ALGORITHM = `SELECT
                                     'id', u.id,
                                     'name', u.name,
                                     'username', u.username,
-                                    'avatar_url', ua.cloudfront_url
+                                    'avatar_url', ua.media_url
                                 ) AS author,
                                 p.title AS post_title,
                                 p.content AS post_content,
@@ -965,7 +965,7 @@ const SEARCH_COMMENT_ALGORITHM = `SELECT
                                     'name', c.name,
                                     'slug', c.slug,
                                     'privacy', c.privacy,
-                                    'avatar_url', ca.cloudfront_url
+                                    'avatar_url', ca.media_url
                                 ) END AS community,
                                 CASE
                                     WHEN LOWER(cm.content) = LOWER($5) THEN 10000
@@ -1120,7 +1120,7 @@ const SEARCH_COMMENT_ALGORITHM = `SELECT
 const SEARCH_MEDIA_ALGORITHM = `SELECT
                                 m.id AS media_id,
                                 m.media_type,
-                                m.cloudfront_url,
+                                m.media_url,
                                 m.vimeo_player_url,
                                 m.vimeo_thumbnail_url,
                                 m.width,
@@ -1136,14 +1136,14 @@ const SEARCH_MEDIA_ALGORITHM = `SELECT
                                     'id', u.id,
                                     'name', u.name,
                                     'username', u.username,
-                                    'avatar_url', ua.cloudfront_url
+                                    'avatar_url', ua.media_url
                                 ) AS author,
                                 CASE WHEN c.id IS NULL THEN NULL ELSE json_build_object(
                                     'id', c.id,
                                     'name', c.name,
                                     'slug', c.slug,
                                     'privacy', c.privacy,
-                                    'avatar_url', ca.cloudfront_url
+                                    'avatar_url', ca.media_url
                                 ) END AS community,
                                 (
                                     -- Exact / prefix / fuzzy title match
@@ -1382,7 +1382,7 @@ ranked_messages AS (
       'name', u.name,
       'username', u.username,
       'avatar_url', CASE WHEN u.avatar_url IS NULL THEN NULL
-        ELSE json_build_object('cloudfront_url', ua.cloudfront_url)
+        ELSE json_build_object('media_url', ua.media_url)
       END
     ) AS sender,
     -- Conversation partner (the OTHER person in a 1:1 DM)
@@ -1392,7 +1392,7 @@ ranked_messages AS (
         'name', u3.name,
         'username', u3.username,
         'avatar_url', CASE WHEN u3.avatar_url IS NULL THEN NULL
-          ELSE json_build_object('cloudfront_url', ua3.cloudfront_url)
+          ELSE json_build_object('media_url', ua3.media_url)
         END
       )
       FROM conversation_participants cp3

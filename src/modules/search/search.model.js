@@ -8,8 +8,8 @@ const GAME_TABLE = 'game';
 
 const USER_FIELDS = [
   'u.id', 'u.name', 'u.username', 'u.follower_count', 'u.following_count',
-  'ua.cloudfront_url AS avatar_media_url',
-  'ub.cloudfront_url AS banner_media_url',
+  'ua.media_url AS avatar_media_url',
+  'ub.media_url AS banner_media_url',
   'u.avatar_url',
   'u.banner_url',
 ].join(', ');
@@ -17,8 +17,8 @@ const USER_FIELDS = [
 const COMMUNITY_FIELDS = [
   'c.id', 'c.name', 'c.slug', 'c.description',
   'c.privacy', 'c.category', 'c.member_count', 'c.post_count', 'c.is_verified', 'c.created_at',
-  'ca.cloudfront_url AS avatar_media_url',
-  'cb.cloudfront_url AS banner_media_url',
+  'ca.media_url AS avatar_media_url',
+  'cb.media_url AS banner_media_url',
   'c.avatar_url',
   'c.banner_url',
 ].join(', ');
@@ -42,8 +42,8 @@ const POST_FIELDS = [
   'COALESCE(orig.longitude, p.longitude) AS longitude',
   'COALESCE(orig.place,     p.place)     AS place',
   'p.published_at', 'p.created_at',
-  `json_build_object('id', u.id, 'name', u.name, 'username', u.username, 'avatar_url', CASE WHEN u.avatar_url IS NULL THEN NULL ELSE json_build_object('cloudfront_url', ua.cloudfront_url) END) AS author`,
-  `CASE WHEN c.id IS NULL THEN NULL ELSE json_build_object('id', c.id, 'name', c.name, 'slug', c.slug, 'privacy', c.privacy, 'avatar_url', CASE WHEN c.avatar_url IS NULL THEN NULL ELSE json_build_object('cloudfront_url', ca.cloudfront_url) END) END AS community`,
+  `json_build_object('id', u.id, 'name', u.name, 'username', u.username, 'avatar_url', CASE WHEN u.avatar_url IS NULL THEN NULL ELSE json_build_object('media_url', ua.media_url) END) AS author`,
+  `CASE WHEN c.id IS NULL THEN NULL ELSE json_build_object('id', c.id, 'name', c.name, 'slug', c.slug, 'privacy', c.privacy, 'avatar_url', CASE WHEN c.avatar_url IS NULL THEN NULL ELSE json_build_object('media_url', ca.media_url) END) END AS community`,
 ].join(', ');
 
 // Games are returned as-is (matches game module's formatGame shape) so the app

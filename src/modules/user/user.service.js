@@ -55,9 +55,9 @@ class UserService {
           const pool = require('../../config/database');
           const mutualRes = await pool.query(
             // NOTE: users.avatar_url is a UUID (media id) — never COALESCE it
-            // against the TEXT cloudfront_url or Postgres throws 42804 and the
+            // against the TEXT media_url or Postgres throws 42804 and the
             // whole mutuals block silently falls back to empty.
-            `SELECT u.id, u.name, u.username, am.cloudfront_url AS avatar, COUNT(*) OVER() AS total
+            `SELECT u.id, u.name, u.username, am.media_url AS avatar, COUNT(*) OVER() AS total
              FROM followers f1
              JOIN followers f2 ON f2.follower_id = f1.following_id AND f2.following_id = $2 AND f2.status = 'active'
              JOIN users u ON u.id = f1.following_id AND u.deleted_at IS NULL
@@ -410,7 +410,7 @@ class UserService {
       const q = search ? `%${search}%` : '';
       const { rows } = await pool.query(
         // users.avatar_url is a UUID (media id) — same fix as getProfile.
-        `SELECT u.id, u.name, u.username, am.cloudfront_url AS avatar_url, COUNT(*) OVER() AS total
+        `SELECT u.id, u.name, u.username, am.media_url AS avatar_url, COUNT(*) OVER() AS total
          FROM followers f1
          JOIN followers f2
            ON f2.follower_id = f1.following_id

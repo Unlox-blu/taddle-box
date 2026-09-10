@@ -175,8 +175,8 @@ class BotMatchHandler {
   }
 
   setupBotPlayer(socket, players) {
-    const lobbyBots = Array.isArray(socket.lobbyBots) ? socket.lobbyBots : [];
-    for (const bot of lobbyBots) {
+    const sessionBots = Array.isArray(socket.sessionBots) ? socket.sessionBots : [];
+    for (const bot of sessionBots) {
       // game_participants is the SSOT and ALREADY contains every bot (auth maps
       // gp.bot_id → userId, e.g. 'bot_008'). Only inject a bot that is genuinely
       // missing — match on BOTH the base bot id and the per-lobby instance id,
@@ -200,7 +200,7 @@ class BotMatchHandler {
         });
       }
     }
-    return lobbyBots.length > 0;
+    return sessionBots.length > 0;
   }
 }
 

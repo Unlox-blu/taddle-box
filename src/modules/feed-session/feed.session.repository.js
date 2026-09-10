@@ -144,7 +144,7 @@ const getSessionPage = async (sessionId, offset, limit, userId) => {
         json_build_object(
           'id', u.id, 'name', u.name, 'username', u.username,
           'avatar_url', CASE WHEN u.avatar_url IS NULL THEN NULL
-            ELSE json_build_object('cloudfront_url', ua.cloudfront_url)
+            ELSE json_build_object('media_url', ua.media_url)
           END
         ) AS author,
         CASE WHEN c.id IS NULL THEN NULL
@@ -152,7 +152,7 @@ const getSessionPage = async (sessionId, offset, limit, userId) => {
             'id', c.id, 'name', c.name, 'slug', c.slug,
             'privacy', c.privacy,
             'avatar_url', CASE WHEN c.avatar_url IS NULL THEN NULL
-              ELSE json_build_object('cloudfront_url', ca.cloudfront_url)
+              ELSE json_build_object('media_url', ca.media_url)
             END
           )
         END AS community,
@@ -178,7 +178,7 @@ const getSessionPage = async (sessionId, offset, limit, userId) => {
             json_build_object(
               'media_id', m.id,
               'media_type', m.media_type,
-              'media_url', m.cloudfront_url,
+              'media_url', m.media_url,
               'preview_url', m.preview_url,
               'width', m.width,
               'height', m.height,

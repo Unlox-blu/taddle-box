@@ -27,7 +27,7 @@ const getFeedLeaderboard = async ({limit, userId}) => {
         u.id,
         u.name AS title,
         '@' || u.username AS subtitle,
-        avatar_media.cloudfront_url AS avatar_url,
+        avatar_media.media_url AS avatar_url,
         COALESCE(SUM(p.likes_count * 3 + p.comments_count * 5 + p.views_count), 0)::INT AS score,
         'Feed impact' AS metric_label,
         ROW_NUMBER() OVER (ORDER BY COALESCE(SUM(p.likes_count * 3 + p.comments_count * 5 + p.views_count), 0)::INT DESC, u.name ASC) as calculated_rank
@@ -40,7 +40,7 @@ const getFeedLeaderboard = async ({limit, userId}) => {
         AND u.deleted_at IS NULL
         -- Private accounts' posts stay private — their engagement must not rank publicly
         AND u.privacy = 'public'
-      GROUP BY u.id, u.name, u.username, avatar_media.cloudfront_url
+      GROUP BY u.id, u.name, u.username, avatar_media.media_url
       HAVING COALESCE(SUM(p.likes_count * 3 + p.comments_count * 5 + p.views_count), 0) > 0
     )
     SELECT * FROM ranked WHERE calculated_rank <= $1 OR id = $2 ORDER BY calculated_rank ASC`,
@@ -61,7 +61,7 @@ const getCommunityLeaderboard = async ({limit, userId}) => {
         u.id,
         u.name AS title,
         '@' || u.username AS subtitle,
-        avatar_media.cloudfront_url AS avatar_url,
+        avatar_media.media_url AS avatar_url,
         (
           COALESCE(COUNT(DISTINCT p.id) FILTER (WHERE p.community_id IS NOT NULL), 0) * 8 +
           COALESCE(COUNT(DISTINCT l.post_id), 0) * 2 +
@@ -91,7 +91,7 @@ const getCommunityLeaderboard = async ({limit, userId}) => {
       WHERE u.deleted_at IS NULL
         -- Private accounts don't appear on public leaderboards
         AND u.privacy = 'public'
-      GROUP BY u.id, u.name, u.username, avatar_media.cloudfront_url
+      GROUP BY u.id, u.name, u.username, avatar_media.media_url
       HAVING (
         COALESCE(COUNT(DISTINCT p.id) FILTER (WHERE p.community_id IS NOT NULL), 0) +
         COALESCE(COUNT(DISTINCT l.post_id), 0) +
@@ -116,7 +116,7 @@ const getGamesLeaderboard = async ({limit, userId}) => {
         u.id,
         u.name AS title,
         '@' || u.username AS subtitle,
-        avatar_media.cloudfront_url AS avatar_url,
+        avatar_media.media_url AS avatar_url,
         COALESCE(COUNT(gm.id) FILTER (WHERE gm.result = 'WIN'), 0)::INT AS score,
         'Wins this week' AS metric_label,
         ROW_NUMBER() OVER (ORDER BY COALESCE(COUNT(gm.id) FILTER (WHERE gm.result = 'WIN'), 0)::INT DESC, u.name ASC) as calculated_rank
@@ -128,7 +128,7 @@ const getGamesLeaderboard = async ({limit, userId}) => {
         AND u.deleted_at IS NULL
         -- Private accounts don't appear on public leaderboards
         AND u.privacy = 'public'
-      GROUP BY u.id, u.name, u.username, avatar_media.cloudfront_url
+      GROUP BY u.id, u.name, u.username, avatar_media.media_url
       HAVING COUNT(gm.id) FILTER (WHERE gm.result = 'WIN') > 0
     )
     SELECT * FROM ranked WHERE calculated_rank <= $1 OR id = $2 ORDER BY calculated_rank ASC`,
@@ -149,7 +149,7 @@ const getEventsLeaderboard = async ({limit, userId}) => {
         u.id,
         u.name AS title,
         '@' || u.username AS subtitle,
-        avatar_media.cloudfront_url AS avatar_url,
+        avatar_media.media_url AS avatar_url,
         (
           COALESCE(COUNT(DISTINCT ea.event_id) FILTER (WHERE ea.status IN ('registered', 'attended')), 0) * 10 +
           COALESCE(COUNT(DISTINCT ea.event_id) FILTER (WHERE ea.status = 'attended'), 0) * 15
@@ -168,7 +168,7 @@ const getEventsLeaderboard = async ({limit, userId}) => {
       WHERE u.deleted_at IS NULL
         -- Private accounts don't appear on public leaderboards
         AND u.privacy = 'public'
-      GROUP BY u.id, u.name, u.username, avatar_media.cloudfront_url
+      GROUP BY u.id, u.name, u.username, avatar_media.media_url
     )
     SELECT * FROM ranked WHERE calculated_rank <= $1 OR id = $2 ORDER BY calculated_rank ASC`,
     [limit, userId]

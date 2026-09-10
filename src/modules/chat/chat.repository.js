@@ -37,7 +37,7 @@ class ChatRepository {
               cp_joined.last_read_at,
               u.id AS other_user_id, u.name AS other_user_name,
               u.username AS other_user_username,
-              au.cloudfront_url AS other_user_avatar,
+              au.media_url AS other_user_avatar,
               (SELECT COUNT(*) FROM messages m
                WHERE m.conversation_id = c.id
                  AND m.sender_id != $1
@@ -72,7 +72,7 @@ class ChatRepository {
               m.game_name, m.game_invite_code, m.game_lobby_id,
               m.reactions, m.created_at,
               u.name AS sender_name, u.username AS sender_username,
-              au.cloudfront_url AS sender_avatar,
+              au.media_url AS sender_avatar,
               -- Main Shared Post (repost row if reposted, or direct post)
               p.id AS shared_post_id,
               p.title AS shared_post_title,
@@ -80,7 +80,7 @@ class ChatRepository {
               p.created_at AS shared_post_created_at,
               pu.name AS shared_post_author_name,
               pu.username AS shared_post_author_username,
-              (SELECT au_p.cloudfront_url FROM media au_p WHERE au_p.id = pu.avatar_url) AS shared_post_author_avatar,
+              (SELECT au_p.media_url FROM media au_p WHERE au_p.id = pu.avatar_url) AS shared_post_author_avatar,
               -- Original Post (if main post is a repost)
               orig_p.id AS orig_post_id,
               orig_p.title AS orig_post_title,
@@ -88,9 +88,9 @@ class ChatRepository {
               orig_p.created_at AS orig_post_created_at,
               orig_pu.name AS orig_post_author_name,
               orig_pu.username AS orig_post_author_username,
-              (SELECT au_op.cloudfront_url FROM media au_op WHERE au_op.id = orig_pu.avatar_url) AS orig_post_author_avatar,
+              (SELECT au_op.media_url FROM media au_op WHERE au_op.id = orig_pu.avatar_url) AS orig_post_author_avatar,
               -- First media of shared post for thumbnail
-              (SELECT pm.cloudfront_url FROM media pm
+              (SELECT pm.media_url FROM media pm
                WHERE pm.post_id = COALESCE(p.repost_of_id, p.id) AND pm.deleted_at IS NULL
                ORDER BY pm.created_at LIMIT 1) AS shared_post_media_url,
               (SELECT pm.media_type FROM media pm
@@ -144,22 +144,22 @@ class ChatRepository {
               m.game_name, m.game_invite_code, m.game_lobby_id,
               m.reactions, m.created_at,
               u.name AS sender_name, u.username AS sender_username,
-              au.cloudfront_url AS sender_avatar,
+              au.media_url AS sender_avatar,
               p.id AS shared_post_id,
               p.title AS shared_post_title,
               p.content AS shared_post_content,
               p.created_at AS shared_post_created_at,
               pu.name AS shared_post_author_name,
               pu.username AS shared_post_author_username,
-              (SELECT au_p.cloudfront_url FROM media au_p WHERE au_p.id = pu.avatar_url) AS shared_post_author_avatar,
+              (SELECT au_p.media_url FROM media au_p WHERE au_p.id = pu.avatar_url) AS shared_post_author_avatar,
               orig_p.id AS orig_post_id,
               orig_p.title AS orig_post_title,
               orig_p.content AS orig_post_content,
               orig_p.created_at AS orig_post_created_at,
               orig_pu.name AS orig_post_author_name,
               orig_pu.username AS orig_post_author_username,
-              (SELECT au_op.cloudfront_url FROM media au_op WHERE au_op.id = orig_pu.avatar_url) AS orig_post_author_avatar,
-              (SELECT pm.cloudfront_url FROM media pm
+              (SELECT au_op.media_url FROM media au_op WHERE au_op.id = orig_pu.avatar_url) AS orig_post_author_avatar,
+              (SELECT pm.media_url FROM media pm
                WHERE pm.post_id = COALESCE(p.repost_of_id, p.id) AND pm.deleted_at IS NULL
                ORDER BY pm.created_at LIMIT 1) AS shared_post_media_url,
               (SELECT pm.media_type FROM media pm
@@ -243,7 +243,7 @@ class ChatRepository {
     const searchTerm = query ? `%${query}%` : '';
     const { rows } = await pool.query(
       `SELECT u.id, u.name, u.username,
-              au.cloudfront_url AS avatar_url,
+              au.media_url AS avatar_url,
               EXISTS(
                 SELECT 1 FROM conversations c
                 JOIN conversation_participants cp1 ON cp1.conversation_id = c.id AND cp1.user_id = $1

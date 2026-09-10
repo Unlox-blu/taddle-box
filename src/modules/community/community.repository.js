@@ -7,8 +7,8 @@ const findById = async (communityId, userId = null) => {
   try {
     const { rows } = await pool.query(
       `SELECT ${CommunityModel.DETAIL_FIELDS},
-      avatar_media.cloudfront_url AS avatar_media_url,
-      banner_media.cloudfront_url AS banner_media_url,
+      avatar_media.media_url AS avatar_media_url,
+      banner_media.media_url AS banner_media_url,
       -- is_joined means an ACTIVE membership (pending requests do NOT count)
       (SELECT EXISTS(SELECT 1 FROM ${CommunityModel.MEMBERS_TABLE} cm
         WHERE cm.community_id = c.id AND cm.user_id = $2 AND cm.status = 'active')) AS is_joined,
@@ -31,8 +31,8 @@ const findBySlug = async (slug, userId = null) => {
   try {
     const { rows } = await pool.query(
       `SELECT ${CommunityModel.DETAIL_FIELDS},
-      avatar_media.cloudfront_url AS avatar_media_url,
-      banner_media.cloudfront_url AS banner_media_url,
+      avatar_media.media_url AS avatar_media_url,
+      banner_media.media_url AS banner_media_url,
       (SELECT EXISTS(SELECT 1 FROM ${CommunityModel.MEMBERS_TABLE} cm
         WHERE cm.community_id = c.id AND cm.user_id = $2 AND cm.status = 'active')) AS is_joined,
       (SELECT status FROM ${CommunityModel.MEMBERS_TABLE} cm
@@ -62,8 +62,8 @@ const findManyCommunity = async ({limit, offset, userId = null, search = null, m
 
     const {rows} = await pool.query(
       `SELECT ${CommunityModel.LIST_FIELDS},
-      avatar_media.cloudfront_url AS avatar_media_url,
-      banner_media.cloudfront_url AS banner_media_url,
+      avatar_media.media_url AS avatar_media_url,
+      banner_media.media_url AS banner_media_url,
       (SELECT EXISTS(SELECT 1 FROM ${CommunityModel.MEMBERS_TABLE} cm
         WHERE cm.community_id = c.id AND cm.user_id = $3 AND cm.status = 'active')) AS is_joined,
       (SELECT status FROM ${CommunityModel.MEMBERS_TABLE} cm
@@ -312,7 +312,7 @@ const getMembers = async (communityId, status, limit, offset, search = '') => {
   try {
     const q = search ? `%${search}%` : '';
     const { rows } = await pool.query(
-      `SELECT cm.*, u.name, u.username, ua.cloudfront_url AS avatar_url, COUNT(*) OVER() AS total
+      `SELECT cm.*, u.name, u.username, ua.media_url AS avatar_url, COUNT(*) OVER() AS total
      FROM ${CommunityModel.MEMBERS_TABLE} cm
      JOIN users u ON u.id = cm.user_id
      LEFT JOIN media ua ON u.avatar_url = ua.id
@@ -358,7 +358,7 @@ const getModerationLog = async (communityId, limit, offset) => {
     const { rows } = await pool.query(
       `SELECT l.*,
               a.name AS actor_name, a.username AS actor_username,
-              ua.cloudfront_url AS actor_avatar,
+              ua.media_url AS actor_avatar,
               t.name AS target_name, t.username AS target_username,
               COUNT(*) OVER() AS total
      FROM community_moderation_log l

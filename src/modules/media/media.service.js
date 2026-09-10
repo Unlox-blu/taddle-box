@@ -70,10 +70,10 @@ class MediaService {
   
   async confirmImageUpload({mediaId, s3Key}) {
     try {
-      const cloudfrontUrl = await this.storageSvc.confirmUpload(s3Key);
+      const mediaUrl = await this.storageSvc.confirmUpload(s3Key);
 
-      await this.mediaRepo.updateStatus(mediaId, 'ready', cloudfrontUrl, s3Key);
-      return { url: cloudfrontUrl };
+      await this.mediaRepo.updateStatus(mediaId, 'ready', mediaUrl, s3Key);
+      return { url: mediaUrl };
     } catch (error) {
       throw error;
     }
@@ -157,7 +157,7 @@ class MediaService {
       if (!media) throw createError('Media not found', 404);
       return {
         status: media.processingStatus,
-        url: media.cloudfrontUrl || media.vimeoPlayerUrl || null,
+        url: media.mediaUrl || media.vimeoPlayerUrl || null,
       };
     } catch (error) {
       throw error;

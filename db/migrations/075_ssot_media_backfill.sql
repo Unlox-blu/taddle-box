@@ -14,19 +14,19 @@ BEGIN
   END IF;
 END $$;
 
--- 2. Backfill preview_url for videos (use vimeo_thumbnail_url if available, else cloudfront_url)
+-- 2. Backfill preview_url for videos (use vimeo_thumbnail_url if available, else media_url)
 UPDATE media
-SET preview_url = COALESCE(vimeo_thumbnail_url, cloudfront_url)
+SET preview_url = COALESCE(vimeo_thumbnail_url, media_url)
 WHERE media_type = 'video' AND preview_url IS NULL;
 
--- 3. Backfill preview_url for images (use cloudfront_url — the image IS the preview)
+-- 3. Backfill preview_url for images (use media_url — the image IS the preview)
 UPDATE media
-SET preview_url = cloudfront_url
+SET preview_url = media_url
 WHERE media_type = 'image' AND preview_url IS NULL;
 
--- 4. Backfill preview_url for audio (use cloudfront_url as cover fallback)
+-- 4. Backfill preview_url for audio (use media_url as cover fallback)
 UPDATE media
-SET preview_url = cloudfront_url
+SET preview_url = media_url
 WHERE media_type = 'audio' AND preview_url IS NULL;
 
 -- 5. Verify: count rows still missing preview_url

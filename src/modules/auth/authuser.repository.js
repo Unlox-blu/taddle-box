@@ -53,8 +53,8 @@ const findByIdUser = async ({userId}) => {
   try {
     const { rows } = await pool.query(
       `SELECT ${AuthModel.USER_DETAIL},
-      avatar_media.cloudfront_url AS avatar_media_url,
-      banner_media.cloudfront_url AS banner_media_url
+      avatar_media.media_url AS avatar_media_url,
+      banner_media.media_url AS banner_media_url
       FROM ${AuthModel.USER_TABLE} u 
       LEFT JOIN media AS avatar_media ON avatar_media.id = u.avatar_url
       LEFT JOIN media AS banner_media ON banner_media.id = u.banner_url
@@ -73,8 +73,8 @@ const findByEmailUser = async ({email}) => {
     console.log('findByEmailUser received email:', email);
     const { rows } = await pool.query(
       `SELECT ${AuthModel.USER_DETAIL},
-      avatar_media.cloudfront_url AS avatar_media_url,
-      banner_media.cloudfront_url AS banner_media_url
+      avatar_media.media_url AS avatar_media_url,
+      banner_media.media_url AS banner_media_url
       FROM ${AuthModel.USER_TABLE} u 
       LEFT JOIN media AS avatar_media ON avatar_media.id = u.avatar_url
       LEFT JOIN media AS banner_media ON banner_media.id = u.banner_url
@@ -196,8 +196,8 @@ const findByEmailLogin = async ({email}) => {
   try {
     const { rows } = await pool.query(
       `SELECT ${AuthModel.LOGIN},
-      avatar_media.cloudfront_url AS avatar_media_url,
-      banner_media.cloudfront_url AS banner_media_url
+      avatar_media.media_url AS avatar_media_url,
+      banner_media.media_url AS banner_media_url
       FROM ${AuthModel.USER_TABLE} u 
       LEFT JOIN media AS avatar_media ON avatar_media.id = u.avatar_url
       LEFT JOIN media AS banner_media ON banner_media.id = u.banner_url
@@ -216,8 +216,8 @@ const findByIdentifierLogin = async ({ identifier }) => {
     const normalizedPhone = cleanId.replace(/\D/g, '');
     const { rows } = await pool.query(
       `SELECT ${AuthModel.LOGIN},
-      avatar_media.cloudfront_url AS avatar_media_url,
-      banner_media.cloudfront_url AS banner_media_url
+      avatar_media.media_url AS avatar_media_url,
+      banner_media.media_url AS banner_media_url
       FROM ${AuthModel.USER_TABLE} u 
       LEFT JOIN media AS avatar_media ON avatar_media.id = u.avatar_url
       LEFT JOIN media AS banner_media ON banner_media.id = u.banner_url
@@ -255,8 +255,8 @@ const findByIdPrivate = async ({userId}) => {
   try {
     const { rows } = await pool.query(
       `SELECT ${AuthModel.PRIVATE_FIELDS},
-      avatar_media.cloudfront_url AS avatar_media_url,
-      banner_media.cloudfront_url AS banner_media_url
+      avatar_media.media_url AS avatar_media_url,
+      banner_media.media_url AS banner_media_url
       FROM ${AuthModel.USER_TABLE} u 
       LEFT JOIN media AS avatar_media ON avatar_media.id = u.avatar_url
       LEFT JOIN media AS banner_media ON banner_media.id = u.banner_url
@@ -466,8 +466,8 @@ const findByIdentifier = async (identifier) => {
     const cleanId = identifier.trim();
     const query = `
       SELECT ${AuthModel.USER_DETAIL},
-      avatar_media.cloudfront_url AS avatar_media_url,
-      banner_media.cloudfront_url AS banner_media_url
+      avatar_media.media_url AS avatar_media_url,
+      banner_media.media_url AS banner_media_url
       FROM ${AuthModel.USER_TABLE} u
       LEFT JOIN media AS avatar_media ON avatar_media.id = u.avatar_url
       LEFT JOIN media AS banner_media ON banner_media.id = u.banner_url

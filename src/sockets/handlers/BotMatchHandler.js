@@ -27,7 +27,7 @@ class BotMatchHandler {
 
   getBotIds(state) {
     const ids = new Set();
-    (state?.players || []).forEach(p => {
+    (state?.metadata?.players || []).forEach(p => {
       const id = p?.userId || p?.id;
       if (id && (p.isBot || String(id).startsWith('bot_'))) ids.add(id);
     });
@@ -35,11 +35,6 @@ class BotMatchHandler {
     Object.keys(scores).forEach(id => { if (String(id).startsWith('bot_')) ids.add(id); });
     (state?.pluginState?.turnOrder || []).forEach(id => { if (String(id).startsWith('bot_')) ids.add(id); });
     return Array.from(ids);
-  }
-
-  _assignBotColor(socket, players) {
-    const plugin = GameRegistry.createInstance(socket.gameSlug, {});
-    return plugin.getBotColor(players);
   }
 
   async handleBotMoveGenerated(matchId, gameSlug, botId, botMove) {
@@ -65,7 +60,7 @@ class BotMatchHandler {
         try {
           const { getNamespace } = require('../../sockets/index');
           const io = getNamespace('account');
-          const matchPlayers = updatedState.metadata?.players || updatedState.players || [];
+          const matchPlayers = updatedState.metadata?.players || [];
           for (const p of matchPlayers) {
             const pid = p?.userId || p?.id;
             if (pid && !String(pid).startsWith('bot_')) {
@@ -179,26 +174,16 @@ class BotMatchHandler {
   setupBotPlayer(socket, players) {
     const sessionBots = Array.isArray(socket.sessionBots) ? socket.sessionBots : [];
     for (const bot of sessionBots) {
-      // game_participants is the SSOT and ALREADY contains every bot (auth maps
-      // gp.bot_id → userId, e.g. 'bot_008'). Only inject a bot that is genuinely
-      // missing — match on BOTH the base bot id and the per-lobby instance id,
-      // otherwise the base-id check never matches the instance id and the same
-      // bot is pushed twice (engine ends up with a 7-player roster in a
-      // 4-player game).
+      // game_participants is the SSOT and ALREADY contains every bot with its
+      // formation-time color (auth maps gp.bot_id → userId, e.g. 'bot_008').
+      // Only inject a bot that is genuinely missing — match on BOTH the base
+      // bot id and the per-lobby instance id, otherwise the base-id check
+      // never matches the instance id and the same bot is pushed twice.
       const existing = players.find(
         (p) => String(p.userId) === String(bot.id)
           || String(p.userId) === String(bot.instanceId)
       );
-      if (existing) {
-        // Colors are finalized at match formation and persisted on every
-        // game_participants row. This backfill only fires for LEGACY rosters
-        // (created before formation-time colors) — the socket must be a
-        // consumer of the roster, not the place that completes it.
-        if (!existing.color) {
-          existing.color = this._assignBotColor(socket, players);
-        }
-        continue;
-      }
+      if (existing) continue;
       players.push({
         userId: bot.instanceId || bot.id,
         color: this._assignBotColor(socket, players),

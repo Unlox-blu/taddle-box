@@ -849,14 +849,13 @@ class GameService {
       // Redis snapshots are cleaned up after the engine archives a finished match.
       // Load from Redis first, then fall back to the archived final state so PVP
       // scores are still read correctly instead of silently defaulting to 0.
+      // NOTE: read-only here — completion NEVER initializes engine state. Only
+      // the game socket (with the real roster) may create a snapshot; a
+      // roster-less init from session.metadata would poison the SSOT.
       let matchState = await EventStore.loadMatchSnapshot(matchGroupId);
       if (!matchState) {
         const archived = await this.gameRepo.getMatchArchivedState({ matchId: matchGroupId });
         if (archived) matchState = archived;
-      }
-      if (!matchState) {
-        const init = await MatchManager.loadOrInitializeMatch(matchGroupId, game.slug, session.metadata || {});
-        matchState = init.state;
       }
 
       // Session TTL backstop: reject ONLY genuinely abandoned sessions. A match

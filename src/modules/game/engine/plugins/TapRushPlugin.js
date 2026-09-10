@@ -39,7 +39,8 @@ class TapRushPlugin extends GamePlugin {
   }
 
   getCommandTimeoutMs() {
-    return 200;
+    // Same PG-transaction floor as the other plugins — see GamePlugin note.
+    return 2000;
   }
 
   _generateTargetSequence(seed, count = 15) {

@@ -351,6 +351,13 @@ const setupGameSocket = (io, gameNs) => {
           maxPlayers: players.length || 2,
           matchMetadata: {
             ...socket.matchMetadata,
+            // The roster MUST ride inside matchMetadata: loadOrInitializeMatch
+            // persists this object as state.metadata, and every later plugin
+            // instantiation (MOVE handler, _startTurnTimer, timer worker)
+            // builds its player/color map from state.metadata.players.
+            // Passing it only as the sibling `players` field left metadata
+            // without a roster → every move failed "Not your turn".
+            players,
             configSnapshot,
           },
         });
@@ -390,7 +397,7 @@ const setupGameSocket = (io, gameNs) => {
           // Cancel this player's reconnect timer — they're back, no need to
           // resolve them as timed-out. Without this, orphaned timers pile up.
           await TimerEngine.clearTimer(matchId, `reconnect:${userId}`);
-          const realPlayerIds = (state.players || state.metadata?.players || [])
+          const realPlayerIds = (state.metadata?.players || [])
             .filter(p => !p.isBot && !String(p.userId || p.id || '').startsWith('bot_'))
             .map(p => p.userId || p.id);
           const stillOffline = (state.disconnectedPlayers || []).filter(id => realPlayerIds.includes(id));
@@ -732,7 +739,7 @@ const setupGameSocket = (io, gameNs) => {
 
           // Check if all real players are ready
           const state = await EventStore.loadMatchSnapshot(matchId);
-          const players = state?.players || state?.metadata?.players || [];
+          const players = state.metadata?.players || [];
           const realPlayers = players.filter(p =>
             !p.isBot && !String(p.userId || p.id || '').startsWith('bot_')
           );
@@ -791,7 +798,7 @@ const setupGameSocket = (io, gameNs) => {
       if (!state || state.status === MATCH_STATES.FINISHED || state.status === MATCH_STATES.ARCHIVED) return;
 
       // Find the winner (anyone who isn't the leaving player)
-      const players = state.players || state.metadata?.players || [];
+      const players = state.metadata?.players || [];
       const winner = players.find(p => {
         const pid = p?.userId || p?.id;
         return pid && pid !== userId && !String(pid).startsWith('bot_');
@@ -967,7 +974,7 @@ const setupGameSocket = (io, gameNs) => {
     // other offline players still need their own timers to fire and resolve.
     await TimerEngine.clearTimer(matchId, `reconnect:${userId}`);
 
-    const players = state.players || state.metadata?.players || [];
+    const players = state.metadata?.players || [];
     const realPlayers = players.filter(p => !String(p.userId || p.id || '').startsWith('bot_'));
     const realIds = realPlayers.map(p => p.userId || p.id);
     const offline = state.disconnectedPlayers || [];
@@ -1068,7 +1075,6 @@ const setupGameSocket = (io, gameNs) => {
     // 3+ players → remove the offline player and continue (or auto-win if last)
     state.disconnectedPlayers = offline.filter(id => id !== userId);
     if (state.disconnectTimestamps) delete state.disconnectTimestamps[userId];
-    state.players = (state.players || []).filter(p => (p.userId || p.id) !== userId);
     if (state.metadata?.players) {
       state.metadata.players = state.metadata.players.filter(p => (p.userId || p.id) !== userId);
     }
@@ -1096,7 +1102,7 @@ const setupGameSocket = (io, gameNs) => {
     await _resolvePlayerSession({ matchId, userId, result: 'LOSS', score: 0, xpEarned: 0 });
     _notifySessionExpired(gameNs, matchId, state);
 
-    const remainingReal = (state.players || state.metadata?.players || [])
+    const remainingReal = (state.metadata?.players || [])
       .filter(p => !String(p.userId || p.id || '').startsWith('bot_'))
       .map(p => p.userId || p.id);
     const stillOffline = (state.disconnectedPlayers || []).filter(id => remainingReal.includes(id));
@@ -1185,7 +1191,7 @@ const setupGameSocket = (io, gameNs) => {
     try {
       const repo = require('../modules/game/game.repository');
       const ps = finalState.pluginState || {};
-      const players = finalState.metadata?.players || finalState.players || [];
+      const players = finalState.metadata?.players || [];
       const realPlayers = players.filter(
         (p) => p && !p.isBot && !String(p.userId || p.id || '').startsWith('bot_')
       );
@@ -1467,7 +1473,7 @@ const setupGameSocket = (io, gameNs) => {
   }
 
   function _notifySessionExpired(ns, matchId, state) {
-    const matchPlayers = state.metadata?.players || state.players || [];
+    const matchPlayers = state.metadata?.players || [];
     for (const p of matchPlayers) {
       const pid = p?.userId || p?.id;
       if (pid && !String(pid).startsWith('bot_')) {

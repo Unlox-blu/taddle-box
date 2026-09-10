@@ -192,7 +192,10 @@ class GamePlugin {
 
   /** Maximum milliseconds a single command execution may take. */
   getCommandTimeoutMs() {
-    return 500;
+    // The actor runs a full PG transaction (reserve + event + snapshot + outbox) +
+    // Redis write per command. 500ms was routinely exceeded on real hardware,
+    // aborting VALID moves after the DB work was already done.
+    return 2000;
   }
 
   // ── Player Views ──────────────────────────────────────────────────────

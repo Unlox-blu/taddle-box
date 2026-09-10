@@ -97,6 +97,7 @@ class MatchActor {
 
     // Execute the command with timeout
     const timeoutMs = this.plugin?.getCommandTimeoutMs() || GLOBAL_MAX_COMMAND_MS;
+    const cmdStart = Date.now();
 
     try {
       const newState = await this._executeWithTimeout(
@@ -104,10 +105,21 @@ class MatchActor {
         timeoutMs
       );
 
+      const durMs = Date.now() - cmdStart;
+      // Timing telemetry: if durations regularly approach the timeout, the
+      // DB transaction is genuinely too slow — tune storage/pooling, not the
+      // timeout. A healthy warm transaction logs well under 100ms.
+      if (durMs > 500) {
+        console.warn(`[Actor] ${type} match=${matchId} SLOW: ${durMs}ms (timeout ${timeoutMs}ms)`);
+      }
+
       // Mark command completed atomically
       await EventStore.completeCommand(matchId, commandId, newState, this.currentRevision);
       return newState;
     } catch (err) {
+      if (String(err.message).startsWith('Command timeout')) {
+        console.error(`[Actor] ${type} match=${matchId} TIMED OUT after ${Date.now() - cmdStart}ms — check PG transaction health`);
+      }
       await EventStore.failCommand(matchId, commandId, err.message, this.currentRevision);
       throw err;
     }
@@ -282,48 +294,36 @@ class MatchManager {
 
   // ── Public API ────────────────────────────────────────────────────────
 
+  /**
+   * Load an existing snapshot or initialize a fresh one.
+   *
+   * SSOT CONTRACT: the match roster lives in EXACTLY ONE place —
+   * state.metadata.players. Every plugin instance is built from it via
+   * GameRegistry.createInstance(gameSlug, state.metadata), which is how
+   * turnOrder and player colors are resolved. Callers MUST pass the roster
+   * as matchMetadata.players; there is no fallback path and no top-level
+   * state.players copy.
+   */
   static async loadOrInitializeMatch(matchId, gameSlug, matchMetadata) {
     let state = await EventStore.loadMatchSnapshot(matchId);
 
-    const incomingPlayers = matchMetadata.players || [];
-
-    // Repair a state that was pre-initialized WITHOUT a roster.
-    // startGameSession calls loadOrInitializeMatch with session.metadata,
-    // which has no `players` — the snapshot then gets players: [] and a
-    // pluginState built from an empty roster (e.g. chess falls back to
-    // turnOrder ['bot_w','bot_b']). Every later validateMove then fails with
-    // "Not your turn" because real user ids don't resolve to a color, and
-    // real bot instance ids don't match the fallback ids either — humans AND
-    // bots are deadlocked. Once the real roster arrives (socket connect),
-    // backfill players and rebuild pluginState as long as the match hasn't
-    // started (no moves recorded yet — safe, nothing to lose).
-    if (state && incomingPlayers.length > 0) {
-      const rosterEmpty = !Array.isArray(state.players) || state.players.length === 0;
-      // Only repair before the match has started (still WAITING, no moves).
-      const hasMoves = Array.isArray(state.pluginState?.moveHistory)
-        ? state.pluginState.moveHistory.length > 0
-        : false;
-      if (rosterEmpty && state.status === MATCH_STATES.WAITING && !hasMoves) {
-        state.players = incomingPlayers;
-        state.metadata = { ...(state.metadata || {}), players: incomingPlayers };
-        const repairPlugin = GameRegistry.createInstance(gameSlug, {
-          ...(state.metadata || {}),
-          players: incomingPlayers,
-        });
-        state.pluginState = repairPlugin.createState();
-        await EventStore.saveMatchSnapshot(matchId, state);
-      }
-    }
-
-    const effectiveMetadata = state
-      ? { ...(state.metadata || {}), players: (state.players?.length ? state.players : incomingPlayers) }
-      : matchMetadata;
-    const plugin = GameRegistry.createInstance(gameSlug, effectiveMetadata);
-
     if (!state) {
+      // INITIALIZATION GUARD: only callers bearing a complete roster may
+      // create a snapshot. Currently that is exactly one place — the game
+      // socket's connection handler (the only holder of the real
+      // game_participants roster). Any other caller (completion paths,
+      // bots, jobs) arriving here means the match snapshot was archived or
+      // lost; initializing with an empty roster would poison the SSOT, so
+      // we fail loudly instead.
+      if (!Array.isArray(matchMetadata.players) || matchMetadata.players.length === 0) {
+        throw new Error(
+          `Match ${matchId}: refusing to initialize engine state without a roster. ` +
+          `Snapshot is missing or archived — only the game socket (with game_participants) may initialize.`
+        );
+      }
+      const plugin = GameRegistry.createInstance(gameSlug, matchMetadata);
       state = {
         status: MATCH_STATES.WAITING,
-        players: incomingPlayers.length > 0 ? incomingPlayers : (matchMetadata.players || []),
         maxPlayers: matchMetadata.maxPlayers || matchMetadata.players?.length || 2,
         pluginState: plugin.createState(),
         metadata: matchMetadata,
@@ -337,6 +337,8 @@ class MatchManager {
       await EventStore.saveMatchSnapshot(matchId, state);
     }
 
+    const plugin = GameRegistry.createInstance(gameSlug, state.metadata);
+
     // Ensure actor is initialized
     const actor = this.getOrCreateActor(matchId);
     actor.state = state;
@@ -344,21 +346,6 @@ class MatchManager {
     actor.currentRevision = state.currentRevision || 0;
 
     return { state, plugin };
-  }
-
-  static async handlePlayerJoin(matchId, gameSlug, userId) {
-    const { state, plugin } = await this.loadOrInitializeMatch(matchId, gameSlug, {});
-
-    plugin.onPlayerJoin(userId);
-
-    if (state.status === MATCH_STATES.WAITING && state.players.length >= (state.metadata.maxPlayers || 2)) {
-      state.status = MATCH_STATES.READY;
-    }
-
-    const actor = this.getOrCreateActor(matchId);
-    actor.state = state;
-    await EventStore.saveMatchSnapshot(matchId, state);
-    return state;
   }
 
   /**
@@ -384,6 +371,11 @@ class MatchManager {
   }
 
   static async _loadAndEnqueue(actor, matchId, gameSlug, userId, moveData, commandId) {
+    // Deliberately passes NO metadata: this path may LOAD an existing
+    // snapshot (e.g. actor evicted but match still live) but must NEVER
+    // initialize one — the guard in loadOrInitializeMatch throws if the
+    // snapshot is absent, which is correct: a move for a match with no
+    // snapshot is an error, not a new match.
     const { state, plugin } = await this.loadOrInitializeMatch(matchId, gameSlug, {});
     actor.state = state;
     actor.plugin = plugin;

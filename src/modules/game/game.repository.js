@@ -1274,34 +1274,16 @@ const setupMatchSession = async ({ matchId, gameId, userId, wsToken, mode, gameS
   try {
     await client.query('BEGIN');
 
-    // Colors are finalized at match formation (_assignSeatColors in
-    // fillMatchmakingLobby/joinMatchmaking) and persisted on every
-    // game_participants row — humans AND bots. setupMatchSession only
-    // stamps ws_token and PRESERVES the formation-time color; it assigns a
-    // fallback color only for legacy rosters created before that change.
-    // Assigning colors here (the old behavior) raced with formation: two
-    // humans calling startGameSession concurrently could both read zero
-    // existing colors and both claim 'w' in chess.
-    const existing = await client.query(
-      `SELECT player_color FROM game_participants WHERE game_session_id = $1`,
-      [matchId]
-    );
-    const existingColors = existing.rows.map((r) => r.player_color).filter(Boolean);
-
+    // Colors are finalized at match formation (_assignSeatColors) and are
+    // read directly from game_participants. setupMatchSession stamps ONLY
+    // ws_token — the roster, including colors, is complete before any socket
+    // or session logic runs.
     const mine = await client.query(
       `SELECT player_color FROM game_participants
        WHERE game_session_id = $1 AND user_id = $2`,
       [matchId, userId]
     );
-    const playerColor = mine.rows[0]?.player_color || (() => {
-      const palettes = {
-        'chess': ['w', 'b'],
-        'ludo': ['red', 'green', 'yellow', 'blue'],
-        'snake-ladder': ['red', 'blue', 'green', 'yellow'],
-      };
-      const palette = palettes[gameSlug] || ['blue'];
-      return palette.find((c) => !existingColors.includes(c)) || palette[0];
-    })();
+    const playerColor = mine.rows[0]?.player_color;
 
     // Assign a ws_token and player_color by updating the participant row.
     // The participant row was already inserted by startGameSession.

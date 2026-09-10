@@ -285,13 +285,45 @@ class MatchManager {
   static async loadOrInitializeMatch(matchId, gameSlug, matchMetadata) {
     let state = await EventStore.loadMatchSnapshot(matchId);
 
-    const effectiveMetadata = state ? state.metadata : matchMetadata;
+    const incomingPlayers = matchMetadata.players || [];
+
+    // Repair a state that was pre-initialized WITHOUT a roster.
+    // startGameSession calls loadOrInitializeMatch with session.metadata,
+    // which has no `players` — the snapshot then gets players: [] and a
+    // pluginState built from an empty roster (e.g. chess falls back to
+    // turnOrder ['bot_w','bot_b']). Every later validateMove then fails with
+    // "Not your turn" because real user ids don't resolve to a color, and
+    // real bot instance ids don't match the fallback ids either — humans AND
+    // bots are deadlocked. Once the real roster arrives (socket connect),
+    // backfill players and rebuild pluginState as long as the match hasn't
+    // started (no moves recorded yet — safe, nothing to lose).
+    if (state && incomingPlayers.length > 0) {
+      const rosterEmpty = !Array.isArray(state.players) || state.players.length === 0;
+      // Only repair before the match has started (still WAITING, no moves).
+      const hasMoves = Array.isArray(state.pluginState?.moveHistory)
+        ? state.pluginState.moveHistory.length > 0
+        : false;
+      if (rosterEmpty && state.status === MATCH_STATES.WAITING && !hasMoves) {
+        state.players = incomingPlayers;
+        state.metadata = { ...(state.metadata || {}), players: incomingPlayers };
+        const repairPlugin = GameRegistry.createInstance(gameSlug, {
+          ...(state.metadata || {}),
+          players: incomingPlayers,
+        });
+        state.pluginState = repairPlugin.createState();
+        await EventStore.saveMatchSnapshot(matchId, state);
+      }
+    }
+
+    const effectiveMetadata = state
+      ? { ...(state.metadata || {}), players: (state.players?.length ? state.players : incomingPlayers) }
+      : matchMetadata;
     const plugin = GameRegistry.createInstance(gameSlug, effectiveMetadata);
 
     if (!state) {
       state = {
         status: MATCH_STATES.WAITING,
-        players: matchMetadata.players || [],
+        players: incomingPlayers.length > 0 ? incomingPlayers : (matchMetadata.players || []),
         maxPlayers: matchMetadata.maxPlayers || matchMetadata.players?.length || 2,
         pluginState: plugin.createState(),
         metadata: matchMetadata,

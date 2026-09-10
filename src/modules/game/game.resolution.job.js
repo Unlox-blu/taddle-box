@@ -164,8 +164,8 @@ async function resolveExpiredLobbies() {
     `);
 
     if (expiredLobbies.length > 0) {
-      const { getIO } = require('../../sockets/index');
-      const io = getIO();
+      const { getNamespace } = require('../../sockets/index');
+      const io = getNamespace('account');
       
       for (const lobby of expiredLobbies) {
         try {
@@ -215,7 +215,7 @@ async function resolveExpiredLobbies() {
                   const realPlayers = (result?.players || []).filter(p => !p.isBot);
                   if (result && result.status === 'MATCHED') {
                     for (const p of realPlayers) {
-                      io.to(`user:${p.id}`).emit('matchmaking:matched', result);
+                      getNamespace('account').to(`user:${p.id}`).emit('matchmaking:matched', result);
                     }
                     handled = true;
                   }
@@ -239,7 +239,7 @@ async function resolveExpiredLobbies() {
               const lobbyData = await gameRepository.getLobby({ userId: lobby.host_user_id, lobbyId: lobby.id });
               for (const p of lobbyData.players) {
                 if (!p.isBot) {
-                  io.to(`user:${p.id}`).emit('matchmaking:timedOut', lobbyData);
+                  getNamespace('account').to(`user:${p.id}`).emit('matchmaking:timedOut', lobbyData);
                 }
               }
             }
@@ -396,8 +396,8 @@ async function resolveBotFillingLobbies() {
 
     if (fillableLobbies.length === 0) return;
 
-    const { getIO } = require('../../sockets/index');
-    const io = getIO();
+    const { getNamespace } = require('../../sockets/index');
+    const io = getNamespace('account');
 
     for (const lobby of fillableLobbies) {
       try {
@@ -467,7 +467,7 @@ async function resolveBotFillingLobbies() {
           status: 'WAITING',
         };
         for (const p of realPlayers) {
-          io.to(`user:${p.id}`).emit('matchmaking:lobbyUpdated', payload);
+          getNamespace('account').to(`user:${p.id}`).emit('matchmaking:lobbyUpdated', payload);
         }
 
         // Lobby is full now → create the match and notify everyone
@@ -481,7 +481,7 @@ async function resolveBotFillingLobbies() {
           });
           if (result && result.status === 'MATCHED') {
             for (const p of (result.players || []).filter(x => !x.isBot)) {
-              io.to(`user:${p.id}`).emit('matchmaking:matched', result);
+              getNamespace('account').to(`user:${p.id}`).emit('matchmaking:matched', result);
             }
           }
         }
@@ -665,11 +665,11 @@ async function expireAbandonedSessions() {
 
     // Tell any live clients to drop the stale REJOIN state immediately.
     try {
-      const { getIO } = require('../../sockets/index');
-      const io = getIO();
+      const { getNamespace } = require('../../sockets/index');
+      const io = getNamespace('account');
       for (const s of toExpire) {
         if (s.match_group_id) {
-          io.to(`user:${s.user_id}`).emit('SESSION_EXPIRED', { matchId: s.match_group_id });
+          getNamespace('account').to(`user:${s.user_id}`).emit('SESSION_EXPIRED', { matchId: s.match_group_id });
         }
       }
     } catch (e) { /* non-fatal */ }
@@ -685,11 +685,71 @@ async function expireAbandonedSessions() {
   }
 }
 
+/**
+ * Lobby disposal — the final step of the lobby lifecycle.
+ *
+ * Once match formation completes, game_participants is the durable game SSOT
+ * and the lobby tables have served their purpose. They are DISPOSABLE, not
+ * merely frozen: terminal lobbies (READY / TIMED_OUT / CANCELLED) keep their
+ * game_lobby_participants rows and lobby row forever without this purge, so
+ * the tables grow unboundedly.
+ *
+ * Deliberately a SEPARATE sweeper, not part of the match-formation
+ * transaction: keeping a completed lobby briefly gives observability and a
+ * recovery window while the formation refactor stabilizes. Lobby rows are
+ * only deleted after RETENTION_DAYS so support can still inspect a
+ * "where did my match go" report.
+ */
+const LOBBY_RETENTION_DAYS = 7;
+const PURGE_BATCH = 200;
+
+async function purgeTerminalLobbies() {
+  requireDb();
+  const client = await pool.connect();
+  try {
+    // 1. Drop temporary lobby rosters for terminal lobbies past retention.
+    const { rows: partRows } = await client.query(`
+      DELETE FROM game_lobby_participants glp
+      USING game_lobby gl
+      WHERE glp.lobby_id = gl.id
+        AND gl.status IN ('READY', 'TIMED_OUT', 'CANCELLED')
+        AND gl.updated_at <= NOW() - INTERVAL '${LOBBY_RETENTION_DAYS} days'
+      RETURNING glp.lobby_id
+    `);
+
+    // 2. Delete the lobby rows themselves (children gone, safe to remove).
+    //    Tickets are NOT deleted here — they are the matchmaking-intent SSOT
+    //    referenced by game_matches.user_match_id and match history.
+    const { rows: lobbyRows } = await client.query(`
+      DELETE FROM game_lobby gl
+      WHERE gl.status IN ('READY', 'TIMED_OUT', 'CANCELLED')
+        AND gl.updated_at <= NOW() - INTERVAL '${LOBBY_RETENTION_DAYS} days'
+        AND NOT EXISTS (
+          SELECT 1 FROM game_lobby_participants glp WHERE glp.lobby_id = gl.id
+        )
+      RETURNING gl.id
+    `);
+
+    if (partRows.length > 0 || lobbyRows.length > 0) {
+      console.info(
+        `[sweeper] Purged lobby data: ${partRows.length} participant row(s), ` +
+        `${lobbyRows.length} lobby row(s) (terminal, >${LOBBY_RETENTION_DAYS}d old)`
+      );
+    }
+  } catch (error) {
+    console.warn('[sweeper] lobby purge — DB unreachable (circuit breaker active)');
+    throw error;
+  } finally {
+    client.release();
+  }
+}
+
 module.exports = {
   resolveAbandonedMatches,
   resolveTournaments,
   resolveExpiredLobbies,
   resolveExpiredMatches,
   resolveBotFillingLobbies,
-  expireAbandonedSessions
+  expireAbandonedSessions,
+  purgeTerminalLobbies,
 };

@@ -129,6 +129,7 @@ const bootstrap = async () => {
       resolveExpiredMatches,
       resolveBotFillingLobbies,
       expireAbandonedSessions,
+      purgeTerminalLobbies,
     } = resolutionJob;
 
     // Expire stale pending recharges every 30 minutes
@@ -197,6 +198,7 @@ const bootstrap = async () => {
           resolveTournaments(),
           resolveExpiredMatches(),
           expireAbandonedSessions(),
+          purgeTerminalLobbies(),
         ]);
         logSettled('sweepers-60s', results);
       });

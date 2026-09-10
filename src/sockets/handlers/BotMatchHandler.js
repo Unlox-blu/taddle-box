@@ -63,13 +63,15 @@ class BotMatchHandler {
         await this.archiveMatch(matchId, updatedState);
 
         try {
-          const { getIO } = require('../../sockets/index');
-          const io = getIO();
+          const { getNamespace } = require('../../sockets/index');
+          const io = getNamespace('account');
           const matchPlayers = updatedState.metadata?.players || updatedState.players || [];
           for (const p of matchPlayers) {
             const pid = p?.userId || p?.id;
             if (pid && !String(pid).startsWith('bot_')) {
-              io.to(`user:${pid}`).emit('SESSION_EXPIRED', { matchId });
+              // Route through /account-socket — clients join user:${id} rooms on
+              // that namespace, not on the root.
+              getNamespace('account').to(`user:${pid}`).emit('SESSION_EXPIRED', { matchId });
             }
           }
         } catch (e) {
@@ -183,22 +185,30 @@ class BotMatchHandler {
       // otherwise the base-id check never matches the instance id and the same
       // bot is pushed twice (engine ends up with a 7-player roster in a
       // 4-player game).
-      const alreadyPresent = players.some(
+      const existing = players.find(
         (p) => String(p.userId) === String(bot.id)
           || String(p.userId) === String(bot.instanceId)
       );
-      if (!alreadyPresent) {
-        players.push({
-          userId: bot.instanceId,
-          color: this._assignBotColor(socket, players),
-          isBot: true,
-          name: bot.name || bot.username,
-          username: bot.username,
-          avatar: bot.avatar || null,
-          level: bot.level,
-          badge: bot.badge,
-        });
+      if (existing) {
+        // Colors are finalized at match formation and persisted on every
+        // game_participants row. This backfill only fires for LEGACY rosters
+        // (created before formation-time colors) — the socket must be a
+        // consumer of the roster, not the place that completes it.
+        if (!existing.color) {
+          existing.color = this._assignBotColor(socket, players);
+        }
+        continue;
       }
+      players.push({
+        userId: bot.instanceId || bot.id,
+        color: this._assignBotColor(socket, players),
+        isBot: true,
+        name: bot.name || bot.username,
+        username: bot.username,
+        avatar: bot.avatar || null,
+        level: bot.level,
+        badge: bot.badge,
+      });
     }
     return sessionBots.length > 0;
   }

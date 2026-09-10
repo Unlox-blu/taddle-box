@@ -431,21 +431,21 @@ class GameService {
 
       const result = await this.gameRepo.joinMatchmaking({userId, game, mode, tournamentId, targetPlayers: matchData.targetPlayers, visibility: matchData.visibility, lobbyTtlSeconds, configuredRounds});
         try {
-          const { getIO } = require('../../sockets/index');
-          const io = getIO();
+          const { getNamespace } = require('../../sockets/index');
+          const io = getNamespace('account');
           
           if (result.status === 'MATCHED') {
             // Emit to ALL players (including requester's other devices/tabs)
             for (const p of result.players) {
               if (!p.isBot) {
-                io.to(`user:${p.id}`).emit('matchmaking:matched', result);
+                getNamespace('account').to(`user:${p.id}`).emit('matchmaking:matched', result);
               }
             }
           } else if (result.status === 'WAITING') {
             // Notify all other players already in the lobby that someone joined
             for (const p of result.players) {
               if (p.id !== userId && !p.isBot) {
-                io.to(`user:${p.id}`).emit('matchmaking:lobbyUpdated', result);
+                getNamespace('account').to(`user:${p.id}`).emit('matchmaking:lobbyUpdated', result);
               }
             }
           }
@@ -463,11 +463,11 @@ class GameService {
 	      const result = await this.gameRepo.cancelMatchmaking(userId)
         if (result && result.lobbyState) {
           try {
-            const { getIO } = require('../../sockets/index');
-            const io = getIO();
+            const { getNamespace } = require('../../sockets/index');
+            const io = getNamespace('account');
             for (const p of result.lobbyState.players) {
               if (p.id !== userId && !p.isBot) {
-                io.to(`user:${p.id}`).emit('matchmaking:lobbyUpdated', result.lobbyState);
+                getNamespace('account').to(`user:${p.id}`).emit('matchmaking:lobbyUpdated', result.lobbyState);
               }
             }
           } catch (e) {
@@ -496,11 +496,11 @@ class GameService {
     const result = await this.gameRepo.joinLobbyByCode({ userId, inviteCode });
     // Notify all existing lobby players that someone joined
     try {
-      const { getIO } = require('../../sockets/index');
-      const io = getIO();
+      const { getNamespace } = require('../../sockets/index');
+      const io = getNamespace('account');
       for (const p of (result.players || [])) {
         if ((p.id || p.userId) !== userId && !p.isBot) {
-          io.to(`user:${p.id || p.userId}`).emit('matchmaking:lobbyUpdated', result);
+          getNamespace('account').to(`user:${p.id || p.userId}`).emit('matchmaking:lobbyUpdated', result);
         }
       }
     } catch (e) { /* non-fatal */ }
@@ -520,12 +520,12 @@ class GameService {
 	    // Emit so all real players sync — including revoking a pending invite the
 	    // host cancelled, so it doesn't resurrect from stale local state.
 	    try {
-	      const { getIO } = require('../../sockets/index');
-	      const io = getIO();
+	      const { getNamespace } = require('../../sockets/index');
+	      const io = getNamespace('account');
 	      const lobby = await this.gameRepo.getLobby({ userId, lobbyId });
 	      for (const p of (lobby.players || [])) {
 	        if (!p.isBot) {
-	          io.to(`user:${p.id || p.userId}`).emit('matchmaking:lobbyUpdated', lobby);
+	          getNamespace('account').to(`user:${p.id || p.userId}`).emit('matchmaking:lobbyUpdated', lobby);
 	        }
 	      }
 	    } catch (e) { /* non-fatal */ }
@@ -536,9 +536,9 @@ class GameService {
     const result = await this.gameRepo.inviteLobbyPlayer({ userId, lobbyId, opponentId });
     // Notify the invited player
     try {
-      const { getIO } = require('../../sockets/index');
-      const io = getIO();
-      io.to(`user:${opponentId}`).emit('matchmaking:lobbyUpdated', result);
+      const { getNamespace } = require('../../sockets/index');
+      const io = getNamespace('account');
+      getNamespace('account').to(`user:${opponentId}`).emit('matchmaking:lobbyUpdated', result);
     } catch (e) { /* non-fatal */ }
     return result;
   }
@@ -551,12 +551,12 @@ class GameService {
     const result = await this.gameRepo.fillLobbyBots({ userId, lobbyId, count });
     // Emit lobby update to all real players in the lobby so they see the bot slot fill live
     try {
-      const { getIO } = require('../../sockets/index');
-      const io = getIO();
+      const { getNamespace } = require('../../sockets/index');
+      const io = getNamespace('account');
       const lobby = await this.gameRepo.getLobby({ userId, lobbyId });
       for (const p of (lobby.players || [])) {
         if (!p.isBot) {
-          io.to(`user:${p.id || p.userId}`).emit('matchmaking:lobbyUpdated', lobby);
+          getNamespace('account').to(`user:${p.id || p.userId}`).emit('matchmaking:lobbyUpdated', lobby);
         }
       }
     } catch (e) { /* non-fatal */ }
@@ -571,11 +571,11 @@ class GameService {
     const result = await this.gameRepo.queueLobbyForMatchmaking({ userId, lobbyId, active });
     // Notify all real players in the lobby that the queue state changed
     try {
-      const { getIO } = require('../../sockets/index');
-      const io = getIO();
+      const { getNamespace } = require('../../sockets/index');
+      const io = getNamespace('account');
       for (const p of (result.players || [])) {
         if (!p.isBot) {
-          io.to(`user:${p.id || p.userId}`).emit('matchmaking:lobbyUpdated', result);
+          getNamespace('account').to(`user:${p.id || p.userId}`).emit('matchmaking:lobbyUpdated', result);
         }
       }
     } catch (e) { /* non-fatal */ }
@@ -587,11 +587,11 @@ class GameService {
     // Emit matched event to all real players so their lobbies transition
     if (result && result.status === 'MATCHED') {
       try {
-        const { getIO } = require('../../sockets/index');
-        const io = getIO();
+        const { getNamespace } = require('../../sockets/index');
+        const io = getNamespace('account');
         for (const p of (result.players || [])) {
           if (!p.isBot) {
-            io.to(`user:${p.id}`).emit('matchmaking:matched', result);
+            getNamespace('account').to(`user:${p.id}`).emit('matchmaking:matched', result);
           }
         }
       } catch (e) { /* non-fatal */ }
@@ -653,9 +653,9 @@ class GameService {
 
       // 5. Notify any connected clients on the old match
       try {
-        const { getIO } = require('../../sockets/index');
-        const io = getIO();
-        io.to(`user:${userId}`).emit('SESSION_EXPIRED', { matchId });
+        const { getNamespace } = require('../../sockets/index');
+        const io = getNamespace('account');
+        getNamespace('account').to(`user:${userId}`).emit('SESSION_EXPIRED', { matchId });
       } catch (e) { /* non-fatal */ }
 
       console.info(`[Game] Auto-abandoned session ${sessionId} (match ${matchId}) for user ${userId}`);

@@ -16,6 +16,36 @@ function _rotatePlayerOrder(snapshots, teamsLocked) {
   return snapshots.slice(offset).concat(snapshots.slice(0, offset));
 }
 
+// Assign the per-game seat color/identity to EVERY participant snapshot —
+// humans and bots alike — BEFORE the game_participants rows are written.
+// This is the architectural contract: game_participants is the runtime SSOT
+// and must be COMPLETE at match formation. The socket layer is a consumer of
+// this roster, never the place where it gets completed (previously bots got
+// no color here and the socket had to backfill one at connect time).
+//   chess        → 'w' / 'b'
+//   ludo         → 'red' / 'green' / 'yellow' / 'blue'
+//   snake-ladder → 'red' / 'blue' / 'green' / 'yellow'
+//   others       → null (runtime derives identity from seat order)
+function _assignSeatColors(snapshots, gameSlug) {
+  if (!Array.isArray(snapshots)) return snapshots;
+  const palettes = {
+    'chess': ['w', 'b'],
+    'ludo': ['red', 'green', 'yellow', 'blue'],
+    'snake-ladder': ['red', 'blue', 'green', 'yellow'],
+  };
+  const palette = palettes[gameSlug];
+  if (!palette) return snapshots;
+  // ORDERING CONTRACT: callers MUST have finalized seat order (rotate +
+  // re-index) BEFORE calling this — idx here IS the persisted seat, so
+  // palette[idx] === seat's color. Assigning before a later reorder would
+  // desync color↔seat (seat 0 says 'red' but the roster swaps who sits
+  // there) and every client would render the wrong board side.
+  snapshots.forEach((p, idx) => {
+    if (p) p.color = palette[idx % palette.length];
+  });
+  return snapshots;
+}
+
 const findManyGames = async ({ limit, offset }) => {
   try {
     const { rows } = await pool.query(
@@ -756,6 +786,9 @@ const joinMatchmaking = async ({ userId, game, mode, tournamentId, targetPlayers
       // duplicate seats would silently drop a game_participants row via the
       // (game_session_id, seat) unique constraint.
       playerSnapshots.forEach((p, idx) => { p.seat = idx; });
+      // Finalize the game identity for every participant BEFORE the roster is
+      // persisted — game_participants must be complete at formation time.
+      _assignSeatColors(playerSnapshots, game.slug);
       const matchMetadata = {
         lobbyId: lobby.id,
         matchGroupId: lobby.id,
@@ -807,10 +840,10 @@ const joinMatchmaking = async ({ userId, game, mode, tournamentId, targetPlayers
         if (p.isBot) {
           await client.query(
             `INSERT INTO game_participants
-               (game_session_id, player_type, user_id, bot_id, instance_id, seat, snapshot)
-             VALUES ($1, 'BOT', NULL, $2, $3, $4, $5::jsonb)
+               (game_session_id, player_type, user_id, bot_id, instance_id, seat, player_color, snapshot)
+             VALUES ($1, 'BOT', NULL, $2, $3, $4, $5, $6::jsonb)
              ON CONFLICT (game_session_id, seat) DO NOTHING`,
-            [lobby.id, p.id, p.instanceId, p.seat, JSON.stringify(p)]
+            [lobby.id, p.id, p.instanceId, p.seat, p.color || null, JSON.stringify(p)]
           );
         } else {
           // Un-targeted ON CONFLICT also guards the (game_session_id, user_id)
@@ -818,10 +851,10 @@ const joinMatchmaking = async ({ userId, game, mode, tournamentId, targetPlayers
           // snapshot rows (different seats, same user_id).
           await client.query(
             `INSERT INTO game_participants
-               (game_session_id, player_type, user_id, bot_id, seat, snapshot)
-             VALUES ($1, 'HUMAN', $2, NULL, $3, $4::jsonb)
+               (game_session_id, player_type, user_id, bot_id, seat, player_color, snapshot)
+             VALUES ($1, 'HUMAN', $2, NULL, $3, $4, $5::jsonb)
              ON CONFLICT DO NOTHING`,
-            [lobby.id, p.id, p.seat, JSON.stringify(p)]
+            [lobby.id, p.id, p.seat, p.color || null, JSON.stringify(p)]
           );
         }
       }
@@ -1040,6 +1073,9 @@ const fillMatchmakingLobby = async ({ userId, ticketId, overrideLobbyId, fillBot
     // Re-index seats (see joinMatchmaking) — rotated snapshots keep their
     // original seats, which can collide between humans and lobby bots.
     playerSnapshots.forEach((p, idx) => { p.seat = idx; });
+    // Finalize the game identity for every participant BEFORE the roster is
+    // persisted (see _assignSeatColors).
+    _assignSeatColors(playerSnapshots, game.slug);
 
     const matchMetadata = {
       lobbyId: lobby.id,
@@ -1072,10 +1108,10 @@ const fillMatchmakingLobby = async ({ userId, ticketId, overrideLobbyId, fillBot
       if (p.isBot) {
         await client.query(
           `INSERT INTO game_participants
-             (game_session_id, player_type, user_id, bot_id, instance_id, seat, snapshot)
-           VALUES ($1, 'BOT', NULL, $2, $3, $4, $5::jsonb)
+             (game_session_id, player_type, user_id, bot_id, instance_id, seat, player_color, snapshot)
+           VALUES ($1, 'BOT', NULL, $2, $3, $4, $5, $6::jsonb)
            ON CONFLICT (game_session_id, seat) DO NOTHING`,
-          [lobby.id, p.id, p.instanceId, p.seat, JSON.stringify(p)]
+          [lobby.id, p.id, p.instanceId, p.seat, p.color || null, JSON.stringify(p)]
         );
       } else {
         // Guarded: a user holding two tickets (re-queue race) yields two
@@ -1083,10 +1119,10 @@ const fillMatchmakingLobby = async ({ userId, ticketId, overrideLobbyId, fillBot
         // unique constraint must not crash the whole fill transaction.
         await client.query(
           `INSERT INTO game_participants
-             (game_session_id, player_type, user_id, bot_id, seat, snapshot)
-           VALUES ($1, 'HUMAN', $2, NULL, $3, $4::jsonb)
+             (game_session_id, player_type, user_id, bot_id, seat, player_color, snapshot)
+           VALUES ($1, 'HUMAN', $2, NULL, $3, $4, $5::jsonb)
            ON CONFLICT DO NOTHING`,
-          [lobby.id, p.id, p.seat, JSON.stringify(p)]
+          [lobby.id, p.id, p.seat, p.color || null, JSON.stringify(p)]
         );
         await client.query(
           `UPDATE game_matchmaking_ticket
@@ -1238,27 +1274,34 @@ const setupMatchSession = async ({ matchId, gameId, userId, wsToken, mode, gameS
   try {
     await client.query('BEGIN');
 
-    // Fetch existing seats to determine this player's color
+    // Colors are finalized at match formation (_assignSeatColors in
+    // fillMatchmakingLobby/joinMatchmaking) and persisted on every
+    // game_participants row — humans AND bots. setupMatchSession only
+    // stamps ws_token and PRESERVES the formation-time color; it assigns a
+    // fallback color only for legacy rosters created before that change.
+    // Assigning colors here (the old behavior) raced with formation: two
+    // humans calling startGameSession concurrently could both read zero
+    // existing colors and both claim 'w' in chess.
     const existing = await client.query(
       `SELECT player_color FROM game_participants WHERE game_session_id = $1`,
       [matchId]
     );
-    const existingColors = existing.rows.map((r) => r.player_color);
+    const existingColors = existing.rows.map((r) => r.player_color).filter(Boolean);
 
-    let playerColor = 'blue';
-    if (gameSlug === 'chess') {
-      if (existingColors.length === 0) {
-        playerColor = Math.random() < 0.5 ? 'w' : 'b';
-      } else {
-        playerColor = existingColors.includes('b') ? 'w' : 'b';
-      }
-    } else if (gameSlug === 'ludo') {
-      const colors = ['red', 'green', 'yellow', 'blue'];
-      playerColor = colors.find((c) => !existingColors.includes(c)) || 'red';
-    } else if (gameSlug === 'snake-ladder') {
-      const colors = ['red', 'blue', 'green', 'yellow'];
-      playerColor = colors.find((c) => !existingColors.includes(c)) || 'red';
-    }
+    const mine = await client.query(
+      `SELECT player_color FROM game_participants
+       WHERE game_session_id = $1 AND user_id = $2`,
+      [matchId, userId]
+    );
+    const playerColor = mine.rows[0]?.player_color || (() => {
+      const palettes = {
+        'chess': ['w', 'b'],
+        'ludo': ['red', 'green', 'yellow', 'blue'],
+        'snake-ladder': ['red', 'blue', 'green', 'yellow'],
+      };
+      const palette = palettes[gameSlug] || ['blue'];
+      return palette.find((c) => !existingColors.includes(c)) || palette[0];
+    })();
 
     // Assign a ws_token and player_color by updating the participant row.
     // The participant row was already inserted by startGameSession.

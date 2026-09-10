@@ -18,7 +18,26 @@ let _io = null;
 // here so any module can look it up at emit time.
 const namespaces = {};
 
-const getNamespace = (name) => namespaces[name] || null;
+/**
+ * Canonical accessor for a namespace by SEMANTIC name. Services and jobs emit
+ * through this — never `io.of('/account-socket')` directly — so the physical
+ * namespace paths live in exactly one place and cannot drift from what
+ * clients actually connect to. This guards against the class of bug where an
+ * emitter addressed the root namespace '/' while clients sat on
+ * /account-socket: every user-room emission was silently dropped and only the
+ * REST fallback poll ever updated the matchmaking radar.
+ *   getNamespace('account') → /account-socket  (user:${id} rooms)
+ *   getNamespace('game')    → /game-socket     (match:${id} rooms)
+ * Returns the registered namespace if setup has run; otherwise lazily creates
+ * it via io.of() so early emitters (startup jobs) don't crash.
+ */
+const NS_PATHS = { account: '/account-socket', game: '/game-socket', device: '/device-socket', chat: '/chat-socket' };
+const getNamespace = (name) => {
+  if (namespaces[name]) return namespaces[name];
+  const path = NS_PATHS[name];
+  if (!path) return null;
+  try { return getIO().of(path); } catch { return null; }
+};
 
 // ── Auth middlewares ────────────────────────────────────────────────────────
 // Device: deviceId only (no JWT)

@@ -78,3 +78,18 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
 
 export const useTheme = () => useContext(ThemeContext);
 export const useThemeColors = () => useContext(ThemeContext).colors;
+
+/**
+ * Forces the dark palette for an entire subtree, regardless of system theme or
+ * the user's app preference (e.g. the game session flow, which is always
+ * dark-themed from match start to end). Nested providers restore the outer
+ * theme automatically when the subtree unmounts.
+ */
+export function ForcedDarkThemeProvider({ children }: { children: React.ReactNode }) {
+  const ctx = useContext(ThemeContext);
+  const value = useMemo(
+    () => (ctx.isDark ? ctx : { ...ctx, isDark: true, colors: DARK_COLORS }),
+    [ctx],
+  );
+  return <ThemeContext.Provider value={value}>{children}</ThemeContext.Provider>;
+}

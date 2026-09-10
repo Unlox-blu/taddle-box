@@ -53,6 +53,8 @@ export interface Game {
   config?: Record<string, any>;
   /** Backend metadata (entryFee, prize, gradient overrides, etc.). */
   metadata?: Record<string, any>;
+  /** Per-game tips (backend SSOT) shown on the match-start screen pill. */
+  tips?: string[];
 
   // ── Assets ─────────────────────────────────────────────────────────
   /** Asset set identifier (e.g. 'ludo-classic-v3', 'ludo-neon-v1'). */

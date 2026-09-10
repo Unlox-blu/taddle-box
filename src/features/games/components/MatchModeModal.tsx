@@ -455,11 +455,16 @@ export default function MatchModeModal({
     setQueuePhase("filling");
     setStatusText("Match found! Spawning players...");
     if (matchBeatRef.current) clearTimeout(matchBeatRef.current);
+    // Hold the radar long enough for the full one-by-one spawn to play out
+    // (~0.5s per bot, organic jitter) plus a short beat before handing off —
+    // otherwise the match starts mid-animation and the pins look like a
+    // single bulk flash.
+    const beatMs = 1400 + Math.min(others.length, 8) * 480;
     matchBeatRef.current = setTimeout(() => {
       if (!cancelledRef.current && !matchedRef.current) {
         handleMatchedRef.current(response);
       }
-    }, 1600);
+    }, beatMs);
   };
   presentMatchedRadarRef.current = presentMatchedRadar;
 
@@ -573,9 +578,17 @@ export default function MatchModeModal({
         if (d?.maxPlayers || d?.lobbyState?.maxPlayers) {
           setLobbyMaxPlayers(d.maxPlayers || d.lobbyState.maxPlayers);
         }
-        // Joining an existing lobby? Its current players are "already spawned"
-        // — render them instantly; only later joins (bots filling slots) animate.
-        setSpawnBaseline(Math.max(1, Array.isArray(d?.players) ? d.players.length : 1));
+        // Only HUMANS already in the lobby count as "pre-spawned" (delay 0).
+        // Bots in the join response — e.g. the practice bot-fill sweep — must
+        // animate in one-by-one like later joins; counting them into the
+        // baseline made every bot spawn instantly (bulk appear).
+        const preSpawnedHumans = Array.isArray(d?.players)
+          ? d.players.filter(
+              (p: any) =>
+                !p.isBot && !String(p.id || p.userId || "").startsWith("bot_"),
+            ).length
+          : 0;
+        setSpawnBaseline(Math.max(1, preSpawnedHumans));
         // The pill mirrors the backend timing: AUTO lobbies have a 30s window
         // (bots quietly start filling at 15s), so the countdown runs the full
         // 30s. PRACTICE fills from t=0 — its pill is hidden anyway
@@ -1729,8 +1742,16 @@ const MatchmakingRadar = React.memo(function MatchmakingRadar({
   const DISC   = 260;
   const CENTER = DISC / 2;   // 130
 
-  const pinDelay = (i: number) =>
-    i < initialCount ? 0 : Math.min((i - initialCount + 1) * 320, 2000);
+  // One-by-one spawn stagger with organic jitter (380–600ms per pin).
+  // No low cap: a flat 2s cap made every late pin fire simultaneously
+  // (bulk appear) once the queue had several bots. Jitter keeps the
+  // arrival pattern feeling random rather than metronomic.
+  const pinDelay = (i: number) => {
+    if (i < initialCount) return 0;
+    const idHash = hashStr(String(pins[i]?.id ?? pins[i]?.userId ?? i));
+    const step = 380 + (idHash % 220); // 380–600ms between spawns
+    return Math.min((i - initialCount + 1) * step, 5200);
+  };
 
   return (
     <View style={{ alignItems: "center", marginBottom: 8 }}>

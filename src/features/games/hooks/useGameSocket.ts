@@ -136,9 +136,15 @@ export function useGameSocket({
       name: p.displayName || p.name || p.username || "Player",
       username: p.username,
       avatar: p.avatar || p.avatarUrl,
+      // Color/seat identity (chess 'w'/'b', ludo 'red'/'green'/...) — the
+      // runtimes resolve whose turn it is from this; dropping it made every
+      // client assume it was white/first and reject its own moves with
+      // "Not your turn" whenever the server dealt it the other color.
+      color: p.color,
       team: p.team,
       seat: p.seat,
       level: p.level ?? (typeof p.xp === "number" ? Math.floor(p.xp / 1000) + 1 : undefined),
+      isBot: !!(p.isBot || String(p.id || p.userId || "").startsWith("bot_")),
     }));
   }, []);
 

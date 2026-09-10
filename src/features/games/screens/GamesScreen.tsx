@@ -38,7 +38,7 @@ import {
   spacing,
   type ColorPalette,
 } from "../../../design-system";
-import { useThemeColors } from "../../../design-system/theme/ThemeProvider";
+import { useThemeColors, ForcedDarkThemeProvider } from "../../../design-system/theme/ThemeProvider";
 import PullToRefreshWrapper from "../../../shell/components/PullToRefreshWrapper";
 import {
   useGames,
@@ -127,6 +127,8 @@ type ActiveSession = {
   isRejoin?: boolean;
   /** Number of rounds configured for this match (default 1). */
   configuredRounds?: number;
+  /** Per-game tips (backend SSOT) for the match-start screen pill. */
+  tips?: string[];
 };
 
 const formatTimeLeft = (endsAt: string) => {
@@ -516,11 +518,34 @@ export default function GamesScreen() {
     await run();
   };
 
+  // Honest start-stage signals for the game start screen's progress stepper.
+  // Lifted to the screen level because the runtime preload fires during
+  // matchmaking (before GamePlayModal mounts). Each stage ticks ONLY when its
+  // underlying condition is genuinely met — never on a timer. "Connecting" =
+  // session created (engine socket will dial); "Loading assets" = runtime
+  // preload finished; "Players ready" = engine CONNECT_ACK (roster complete).
+  const [startStages, setStartStages] = useState({
+    connected: false,
+    assetsLoaded: false,
+    playersReady: false,
+  });
+  const resetStartStages = useCallback(
+    () =>
+      setStartStages({
+        connected: false,
+        assetsLoaded: false,
+        playersReady: false,
+      }),
+    [],
+  );
+
   const handleMatched = useCallback(
     (request: any, response: MatchmakingResponse) => {
       // Modal already closed itself — just start the session
       setMatchModalVisible(false);
       setSelectedGame(null);
+      // Fresh start — every stage must re-earn its tick.
+      resetStartStages();
       // A rematch modal closes itself here (not via onClose), so the flags must
       // be cleared too — otherwise the next normal "Play" would auto-queue.
       setRematchAutoQueue(false);
@@ -555,6 +580,9 @@ export default function GamesScreen() {
           let myTeam: number | undefined;
 
           // From matchMetadata.playerSnapshots (new lobby flow)
+          // NOTE: isBot is carried through so the start screen / game boards
+          // render bot opponents as bots (muted 🤖 avatar, BOT badge) instead
+          // of being dropped and silently rendering a generic "Opponent".
           const snapshots: any[] =
             (response as any).matchMetadata?.playerSnapshots || [];
           snapshots.forEach((p: any) => {
@@ -570,6 +598,7 @@ export default function GamesScreen() {
               team: p.team,
               seat: p.seat,
               level: p.level,
+              isBot: !!(p.isBot || String(p.id || "").startsWith("bot_")),
             });
           });
 
@@ -636,7 +665,15 @@ export default function GamesScreen() {
             myTeam,
             configuredRounds:
               res.data?.configuredRounds || request.game.rounds?.default || 1,
+            // Server-driven tips (startGameSession returns game.tips);
+            // fall back to whatever the games list carried.
+            tips:
+              (res.data?.tips as string[] | undefined) ||
+              (request.game as any).tips ||
+              undefined,
           });
+          // Session created — the engine socket is now dialing.
+          setStartStages((s) => ({ ...s, connected: true }));
 
           // ── Kick off manifest + runtime preload DURING countdown ────────
           // The game mounts in prestart (behind the countdown overlay), so
@@ -645,7 +682,19 @@ export default function GamesScreen() {
           // assets are already cached.
           const rSlug = sessionRuntime.runtime || request.game.slug || "";
           const rVer = sessionRuntime.runtimeVersion || 1;
-          preloadRuntime(rSlug, rVer);
+          const runtimeReady = preloadRuntime(rSlug, rVer);
+          if (runtimeReady) {
+            // "Loading assets" ticks only when the runtime bundle + assets
+            // have actually resolved.
+            runtimeReady
+              .then(() =>
+                setStartStages((s) => ({ ...s, assetsLoaded: true })),
+              )
+              .catch(() => {});
+          } else {
+            // Unknown runtime — treat as instantly loaded (nothing to fetch).
+            setStartStages((s) => ({ ...s, assetsLoaded: true }));
+          }
         })
         .catch((err: any) => {
           themedAlert(
@@ -973,11 +1022,19 @@ export default function GamesScreen() {
       </React.Suspense>
 
       {activeSession && (
-        <GamePlayModal
-          session={activeSession}
-          onClose={handleSessionClose}
-          onRematch={handleRematch}
-        />
+        <ForcedDarkThemeProvider>
+          {/* Game session flow is always dark — from match start to game end,
+              regardless of system theme / user app preference. */}
+          <GamePlayModal
+            session={activeSession}
+            onClose={handleSessionClose}
+            onRematch={handleRematch}
+            stageSignals={startStages}
+            onPlayersReady={() =>
+              setStartStages((s) => ({ ...s, playersReady: true }))
+            }
+          />
+        </ForcedDarkThemeProvider>
       )}
 
       <HistoryModal
@@ -1365,12 +1422,19 @@ function GamePlayModal({
   session,
   onClose,
   onRematch,
+  stageSignals,
+  onPlayersReady,
 }: {
   session: ActiveSession;
   onClose: () => void;
   onRematch?: () => void;
+  /** Live start-stage signals from the screen level (SSOT for the stepper). */
+  stageSignals: { connected: boolean; assetsLoaded: boolean; playersReady: boolean };
+  /** Fired when the engine socket CONNECT_ACKs with the full roster. */
+  onPlayersReady: () => void;
 }) {
   const insets = useSafeAreaInsets();
+  // Rendered under ForcedDarkThemeProvider → always resolves to the dark palette.
   const colors = useThemeColors();
   const styles = useMemo(() => makeStyles(colors), [colors]);
   const { addMatch } = useGames();
@@ -1415,6 +1479,8 @@ function GamePlayModal({
   // this to transition from "Loading game…" to "ALL READY!" instead of a
   // fixed countdown.
   const [gameReady, setGameReady] = useState(false);
+  // Stage signals live at the screen level (startStages) because the runtime
+  // preload fires during matchmaking — this component just renders them.
   // Keyboard height — track so the game board shrinks upward when the
   // keyboard opens (especially important on iOS where the keyboard overlays).
   const [kbHeight, setKbHeight] = useState(0);
@@ -1525,6 +1591,7 @@ function GamePlayModal({
       // received initial state, and assets were preloaded during matchmaking.
       // The start screen will transition from "Loading game…" to "ALL READY!"
       // and then call onDone to reveal the game.
+      onPlayersReady();
       setGameReady(true);
       // If reconnecting to an already-finished match, complete immediately.
       if (st !== "FINISHED" && st !== "ARCHIVED") return;
@@ -1922,10 +1989,21 @@ function GamePlayModal({
           )}
 
           {phase === "prestart" && (
-            <View style={StyleSheet.absoluteFill}>
+            <View
+              style={[
+                StyleSheet.absoluteFill,
+                // Shrink + lift the start screen exactly like playStage when
+                // the chat panel / keyboard is up — otherwise the overlay
+                // ignores the parent's paddingBottom and covers the chat.
+                (chatOpen || kbHeight > 0) && {
+                  bottom: (chatOpen ? chatPanelH || 280 : 0) + kbHeight,
+                },
+              ]}
+            >
               <GameStartScreen
                 key={session.matchId}
                 game={session.game}
+                compact={chatOpen || kbHeight > 0}
                 myName={user?.username || user?.name || "You"}
                 myAvatar={user?.avatarUrl || user?.avatar || null}
                 myTeam={session.myTeam}
@@ -1935,6 +2013,7 @@ function GamePlayModal({
                   name: p.name,
                   avatar: p.avatar,
                   team: p.team,
+                  isBot: !!(p as any).isBot,
                 }))}
                 modeLabel={
                   session.mode === "tournament"
@@ -1958,6 +2037,8 @@ function GamePlayModal({
                     ? roundLifecycle.totalRounds
                     : undefined
                 }
+                tips={session.tips}
+                stageSignals={stageSignals}
               />
             </View>
           )}

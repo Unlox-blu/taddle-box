@@ -488,7 +488,7 @@ function RepostedReelPreview({
         id: privateAuthor.id || "",
         name: privateAuthor.name || "Private User",
         username: privateAuthor.username || "unknown",
-        avatarUrl: privateAuthor.avatar_url?.cloudfront_url || privateAuthor.avatar_url,
+        avatarUrl: privateAuthor.avatar_url?.media_url || privateAuthor.avatar_url,
         avatar: privateAuthor.avatar || "👾",
       };
       return (
@@ -539,7 +539,7 @@ function RepostedReelPreview({
     id: rawAuthor.id || "",
     name: rawAuthor.name || "Unknown User",
     username: rawAuthor.username || "unknown",
-    avatarUrl: rawAuthor.avatar_url?.cloudfront_url || rawAuthor.avatar_url,
+    avatarUrl: rawAuthor.avatar_url?.media_url || rawAuthor.avatar_url,
     avatar: rawAuthor.avatar || "👾",
   };
   const comm = (orig as any).community;
@@ -1535,7 +1535,7 @@ export default React.memo(function ReelItem({
       id: raw.id,
       name: raw.name || "Unknown",
       username: raw.username || raw.handle || "",
-      avatarUrl: raw.avatar_url?.cloudfront_url || raw.avatar_url,
+      avatarUrl: raw.avatar_url?.media_url || raw.avatar_url,
       avatar: raw.avatar || "👾",
       xp: raw.xp ?? raw.totalXp ?? 0,
       organization: raw.organization || raw.bio || "",

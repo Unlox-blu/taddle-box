@@ -10,7 +10,7 @@ export default function UnknownCard({ item, ctx }: { item: any; ctx: FeedCtx }) 
   // Heuristics to find displayable content across common data shapes
   const title = data.title || data.name || data.header || data.subject || data.username || data.slug || data.type;
   const description = data.content || data.description || data.text || data.message || data.body || data.summary || data.bio;
-  const image = data.imageUrl || data.cover_image_url || data.thumbnail || data.avatarUrl || data.image || (Array.isArray(data.media) && data.media[0]?.cloudfront_url) || data.senderAvatarUrl;
+  const image = data.imageUrl || data.cover_image_url || data.thumbnail || data.avatarUrl || data.image || (Array.isArray(data.media) && data.media[0]?.media_url) || data.senderAvatarUrl;
 
   return (
     <View style={[styles.container, { backgroundColor: ctx.colors.bg?.card || "rgba(255,255,255,0.05)", borderColor: ctx.colors.border }]}>

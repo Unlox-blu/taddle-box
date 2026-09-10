@@ -129,9 +129,9 @@ export function getRuntimeComponent(runtime: string, version: number): React.Laz
  *  Call this when the player taps PLAY — by the time the game mounts the module is ready. */
 const PRELOAD_IMPORTS: Record<string, Promise<any> | undefined> = {};
 
-export function preloadRuntime(runtime: string, version: number): void {
+export function preloadRuntime(runtime: string, version: number): Promise<any> | undefined {
   const key = runtimeKey(runtime, version);
-  if (PRELOAD_IMPORTS[key]) return; // already loading
+  if (PRELOAD_IMPORTS[key]) return PRELOAD_IMPORTS[key]; // already loading
   const map: Record<string, () => Promise<any>> = {
     'chess@1': () => import('./chess/ChessRuntime'),
     'ludo@1': () => import('./ludo/LudoRuntime'),
@@ -141,7 +141,14 @@ export function preloadRuntime(runtime: string, version: number): void {
     'tap-rush@1': () => import('./tap-rush/TapRushRuntime'),
     'memory-grid@1': () => import('./memory-grid/MemoryGridRuntime'),
   };
-  if (map[key]) PRELOAD_IMPORTS[key] = map[key]();
+  const p = map[key]?.();
+  if (p) {
+    PRELOAD_IMPORTS[key] = p;
+    // Swallow rejections — preload is best-effort; the lazy import inside
+    // the runtime component will surface real errors at mount time.
+    p.catch(() => {});
+  }
+  return p;
 }
 
 /** Check if a runtime key has a registered component. */

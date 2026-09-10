@@ -19,6 +19,7 @@ import {
   Image,
   StyleSheet,
   Text,
+  useWindowDimensions,
   View,
 } from "react-native";
 import { LinearGradient } from "expo-linear-gradient";
@@ -53,67 +54,18 @@ type Props = {
   onExit?: () => void;
   roundNumber?: number;
   roundTotal?: number;
+  /** Backend-driven per-game tips (SSOT — no bundled fallback). */
+  tips?: string[];
+  /** Real start-stage signals — each stepper stage ticks only when genuine. */
+  stageSignals?: {
+    connected: boolean;
+    assetsLoaded: boolean;
+    playersReady: boolean;
+  };
+  /** Compact layout — used when the chat panel / keyboard shrinks the
+   *  container so every piece reflows proportionally instead of clipping. */
+  compact?: boolean;
 };
-
-const GAME_TIPS: Record<string, string[]> = {
-  chess: [
-    "Control the center — it's the key to winning!",
-    "Don't bring your queen out too early in the opening.",
-    "Every piece has a value — protect yours wisely.",
-    "Castling keeps your king safe and activates your rook.",
-    "Develop your minor pieces before pushing pawns.",
-  ],
-  ludo: [
-    "Safe zones are your best friend — opponents can't capture you there!",
-    "Sometimes blocking matters more than racing home.",
-    "Rolling double sixes gives you an extra turn.",
-    "Keep one piece on a safe square while the others move.",
-    "Leading doesn't guarantee winning — every piece must finish.",
-  ],
-  "snake-ladder": [
-    "Luck is everything — but every step counts!",
-    "Snakes pull you down, ladders push you up.",
-    "A hot streak can change the entire game.",
-    "Don't give up — anything can happen in Snakes & Ladders.",
-    "Enjoy the ride — surprises are around every corner.",
-  ],
-  scribble: [
-    "Keep it simple but recognizable — others need to guess!",
-    "Time is limited — draw the most important features first.",
-    "Watch every stroke — the clues are in the drawing.",
-    "A good drawer knows when to stop adding detail.",
-    "Think like a guesser — what's the one thing that stands out?",
-  ],
-  "word-rush": [
-    "Look for long words first — they score more points!",
-    "Check corners and edges — good words hide there.",
-    "When time is tight, go for quick 3-letter words.",
-    "The letter S and plurals are your best allies.",
-    "Remember: both speed and quality matter.",
-  ],
-  "tap-rush": [
-    "Speed matters — but accuracy matters more!",
-    "Consecutive taps trigger combo bonuses.",
-    "Find your rhythm — don't just tap randomly.",
-    "Watch your opponent's pace — adjust yours accordingly.",
-    "The final sprint can decide the winner.",
-  ],
-  "memory-grid": [
-    "Use patterns to help remember — group cards mentally.",
-    "Flip easy-to-remember positions first.",
-    "Keep track of cards you've already seen.",
-    "Focus beats speed — take your time.",
-    "Mentally mark positions as you flip.",
-  ],
-};
-
-const GENERAL_TIPS = [
-  "A great start is half the battle — stay focused!",
-  "Relax and enjoy the game — that's when you play best.",
-  "Observe your opponent's strategy — information is power.",
-  "Every game is a chance to learn something new.",
-  "Take a deep breath, stay calm, and play your best.",
-];
 
 const STAGES = [
   { icon: "wifi" as const, label: "Connecting" },
@@ -269,12 +221,14 @@ function PlayerSlot({
   phase,
   colors,
   styles,
+  compact,
 }: {
   player: StartPlayer;
   index: number;
   phase: string;
   colors: ColorPalette;
   styles: ReturnType<typeof makeStyles>;
+  compact?: boolean;
 }) {
   const slideIn = useRef(new Animated.Value(36)).current;
   const fadeIn = useRef(new Animated.Value(0)).current;
@@ -315,7 +269,7 @@ function PlayerSlot({
     <Animated.View
       style={[styles.slot, { opacity: fadeIn, transform: [{ translateY: slideIn }, { scale }] }]}
     >
-      <PlayerAvatar player={player} colors={colors} isReady={isReady} />
+      <PlayerAvatar player={player} colors={colors} isReady={isReady} size={compact ? 44 : 72} />
 
       <Text style={styles.slotName} numberOfLines={1}>
         {player.isMe ? player.name : player.name || "Taddler"}
@@ -384,16 +338,19 @@ function VsEmblem({ colors, styles }: { colors: ColorPalette; styles: ReturnType
   );
 }
 
-// ─── Rotating tips ────────────────────────────────────────────────────────────
+// ─── Rotating tips (backend SSOT only) ────────────────────────────────────
 
-function RotatingTip({ game, colors, styles }: { game: Game; colors: ColorPalette; styles: ReturnType<typeof makeStyles> }) {
+function RotatingTip({
+  tips,
+  colors,
+  styles,
+}: {
+  tips: string[];
+  colors: ColorPalette;
+  styles: ReturnType<typeof makeStyles>;
+}) {
   const [index, setIndex] = useState(0);
   const fadeAnim = useRef(new Animated.Value(1)).current;
-
-  const tips = useMemo(() => {
-    const gameTips = GAME_TIPS[game.slug || ""] || [];
-    return [...gameTips, ...GENERAL_TIPS];
-  }, [game.slug]);
 
   useEffect(() => {
     const interval = setInterval(() => {
@@ -414,11 +371,9 @@ function RotatingTip({ game, colors, styles }: { game: Game; colors: ColorPalett
   }, [tips.length]);
 
   return (
-    <Animated.View style={[styles.tipCard, { opacity: fadeAnim }]}>
-      <View style={styles.tipIconWrap}>
-        <Ionicons name="bulb" size={13} color={colors.xpGold} />
-      </View>
-      <Text style={styles.tipText} numberOfLines={2}>
+    <Animated.View style={[styles.tipPill, { opacity: fadeAnim }]}>
+      <Ionicons name="bulb" size={12} color={colors.xpGold} />
+      <Text style={styles.tipPillText} numberOfLines={1} ellipsizeMode="tail">
         {tips[index]}
       </Text>
     </Animated.View>
@@ -428,45 +383,55 @@ function RotatingTip({ game, colors, styles }: { game: Game; colors: ColorPalett
 // ─── Staged loading progress ──────────────────────────────────────────────────
 
 function LoadingStages({
-  ready,
+  connected,
+  assetsLoaded,
+  playersReady,
   colors,
   styles,
 }: {
-  ready: boolean;
+  connected: boolean;
+  assetsLoaded: boolean;
+  playersReady: boolean;
   colors: ColorPalette;
   styles: ReturnType<typeof makeStyles>;
 }) {
-  const [currentStage, setCurrentStage] = useState(0);
   const progressAnim = useRef(new Animated.Value(0)).current;
 
-  useEffect(() => {
-    if (ready) {
-      setCurrentStage(3);
-      Animated.timing(progressAnim, {
-        toValue: 1,
-        duration: 400,
-        useNativeDriver: false,
-      }).start();
-      return;
-    }
-    const timers = [
-      setTimeout(() => setCurrentStage(0), 200),
-      setTimeout(() => setCurrentStage(1), 1500),
-      setTimeout(() => setCurrentStage(2), 3000),
-    ];
-    return () => timers.forEach(clearTimeout);
-  }, [ready]);
+  // Each stage ticks strictly from its real signal — no timers:
+  //   Connecting     → runtime bundle resolved (module ready to mount)
+  //   Loading assets → runtime preload promise resolved
+  //   Players ready  → engine CONNECT_ACK (full roster acknowledged)
+  //   All set        → everything above
+  const stagesDone = [
+    connected,
+    connected && assetsLoaded,
+    connected && assetsLoaded && playersReady,
+    connected && assetsLoaded && playersReady,
+  ];
+  const currentStage = stagesDone.lastIndexOf(true);
 
   useEffect(() => {
-    if (!ready) {
-      Animated.timing(progressAnim, {
-        toValue: (currentStage + 1) / STAGES.length,
-        duration: 800,
-        easing: Easing.out(Easing.ease),
-        useNativeDriver: false,
-      }).start();
-    }
-  }, [currentStage, ready]);
+    Animated.timing(progressAnim, {
+      toValue: (currentStage + 1) / STAGES.length,
+      duration: 600,
+      easing: Easing.out(Easing.ease),
+      useNativeDriver: false,
+    }).start();
+  }, [currentStage]);
+
+  // Safety: never wedge the progress bar — if the engine hasn't acknowledged
+  // within 12s, release the "Players ready" stage anyway (the start screen's
+  // own timeout will surface a connection error instead of a fake green tick).
+  const [graceElapsed, setGraceElapsed] = useState(false);
+  useEffect(() => {
+    if (playersReady) return;
+    const t = setTimeout(() => setGraceElapsed(true), 12000);
+    return () => clearTimeout(t);
+  }, [playersReady]);
+  const effectiveStagesDone = stagesDone.map(
+    (done, i) => done || (i <= 2 && graceElapsed),
+  );
+  const effCurrentStage = effectiveStagesDone.lastIndexOf(true);
 
   return (
     <View style={styles.stagesWrap}>
@@ -497,8 +462,8 @@ function LoadingStages({
 
       <View style={styles.stagesRow}>
         {STAGES.map((stage, i) => {
-          const isActive = i <= currentStage;
-          const isCurrent = i === currentStage;
+          const isActive = i <= effCurrentStage;
+          const isCurrent = i === effCurrentStage && effCurrentStage < STAGES.length - 1;
           return (
             <View key={i} style={styles.stageItem}>
               <View
@@ -513,7 +478,7 @@ function LoadingStages({
                   size={10}
                   color={isActive ? "#fff" : colors.text.muted}
                 />
-                {isCurrent && !ready && (
+                {isCurrent && (
                   <View
                     pointerEvents="none"
                     style={[styles.stageDotPulse, { backgroundColor: colors.primaryLight }]}
@@ -546,10 +511,23 @@ export default function GameStartScreen({
   onExit,
   roundNumber,
   roundTotal,
+  tips,
+  stageSignals,
+  compact: compactProp,
 }: Props) {
   const insets = useSafeAreaInsets();
   const colors = useThemeColors();
-  const styles = useMemo(() => makeStyles(colors), [colors]);
+  const { height: winH, width: winW } = useWindowDimensions();
+
+  // Compact layout: explicitly requested (chat panel / keyboard shrunk the
+  // stage) OR the device itself is too short for the full layout. Small
+  // tablets/landscape get the same proportional treatment.
+  const compact = !!compactProp || winH < 620 || (winH < 500 && winW > winH);
+
+  const styles = useMemo(
+    () => makeStyles(colors, insets.bottom || 0, compact),
+    [colors, insets.bottom, compact],
+  );
 
   const onDoneRef = useRef(onDone);
   useEffect(() => {
@@ -558,6 +536,19 @@ export default function GameStartScreen({
 
   const [phase, setPhase] = useState<"waiting" | "ready">("waiting");
   const [showMatchStarting, setShowMatchStarting] = useState(false);
+
+  // Backend tips are the only source — no bundled fallback. If none were
+  // delivered, the pill simply doesn't render.
+  const serverTips = tips?.length ? tips : null;
+
+  // Real stage signals from GamesScreen: socket ack, runtime preload, and
+  // engine CONNECT_ACK. Falls back to optimistic "connected" only while a
+  // signal prop hasn't been provided at all (legacy callers).
+  const effectiveStageSignals = {
+    connected: stageSignals?.connected ?? true,
+    assetsLoaded: stageSignals?.assetsLoaded ?? true,
+    playersReady: stageSignals?.playersReady ?? false,
+  };
 
   useEffect(() => {
     if (ready && phase === "waiting") {
@@ -627,7 +618,12 @@ export default function GameStartScreen({
   const isDuel = !teamsLocked && team1.length === 2;
 
   return (
-    <View style={[styles.root, { paddingTop: (insets.top || 16) + spacing.sm }]}>
+    <View
+      style={[
+        styles.root,
+        { paddingTop: compact ? (insets.top || 16) * 0.5 + spacing.xs : (insets.top || 16) + spacing.sm },
+      ]}
+    >
       {/* Ambient game-tinted glow over the base canvas */}
       <Animated.View
         pointerEvents="none"
@@ -649,8 +645,8 @@ export default function GameStartScreen({
 
       {/* ── Game identity + mode / round ── */}
       <View style={styles.header}>
-        <GameLogo game={game as any} size={52} radius={14} />
-        <Text style={styles.gameName}>{game.name}</Text>
+        <GameLogo game={game as any} size={compact ? 34 : 52} radius={compact ? 10 : 14} />
+        <Text style={styles.gameName} numberOfLines={1}>{game.name}</Text>
         <View style={styles.pillRow}>
           <View style={styles.modePill}>
             <Ionicons name="flash" size={10} color={colors.primaryLight} />
@@ -674,34 +670,40 @@ export default function GameStartScreen({
             <View style={styles.teamColumn}>
               <Text style={styles.teamLabel}>TEAM 1</Text>
               {team1.map((p, i) => (
-                <PlayerSlot key={p.id || i} player={p} index={i} phase={phase} colors={colors} styles={styles} />
+                <PlayerSlot key={p.id || i} player={p} index={i} phase={phase} colors={colors} styles={styles} compact={compact} />
               ))}
             </View>
             <VsEmblem colors={colors} styles={styles} />
             <View style={styles.teamColumn}>
               <Text style={styles.teamLabel}>TEAM 2</Text>
               {team2.map((p, i) => (
-                <PlayerSlot key={p.id || i} player={p} index={i} phase={phase} colors={colors} styles={styles} />
+                <PlayerSlot key={p.id || i} player={p} index={i} phase={phase} colors={colors} styles={styles} compact={compact} />
               ))}
             </View>
           </View>
         ) : isDuel ? (
           <View style={styles.duelLayout}>
-            <PlayerSlot player={team1[0]} index={0} phase={phase} colors={colors} styles={styles} />
+            <PlayerSlot player={team1[0]} index={0} phase={phase} colors={colors} styles={styles} compact={compact} />
             <VsEmblem colors={colors} styles={styles} />
-            <PlayerSlot player={team1[1]} index={1} phase={phase} colors={colors} styles={styles} />
+            <PlayerSlot player={team1[1]} index={1} phase={phase} colors={colors} styles={styles} compact={compact} />
           </View>
         ) : (
           <View style={styles.gridWrap}>
             {team1.map((p, i) => (
-              <PlayerSlot key={p.id || i} player={p} index={i} phase={phase} colors={colors} styles={styles} />
+              <PlayerSlot key={p.id || i} player={p} index={i} phase={phase} colors={colors} styles={styles} compact={compact} />
             ))}
           </View>
         )}
       </View>
 
-      {/* ── Bottom: stages / match-starting + tips ── */}
+      {/* ── Bottom: stages / match-starting ── */}
       <View style={styles.bottomSection}>
+        {/* Tips pill sits in flow, directly above the stepper / banner */}
+        {phase === "waiting" && serverTips && (
+          <View style={styles.tipPillRow} pointerEvents="none">
+            <RotatingTip tips={serverTips} colors={colors} styles={styles} />
+          </View>
+        )}
         {showMatchStarting ? (
           <View style={styles.matchStartingWrap}>
             <Animated.View
@@ -713,7 +715,13 @@ export default function GameStartScreen({
                     {
                       scale: readyPulse.interpolate({
                         inputRange: [0, 1],
-                        outputRange: [0.5, 1],
+                        outputRange: [0.6, 1],
+                      }),
+                    },
+                    {
+                      translateY: readyPulse.interpolate({
+                        inputRange: [0, 1],
+                        outputRange: [14, 0],
                       }),
                     },
                   ],
@@ -721,30 +729,46 @@ export default function GameStartScreen({
               ]}
             >
               <LinearGradient
-                colors={[colors.success + "00", colors.success + "33", colors.success + "00"]}
+                colors={[colors.success + "26", colors.success + "0A"]}
                 start={{ x: 0, y: 0 }}
                 end={{ x: 1, y: 0 }}
                 style={StyleSheet.absoluteFill}
               />
-              <Ionicons name="flash" size={22} color={colors.success} />
-              <Text style={[styles.matchStartingText, { textShadowColor: colors.success + "CC" }]}>
+              {/* Leading pulse dot — alive, replaces the icon pair */}
+              <View style={styles.matchStartingPulseWrap}>
+                <View style={[styles.matchStartingPulseDot, { backgroundColor: colors.success + "55" }]} />
+                <View style={styles.matchStartingDot} />
+              </View>
+              <Text style={[styles.matchStartingText, { textShadowColor: colors.success + "AA" }]}>
                 MATCH STARTING
               </Text>
-              <Ionicons name="flash" size={22} color={colors.success} />
             </Animated.View>
           </View>
         ) : (
-          <LoadingStages ready={phase === "ready"} colors={colors} styles={styles} />
+          <LoadingStages
+            connected={effectiveStageSignals.connected}
+            assetsLoaded={effectiveStageSignals.assetsLoaded}
+            playersReady={effectiveStageSignals.playersReady}
+            colors={colors}
+            styles={styles}
+          />
         )}
-        {phase === "waiting" && <RotatingTip game={game} colors={colors} styles={styles} />}
       </View>
+
+      {/* (tips pill moved into bottomSection — it overlaid the stepper) */}
     </View>
   );
 }
 
 // ─── Styles ───────────────────────────────────────────────────────────────────
 
-function makeStyles(c: ColorPalette) {
+function makeStyles(c: ColorPalette, bottomInset: number, compact: boolean) {
+  // Compact mode: every fixed dimension scales proportionally so the whole
+  // composition keeps its shape inside a shrunk container (chat open /
+  // keyboard up / short screens) instead of clipping or overlapping.
+  const k = compact ? 0.68 : 1; // linear scale for paddings/gaps
+  const s = compact ? 0.6 : 1; // scale for component sizes (slots, VS, dots)
+
   return StyleSheet.create({
     root: {
       flex: 1,
@@ -752,12 +776,17 @@ function makeStyles(c: ColorPalette) {
       justifyContent: "space-between",
       backgroundColor: c.bg.base,
       overflow: "hidden",
-      paddingBottom: spacing.xl,
+      paddingBottom: compact ? spacing.md : spacing.xl,
     },
 
     // header
-    header: { alignItems: "center", zIndex: 10, gap: 8 },
-    gameName: { color: c.text.primary, fontSize: fontSizes.lg, fontWeight: "800", letterSpacing: 0.3 },
+    header: { alignItems: "center", zIndex: 10, gap: Math.round(8 * k) },
+    gameName: {
+      color: c.text.primary,
+      fontSize: compact ? fontSizes.md : fontSizes.lg,
+      fontWeight: "800",
+      letterSpacing: 0.3,
+    },
     pillRow: { flexDirection: "row", gap: spacing.sm },
     modePill: {
       flexDirection: "row",
@@ -791,6 +820,7 @@ function makeStyles(c: ColorPalette) {
       justifyContent: "center",
       width: "100%",
       maxWidth: 460,
+      gap: Math.round(spacing.md * k),
     },
     teamVsLayout: {
       flexDirection: "row",
@@ -799,7 +829,7 @@ function makeStyles(c: ColorPalette) {
       width: "100%",
       maxWidth: 460,
     },
-    teamColumn: { alignItems: "center", gap: spacing.md },
+    teamColumn: { alignItems: "center", gap: Math.round(spacing.md * k) },
     teamLabel: {
       color: c.text.muted,
       fontSize: fontSizes.xs,
@@ -810,16 +840,22 @@ function makeStyles(c: ColorPalette) {
       flexDirection: "row",
       flexWrap: "wrap",
       justifyContent: "center",
-      gap: spacing.md,
+      gap: Math.round(spacing.md * k),
       maxWidth: 480,
     },
 
     // VS emblem
-    vsWrap: { width: 56, height: 56, alignItems: "center", justifyContent: "center", marginHorizontal: spacing.md },
+    vsWrap: {
+      width: Math.round(56 * s),
+      height: Math.round(56 * s),
+      alignItems: "center",
+      justifyContent: "center",
+      marginHorizontal: Math.round(spacing.md * k),
+    },
     vsDiamond: {
-      width: 44,
-      height: 44,
-      borderRadius: 12,
+      width: Math.round(44 * s),
+      height: Math.round(44 * s),
+      borderRadius: Math.round(12 * s),
       transform: [{ rotate: "45deg" }],
       alignItems: "center",
       justifyContent: "center",
@@ -833,7 +869,7 @@ function makeStyles(c: ColorPalette) {
     },
     vsText: {
       color: "#fff",
-      fontSize: 13,
+      fontSize: Math.round(13 * s),
       fontWeight: "900",
       fontStyle: "italic",
       transform: [{ rotate: "-45deg" }],
@@ -842,16 +878,21 @@ function makeStyles(c: ColorPalette) {
     // player slot card
     slot: {
       alignItems: "center",
-      paddingVertical: spacing.lg,
-      paddingHorizontal: spacing.md,
-      borderRadius: radii.xl,
+      paddingVertical: Math.round(spacing.lg * k),
+      paddingHorizontal: Math.round(spacing.md * k),
+      borderRadius: Math.round(radii.xl * k),
       backgroundColor: c.glass,
       borderWidth: 1,
       borderColor: c.glassBorder,
-      gap: 10,
-      width: 124,
+      gap: Math.round(10 * k),
+      width: Math.round(124 * s),
     },
-    slotName: { color: c.text.primary, fontSize: fontSizes.sm, fontWeight: "700" },
+    slotName: {
+      color: c.text.primary,
+      fontSize: fontSizes.sm,
+      fontWeight: "700",
+      maxWidth: "100%",
+    },
     slotBadge: {
       flexDirection: "row",
       alignItems: "center",
@@ -873,36 +914,59 @@ function makeStyles(c: ColorPalette) {
     },
 
     // bottom section
-    bottomSection: { width: "100%", zIndex: 10, gap: spacing.md },
+    bottomSection: { width: "100%", zIndex: 10, gap: Math.round(spacing.md * k) },
 
-    // match starting banner
+    // match starting banner — compact gradient chip
     matchStartingWrap: { alignItems: "center" },
     matchStartingBanner: {
-      width: "100%",
-      paddingVertical: spacing.lg,
       flexDirection: "row",
       alignItems: "center",
-      justifyContent: "center",
-      gap: 12,
-      borderRadius: radii.xl,
+      gap: Math.round(10 * k),
+      paddingHorizontal: Math.round(spacing.lg * k),
+      paddingVertical: Math.round(12 * k),
+      borderRadius: radii.full,
       borderWidth: 1,
-      borderColor: c.success + "40",
-      backgroundColor: c.success + "0D",
+      borderColor: c.success + "4D",
+      backgroundColor: c.bg.elevated,
+      overflow: "hidden",
+      shadowColor: c.success,
+      shadowOpacity: 0.35,
+      shadowRadius: 16,
+      shadowOffset: { width: 0, height: 0 },
+      elevation: 8,
     },
     matchStartingText: {
       color: "#fff",
-      fontSize: 24,
+      fontSize: Math.round(15 * s),
       fontWeight: "900",
-      letterSpacing: 4,
-      textShadowRadius: 14,
+      letterSpacing: 3,
+      textShadowRadius: 8,
       textShadowOffset: { width: 0, height: 0 },
+    },
+    matchStartingPulseWrap: {
+      width: 10,
+      height: 10,
+      alignItems: "center",
+      justifyContent: "center",
+    },
+    matchStartingPulseDot: {
+      position: "absolute",
+      width: 10,
+      height: 10,
+      borderRadius: 5,
+    },
+    matchStartingDot: {
+      width: 6,
+      height: 6,
+      borderRadius: 3,
+      backgroundColor: c.success,
     },
 
     // staged progress
     stagesWrap: { width: "100%" },
     progressTrack: {
       flexDirection: "row",
-      marginBottom: spacing.md,
+      marginBottom: Math.round(spacing.md * k),
       borderRadius: radii.full,
       overflow: "hidden",
     },
@@ -922,9 +986,9 @@ function makeStyles(c: ColorPalette) {
     stagesRow: { flexDirection: "row", justifyContent: "space-between" },
     stageItem: { alignItems: "center", gap: 6, flex: 1 },
     stageDot: {
-      width: 24,
-      height: 24,
-      borderRadius: 12,
+      width: Math.round(24 * s),
+      height: Math.round(24 * s),
+      borderRadius: Math.round(12 * s),
       backgroundColor: c.bg.elevated,
       borderWidth: 1,
       borderColor: c.border,
@@ -939,7 +1003,7 @@ function makeStyles(c: ColorPalette) {
       left: -2,
       right: -2,
       bottom: -2,
-      borderRadius: 14,
+      borderRadius: Math.round(14 * s),
       opacity: 0.25,
     },
     stageLabel: {
@@ -951,33 +1015,29 @@ function makeStyles(c: ColorPalette) {
     },
     stageLabelActive: { color: c.text.secondary },
 
-    // tip card
-    tipCard: {
+    // tips pill — small, centered, in flow above the stepper
+    tipPillRow: {
+      width: "100%",
+      alignItems: "center",
+    },
+    tipPill: {
       flexDirection: "row",
       alignItems: "center",
-      gap: 10,
+      gap: 6,
       backgroundColor: c.glass,
-      borderRadius: radii.lg,
-      paddingHorizontal: spacing.md,
-      paddingVertical: 10,
+      borderRadius: radii.full,
+      paddingHorizontal: 12,
+      paddingVertical: 6,
       borderWidth: 1,
       borderColor: c.glassBorder,
-      width: "100%",
+      maxWidth: "82%",
     },
-    tipIconWrap: {
-      width: 26,
-      height: 26,
-      borderRadius: 13,
-      backgroundColor: c.xpGold + "1A",
-      alignItems: "center",
-      justifyContent: "center",
-    },
-    tipText: {
+    tipPillText: {
       color: c.text.secondary,
-      fontSize: fontSizes.sm,
+      fontSize: 11,
       fontWeight: "600",
-      flex: 1,
-      lineHeight: 18,
+      lineHeight: 14,
+      flexShrink: 1,
     },
   });
 }

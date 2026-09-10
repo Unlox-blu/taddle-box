@@ -77,9 +77,13 @@ export type PlayerContext = {
   name: string;
   username?: string;
   avatar?: string;
+  /** Seat color/identity from the engine (chess 'w'/'b', ludo 'red'…). */
+  color?: string;
   team?: number;
   seat?: number;
   level?: number;
+  /** True when this seat is a bot (engine identity starts with bot_). */
+  isBot?: boolean;
 };
 
 export type HtmlGameResult = {

@@ -94,7 +94,7 @@ export default function ChessRuntime({
       // Resolve player color and opponent name
       const myPlayer = enginePlayers?.find((p) => p.id === userId);
       const oppPlayer = enginePlayers?.find((p) => p.id !== userId);
-      if (myPlayer) setPlayerColor((me as any)?.color || "w");
+      if (myPlayer) setPlayerColor(myPlayer.color === "b" ? "b" : "w");
       if (oppPlayer) setOpponentName(oppPlayer.name);
       else setOpponentName("AI Bot");
 

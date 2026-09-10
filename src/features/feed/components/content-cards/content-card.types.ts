@@ -121,7 +121,7 @@ export type CommunityData = {
 export type MediaData = {
   media_id: string;
   media_type: string;
-  cloudfront_url?: string;
+  media_url?: string;
   post_id: string;
   post_title?: string;
   author: { id: string; name: string; username: string; avatarUrl?: string };

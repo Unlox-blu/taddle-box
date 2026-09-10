@@ -142,7 +142,7 @@ function PostCardInner({
       id: raw.id || "",
       name: raw.name || "Unknown User",
       username: raw.username || "unknown",
-      avatarUrl: raw.avatar_url?.cloudfront_url || raw.avatar_url || undefined,
+      avatarUrl: raw.avatar_url?.media_url || raw.avatar_url || undefined,
       avatar: raw.avatar || "👾",
       repostsEnabled:
         (raw.repostsEnabled ?? (post as any)?.author_reposts_enabled) !== false,
@@ -721,7 +721,7 @@ function RepostedPostCard({
     id: rawAuthor.id || "",
     name: rawAuthor.name || "Unknown User",
     username: rawAuthor.username || "unknown",
-    avatarUrl: rawAuthor.avatar_url?.cloudfront_url || rawAuthor.avatar_url || undefined,
+    avatarUrl: rawAuthor.avatar_url?.media_url || rawAuthor.avatar_url || undefined,
     avatar: rawAuthor.avatar || "dY`_",
   };
   const comm = (orig as any).community;

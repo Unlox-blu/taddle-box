@@ -42,7 +42,7 @@ export default function UnknownReelCard({
     data.thumbnail ||
     data.avatarUrl ||
     data.image ||
-    (Array.isArray(data.media) && data.media[0]?.cloudfront_url) ||
+    (Array.isArray(data.media) && data.media[0]?.media_url) ||
     data.senderAvatarUrl;
 
   return (

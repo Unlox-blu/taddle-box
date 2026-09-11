@@ -37,6 +37,7 @@ const EVENTS = {
   START: 'START',
   STATE: 'STATE',
   SYNC: 'SYNC',
+  TURN_TIMER: 'TURN_TIMER',
   PONG: 'PONG',
   PAUSE: 'PAUSE',
   RESUME: 'RESUME',
@@ -63,7 +64,7 @@ const CHAT_MAX_LEN = 200;
 // ─── Configuration snapshot (loaded once at startup) ─────────────────────
 const DEFAULT_TIMERS = {
   'chess': { turnTimeoutMs: 600000 },
-  'ludo': { turnTimeoutMs: 30000 },
+  'ludo': { turnTimeoutMs: 10000 },
   'snake-ladder': { turnTimeoutMs: 12000 },
   'scribble': { roundTimeoutMs: 80000 },
   'word-rush': { roundTimeoutMs: 90000 },
@@ -102,112 +103,122 @@ const setupGameSocket = (io, gameNs) => {
     });
 
     new Worker('GameTimers', async (job) => {
-      const { matchId, type, userId, gameSlug } = job.data;
+      const { matchId, type, userId, gameSlug, turnIndex, revision, timeoutAction } = job.data;
+      console.info(`[TimerWorker] Executing job=${job.id} type=${type} match=${matchId}`);
       const latestState = await EventStore.loadMatchSnapshot(matchId);
-      if (!latestState) return;
+      if (!latestState) {
+        console.warn(`[TimerWorker] No snapshot for job=${job.id} match=${matchId}`);
+        return;
+      }
 
       if (type === 'reconnect') {
         if (latestState.status !== MATCH_STATES.PAUSED) return;
         if (!(latestState.disconnectedPlayers || []).includes(userId)) return;
         await _resolveReconnectTimeout(gameNs, matchId, gameSlug, userId, latestState);
       } else if (type === 'turn') {
-        if (latestState.status !== MATCH_STATES.ACTIVE) return;
-
-        // Use plugin-authoritative canPlayerAct to determine whose turn it is
-        const plugin = GameRegistry.createInstance(gameSlug, latestState.metadata);
-        const currentPlayerId = latestState.pluginState?.turnOrder?.[latestState.pluginState?.currentTurnIndex];
-        if (!currentPlayerId) return;
-
-        await EventStore.appendEvent(matchId, 'TURN_TIMEOUT', { userId: currentPlayerId }, currentPlayerId, (latestState.currentRevision || 0) + 1);
-        latestState.currentRevision = (latestState.currentRevision || 0) + 1;
-
-        // Plugin-authoritative: delegate timer expiry to the plugin.
-        // Each plugin handles its own timeout behavior:
-        //   Chess: timed-out player loses (forfeit)
-        //   Ludo: auto-roll + auto-move first movable token
-        //   Snake-Ladder: auto-roll
-        latestState.pluginState = plugin.onTimerExpired(
-          latestState.pluginState, 'turn', currentPlayerId
-        );
-
-        // Sync the actor's in-memory state with the timeout result
-        const { MatchManager: TimerSync } = require('../modules/game/engine/MatchManager');
-        const timerActor = TimerSync.getActor(matchId);
-        if (timerActor && timerActor.state) {
-          timerActor.state.pluginState = latestState.pluginState;
-          timerActor.state.currentRevision = latestState.currentRevision;
+        if (latestState.status !== MATCH_STATES.ACTIVE) {
+          console.info(`[TimerWorker] Skipping turn job=${job.id}: status=${latestState.status}`);
+          gameNs.to(`match:${matchId}`).emit(EVENTS.TURN_TIMER, {
+            matchId,
+            clear: true,
+            revision: latestState.currentRevision || 0,
+          });
+          return;
         }
 
-        if (plugin.isFinished(latestState.pluginState)) {
-          latestState.status = MATCH_STATES.FINISHED;
-          latestState.winner = latestState.pluginState?.winner || null;
+        const currentPlayerId = latestState.pluginState?.turnOrder?.[latestState.pluginState?.currentTurnIndex];
+        if (!currentPlayerId) return;
+        if (
+          (turnIndex != null && latestState.pluginState.currentTurnIndex !== turnIndex)
+          || (revision != null && (latestState.currentRevision || 0) !== revision)
+        ) {
+          console.info(`[TimerWorker] Skipping stale turn job=${job.id} match=${matchId} expectedTurn=${turnIndex} actualTurn=${latestState.pluginState.currentTurnIndex} expectedRevision=${revision} actualRevision=${latestState.currentRevision || 0}`);
+          return;
+        }
+        const { MatchManager: TimeoutManager } = require('../modules/game/engine/MatchManager');
+        const updatedState = await TimeoutManager.handleTurnTimeout(
+          matchId,
+          gameSlug,
+          currentPlayerId,
+          crypto.randomUUID(),
+          timeoutAction,
+        );
+        console.info(`[TimerWorker] Applied timeout match=${matchId} revision=${updatedState.currentRevision} nextTurn=${updatedState.pluginState?.currentTurnIndex}`);
+        const plugin = GameRegistry.createInstance(gameSlug, updatedState.metadata);
+
+        if (updatedState.status === MATCH_STATES.FINISHED || plugin.isFinished(updatedState.pluginState)) {
           TimerEngine.clearAllTimers(matchId);
-          await EventStore.saveMatchSnapshot(matchId, latestState);
+          updatedState.status = MATCH_STATES.FINISHED;
+          updatedState.winner = updatedState.pluginState?.winner || null;
           gameNs.to(`match:${matchId}`).emit(EVENTS.SYNC, {
-            state: latestState.pluginState,
-            revision: latestState.currentRevision,
+            state: updatedState.pluginState,
+            revision: updatedState.currentRevision,
             reason: 'turn_timeout',
             timedOutPlayer: currentPlayerId,
           });
           gameNs.to(`match:${matchId}`).emit(EVENTS.GAME_OVER, {
-            state: latestState,
-            winner: latestState.winner,
+            state: updatedState,
+            winner: updatedState.winner,
             reason: 'timeout',
           });
-          botHandler.handleMatchEnd(matchId, gameSlug, latestState);
-          await _archiveMatch(matchId, latestState);
+          botHandler.handleMatchEnd(matchId, gameSlug, updatedState);
+          await _archiveMatch(matchId, updatedState);
           // Resolve every real player's session from the engine outcome —
           // without this the timed-out loser's session stayed ACTIVE until
           // the TTL sweep EXPIRED it (no LOSS row, no entry-fee redistribution)
           // and the winner was never credited/told.
-          await _resolveSessionsFromEngineOutcome(matchId, gameSlug, latestState);
-          _notifySessionExpired(gameNs, matchId, latestState);
+          await _resolveSessionsFromEngineOutcome(matchId, gameSlug, updatedState);
+          _notifySessionExpired(gameNs, matchId, updatedState);
         } else {
-          await EventStore.saveMatchSnapshot(matchId, latestState);
           gameNs.to(`match:${matchId}`).emit(EVENTS.SYNC, {
-            state: latestState.pluginState,
-            revision: latestState.currentRevision,
+            state: updatedState.pluginState,
+            revision: updatedState.currentRevision,
             reason: 'turn_timeout',
             timedOutPlayer: currentPlayerId,
           });
-          _startTurnTimer(gameNs, matchId, gameSlug, latestState);
+          _startTurnTimer(gameNs, matchId, gameSlug, updatedState);
         }
       } else if (type === 'round') {
         if (latestState.status !== MATCH_STATES.ACTIVE) return;
-        const plugin = GameRegistry.createInstance(gameSlug, latestState.metadata);
-        latestState.pluginState = plugin.advanceRound(latestState.pluginState);
+        const { MatchManager: RoundTimeoutManager } = require('../modules/game/engine/MatchManager');
+        const updatedState = await RoundTimeoutManager.handleRoundTimeout(
+          matchId,
+          gameSlug,
+          crypto.randomUUID(),
+        );
+        const plugin = GameRegistry.createInstance(gameSlug, {
+          ...(updatedState.metadata || {}),
+          configSnapshot: updatedState.configSnapshot || updatedState.metadata?.configSnapshot || {},
+        });
 
-        if (plugin.isFinished(latestState.pluginState)) {
-          latestState.status = MATCH_STATES.FINISHED;
+        if (plugin.isFinished(updatedState.pluginState)) {
           TimerEngine.clearAllTimers(matchId);
-          await EventStore.saveMatchSnapshot(matchId, latestState);
           gameNs.to(`match:${matchId}`).emit(EVENTS.GAME_OVER, {
-            state: latestState,
-            winner: latestState.pluginState?.winner || null,
+            state: updatedState,
+            winner: updatedState.pluginState?.winner || null,
           });
-          botHandler.handleMatchEnd(matchId, gameSlug, latestState);
-          await _archiveMatch(matchId, latestState);
+          botHandler.handleMatchEnd(matchId, gameSlug, updatedState);
+          await _archiveMatch(matchId, updatedState);
           // Same session-resolution gap as the turn-timeout path — the round
           // timeout can finish the whole match (all rounds exhausted).
-          await _resolveSessionsFromEngineOutcome(matchId, gameSlug, latestState);
-          _notifySessionExpired(gameNs, matchId, latestState);
+          await _resolveSessionsFromEngineOutcome(matchId, gameSlug, updatedState);
+          _notifySessionExpired(gameNs, matchId, updatedState);
         } else {
-          await EventStore.saveMatchSnapshot(matchId, latestState);
           const sockets = await gameNs.in(`match:${matchId}`).fetchSockets();
           for (const s of sockets) {
             const socketUserId = s.data?.userId || s.userId || (s.handshake?.auth?.userId);
             if (!socketUserId) continue;
-            const ps = _getPlayerState(gameSlug, latestState, socketUserId);
+            const ps = _getPlayerState(gameSlug, updatedState, socketUserId);
             if (ps) {
               s.emit(EVENTS.SYNC, {
                 state: ps.pluginState,
-                revision: latestState.currentRevision,
+                revision: updatedState.currentRevision,
                 reason: 'round_timeout',
               });
             }
           }
-          botHandler.handleTurn(matchId, gameSlug, latestState);
-          _startTurnTimer(gameNs, matchId, gameSlug, latestState);
+          botHandler.handleTurn(matchId, gameSlug, updatedState);
+          _startTurnTimer(gameNs, matchId, gameSlug, updatedState);
         }
       }
     }, { connection: workerRedis }).on('failed', (job, err) => {
@@ -347,19 +358,10 @@ const setupGameSocket = (io, gameNs) => {
         };
 
         const result = await MatchManager.loadOrInitializeMatch(matchId, gameSlug, {
+          ...socket.matchMetadata,
           players,
           maxPlayers: players.length || 2,
-          matchMetadata: {
-            ...socket.matchMetadata,
-            // The roster MUST ride inside matchMetadata: loadOrInitializeMatch
-            // persists this object as state.metadata, and every later plugin
-            // instantiation (MOVE handler, _startTurnTimer, timer worker)
-            // builds its player/color map from state.metadata.players.
-            // Passing it only as the sibling `players` field left metadata
-            // without a roster → every move failed "Not your turn".
-            players,
-            configSnapshot,
-          },
+          configSnapshot,
         });
         state = result.state;
         state.configSnapshot = configSnapshot;
@@ -459,6 +461,23 @@ const setupGameSocket = (io, gameNs) => {
         roundContext = await RoundManager.getRoundContext(matchId);
       } catch { /* rounds table may not exist yet */ }
 
+      let activeTurnTimer = null;
+      if (state.status === MATCH_STATES.ACTIVE) {
+        const turnIndex = state.pluginState?.currentTurnIndex;
+        const playerId = state.pluginState?.turnOrder?.[turnIndex];
+        if (playerId && !String(playerId).startsWith('bot_')) {
+          const timer = await TimerEngine.getTimer(matchId, 'turn');
+          if (timer) {
+            activeTurnTimer = {
+              playerId,
+              turnIndex,
+              revision: state.currentRevision || 0,
+              ...timer,
+            };
+          }
+        }
+      }
+
       socket.emit(EVENTS.CONNECT_ACK, {
         matchId,
         gameSlug,
@@ -466,6 +485,7 @@ const setupGameSocket = (io, gameNs) => {
         status: state.status || MATCH_STATES.WAITING,
         reconnectWindowMs,
         round: roundContext,
+        turnTimer: activeTurnTimer,
       });
 
       if (state.status === MATCH_STATES.ACTIVE) {
@@ -562,6 +582,16 @@ const setupGameSocket = (io, gameNs) => {
             // Save snapshot
             await EventStore.saveMatchSnapshot(matchId, snap);
 
+            // The actor was initialized during socket connection while the
+            // match was WAITING. Make its in-memory SSOT match the ACTIVE
+            // snapshot before starting bot turns or turn timers.
+            const startActor = MatchManager.getActor(matchId);
+            if (startActor) {
+              startActor.state = snap;
+              startActor.currentRevision = snap.currentRevision;
+              startActor.plugin = startPlugin;
+            }
+
             const sockets = await gameNs.in(matchRoom).fetchSockets();
             for (const s of sockets) {
               const playerState = _getPlayerState(gameSlug, snap, s.userId);
@@ -574,7 +604,7 @@ const setupGameSocket = (io, gameNs) => {
 
             // ── Round lifecycle: create Round 1 if multi-round match ──
             const configuredRounds = snap.configured_rounds || 1;
-            if (configuredRounds > 1) {
+            if (configuredRounds > 1 && gameSlug !== 'word-rush') {
               try {
                 const RoundManager = require('../modules/game/engine/RoundManager');
                 const roundDef = await RoundManager.createNextRound(
@@ -1318,6 +1348,13 @@ const setupGameSocket = (io, gameNs) => {
         state = actor.state;
       }
 
+      if (!state || state.status !== MATCH_STATES.ACTIVE) {
+        TimerEngine.clearTimer(matchId, 'turn').catch(err => {
+          console.error(`[GameEngine] Failed to clear inactive turn timer for ${matchId}:`, err.message);
+        });
+        return;
+      }
+
       // Pass configSnapshot from top-level state so the plugin gets correct timer durations
       const matchData = { ...(state.metadata || {}), configSnapshot: state.configSnapshot || state.metadata?.configSnapshot || {} };
       const plugin = GameRegistry.createInstance(gameSlug, matchData);
@@ -1337,15 +1374,36 @@ const setupGameSocket = (io, gameNs) => {
           return;
         }
 
-        TimerEngine.clearTimer(matchId, 'turn').then(() => {
+        TimerEngine.clearTimer(matchId, 'turn').then(async () => {
           if (currentPlayerId.startsWith('bot_')) {
             console.info(`[GameEngine] Triggering bot turn: ${currentPlayerId} in ${matchId}`);
+            ns.to(`match:${matchId}`).emit(EVENTS.TURN_TIMER, {
+              matchId,
+              playerId: currentPlayerId,
+              turnIndex: state.pluginState.currentTurnIndex,
+              revision: state.currentRevision || 0,
+              deadlineAt: Date.now() + 2000,
+              durationMs: 2000,
+            });
             botHandler.handleTurn(matchId, gameSlug, state, currentPlayerId);
             return;
           }
-          TimerEngine.startTimer(matchId, 'turn', turnTimer.durationMs, {
+          const timeoutAction = state.pluginState.dice == null ? 'ROLL' : 'MOVE';
+          await TimerEngine.startTimer(matchId, 'turn', turnTimer.durationMs, {
             type: 'turn',
             gameSlug,
+            turnIndex: state.pluginState.currentTurnIndex,
+            revision: state.currentRevision || 0,
+            timeoutAction,
+          });
+          ns.to(`match:${matchId}`).emit(EVENTS.TURN_TIMER, {
+            matchId,
+            playerId: currentPlayerId,
+            turnIndex: state.pluginState.currentTurnIndex,
+            revision: state.currentRevision || 0,
+            deadlineAt: Date.now() + turnTimer.durationMs,
+            durationMs: turnTimer.durationMs,
+            action: timeoutAction,
           });
         }).catch(err => {
           console.error(`[GameEngine] clearTimer failed for ${matchId}:`, err.message);

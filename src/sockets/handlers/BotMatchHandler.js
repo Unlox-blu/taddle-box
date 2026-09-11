@@ -125,7 +125,7 @@ class BotMatchHandler {
   }
 
   handleTurn(matchId, gameSlug, state, currentPlayerId = null) {
-    if (!state || !state.isBotMatch) return;
+    if (!state) return;
 
     if (currentPlayerId) {
       if (!String(currentPlayerId).startsWith('bot_')) return;
@@ -134,6 +134,8 @@ class BotMatchHandler {
       );
       return;
     }
+
+    if (!state.isBotMatch) return;
 
     const ps = state.pluginState || {};
     const current = ps.turnOrder ? ps.turnOrder[ps.currentTurnIndex] : null;

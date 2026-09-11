@@ -4,7 +4,7 @@ const GamePlugin = require('../GamePlugin');
 const { seededShuffle } = require('../../../../utils/seededShuffle');
 
 const START_POSITIONS = { 0: 0, 1: 13, 2: 26, 3: 39 };
-const LOOP_LEN = 52;
+const LOOP_LEN = 51;
 const SAFE_PATH_IDX = new Set([0, 8, 13, 21, 26, 34, 39, 47]);
 const COLOR_NAMES = ['red', 'green', 'yellow', 'blue'];
 
@@ -32,13 +32,12 @@ class LudoPlugin extends GamePlugin {
   // ── Turn Authority ────────────────────────────────────────────────────
 
   canPlayerAct(state, userId) {
-    if (!state.turnOrder || state.currentTurnIndex == null) return false;
+    if (!state.turnOrder || state.currentTurnIndex === null || state.currentTurnIndex === undefined) return false;
     return state.turnOrder[state.currentTurnIndex] === userId;
   }
 
-  getTimers(state) {
-    const config = this.configSnapshot || {};
-    const turnTimeoutMs = config.turnTimeoutMs || 30000; // 30s default
+  getTimers(_state) {
+    const turnTimeoutMs = 10000;
 
     return [{
       type: 'turn',
@@ -49,9 +48,10 @@ class LudoPlugin extends GamePlugin {
 
   getCommandTimeoutMs() {
     // The actor runs a full PG transaction (reserve + event + snapshot + outbox) +
-    // Redis write per command. 500ms was routinely exceeded on real hardware,
-    // aborting VALID moves after the DB work was already done.
-    return 2000;
+    // Redis write per command. Ludo commands must tolerate normal database
+    // variance without allowing a completed transaction to surface as a
+    // client-side timeout.
+    return 5000;
   }
 
   // ── Lifecycle ─────────────────────────────────────────────────────────
@@ -128,31 +128,29 @@ class LudoPlugin extends GamePlugin {
     };
   }
 
-  onPlayerJoin(userId) {}
-  onPlayerLeave(userId) {}
-  onReconnect(userId) {}
+  onPlayerJoin(_userId) {}
+  onPlayerLeave(_userId) {}
+  onReconnect(_userId) {}
   cleanup() {}
 
-  onTimerExpired(state, timerType, userId) {
+  onTimerExpired(state, timerType, _userId, action) {
     if (timerType !== 'turn') return state;
-    // Auto-move: roll dice + move first movable token
+    // Timeout phases are separate: one timer rolls, the next timer moves.
     const currentPlayerId = state.turnOrder[state.currentTurnIndex];
-    let ps = state;
-    if (ps.dice == null) {
-      ps = this.applyMove(currentPlayerId, { type: 'ROLL' }, ps);
+    if (action === 'ROLL') {
+      return this.applyMove(currentPlayerId, { type: 'ROLL' }, state);
     }
-    if (ps.dice != null && (ps.movableTokens || []).length > 0) {
-      ps = this.applyMove(currentPlayerId, { type: 'MOVE_TOKEN', tokenId: ps.movableTokens[0] }, ps);
-    } else if (ps.dice != null) {
-      // No movable tokens — pass turn
-      ps = {
-        ...ps,
+    if (action === 'MOVE') {
+      const tokenId = state.movableTokens?.[0];
+      if (tokenId !== null && tokenId !== undefined) return this.applyMove(currentPlayerId, { type: 'MOVE_TOKEN', tokenId }, state);
+      return {
+        ...state,
         dice: null,
         movableTokens: [],
-        currentTurnIndex: ((ps.currentTurnIndex || 0) + 1) % (ps.turnOrder?.length || 1),
+        currentTurnIndex: ((state.currentTurnIndex || 0) + 1) % (state.turnOrder?.length || 1),
       };
     }
-    return ps;
+    return this.applyMove(currentPlayerId, { type: 'ROLL' }, state);
   }
 
   // ── Mechanics ─────────────────────────────────────────────────────────
@@ -223,15 +221,19 @@ class LudoPlugin extends GamePlugin {
       }
 
       // Capture
-      if (token.pos >= 0 && token.pos <= 51) {
+      let captured = false;
+      if (token.pos >= 0 && token.pos < LOOP_LEN) {
         const abs = (START_POSITIONS[playerIndex] + token.pos) % LOOP_LEN;
         if (!SAFE_PATH_IDX.has(abs)) {
           Object.keys(newTokens).forEach((uid) => {
             if (uid === userId) return;
             newTokens[uid].forEach((opp) => {
-              if (opp.pos >= 0 && opp.pos <= 51) {
+              if (opp.pos >= 0 && opp.pos < LOOP_LEN) {
                 const oppAbs = (START_POSITIONS[(opp.playerIndex ?? 0)] + opp.pos) % LOOP_LEN;
-                if (oppAbs === abs) opp.pos = -1;
+                if (oppAbs === abs) {
+                  opp.pos = -1;
+                  captured = true;
+                }
               }
             });
           });
@@ -239,7 +241,8 @@ class LudoPlugin extends GamePlugin {
       }
 
       const allHome = newTokens[userId].every(t => t.pos === 57);
-      const nextIdx = diceValue === 6 && !allHome
+      const reachedHome = token.pos === 57;
+      const nextIdx = (diceValue === 6 || captured || reachedHome) && !allHome
         ? currentState.currentTurnIndex
         : (currentState.currentTurnIndex + 1) % currentState.turnOrder.length;
 

@@ -8,22 +8,31 @@ module.exports = {
     // turn (ROLL → MOVE → next player), so a bot reads as
     // "roll → 2s → move → 2s → next bot" instead of rolling and moving at once.
     onTurn: (session, state) => {
-        const ps = state.pluginState || {};
+        const ps = state?.pluginState;
+        if (!ps || !Array.isArray(ps.turnOrder) || ps.currentTurnIndex === null || ps.currentTurnIndex === undefined || ps.dice === undefined) {
+            throw new Error('Ludo bot received an invalid match snapshot');
+        }
         const delay = 2000;
 
         const id = session.setTimeout(() => {
             session.pendingTurnId = null;
             if (ps.dice === null) {
-                // Needs to roll
                 session.submitMove({ type: 'ROLL' });
-            } else {
-                // Has rolled, needs to move a token
-                const movable = ps.movableTokens || [];
-                if (movable.length > 0) {
-                    const tokenToMoveId = movable[Math.floor(session.random() * movable.length)];
-                    session.submitMove({ type: 'MOVE_TOKEN', tokenId: tokenToMoveId });
-                }
+                return;
             }
+
+            const movable = ps.movableTokens;
+            if (!Array.isArray(movable)) {
+                console.error(`[LudoBot] Snapshot is missing movableTokens in match ${session.matchId}`);
+                return;
+            }
+            if (movable.length === 0) {
+                console.error(`[LudoBot] No legal token after roll in match ${session.matchId}`);
+                return;
+            }
+
+            const tokenToMoveId = movable[Math.floor(session.random() * movable.length)];
+            session.submitMove({ type: 'MOVE_TOKEN', tokenId: tokenToMoveId });
         }, delay);
         session.pendingTurnId = id;
     },

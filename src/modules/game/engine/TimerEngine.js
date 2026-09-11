@@ -80,6 +80,22 @@ class TimerEngine {
     await redis.del(key);
   }
 
+  async getTimer(matchId, type) {
+    const key = `match:${matchId}:timers`;
+    const prefix = `${matchId}_${type.replace(/:/g, '_')}_`;
+    const jobIds = await redis.smembers(key);
+    for (const jobId of jobIds) {
+      if (!jobId.startsWith(prefix)) continue;
+      const job = await this.queue.getJob(jobId);
+      if (!job) continue;
+      return {
+        deadlineAt: job.timestamp + (job.opts.delay || 0),
+        durationMs: job.opts.delay || 0,
+      };
+    }
+    return null;
+  }
+
   /**
    * Start timers defined by the plugin for the current match state.
    * Plugin returns the timer definitions; executor manages lifecycle.

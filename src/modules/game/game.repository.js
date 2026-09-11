@@ -789,6 +789,7 @@ const joinMatchmaking = async ({ userId, game, mode, tournamentId, targetPlayers
       // Finalize the game identity for every participant BEFORE the roster is
       // persisted — game_participants must be complete at formation time.
       _assignSeatColors(playerSnapshots, game.slug);
+      const configuredRounds = Number(lobby.settings.configuredRounds);
       const matchMetadata = {
         lobbyId: lobby.id,
         matchGroupId: lobby.id,
@@ -800,7 +801,8 @@ const joinMatchmaking = async ({ userId, game, mode, tournamentId, targetPlayers
         teamsLocked: !!(lobby.settings?.teamsLocked),
         startedAt,
         runtimeType: game.metadata?.runtimeType || 'app',
-        tournamentId
+        tournamentId,
+        configuredRounds,
       };
 
       for (const p of playerSnapshots) {

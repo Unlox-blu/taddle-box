@@ -150,14 +150,29 @@ class MatchActor {
       throw new Error('Actor not initialized for this match');
     }
 
-    // ── Step 1: Validate ──────────────────────────────────────────────
-    const validation = this.plugin.validateMove(userId, moveData, this.state.pluginState);
-    if (!validation.valid) {
-      throw new Error(validation.reason || 'Invalid move');
+    // ── Step 1: Apply the authoritative transition ────────────────────
+    // Timeout transitions use the same actor and transaction as player/bot
+    // moves, but are authorized by the durable timer rather than move input.
+    let newPluginState;
+    if (type === 'TURN_TIMEOUT') {
+      newPluginState = this.plugin.onTimerExpired(
+        this.state.pluginState,
+        'turn',
+        userId,
+        moveData?.action,
+      );
+    } else if (type === 'ROUND_TIMEOUT') {
+      newPluginState = this.plugin.advanceRound(this.state.pluginState);
+    } else {
+      if (this.state.status !== MATCH_STATES.ACTIVE) {
+        throw new Error('Match is not active');
+      }
+      const validation = this.plugin.validateMove(userId, moveData, this.state.pluginState);
+      if (!validation.valid) {
+        throw new Error(validation.reason || 'Invalid move');
+      }
+      newPluginState = this.plugin.applyMove(userId, moveData, this.state.pluginState);
     }
-
-    // ── Step 2: Apply (plugin-authoritative) ──────────────────────────
-    const newPluginState = this.plugin.applyMove(userId, moveData, this.state.pluginState);
 
     // ── Step 3: Check terminal ────────────────────────────────────────
     const finished = this.plugin.isFinished(newPluginState);
@@ -337,7 +352,10 @@ class MatchManager {
       await EventStore.saveMatchSnapshot(matchId, state);
     }
 
-    const plugin = GameRegistry.createInstance(gameSlug, state.metadata);
+    const plugin = GameRegistry.createInstance(gameSlug, {
+      ...state.metadata,
+      configSnapshot: state.configSnapshot,
+    });
 
     // Ensure actor is initialized
     const actor = this.getOrCreateActor(matchId);
@@ -370,7 +388,38 @@ class MatchManager {
     });
   }
 
-  static async _loadAndEnqueue(actor, matchId, gameSlug, userId, moveData, commandId) {
+  static handleTurnTimeout(matchId, gameSlug, userId, commandId, action) {
+    const actor = this.getOrCreateActor(matchId);
+    if (!actor.state) {
+      return this._loadAndEnqueue(actor, matchId, gameSlug, userId, { action }, commandId, 'TURN_TIMEOUT');
+    }
+    return actor.enqueue({
+      type: 'TURN_TIMEOUT',
+      matchId,
+      commandId: commandId || require('crypto').randomUUID(),
+      userId,
+      gameSlug,
+      moveData: { action },
+    });
+  }
+
+  static handleRoundTimeout(matchId, gameSlug, commandId) {
+    const systemUserId = 'system_round_timer';
+    const actor = this.getOrCreateActor(matchId);
+    if (!actor.state) {
+      return this._loadAndEnqueue(actor, matchId, gameSlug, systemUserId, {}, commandId, 'ROUND_TIMEOUT');
+    }
+    return actor.enqueue({
+      type: 'ROUND_TIMEOUT',
+      matchId,
+      commandId: commandId || require('crypto').randomUUID(),
+      userId: systemUserId,
+      gameSlug,
+      moveData: {},
+    });
+  }
+
+  static async _loadAndEnqueue(actor, matchId, gameSlug, userId, moveData, commandId, type) {
     // Deliberately passes NO metadata: this path may LOAD an existing
     // snapshot (e.g. actor evicted but match still live) but must NEVER
     // initialize one — the guard in loadOrInitializeMatch throws if the
@@ -381,7 +430,7 @@ class MatchManager {
     actor.plugin = plugin;
 
     return actor.enqueue({
-      type: moveData.type || 'MOVE',
+      type: type || moveData.type || 'MOVE',
       matchId,
       commandId: commandId || require('crypto').randomUUID(),
       userId,

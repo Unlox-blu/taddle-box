@@ -4,6 +4,9 @@ const GamePlugin = require('../GamePlugin');
 
 const WORDS = require('./wordList.json');
 const WORD_SET = new Set(WORDS);
+const GRID_SIZE = 4;
+const GRID_CELLS = GRID_SIZE * GRID_SIZE;
+const MIN_WORD_LENGTH = 3;
 
 /**
  * Word Rush Plugin — ported to new architecture.
@@ -20,17 +23,18 @@ class WordRushPlugin extends GamePlugin {
   }
 
   canPlayerAct(state, userId) {
-    // Simultaneous: anyone can submit words
-    return true;
+    return state.status === 'active' && Object.hasOwn(state.scores, userId);
   }
 
-  getTimers(state) {
+  getRoundDurationMs() {
     const config = this.configSnapshot || {};
-    const roundTimeoutMs = config.roundTimeoutMs || 90000;
+    return config.roundTimeoutMs || 90000;
+  }
 
+  getTimers() {
     return [{
       type: 'round',
-      durationMs: roundTimeoutMs,
+      durationMs: this.getRoundDurationMs(),
       jobData: { gameSlug: 'word-rush' },
     }];
   }
@@ -44,15 +48,53 @@ class WordRushPlugin extends GamePlugin {
 
   _generateGrid() {
     const LETTERS = 'AAABCDDEEEFGHIIIJKLMMNOOOOPQRRSSSTTTTUUUVWXYZ';
-    const grid = [];
-    for (let i = 0; i < 16; i++) {
-      grid.push(LETTERS[Math.floor(Math.random() * LETTERS.length)]);
-    }
+    let grid;
+
+    do {
+      grid = Array.from(
+        { length: GRID_CELLS },
+        () => LETTERS[Math.floor(Math.random() * LETTERS.length)],
+      );
+    } while (!this._hasPlayableWord(grid));
+
     return grid;
   }
 
+  _hasPlayableWord(grid) {
+    const search = (index, word, used) => {
+      if (word.length >= MIN_WORD_LENGTH && WORD_SET.has(word)) return true;
+      if (word.length === MIN_WORD_LENGTH) return false;
+
+      const row = Math.floor(index / GRID_SIZE);
+      const col = index % GRID_SIZE;
+      for (let rowOffset = -1; rowOffset <= 1; rowOffset++) {
+        for (let colOffset = -1; colOffset <= 1; colOffset++) {
+          if (rowOffset === 0 && colOffset === 0) continue;
+          const nextRow = row + rowOffset;
+          const nextCol = col + colOffset;
+          if (nextRow < 0 || nextRow >= GRID_SIZE || nextCol < 0 || nextCol >= GRID_SIZE) continue;
+
+          const nextIndex = nextRow * GRID_SIZE + nextCol;
+          if (used.has(nextIndex)) continue;
+
+          used.add(nextIndex);
+          if (search(nextIndex, word + grid[nextIndex], used)) return true;
+          used.delete(nextIndex);
+        }
+      }
+      return false;
+    };
+
+    return grid.some((letter, index) => search(index, letter, new Set([index])));
+  }
+
   _isAdjacentPath(path) {
-    const toRC = idx => ({ r: Math.floor(idx / 4), c: idx % 4 });
+    if (path.some(index => !Number.isInteger(index) || index < 0 || index >= GRID_CELLS)) {
+      return false;
+    }
+    if (new Set(path).size !== path.length) return false;
+
+    const toRC = idx => ({ r: Math.floor(idx / GRID_SIZE), c: idx % GRID_SIZE });
     for (let i = 1; i < path.length; i++) {
       const prev = toRC(path[i - 1]);
       const curr = toRC(path[i]);
@@ -71,10 +113,20 @@ class WordRushPlugin extends GamePlugin {
       scores,
       foundWords: [],
       currentRound: 1,
-      totalRounds: this.matchData?.configured_rounds || 1,
-      roundStartedAt: Date.now(),
+      totalRounds: this.matchData.configuredRounds,
+      roundStartedAt: null,
+      roundEndsAt: null,
       status: 'active',
       winner: null,
+    };
+  }
+
+  onMatchStart(state) {
+    const roundStartedAt = Date.now();
+    return {
+      ...state,
+      roundStartedAt,
+      roundEndsAt: roundStartedAt + this.getRoundDurationMs(),
     };
   }
 
@@ -84,14 +136,22 @@ class WordRushPlugin extends GamePlugin {
   cleanup() {}
 
   validateMove(userId, moveData, currentState) {
-    const { path, word } = moveData;
-
-    if (!word || word.length < 3) {
-      return { valid: false, reason: 'Word too short (min 3 letters)' };
+    if (!this.canPlayerAct(currentState, userId)) {
+      return { valid: false, reason: 'Round is not active' };
     }
 
+    const { path, word } = moveData || {};
+    if (moveData?.type !== 'SUBMIT_WORD') {
+      return { valid: false, reason: 'Unsupported move' };
+    }
+
+    if (typeof word !== 'string' || word.length < MIN_WORD_LENGTH) {
+      return { valid: false, reason: 'Word too short (min 3 letters)' };
+    }
+    const normalizedWord = word.toUpperCase();
+
     const foundWords = currentState.foundWords || [];
-    if (foundWords.some(fw => fw.word === word.toUpperCase())) {
+    if (foundWords.some(fw => fw.word === normalizedWord)) {
       return { valid: false, reason: 'Word already used this round' };
     }
 
@@ -103,12 +163,12 @@ class WordRushPlugin extends GamePlugin {
       return { valid: false, reason: 'Letters are not adjacent' };
     }
 
-    const formedWord = path.map(idx => currentState.grid[idx]).join('').toUpperCase();
-    if (formedWord !== word.toUpperCase()) {
+    const formedWord = path.map(idx => currentState.grid[idx]).join('');
+    if (formedWord !== normalizedWord) {
       return { valid: false, reason: 'Path does not spell the submitted word' };
     }
 
-    if (!WORD_SET.has(word.toUpperCase())) {
+    if (!WORD_SET.has(normalizedWord)) {
       return { valid: false, reason: 'Not a valid word' };
     }
 
@@ -116,7 +176,7 @@ class WordRushPlugin extends GamePlugin {
   }
 
   applyMove(userId, moveData, currentState) {
-    const { word } = moveData;
+    const word = moveData.word.toUpperCase();
     const wordScore = word.length;
 
     const newScores = {
@@ -135,17 +195,27 @@ class WordRushPlugin extends GamePlugin {
 
   advanceRound(currentState) {
     if (currentState.currentRound >= currentState.totalRounds) {
-      const winner = Object.entries(currentState.scores)
-        .sort((a, b) => b[1] - a[1])[0][0];
-      return { ...currentState, status: 'finished', winner };
+      const highestScore = Math.max(...Object.values(currentState.scores));
+      const leaders = Object.entries(currentState.scores)
+        .filter(([, score]) => score === highestScore)
+        .map(([userId]) => userId);
+      return {
+        ...currentState,
+        status: 'finished',
+        winner: leaders.length === 1 ? leaders[0] : null,
+        drawReason: leaders.length === 1 ? null : 'tie',
+      };
     }
+
+    const roundStartedAt = Date.now();
 
     return {
       ...currentState,
       grid: this._generateGrid(),
       foundWords: [],
       currentRound: currentState.currentRound + 1,
-      roundStartedAt: Date.now(),
+      roundStartedAt,
+      roundEndsAt: roundStartedAt + this.getRoundDurationMs(),
     };
   }
 

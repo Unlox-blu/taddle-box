@@ -32,6 +32,7 @@ export const GAME_EVENTS = {
   ERROR: "ERROR",
   PAUSE: "PAUSE",
   CHAT: "CHAT",
+  TURN_TIMER: "TURN_TIMER",
   ROUND_READY: "ROUND_READY",
 } as const;
 
@@ -57,9 +58,11 @@ export interface UseGameSocketOptions {
   /** Called when START arrives (match transitions to ACTIVE). */
   onStart?: (data: any) => void;
   /** Called on every SYNC with plugin state + revision. */
-  onSync?: (pluginState: any, revision: number) => void;
+  onSync?: (pluginState: any, revision: number, event: any) => void;
   /** Called when a CHAT message arrives. */
   onChat?: (data: any) => void;
+  /** Called when the backend starts the authoritative turn timeout. */
+  onTurnTimer?: (data: { clear?: boolean; playerId?: string; turnIndex?: number; revision: number; deadlineAt?: number; durationMs?: number }) => void;
   /** Called when revision gap detected. Runtime should request FULL_SYNC. */
   onRevisionGap?: (expected: number, received: number) => void;
 }
@@ -99,6 +102,7 @@ export function useGameSocket({
   onStart,
   onSync,
   onChat,
+  onTurnTimer,
   onRevisionGap,
 }: UseGameSocketOptions): UseGameSocketReturn {
   const [socket, setSocket] = useState<any>(null);
@@ -117,6 +121,7 @@ export function useGameSocket({
   const onStartRef = useRef(onStart); onStartRef.current = onStart;
   const onSyncRef = useRef(onSync); onSyncRef.current = onSync;
   const onChatRef = useRef(onChat); onChatRef.current = onChat;
+  const onTurnTimerRef = useRef(onTurnTimer); onTurnTimerRef.current = onTurnTimer;
   const onRevisionGapRef = useRef(onRevisionGap); onRevisionGapRef.current = onRevisionGap;
   const readySentRef = useRef(false);
   const pendingStartRef = useRef<any>(null);
@@ -198,6 +203,12 @@ export function useGameSocket({
     };
 
     const onStart = (data: any) => {
+      const startRevision = data?.state?.currentRevision;
+      if (typeof startRevision === "number" && startRevision >= revisionRef.current) {
+        revisionRef.current = startRevision;
+        setRevision(startRevision);
+        setNeedsFullSync(false);
+      }
       if (externalPhaseRef.current === "playing") {
         pendingStartRef.current = null;
         setStatus("active");
@@ -246,7 +257,7 @@ export function useGameSocket({
       setRevision(revisionRef.current);
       setNeedsFullSync(false);
 
-      onSyncRef.current?.(data?.state, revisionRef.current);
+      onSyncRef.current?.(data?.state, revisionRef.current, data);
     };
 
     const onGameOver = (data: any) => {
@@ -280,6 +291,7 @@ export function useGameSocket({
         data,
       });
     };
+    const onTurnTimer = (data: any) => onTurnTimerRef.current?.(data);
     const onError = (error: any) => warn("[useGameSocket] engine error:", error);
 
     // ── Attach listeners ────────────────────────────────────────────
@@ -289,6 +301,7 @@ export function useGameSocket({
     s.on(GAME_EVENTS.GAME_OVER, onGameOver);
     s.on(GAME_EVENTS.PAUSE, onPause);
     s.on(GAME_EVENTS.CHAT, onChat);
+    s.on(GAME_EVENTS.TURN_TIMER, onTurnTimer);
     s.on(GAME_EVENTS.ERROR, onError);
 
     // ── Round lifecycle events (bridge to DeviceEventEmitter) ───
@@ -336,6 +349,7 @@ export function useGameSocket({
       s.off(GAME_EVENTS.GAME_OVER, onGameOver);
       s.off(GAME_EVENTS.PAUSE, onPause);
       s.off(GAME_EVENTS.CHAT, onChat);
+      s.off(GAME_EVENTS.TURN_TIMER, onTurnTimer);
       s.off(GAME_EVENTS.ERROR, onError);
       s.off("ROUND_CREATED", onRoundCreated);
       s.off("ROUND_STARTED", onRoundStarted);

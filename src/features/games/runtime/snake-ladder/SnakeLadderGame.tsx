@@ -152,8 +152,6 @@ type Props = {
   playerInfo: Record<string, { name: string; username?: string; avatar?: string }>;
   autoRoll: null | { remaining: number; target: string; phase: "countdown" | "rolling" };
   chatPopups: Array<{ id: number; uid: string; name: string; text: string; color: string }>;
-  kbH: number;
-  kbLift: number;
   tokenAnims: Record<string, { x: Animated.Value; y: Animated.Value }>;
   getOrCreateTokenAnim: (uid: string, sq: number) => { x: Animated.Value; y: Animated.Value };
   diceRotate: Animated.Value;
@@ -170,7 +168,7 @@ export default function SnakeLadderGame({
   status, state, isMyTurn, toast, rolling, remoteRolling,
   lastDice, dicePreview, lastLanded, playerInfo, autoRoll,
   chatPopups,
-  kbH, kbLift, tokenAnims, getOrCreateTokenAnim,
+  tokenAnims, getOrCreateTokenAnim,
   diceRotate, diceAnim, toastAnim, turnPulse,
   rollDice, showToast,
 }: Props) {

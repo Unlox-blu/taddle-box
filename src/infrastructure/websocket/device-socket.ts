@@ -81,7 +81,7 @@ class DeviceSocketClient {
 
       this.socket.on("connect_error", (err) => {
         this.isConnecting = false;
-        logError("[deviceSocket] Connection error:", err.message);
+        warn("[deviceSocket] Connection error:", err.message);
       });
 
       // ── Session revoked event ──────────────────────────────────────────

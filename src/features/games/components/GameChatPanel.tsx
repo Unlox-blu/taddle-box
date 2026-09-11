@@ -4,8 +4,10 @@
  * Design goals:
  * - Minimal height: header + 2-message scrollable history + input row
  * - No "local" indicator pill
- * - Keyboard-aware on both platforms (inside Modal, no adjustResize)
- * - Reports height via onPanelLayout so playStage can shrink the board
+ * - Rendered as a FLEX SIBLING below the game stage (not an overlay): the
+ *   parent animates the wrapper height, the game area reflows above it, and
+ *   the game scales its own canvas to the remaining space.
+ * - Reports height via onPanelLayout so the parent can size the wrapper
  */
 
 import React, { useCallback, useEffect, useRef, useState } from "react";
@@ -37,8 +39,6 @@ type Props = {
   incoming?: { name: string; text: string } | null;
   onUnread?: () => void;
   onSend?: (text: string) => void;
-  /** Keyboard height from GamesScreen — used to lift the panel above the keyboard. */
-  kbHeight?: number;
 };
 
 export default function GameChatPanel({
@@ -49,7 +49,6 @@ export default function GameChatPanel({
   incoming,
   onUnread,
   onSend,
-  kbHeight = 0,
 }: Props) {
   const insets = useSafeAreaInsets();
   const [messages, setMessages] = useState<ChatMessage[]>([]);
@@ -96,14 +95,10 @@ export default function GameChatPanel({
 
   if (!open) return null;
 
-  // Lift the panel above the keyboard. When keyboard is up, ignore safeArea
-  // bottom inset (keyboard already sits above the home indicator).
-  const bottomOffset = kbHeight > 0 ? kbHeight : Math.max(insets.bottom, 6);
-
   return (
     <View
-      style={[styles.wrap, { bottom: bottomOffset }]}
-      onLayout={(e) => onPanelLayout?.(e.nativeEvent.layout.height + bottomOffset)}
+      style={[styles.wrap, { paddingBottom: Math.max(insets.bottom, 10) }]}
+      onLayout={(e) => onPanelLayout?.(e.nativeEvent.layout.height)}
     >
       {/* Header */}
       <View style={styles.header}>
@@ -171,11 +166,9 @@ export default function GameChatPanel({
 
 const styles = StyleSheet.create({
   wrap: {
-    position: "absolute",
-    bottom: 0,
-    left: 0,
-    right: 0,
-    zIndex: 100,
+    // Static flex content — the parent owns positioning via an animated
+    // height wrapper; this panel just fills its own natural height.
+    width: "100%",
     backgroundColor: "rgba(10, 14, 26, 0.97)",
     borderTopWidth: 1,
     borderTopColor: "rgba(139, 92, 246, 0.25)",

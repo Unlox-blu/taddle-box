@@ -14,7 +14,6 @@ import {
   Image,
   TextInput,
   ScrollView,
-  Platform,
   Keyboard,
   Easing,
 } from "react-native";
@@ -30,22 +29,22 @@ import Svg, {
   Path,
 } from "react-native-svg";
 import type { HtmlGameResult, PlayerContext } from "../game-runtime.types";
-import { createGameEngineSocket } from "../../../../infrastructure/websocket/account-socket";
 import { gameSound, useTurnSound } from "../../media/game-sound";
 // ── Extracted modules ────────────────────────────────────────────────────────
 import {
   DICE_ROLL_MS, STEP_MS, ENTRY_MS, CAPTURE_BUDGET_MS, CAPTURE_BEAT_MS,
-  CAPTURE_WAIT_MS, TURN_GAP_MS, MOVE_WINDOW_MS, TURN_REVEAL_MAX_MS,
+  CAPTURE_WAIT_MS, TURN_GAP_MS, TURN_REVEAL_MAX_MS,
   CAPTURE_SEQ_EXTRA_MS, NO_MOVE_HOLD_MS, BOARD_SIZE, CHAT_MAX_H,
+  CANVAS_W, CANVAS_H, CANVAS_PAD_X, CANVAS_PAD_Y,
   CORNER_STRIP, PLAYER_COLORS, PLAYER_COLORS_D, PLAYER_COLORS_L,
   BG_TOP, BG_BOTTOM, CORNER_POS, GIGGLE_IDENTITY, TURN_GIGGLE_IDENTITY,
   LUDO_PATH, SAFE_CELLS, HOME_SLOTS, HOME_COLS, HOME_SPOTS,
+  SHARED_TRACK_LENGTH, HOME_PATH_START, HOME_PATH_END, FINISH_POSITION,
   PLAYER_PATH_OFFSET, stackOffset, seededStars, getTokenPos, starPts,
-  EVENTS, extractEnginePlayers, buildPlayerInfo,
 } from "./ludo.utils";
 import { styles } from "./ludo.styles";
 import {
-  ActiveCardGlow, DieGlow, CaptureBurst, LoadingDots,
+  ActiveCardGlow, CaptureBurst, LoadingDots,
   CornerBubble,
 } from "./LudoSubComponents";
 
@@ -94,6 +93,9 @@ type Props = {
   setRemoteRolling: (v: string | null) => void;
   dicePreview: number | null;
   settledFace: number | null;
+  diceOwnerIdx: number | null;
+  turnDeadlineAt: number | null;
+  turnTimerVisibleAt: number | null;
   noMoveHold: { playerIdx: number; face: number } | null;
   setNoMoveHold: (v: { playerIdx: number; face: number } | null) => void;
 
@@ -108,10 +110,6 @@ type Props = {
   burstIdRef: React.MutableRefObject<number>;
   toast: string | null;
   setToast: (v: string | null) => void;
-
-  // ── Layout ──────────────────────────────────────────────────────────
-  kbH: number;
-  kbLift: number;
 
   // ── Turn animation management ───────────────────────────────────────
   pendingTurnRef: React.MutableRefObject<number | null>;
@@ -152,6 +150,9 @@ export default function LudoGame({
   setRemoteRolling,
   dicePreview,
   settledFace,
+  diceOwnerIdx,
+  turnDeadlineAt,
+  turnTimerVisibleAt,
   noMoveHold,
   setNoMoveHold,
 
@@ -162,8 +163,6 @@ export default function LudoGame({
   burstIdRef,
   toast,
   setToast,
-  kbH,
-  kbLift,
   pendingTurnRef,
   revealTimerRef,
   activeWalksRef,
@@ -176,7 +175,13 @@ export default function LudoGame({
 }: Props) {
 
   // ── Rendering-only state (board layout, not game state) ──────────────
-  const [boardSize, setBoardSize] = useState(BOARD_SIZE);
+  // Fixed logical canvas: the board is ALWAYS laid out at DESIGN_SIZE. The
+  // only thing that changes with the viewport (chat/keyboard opening) is the
+  // single uniform `boardScale` transform — the board behaves like one scaled
+  // image, so nothing inside (tokens, die, paths) ever recomputes its position.
+  const boardSize = BOARD_SIZE;
+  const [boardScale, setBoardScale] = useState(1);
+  const [turnSecondsLeft, setTurnSecondsLeft] = useState<number | null>(null);
   const cell = boardSize / 15;
   const cellRef = useRef(cell);
   cellRef.current = cell;
@@ -184,40 +189,24 @@ export default function LudoGame({
   const dieLockRef = useRef<Record<string, any> | null>(null);
   const chatInset = 0;
 
-  // ── Re-seat tokens on board resize ─────────────────────────────────────
-  // When the chat panel opens or keyboard appears, the board shrinks via
-  // onLayout → setBoardSize. The SVG re-renders instantly at the new size,
-  // but token Animated.Values still hold positions computed for the OLD cell
-  // size. This effect immediately springs every token to its correct position
-  // at the new cell size, eliminating the "broken assets" visual glitch.
+  // Presentation only: the backend owns expiry and auto-action execution.
   useEffect(() => {
-    if (!gameState?.tokens) return;
-    const tokens = gameState.tokens;
-    const order = gameState.turnOrder ?? [];
-    Object.entries(tokens).forEach(([uid, tks]: [string, any]) => {
-      const pi = order.indexOf(uid);
-      (tks || []).forEach((token: any) => {
-        const key = `${uid}-${token.id}`;
-        const a = tokenAnims[key];
-        if (!a) return; // not yet mounted — renderTokens will init
-        const { x, y } = getTokenRenderPos(pi, token.id, token.pos ?? -1);
-        Animated.parallel([
-          Animated.spring(a.x, {
-            toValue: x,
-            useNativeDriver: false,
-            speed: 20,
-            bounciness: 6,
-          }),
-          Animated.spring(a.y, {
-            toValue: y,
-            useNativeDriver: false,
-            speed: 20,
-            bounciness: 6,
-          }),
-        ]).start();
-      });
-    });
-  }, [boardSize]); // eslint-disable-line react-hooks/exhaustive-deps
+    if (!turnDeadlineAt || !turnTimerVisibleAt) {
+      setTurnSecondsLeft(null);
+      return;
+    }
+    const update = () => {
+      if (Date.now() < turnTimerVisibleAt) {
+        setTurnSecondsLeft(null);
+        return;
+      }
+      const remaining = Math.max(0, Math.ceil((turnDeadlineAt - Date.now()) / 1000));
+      setTurnSecondsLeft(remaining);
+    };
+    update();
+    const timer = setInterval(update, 250);
+    return () => clearInterval(timer);
+  }, [turnDeadlineAt, turnTimerVisibleAt]);
 
   // Single merged map of player identity (name + avatar + level) so the corner
   // cards always show the real profile pic, name and level badge. Sources,
@@ -260,9 +249,11 @@ export default function LudoGame({
   >({});
   playerMetaRef.current = playerMeta;
 
-  // Dice tumble axes. rotate = spin, lift = bob up/down, shake = horizontal
-  // jitter, squash = landing flatten (scaleX widens / scaleY compresses).
+  // Dice tumble axes. The X/Y tilt plus Z spin gives the die a physical tumble
+  // instead of a flat card rotation; lift and squash sell the table impact.
   const diceRotate = useRef(new Animated.Value(0)).current;
+  const diceTiltX = useRef(new Animated.Value(0)).current;
+  const diceTiltY = useRef(new Animated.Value(0)).current;
   const diceLift = useRef(new Animated.Value(0)).current;
   const diceShake = useRef(new Animated.Value(0)).current;
   const diceSquash = useRef(new Animated.Value(0)).current;
@@ -314,6 +305,8 @@ export default function LudoGame({
       // Reset every axis so a stale animation can't bleed into the new one.
       diceLift.setValue(0);
       diceRotate.setValue(0);
+      diceTiltX.setValue(0);
+      diceTiltY.setValue(0);
       diceShake.setValue(0);
       diceSquash.setValue(0);
       // Mark the axes busy for EVERY mode (including the no-move pulse) so a
@@ -415,21 +408,43 @@ export default function LudoGame({
             easing: Easing.out(Easing.quad),
             useNativeDriver: true,
           }),
+          Animated.timing(diceTiltX, {
+            toValue: -0.45,
+            duration: remote ? 120 : 160,
+            easing: Easing.out(Easing.quad),
+            useNativeDriver: true,
+          }),
+          Animated.timing(diceTiltY, {
+            toValue: 0.35,
+            duration: remote ? 120 : 160,
+            easing: Easing.out(Easing.quad),
+            useNativeDriver: true,
+          }),
         ]),
-        // 2. Smooth continuous roll — a SINGLE 360° spin (no direction reversals,
-        // so it never jumps) with ease-in-out: it starts slowly, rolls fast in
-        // the middle, and glides to a stop. The die sinks back down as it rolls
-        // and a tiny rattle fades out during the first part.
+        // 2. Continuous multi-axis tumble. X/Y rotations are deliberately out
+        // of phase so the die changes visible faces while it travels.
         Animated.parallel([
           Animated.timing(diceRotate, {
-            toValue: 6,
-            duration: remote ? 900 : 1050,
+            toValue: remote ? 8 : 10,
+            duration: remote ? 980 : 1120,
+            easing: Easing.inOut(Easing.cubic),
+            useNativeDriver: true,
+          }),
+          Animated.timing(diceTiltX, {
+            toValue: remote ? 7.3 : 8.6,
+            duration: remote ? 980 : 1120,
+            easing: Easing.inOut(Easing.cubic),
+            useNativeDriver: true,
+          }),
+          Animated.timing(diceTiltY, {
+            toValue: remote ? -6.6 : -8.1,
+            duration: remote ? 980 : 1120,
             easing: Easing.inOut(Easing.cubic),
             useNativeDriver: true,
           }),
           Animated.timing(diceLift, {
-            toValue: 0.15,
-            duration: remote ? 900 : 1050,
+            toValue: 0.3,
+            duration: remote ? 980 : 1120,
             easing: Easing.inOut(Easing.quad),
             useNativeDriver: true,
           }),
@@ -469,6 +484,18 @@ export default function LudoGame({
             easing: Easing.out(Easing.quad),
             useNativeDriver: true,
           }),
+          Animated.timing(diceTiltX, {
+            toValue: 0,
+            duration: 80,
+            easing: Easing.out(Easing.quad),
+            useNativeDriver: true,
+          }),
+          Animated.timing(diceTiltY, {
+            toValue: 0,
+            duration: 80,
+            easing: Easing.out(Easing.quad),
+            useNativeDriver: true,
+          }),
         ]),
         // 4. Settle — bounce back with a small overshoot.
         Animated.spring(diceSquash, {
@@ -479,7 +506,7 @@ export default function LudoGame({
         }),
       ]).start(finish);
     },
-    [diceLift, diceRotate, diceShake, diceSquash],
+    [diceLift, diceRotate, diceTiltX, diceTiltY, diceShake, diceSquash],
   );
   const runDiceTumbleRef = useRef(runDiceTumble);
   runDiceTumbleRef.current = runDiceTumble;
@@ -710,8 +737,8 @@ export default function LudoGame({
     (pi: number, tokenId: number, pos: number): string => {
       if (pos === -1) return `yard:${pi % 4}:${tokenId % 4}`;
       if (pos >= 57) return `center:${pi % 4}`;
-      if (pos >= 52) return `home:${pi % 4}:${pos}`;
-      return `track:${(PLAYER_PATH_OFFSET[pi % 4] + pos) % LUDO_PATH.length}`;
+      if (pos >= HOME_PATH_START) return `home:${pi % 4}:${pos}`;
+      return `track:${(PLAYER_PATH_OFFSET[pi % 4] + pos) % SHARED_TRACK_LENGTH}`;
     },
     [],
   );
@@ -872,94 +899,6 @@ export default function LudoGame({
     );
   }, [doReveal]);
 
-  // ── Idle safeguard ────────────────────────────────────────────────────────
-  // My turn, nothing pressed: 5s silent grace → 5s visible countdown →
-  // auto-roll. Once the die settles, every roll gets a move window — the
-  // live countdown is shown under the die itself, and the first movable
-  // token is auto-moved just before the window ends.
-  const [idleLeft, setIdleLeft] = useState<number | null>(null);
-  const [moveLeft, setMoveLeft] = useState<number | null>(null);
-  const idleTickRef = useRef<ReturnType<typeof setInterval> | null>(null);
-  const idleMoveRef = useRef<ReturnType<typeof setInterval> | null>(null);
-  const onRollRef = useRef(onRoll);
-  onRollRef.current = onRoll;
-  const onTokenTapRef = useRef(onTokenTap);
-  onTokenTapRef.current = onTokenTap;
-
-  useEffect(() => {
-    const clearMove = () => {
-      setMoveLeft(null);
-      if (idleMoveRef.current) {
-        clearInterval(idleMoveRef.current);
-        idleMoveRef.current = null;
-      }
-    };
-    const clearIdle = () => {
-      setIdleLeft(null);
-      if (idleTickRef.current) {
-        clearInterval(idleTickRef.current);
-        idleTickRef.current = null;
-      }
-    };
-
-    if (status !== "active" || !isMyTurn) {
-      clearIdle();
-      clearMove();
-      return;
-    }
-
-    if (gameState?.dice != null) {
-      clearIdle();
-      if (!idleMoveRef.current) {
-        let left = MOVE_WINDOW_MS / 1000;
-        setMoveLeft(left);
-        idleMoveRef.current = setInterval(() => {
-          left -= 1;
-          if (left <= 1) {
-            if (idleMoveRef.current) {
-              clearInterval(idleMoveRef.current);
-              idleMoveRef.current = null;
-            }
-            const st = gameStateRef.current;
-            const movable = st?.movableTokens;
-            if (
-              movable &&
-              movable.length > 0 &&
-              (st?.currentTurnIndex ?? 0) === myPlayerIdx &&
-              st?.dice != null
-            ) {
-              onTokenTapRef.current(movable[0]);
-            }
-            setMoveLeft(null);
-            return;
-          }
-          setMoveLeft(left);
-        }, 1000);
-      }
-      return clearMove;
-    }
-
-    // Waiting for a roll — 5s grace, then visible 5s countdown, then auto-roll.
-    clearMove();
-    let seconds = 0;
-    setIdleLeft(null);
-    if (idleTickRef.current) clearInterval(idleTickRef.current);
-    idleTickRef.current = setInterval(() => {
-      seconds += 1;
-      if (seconds >= 5 && seconds < 10) setIdleLeft(10 - seconds);
-      if (seconds >= 10) {
-        if (idleTickRef.current) {
-          clearInterval(idleTickRef.current);
-          idleTickRef.current = null;
-        }
-        onRollRef.current();
-      }
-    }, 1000);
-    return () => {
-      clearIdle();
-    };
-  }, [status, isMyTurn, gameState?.dice, myPlayerIdx]);
-
   const runTokenPath = useCallback(
     (
       key: string,
@@ -1066,6 +1005,55 @@ export default function LudoGame({
       springToken,
     ],
   );
+
+  // SYNC is the only gameplay input. Translate each authoritative position
+  // change into the existing token animation path; the renderer itself never
+  // infers bot moves from socket event aliases or local turn state.
+  useEffect(() => {
+    const tokens = gameState?.tokens;
+    const order = gameState?.turnOrder;
+    if (!tokens || !Array.isArray(order)) return;
+
+    const previousPositions = lastPosRef.current;
+    const nextPositions: Record<string, number> = {};
+
+    Object.entries(tokens).forEach(([uid, list]: [string, any]) => {
+      const pi = order.indexOf(uid);
+      if (pi < 0) return;
+
+      (list || []).forEach((token: any) => {
+        const key = `${uid}-${token.id}`;
+        const nextPosition = token.pos ?? -1;
+        nextPositions[key] = nextPosition;
+
+        if (!(key in previousPositions)) return;
+        const previousPosition = previousPositions[key];
+        if (previousPosition === nextPosition) return;
+
+        const start = previousPosition < 0 ? -1 : previousPosition;
+        const end = nextPosition < 0 ? -1 : nextPosition;
+        const points = Array.from(
+          { length: Math.max(1, end - start) + 1 },
+          (_, index) => pathPoint(pi, token.id, start + index, gameState),
+        );
+        if (end < start) {
+          points.splice(1, points.length - 2, pathPoint(pi, token.id, end, gameState));
+        }
+
+        runTokenPath(key, points, STEP_MS, () => gameSound.playHop(), start < 0 ? ENTRY_MS : STEP_MS);
+      });
+    });
+
+    lastPosRef.current = nextPositions;
+  }, [gameState, pathPoint, runTokenPath]);
+
+  // The engine turn becomes visible only after the authoritative roll or
+  // token animation has finished. Token walks call maybeRevealTurn directly;
+  // this effect covers rolls that advance the turn without moving a token.
+  useEffect(() => {
+    if (rolling || remoteRolling || activeWalksRef.current > 0) return;
+    maybeRevealTurn();
+  }, [rolling, remoteRolling, gameState?.currentTurnIndex, maybeRevealTurn]);
 
   const showToast = (msg: string) => {
     setToast(msg);
@@ -1563,15 +1551,14 @@ export default function LudoGame({
       : hasDice
         ? face
         : settledFace;
-  // While a no-move result is held, the die stays beside the roller (the
-  // previous player); once released it rides to the VISIBLE turn — which lags
-  // the engine's turn until the previous player's coins finish walking.
+  // Match the profile glow exactly: displayTurn is the delayed visual turn,
+  // revealed only after the prior roll/token animation completes. The backend
+  // still owns dice values; this index controls placement only.
   const dieAnchorIdx = noMoveHold ? noMoveHold.playerIdx : displayTurn;
   // A tumble is in progress (my roll or anyone's) — the die turns monochrome
   // (black & white) while rolling: every player-color accent (glow halo, idle
   // ring) goes neutral so the colored die only acts as the turn indicator
   // when it's idle and waiting for a roll.
-  const rollingNow = rolling || remoteRolling;
   // The die rides with whoever's VISIBLE turn it is — anchored BESIDE that
   // player's corner profile card (left/right of it, never above/below). It
   // stays on the previous player while their coins are still walking. The
@@ -1583,85 +1570,25 @@ export default function LudoGame({
   // the roller right where they're looking (the old park beside a bottom card
   // hid it far from top players). Keyboard closed: the die rides beside the
   // active player's corner as usual.
-  const dieSize = kbH > 0 ? 40 : 56;
+  // ── Die placement — inside the fixed logical canvas ──────────────────────
+  // The die rides beside the active player's corner card at FIXED logical
+  // coordinates. No keyboard-awareness: the whole canvas scales as one image,
+  // so the die keeps its exact relationship to the card and board always.
+  const dieSize = 56;
   const diePark = dieAnchorIdx;
-  const anchorUid = (gameState?.turnOrder || [])[diePark] as string | undefined;
-  const dieCardW = Math.min(96, cardWidthsRef.current[anchorUid ?? ""] || 76);
-  // Clear separation between the die and the card it rides beside. The card
-  // wrapper sits 10px from the screen edge, so anchoring at 10 + dieCardW +
-  // dieGap leaves an exact dieGap px of breathing room. The gap stays a
-  // little smaller when the keyboard is open (compact cards, tight space).
-  const dieGap = kbH > 0 ? 6 : 12;
-  // Compact profile cards are ~48px tall while the keyboard is up.
-  const COMPACT_CARD_H = 48;
-  // While parked the die tucks to the compact card's vertical middle (the
-  // card is 48px, the die 42px — 3px off its bottom edge).
-  const dieTuck = kbH > 0 ? 3 : 0;
-  // Keyboard-open anchors centre the die on the card (left/right inset by the
-  // card's half-width minus the die's half-width).
-  const dieSide = 10 + dieCardW / 2 - dieSize / 2;
+  const dieGap = 12;
+  // Cards are absolutely placed in the side strips; the die anchors beside the
+  // active card at a fixed card width (cards auto-shrink names to fit, so a
+  // fixed 76px logical width is safe).
+  const dieCardW = 76;
+  const dieSide = CANVAS_PAD_X - dieCardW / 2 - dieSize / 2 + 5;
   const DIE_ANCHOR: Record<number, any> = {
-    0:
-      kbH > 0
-        ? { top: 12 + COMPACT_CARD_H + dieGap, left: dieSide } // below the TL card
-        : { top: 14, left: 10 + dieCardW + dieGap }, // TL — beside the card
-    1:
-      kbH > 0
-        ? { top: 12 + COMPACT_CARD_H + dieGap, right: dieSide } // below the TR card
-        : { top: 14, right: 10 + dieCardW + dieGap }, // TR — beside the card
-    // Bottom corners lift above the open chat panel so the die stays visible
-    // (while typing, the bottom cards tuck behind the compact chat bar, so
-    // the die sits just above the bar).
-    2:
-      kbH > 0
-        ? { bottom: chatInset + kbLift + dieGap, right: dieSide } // above the BR card
-        : {
-            bottom: 14 + dieTuck + chatInset + kbLift,
-            right: 10 + dieCardW + dieGap,
-          }, // BR
-    3:
-      kbH > 0
-        ? { bottom: chatInset + kbLift + dieGap, left: dieSide } // above the BL card
-        : {
-            bottom: 14 + dieTuck + chatInset + kbLift,
-            left: 10 + dieCardW + dieGap,
-          }, // BL
+    0: { top: CANVAS_PAD_Y - 66, left: dieSide }, // beside TL card
+    1: { top: CANVAS_PAD_Y - 66, right: dieSide }, // beside TR card
+    2: { bottom: CANVAS_PAD_Y - 66, right: dieSide }, // beside BR card
+    3: { bottom: CANVAS_PAD_Y - 66, left: dieSide }, // beside BL card
   };
-  const dieAnchor = DIE_ANCHOR[diePark % 4] || DIE_ANCHOR[0];
-  // Board margins — keyboard open: the top strip holds the compact cards AND
-  // the die (parked below a top card when a top player is active), so it
-  // grows to fit both; the bottom strip only needs the compact chat bar
-  // (bottom cards ride hidden behind it while typing) plus the die-above-card
-  // space when a BOTTOM player is active. Keyboard closed: slim strips, plus
-  // the bottom strip grows by the chat panel so the board always sits above
-  // the lifted cards. Driven by kbH so ANDROID's natural window resize gets
-  // the compact layout too — the old kbLift-only check (iOS) left Android
-  // stuck with the full margins and a small board floating in empty space.
-  const kbTopFull = 12 + COMPACT_CARD_H + dieGap + dieSize + dieGap;
-  const kbTopCardOnly = 12 + COMPACT_CARD_H + dieGap;
-  const playerCount = gameState?.turnOrder?.length ?? 4;
-  const activeIsTop = diePark < 2;
-  const kbTopMargin = activeIsTop ? kbTopFull : kbTopCardOnly;
-  // Bottom strip: while typing, the compact chat bar + a small gap; when a
-  // BOTTOM player is active their die parks just above the bar, so the strip
-  // also fits die + gap.
-  const kbBottomMargin =
-    playerCount <= 2 || activeIsTop
-      ? 8 + chatInset
-      : chatInset + dieGap + dieSize + dieGap;
-
-  // ── Die anchor lock ────────────────────────────────────────────────────────
-  // Same deferred-resize rule as the token re-seat: while coin walks are in
-  // flight the die keeps the anchor it had when the move began, so a mid-walk
-  // shrink (keyboard/chat opening) never yanks the die mid-animation. The lock
-  // is snapshotted on the first render with an active walk and dropped the
-  // moment walks finish — the die then re-anchors beside the shrunken card.
-  if (activeWalksRef.current > 0) {
-    if (!dieLockRef.current) dieLockRef.current = dieAnchor;
-  } else {
-    dieLockRef.current = null;
-  }
-  const dieRenderAnchor = dieLockRef.current || dieAnchor;
+  const dieRenderAnchor = DIE_ANCHOR[diePark % 4] || DIE_ANCHOR[0];
 
   // ── Corner avatar cards (reference-style) ─────────────────────────────────
   const renderCornerCards = () => {
@@ -1681,12 +1608,9 @@ export default function LudoGame({
             ? `${meta.name || myName || "You"} (You)`
             : meta.name || `P${i + 1}`;
           const isActive = displayTurn === i;
-          // Compact mode while the keyboard is open — the cards shrink (same
-          // layout: avatar on top, badge on its corner, name below) so they
-          // fit the strip alongside the parked die. Driven by kbH so Android's
-          // natural window resize compacts them too (kbLift is iOS-only — the
-          // lift that's actually applied).
-          const compact = kbH > 0;
+          // Fixed-canvas rendering: cards never change size. The whole play
+          // area scales as one image, so no compact/keyboard mode is needed.
+          const compact = false;
           const cardBody = (
             <View
               pointerEvents="none"
@@ -1776,19 +1700,12 @@ export default function LudoGame({
             <View
               key={uid}
               style={{
-                // The wrapper does ALL the positioning (horizontal + vertical).
-                // Cards live in the reserved corner strips, so they never sit
-                // over the board; bottom cards lift above the open chat panel.
+                // The wrapper does ALL the positioning, at FIXED logical
+                // coordinates inside the play-area canvas — no keyboard/chat
+                // awareness. The whole canvas scales as one image.
                 position: "absolute",
                 [pos.align]: 10,
-                // Bottom cards lift above the open chat panel when the
-                // keyboard is CLOSED. While the keyboard is up the chat
-                // compacts to a slim bar and the cards stay at the bottom,
-                // tucking behind it — so the board gets the freed space.
-                [pos.vert]:
-                  pos.vert === "bottom"
-                    ? 12 + (kbH > 0 ? 0 : chatInset) + kbLift
-                    : 12,
+                [pos.vert]: 12,
                 zIndex: 70,
                 // Sibling-level elevation keeps Android paint order above the
                 // board (elevation 20) regardless of zIndex quirks.
@@ -1826,17 +1743,24 @@ export default function LudoGame({
     );
   }
 
-  // Full tumble range: ±6 units ≈ ±360° so the die completes one smooth
-  // rotation (toValue 6 = exactly one full spin back to upright).
+  // The die tumbles through several full rotations on all three axes.
   const spin = diceRotate.interpolate({
-    inputRange: [-6, 6],
-    outputRange: ["-360deg", "360deg"],
+    inputRange: [-10, 10],
+    outputRange: ["-600deg", "600deg"],
+  });
+  const tiltX = diceTiltX.interpolate({
+    inputRange: [-9, 9],
+    outputRange: ["-540deg", "540deg"],
+  });
+  const tiltY = diceTiltY.interpolate({
+    inputRange: [-9, 9],
+    outputRange: ["-540deg", "540deg"],
   });
 
   return (
     <LinearGradient
       colors={[BG_TOP, BG_BOTTOM]}
-      style={[styles.gameFill, { paddingBottom: 6 + kbLift }]}
+      style={styles.gameFill}
     >
       {/* ─ Stars backdrop ─ */}
       <View pointerEvents="none" style={StyleSheet.absoluteFill}>
@@ -1857,81 +1781,74 @@ export default function LudoGame({
         ))}
       </View>
 
-      {/* ─ Board — responsive: fills the space between the reserved corner
-          strips (profile cards + die) so they never cover the play area ─ */}
+      {/* ─ Viewport — measures the available space and letterboxes the canvas ─ */}
       <View
-        style={[
-          styles.boardWrap,
-          {
-            // Top strip: TL/TR cards (+ the die, which parks below a top card
-            // while the keyboard is up). Bottom strip: the compact chat bar
-            // (+ the die above a bottom card in 4P while typing). Keyboard
-            // closed the die rides beside the cards, so the strips are slim and
-            // the board grows; the bottom strip then adds the chat panel height
-            // so the board always sits above the lifted bottom cards.
-            marginTop: kbH > 0 ? kbTopMargin : CORNER_STRIP - 6,
-            marginBottom:
-              kbH > 0 ? kbBottomMargin : CORNER_STRIP - 6 + chatInset,
-          },
-        ]}
+        style={styles.boardWrap}
         onLayout={(e) => {
           const { width: w, height: h } = e.nativeEvent.layout;
-          // Square board = the smaller dimension of the available space minus a
-          // comfortable margin. No small cap — the board fills the space and
-          // only compresses when the chat panel (or keyboard) opens. The floor
-          // only engages below ~110px of free space (e.g. a legacy 568px-tall
-          // phone while typing), so it can never overflow into other UI.
-          const next = Math.max(100, Math.min(w - 10, h - 10));
-          if (Math.abs(next - boardSize) > 1) setBoardSize(Math.floor(next));
+          // Uniform scale: the whole play canvas as ONE image.
+          const next = Math.min(w / CANVAS_W, h / CANVAS_H, 1);
+          if (Math.abs(next - boardScale) > 0.005) setBoardScale(next);
         }}
       >
-        <View style={{ width: boardSize, height: boardSize }}>
-          {/* Board art — clipped to the rounded corners so the SVG stays clean */}
-          <View style={[styles.board, { width: boardSize, height: boardSize }]}>
+        <View
+          style={{
+            width: CANVAS_W,
+            height: CANVAS_H,
+            // The single uniform scale — the ONLY thing that changes when the
+            // keyboard/chat opens. Internal coordinates never move.
+            transform: [{ scale: boardScale }],
+          }}
+        >
+          {/* Board art, centered in the canvas — clipped to rounded corners */}
+          <View
+            style={[
+              styles.board,
+              {
+                width: boardSize,
+                height: boardSize,
+                position: "absolute",
+                left: CANVAS_PAD_X,
+                top: CANVAS_PAD_Y,
+              },
+            ]}
+          >
             {boardSvg}
           </View>
-          {/* Tokens + capture bursts — a sibling overlay ABOVE the art and NOT
-              clipped, so a pin on a top-edge cell (red's row-0 path, e.g. pos
-              6–12) stays fully visible even when its head pokes past the
-              board's rounded corner. The corner cards/die sit further out in
-              the strips, so nothing overlaps in practice. */}
-          {renderTokens()}
-          {renderBursts()}
-        </View>
-      </View>
+          {/* Tokens + bursts — overlay ABOVE the art, offset to board origin */}
+          <View
+            pointerEvents="box-none"
+            style={{
+              position: "absolute",
+              left: CANVAS_PAD_X,
+              top: CANVAS_PAD_Y,
+              width: boardSize,
+              height: boardSize,
+            }}
+          >
+            {renderTokens()}
+            {renderBursts()}
+          </View>
 
-      {/* ─ Corner avatar cards (like the reference) ─ */}
-      {renderCornerCards()}
+          {/* ─ Corner avatar cards — fixed logical coords inside the canvas ─ */}
+          {renderCornerCards()}
 
-      {/* Chat bubbles popping over the sender's corner card */}
-      {chatPopups.map((pop) => (
-        <CornerBubble
-          key={pop.id}
-          pop={pop}
-          cornerIdx={pop.cornerIdx}
-          chatInset={chatInset}
-          kbH={kbLift}
-          onDone={(id: number) => setChatPopups((p: Array<{ id: number; uid: string; name: string; text: string; color: string; cornerIdx: number }>) => p.filter((x: { id: number }) => x.id !== id))}
-        />
-      ))}
+          {/* Chat bubbles popping over the sender's corner card */}
+          {chatPopups.map((pop) => (
+            <CornerBubble
+              key={pop.id}
+              pop={pop}
+              cornerIdx={pop.cornerIdx}
+              onDone={(id: number) => setChatPopups((p: Array<{ id: number; uid: string; name: string; text: string; color: string; cornerIdx: number }>) => p.filter((x: { id: number }) => x.id !== id))}
+            />
+          ))}
 
-      {/* ─ Die — anchored beside the active player's profile card; while the
-          keyboard is open it shrinks and parks between the card and the board
-          (below top cards / above bottom cards) ─ */}
-      {(() => {
+          {/* ─ Die — fixed anchor beside the active player's card ─ */}
+          {(() => {
         const dieDot = Math.max(6, dieSize * 0.18);
+        const faceValue = diceFace ?? 1;
         return (
           <View style={[styles.dieArea, dieRenderAnchor]}>
-            {/* Turn indicator — the dice pulses with the active player's color
-            while it's their turn; on the board, the active player's coins
-            giggle up and down (no glow). */}
-            {/* While a tumble is running the die goes black & white — the glow
-            turns a neutral slate so no player color bleeds onto the rolling
-            die; the colored turn-glow returns when the die is idle. */}
-            <DieGlow
-              color={rollingNow ? "#CBD5E1" : PLAYER_COLORS[dieAnchorIdx % 4]}
-              size={dieSize}
-            />
             <TouchableOpacity
               onPress={onRoll}
               disabled={!isMyTurn || hasDice || rolling}
@@ -1939,28 +1856,16 @@ export default function LudoGame({
             >
               <Animated.View
                 style={[
-                  styles.dieGlowWrap,
+                  styles.cubeStage,
                   {
                     width: dieSize,
-                    height: dieSize,
-                    borderRadius: dieSize * 0.27,
-                    borderWidth: Math.max(2, dieSize * 0.045),
+                    height: dieSize * 1.08,
                   },
-                  diceFace !== null && styles.dieGlowWrapRolled,
-                  // Idle die — ring + glow take the active player's color (HUD
-                  // unify). Skipped while a tumble is running so the die stays
-                  // strictly black & white for the whole roll.
-                  diceFace === null &&
-                    !rollingNow && {
-                      borderColor: PLAYER_COLORS[dieAnchorIdx % 4],
-                      shadowColor: PLAYER_COLORS[dieAnchorIdx % 4],
-                    },
-                  // Countdown keeps its attention-grabbing white ring (later style wins).
-                  (idleLeft !== null ||
-                    (moveLeft !== null && moveLeft <= 25 && !rolling)) &&
-                    styles.dieGlowWrapCountdown,
                   {
                     transform: [
+                      { perspective: 520 },
+                      { rotateX: tiltX },
+                      { rotateY: tiltY },
                       // Lift: the die pops up in the hand / off the table.
                       {
                         translateY: diceLift.interpolate({
@@ -1995,104 +1900,56 @@ export default function LudoGame({
                 ]}
               >
                 <LinearGradient
-                  colors={
-                    idleLeft !== null || diceFace !== null
-                      ? ["#FFFFFF", "#F1F5F9"]
-                      : ["#FFFFFF", "#E2E8F0"]
-                  }
-                  style={[
-                    styles.dieBody,
-                    {
-                      width: dieSize,
-                      height: dieSize,
-                      borderRadius: dieSize * 0.24,
-                    },
-                  ]}
+                  colors={diceFace !== null ? ["#FFFFFF", "#F1F5F9"] : ["#FFFFFF", "#E2E8F0"]}
+                  style={[styles.dieBody, { width: dieSize, height: dieSize, borderRadius: dieSize * 0.24 }]}
                 >
-                  {diceFace !== null ? (
-                    (DOT_POS[diceFace] || []).map(([dx, dy], i) => (
-                      <View
-                        key={i}
-                        style={[
-                          styles.dot,
-                          styles.dotDark,
-                          {
-                            left: `${dx}%` as any,
-                            top: `${dy}%` as any,
-                            width: dieDot,
-                            height: dieDot,
-                            borderRadius: dieDot / 2,
-                            transform: [
-                              { translateX: -dieDot / 2 },
-                              { translateY: -dieDot / 2 },
-                            ],
-                          },
-                        ]}
-                      />
-                    ))
-                  ) : (
-                    /* Idle die — a neutral face (never a '?'). A single centred pip
-                   reads as "ready to roll" without implying a result. */
+                  <View pointerEvents="none" style={styles.dieInnerFrame} />
+                  <View pointerEvents="none" style={styles.dieHighlight} />
+                  {(DOT_POS[faceValue] || []).map(([dx, dy], i) => (
                     <View
+                      key={i}
                       style={[
-                        styles.diceIdle,
+                        styles.dot,
+                        styles.dotDark,
                         {
-                          width: dieSize * 0.46,
-                          height: dieSize * 0.46,
-                          borderRadius: dieSize * 0.23,
+                          left: `${dx}%` as any,
+                          top: `${dy}%` as any,
+                          width: dieDot,
+                          height: dieDot,
+                          borderRadius: dieDot / 2,
+                          transform: [
+                            { translateX: -dieDot / 2 },
+                            { translateY: -dieDot / 2 },
+                          ],
                         },
                       ]}
-                    >
-                      <View
-                        style={[
-                          styles.diceIdlePip,
-                          {
-                            width: dieSize * 0.16,
-                            height: dieSize * 0.16,
-                            borderRadius: dieSize * 0.08,
-                          },
-                        ]}
-                      />
-                    </View>
-                  )}
+                    />
+                  ))}
                 </LinearGradient>
-                {/* Post-roll move timer — a live countdown pill centered UNDER the
-                die (not on its corner). Hidden while the die is mid-tumble and
-                during the first 5s of the window — it appears at 25s left so
-                the rolled result gets an uncluttered look first. The clock
-                itself runs the full 30s from the roll so it stays
-                server-accurate; the first movable token auto-moves on expiry. */}
-                {moveLeft !== null && moveLeft <= 25 && !rolling && (
-                  <View style={styles.dieMoveChip} pointerEvents="none">
-                    <View style={styles.dieMoveChipPill}>
-                      <Ionicons name="footsteps" size={9} color="#FFF" />
-                      <Text style={styles.dieMoveChipText}>{moveLeft}</Text>
-                    </View>
-                  </View>
-                )}
-                {/* Pre-roll auto-roll countdown — same pill under the die as the
-                move timer (clock icon instead of footsteps), so both timers
-                read consistently. */}
-                {idleLeft !== null && (
-                  <View style={styles.dieMoveChip} pointerEvents="none">
-                    <View style={styles.dieMoveChipPill}>
-                      <Ionicons name="time-outline" size={9} color="#FFF" />
-                      <Text style={styles.dieMoveChipText}>{idleLeft}</Text>
-                    </View>
-                  </View>
-                )}
               </Animated.View>
             </TouchableOpacity>
+            {turnSecondsLeft !== null && turnSecondsLeft > 0 && (
+              <View style={styles.dieMoveChip} pointerEvents="none">
+                <View style={styles.dieMoveChipPill}>
+                  <Ionicons
+                    name={hasDice ? "footsteps" : "time-outline"}
+                    size={9}
+                    color="#FFF"
+                  />
+                  <Text style={styles.dieMoveChipText}>{turnSecondsLeft}</Text>
+                </View>
+              </View>
+            )}
           </View>
         );
       })()}
 
-      {/* ─ Toast — lifted above the chat panel when it's open ─ */}
+      {/* ─ Toast — inside the scaled canvas, above the bottom strip ─ */}
       {toast && (
         <Animated.View
           style={[
             styles.toast,
-            { bottom: 96 + chatInset + kbLift },
+            { bottom: CANVAS_PAD_Y - 10 },
             {
               opacity: toastAnim,
               transform: [
@@ -2114,7 +1971,8 @@ export default function LudoGame({
           </LinearGradient>
         </Animated.View>
       )}
-
+        </View>{/* /play-area canvas */}
+      </View>{/* /viewport */}
     </LinearGradient>
   );
 }

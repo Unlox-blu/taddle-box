@@ -71,56 +71,6 @@ export function ActiveCardGlow({
   );
 }
 
-// ── Die turn-glow ────────────────────────────────────────────────────────────
-export function DieGlow({ color, size = 56 }: { color: string; size?: number }) {
-  const a = useRef(new Animated.Value(0)).current;
-  useEffect(() => {
-    const loop = Animated.loop(
-      Animated.sequence([
-        Animated.timing(a, {
-          toValue: 1,
-          duration: 800,
-          easing: Easing.inOut(Easing.quad),
-          useNativeDriver: true,
-        }),
-        Animated.timing(a, {
-          toValue: 0,
-          duration: 800,
-          easing: Easing.inOut(Easing.quad),
-          useNativeDriver: true,
-        }),
-      ]),
-    );
-    loop.start();
-    return () => loop.stop();
-  }, []);
-  const inset = size * 0.035;
-  return (
-    <Animated.View
-      pointerEvents="none"
-      style={{
-        position: "absolute",
-        top: -inset,
-        left: -inset,
-        right: -inset,
-        bottom: -inset,
-        borderRadius: size * 0.36,
-        borderWidth: 1.5,
-        borderColor: color,
-        opacity: a.interpolate({
-          inputRange: [0, 1],
-          outputRange: [0.12, 0.4],
-        }),
-        shadowColor: color,
-        shadowOpacity: 0.3,
-        shadowRadius: size * 0.1,
-        shadowOffset: { width: 0, height: 0 },
-        elevation: 3,
-      }}
-    />
-  );
-}
-
 // ── Capture impact burst ─────────────────────────────────────────────────────
 export function CaptureBurst({
   burst,
@@ -248,14 +198,10 @@ function Dot({ delay }: { delay: number }) {
 export function CornerBubble({
   pop,
   cornerIdx,
-  chatInset = 0,
-  kbH = 0,
   onDone,
 }: {
   pop: { id: number; uid: string; name: string; text: string; color: string };
   cornerIdx: number;
-  chatInset?: number;
-  kbH?: number;
   onDone: (id: number) => void;
 }) {
   const anim = useRef(new Animated.Value(0)).current;
@@ -277,7 +223,9 @@ export function CornerBubble({
   }, []);
   const pos = CORNER_POS[cornerIdx % 4];
   const vertKey = pos?.vert === "bottom" ? "bottom" : "top";
-  const vertVal = pos?.vert === "bottom" ? 118 + chatInset + kbH : 88;
+  // Fixed logical coords inside the play-area canvas (which scales as one
+  // image) — no keyboard/chat awareness needed here anymore.
+  const vertVal = pos?.vert === "bottom" ? 118 : 88;
   return (
     <Animated.View
       pointerEvents="none"

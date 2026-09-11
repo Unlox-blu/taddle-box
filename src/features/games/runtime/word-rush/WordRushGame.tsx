@@ -13,6 +13,7 @@ import {
 import { LinearGradient } from "expo-linear-gradient";
 import type { HtmlGameResult, PlayerContext } from "../game-runtime.types";
 import { useGameContainer } from "../../host/useGameContainer";
+import RoundIntroScreen from "../../components/RoundIntroScreen";
 
 const { width, height } = Dimensions.get("window");
 const BOARD_PADDING = 20;
@@ -36,6 +37,7 @@ type Props = {
   timeLeft: number;
   round: number;
   totalRounds: number;
+  roundIntroVisible: boolean;
   lastResult: "valid" | "invalid" | "duplicate" | null;
   lastError: string;
   lastValidWord: string;
@@ -63,6 +65,7 @@ export default function WordRushGame({
   timeLeft,
   round,
   totalRounds,
+  roundIntroVisible,
   lastResult,
   lastError,
   lastValidWord,
@@ -135,6 +138,17 @@ export default function WordRushGame({
           </View>
         </View>
       </View>
+    );
+  }
+
+  if (roundIntroVisible) {
+    return (
+      <RoundIntroScreen
+        gameName="Word Rush"
+        roundNumber={round}
+        totalRounds={totalRounds}
+        instruction="Find connected words before time runs out"
+      />
     );
   }
 

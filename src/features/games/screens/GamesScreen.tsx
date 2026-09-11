@@ -55,9 +55,11 @@ import { SectionHeader } from "../../../shared/components/SectionChrome";
 import ActiveStatusDot from "../../users/components/ActiveStatusDot";
 import StateBlock from "../../../shell/components/StateBlock";
 import GameContainer from "../host/GameContainer";
+import GameStageShell, {
+  type GameStageContext,
+} from "../host/GameStageShell";
 import { preloadRuntime } from "../runtime/GameRuntimeRegistry";
 import GameLogo from "../components/GameLogo";
-import GameChatPanel from "../components/GameChatPanel";
 import GameStartScreen from "../components/GameStartScreen";
 import GameCard from "../components/GameCard";
 import TournamentCard from "../components/TournamentCard";
@@ -1466,14 +1468,9 @@ function GamePlayModal({
     longestStreak?: number;
   }>({});
 
-  // In-game chat panel
-  const [chatOpen, setChatOpen] = useState(false);
-  const [chatPanelH, setChatPanelH] = useState(0);
-  const [chatUnread, setChatUnread] = useState(false);
-  const [chatIncoming, setChatIncoming] = useState<{
-    name: string;
-    text: string;
-  } | null>(null);
+  // In-game chat panel + keyboard — owned by the shared GameStageShell via
+  // useGameChat / useGameKeyboard. The header and stage receive the chat
+  // controller through the shell's render-prop (GameStageContext).
   // Game readiness — becomes true when the runtime is mounted, the socket
   // is connected, and critical assets are downloaded. The start screen uses
   // this to transition from "Loading game…" to "ALL READY!" instead of a
@@ -1481,24 +1478,7 @@ function GamePlayModal({
   const [gameReady, setGameReady] = useState(false);
   // Stage signals live at the screen level (startStages) because the runtime
   // preload fires during matchmaking — this component just renders them.
-  // Keyboard height — track so the game board shrinks upward when the
-  // keyboard opens (especially important on iOS where the keyboard overlays).
-  const [kbHeight, setKbHeight] = useState(0);
-
-  useEffect(() => {
-    const showEvt =
-      Platform.OS === "ios" ? "keyboardWillShow" : "keyboardDidShow";
-    const hideEvt =
-      Platform.OS === "ios" ? "keyboardWillHide" : "keyboardDidHide";
-    const sub1 = Keyboard.addListener(showEvt, (e) =>
-      setKbHeight(e.endCoordinates?.height || 0),
-    );
-    const sub2 = Keyboard.addListener(hideEvt, () => setKbHeight(0));
-    return () => {
-      sub1.remove();
-      sub2.remove();
-    };
-  }, []);
+  // Keyboard height — owned by useGameKeyboard inside GameStageShell.
 
   // Multi-round lifecycle — only active when configuredRounds > 1.
   // Provides round context (number, total, status) for header label + waiting screen.
@@ -1614,24 +1594,8 @@ function GamePlayModal({
       "GAME_ENGINE_CONNECT",
       onConnect,
     );
-    // Games (Ludo, SnakeLadder, Scribble) can request the chat panel to open
-    const sub6 = DeviceEventEmitter.addListener("OPEN_GAME_CHAT", () =>
-      setChatOpen(true),
-    );
-    const sub7 = DeviceEventEmitter.addListener(
-      "GAME_ENGINE_CHAT",
-      (event: any) => {
-        if (event.matchId !== session.matchId) return;
-        const d = event.data;
-        const info = (session.players || []).find(
-          (p: any) => p.id === (d.userId || d.uid),
-        );
-        setChatIncoming({
-          name: info?.name || d.name || "Player",
-          text: d.text || "",
-        });
-      },
-    );
+    // OPEN_GAME_CHAT + GAME_ENGINE_CHAT listeners moved into useGameChat
+    // inside GameStageShell.
 
     return () => {
       sub1.remove();
@@ -1639,18 +1603,8 @@ function GamePlayModal({
       sub3.remove();
       sub4.remove();
       sub5.remove();
-      sub6.remove();
-      sub7.remove();
     };
   }, [session.matchId]);
-
-  // Clear incoming chat message after it's been consumed by GameChatPanel
-  useEffect(() => {
-    if (chatIncoming) {
-      const t = setTimeout(() => setChatIncoming(null), 500);
-      return () => clearTimeout(t);
-    }
-  }, [chatIncoming]);
 
   // Per-player countdown: tick each disconnected player's remainingMs every second.
   useEffect(() => {
@@ -1839,9 +1793,14 @@ function GamePlayModal({
     >
       {/* Local ThemedAlertHost so alerts render inside this fullscreen Modal's UIWindow */}
       <ThemedAlertHost />
-      <View style={[styles.playModal, { paddingTop: insets.top || 16 }]}>
-        <View style={styles.playHeader}>
-          <TouchableOpacity
+      <GameStageShell
+        matchId={session.matchId}
+        players={session.players || []}
+        chatAvailable={phase === "playing" || phase === "prestart"}
+        playerName={user?.username || user?.name || "You"}
+        playHeader={({ chat }: GameStageContext) => (
+          <>
+            <TouchableOpacity
             onPress={() => {
               themedAlert(
                 "Leave Game?",
@@ -1900,24 +1859,23 @@ function GamePlayModal({
             </View>
           </View>
           <View style={styles.playHeaderRight}>
-            {/* Chat button — toggles the in-game chat panel */}
+            {/* Chat button — toggles the in-game chat panel (owned by GameStageShell) */}
             <TouchableOpacity
-              onPress={() => {
-                setChatOpen((p) => !p);
-                setChatUnread(false);
-              }}
+              onPress={chat.toggleChat}
               style={[
                 styles.iconButton,
-                chatOpen && { backgroundColor: "rgba(139, 92, 246, 0.25)" },
+                chat.chatOpen && {
+                  backgroundColor: "rgba(139, 92, 246, 0.25)",
+                },
               ]}
             >
               <View>
                 <Ionicons
-                  name={chatOpen ? "chatbubble" : "chatbubble-ellipses"}
+                  name={chat.chatOpen ? "chatbubble" : "chatbubble-ellipses"}
                   size={18}
-                  color={chatOpen ? "#A78BFA" : colors.text.secondary}
+                  color={chat.chatOpen ? "#A78BFA" : colors.text.secondary}
                 />
-                {chatUnread && !chatOpen && (
+                {chat.chatUnread && !chat.chatOpen && (
                   <View
                     style={{
                       position: "absolute",
@@ -1940,21 +1898,18 @@ function GamePlayModal({
               </View>
             )}
           </View>
-        </View>
-
-        {/* playStage: the game mounts as early as prestart so the runtime,
+          </>
+        )}
+      >
+        {({ kbHeight, chat }: GameStageContext) => (
+          <>{/* playStage: the game mounts as early as prestart so the runtime,
             socket connection, and assets are fully loaded by the time the
             countdown ends. During prestart the GameStartScreen overlays on top;
             during result the component unmounts immediately, freeing all native
-            memory (video players, Animated values, PanResponder, intervals). */}
-        <View
-          style={[
-            styles.playStage,
-            (chatOpen || kbHeight > 0) && {
-              paddingBottom: (chatOpen ? chatPanelH || 280 : 0) + kbHeight,
-            },
-          ]}
-        >
+            memory (video players, Animated values, PanResponder, intervals).
+            The stage is a flex sibling of the chat wrapper: when chat opens the
+            wrapper's height animates 0 → panelHeight, the stage reflows above
+            it, and the game scales its own canvas to the remaining rectangle. */}
           {(phase === "playing" || phase === "prestart") && session.wsToken && (
             <View
               style={{ flex: 1 }}
@@ -1979,10 +1934,6 @@ function GamePlayModal({
                       : undefined),
                   opponentName: session.players?.[0]?.name || "Opponent",
                   onComplete: handleComplete,
-                  // Keyboard & chat state — games use these to shrink the board
-                  kbH: kbHeight,
-                  chatOpen,
-                  chatPanelH: chatPanelH || 0,
                 }}
               />
             </View>
@@ -1992,18 +1943,18 @@ function GamePlayModal({
             <View
               style={[
                 StyleSheet.absoluteFill,
-                // Shrink + lift the start screen exactly like playStage when
-                // the chat panel / keyboard is up — otherwise the overlay
-                // ignores the parent's paddingBottom and covers the chat.
-                (chatOpen || kbHeight > 0) && {
-                  bottom: (chatOpen ? chatPanelH || 280 : 0) + kbHeight,
-                },
+                // The overlay is positioned INSIDE playStage, which the shell
+                // already shrinks for chat (flex sibling) and keyboard
+                // (paddingBottom lift). The overlay only needs to lift itself
+                // above the CHAT panel — keyboard is already accounted for by
+                // the stage's own reduced height.
+                chat.chatOpen && { bottom: chat.chatPanelH || 280 },
               ]}
             >
               <GameStartScreen
                 key={session.matchId}
                 game={session.game}
-                compact={chatOpen || kbHeight > 0}
+                compact={chat.chatOpen || kbHeight > 0}
                 myName={user?.username || user?.name || "You"}
                 myAvatar={user?.avatarUrl || user?.avatar || null}
                 myTeam={session.myTeam}
@@ -2091,28 +2042,9 @@ function GamePlayModal({
               />
             </React.Suspense>
           )}
-        </View>
-
-        {/* In-game chat panel — shrinks the game area above it.
-            Render during prestart too so the chat icon works while the
-            start screen is showing (assets loading / countdown). */}
-        {(phase === "playing" || phase === "prestart") && (
-          <GameChatPanel
-            open={chatOpen}
-            onClose={() => setChatOpen(false)}
-            onPanelLayout={(h) => setChatPanelH(h)}
-            playerName={user?.username || user?.name || "You"}
-            incoming={chatIncoming}
-            kbHeight={kbHeight}
-            onUnread={() => {
-              if (!chatOpen) setChatUnread(true);
-            }}
-            onSend={(text) => {
-              DeviceEventEmitter.emit("GAME_PANEL_OUTGOING_CHAT", text);
-            }}
-          />
+        </>
         )}
-      </View>
+      </GameStageShell>
     </Modal>
   );
 }

@@ -13,18 +13,32 @@ export const CAPTURE_BUDGET_MS = 1900;
 export const CAPTURE_BEAT_MS = 160;
 export const CAPTURE_WAIT_MS = 3200;
 export const TURN_GAP_MS = 2000;
-export const MOVE_WINDOW_MS = 30 * 1000;
 export const TURN_REVEAL_MAX_MS = 2600;
 export const CAPTURE_SEQ_EXTRA_MS = 2400;
 export const NO_MOVE_HOLD_MS = 1400;
 
 // ── Layout ───────────────────────────────────────────────────────────────────
 export const { width: SCREEN_W, height: SCREEN_H } = Dimensions.get("window");
-export const BOARD_SIZE = Math.min(
+// Fixed logical design size for the Ludo board. The board is ALWAYS laid out
+// at this size internally; the whole board is then uniformly scaled (a single
+// transform) to fit the available viewport. Nothing inside the board ever
+// recomputes its position — the board behaves like a single scaled image.
+export const DESIGN_SIZE = Math.min(
   Math.floor(SCREEN_W - 20),
   Math.floor(SCREEN_H * 0.66),
 );
-export const CELL = BOARD_SIZE / 15;
+export const BOARD_SIZE = DESIGN_SIZE;
+export const CELL = DESIGN_SIZE / 15;
+
+// ── Play-area canvas (fixed logical size, scaled as ONE image) ──────────────
+// The ENTIRE play composition — corner cards, die, chat bubbles, toast AND the
+// board — lives inside one fixed logical canvas. The canvas is then uniformly
+// scaled to fit the viewport, so when the keyboard/chat opens NOTHING inside
+// moves relative to anything else; the whole play area just becomes smaller.
+export const CANVAS_PAD_X = 112; // side strips: corner cards (~96px) + margin
+export const CANVAS_PAD_Y = 96; // top/bottom strips: cards + die breathing room
+export const CANVAS_W = DESIGN_SIZE + CANVAS_PAD_X * 2;
+export const CANVAS_H = DESIGN_SIZE + CANVAS_PAD_Y * 2;
 export const CHAT_MAX_H = Math.max(196, Math.floor(SCREEN_H * 0.26));
 export const CORNER_STRIP = 92;
 
@@ -53,7 +67,12 @@ export const GIGGLE_IDENTITY = new Animated.Value(1);
 export const TURN_GIGGLE_IDENTITY = new Animated.Value(0);
 
 // ── Board path (15×15 grid) ──────────────────────────────────────────────────
-// 52-cell shared loop + 5-cell home column + finish = 58 positions total.
+// 51-cell shared loop + 6-cell home column + finish = 58 positions total.
+// Reference tile 51 is the final shared tile; the next position enters home.
+export const SHARED_TRACK_LENGTH = 51;
+export const HOME_PATH_START = 51;
+export const HOME_PATH_END = 56;
+export const FINISH_POSITION = 57;
 export const LUDO_PATH: [number, number][] = [
   [1, 6], [2, 6], [3, 6], [4, 6], [5, 6],
   [6, 5], [6, 4], [6, 3], [6, 2], [6, 1], [6, 0],
@@ -82,12 +101,12 @@ export const HOME_SLOTS: [number, number][][] = [
   [[2, 11], [4, 11], [2, 13], [4, 13]],    // Blue BL
 ];
 
-// Per-player exclusive home columns (pos 52→56)
+// Per-player exclusive home columns (pos 51→56)
 export const HOME_COLS: [number, number][][] = [
-  [[1, 7], [2, 7], [3, 7], [4, 7], [5, 7]],       // red → right
-  [[7, 1], [7, 2], [7, 3], [7, 4], [7, 5]],       // green → down
-  [[13, 7], [12, 7], [11, 7], [10, 7], [9, 7]],   // yellow → left
-  [[7, 13], [7, 12], [7, 11], [7, 10], [7, 9]],   // blue → up
+  [[1, 7], [2, 7], [3, 7], [4, 7], [5, 7], [6, 7]],       // red → right
+  [[7, 1], [7, 2], [7, 3], [7, 4], [7, 5], [7, 6]],       // green → down
+  [[13, 7], [12, 7], [11, 7], [10, 7], [9, 7], [8, 7]],    // yellow → left
+  [[7, 13], [7, 12], [7, 11], [7, 10], [7, 9], [7, 8]],    // blue → up
 ];
 
 // Finished coin resting spots (centre triangle)
@@ -142,17 +161,17 @@ export function getTokenPos(
     const [col, row] = HOME_SLOTS[pi % 4][tokenId % 4];
     return { x: col * cell, y: row * cell };
   }
-  if (pos === 57) {
+  if (pos === FINISH_POSITION) {
     const [hx, hy] = HOME_SPOTS[pi % 4];
     const ox = tokenId % 2 === 0 ? -0.28 : 0.28;
     const oy = tokenId < 2 ? -0.28 : 0.28;
     return { x: (hx + ox) * cell, y: (hy + oy) * cell };
   }
-  if (pos >= 52) {
-    const [col, row] = HOME_COLS[pi % 4][Math.min(56, pos) - 52];
+  if (pos >= HOME_PATH_START) {
+    const [col, row] = HOME_COLS[pi % 4][Math.min(HOME_PATH_END, pos) - HOME_PATH_START];
     return { x: (col + 0.5) * cell, y: (row + 0.5) * cell };
   }
-  const idx = (PLAYER_PATH_OFFSET[pi % 4] + pos) % LUDO_PATH.length;
+  const idx = (PLAYER_PATH_OFFSET[pi % 4] + pos) % SHARED_TRACK_LENGTH;
   const [col, row] = LUDO_PATH[idx];
   return { x: (col + 0.5) * cell, y: (row + 0.5) * cell };
 }

@@ -131,8 +131,8 @@ export default function ScribbleRuntime({
       const ps = data.state?.pluginState ?? data.state;
       if (ps) applyState(ps, true);
     },
-    onSync: (pluginState, _rev) => {
-      // SYNC is handled by raw listener below (needs raw data for STROKE_CHUNK/END/CLEAR)
+    onSync: (pluginState) => {
+      if (pluginState) applyState(pluginState, false);
     },
   });
 
@@ -157,7 +157,8 @@ export default function ScribbleRuntime({
         if (data.userId !== userId) { setStrokes([]); setCurrentStroke([]); }
         return;
       }
-      if (data.state) applyState(data.state, false);
+      // Authoritative gameplay state is handled by useGameSocket.onSync above.
+      // This raw listener is only for revisionless drawing-stream events.
     };
 
     const handleChat = (data: any) => {

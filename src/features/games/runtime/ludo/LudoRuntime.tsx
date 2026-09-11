@@ -25,15 +25,12 @@ interface LudoRuntimeProps {
   onComplete: (result: HtmlGameResult) => void;
   /** Resolved game assets from the asset manifest system (key → local URI). */
   assets?: Record<string, string>;
-  /** Keyboard height passed down from GamesScreen — eliminates the need for a local listener. */
-  kbH?: number;
 }
 
 export default function LudoRuntime({
   matchId, userId, wsToken, players,
   myName: myNameProp, myAvatar: myAvatarProp, myLevel,
   externalPhase = "waiting", onComplete,
-  kbH: kbHProp = 0,
 }: LudoRuntimeProps) {
   const me = players?.find((p) => p.id === userId);
   const myName = myNameProp || me?.name || "You";
@@ -51,6 +48,9 @@ export default function LudoRuntime({
   const [remoteRolling, setRemoteRolling] = useState<string | null>(null);
   const [dicePreview, setDicePreview] = useState<number | null>(null);
   const [settledFace, setSettledFace] = useState<number | null>(null);
+  const [diceOwnerIdx, setDiceOwnerIdx] = useState<number | null>(null);
+  const [turnDeadlineAt, setTurnDeadlineAt] = useState<number | null>(null);
+  const [turnTimerVisibleAt, setTurnTimerVisibleAt] = useState<number | null>(null);
   const [noMoveHold, setNoMoveHold] = useState<{ playerIdx: number; face: number } | null>(null);
 
   // ── Chat state ─────────────────────────────────────────────────────
@@ -64,6 +64,9 @@ export default function LudoRuntime({
 
   const gameStateRef = useRef(gameState);
   gameStateRef.current = gameState;
+  const gameRevisionRef = useRef(0);
+  const pendingTimerRef = useRef<{ playerId: string; turnIndex: number; revision: number; deadlineAt: number; visibleAt: number } | null>(null);
+  const activeTimerRef = useRef<{ playerId: string; turnIndex: number } | null>(null);
   const playerInfoRef = useRef(playerInfo);
   playerInfoRef.current = playerInfo;
 
@@ -78,17 +81,11 @@ export default function LudoRuntime({
   rollingRef.current = rolling;
   const remoteRollingRef = useRef<string | null>(null);
   remoteRollingRef.current = remoteRolling;
+  const lastDiceSeenRef = useRef<number | null>(null);
   // Buffered dice result while a tumble animation is running — the result
   // arrives via SYNC but is applied only when the tumble finishes, so the
   // dice face reveal syncs with the animation completion.
   const pendingDiceRef = useRef<{ face: number; turnIndex: number } | null>(null);
-
-  // ── Keyboard ───────────────────────────────────────────────────────
-  // kbH is passed down from GamesScreen which already tracks keyboard height.
-  // No local listener needed — avoids double-accounting with playStage layout.
-  // Both platforms overlay the keyboard inside a Modal, so kbLift = kbH always.
-  const kbH = kbHProp;
-  const kbLift = kbH;
 
   const showToast = useCallback((msg: string) => {
     setToast(msg);
@@ -96,28 +93,18 @@ export default function LudoRuntime({
     return () => clearTimeout(t);
   }, []);
 
-  const doReveal = useCallback(() => {
-    if (pendingTurnRef.current != null) {
-      setDisplayTurn(pendingTurnRef.current);
-      pendingTurnRef.current = null;
-    }
-  }, []);
-
-  const revealPendingTurn = useCallback(() => {
-    if (revealTimerRef.current) { clearTimeout(revealTimerRef.current); revealTimerRef.current = null; }
-    if (pendingTurnRef.current == null) return;
-    revealTimerRef.current = setTimeout(() => { revealTimerRef.current = null; doReveal(); }, 2000);
-  }, [doReveal]);
-
-  const maybeRevealTurn = useCallback(() => {
-    if (activeWalksRef.current <= 0) revealPendingTurn();
-  }, [revealPendingTurn]);
-
   // ── Shared socket hook ─────────────────────────────────────────────
   const { socket, status: hookStatus, sendCommand } = useGameSocket({
     matchId, userId, wsToken, externalPhase, onComplete,
     onConnectAck: (data) => {
       const ps = data.state?.pluginState;
+      gameRevisionRef.current = data.state?.currentRevision ?? 0;
+      if (data.turnTimer) {
+        pendingTimerRef.current = {
+          ...data.turnTimer,
+          visibleAt: data.turnTimer.deadlineAt - Math.max(0, (data.turnTimer.durationMs ?? 10000) - 5000),
+        };
+      }
       const enginePlayers: any[] = extractEnginePlayers(data);
       const idx = enginePlayers.findIndex((p: any) => p.userId === userId || p.id === userId);
       const engineSeat = ps?.turnOrder?.indexOf(userId) ?? -1;
@@ -125,45 +112,135 @@ export default function LudoRuntime({
       const info = buildPlayerInfo(enginePlayers);
       info[userId] = { name: myName, avatar: myAvatar || undefined, level: myLevel };
       setPlayerInfo(info);
-      if (ps) setGameState(ps);
+      if (ps) {
+        lastDiceSeenRef.current = ps.lastDice ?? null;
+        gameStateRef.current = ps;
+        setDiceOwnerIdx(ps.dice != null ? ps.currentTurnIndex : null);
+        setGameState(ps);
+        const timer = pendingTimerRef.current;
+        if (
+          timer &&
+          timer.revision <= gameRevisionRef.current &&
+          ps.turnOrder?.[ps.currentTurnIndex] === timer.playerId &&
+          ps.currentTurnIndex === timer.turnIndex
+        ) {
+          setTurnDeadlineAt(timer.deadlineAt);
+          setTurnTimerVisibleAt(timer.visibleAt);
+          activeTimerRef.current = { playerId: timer.playerId, turnIndex: timer.turnIndex };
+          pendingTimerRef.current = null;
+        }
+      }
       return {};
     },
     onStart: (data) => {
       const ps = data.state?.pluginState ?? data.state;
-      if (ps) { setGameState(ps); setDisplayTurn(ps.currentTurnIndex ?? 0); }
+      gameRevisionRef.current = data.state?.currentRevision ?? gameRevisionRef.current;
+      if (ps) {
+        gameStateRef.current = ps;
+        setDiceOwnerIdx(ps.dice != null ? ps.currentTurnIndex : null);
+        setGameState(ps);
+        setDisplayTurn(ps.currentTurnIndex ?? 0);
+      }
     },
-    onSync: (pluginState) => {
+    onSync: (pluginState, revision, event) => {
       if (!pluginState) return;
+      gameRevisionRef.current = revision;
+      gameStateRef.current = { ...(gameStateRef.current || {}), ...pluginState };
       setGameState((prev: any) => prev ? { ...prev, ...pluginState } : pluginState);
       if (pluginState.currentTurnIndex != null) {
         pendingTurnRef.current = pluginState.currentTurnIndex;
-        maybeRevealTurn();
       }
+      const lastDiceChanged =
+        pluginState.lastDice != null && pluginState.lastDice !== lastDiceSeenRef.current;
+      if (pluginState.lastDice != null) lastDiceSeenRef.current = pluginState.lastDice;
+
+      const currentTurnIndex = pluginState.currentTurnIndex ?? 0;
       if (pluginState.dice != null) {
+        setDiceOwnerIdx(currentTurnIndex);
+      } else if (lastDiceChanged && pluginState.turnOrder?.length) {
+        setDiceOwnerIdx((currentTurnIndex - 1 + pluginState.turnOrder.length) % pluginState.turnOrder.length);
+      } else {
+        setDiceOwnerIdx(null);
+      }
+
+      if (pluginState.dice != null || lastDiceChanged) {
         // Determine who rolled — the roller is the player whose turn it was
-        // when the ROLL was processed (currentTurnIndex hasn't advanced yet
-        // for a successful roll).
+        // when the ROLL was processed. A roll with no legal move advances the
+        // turn immediately, so its roller is the previous turn-order entry.
         const turnOrder = pluginState.turnOrder || gameStateRef.current?.turnOrder || [];
-        const rollerIdx = pluginState.currentTurnIndex ?? 0;
+        const rollerIdx = pluginState.dice != null
+          ? currentTurnIndex
+          : (currentTurnIndex - 1 + turnOrder.length) % turnOrder.length;
         const rollerId = turnOrder[rollerIdx];
         const isRemoteRoll = rollerId != null && rollerId !== userId;
+        const isTimeoutRoll = event?.reason === "turn_timeout" && event?.timedOutPlayer === rollerId;
+        const face = pluginState.dice ?? pluginState.lastDice;
 
         if (rollingRef.current) {
           // Own roll — the tumble animation is running; buffer the result so
           // the dice face is revealed only when the animation completes.
-          pendingDiceRef.current = { face: pluginState.dice, turnIndex: pluginState.currentTurnIndex };
-        } else if (isRemoteRoll) {
+          pendingDiceRef.current = { face, turnIndex: currentTurnIndex };
+        } else if (isRemoteRoll || isTimeoutRoll) {
           // Remote player rolled — buffer the result and signal the game to
           // start the remote tumble animation.
-          pendingDiceRef.current = { face: pluginState.dice, turnIndex: pluginState.currentTurnIndex };
+          pendingDiceRef.current = { face, turnIndex: currentTurnIndex };
           setRemoteRolling(rollerId);
         } else {
           // Fallback / reconnect — apply the dice face immediately.
-          setDicePreview(pluginState.dice);
-          setSettledFace(pluginState.dice);
+          setDicePreview(face);
+          setSettledFace(face);
         }
       }
-      if (pluginState.lastDice != null && pluginState.dice == null) setSettledFace(pluginState.lastDice);
+      const timer = pendingTimerRef.current;
+      if (
+        timer &&
+        timer.revision <= revision &&
+        pluginState.turnOrder?.[pluginState.currentTurnIndex] === timer.playerId &&
+        pluginState.currentTurnIndex === timer.turnIndex
+      ) {
+        setTurnDeadlineAt(timer.deadlineAt);
+        setTurnTimerVisibleAt(timer.visibleAt);
+        activeTimerRef.current = { playerId: timer.playerId, turnIndex: timer.turnIndex };
+        pendingTimerRef.current = null;
+      }
+    },
+    onTurnTimer: (data) => {
+      if (data.clear) {
+        pendingTimerRef.current = null;
+        activeTimerRef.current = null;
+        setTurnDeadlineAt(null);
+        setTurnTimerVisibleAt(null);
+        return;
+      }
+      if (!data.playerId || data.turnIndex == null || data.deadlineAt == null) return;
+      const revision = data.revision ?? 0;
+      if (revision < gameRevisionRef.current) return;
+
+      // A new backend timer invalidates the previous display immediately.
+      // Keep the new timer pending until its matching SYNC arrives.
+      setTurnDeadlineAt(null);
+      setTurnTimerVisibleAt(null);
+      activeTimerRef.current = null;
+
+      const timer = {
+        playerId: data.playerId,
+        turnIndex: data.turnIndex,
+        revision,
+        deadlineAt: data.deadlineAt,
+        visibleAt: data.deadlineAt - Math.max(0, (data.durationMs ?? 10000) - 5000),
+      };
+      pendingTimerRef.current = timer;
+      const state = gameStateRef.current;
+      if (
+        state?.turnOrder?.[state.currentTurnIndex] === timer.playerId &&
+        state.currentTurnIndex === timer.turnIndex &&
+        timer.revision <= gameRevisionRef.current
+      ) {
+        setTurnDeadlineAt(timer.deadlineAt);
+        setTurnTimerVisibleAt(timer.visibleAt);
+        activeTimerRef.current = { playerId: timer.playerId, turnIndex: timer.turnIndex };
+        pendingTimerRef.current = null;
+      }
     },
     onChat: (data) => {
       const info = playerInfoRef.current[data.uid] || playerInfoRef.current[data.userId];
@@ -184,6 +261,22 @@ export default function LudoRuntime({
     },
   });
 
+  useEffect(() => {
+    const activeTimer = activeTimerRef.current;
+    const state = gameStateRef.current;
+    if (
+      activeTimer &&
+      state &&
+      (state.turnOrder?.[state.currentTurnIndex] !== activeTimer.playerId ||
+        state.currentTurnIndex !== activeTimer.turnIndex)
+    ) {
+      activeTimerRef.current = null;
+      pendingTimerRef.current = null;
+      setTurnDeadlineAt(null);
+      setTurnTimerVisibleAt(null);
+    }
+  }, [gameState]);
+
   // Sync status from hook to local (hook has "paused", local doesn't)
   useEffect(() => {
     if (hookStatus === "active" || hookStatus === "waiting") setStatus(hookStatus);
@@ -193,6 +286,8 @@ export default function LudoRuntime({
   // ── Actions ────────────────────────────────────────────────────────
   const handleRoll = useCallback(() => {
     if (status !== "active") return;
+    const state = gameStateRef.current;
+    if (state?.currentTurnIndex != null) setDiceOwnerIdx(state.currentTurnIndex);
     setRolling(true);
     sendCommand(GAME_EVENTS.MOVE, { type: "ROLL" });
   }, [status, sendCommand]);
@@ -245,7 +340,8 @@ export default function LudoRuntime({
     setRemoteRolling(null);
   }, []);
 
-  const isMyTurn = displayTurn === myPlayerIdx;
+  const backendOwnsTurn = gameState?.turnOrder?.[gameState?.currentTurnIndex] === userId;
+  const isMyTurn = backendOwnsTurn && displayTurn === myPlayerIdx;
 
   return (
     <LudoGame
@@ -257,10 +353,13 @@ export default function LudoRuntime({
       rolling={rolling} setRolling={setRolling} remoteRolling={remoteRolling}
       setRemoteRolling={setRemoteRolling} dicePreview={dicePreview}
       settledFace={settledFace} noMoveHold={noMoveHold} setNoMoveHold={setNoMoveHold}
+      diceOwnerIdx={diceOwnerIdx}
+      turnDeadlineAt={turnDeadlineAt}
+      turnTimerVisibleAt={turnTimerVisibleAt}
       chatPopups={chatPopups}
       setChatPopups={setChatPopups}
       bursts={bursts} setBursts={setBursts} burstIdRef={burstIdRef}
-      toast={toast} setToast={setToast} kbH={kbH} kbLift={kbLift}
+      toast={toast} setToast={setToast}
       pendingTurnRef={pendingTurnRef} revealTimerRef={revealTimerRef}
       activeWalksRef={activeWalksRef} pendingKeysRef={pendingKeysRef}
       onRoll={handleRoll} onTokenTap={handleTokenTap}

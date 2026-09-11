@@ -13,8 +13,6 @@ export const styles = StyleSheet.create({
   },
   splashSub: { fontSize: 14, color: "#64748B" },
 
-  dieGlowWrapCountdown: { borderColor: "#0F172A", shadowColor: "#FFFFFF" },
-
   boardWrap: {
     flex: 1,
     width: "100%",
@@ -135,20 +133,6 @@ export const styles = StyleSheet.create({
   cornerPct: { fontSize: 11, fontWeight: "900", marginTop: 1 },
 
   dieArea: { position: "absolute", alignItems: "center", zIndex: 40 },
-  dieGlowWrap: {
-    width: 56,
-    height: 56,
-    borderRadius: 15,
-    borderWidth: 2.5,
-    borderColor: "#CBD5E1",
-    backgroundColor: "#FFFFFF",
-    elevation: 14,
-    shadowColor: "#64748B",
-    shadowOpacity: 0.8,
-    shadowRadius: 12,
-    shadowOffset: { width: 0, height: 0 },
-  },
-  dieGlowWrapRolled: { borderColor: "#0F172A", shadowColor: "#FFFFFF" },
   dieMoveChip: {
     position: "absolute",
     bottom: -18,
@@ -175,13 +159,40 @@ export const styles = StyleSheet.create({
     shadowOffset: { width: 0, height: 1 },
   },
   dieMoveChipText: { fontSize: 10, fontWeight: "900", color: "#FFFFFF" },
+  cubeStage: {
+    alignItems: "center",
+    justifyContent: "center",
+    overflow: "visible",
+  },
   dieBody: {
-    width: 56,
-    height: 56,
-    borderRadius: 13,
     justifyContent: "center",
     alignItems: "center",
     position: "relative",
+    borderRadius: 13,
+    borderWidth: 1.5,
+    borderColor: "rgba(15,23,42,0.2)",
+    shadowColor: "#0F172A",
+    shadowOpacity: 0.35,
+    shadowRadius: 7,
+    shadowOffset: { width: 1, height: 4 },
+    elevation: 7,
+  },
+  dieInnerFrame: {
+    position: "absolute",
+    inset: 3,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.8)",
+  },
+  dieHighlight: {
+    position: "absolute",
+    top: 5,
+    left: 7,
+    width: "42%",
+    height: "24%",
+    borderRadius: 10,
+    backgroundColor: "rgba(255,255,255,0.7)",
+    transform: [{ rotate: "-18deg" }],
   },
   dot: {
     position: "absolute",
@@ -192,24 +203,6 @@ export const styles = StyleSheet.create({
     transform: [{ translateX: -5 }, { translateY: -5 }],
   },
   dotDark: { backgroundColor: "#0F172A" },
-  diceIdle: {
-    width: 26,
-    height: 26,
-    borderRadius: 13,
-    backgroundColor: "rgba(15,23,42,0.06)",
-    alignItems: "center",
-    justifyContent: "center",
-    borderWidth: 1.5,
-    borderColor: "rgba(15,23,42,0.2)",
-  },
-  diceIdlePip: {
-    width: 9,
-    height: 9,
-    borderRadius: 4.5,
-    backgroundColor: "rgba(15,23,42,0.4)",
-  },
-
-
   bubble: {
     backgroundColor: "rgba(8,16,64,0.95)",
     borderRadius: 12,

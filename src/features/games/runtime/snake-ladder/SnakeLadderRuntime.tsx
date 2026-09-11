@@ -1,7 +1,6 @@
 /**
  * SnakeLadderRuntime — game-specific state for snake & ladder.
- * Uses shared useGameSocket for socket lifecycle.
- * Sync queue, token animations, chat, auto-roll use raw socket (complex game-specific logic).
+ * Uses shared useGameSocket for socket lifecycle and revision-validated SYNC.
  */
 
 import React, { useEffect, useState, useCallback, useRef, useMemo } from "react";
@@ -15,9 +14,6 @@ const GRID = 10;
 const SNAKES: Record<number, number> = { 99: 80, 95: 75, 92: 88, 89: 58, 74: 53, 62: 19, 64: 60, 46: 25, 49: 11, 16: 6 };
 const LADDERS: Record<number, number> = { 87: 94, 78: 98, 71: 91, 51: 67, 36: 44, 21: 42, 28: 84, 15: 26, 2: 38, 7: 14, 8: 31 };
 const DICE_ROLL_MS = 2000;
-const AUTO_GRACE_MS = 5000;
-const AUTO_COUNTDOWN_MS = 5000;
-const AUTO_ROLL_MS = AUTO_GRACE_MS + AUTO_COUNTDOWN_MS;
 const PLAYER_COLORS = ["#EF4444", "#3B82F6", "#22C55E", "#EAB308"];
 
 type PathPt = { x: number; y: number; ms: number };
@@ -86,8 +82,6 @@ interface SnakeLadderRuntimeProps {
   externalPhase?: ExternalPhase; onComplete: (result: HtmlGameResult) => void;
   /** Resolved game assets from the asset manifest system (key → local URI). */
   assets?: Record<string, string>;
-  /** Keyboard height passed down from GamesScreen — eliminates the need for a local listener. */
-  kbH?: number;
 }
 
 function extractEnginePlayers(data: any): any[] {
@@ -103,7 +97,6 @@ function buildPlayerInfo(players: any[]): Record<string, { name: string; usernam
 
 export default function SnakeLadderRuntime({
   matchId, userId, wsToken, players, myName: myNameProp, myAvatar: myAvatarProp, externalPhase = "waiting", onComplete,
-  kbH: kbHProp = 0,
 }: SnakeLadderRuntimeProps) {
   const [status, setStatus] = useState<"connecting" | "waiting" | "active" | "finished">("connecting");
   const [state, setState] = useState<any>(null);
@@ -115,10 +108,8 @@ export default function SnakeLadderRuntime({
   const [dicePreview, setDicePreview] = useState<number | null>(null);
   const [lastLanded, setLastLanded] = useState<number | null>(null);
   const [playerInfo, setPlayerInfo] = useState<Record<string, { name: string; username?: string; avatar?: string }>>({});
-  const [autoRoll, setAutoRoll] = useState<null | { remaining: number; target: string; phase: "countdown" | "rolling" }>(null);
+  const autoRoll = null;
   const [chatPopups, setChatPopups] = useState<Array<{ id: number; uid: string; name: string; text: string; color: string }>>([]);
-  // kbH is passed down from GamesScreen — no local listener needed.
-  const kbH = kbHProp;
 
   const me = players?.find((p) => p.id === userId);
   const myName = myNameProp || me?.name || "You";
@@ -133,11 +124,6 @@ export default function SnakeLadderRuntime({
   const toastAnim = useRef(new Animated.Value(0)).current;
   const turnPulse = useRef(new Animated.Value(0)).current;
   const remoteRollTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const turnStartRef = useRef(0);
-  const lastTurnKeyRef = useRef("");
-  const lastCountRef = useRef(-1);
-  const autoRolledRef = useRef<string | null>(null);
-  const autoRollFiredRef = useRef(false);
   const stateRef = useRef(state); stateRef.current = state;
   const rollingRef = useRef(false);
   const pendingSyncRef = useRef<{ ps: any; reason?: string } | null>(null);
@@ -205,9 +191,7 @@ export default function SnakeLadderRuntime({
     if (lastEvent === "snake" && moverId) showToastFn(`🐍 ${pName(moverId)} got eaten — slid down to ${ps.positions[moverId]}!`);
     else if (lastEvent === "ladder" && moverId) showToastFn(`🪜 ${pName(moverId)} climbed the ladder to ${ps.positions[moverId]}!`);
     else if (overshoot) showToastFn("😅 Too far! You need the exact roll to finish.");
-    const autoRolledByMe = autoRolledRef.current === moverId;
-    if (autoRolledByMe) autoRolledRef.current = null;
-    if (reason === "turn_timeout" && moverId && !autoRolledByMe) showToastFn(`⏰ ${pName(moverId)} was idle — auto-rolled!`);
+    if (reason === "turn_timeout" && moverId) showToastFn(`⏰ ${pName(moverId)} was idle — auto-rolled!`);
     if (moverId && ps.positions) {
       const landed = ps.positions[moverId] > 0 ? ps.positions[moverId] : null;
       if (landed) { setLastLanded(landed); if (landedTimer.current) clearTimeout(landedTimer.current); landedTimer.current = setTimeout(() => setLastLanded((cur) => (cur === landed ? null : cur)), Math.min(4000, totalMs + 1600)); }
@@ -260,7 +244,14 @@ export default function SnakeLadderRuntime({
         setState(ps); setIsMyTurn((ps.turnOrder || []).indexOf(userId) === ps.currentTurnIndex);
       }
     },
-    onSync: () => { /* handled by raw SYNC listener below for sync queue */ },
+    onSync: (pluginState, _revision, event) => {
+      if (!pluginState) return;
+      if (rollingRef.current) {
+        pendingSyncRef.current = { ps: pluginState, reason: event?.reason };
+        return;
+      }
+      enqueueSyncRef.current(pluginState, event?.reason);
+    },
     onChat: (data) => {
       const text = String(data?.text || "").trim(); if (!text) return;
       const uid = String(data?.userId || "");
@@ -284,14 +275,9 @@ export default function SnakeLadderRuntime({
     else if (hookStatus === "finished") setStatus("finished");
   }, [hookStatus]);
 
-  // Raw SYNC + GAME_OVER + ERROR listeners (for sync queue + game-specific handling)
+  // GAME_OVER + ERROR listeners; gameplay SYNC is revision-validated by the shared hook.
   useEffect(() => {
     if (!socket) return;
-    const handleSyncRaw = (data: any) => {
-      if (!data.state) return;
-      if (rollingRef.current) { pendingSyncRef.current = { ps: data.state, reason: data.reason }; return; }
-      enqueueSyncRef.current(data.state, data.reason);
-    };
     const handleGameOver = (data: any) => {
       matchEndedRef.current = true; syncQueueRef.current = [];
       processingSyncRef.current = false;
@@ -308,7 +294,6 @@ export default function SnakeLadderRuntime({
     };
     const handleError = (e: any) => showToastFn("⚠️ " + (e.message || "Error"));
 
-    socket.on("SYNC", handleSyncRaw);
     socket.on("GAME_OVER", handleGameOver);
     socket.on("ERROR", handleError);
     return () => {
@@ -316,7 +301,6 @@ export default function SnakeLadderRuntime({
       if (remoteRollTimer.current) clearTimeout(remoteRollTimer.current);
       if (drainTimerRef.current) clearTimeout(drainTimerRef.current);
       matchEndedRef.current = true; syncQueueRef.current = [];
-      socket.off("SYNC", handleSyncRaw);
       socket.off("GAME_OVER", handleGameOver);
       socket.off("ERROR", handleError);
     };
@@ -335,12 +319,6 @@ export default function SnakeLadderRuntime({
 
   useEffect(() => { if (!rolling && !remoteRolling) return; const id = setInterval(() => setDicePreview(1 + Math.floor(Math.random() * 6)), 110); return () => clearInterval(id); }, [rolling, remoteRolling]);
 
-  useEffect(() => {
-    if (status !== "active" || !state) return;
-    const key = `${state.currentTurnIndex ?? 0}:${(state.turnOrder || []).join(",")}`;
-    if (key !== lastTurnKeyRef.current) { lastTurnKeyRef.current = key; turnStartRef.current = Date.now(); lastCountRef.current = -1; autoRollFiredRef.current = false; setAutoRoll(null); }
-  }, [state, status]);
-
   const rollDice = useCallback((): boolean => {
     if (!isMyTurn || rolling) return false;
     setRolling(true); rollingRef.current = true;
@@ -358,32 +336,11 @@ export default function SnakeLadderRuntime({
   }, [isMyTurn, socket, rolling, applySync, diceAnim, diceRotate]);
 
   useEffect(() => {
-    if (status !== "active" || !state || !socket) return;
-    const id = setInterval(() => {
-      if (rolling) return;
-      const order = state.turnOrder || []; const curUid = order[state.currentTurnIndex ?? 0];
-      if (!curUid) return; const idle = Date.now() - turnStartRef.current;
-      if (idle < AUTO_GRACE_MS) { setAutoRoll(null); return; }
-      if (idle < AUTO_ROLL_MS) {
-        const remaining = Math.max(1, Math.ceil((AUTO_ROLL_MS - idle) / 1000));
-        if (lastCountRef.current !== remaining) { lastCountRef.current = remaining; gameSound.playTick(); }
-        setAutoRoll({ remaining, target: curUid, phase: "countdown" });
-      } else if (curUid === userId && !autoRollFiredRef.current) {
-        autoRollFiredRef.current = true;
-        if (rollDice()) { autoRolledRef.current = curUid; showToastFn("⏰ You were idle — auto-rolling for you!"); }
-        setAutoRoll({ remaining: 0, target: curUid, phase: "rolling" });
-      } else { setAutoRoll({ remaining: 0, target: curUid, phase: "rolling" }); }
-    }, 250);
-    return () => clearInterval(id);
-  }, [status, state, socket, rolling, userId, rollDice, showToastFn]);
-
-  useEffect(() => {
     const sub = require("react-native").DeviceEventEmitter.addListener("GAME_PANEL_OUTGOING_CHAT", (text: string) => {
       socket?.emit(GAME_EVENTS.CHAT, { text });
     });
     return () => sub.remove();
   }, [socket]);
-  const kbLift = kbH; // Both platforms overlay keyboard inside a Modal
 
   return (
     <SnakeLadderGame
@@ -392,7 +349,7 @@ export default function SnakeLadderRuntime({
       toast={toast} rolling={rolling} remoteRolling={remoteRolling} lastDice={lastDice}
       dicePreview={dicePreview} lastLanded={lastLanded} playerInfo={playerInfo}
       autoRoll={autoRoll} chatPopups={chatPopups}
-      kbH={kbH} kbLift={kbLift} tokenAnims={tokenAnims}
+      tokenAnims={tokenAnims}
       getOrCreateTokenAnim={getOrCreateTokenAnim} diceRotate={diceRotate}
       diceAnim={diceAnim} toastAnim={toastAnim} turnPulse={turnPulse}
       rollDice={rollDice} showToast={showToastFn}

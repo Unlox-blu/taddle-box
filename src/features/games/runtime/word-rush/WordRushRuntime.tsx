@@ -34,21 +34,38 @@ export default function WordRushRuntime({
   const [selectedIndices, setSelectedIndices] = useState<number[]>([]);
   const [foundWords, setFoundWords] = useState<FoundWord[]>([]);
   const [scores, setScores] = useState<Record<string, number>>({});
-  const [timeLeft, setTimeLeft] = useState(90);
+  const [timeLeft, setTimeLeft] = useState(0);
   const [round, setRound] = useState(1);
   const [totalRounds, setTotalRounds] = useState(1);
   const [lastResult, setLastResult] = useState<"valid" | "invalid" | "duplicate" | null>(null);
   const [lastError, setLastError] = useState<string>("");
   const [lastValidWord, setLastValidWord] = useState("");
   const [submitting, setSubmitting] = useState(false);
+  const [roundIntroVisible, setRoundIntroVisible] = useState(false);
 
   const resultAnim = useRef(new Animated.Value(0)).current;
   const shakeAnim = useRef(new Animated.Value(0)).current;
   const timerRef = useRef<any>(null);
   const timerBarAnim = useRef(new Animated.Value(1)).current;
   const roundRef = useRef(0);
-  const externalPhaseRef = useRef(externalPhase);
-  useEffect(() => { externalPhaseRef.current = externalPhase; }, [externalPhase]);
+  const roundDeadlineRef = useRef<number | null>(null);
+  const roundIntroTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const startLocalTimer = useCallback((roundStartedAt: number, roundEndsAt: number) => {
+    clearInterval(timerRef.current);
+    const roundDurationMs = roundEndsAt - roundStartedAt;
+
+    const updateTimer = () => {
+      const remainingMs = Math.max(0, roundEndsAt - Date.now());
+      const remainingSeconds = Math.ceil(remainingMs / 1000);
+      setTimeLeft(remainingSeconds);
+      timerBarAnim.setValue(Math.min(1, remainingMs / roundDurationMs));
+      if (remainingMs === 0) clearInterval(timerRef.current);
+    };
+
+    updateTimer();
+    timerRef.current = setInterval(updateTimer, 250);
+  }, [timerBarAnim]);
 
   const applyState = useCallback((ps: any) => {
     if (ps.grid && Array.isArray(ps.grid)) setGrid(ps.grid);
@@ -66,8 +83,18 @@ export default function WordRushRuntime({
       }
     }
     if (ps.totalRounds) setTotalRounds(ps.totalRounds);
-    if (ps.timeLeft != null) setTimeLeft(ps.timeLeft);
-  }, []);
+    if (
+      typeof ps.roundStartedAt === "number" &&
+      typeof ps.roundEndsAt === "number" &&
+      ps.roundEndsAt !== roundDeadlineRef.current
+    ) {
+      roundDeadlineRef.current = ps.roundEndsAt;
+      startLocalTimer(ps.roundStartedAt, ps.roundEndsAt);
+      setRoundIntroVisible(true);
+      if (roundIntroTimeoutRef.current) clearTimeout(roundIntroTimeoutRef.current);
+      roundIntroTimeoutRef.current = setTimeout(() => setRoundIntroVisible(false), 1500);
+    }
+  }, [startLocalTimer]);
 
   const triggerSuccess = useCallback(() => {
     setLastResult("valid");
@@ -94,19 +121,6 @@ export default function WordRushRuntime({
     ]).start();
   }, [shakeAnim]);
 
-  const startLocalTimer = useCallback((secs: number) => {
-    clearInterval(timerRef.current);
-    let remaining = secs;
-    setTimeLeft(remaining);
-    timerBarAnim.setValue(1);
-    timerRef.current = setInterval(() => {
-      remaining -= 1;
-      setTimeLeft(remaining);
-      timerBarAnim.setValue(remaining / secs);
-      if (remaining <= 0) clearInterval(timerRef.current);
-    }, 1000);
-  }, [timerBarAnim]);
-
   const { socket, status, sendCommand } = useGameSocket({
     matchId, userId, wsToken, externalPhase, onComplete,
     onConnectAck: (data) => {
@@ -116,14 +130,14 @@ export default function WordRushRuntime({
     },
     onStart: (data) => {
       const ps = data.state?.pluginState ?? data.state;
-      if (ps) {
-        applyState(ps);
-        if (externalPhaseRef.current === "playing") startLocalTimer(90);
-      }
+      if (ps) applyState(ps);
     },
-    onSync: (pluginState) => {
+    onSync: (pluginState, _revision, event) => {
       applyState(pluginState);
       setSubmitting(false);
+      if (event?.valid === true && String(event.userId) === String(userId)) {
+        setSelectedIndices([]);
+      }
     },
   });
 
@@ -134,6 +148,8 @@ export default function WordRushRuntime({
       (data?.result === "VALID" || data?.valid === true) &&
       (!data?.userId || data.userId === userId)
     ) {
+      setSelectedIndices([]);
+      setSubmitting(false);
       triggerSuccess();
     }
   }, [userId, triggerSuccess]);
@@ -173,7 +189,7 @@ export default function WordRushRuntime({
 
   const submitWord = useCallback(() => {
     if (submitting || selectedIndices.length === 0) return;
-    const word = selectedIndices.map((i) => grid[i]).join("").toLowerCase();
+    const word = selectedIndices.map((i) => grid[i]).join("");
     if (word.length < 3) return;
     setSubmitting(true);
     setLastValidWord(word);
@@ -182,12 +198,26 @@ export default function WordRushRuntime({
 
   const selectCell = useCallback((index: number) => {
     setSelectedIndices((prev) => {
-      if (prev.includes(index)) return prev.filter((i) => i !== index);
+      if (prev.length === 0) return [index];
+
+      const lastIndex = prev[prev.length - 1];
+      if (index === lastIndex) return prev.slice(0, -1);
+      if (prev.includes(index)) return prev;
+
+      const rowDistance = Math.abs(Math.floor(index / 4) - Math.floor(lastIndex / 4));
+      const columnDistance = Math.abs((index % 4) - (lastIndex % 4));
+      if (rowDistance > 1 || columnDistance > 1) return prev;
+
       return [...prev, index];
     });
   }, []);
 
   const clearSelection = useCallback(() => setSelectedIndices([]), []);
+
+  useEffect(() => () => {
+    clearInterval(timerRef.current);
+    if (roundIntroTimeoutRef.current) clearTimeout(roundIntroTimeoutRef.current);
+  }, []);
 
   return (
     <WordRushGame
@@ -195,6 +225,7 @@ export default function WordRushRuntime({
       onComplete={onComplete}      status={status as any}
       grid={grid} selectedIndices={selectedIndices} foundWords={foundWords}
       scores={scores} timeLeft={timeLeft} round={round} totalRounds={totalRounds}
+      roundIntroVisible={roundIntroVisible}
       lastResult={lastResult} lastError={lastError} lastValidWord={lastValidWord}
       submitting={submitting} resultAnim={resultAnim} shakeAnim={shakeAnim}
       timerBarAnim={timerBarAnim} submitWord={submitWord} selectCell={selectCell}
